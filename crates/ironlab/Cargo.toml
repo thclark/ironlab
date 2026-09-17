@@ -17,6 +17,7 @@ ironlab-text.workspace = true
 ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
 ironlab-viewer.workspace = true
+eframe.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 
