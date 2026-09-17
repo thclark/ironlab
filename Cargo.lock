@@ -1813,6 +1813,7 @@ dependencies = [
 name = "ironlab-pdf"
 version = "0.1.0"
 dependencies = [
+ "image",
  "ironlab-ir",
  "ironlab-scene",
  "ironlab-text",
@@ -1836,7 +1837,6 @@ name = "ironlab-text"
 version = "0.1.0"
 dependencies = [
  "harfrust 0.13.3",
- "ironlab-ir",
  "kurbo",
  "latex-rust",
  "sha2",
@@ -1850,16 +1850,21 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "egui-wgpu",
  "egui_kittest",
  "egui_tiles",
+ "image",
  "ironlab-ir",
  "ironlab-pdf",
  "ironlab-scene",
  "ironlab-text",
+ "kurbo",
  "lyon",
  "lyon_algorithms",
+ "pollster 1.0.1",
  "rfd",
  "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1.0",
+  "id": 1,
+  "title": { "content": "Decay of $e^{-t}$", "interpreter": "latex" },
+  "size": { "width_mm": 120.0, "height_mm": 80.0 },
+  "font_set": "stix_two",
+  "font_size_pt": 9.0,
+  "background": "#ffffff",
+  "layout": { "rows": 1, "cols": 1 },
+  "data": {
+    "0": { "shape": [3], "values": [0.0, 1.0, 2.0] },
+    "7": { "shape": [3], "values": [1.0, null, 0.135] }
+  },
+  "axes": [
+    {
+      "id": 2,
+      "cell": { "row": 0, "col": 0, "row_span": 1, "col_span": 1 },
+      "projection": { "type": "two_d" },
+      "title": null,
+      "x": {
+        "label": { "content": "$t$ (s)", "interpreter": "latex" },
+        "scale": "linear",
+        "limits": { "type": "auto" },
+        "grid": false
+      },
+      "y": {
+        "label": null,
+        "scale": "log",
+        "limits": { "type": "manual", "min": 0.1, "max": 1.0 },
+        "grid": true
+      },
+      "z": {
+        "label": null,
+        "scale": "linear",
+        "limits": { "type": "auto" },
+        "grid": false
+      },
+      "box": true,
+      "colormap": "viridis",
+      "clim": { "type": "auto" },
+      "legend": { "location": "north_east", "boxed": true },
+      "artists": [
+        {
+          "type": "line",
+          "id": 3,
+          "display_name": { "content": "decay, $5", "interpreter": "none" },
+          "visible": true,
+          "x": 0,
+          "y": 7,
+          "z": null,
+          "line": {
+            "color": { "type": "rgba", "color": "#0072b2cc" },
+            "width_pt": 0.75,
+            "dash": "dash_dot"
+          },
+          "marker": {
+            "shape": "triangle_up",
+            "size_pt": 4.0,
+            "face": { "type": "none" },
+            "edge": { "type": "auto" }
+          }
+        }
+      ]
+    }
+  ],
+  "links": [],
+  "provenance": {
+    "ironlab_version": "0.1.0",
+    "typesetter": "latex-rust 1.0.2",
+    "fonts": ["STIX Two Text", "STIX Two Math"]
+  }
+}

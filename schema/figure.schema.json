@@ -1,0 +1,1559 @@
+{
+  "$defs": {
+    "Artist": {
+      "description": "A drawable node of an axes.\n\nEvery artist has a node identifier, an optional display name shown in the\nlegend, and a visibility flag. Future plot types are added as new variants.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Line",
+          "description": "A polyline with optional markers (plot, plot3, loglog, semilogx, semilogy).",
+          "properties": {
+            "type": {
+              "const": "line",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Scatter",
+          "description": "Markers at data points with per-point size and colour (scatter, scatter3).",
+          "properties": {
+            "type": {
+              "const": "scatter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Contour",
+          "description": "Isolines or filled isobands of a gridded field (contour, contourf, contour3).",
+          "properties": {
+            "type": {
+              "const": "contour",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Quiver",
+          "description": "Arrows at data points (quiver, quiver3).",
+          "properties": {
+            "type": {
+              "const": "quiver",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/Surface",
+          "description": "A gridded surface of faces (surf, mesh).",
+          "properties": {
+            "type": {
+              "const": "surface",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Axes": {
+      "description": "A plotting region placed in one or more cells of the figure's tile layout.",
+      "properties": {
+        "artists": {
+          "description": "The artists drawn in this axes, in drawing order.",
+          "items": {
+            "$ref": "#/$defs/Artist"
+          },
+          "type": "array"
+        },
+        "box": {
+          "description": "Whether the full outline of the plot box is drawn, rather than only the\nedges that carry tick labels.",
+          "type": "boolean"
+        },
+        "cell": {
+          "$ref": "#/$defs/Cell",
+          "description": "The cells of the figure's tile layout that the axes occupies."
+        },
+        "clim": {
+          "$ref": "#/$defs/Limits",
+          "description": "The data values mapped to the first and last colours of the colormap."
+        },
+        "colormap": {
+          "$ref": "#/$defs/ColormapName",
+          "description": "The colormap used by colormapped artists in this axes."
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the axes, unique within the figure."
+        },
+        "legend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Legend"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The legend, or `null` when no legend is shown."
+        },
+        "projection": {
+          "$ref": "#/$defs/Projection",
+          "description": "Whether the axes is two- or three-dimensional, with its 3D view."
+        },
+        "title": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The title drawn above the axes."
+        },
+        "x": {
+          "$ref": "#/$defs/Axis",
+          "description": "The horizontal axis in 2D, or the first horizontal axis in 3D."
+        },
+        "y": {
+          "$ref": "#/$defs/Axis",
+          "description": "The vertical axis in 2D, or the second horizontal axis in 3D."
+        },
+        "z": {
+          "$ref": "#/$defs/Axis",
+          "description": "The vertical axis in 3D; ignored by 2D axes."
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "projection",
+        "x",
+        "y",
+        "z",
+        "box",
+        "colormap",
+        "clim",
+        "artists"
+      ],
+      "type": "object"
+    },
+    "Axis": {
+      "description": "One coordinate axis of an axes.",
+      "properties": {
+        "grid": {
+          "description": "Whether grid lines are drawn at the major ticks of this axis.",
+          "type": "boolean"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The axis label."
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits",
+          "description": "The range of data values shown along the axis."
+        },
+        "scale": {
+          "$ref": "#/$defs/Scale",
+          "description": "The mapping from data values to positions along the axis."
+        }
+      },
+      "required": [
+        "scale",
+        "limits",
+        "grid"
+      ],
+      "type": "object"
+    },
+    "AxisLink": {
+      "description": "A group of axes whose limits along one dimension are kept equal.\n\nFor each dimension, the groups of a figure are disjoint: an axes belongs to at\nmost one group per dimension.",
+      "properties": {
+        "axes": {
+          "description": "The identifiers of the linked axes.",
+          "items": {
+            "$ref": "#/$defs/NodeId"
+          },
+          "type": "array"
+        },
+        "dimension": {
+          "$ref": "#/$defs/Dimension",
+          "description": "The dimension whose limits are linked."
+        }
+      },
+      "required": [
+        "dimension",
+        "axes"
+      ],
+      "type": "object"
+    },
+    "Cell": {
+      "description": "A rectangular block of cells in the figure's tile layout.\n\nRows and columns are numbered from zero, starting at the top-left cell.",
+      "properties": {
+        "col": {
+          "description": "The zero-based index of the leftmost column occupied.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "col_span": {
+          "description": "The number of columns occupied; at least one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row": {
+          "description": "The zero-based index of the top row occupied.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row_span": {
+          "description": "The number of rows occupied; at least one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "row_span",
+        "col_span"
+      ],
+      "type": "object"
+    },
+    "Color": {
+      "description": "An sRGB colour with straight alpha, written as #rrggbb when opaque or #rrggbbaa otherwise.",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "type": "string"
+    },
+    "ColorSpec": {
+      "description": "How a colour is chosen for a stroke, fill or marker.",
+      "oneOf": [
+        {
+          "description": "The renderer chooses the colour: for series this is the next colour of the\naxes colour order (Okabe–Ito), and inside a scatter marker it is the scatter\ncolour.",
+          "properties": {
+            "type": {
+              "const": "auto",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fixed colour.",
+          "properties": {
+            "color": {
+              "$ref": "#/$defs/Color",
+              "description": "The colour to use."
+            },
+            "type": {
+              "const": "rgba",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "color"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Nothing is drawn.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The colour is taken from the axes colormap, indexed by the data value\nscaled into the axes colour limits.",
+          "properties": {
+            "type": {
+              "const": "colormapped",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ColormapName": {
+      "description": "The name of a colormap.",
+      "oneOf": [
+        {
+          "const": "viridis",
+          "description": "The perceptually uniform blue–green–yellow colormap.",
+          "type": "string"
+        },
+        {
+          "const": "cividis",
+          "description": "The perceptually uniform blue–yellow colormap designed for colour-vision\ndeficiency.",
+          "type": "string"
+        },
+        {
+          "const": "magma",
+          "description": "The perceptually uniform black–purple–cream colormap.",
+          "type": "string"
+        },
+        {
+          "const": "inferno",
+          "description": "The perceptually uniform black–red–yellow colormap.",
+          "type": "string"
+        },
+        {
+          "const": "plasma",
+          "description": "The perceptually uniform blue–purple–yellow colormap.",
+          "type": "string"
+        },
+        {
+          "const": "coolwarm",
+          "description": "The diverging blue–white–red colormap.",
+          "type": "string"
+        },
+        {
+          "const": "gray",
+          "description": "The linear black–white colormap.",
+          "type": "string"
+        }
+      ]
+    },
+    "Contour": {
+      "description": "Isolines or filled isobands of a scalar field sampled on a grid.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The name shown for the artist in the legend."
+        },
+        "fill": {
+          "description": "Whether the bands between levels are filled (contourf) rather than only the\nisolines drawn (contour).",
+          "type": "boolean"
+        },
+        "grid": {
+          "$ref": "#/$defs/Grid",
+          "description": "The grid on which the field is sampled."
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the artist, unique within the figure."
+        },
+        "levels": {
+          "$ref": "#/$defs/Levels",
+          "description": "The field values at which isolines are drawn or between which bands are filled."
+        },
+        "line": {
+          "$ref": "#/$defs/LineStyle",
+          "description": "The style of the isolines; a colormapped colour takes each isoline's level."
+        },
+        "placement": {
+          "$ref": "#/$defs/ContourPlacement",
+          "description": "Where the contours are placed in 3D axes."
+        },
+        "visible": {
+          "description": "Whether the artist is drawn.",
+          "type": "boolean"
+        },
+        "z": {
+          "$ref": "#/$defs/DataId",
+          "description": "The field values, a two-dimensional array of shape `[ny, nx]`."
+        }
+      },
+      "required": [
+        "id",
+        "visible",
+        "grid",
+        "z",
+        "levels",
+        "fill",
+        "placement",
+        "line"
+      ],
+      "type": "object"
+    },
+    "ContourPlacement": {
+      "description": "Where contours are placed in 3D axes.",
+      "oneOf": [
+        {
+          "description": "All contours lie in one horizontal plane (contour, contourf).",
+          "properties": {
+            "type": {
+              "const": "plane",
+              "type": "string"
+            },
+            "z": {
+              "description": "The height of the plane in 3D axes, or `null` for the bottom of the z\naxis; ignored by 2D axes.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Each isoline is drawn at the height of its level (contour3); valid only in\n3D axes.",
+          "properties": {
+            "type": {
+              "const": "at_level",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DashStyle": {
+      "description": "The dash pattern of a stroked line.",
+      "oneOf": [
+        {
+          "const": "solid",
+          "description": "A continuous line.",
+          "type": "string"
+        },
+        {
+          "const": "dashed",
+          "description": "A line of dashes.",
+          "type": "string"
+        },
+        {
+          "const": "dotted",
+          "description": "A line of dots.",
+          "type": "string"
+        },
+        {
+          "const": "dash_dot",
+          "description": "A line of alternating dashes and dots.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "No line is drawn.",
+          "type": "string"
+        }
+      ]
+    },
+    "DataId": {
+      "description": "An identifier of a numeric array in the figure's data table.\n\nArtists refer to their data by identifier rather than containing it, so that\nseveral artists can share one array and the array is stored once.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Dimension": {
+      "description": "A coordinate dimension of an axes.",
+      "oneOf": [
+        {
+          "const": "x",
+          "description": "The x axis.",
+          "type": "string"
+        },
+        {
+          "const": "y",
+          "description": "The y axis.",
+          "type": "string"
+        },
+        {
+          "const": "z",
+          "description": "The z axis.",
+          "type": "string"
+        }
+      ]
+    },
+    "FigureSize": {
+      "description": "The physical size of a figure.",
+      "properties": {
+        "height_mm": {
+          "description": "The height in millimetres.",
+          "format": "double",
+          "type": "number"
+        },
+        "width_mm": {
+          "description": "The width in millimetres.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width_mm",
+        "height_mm"
+      ],
+      "type": "object"
+    },
+    "FontSetId": {
+      "description": "The identifier of a bundled font set.",
+      "oneOf": [
+        {
+          "const": "stix_two",
+          "description": "STIX Two Text for text and STIX Two Math for mathematics.",
+          "type": "string"
+        }
+      ]
+    },
+    "Grid": {
+      "description": "The grid on which a field of shape `[ny, nx]` is sampled.",
+      "oneOf": [
+        {
+          "description": "An axis-aligned grid defined by one coordinate vector per axis.",
+          "properties": {
+            "type": {
+              "const": "rectilinear",
+              "type": "string"
+            },
+            "x": {
+              "$ref": "#/$defs/DataId",
+              "description": "The x coordinates of the columns, an array of `nx` values."
+            },
+            "y": {
+              "$ref": "#/$defs/DataId",
+              "description": "The y coordinates of the rows, an array of `ny` values."
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A structured grid whose every node has its own coordinates.",
+          "properties": {
+            "type": {
+              "const": "curvilinear",
+              "type": "string"
+            },
+            "x": {
+              "$ref": "#/$defs/DataId",
+              "description": "The x coordinate of every node, an array of shape `[ny, nx]`."
+            },
+            "y": {
+              "$ref": "#/$defs/DataId",
+              "description": "The y coordinate of every node, an array of shape `[ny, nx]`."
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Interpreter": {
+      "description": "How the source of a [`Text`] is interpreted.",
+      "oneOf": [
+        {
+          "const": "latex",
+          "description": "Mixed plain text and `$…$` LaTeX mathematics.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "Plain text, rendered literally, including any dollar signs.",
+          "type": "string"
+        }
+      ]
+    },
+    "Legend": {
+      "description": "A legend listing the artists of an axes that have a display name.",
+      "properties": {
+        "boxed": {
+          "description": "Whether the legend is drawn with a background and outline.",
+          "type": "boolean"
+        },
+        "location": {
+          "$ref": "#/$defs/LegendLocation",
+          "description": "Where the legend is placed inside the plot area."
+        }
+      },
+      "required": [
+        "location",
+        "boxed"
+      ],
+      "type": "object"
+    },
+    "LegendLocation": {
+      "description": "The placement of a legend inside the plot area.",
+      "oneOf": [
+        {
+          "const": "north_east",
+          "description": "The top-right corner.",
+          "type": "string"
+        },
+        {
+          "const": "north_west",
+          "description": "The top-left corner.",
+          "type": "string"
+        },
+        {
+          "const": "south_east",
+          "description": "The bottom-right corner.",
+          "type": "string"
+        },
+        {
+          "const": "south_west",
+          "description": "The bottom-left corner.",
+          "type": "string"
+        },
+        {
+          "const": "north",
+          "description": "The centre of the top edge.",
+          "type": "string"
+        },
+        {
+          "const": "south",
+          "description": "The centre of the bottom edge.",
+          "type": "string"
+        },
+        {
+          "const": "east",
+          "description": "The centre of the right edge.",
+          "type": "string"
+        },
+        {
+          "const": "west",
+          "description": "The centre of the left edge.",
+          "type": "string"
+        },
+        {
+          "const": "best",
+          "description": "The corner that overlaps the least data.",
+          "type": "string"
+        }
+      ]
+    },
+    "Levels": {
+      "description": "The field values at which contours are drawn.",
+      "oneOf": [
+        {
+          "description": "Levels are chosen at nice values spanning the data range.",
+          "properties": {
+            "count": {
+              "description": "The approximate number of levels.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "auto",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Levels are given explicitly.",
+          "properties": {
+            "type": {
+              "const": "explicit",
+              "type": "string"
+            },
+            "values": {
+              "description": "The levels, in ascending order.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "values"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Limits": {
+      "description": "A range of data values.",
+      "oneOf": [
+        {
+          "description": "The range is computed from the data, rounded outwards to ticks.",
+          "properties": {
+            "type": {
+              "const": "auto",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The range is fixed.",
+          "properties": {
+            "max": {
+              "description": "The upper bound of the range.",
+              "format": "double",
+              "type": "number"
+            },
+            "min": {
+              "description": "The lower bound of the range.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "manual",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "min",
+            "max"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Line": {
+      "description": "A polyline through data points, with optional markers at the points.\n\nThe x, y and (in 3D) z arrays hold one value per point and must have the same\nnumber of elements. Non-finite values break the line.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The name shown for the artist in the legend."
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the artist, unique within the figure."
+        },
+        "line": {
+          "$ref": "#/$defs/LineStyle",
+          "description": "The style of the line through the points."
+        },
+        "marker": {
+          "$ref": "#/$defs/MarkerStyle",
+          "description": "The style of the markers at the points."
+        },
+        "visible": {
+          "description": "Whether the artist is drawn.",
+          "type": "boolean"
+        },
+        "x": {
+          "$ref": "#/$defs/DataId",
+          "description": "The x coordinates of the points."
+        },
+        "y": {
+          "$ref": "#/$defs/DataId",
+          "description": "The y coordinates of the points."
+        },
+        "z": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The z coordinates of the points, allowed only in 3D axes; when absent in 3D\naxes the points lie in the plane z = 0."
+        }
+      },
+      "required": [
+        "id",
+        "visible",
+        "x",
+        "y",
+        "line",
+        "marker"
+      ],
+      "type": "object"
+    },
+    "LineStyle": {
+      "description": "The style of a stroked line.",
+      "properties": {
+        "color": {
+          "$ref": "#/$defs/ColorSpec",
+          "description": "The line colour."
+        },
+        "dash": {
+          "$ref": "#/$defs/DashStyle",
+          "description": "The dash pattern of the line."
+        },
+        "width_pt": {
+          "description": "The line width in points.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "color",
+        "width_pt",
+        "dash"
+      ],
+      "type": "object"
+    },
+    "MarkerShape": {
+      "description": "The shape of a marker.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No marker is drawn.",
+          "type": "string"
+        },
+        {
+          "const": "circle",
+          "description": "A circle.",
+          "type": "string"
+        },
+        {
+          "const": "square",
+          "description": "An axis-aligned square.",
+          "type": "string"
+        },
+        {
+          "const": "diamond",
+          "description": "A square rotated by 45 degrees.",
+          "type": "string"
+        },
+        {
+          "const": "triangle_up",
+          "description": "A triangle pointing upwards.",
+          "type": "string"
+        },
+        {
+          "const": "triangle_down",
+          "description": "A triangle pointing downwards.",
+          "type": "string"
+        },
+        {
+          "const": "plus",
+          "description": "A plus sign.",
+          "type": "string"
+        },
+        {
+          "const": "cross",
+          "description": "A diagonal cross.",
+          "type": "string"
+        },
+        {
+          "const": "point",
+          "description": "A small filled dot.",
+          "type": "string"
+        }
+      ]
+    },
+    "MarkerStyle": {
+      "description": "The style of the markers drawn at data points.",
+      "properties": {
+        "edge": {
+          "$ref": "#/$defs/ColorSpec",
+          "description": "The colour of the marker outline."
+        },
+        "face": {
+          "$ref": "#/$defs/ColorSpec",
+          "description": "The colour of the marker interior."
+        },
+        "shape": {
+          "$ref": "#/$defs/MarkerShape",
+          "description": "The marker shape."
+        },
+        "size_pt": {
+          "description": "The marker size in points, measured as the width of the marker.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "shape",
+        "size_pt",
+        "face",
+        "edge"
+      ],
+      "type": "object"
+    },
+    "NdArray": {
+      "description": "A dense, row-major, n-dimensional array of 64-bit floating-point values.\n\nA two-dimensional array with `ny` rows and `nx` columns has shape `[ny, nx]`,\nand the value in row `j` and column `i` is `values[j * nx + i]`. A missing value\nis NaN. JSON has no representation for non-finite numbers, so every non-finite\nvalue (NaN or an infinity) is written as `null` and read back as NaN.",
+      "properties": {
+        "shape": {
+          "description": "The length of each dimension, outermost first.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "values": {
+          "description": "The values in row-major order; `null` denotes a missing value.",
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "shape",
+        "values"
+      ],
+      "type": "object"
+    },
+    "NodeId": {
+      "description": "A stable identifier of a node (the figure, an axes or an artist).\n\nNode identifiers are unique within a figure and remain unchanged when the figure\nis saved and loaded, so that interaction state, links and future selections can\nrefer to nodes across sessions.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Projection": {
+      "description": "The projection of an axes.",
+      "oneOf": [
+        {
+          "description": "A two-dimensional Cartesian axes.",
+          "properties": {
+            "type": {
+              "const": "two_d",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A three-dimensional Cartesian axes viewed through an orthographic camera.",
+          "properties": {
+            "type": {
+              "const": "three_d",
+              "type": "string"
+            },
+            "view3d": {
+              "$ref": "#/$defs/View3d",
+              "description": "The camera view."
+            }
+          },
+          "required": [
+            "type",
+            "view3d"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Provenance": {
+      "description": "A record of the software that produced a figure.",
+      "properties": {
+        "fonts": {
+          "description": "The names of the fonts used for text.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ironlab_version": {
+          "description": "The version of IronLAB that wrote the figure.",
+          "type": "string"
+        },
+        "typesetter": {
+          "description": "The name and version of the mathematics typesetter.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ironlab_version",
+        "typesetter",
+        "fonts"
+      ],
+      "type": "object"
+    },
+    "Quiver": {
+      "description": "Arrows representing a vector field at data points.\n\nThe position arrays and the component arrays hold one value per arrow and must\nhave the same number of elements.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The name shown for the artist in the legend."
+        },
+        "head_size": {
+          "description": "The length of each arrow head as a fraction of its arrow's length.",
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the artist, unique within the figure."
+        },
+        "line": {
+          "$ref": "#/$defs/LineStyle",
+          "description": "The style of the arrow shafts and heads."
+        },
+        "scale": {
+          "$ref": "#/$defs/QuiverScale",
+          "description": "How vector lengths are scaled into arrow lengths."
+        },
+        "u": {
+          "$ref": "#/$defs/DataId",
+          "description": "The x components of the vectors."
+        },
+        "v": {
+          "$ref": "#/$defs/DataId",
+          "description": "The y components of the vectors."
+        },
+        "visible": {
+          "description": "Whether the artist is drawn.",
+          "type": "boolean"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The z components of the vectors, allowed only in 3D axes; when absent in 3D\naxes the vectors lie in horizontal planes."
+        },
+        "x": {
+          "$ref": "#/$defs/DataId",
+          "description": "The x coordinates of the arrow tails."
+        },
+        "y": {
+          "$ref": "#/$defs/DataId",
+          "description": "The y coordinates of the arrow tails."
+        },
+        "z": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The z coordinates of the arrow tails, allowed only in 3D axes; when absent in\n3D axes the tails lie in the plane z = 0."
+        }
+      },
+      "required": [
+        "id",
+        "visible",
+        "x",
+        "y",
+        "u",
+        "v",
+        "scale",
+        "line",
+        "head_size"
+      ],
+      "type": "object"
+    },
+    "QuiverScale": {
+      "description": "How quiver vector lengths are scaled into arrow lengths.",
+      "oneOf": [
+        {
+          "description": "Arrows are scaled so that the longest does not overlap its neighbours.",
+          "properties": {
+            "type": {
+              "const": "auto",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The automatic scale is multiplied by a factor.",
+          "properties": {
+            "type": {
+              "const": "factor",
+              "type": "string"
+            },
+            "value": {
+              "description": "The multiplier applied to the automatic scale.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Arrows are drawn with the vectors' lengths in data units.",
+          "properties": {
+            "type": {
+              "const": "off",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Scale": {
+      "description": "The mapping from data values to positions along an axis.",
+      "oneOf": [
+        {
+          "const": "linear",
+          "description": "Positions are proportional to values.",
+          "type": "string"
+        },
+        {
+          "const": "log",
+          "description": "Positions are proportional to the base-10 logarithm of values; non-positive\nvalues are not drawn.",
+          "type": "string"
+        }
+      ]
+    },
+    "Scatter": {
+      "description": "Markers at data points, each with its own size and colour.\n\nThe x, y and (in 3D) z arrays hold one value per point and must have the same\nnumber of elements, as must any size or colour data.",
+      "properties": {
+        "color": {
+          "$ref": "#/$defs/ScatterColor",
+          "description": "The colour of the markers, applied wherever `marker.face` or `marker.edge`\nis `auto`."
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The name shown for the artist in the legend."
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the artist, unique within the figure."
+        },
+        "marker": {
+          "$ref": "#/$defs/MarkerStyle",
+          "description": "The marker shape and the use of the scatter colour for face and edge."
+        },
+        "size": {
+          "$ref": "#/$defs/ScatterSize",
+          "description": "The size of the markers, which overrides `marker.size_pt`."
+        },
+        "visible": {
+          "description": "Whether the artist is drawn.",
+          "type": "boolean"
+        },
+        "x": {
+          "$ref": "#/$defs/DataId",
+          "description": "The x coordinates of the points."
+        },
+        "y": {
+          "$ref": "#/$defs/DataId",
+          "description": "The y coordinates of the points."
+        },
+        "z": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The z coordinates of the points, allowed only in 3D axes; when absent in 3D\naxes the points lie in the plane z = 0."
+        }
+      },
+      "required": [
+        "id",
+        "visible",
+        "x",
+        "y",
+        "size",
+        "color",
+        "marker"
+      ],
+      "type": "object"
+    },
+    "ScatterColor": {
+      "description": "The colour of scatter markers.",
+      "oneOf": [
+        {
+          "description": "Every marker has the same colour.",
+          "properties": {
+            "spec": {
+              "$ref": "#/$defs/ColorSpec",
+              "description": "The colour of every marker."
+            },
+            "type": {
+              "const": "spec",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "spec"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Each marker is coloured by a data value through the axes colormap.",
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/DataId",
+              "description": "An array of values, one per point, mapped through the axes colormap and\ncolour limits."
+            },
+            "type": {
+              "const": "data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ScatterSize": {
+      "description": "The size of scatter markers.",
+      "oneOf": [
+        {
+          "description": "Every marker has the same size.",
+          "properties": {
+            "type": {
+              "const": "scalar",
+              "type": "string"
+            },
+            "value": {
+              "description": "The marker size in points, measured as the width of the marker.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Each marker has its own size.",
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/DataId",
+              "description": "An array of marker sizes in points, one per point."
+            },
+            "type": {
+              "const": "data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Surface": {
+      "description": "A surface of quadrilateral faces over a grid (surf, mesh).",
+      "properties": {
+        "c": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The colour data of every node, with the same shape as `z`; when absent the\nsurface is coloured by `z`."
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The name shown for the artist in the legend."
+        },
+        "edge": {
+          "$ref": "#/$defs/ColorSpec",
+          "description": "The colour of the face edges."
+        },
+        "edge_width_pt": {
+          "description": "The width of the face edges in points.",
+          "format": "double",
+          "type": "number"
+        },
+        "face": {
+          "$ref": "#/$defs/ColorSpec",
+          "description": "The colour of the faces."
+        },
+        "grid": {
+          "$ref": "#/$defs/Grid",
+          "description": "The grid on which the surface is sampled."
+        },
+        "id": {
+          "$ref": "#/$defs/NodeId",
+          "description": "The node identifier of the artist, unique within the figure."
+        },
+        "visible": {
+          "description": "Whether the artist is drawn.",
+          "type": "boolean"
+        },
+        "z": {
+          "$ref": "#/$defs/DataId",
+          "description": "The height of every node, a two-dimensional array of shape `[ny, nx]`."
+        }
+      },
+      "required": [
+        "id",
+        "visible",
+        "grid",
+        "z",
+        "face",
+        "edge",
+        "edge_width_pt"
+      ],
+      "type": "object"
+    },
+    "Text": {
+      "description": "A piece of text, stored as its source so that renderers typeset it lazily.",
+      "properties": {
+        "content": {
+          "description": "The source text. With the LaTeX interpreter, segments delimited by `$…$`\nare typeset as mathematics and the remainder as plain text.",
+          "type": "string"
+        },
+        "interpreter": {
+          "$ref": "#/$defs/Interpreter",
+          "description": "How the source text is interpreted."
+        }
+      },
+      "required": [
+        "content",
+        "interpreter"
+      ],
+      "type": "object"
+    },
+    "TileLayout": {
+      "description": "The grid of cells in which the axes of a figure are placed.",
+      "properties": {
+        "cols": {
+          "description": "The number of columns; at least one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "description": "The number of rows; at least one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ],
+      "type": "object"
+    },
+    "View3d": {
+      "description": "The orthographic camera view of a three-dimensional axes.",
+      "properties": {
+        "azimuth_deg": {
+          "description": "The rotation about the vertical axis in degrees, measured counterclockwise\nfrom the negative y axis when viewed from above.",
+          "format": "double",
+          "type": "number"
+        },
+        "elevation_deg": {
+          "description": "The angle of the view direction above the x-y plane in degrees, from -90 to 90.",
+          "format": "double",
+          "type": "number"
+        },
+        "pan": {
+          "description": "The offset of the projected box as fractions of the plot area's width and\nheight.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "zoom": {
+          "description": "The magnification of the projected box, where 1 fits the box to the plot area.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "azimuth_deg",
+        "elevation_deg",
+        "zoom",
+        "pan"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A figure: the root of the retained IR, holding axes, data and axis links.",
+  "properties": {
+    "axes": {
+      "description": "The axes of the figure, in drawing order.",
+      "items": {
+        "$ref": "#/$defs/Axes"
+      },
+      "type": "array"
+    },
+    "background": {
+      "$ref": "#/$defs/Color",
+      "description": "The colour of the figure background."
+    },
+    "data": {
+      "additionalProperties": false,
+      "description": "The numeric arrays referenced by artists, keyed by data identifier.",
+      "patternProperties": {
+        "^\\d+$": {
+          "$ref": "#/$defs/NdArray"
+        }
+      },
+      "type": "object"
+    },
+    "font_set": {
+      "$ref": "#/$defs/FontSetId",
+      "description": "The font set used for all text."
+    },
+    "font_size_pt": {
+      "description": "The base font size in points; titles and tick labels are scaled from it.",
+      "format": "double",
+      "type": "number"
+    },
+    "id": {
+      "$ref": "#/$defs/NodeId",
+      "description": "The node identifier of the figure, unique within the figure."
+    },
+    "layout": {
+      "$ref": "#/$defs/TileLayout",
+      "description": "The grid of cells in which axes are placed."
+    },
+    "links": {
+      "description": "The groups of axes whose limits are linked along a dimension.",
+      "items": {
+        "$ref": "#/$defs/AxisLink"
+      },
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance",
+      "description": "A record of the software that produced the figure."
+    },
+    "schema_version": {
+      "description": "The version of the figure schema that the file conforms to.",
+      "type": "string"
+    },
+    "size": {
+      "$ref": "#/$defs/FigureSize",
+      "description": "The physical size of the figure."
+    },
+    "title": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Text"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The title drawn above all axes (sgtitle)."
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "size",
+    "font_set",
+    "font_size_pt",
+    "background",
+    "layout",
+    "data",
+    "axes",
+    "links",
+    "provenance"
+  ],
+  "title": "Figure",
+  "type": "object"
+}
