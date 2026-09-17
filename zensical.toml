@@ -5,3 +5,34 @@ repo_url = "https://github.com/thclark/ironlab"
 docs_dir = "docs"
 site_dir = "site"
 extra_css = ["stylesheets/gallery.css"]
+nav = [
+  { "Home" = "index.md" },
+  { "Guides" = [
+    { "Getting started" = "guides/getting-started.md" },
+    { "Using the viewer" = "guides/viewer.md" },
+  ] },
+  { "Gallery" = "gallery/index.md" },
+  { "Reference" = [
+    { "Figure schema" = "reference/figure-schema.md" },
+    { "Architecture" = "reference/architecture.md" },
+  ] },
+  { "Architecture decisions" = [
+    { "Overview" = "adrs/index.md" },
+    { "0001 Retained figure IR and JSON Schema" = "adrs/0001-retained-figure-ir-and-json-schema.md" },
+    { "0002 egui viewer on Rerun-family crates" = "adrs/0002-egui-viewer-on-rerun-family-crates.md" },
+    { "0003 Shared scene compiler and display list" = "adrs/0003-shared-scene-compiler-and-display-list.md" },
+    { "0004 PDF-first export with krilla" = "adrs/0004-pdf-first-export-with-krilla.md" },
+    { "0005 Embedded LaTeX mathematics with latex-rust" = "adrs/0005-embedded-latex-math-with-latex-rust.md" },
+    { "0006 Interaction mutates the IR" = "adrs/0006-interaction-mutates-the-ir.md" },
+    { "0007 Scope of the MVP" = "adrs/0007-mvp-scope.md" },
+  ] },
+  { "Background" = [
+    { "Overview" = "background/index.md" },
+    { "Concept discussion" = "background/concept-discussion.md" },
+  ] },
+  { "Conventions" = [
+    { "Branching" = "conventions/git-branching.md" },
+    { "Commits and versioning" = "conventions/git-commits-and-versioning.md" },
+    { "Pull requests" = "conventions/git-pull-requests.md" },
+  ] },
+]
