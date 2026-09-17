@@ -553,18 +553,116 @@ pub fn is_ink(px: [u8; 3]) -> bool {
     px.iter().any(|&c| c < 160)
 }
 
-/// The mean absolute difference per channel between two equally sized rasters, in `[0, 255]`.
-pub fn mean_abs_diff(a: &RgbImage, b: &RgbImage) -> f64 {
-    assert_eq!(
-        a.dimensions(),
-        b.dimensions(),
-        "rasters have different dimensions"
+/// The largest difference, in pixels along either axis, tolerated between the dimensions of two rasters of the same page.
+///
+/// Rasterisers round a page size that is not a whole number of pixels differently (for example, poppler rounds 170.08 pt
+/// at 72 dpi up to 171 px, while Ghostscript rounds it down to 170 px), so rasters of one page may differ by one pixel.
+pub const RASTER_SIZE_TOLERANCE_PX: u32 = 1;
+
+/// The side, in pixels, of the square blocks averaged to measure the mean difference between two rasters.
+pub const MEAN_DIFF_BLOCK_PX: u32 = 2;
+
+/// The largest mean difference, in `[0, 255]`, tolerated between rasters of one page from independent engines.
+pub const MEAN_DIFF_TOLERANCE: f64 = 3.0;
+
+/// The side, in pixels, of the square blocks compared to find the worst local difference between two rasters.
+pub const WORST_BLOCK_PX: u32 = 8;
+
+/// The largest difference, in `[0, 255]`, tolerated in any one block of [`WORST_BLOCK_PX`] pixels square.
+pub const WORST_BLOCK_TOLERANCE: f64 = 40.0;
+
+/// How much two rasters of the same page differ, measured both across the page and in its worst region.
+#[derive(Debug, Clone, Copy)]
+pub struct RasterDifference {
+    /// The mean absolute difference per channel between averages over blocks of [`MEAN_DIFF_BLOCK_PX`] pixels square.
+    pub mean: f64,
+    /// The largest absolute difference, averaged over channels, between averages over any one block of
+    /// [`WORST_BLOCK_PX`] pixels square.
+    pub worst_block: f64,
+}
+
+impl RasterDifference {
+    /// Reports whether both measures lie within [`MEAN_DIFF_TOLERANCE`] and [`WORST_BLOCK_TOLERANCE`].
+    pub fn agrees(&self) -> bool {
+        self.mean < MEAN_DIFF_TOLERANCE && self.worst_block <= WORST_BLOCK_TOLERANCE
+    }
+}
+
+/// Measures how much two rasters of the same page differ.
+///
+/// Rasters are compared as averages over square blocks of pixels, never pixel by pixel. Independent rasterisers place
+/// the pixels of a thin stroke differently when it lies near a pixel boundary (poppler draws a one-pixel line where
+/// Ghostscript spreads it, lighter, over two rows) and anti-alias glyphs differently, so a per-pixel comparison of two
+/// correct rasters of the same page reports large differences. Block averages conserve the ink in each block and so are
+/// insensitive to these sub-pixel differences, while missing, misplaced or miscoloured content still changes the
+/// averages of the blocks it covers.
+///
+/// Two measures are taken, because neither suffices alone. The mean over the page, taken over small blocks, detects
+/// widespread disagreement such as a wrong background or a systematic offset, but a small defect is diluted by the rest
+/// of the page: a 10 px square of the wrong colour moves it by less than 0.5. The worst difference in any one larger
+/// block detects such a local defect; the blocks are large enough that sub-pixel differences in strokes and glyphs
+/// average out within them.
+///
+/// Where the rasters' dimensions differ by at most [`RASTER_SIZE_TOLERANCE_PX`] along each axis, only the region they
+/// have in common, anchored at the top-left corner, is compared. Poppler aligns the top edge of the page with the top of
+/// its raster and Ghostscript aligns the bottom edge with the bottom of its raster, so the content of the two rasters is
+/// then offset vertically by less than one pixel (the amount by which Ghostscript's rounding shortens the page). A
+/// larger difference means the rasters do not depict the same page, so the comparison panics. Partial blocks at the
+/// right or bottom edge of the common region are ignored.
+pub fn raster_difference(a: &RgbImage, b: &RgbImage) -> RasterDifference {
+    let (width_a, height_a) = a.dimensions();
+    let (width_b, height_b) = b.dimensions();
+    assert!(
+        width_a.abs_diff(width_b) <= RASTER_SIZE_TOLERANCE_PX
+            && height_a.abs_diff(height_b) <= RASTER_SIZE_TOLERANCE_PX,
+        "rasters have dimensions {width_a}x{height_a} and {width_b}x{height_b}, which differ by more than \
+         {RASTER_SIZE_TOLERANCE_PX} px along an axis"
     );
-    let total: u64 = a
-        .as_raw()
-        .iter()
-        .zip(b.as_raw())
-        .map(|(&x, &y)| u64::from(x.abs_diff(y)))
-        .sum();
-    total as f64 / a.as_raw().len() as f64
+    let (width, height) = (width_a.min(width_b), height_a.min(height_b));
+    let mean_blocks = block_differences(a, b, width, height, MEAN_DIFF_BLOCK_PX);
+    let worst_blocks = block_differences(a, b, width, height, WORST_BLOCK_PX);
+    RasterDifference {
+        mean: mean_blocks.iter().sum::<f64>() / mean_blocks.len() as f64,
+        worst_block: worst_blocks.iter().copied().fold(0.0, f64::max),
+    }
+}
+
+/// The absolute difference, averaged over channels, between the averages of each whole block of `block` pixels square
+/// in the top-left `width` by `height` pixels of two rasters.
+fn block_differences(a: &RgbImage, b: &RgbImage, width: u32, height: u32, block: u32) -> Vec<f64> {
+    let (columns, rows) = (width / block, height / block);
+    assert!(
+        columns > 0 && rows > 0,
+        "rasters have no common region of whole {block}x{block} px blocks"
+    );
+    let block_sum = |image: &RgbImage, column: u32, row: u32, channel: usize| -> i64 {
+        (row * block..(row + 1) * block)
+            .flat_map(|y| (column * block..(column + 1) * block).map(move |x| (x, y)))
+            .map(|(x, y)| i64::from(image.get_pixel(x, y).0[channel]))
+            .sum()
+    };
+    let samples = f64::from(block * block * 3);
+    (0..rows)
+        .flat_map(|row| (0..columns).map(move |column| (column, row)))
+        .map(|(column, row)| {
+            let total: u64 = (0..3)
+                .map(|channel| {
+                    block_sum(a, column, row, channel).abs_diff(block_sum(b, column, row, channel))
+                })
+                .sum();
+            total as f64 / samples
+        })
+        .collect()
+}
+
+/// Asserts that rasters of the same page from poppler and Ghostscript agree by both measures of [`raster_difference`].
+pub fn assert_engines_agree(poppler: &RgbImage, ghostscript: &RgbImage) {
+    let difference = raster_difference(poppler, ghostscript);
+    assert!(
+        difference.agrees(),
+        "poppler and Ghostscript rasters disagree: mean difference {:.2} (tolerance {MEAN_DIFF_TOLERANCE}), worst \
+         {WORST_BLOCK_PX}x{WORST_BLOCK_PX} px block difference {:.2} (tolerance {WORST_BLOCK_TOLERANCE}), of 255",
+        difference.mean,
+        difference.worst_block
+    );
 }

@@ -5,7 +5,8 @@
 //! anti-aliasing does not affect them.
 
 use ironlab_scene::display::{
-    FillRule, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect, Rgba, Transform,
+    DisplayList, FillRule, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect, Rgba,
+    Transform,
 };
 
 use crate::common::*;
@@ -764,13 +765,9 @@ fn later_items_paint_over_earlier_ones() {
     }
 }
 
-#[test]
-fn poppler_and_ghostscript_rasters_agree() {
-    // WHY: a subtly invalid PDF (bad operator nesting, unbalanced graphics state, broken font program) is often
-    // repaired silently by one viewer and not the other, so disagreement between independent engines exposes it.
-    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
-    let ws = Workspace::new("engines-agree");
-    let text = engine();
+/// A page mixing fills, a dashed stroke, a clipped and translucent group, a curve, rotated text and mathematics, whose
+/// background is off-white so that a white page would be detected.
+fn mixed_content_page(text: &ironlab_text::TextEngine) -> DisplayList {
     let mut list = page(300.0, 200.0);
     list.background = Rgba::from_u8([250, 248, 240]);
     list.items
@@ -807,29 +804,69 @@ fn poppler_and_ghostscript_rasters_agree() {
     list.items.push(group(
         None,
         Some(Transform::rotate(-90.0).then(Transform::translate(30.0, 185.0))),
-        label(&text, "Amplitude", false, 11.0, Point::new(0.0, 0.0)),
+        label(text, "Amplitude", false, 11.0, Point::new(0.0, 0.0)),
     ));
     list.items.extend(label(
-        &text,
+        text,
         "Time (s)",
         false,
         11.0,
         Point::new(120.0, 140.0),
     ));
     list.items.extend(label(
-        &text,
+        text,
         "$\\frac{\\alpha}{2}$",
         true,
         14.0,
         Point::new(220.0, 170.0),
     ));
+    list
+}
 
-    let rasters = render_and_rasterise(&ws, &list, &text);
+#[test]
+fn poppler_and_ghostscript_rasters_agree() {
+    // WHY: a subtly invalid PDF (bad operator nesting, unbalanced graphics state, broken font program) is often
+    // repaired silently by one viewer and not the other, so disagreement between independent engines exposes it.
+    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
+    let ws = Workspace::new("engines-agree");
+    let text = engine();
+    let rasters = render_and_rasterise(&ws, &mixed_content_page(&text), &text);
     let (_, poppler) = &rasters[0];
     let (_, ghostscript) = &rasters[1];
-    let diff = mean_abs_diff(poppler, ghostscript);
+    assert_engines_agree(poppler, ghostscript);
+}
+
+#[test]
+fn engine_comparison_detects_a_small_local_defect() {
+    // WHY: the engine-agreement tests are only meaningful if the comparison tolerates the sub-pixel differences between
+    // correct rasters yet still rejects a real defect; a page-wide mean alone dilutes a small one below its tolerance.
+    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
+    let ws = Workspace::new("engines-defect");
+    let text = engine();
+    let rasters = render_and_rasterise(&ws, &mixed_content_page(&text), &text);
+    let (_, poppler) = &rasters[0];
+    let (_, ghostscript) = &rasters[1];
     assert!(
-        diff < 3.0,
-        "mean absolute difference between poppler and Ghostscript rasters is {diff:.2} (of 255)"
+        raster_difference(poppler, ghostscript).agrees(),
+        "clean rasters of the same page should agree"
+    );
+
+    // A 10 px red square painted over an empty part of the background, where neither engine draws anything.
+    let square = Rect::new(240.0, 110.0, 10.0, 10.0);
+    assert_eq!(
+        count_pixels(poppler, square, |px| !close_to(px, [250, 248, 240], 3)),
+        0,
+        "the defect must be painted over bare background"
+    );
+    let mut defective = poppler.clone();
+    for y in 110..120 {
+        for x in 240..250 {
+            defective.put_pixel(x, y, image::Rgb(RED_PX));
+        }
+    }
+    let difference = raster_difference(&defective, ghostscript);
+    assert!(
+        !difference.agrees(),
+        "a 10 px red square should make the rasters disagree, but the comparison measured {difference:?}"
     );
 }

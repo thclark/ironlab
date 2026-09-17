@@ -109,11 +109,7 @@ fn exported_figure_rasterises_identically_in_both_engines() {
     );
     let poppler = rasterise(&pdf, Engine::Poppler);
     let ghostscript = rasterise(&pdf, Engine::Ghostscript);
-    let diff = mean_abs_diff(&poppler, &ghostscript);
-    assert!(
-        diff < 3.0,
-        "mean absolute difference between poppler and Ghostscript rasters is {diff:.2} (of 255)"
-    );
+    assert_engines_agree(&poppler, &ghostscript);
 }
 
 #[test]
