@@ -29,7 +29,7 @@ fn sample_figure() -> Figure {
         .marker(Marker::Circle);
     fig.axes(0, 0).legend(LegendLocation::NorthWest);
     fig.axes(0, 1).surf(&x, &x, &z);
-    fig.link_all_x();
+    fig.link_all_x().unwrap();
     fig
 }
 

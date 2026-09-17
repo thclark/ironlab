@@ -197,11 +197,13 @@ fig.link(Dim::X, &[left, right])?;
 
 `link` returns an error if an identifier is not an axes of the figure. Linking axes that already belong to a group for the same dimension merges the groups, so `link(Dim::X, &[a, b])` followed by `link(Dim::X, &[b, c])` links `a`, `b` and `c` together. When a group is formed, every member takes the limits of the first axes given.
 
+Linking also returns an error when a member cannot show the limits it would take, as a logarithmic axis cannot show a range that reaches zero. Axes that cannot share limits cannot be linked, so the whole call is refused and the figure keeps the links and the limits it had, rather than leaving a group that is linked in name only. Setting limits on a linked axes is refused for the same reason when any member of its group cannot show them.
+
 Two shortcuts link every axes of the figure, as MATLAB's `linkaxes(ax, 'x')` and `linkaxes(ax, 'y')` do:
 
 ```rust
-fig.link_all_x();
-fig.link_all_y();
+fig.link_all_x()?;
+fig.link_all_y()?;
 ```
 
 These link only the axes that exist when they are called, so they are called after every axes has been created. `fig.link_all(Dim::Z)` links the z limits of every axes. The [linked subplots](../gallery/subplots_linked.md) gallery entry shows rows, columns and arbitrary pairs linked in one figure.

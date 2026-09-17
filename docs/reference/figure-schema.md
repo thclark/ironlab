@@ -297,7 +297,7 @@ An **AxisLink** is a group of axes whose limits along one dimension are kept equ
 | `dimension` | `"x"`, `"y"` or `"z"`. |
 | `axes` | The NodeIds of the linked axes. |
 
-For each dimension, groups are disjoint: an axes belongs to at most one group per dimension. Linking axes that already belong to groups merges those groups into one, which is a union-find operation. Setting the limits of any member, through the API or through the viewer, sets the limits of every member, and automatic limits are computed over the data of the whole group. The behaviour in the viewer is described in [using the viewer](../guides/viewer.md#linked-axes), and the design in [ADR 0006](../adrs/0006-interaction-mutates-the-ir.md).
+For each dimension, groups are disjoint: an axes belongs to at most one group per dimension. Linking axes that already belong to groups merges those groups into one, which is a union-find operation. Setting the limits of any member, through the API or through the viewer, sets the limits of every member, and automatic limits are computed over the data of the whole group. A member that cannot show those limits, such as a logarithmic axis given a range that reaches zero, refuses the whole change, so axes that cannot share limits cannot be linked. The behaviour in the viewer is described in [using the viewer](../guides/viewer.md#linked-axes), and the design in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md).
 
 ## Provenance
 

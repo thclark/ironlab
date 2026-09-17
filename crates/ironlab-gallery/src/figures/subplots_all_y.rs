@@ -42,6 +42,6 @@ pub fn figure() -> Figure {
             ax.ylabel("Depth $d$ (m)");
         }
     }
-    fig.link_all_y();
+    fig.link_all_y().expect("every site shares the same depth axis");
     fig
 }

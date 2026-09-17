@@ -301,7 +301,7 @@ fn the_figure_conveniences_apply_the_commands() {
     assert_eq!(convenient, expected);
 
     let mut all = fig.clone();
-    all.link_all(Dimension::Y);
+    all.link_all(Dimension::Y).unwrap();
     let (expected, _) = applied(&fig, &command::link(&fig, Dimension::Y, &ids).unwrap()).unwrap();
     assert_eq!(all, expected);
 }
@@ -323,10 +323,10 @@ fn figure_set_limits_refuses_limits_that_validation_rejects() {
 }
 
 // ---------------------------------------------------------------------------------
-// Axes that cannot accept the limits of their group
+// Axes that cannot share the limits of their group
 // ---------------------------------------------------------------------------------
 
-/// A figure of two linked-in-waiting axes: a linear one whose limits reach below zero,
+/// A figure of two axes waiting to be linked: a linear one whose limits reach below zero,
 /// and a logarithmic one whose limits are positive. Returns the figure and the two axes.
 fn linear_and_log() -> (Figure, NodeId, NodeId) {
     let (mut fig, ids) = row_of_axes(2);
@@ -336,13 +336,22 @@ fn linear_and_log() -> (Figure, NodeId, NodeId) {
     (fig, ids[0], ids[1])
 }
 
-// Why: the axes of a group may differ in scale, so the limits of one member can be
-// undrawable on another (a range that reaches zero on a logarithmic axis). Linking must
-// skip such a member and leave its limits alone, rather than refuse the transaction, so
-// that a link never produces a figure that validation rejects. Linked the other way
-// round the reference limits are positive, so both axes take them.
+/// Asserts that an error refuses the limits because an axis cannot show them.
+fn assert_refuses_limits<T: std::fmt::Debug>(result: &Result<T, IrError>) {
+    assert!(
+        matches!(result, Err(IrError::Edit(EditError::Invalid(issues))) if issues.iter().any(|i| i.kind == IssueKind::InvalidLimits)),
+        "{result:?}"
+    );
+}
+
+// Why: the axes of a link group may differ in scale, so limits that suit one member can be
+// undrawable on another: a range that reaches zero cannot be shown on a logarithmic axis.
+// Sharing limits is what linking means, so a group that cannot share them is a mistake the
+// user must be told about rather than a silent half-link. The command therefore sets every
+// member of the group, applying the transaction fails, and the figure keeps the links and
+// the limits it had, because transactions are atomic.
 #[test]
-fn linking_skips_an_axes_that_cannot_accept_the_reference_limits() {
+fn linking_axes_that_cannot_share_limits_is_refused_and_changes_nothing() {
     let (fig, linear, log) = linear_and_log();
 
     let transaction = command::link(&fig, Dimension::X, &[linear, log]).unwrap();
@@ -358,67 +367,66 @@ fn linking_skips_an_axes_that_cannot_accept_the_reference_limits() {
             _ => None,
         })
         .collect();
-    assert_eq!(limited, BTreeSet::from([linear]), "the log axes was set");
-
-    let (skipped, _) = applied(&fig, &transaction).unwrap();
-    assert_eq!(limits_of(&skipped, linear, Dimension::X), manual(-1.0, 1.0));
-    assert_eq!(limits_of(&skipped, log, Dimension::X), manual(1.0, 2.0));
     assert_eq!(
-        groups(&skipped, Dimension::X),
-        BTreeSet::from([BTreeSet::from([linear, log])]),
-        "the axes were not linked"
+        limited,
+        BTreeSet::from([linear, log]),
+        "every member of the group is set, so that the logarithmic axes refuses the range"
     );
-    assert!(skipped.validate().is_valid(), "{:?}", skipped.validate());
+    assert_refuses_limits(&applied(&fig, &transaction).map_err(IrError::Edit));
 
-    let (synchronised, _) = applied(
-        &fig,
-        &command::link(&fig, Dimension::X, &[log, linear]).unwrap(),
-    )
-    .unwrap();
-    for id in [linear, log] {
-        assert_eq!(limits_of(&synchronised, id, Dimension::X), manual(1.0, 2.0));
-    }
+    // The conveniences refuse in the same way, and leave the figure exactly as it was.
+    let mut refused = fig.clone();
+    assert_refuses_limits(&refused.link(Dimension::X, &[linear, log]));
+    assert_eq!(refused, fig, "an atomic transaction changes nothing");
+
+    let mut refused_all = fig.clone();
+    assert_refuses_limits(&refused_all.link_all(Dimension::X));
+    assert_eq!(refused_all, fig, "an atomic transaction changes nothing");
 }
 
-// Why: `link_all` returns nothing, so it can only stay usable if linking cannot fail;
-// the rule above is what keeps it infallible on a figure that mixes scales.
+// Why: the reference limits are those of the first axes given, so the same pair links
+// cleanly the other way round, when the reference range is positive. Linking still does
+// what it is for: after it, every member shows the reference limits.
 #[test]
-fn link_all_never_fails_on_a_figure_that_mixes_scales() {
-    let (mut fig, linear, log) = linear_and_log();
-    fig.link_all(Dimension::X);
+fn linking_axes_that_can_share_limits_synchronises_them() {
+    let (fig, linear, log) = linear_and_log();
+
+    let mut linked = fig.clone();
+    linked.link(Dimension::X, &[log, linear]).unwrap();
+
+    for id in [linear, log] {
+        assert_eq!(limits_of(&linked, id, Dimension::X), manual(1.0, 2.0));
+    }
     assert_eq!(
-        groups(&fig, Dimension::X),
+        groups(&linked, Dimension::X),
         BTreeSet::from([BTreeSet::from([linear, log])])
     );
-    assert_eq!(limits_of(&fig, log, Dimension::X), manual(1.0, 2.0));
-    assert!(fig.validate().is_valid(), "{:?}", fig.validate());
+    assert!(linked.validate().is_valid(), "{:?}", linked.validate());
 }
 
-// Why: a user who zooms one axes of a group asked for that range there, so a range that
-// the axes itself cannot show must be refused; a partner that cannot show it is only a
-// consequence of the link, so it keeps its own limits and the zoom still happens.
+// Why: a user who zooms one axes of a group asks for that range across the whole group,
+// because that is what a link promises; a partner that cannot show it must refuse the
+// change rather than fall out of step with its group behind the user's back. The refusal
+// does not depend on which member of the group was asked.
 #[test]
-fn set_limits_skips_a_partner_that_cannot_accept_the_limits_but_refuses_the_axes_asked() {
+fn set_limits_is_refused_when_a_linked_partner_cannot_show_the_limits() {
     let (mut fig, linear, log) = linear_and_log();
     fig.links = vec![AxisLink {
         dimension: Dimension::X,
         axes: vec![linear, log],
     }];
 
-    let transaction = command::set_limits(&fig, linear, Dimension::X, manual(-5.0, 5.0)).unwrap();
+    let limits = manual(-5.0, 5.0);
+    let transaction = command::set_limits(&fig, linear, Dimension::X, limits).unwrap();
     assert_eq!(
         transaction.edits,
-        [set(linear, "x.limits", Value::Limits(manual(-5.0, 5.0)))]
+        [linear, log].map(|id| set(id, "x.limits", Value::Limits(limits))),
+        "every member of the group is set, in figure order"
     );
-    let (edited, _) = applied(&fig, &transaction).unwrap();
-    assert_eq!(limits_of(&edited, log, Dimension::X), manual(1.0, 2.0));
-    assert!(edited.validate().is_valid(), "{:?}", edited.validate());
 
-    let mut refused = fig.clone();
-    let result = refused.set_limits(log, Dimension::X, manual(-5.0, 5.0));
-    assert!(
-        matches!(&result, Err(IrError::Edit(EditError::Invalid(issues))) if issues.iter().any(|i| i.kind == IssueKind::InvalidLimits)),
-        "{result:?}"
-    );
-    assert_eq!(refused, fig);
+    for asked in [linear, log] {
+        let mut refused = fig.clone();
+        assert_refuses_limits(&refused.set_limits(asked, Dimension::X, limits));
+        assert_eq!(refused, fig, "an atomic transaction changes nothing");
+    }
 }

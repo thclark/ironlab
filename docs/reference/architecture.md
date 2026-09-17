@@ -73,7 +73,7 @@ The viewer has no view state of its own that affects drawing. Each gesture is co
 - panning, zooming and rotating a three-dimensional axes set the properties of its `projection.view3d`;
 - clicking a legend entry sets the `visible` property of an artist.
 
-Limits are set with the `set_limits` command, which reads the figure and returns the limits of every axes of the link group as literal edits, so linked axes follow without the viewer implementing the rule.
+Limits are set with the `set_limits` command, which reads the figure and returns the limits of every axes of the link group as literal edits, so linked axes follow without the viewer implementing the rule. An axes of the group that cannot show the limits makes the transaction fail, and the figure is left unchanged.
 
 A tab holds the figure as its owner defines it (the source, which for the viewer is the figure as opened or as last saved) and the user's edits (the overlay), and draws their composition, which is recomputed whenever either changes. A gesture therefore never mutates the source: undo and redo step through the overlay, double-click and Reset view discard the view entries of the overlay, and saving folds the overlay into the source. An overlay entry that the source cannot accept is dropped when the composition is made, and the reason is shown by the problems indicator.
 

@@ -42,9 +42,8 @@ impl Figure {
     /// Any existing group for that dimension that contains one of the given axes is
     /// merged with them into a single group, so groups for a dimension stay disjoint.
     /// The limits of every axes in the resulting group are then set to the current
-    /// limits of the first given axes, except for an axes that cannot accept them (a
-    /// logarithmic axis and limits that are not positive), which is skipped and keeps
-    /// its own limits. Fewer than two distinct axes leave the links unchanged.
+    /// limits of the first given axes. Fewer than two distinct axes leave the links
+    /// unchanged.
     ///
     /// The stored groups for the dimension are normalised at the same time: groups
     /// that overlap (which a hand-edited file may contain) are merged, repeated
@@ -56,7 +55,11 @@ impl Figure {
     /// # Errors
     ///
     /// Returns [`IrError::UnknownAxes`] when an identifier does not refer to an axes of
-    /// the figure; the figure is then left unchanged.
+    /// the figure, and [`IrError::Edit`] with
+    /// [`EditError::Invalid`](crate::EditError::Invalid) when an axes of the group
+    /// cannot show the limits it would take, such as a logarithmic axis and limits that
+    /// are not positive: axes that cannot share limits cannot meaningfully be linked, so
+    /// the whole change is refused. The figure is left unchanged in every case.
     pub fn link(&mut self, dimension: Dimension, axes: &[NodeId]) -> Result<(), IrError> {
         let transaction = crate::command::link(self, dimension, axes)?;
         self.apply(&transaction)?;
@@ -66,12 +69,15 @@ impl Figure {
     /// Links the limits of every axes of the figure along a dimension, synchronising
     /// them to the limits of the first axes.
     ///
-    /// Linking cannot fail, because an axes that cannot accept the limits of the first
-    /// axes keeps its own, as [`Figure::link`] describes.
-    pub fn link_all(&mut self, dimension: Dimension) {
+    /// # Errors
+    ///
+    /// Returns [`IrError::Edit`] with
+    /// [`EditError::Invalid`](crate::EditError::Invalid) when an axes of the figure
+    /// cannot show the limits of the first axes, as [`Figure::link`] describes; the
+    /// figure is then left unchanged.
+    pub fn link_all(&mut self, dimension: Dimension) -> Result<(), IrError> {
         let ids: Vec<NodeId> = self.axes.iter().map(|axes| axes.id).collect();
         self.link(dimension, &ids)
-            .expect("every identifier is an axes of the figure");
     }
 
     /// Returns the axes linked with the given axes along a dimension, including the
@@ -108,9 +114,9 @@ impl Figure {
     /// Sets the limits of an axes along a dimension, and of every axes linked with it
     /// along that dimension.
     ///
-    /// Every axes of the group that can accept the limits takes them; an axes other
-    /// than the one named that cannot (a logarithmic axis and limits that are not
-    /// positive) keeps its own. This applies the transaction of
+    /// Every axes of the group takes the limits, so a member that cannot show them
+    /// refuses the whole change rather than falling out of step with its group. This
+    /// applies the transaction of
     /// [`command::set_limits`](crate::command::set_limits).
     ///
     /// # Errors
@@ -118,9 +124,9 @@ impl Figure {
     /// Returns [`IrError::UnknownAxes`] when the identifier does not refer to an axes
     /// of the figure, [`IrError::InvalidLimits`] when manual limits are not finite or
     /// not strictly increasing, and [`IrError::Edit`] with
-    /// [`EditError::Invalid`](crate::EditError::Invalid) when the named axes cannot
-    /// accept the limits, such as limits that are not positive on a logarithmic axis.
-    /// The figure is left unchanged in every case.
+    /// [`EditError::Invalid`](crate::EditError::Invalid) when any axes of the group
+    /// cannot show the limits, such as limits that are not positive on a logarithmic
+    /// axis. The figure is left unchanged in every case.
     pub fn set_limits(
         &mut self,
         axes: NodeId,

@@ -39,7 +39,7 @@ fn four_axes() -> (Figure, [NodeId; 4]) {
 #[test]
 fn link_all_x_links_every_axes_along_x_only() {
     let (mut fig, ids) = four_axes();
-    fig.link_all_x();
+    fig.link_all_x().unwrap();
     assert_eq!(groups(&fig, Dimension::X), vec![sorted(ids.to_vec())]);
     assert!(groups(&fig, Dimension::Y).is_empty());
     assert!(groups(&fig, Dimension::Z).is_empty());
@@ -49,7 +49,7 @@ fn link_all_x_links_every_axes_along_x_only() {
 #[test]
 fn link_all_y_links_every_axes_along_y_only() {
     let (mut fig, ids) = four_axes();
-    fig.link_all_y();
+    fig.link_all_y().unwrap();
     assert_eq!(groups(&fig, Dimension::Y), vec![sorted(ids.to_vec())]);
     assert!(groups(&fig, Dimension::X).is_empty());
 }
@@ -59,7 +59,7 @@ fn link_all_y_links_every_axes_along_y_only() {
 #[test]
 fn link_shortcuts_chain() {
     let (mut fig, ids) = four_axes();
-    fig.link_all_x().link_all_y();
+    fig.link_all_x().unwrap().link_all_y().unwrap();
     assert_eq!(groups(&fig, Dimension::X), vec![sorted(ids.to_vec())]);
     assert_eq!(groups(&fig, Dimension::Y), vec![sorted(ids.to_vec())]);
 }
