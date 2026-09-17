@@ -45,7 +45,7 @@ The rate is half a degree for each point of pointer travel measured on the figur
 - **Double-clicking** an axes discards the changes made to the x, y and z limits and to the three-dimensional view of that axes, so that it shows the view the figure was opened with. Axes linked with it follow the restored limits.
 - **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure in the visible tab, unless a text field has keyboard focus or a modifier key is held.
 
-Neither action changes the visibility of plots, so plots hidden from the legend stay hidden.
+Neither action changes the visibility of plots, so plots hidden from the legend stay hidden, and neither changes a property edited in the property editor. Both can be undone. To discard every change instead, use [Revert all changes](#taking-changes-back) at the foot of the property editor.
 
 A two-dimensional axes whose limits were automatic receives fixed limits as soon as it is panned or zoomed, computed from the limits it was showing. The figure itself keeps its automatic limits, so restoring the view makes the limits automatic again.
 
@@ -56,7 +56,7 @@ Every gesture is one step of the history: a drag from press to release, one notc
 - **Undo**, in the toolbar or **⌘Z** (**Ctrl+Z** away from macOS), restores the figure to what it was before the most recent gesture.
 - **Redo**, in the toolbar or **⌘⇧Z** (**Ctrl+Shift+Z**), applies the most recently undone gesture again.
 
-Each button is disabled when there is nothing to undo or to redo, and both shortcuts are ignored while a text field has keyboard focus. Making a new gesture after undoing one discards what could have been redone, so the history never branches. Undo and redo act only on the changes made in the viewer: the figure as opened is the furthest back they go, and saving the figure makes the changes part of it, after which they can no longer be undone.
+Each button is disabled when there is nothing to undo or to redo, and both shortcuts are ignored while a text field has keyboard focus. Making a new gesture after undoing one discards what could have been redone, so the history never branches. Undo and redo act only on the changes made in the viewer: the figure as opened is the furthest back they go, and saving the figure makes the changes part of it, after which they can no longer be undone. [Revert all changes](#taking-changes-back) empties the history with the changes, so nothing can be undone after it either.
 
 ## Legend
 
@@ -66,53 +66,51 @@ A hidden plot still takes part in the layout of its axes: its data still contrib
 
 ## The property editor
 
-**Properties**, in the toolbar, opens and closes a panel on the right of the tab. It is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. It has two parts: the objects of the figure at the top and the properties of the selected object below.
+**Properties**, in the toolbar, opens a panel on the right of the tab; it is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
 
-### The objects of a figure
+The panel has three parts: the objects of the figure at the top, the properties of the selected object below, and the control that takes back every change at the foot.
 
-The upper part lists the figure, its axes in drawing order, and the plots of each axes in drawing order, as a tree that can be collapsed. Each row is named as the figure names it:
+### Selecting an object
 
-- An axes is named by its title, or, when it has none, by the cell it occupies, such as "Axes (row 0, column 1)".
-- A plot is named by its display name — the name its legend entry carries — or, when it has none, by its kind: "Line", "Scatter", "Contour", "Quiver" or "Surface".
-- A hidden plot is greyed, so that a plot missing from the canvas can be found and shown again.
+The upper part lists the figure, its axes in drawing order, and the plots of each axes in drawing order, as a tree that can be collapsed. An axes is named by its title, or by the cell it occupies when it has none, such as "Axes (row 0, column 1)". A plot is named by its display name — the name its legend entry carries — or by its kind. A hidden plot is greyed, so a plot missing from the canvas can be found and shown again.
 
-Clicking a row selects that object, and the lower part then shows its properties. Clicking inside an axes on the canvas selects that axes, and clicking a legend entry selects its plot as well as hiding or showing it. The canvas cannot yet pick an individual plot ([issue #1](https://github.com/thclark/ironlab/issues/1)), so the tree is the way to reach one.
+Clicking a row selects that object and shows its properties below. Clicking inside an axes on the canvas selects that axes, and clicking a legend entry selects its plot as well as hiding or showing it. The canvas cannot pick an individual plot ([issue #1](https://github.com/thclark/ironlab/issues/1)), so the tree is the way to reach one. No gesture changes the selection: panning, zooming and rotating leave the panel showing what it was showing.
 
-The selection is never changed by a gesture: panning, zooming and rotating leave the property editor showing what it was showing.
+### Changing a property
 
-### The properties of an object
+The properties of the selected object are gathered under the value they belong to — the scale, limits and grid lines of the x axis appear together under "x" — and each row carries the control that suits what it holds: a checkbox, a number that is dragged or typed into, a text field with a choice of LaTeX or literal, a colour picker, or a combo box of the values the property can take. What each property means is described in the [figure schema](../reference/figure-schema.md), and hovering over the name of a property shows the same explanation.
 
-The lower part lists the properties of the selected object, gathered under the value they belong to: the scale, limits and grid lines of the x axis appear together under "x", and each row is named by what distinguishes it within that value, such as "limits" and "limits.min". Hovering over the name of a property shows what it means, in the same words as the Rust API documentation.
+A property that is absent, such as an axes with no title, is shown as "unset" with a control that gives it a value. A property that belongs to a kind of value that is not in use is not shown until it applies: the bounds of manual limits appear once the limits are manual, and the camera of an axes once the axes is three-dimensional. Neither is an error.
 
-The control offered depends on what the property holds.
+A change is recorded exactly as a gesture is: it is added to the overlay, the canvas redraws, and the figure the viewer was given is untouched until it is saved. A whole drag of a numeric field, and a whole visit to a text field, is one step of the history, so **Undo** takes back the change rather than the last pixel of it.
 
-| The property holds | The control |
-| --- | --- |
-| A true or false value | A checkbox |
-| A number | A field that is dragged, or clicked and typed into |
-| A text | A field, with a combo box choosing whether it is read as LaTeX or literally |
-| One of a fixed set of values, such as a scale or a colormap | A combo box |
-| A choice between kinds of value, such as automatic or manual limits | A combo box, with the values of the kind chosen listed below it |
-| A colour | A colour picker |
-| A reference to a data array | The array and its shape, read-only |
+A change the figure cannot accept — limits that are not increasing, or a projection a plot cannot be drawn in — is refused. The figure is left exactly as it was, nothing is added to the history, and the reason appears in the [problems list](#problems).
 
-A property that is absent — an axes with no title, a plot with no display name — is shown as "unset", with a control that gives it a value. A property that belongs to a kind of value that is not in use is not shown at all: the bounds of automatic limits appear only once the limits are manual, and the camera of an axes only when the axes is three-dimensional. Neither is an error.
+### Taking changes back
 
-**Data is shown but not edited here.** A plot refers to its data by identifier, and a plot that refers to an array of the wrong shape, or to no array, cannot be drawn; the viewer has no way to offer the arrays that would suit. Data is therefore changed through the program that owns the figure. This is a deliberate limit of the editor as it stands.
+A property you have changed is shown in bold and carries a **↺** control, which takes back that one change and shows the figure's own value again. Reverting one property never disturbs another, and is itself a step of the history.
 
-### Changing, marking and reverting
+**Revert all changes**, in the bottom-right corner of the panel, discards every change you have made to this figure — axis limits, three-dimensional views, hidden plots and every property edited — and shows the figure as the program that built it defined it. The control says how many changes it would discard and is disabled when there are none. It is a clean slate rather than a step of the history: **Undo** does nothing after it, because no change is left to take back. The figure the viewer was given is never touched, so what **Revert all changes** restores is exactly that figure.
 
-A change made in the editor is recorded exactly as a gesture is: it is added to the overlay, the canvas redraws, and the figure the viewer was given is untouched until it is saved. A whole drag of a numeric field, and a whole visit to a text field, is one step of the history, so **Undo** takes back the change rather than the last pixel of it.
-
-A property that the user has changed is shown in bold and carries a **↺** control, which takes back that one change and shows the figure's own value again. Reverting one property never disturbs another, and is itself a step of the history.
-
-A change that the figure cannot accept — limits that are not increasing, or a projection that a plot cannot be drawn in — is refused. The figure is left exactly as it was, nothing is added to the history, and the reason appears in the problems indicator described below.
+It is wider than **Reset view** in the toolbar, which discards only the limits and three-dimensional views, keeps hidden plots hidden and every property you have edited, and can itself be undone.
 
 ### Parameters
 
-The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters)). They are edited as a small table, in which an entry can be added, renamed, given another kind (yes or no, whole number, number or text), changed and removed. The whole table is committed together, so a change to it is one step of the history.
+The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table, in which an entry can be added, renamed, given another kind (yes or no, whole number, number or text), changed and removed. The whole table is committed together, so a change to it is one step of the history.
 
 While the table cannot be committed — an entry has no name, two entries share a name, or a number has not been typed in full — the reason is shown below it and the figure keeps the parameters it had. Typing is never interrupted; the change reaches the figure as soon as the table makes sense again.
+
+### What the editor does not change
+
+The editor changes the properties of the objects a figure already has. Its structure — the tile layout, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure. Three kinds of row are therefore shown with a padlock rather than a control, each with the reason in its tooltip.
+
+- **The data a plot draws**, shown as the array it names and that array's shape.
+- **The rows and columns of the figure's tile layout.** The cell an axes occupies stays editable, because moving an axes within the layout is a change to that axes; a cell outside the layout is refused.
+- **The groups of axes whose limits are linked**, shown as a count.
+
+A property that the figure merely constrains is not read-only. Limits that must increase and a font size that must be positive stay editable, and a value the figure will not accept is refused with its reason, which is the more useful answer.
+
+One choice is withheld for the same reason. A colour may be **colormapped**, which colours a plot from its data through the axes colormap, and that is offered only where the figure holds a value to look the colour up by: the isolines of a contour, coloured by their level; the faces and edges of a surface, coloured by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a marker hold no such value, so the choice is not offered for them.
 
 ## Linked axes
 
@@ -132,6 +130,12 @@ The figure written is the figure the viewer now holds: the changes saved become 
 
 ## Problems
 
-When drawing a figure reveals problems that do not prevent it from being drawn, such as a LaTeX expression that the typesetter does not support or data that cannot be placed on a logarithmic axis, the toolbar shows a problems indicator: a warning sign followed by the number of problems, for example "2 problems". Hovering over the indicator lists each problem, with the identifier of the node (the figure, an axes or a plot) that it concerns. The figure is still drawn: unsupported mathematics is shown as its raw source, and data that cannot be placed is left out.
+When something is wrong with a figure, the toolbar shows a problems indicator: a warning sign followed by the number of problems, for example "2 problems". It appears only when there is something to report. Clicking it opens a list of the problems and clicking away closes the list again.
 
-A change made in the viewer that the figure cannot accept, such as limits that are not increasing, is dropped rather than applied, and the same indicator gives the property it concerned and the reason. A change made in the property editor is refused before it is applied, so the figure keeps the value it had and the history keeps no empty step. Such a change is reported until the view is reset or the figure is saved.
+Each entry names the object the problem concerns, as the [object tree](#selecting-an-object) names it, and the property where one is concerned. It then gives the reason in full and says how the problem arose, in one of three ways.
+
+- **Reported while the figure was drawn.** Drawing revealed something that does not prevent the figure from being drawn, such as a LaTeX expression the typesetter does not support or data that cannot be placed on a logarithmic axis. Unsupported mathematics is drawn as its raw source and data that cannot be placed is left out, so the figure still appears.
+- **Your change could not be shown, so it was discarded.** A change you made can no longer be applied to the figure, so it was thrown away rather than silently ignored.
+- **Your change was refused, so the figure is unchanged.** A change made in the property editor was checked before it was recorded and the figure would not accept it, so the figure keeps the value it had and the history keeps no empty step.
+
+The last two are reported until the change they concern is superseded, undone, reverted or discarded, after which the indicator falls silent again. Problems reported while the figure was drawn come back whenever the figure is drawn, so they persist until the figure itself changes.

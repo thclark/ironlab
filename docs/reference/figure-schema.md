@@ -97,6 +97,8 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
+Every property of this table and of the tables below can be read in the viewer's [property editor](../guides/viewer.md#the-property-editor), and most of them can be changed there; the editor leaves the structure of a figure and its data to the program that builds it.
+
 ## Axes
 
 An axes is a plotting region placed in one or more tiles of the figure's layout.
@@ -257,6 +259,8 @@ A **ColorSpec** says how a colour is chosen:
 - `{"type": "none"}` draws nothing.
 - `{"type": "colormapped"}` takes the colour from the axes colormap, indexed by the data value scaled into the axes colour limits.
 
+A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver, a scatter with a fixed colour specification and every marker hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap. The property editor does not offer the choice where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+
 ## Text
 
 A **Text** is stored as its source, never as typeset glyphs, so that it can be edited and so that the renderer resolves it when it is drawn.
@@ -323,6 +327,8 @@ A parameter takes one of four forms:
 | `{"type": "integer", "value": -4096}` | `integer_value` (ParameterInteger) | A signed 64-bit integer. |
 | `{"type": "number", "value": 100000.0}` | `number_value` (ParameterNumber) | A double-precision floating-point number, which must be finite. |
 | `{"type": "string", "value": "k–ω SST"}` | `string_value` (ParameterString) | A string, which may be empty. |
+
+Parameters are edited in the viewer's [property editor](../guides/viewer.md#parameters) as well as through the API.
 
 The form is stated explicitly because JSON has a single number type: without it, the number `3.0` would reload as the integer `3`. A JavaScript program reads a JSON integer as a double, which holds integers exactly only up to 2<sup>53</sup> in magnitude, so a larger integer parameter is exact only in readers that parse JSON integers as 64-bit integers. A parameter name must not be empty; it may contain any other Unicode text, and names that differ only in case are distinct.
 
