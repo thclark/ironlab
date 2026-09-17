@@ -1,0 +1,49 @@
+name: Docs
+
+# Build the Zensical site, including the gallery rendered by IronLAB itself, and publish it to GitHub Pages as a
+# deployment artefact: nothing is committed anywhere. Manual for now; the release flow will trigger it later.
+#
+# One-time repository settings: Pages → Source: "GitHub Actions"; custom domain ironlab.org (the CNAME lives in the
+# settings, not in the repo, and zensical.toml's site_url must match).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deployment at a time; a newer dispatch supersedes one still queued
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      # The gallery images are rendered offscreen through wgpu; lavapipe provides a software Vulkan adapter.
+      - name: Install a software Vulkan adapter
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      - name: Generate the gallery and build the site into site/
+        run: scripts/build-docs.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
