@@ -42,7 +42,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use common::{float_bits, kitchen_sink_figure, special_values_figure};
+use common::edits::every_kind_transaction;
+use common::{OPTIONAL_IN_IR, float_bits, kitchen_sink_figure, special_values_figure};
 use ironlab_ir::*;
 use prost::Message;
 use prost_reflect::{
@@ -50,7 +51,9 @@ use prost_reflect::{
 };
 
 /// The modules of the IR whose types appear on the wire, each of which has one file.
-const MODULES: [&str; 7] = ["artist", "axes", "data", "figure", "link", "style", "text"];
+const MODULES: [&str; 8] = [
+    "artist", "axes", "data", "edit", "figure", "link", "style", "text",
+];
 
 /// Resolves imports from the generated files held in memory.
 struct GeneratedFiles(BTreeMap<String, String>);
@@ -117,6 +120,12 @@ fn mutated(path: &str, replacements: &[(&str, &str)]) -> BTreeMap<String, String
 fn figure_descriptor(pool: &DescriptorPool) -> MessageDescriptor {
     pool.get_message_by_name("ironlab.ir.v0.Figure")
         .expect("the package declares Figure")
+}
+
+/// Returns the descriptor of the root message of a transaction.
+fn transaction_descriptor(pool: &DescriptorPool) -> MessageDescriptor {
+    pool.get_message_by_name("ironlab.ir.v0.Transaction")
+        .expect("the package declares Transaction")
 }
 
 /// Collects the full names of every message and enum reachable from a message through
@@ -199,11 +208,11 @@ fn there_is_one_file_per_module() {
 }
 
 // Why: every wire type must be declared in exactly one file, and every declared type
-// must be part of a figure, so that the generated schema neither duplicates a type nor
-// carries a type that the encoder never writes (a sign of a type left out of `Figure`'s
-// tree or of a stale declaration).
+// must be part of a figure or of a transaction, so that the generated schema neither
+// duplicates a type nor carries a type that the encoder never writes (a sign of a type
+// left out of the tree of `Figure` or `Transaction`, or of a stale declaration).
 #[test]
-fn every_wire_type_is_declared_in_exactly_one_file_and_reachable_from_figure() {
+fn every_wire_type_is_declared_in_exactly_one_file_and_reachable_from_a_root() {
     let pool = compile();
     let mut declared: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for file in pool.files() {
@@ -231,11 +240,12 @@ fn every_wire_type_is_declared_in_exactly_one_file_and_reachable_from_figure() {
 
     let mut reachable = BTreeSet::new();
     reachable_types(&figure_descriptor(&pool), &mut reachable);
+    reachable_types(&transaction_descriptor(&pool), &mut reachable);
     let declared: BTreeSet<String> = declared.into_keys().collect();
     assert_eq!(
         declared.difference(&reachable).collect::<Vec<_>>(),
         Vec::<&String>::new(),
-        "declared types that no figure can contain"
+        "declared types that no figure or transaction can contain"
     );
 }
 
@@ -552,82 +562,98 @@ fn singular_numeric_and_boolean_fields_have_presence_except_colour_components() 
     }
 }
 
+/// Reports every oneof that is unset, every enum that is unspecified, and every field with
+/// presence that is absent although it is not one of the `optional` fields, in a dynamic
+/// message and its descendants.
+fn check_explicit(
+    message: &DynamicMessage,
+    path: &str,
+    optional: &[&str],
+    problems: &mut Vec<String>,
+) {
+    let descriptor = message.descriptor();
+    for oneof in descriptor.oneofs().filter(|o| !o.is_synthetic()) {
+        if !oneof.fields().any(|f| message.has_field(&f)) {
+            problems.push(format!("{path}: oneof {} is unset", oneof.name()));
+        }
+    }
+    for field in descriptor.fields() {
+        let name = field.full_name();
+        let is_optional = optional.contains(&name);
+        let in_oneof = field.containing_oneof().is_some_and(|o| !o.is_synthetic());
+        if field.supports_presence() && !in_oneof && !is_optional && !message.has_field(&field) {
+            problems.push(format!("{path}.{}: absent", field.name()));
+        }
+        if let Kind::Enum(_) = field.kind()
+            && let Value::EnumNumber(0) = *message.get_field(&field)
+        {
+            problems.push(format!("{path}.{}: unspecified", field.name()));
+        }
+        match &*message.get_field(&field) {
+            Value::Message(inner) if message.has_field(&field) => {
+                check_explicit(
+                    inner,
+                    &format!("{path}.{}", field.name()),
+                    optional,
+                    problems,
+                );
+            }
+            Value::List(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    if let Value::Message(inner) = item {
+                        let at = format!("{path}.{}[{i}]", field.name());
+                        check_explicit(inner, &at, optional, problems);
+                    }
+                }
+            }
+            Value::Map(entries) => {
+                for (key, item) in entries {
+                    if let Value::Message(inner) = item {
+                        let at = format!("{path}.{}[{key:?}]", field.name());
+                        check_explicit(inner, &at, optional, problems);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // Why: readers in other languages do not know the IR's context-dependent defaults, so
 // IronLAB must write every value explicitly: every enum specified, every oneof set, and
 // every field with presence set unless the IR value is itself absent (an optional title,
 // label, legend, display name or coordinate array).
 #[test]
 fn the_encoder_writes_every_value_explicitly() {
-    const OPTIONAL_IN_IR: [&str; 15] = [
-        "ironlab.ir.v0.Figure.title",
-        "ironlab.ir.v0.Axes.title",
-        "ironlab.ir.v0.Axes.legend",
-        "ironlab.ir.v0.Axis.label",
-        "ironlab.ir.v0.Line.display_name",
-        "ironlab.ir.v0.Line.z",
-        "ironlab.ir.v0.Scatter.display_name",
-        "ironlab.ir.v0.Scatter.z",
-        "ironlab.ir.v0.Contour.display_name",
-        "ironlab.ir.v0.ContourPlacementPlane.z",
-        "ironlab.ir.v0.Quiver.display_name",
-        "ironlab.ir.v0.Quiver.z",
-        "ironlab.ir.v0.Quiver.w",
-        "ironlab.ir.v0.Surface.display_name",
-        "ironlab.ir.v0.Surface.c",
-    ];
-
-    fn check(message: &DynamicMessage, path: &str, problems: &mut Vec<String>) {
-        let descriptor = message.descriptor();
-        for oneof in descriptor.oneofs().filter(|o| !o.is_synthetic()) {
-            if !oneof.fields().any(|f| message.has_field(&f)) {
-                problems.push(format!("{path}: oneof {} is unset", oneof.name()));
-            }
-        }
-        for field in descriptor.fields() {
-            let name = field.full_name();
-            let optional = OPTIONAL_IN_IR.contains(&name);
-            let in_oneof = field.containing_oneof().is_some_and(|o| !o.is_synthetic());
-            if field.supports_presence() && !in_oneof && !optional && !message.has_field(&field) {
-                problems.push(format!("{path}.{}: absent", field.name()));
-            }
-            if let Kind::Enum(_) = field.kind()
-                && let Value::EnumNumber(0) = *message.get_field(&field)
-            {
-                problems.push(format!("{path}.{}: unspecified", field.name()));
-            }
-            match &*message.get_field(&field) {
-                Value::Message(inner) if message.has_field(&field) => {
-                    check(inner, &format!("{path}.{}", field.name()), problems);
-                }
-                Value::List(items) => {
-                    for (i, item) in items.iter().enumerate() {
-                        if let Value::Message(inner) = item {
-                            check(inner, &format!("{path}.{}[{i}]", field.name()), problems);
-                        }
-                    }
-                }
-                Value::Map(entries) => {
-                    for (key, item) in entries {
-                        if let Value::Message(inner) = item {
-                            check(
-                                inner,
-                                &format!("{path}.{}[{key:?}]", field.name()),
-                                problems,
-                            );
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
     let pool = compile();
     let bytes = kitchen_sink_figure().to_protobuf();
     let message = DynamicMessage::decode(figure_descriptor(&pool), bytes.as_slice())
         .expect("the generated schema decodes the encoder's output");
     let mut problems = Vec::new();
-    check(&message, "Figure", &mut problems);
+    check_explicit(&message, "Figure", &OPTIONAL_IN_IR, &mut problems);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+// Why: a transaction is read by clients in other languages with no context from which to
+// take a default, so the encoder must write every value of every edit explicitly; only
+// the index of an insertion or a move and the window of an append may be absent, because
+// their absence means "append" and "keep everything".
+#[test]
+fn the_encoder_writes_every_value_of_a_transaction_explicitly() {
+    let optional: Vec<&str> = OPTIONAL_IN_IR
+        .into_iter()
+        .chain([
+            "ironlab.ir.v0.EditInsert.index",
+            "ironlab.ir.v0.EditMove.index",
+            "ironlab.ir.v0.EditAppendData.retain",
+        ])
+        .collect();
+    let pool = compile();
+    let bytes = every_kind_transaction().to_protobuf();
+    let message = DynamicMessage::decode(transaction_descriptor(&pool), bytes.as_slice())
+        .expect("the generated schema decodes the encoder's output");
+    let mut problems = Vec::new();
+    check_explicit(&message, "Transaction", &optional, &mut problems);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
@@ -665,13 +691,19 @@ fn unknown_field_paths(message: &DynamicMessage, path: &str) -> Vec<String> {
     paths
 }
 
-/// Decodes bytes with the generated schema through reflection, requires that the
-/// schema accounts for every field, and re-encodes the dynamic message.
+/// Decodes bytes of a figure with the generated schema through reflection, requires that
+/// the schema accounts for every field, and re-encodes the dynamic message.
 fn transcode_through_generated_schema(bytes: &[u8]) -> Vec<u8> {
-    let pool = compile();
-    let message = DynamicMessage::decode(figure_descriptor(&pool), bytes)
+    transcode_message(bytes, figure_descriptor(&compile()))
+}
+
+/// Decodes bytes of the given message with the generated schema through reflection,
+/// requires that the schema accounts for every field, and re-encodes the dynamic message.
+fn transcode_message(bytes: &[u8], descriptor: MessageDescriptor) -> Vec<u8> {
+    let root = descriptor.name().to_owned();
+    let message = DynamicMessage::decode(descriptor, bytes)
         .expect("the generated schema decodes the encoder's output");
-    let unknown = unknown_field_paths(&message, "Figure");
+    let unknown = unknown_field_paths(&message, &root);
     assert!(
         unknown.is_empty(),
         "fields written by the encoder but absent from the generated schema: {unknown:?}"
@@ -702,4 +734,14 @@ fn a_generic_implementation_using_the_generated_schema_preserves_float_bits() {
     let transcoded = transcode_through_generated_schema(&original.to_protobuf());
     let restored = Figure::from_protobuf(&transcoded).unwrap();
     assert_eq!(float_bits(&restored), float_bits(&original));
+}
+
+// Why: a client in another language that has only the generated `.proto` files must read
+// and write the transactions that IronLAB writes and reads, for every kind of edit and
+// every value.
+#[test]
+fn a_generic_implementation_using_the_generated_schema_round_trips_a_transaction() {
+    let original = every_kind_transaction();
+    let transcoded = transcode_message(&original.to_protobuf(), transaction_descriptor(&compile()));
+    assert_eq!(Transaction::from_protobuf(&transcoded).unwrap(), original);
 }

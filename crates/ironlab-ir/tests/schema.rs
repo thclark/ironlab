@@ -117,3 +117,46 @@ fn every_reference_resolves_to_a_definition_in_a_generated_file() {
         "no file refers to another, so the schema is not split by module"
     );
 }
+
+// Why: web clients that build transactions as JSON need a schema to validate them against,
+// generated like that of figures: `edit.schema.json` must describe a transaction document
+// at its root (inline, as `figure.schema.json` describes a figure, or by a reference to its
+// own definition), hold the definitions of edits, values and nodes, and refer to the files
+// of other modules for the IR types that values and nodes contain rather than copy them.
+#[test]
+fn the_json_schema_of_a_transaction_is_generated_in_the_edit_module() {
+    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
+        .into_iter()
+        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
+        .collect();
+    let edit = files
+        .get(Path::new("edit.schema.json"))
+        .expect("edit.schema.json is generated");
+    for name in ["Edit", "Value", "Node"] {
+        assert!(
+            edit.pointer(&format!("/$defs/{name}")).is_some(),
+            "edit.schema.json does not define {name}"
+        );
+    }
+    let root_is_transaction = edit.pointer("/properties/edits").is_some()
+        || (edit.get("$ref") == Some(&Value::from("#/$defs/Transaction"))
+            && edit
+                .pointer("/$defs/Transaction/properties/edits")
+                .is_some());
+    assert!(
+        root_is_transaction,
+        "the root of edit.schema.json does not describe a transaction"
+    );
+    for (module, name) in [("axes", "Limits"), ("artist", "Artist")] {
+        assert!(
+            edit.pointer(&format!("/$defs/{name}")).is_none(),
+            "edit.schema.json copies {name} instead of referring to {module}.schema.json"
+        );
+    }
+    let mut refs = Vec::new();
+    collect_refs(edit, &mut refs);
+    assert!(
+        refs.contains(&"axes.schema.json#/$defs/Limits"),
+        "edit.schema.json does not refer to the definition of limits in axes.schema.json"
+    );
+}
