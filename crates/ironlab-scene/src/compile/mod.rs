@@ -28,6 +28,9 @@ use ironlab_text::TextEngine;
 use crate::display::{DisplayList, Item, Rect};
 use crate::hit::HitMap;
 
+/// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
+const MAX_TICK_FITTING_PASSES: usize = 10;
+
 /// A problem found while compiling a figure that did not prevent the figure from being drawn.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SceneWarning {
@@ -149,13 +152,38 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .iter()
         .map(|axes| data::prepare_axes(&mut ctx, axes))
         .collect();
-    let targets: Vec<[usize; 3]> = figure
+    let mut targets: Vec<[usize; 3]> = figure
         .axes
         .iter()
         .zip(&outer)
         .map(|(axes, rect)| limits::tick_targets(&ctx, axes, *rect))
         .collect();
-    let ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+    let mut ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+    // Thin the x ticks until their labels fit. Every pass lowers at least one target or stops, and repeated passes
+    // would only repeat the warnings of the first, so those are discarded.
+    let kept = ctx.warnings.len();
+    for _ in 0..MAX_TICK_FITTING_PASSES {
+        let fitted: Vec<[usize; 3]> = figure
+            .axes
+            .iter()
+            .enumerate()
+            .map(|(i, axes)| {
+                let [x, y, z] = targets[i];
+                [
+                    decor::fit_x_target(&mut ctx, axes, ranges[i][0], x, outer[i]),
+                    y,
+                    z,
+                ]
+            })
+            .collect();
+        ctx.warnings.truncate(kept);
+        if fitted == targets {
+            break;
+        }
+        targets = fitted;
+        ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+        ctx.warnings.truncate(kept);
+    }
 
     let decorations: Vec<decor::Decor> = figure
         .axes

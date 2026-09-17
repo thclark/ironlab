@@ -31,11 +31,31 @@ pub(super) fn is_3d(axes: &Axes) -> bool {
     matches!(axes.projection, Projection::ThreeD { .. })
 }
 
+/// The fraction of a tile's width that a 2D x axis is estimated to span, before decorations are measured.
+const X_LENGTH_FRACTION: f64 = 0.85;
+/// The fraction of a tile's height that a 2D y axis is estimated to span, before decorations are measured.
+const Y_LENGTH_FRACTION: f64 = 0.8;
+/// The smallest distance between neighbouring major ticks of a 2D x axis, in font sizes, before the labels are fitted.
+const X_TICK_SPACING: f64 = 3.0;
+/// The smallest distance between neighbouring major ticks of a 2D y axis, in font sizes.
+///
+/// Nice steps grow by factors of two to two and a half, so the resulting distance usually lies between this spacing
+/// and two and a half times it, which averages about MATLAB's one label per three font sizes.
+const Y_TICK_SPACING: f64 = 2.5;
+/// The largest number of major tick intervals on a 2D axis.
+const MAX_INTERVALS_2D: usize = 10;
+
+/// Returns the estimated length in points of the x axis of a 2D axes in the tile `outer`.
+pub(super) fn x_length_estimate(outer: Rect) -> f64 {
+    X_LENGTH_FRACTION * outer.width
+}
+
 /// Chooses the largest number of major tick intervals for each axis of an axes, from the size of its tile.
 ///
 /// The target depends only on the tile, not on measured decorations, so that it is known before limits are
-/// computed. A horizontal axis allows one interval per five font sizes of width and a vertical axis one per six and
-/// a half font sizes of height, so that vertical axes favour coarse steps whose labels need no decimals; a 3D axis allows one per six font sizes of the shorter tile side.
+/// computed. A 2D x axis allows one interval per [`X_TICK_SPACING`] font sizes of its estimated length and a 2D y
+/// axis one per [`Y_TICK_SPACING`] font sizes, up to ten intervals, which gives MATLAB's density of labels; the x
+/// target is then thinned by [`super::decor::fit_x_target`] until the x tick labels fit. A 3D axis allows one interval per six font sizes of the shorter tile side.
 pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
     let fs = ctx.font_size;
     let count = |len: f64, spacing: f64, max: usize| -> usize {
@@ -51,8 +71,16 @@ pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
         [n; 3]
     } else {
         [
-            count(0.85 * outer.width, 5.0 * fs, 10),
-            count(0.8 * outer.height, 6.5 * fs, 10),
+            count(
+                x_length_estimate(outer),
+                X_TICK_SPACING * fs,
+                MAX_INTERVALS_2D,
+            ),
+            count(
+                Y_LENGTH_FRACTION * outer.height,
+                Y_TICK_SPACING * fs,
+                MAX_INTERVALS_2D,
+            ),
             5,
         ]
     }

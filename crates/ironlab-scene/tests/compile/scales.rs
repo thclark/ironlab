@@ -112,7 +112,8 @@ fn x_tick_labels_are_a_nice_sequence_spanning_the_limits() {
     }
 }
 
-// Why: publication typography uses U+2212 MINUS SIGN, never a hyphen, for negative tick labels.
+// Why: publication typography uses U+2212 MINUS SIGN, never a hyphen, for negative tick labels. The
+// number of decimals depends on the tick step, so both "−1" and "−1.0" are acceptable.
 #[test]
 fn negative_tick_labels_use_the_minus_sign() {
     let (fx, ax, ..) = sine_axes();
@@ -120,9 +121,102 @@ fn negative_tick_labels_use_the_minus_sign() {
     let plot = axes_hit(&scene, ax).plot_rect;
     let labels = y_tick_labels(&leaves(&scene), plot);
     let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
-    assert!(texts.contains(&"\u{2212}1"), "{texts:?}");
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.value == -1.0 && l.text.starts_with('\u{2212}')),
+        "{texts:?}"
+    );
     assert!(texts.iter().all(|t| !t.contains('-')), "{texts:?}");
-    assert!(labels.iter().any(|l| l.value < 0.0));
+    assert!(
+        labels
+            .iter()
+            .filter(|l| l.value < 0.0)
+            .all(|l| l.text.starts_with('\u{2212}')),
+        "{texts:?}"
+    );
+}
+
+// Why: a value is read off an axis by interpolating between its labelled ticks, so a y axis needs
+// MATLAB's density of labels: in a default figure, data spanning [−1, 1] is labelled every 0.5 or
+// finer, not only at −1, 0 and 1.
+#[test]
+fn y_axis_has_matlab_like_tick_density() {
+    let (fx, ax, ..) = sine_axes();
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let labels = y_tick_labels(&leaves(&scene), plot);
+    let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+    assert!(labels.len() >= 5, "{texts:?}");
+}
+
+// Why: manual limits that are not multiples of a coarse step (the scatter gallery figure uses
+// [−1.6, 1.6]) must still show several labelled ticks; a step chosen too coarse leaves a single
+// label at zero, and the axis cannot be read at all.
+#[test]
+fn manual_limits_off_the_tick_grid_still_show_several_labels() {
+    let mut fx = Fx::new();
+    fx.fig.size.width_mm = 120.0;
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &[-1.5, 1.5], &[-1.5, 1.5], None, |_| {});
+    let limits = Limits::Manual {
+        min: -1.6,
+        max: 1.6,
+    };
+    fx.ax(ax).x.limits = limits;
+    fx.ax(ax).y.limits = limits;
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let leaves = leaves(&scene);
+    for (name, labels) in [
+        ("x", x_tick_labels(&leaves, plot)),
+        ("y", y_tick_labels(&leaves, plot)),
+    ] {
+        let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+        assert!(labels.len() >= 5, "{name} labels: {texts:?}");
+    }
+}
+
+/// Returns the x tick labels of a single axes holding a line over `x`, in a figure `width_mm` wide,
+/// sorted from left to right.
+fn x_labels_at_width(x: [f64; 2], width_mm: f64) -> (Vec<crate::probe::NumericLabel>, f64) {
+    let mut fx = Fx::new();
+    fx.fig.size.width_mm = width_mm;
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &x, &[0.0, 1.0], None, |_| {});
+    let font_size = fx.fig.font_size_pt;
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let mut labels = x_tick_labels(&leaves(&scene), plot);
+    labels.sort_by(|a, b| a.bbox.x.total_cmp(&b.bbox.x));
+    (labels, font_size)
+}
+
+// Why: the number of x ticks depends on how wide the labels are, as in MATLAB: wide labels in a
+// narrow axes must be thinned so that neighbouring labels keep a clear gap and never run together,
+// while a wide axes with the same data shows more ticks.
+#[test]
+fn x_tick_density_follows_label_width_and_axis_width() {
+    let (narrow, font_size) = x_labels_at_width([1000.5, 1009.5], 60.0);
+    let (wide, _) = x_labels_at_width([1000.5, 1009.5], 240.0);
+    let texts = |l: &[crate::probe::NumericLabel]| -> Vec<String> {
+        l.iter().map(|l| l.text.clone()).collect()
+    };
+    assert!(narrow.len() >= 2, "{:?}", texts(&narrow));
+    for pair in narrow.windows(2) {
+        let gap = pair[1].bbox.x - pair[0].bbox.right();
+        assert!(
+            gap >= font_size,
+            "labels {:?} are {gap} pt apart",
+            texts(&narrow)
+        );
+    }
+    assert!(
+        wide.len() > narrow.len(),
+        "wide {:?}, narrow {:?}",
+        texts(&wide),
+        texts(&narrow)
+    );
 }
 
 /// A loglog axes with a line through four decades on both axes.
