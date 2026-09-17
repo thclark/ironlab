@@ -19,6 +19,7 @@ struct ToolbarHarnessState {
     warnings: Vec<SceneWarning>,
     export_requested: bool,
     save_requested: bool,
+    show_properties: bool,
 }
 
 fn toolbar_harness(
@@ -27,7 +28,12 @@ fn toolbar_harness(
 ) -> Harness<'static, ToolbarHarnessState> {
     Harness::new_ui_state(
         |ui, state: &mut ToolbarHarnessState| {
-            let response = toolbar(ui, &mut state.figure, &state.warnings);
+            let response = toolbar(
+                ui,
+                &mut state.figure,
+                &state.warnings,
+                &mut state.show_properties,
+            );
             state.export_requested |= response.export_requested;
             state.save_requested |= response.save_requested;
         },
@@ -36,6 +42,7 @@ fn toolbar_harness(
             warnings,
             export_requested: false,
             save_requested: false,
+            show_properties: false,
         },
     )
 }

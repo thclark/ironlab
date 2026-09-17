@@ -10,6 +10,9 @@
 //!   source figure and the user's overlay apart, and composes the figure that is displayed.
 //! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation
 //!   gallery and for tests.
+//! - [`inspector`] builds what the property editor shows (the object tree, the properties of a node and the
+//!   parameters of a figure) and turns a change made in it into a transaction; it, too, is pure logic.
+//! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below.
 //! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
@@ -17,8 +20,10 @@
 pub mod app;
 pub mod canvas;
 pub mod files;
+pub mod inspector;
 pub mod interaction;
 pub mod offscreen;
+pub mod panel;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use canvas::{ScreenTransform, tessellate};
@@ -26,3 +31,4 @@ pub use interaction::{FigureState, ROTATE_DEGREES_PER_POINT, Tool};
 pub use offscreen::{
     OffscreenRenderer, RenderError, RenderedImage, render_display_list_offscreen, render_offscreen,
 };
+pub use panel::{PropertyPanel, property_panel};

@@ -21,6 +21,10 @@
 //! figure is composed. Such an entry is removed from the overlay and its reason is reported by
 //! [`FigureState::problems`], which the toolbar shows alongside the warnings of the scene compiler.
 //!
+//! The property editor commits through [`FigureState::try_record`], which refuses such a change before it is
+//! recorded, so that the figure is left as it was and no undo step is spent; [`FigureState::begin_edit_step`] and
+//! [`FigureState::end_edit_step`] make a drag of a numeric field one step, as a drag on the canvas is.
+//!
 //! # Semantics
 //!
 //! - **Wheel zoom** (2D) rescales the x and y limits of the axes under the pointer about the data point under the
@@ -43,7 +47,9 @@
 //!   the overlay, so that it shows the source again, and sets the axes linked with it to the limits restored. On a
 //!   legend entry, the second click of a double-click is a click like the first, so a double-click toggles the artist
 //!   twice, leaves its visibility as it was and does not restore any limits.
-//! - **Click** on a legend entry sets `visible` on its artist.
+//! - **Click** on a legend entry sets `visible` on its artist and selects it; a click elsewhere inside an axes
+//!   selects that axes and changes nothing. The selection is what the property editor shows, and no gesture
+//!   changes it.
 //! - **Reset view** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
 //!   about content rather than about the view.
 //!
@@ -116,12 +122,16 @@ pub struct FigureState {
     /// The active drag tool.
     pub tool: Tool,
     drag: Option<Drag>,
+    /// The node the property editor shows, which a click on the canvas and a click in the
+    /// object tree both set.
+    selected: Option<NodeId>,
 }
 
 impl FigureState {
     /// Creates the state for a freshly opened figure, with the Pan tool active and an empty overlay.
     #[must_use]
     pub fn new(figure: Figure) -> Self {
+        let id = figure.id;
         Self {
             composed: figure.clone(),
             source: figure,
@@ -129,6 +139,7 @@ impl FigureState {
             problems: Vec::new(),
             tool: Tool::Pan,
             drag: None,
+            selected: Some(id),
         }
     }
 
@@ -148,6 +159,67 @@ impl FigureState {
     #[must_use]
     pub fn overlay(&self) -> &Overlay {
         &self.overlay
+    }
+
+    /// Returns the node that the property editor shows, which is the figure itself until
+    /// something else is selected.
+    #[must_use]
+    pub fn selection(&self) -> Option<NodeId> {
+        self.selected
+    }
+
+    /// Selects a node, or nothing. A node that is not in the displayed figure selects
+    /// nothing, so that the property editor never shows a node that has gone.
+    pub fn select(&mut self, node: Option<NodeId>) {
+        self.selected = node.filter(|node| self.composed.node_kind(*node).is_some());
+    }
+
+    /// Opens an undo step, so that everything recorded until [`FigureState::end_edit_step`]
+    /// is undone in one step.
+    ///
+    /// The property editor holds a step open while a numeric field is dragged or a text
+    /// field is being typed into, so that the change ends as one step rather than one per
+    /// frame, exactly as a drag on the canvas does.
+    pub fn begin_edit_step(&mut self) {
+        self.overlay.begin_step();
+    }
+
+    /// Closes the step opened by [`FigureState::begin_edit_step`]. A step that changed
+    /// nothing adds nothing to the history.
+    pub fn end_edit_step(&mut self) {
+        self.overlay.end_step();
+    }
+
+    /// Records a transaction that the displayed figure must accept, which is what the
+    /// property editor commits.
+    ///
+    /// The transaction is first applied to a copy of the displayed figure. When the IR
+    /// refuses it (limits that are not increasing, a projection that an artist cannot be
+    /// drawn in), nothing is recorded: the figure is left exactly as it was, no undo step
+    /// is spent, and the reason is added to [`FigureState::problems`], which the toolbar
+    /// shows. Otherwise the transaction is recorded as [`FigureState::record`] does.
+    ///
+    /// Returns whether the displayed figure changed.
+    pub fn try_record(&mut self, transaction: &Transaction) -> bool {
+        let mut trial = self.composed.clone();
+        if let Err(error) = trial.apply(transaction) {
+            self.report(refusal(transaction, &error));
+            return false;
+        }
+        self.record(transaction)
+    }
+
+    /// Removes the overlay entry for exactly one property of one node, as the property
+    /// editor's revert control does, and recomposes the displayed figure so that the
+    /// source's own value is shown again.
+    ///
+    /// The revert is its own undo step. Returns whether there was an entry to remove.
+    pub fn revert(&mut self, node: NodeId, path: &PropertyPath) -> bool {
+        if !self.overlay.revert(node, path) {
+            return false;
+        }
+        self.recompose();
+        true
     }
 
     /// Returns the problems raised by changes that the figure could not show, in the order they arose.
@@ -437,6 +509,7 @@ impl FigureState {
         if self.composed.axes(id).is_none() {
             return false;
         }
+        self.select(Some(id));
         self.step(|state| {
             let before = state.overlay.entries().to_vec();
             state.overlay.reset_view(id);
@@ -462,15 +535,19 @@ impl FigureState {
     /// whether the figure changed.
     pub fn click(&mut self, hit: &HitMap, at: Point) -> bool {
         let Some(entry) = hit.legend_entry_at(at) else {
+            if let Some(axes) = hit.axes_at(at) {
+                self.select(Some(axes.id));
+            }
             return false;
         };
         let Some((_, artist)) = self.composed.artist(entry.artist) else {
             return false;
         };
-        let visible = artist.visible();
+        let (artist_id, visible) = (entry.artist, artist.visible());
+        self.select(Some(artist_id));
         self.record(&Transaction {
             edits: vec![Edit::Set {
-                node: entry.artist,
+                node: artist_id,
                 path: path(&["visible"]),
                 value: Value::Bool(!visible),
             }],
@@ -506,21 +583,31 @@ impl FigureState {
     /// keeping their reasons as problems.
     fn recompose(&mut self) {
         let composition = self.overlay.compose(&self.source);
+        let mut problems = Vec::new();
         for dropped in &composition.dropped {
-            let problem = SceneWarning {
+            problems.push(SceneWarning {
                 node: Some(dropped.entry.node),
                 message: format!(
                     "the change to {} was dropped: {}",
                     dropped.entry.path,
                     reason(&dropped.reason)
                 ),
-            };
-            if !self.problems.contains(&problem) {
-                self.problems.push(problem);
-            }
+            });
+        }
+        for problem in problems {
+            self.report(problem);
         }
         self.overlay.discard(&composition.dropped);
         self.composed = composition.figure;
+        let selected = self.selected;
+        self.select(selected);
+    }
+
+    /// Adds a problem, unless it is already reported.
+    fn report(&mut self, problem: SceneWarning) {
+        if !self.problems.contains(&problem) {
+            self.problems.push(problem);
+        }
     }
 
     /// Runs a gesture whose changes are one step of the undo history, unless a drag is already open, in which case
@@ -638,6 +725,25 @@ fn reason(error: &EditError) -> String {
             .collect::<Vec<String>>()
             .join("; "),
         other => other.to_string(),
+    }
+}
+
+/// The problem raised by a transaction that the figure refused, naming the property it concerned.
+///
+/// The error of an edit names its own path; an error of validation names none, so the path of the edit the error
+/// concerns, or of the first set of the transaction, is used instead.
+fn refusal(transaction: &Transaction, error: &EditError) -> SceneWarning {
+    let named = transaction.edits.first().and_then(|edit| match edit {
+        Edit::Set { node, path, .. } => Some((*node, path.clone())),
+        _ => None,
+    });
+    let message = match &named {
+        Some((_, path)) => format!("the change to {path} was refused: {}", reason(error)),
+        None => format!("the change was refused: {}", reason(error)),
+    };
+    SceneWarning {
+        node: named.map(|(node, _)| node),
+        message,
     }
 }
 

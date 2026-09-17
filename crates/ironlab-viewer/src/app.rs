@@ -8,6 +8,9 @@
 //! `egui::Shape::mesh`, relying on 4× MSAA for anti-aliasing; the meshes are rebuilt only when the scene, the scale
 //! or the position of the figure changes.
 //!
+//! A tab also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar opens
+//! into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
+//!
 //! Everything shown, exported and saved is the displayed figure of [`FigureState`]: the source figure with the user's
 //! overlay applied. Pressing `R` resets the view of the active figure, and ⌘Z and ⌘⇧Z (Ctrl+Z and Ctrl+Shift+Z away
 //! from macOS) undo and redo its gestures. "Export PDF…" writes the displayed figure with
@@ -23,6 +26,7 @@ use ironlab_text::TextEngine;
 
 use crate::canvas::{ScreenTransform, color32, tessellate};
 use crate::interaction::{FigureState, Tool};
+use crate::panel::PropertyPanel;
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
 /// typical mouse wheel (50 points) zooms by about 20 %.
@@ -50,12 +54,14 @@ pub struct ToolbarResponse {
 /// The toolbar has selectable buttons labelled "Pan", "Zoom" and "Rotate" that set [`FigureState::tool`] ("Rotate" is
 /// disabled when the figure has no 3D axes), "Undo" and "Redo" buttons that step through the overlay's history and
 /// are disabled when there is nothing to undo or redo, a "Reset view" button that calls [`FigureState::reset_view`],
-/// "Export PDF…" and "Save figure…" buttons, and, when `warnings` is not empty, a problems indicator whose label
-/// contains the number of problems (for example "2 problems") and whose hover text lists them.
+/// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
+/// `show_properties`, and, when `warnings` is not empty, a problems indicator whose label contains the number of
+/// problems (for example "2 problems") and whose hover text lists them.
 pub fn toolbar(
     ui: &mut egui::Ui,
     state: &mut FigureState,
     warnings: &[SceneWarning],
+    show_properties: &mut bool,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
     ui.horizontal(|ui| {
@@ -120,6 +126,13 @@ pub fn toolbar(
             response.export_requested = true;
         }
         if ui
+            .add(egui::Button::selectable(*show_properties, "Properties"))
+            .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
+            .clicked()
+        {
+            *show_properties = !*show_properties;
+        }
+        if ui
             .button("Save figure…")
             .on_hover_text(
                 "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
@@ -162,6 +175,8 @@ struct MeshCache {
 struct FigurePane {
     title: String,
     state: FigureState,
+    /// The property editor of this tab, hidden until the toolbar opens it.
+    panel: PropertyPanel,
     /// The compilation of the displayed figure, or `None` when it must be recompiled.
     scene: Option<Scene>,
     /// The meshes of `scene`, or `None` when they must be rebuilt.
@@ -173,6 +188,7 @@ impl FigurePane {
         Self {
             title,
             state: FigureState::new(figure),
+            panel: PropertyPanel::default(),
             scene: None,
             meshes: None,
         }
@@ -207,9 +223,14 @@ impl FigurePane {
         warnings.extend(self.state.problems().iter().cloned());
         let response = egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(8, 4))
-            .show(ui, |ui| toolbar(ui, &mut self.state, &warnings))
+            .show(ui, |ui| {
+                toolbar(ui, &mut self.state, &warnings, &mut self.panel.open)
+            })
             .inner;
         if response.changed {
+            self.invalidate();
+        }
+        if crate::panel::property_panel(ui, &mut self.panel, &mut self.state) {
             self.invalidate();
         }
         let now = ui.input(|i| i.time);
