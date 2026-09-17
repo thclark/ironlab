@@ -332,6 +332,31 @@ pub enum EditError {
     Invalid(Vec<ValidationIssue>),
 }
 
+impl EditError {
+    /// Returns the error with the index of the edit it concerns replaced, so that an
+    /// error raised by a transaction of one edit can be reported without an index.
+    pub(crate) fn at_edit(mut self, index: Option<usize>) -> Self {
+        let edit = match &mut self {
+            EditError::UnknownNode { edit, .. }
+            | EditError::UnknownData { edit, .. }
+            | EditError::UnknownPath { edit, .. }
+            | EditError::TypeMismatch { edit, .. }
+            | EditError::InactiveVariant { edit, .. }
+            | EditError::AbsentValue { edit, .. }
+            | EditError::ReadOnly { edit, .. }
+            | EditError::DuplicateId { edit, .. }
+            | EditError::InvalidParent { edit, .. }
+            | EditError::RootNode { edit, .. }
+            | EditError::IndexOutOfRange { edit, .. }
+            | EditError::ShapeMismatch { edit, .. }
+            | EditError::NotASet { edit } => edit,
+            EditError::Invalid(_) => return self,
+        };
+        *edit = index;
+        self
+    }
+}
+
 impl Figure {
     /// Applies a transaction, and returns its inverse.
     ///
@@ -815,5 +840,82 @@ impl Transaction {
     /// transaction, including when a property path is not valid.
     pub fn from_json(json: &str) -> Result<Transaction, IrError> {
         Ok(serde_json::from_str(json)?)
+    }
+}
+
+/// The tree of a figure's nodes, as the structural edits of a transaction leave it.
+///
+/// The overlay and selections need to know which nodes a removal takes with it at the
+/// moment of the removal, so that an artist moved out of an axes earlier in the same
+/// transaction is not counted among its descendants. Only the shape of the tree is
+/// tracked, so following a transaction costs nothing like a copy of the figure.
+pub(crate) struct NodeTree {
+    /// The artists of each axes, in tree order.
+    axes: Vec<(NodeId, Vec<NodeId>)>,
+}
+
+impl NodeTree {
+    /// Returns the tree of a figure.
+    pub(crate) fn of(figure: &Figure) -> Self {
+        NodeTree {
+            axes: figure
+                .axes
+                .iter()
+                .map(|axes| (axes.id, axes.artists.iter().map(Artist::id).collect()))
+                .collect(),
+        }
+    }
+
+    /// Returns the node and its descendants, or nothing when the tree does not hold the
+    /// node.
+    pub(crate) fn subtree(&self, node: NodeId) -> Vec<NodeId> {
+        for (axes, artists) in &self.axes {
+            if *axes == node {
+                return std::iter::once(node)
+                    .chain(artists.iter().copied())
+                    .collect();
+            }
+            if artists.contains(&node) {
+                return vec![node];
+            }
+        }
+        Vec::new()
+    }
+
+    /// Applies the structural effect of an edit; every other edit leaves the tree
+    /// unchanged. Positions within a list are not tracked, because only membership and
+    /// descent matter.
+    pub(crate) fn apply(&mut self, edit: &Edit) {
+        match edit {
+            Edit::Insert { parent, node, .. } => match node {
+                Node::Axes(axes) => self
+                    .axes
+                    .push((axes.id, axes.artists.iter().map(Artist::id).collect())),
+                Node::Artist(artist) => self.push_artist(*parent, artist.id()),
+            },
+            Edit::Remove { node } => self.remove(*node),
+            // Moving an axes only reorders the figure's list.
+            Edit::Move { node, parent, .. } if !self.axes.iter().any(|(id, _)| id == node) => {
+                self.remove(*node);
+                self.push_artist(*parent, *node);
+            }
+            _ => {}
+        }
+    }
+
+    fn push_artist(&mut self, parent: NodeId, artist: NodeId) {
+        if let Some((_, artists)) = self.axes.iter_mut().find(|(id, _)| *id == parent) {
+            artists.push(artist);
+        }
+    }
+
+    fn remove(&mut self, node: NodeId) {
+        if let Some(position) = self.axes.iter().position(|(id, _)| *id == node) {
+            self.axes.remove(position);
+            return;
+        }
+        for (_, artists) in &mut self.axes {
+            artists.retain(|id| *id != node);
+        }
     }
 }

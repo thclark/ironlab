@@ -46,6 +46,8 @@ mod error;
 mod figure;
 mod ids;
 mod link;
+pub mod overlay;
+pub mod selection;
 mod style;
 mod text;
 mod validate;
