@@ -23,6 +23,7 @@ target
 # Generated documentation gallery and site
 docs/gallery/*
 !docs/gallery/.gitkeep
+docs/stylesheets/gallery.css
 site/
 
 # Figure outputs written by examples and tests
