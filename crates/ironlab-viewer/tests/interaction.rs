@@ -947,6 +947,10 @@ fn an_entry_that_the_figure_cannot_show_is_discarded_and_reported_as_a_problem()
         "the problem names the property: {}",
         problems[0].message
     );
+    assert!(
+        !state.can_undo(),
+        "a change that was discarded leaves no undo step, which would undo to the same figure"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------

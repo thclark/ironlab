@@ -200,9 +200,19 @@ impl Overlay {
     }
 
     /// Removes the given dropped entries from the overlay, without adding an undo step.
+    ///
+    /// An entry that was discarded never changed what the user saw, so the step that
+    /// recorded it is spent: if the discards leave the entries as they were before the
+    /// most recent step, that step is removed from the undo history, and the next undo
+    /// reaches the change before it. A step some of whose entries survive is kept, so a
+    /// gesture of many sets remains one step; the redo history, which recording cleared,
+    /// is not restored.
     pub fn discard(&mut self, dropped: &[Dropped]) {
         self.entries
             .retain(|entry| !dropped.iter().any(|d| d.entry == *entry));
+        if self.open_step.is_none() && self.undo.last() == Some(&self.entries) {
+            self.undo.pop();
+        }
     }
 
     /// Compares the overlay with a transaction of the owner, and returns the conflicts

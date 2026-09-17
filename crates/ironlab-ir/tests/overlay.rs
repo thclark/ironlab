@@ -342,6 +342,69 @@ fn discarding_dropped_entries_removes_them_from_the_overlay() {
     assert!(overlay.compose(&source).dropped.is_empty());
 }
 
+// Why: an entry that composition discards changes nothing the user can see, so the undo
+// step that recording it pushed is spent: the user's first undo would appear to do
+// nothing. Discarding the entry removes that step, so the next undo reaches the change
+// before it.
+#[test]
+fn discarding_every_entry_of_a_step_leaves_no_step_to_undo() {
+    let f = fixture();
+    let (source, _) = applied(&f.source, &tx([Edit::Remove { node: f.line_a }])).unwrap();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    let kept = overlay.entries().to_vec();
+
+    record(&mut overlay, f.line_a, "visible", Value::Bool(false));
+    let dropped = overlay.compose(&source).dropped;
+    assert_eq!(dropped.len(), 1, "{dropped:?}");
+    overlay.discard(&dropped);
+
+    assert_eq!(overlay.entries(), kept);
+    assert!(
+        overlay.undo(),
+        "the step of the change that was kept remains"
+    );
+    assert!(overlay.entries().is_empty());
+    assert!(
+        !overlay.can_undo(),
+        "the discarded change left no step behind"
+    );
+}
+
+// Why: a gesture of many sets is one undo step, and discarding some of its entries must
+// not break that: the step is kept while any of its entries survives, and only a step
+// whose entries are all discarded disappears. A discard part-way through an open gesture
+// must not consume a step of an earlier gesture either.
+#[test]
+fn a_gesture_whose_entries_are_discarded_keeps_the_steps_of_earlier_gestures() {
+    let f = fixture();
+    let (source, _) = applied(&f.source, &tx([Edit::Remove { node: f.line_a }])).unwrap();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    let kept = overlay.entries().to_vec();
+
+    // One gesture that sets a surviving property and one that the figure cannot show.
+    overlay.begin_step();
+    record(&mut overlay, f.a, "y.limits", limits(4.0, 5.0));
+    record(&mut overlay, f.line_a, "visible", Value::Bool(false));
+    let dropped = overlay.compose(&source).dropped;
+    overlay.discard(&dropped);
+    overlay.end_step();
+
+    assert_eq!(
+        keys(&overlay),
+        [(f.a, "x.limits".to_owned()), (f.a, "y.limits".to_owned())]
+    );
+    assert!(
+        overlay.undo(),
+        "the gesture kept one entry, so it is a step"
+    );
+    assert_eq!(overlay.entries(), kept);
+    assert!(overlay.undo(), "the earlier step was not consumed");
+    assert!(overlay.entries().is_empty());
+    assert!(!overlay.can_undo());
+}
+
 // Why: saving a figure that the viewer owns writes the overlay into the source, which must
 // give exactly the figure that was displayed.
 #[test]
