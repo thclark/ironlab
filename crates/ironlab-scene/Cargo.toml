@@ -1,0 +1,21 @@
+[package]
+name = "ironlab-scene"
+description = "Layout, scales and scene compilation from figure IR to a display list."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ironlab-ir.workspace = true
+ironlab-text.workspace = true
+kurbo.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

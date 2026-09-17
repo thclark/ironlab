@@ -1,0 +1,21 @@
+[package]
+name = "ironlab-pdf"
+description = "PDF export of IronLAB figures."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ironlab-ir.workspace = true
+ironlab-text.workspace = true
+ironlab-scene.workspace = true
+krilla.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]

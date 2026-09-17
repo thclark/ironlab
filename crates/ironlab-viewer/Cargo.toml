@@ -1,0 +1,28 @@
+[package]
+name = "ironlab-viewer"
+description = "Interactive egui viewer for IronLAB figures."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ironlab-ir.workspace = true
+ironlab-text.workspace = true
+ironlab-scene.workspace = true
+ironlab-pdf.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui_tiles.workspace = true
+lyon.workspace = true
+lyon_algorithms.workspace = true
+rfd.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["eframe"] }
