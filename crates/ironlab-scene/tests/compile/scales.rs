@@ -362,6 +362,73 @@ fn linked_auto_limits_cover_the_union_of_group_data() {
     );
 }
 
+// Why: as in MATLAB, `contour` and `contourf` fill the plot area with the gridded field. Rounding the
+// grid extent outward to nice ticks would leave empty bands along the edges where no data exists, so
+// automatic x and y limits are exactly the extent of the grid. Linked axes still share the union of
+// their extents.
+#[test]
+fn gridded_data_takes_tight_limits_and_linked_axes_share_their_union() {
+    let mut fx = Fx::new();
+    fx.fig.layout.cols = 2;
+    let a = fx.axes2d(0, 0);
+    let b = fx.axes2d(0, 1);
+    let field = |x: f64, y: f64| x * x + y;
+    fx.contour(
+        a,
+        &[-1.5, -0.5, 0.5, 1.5],
+        &[-0.7, 0.3, 1.3, 2.3],
+        field,
+        |_| {},
+    );
+    fx.contour(b, &[0.0, 1.0, 3.1], &[0.2, 0.5, 0.9], field, |c| {
+        c.fill = true
+    });
+    fx.fig.links.push(AxisLink {
+        dimension: Dimension::X,
+        axes: vec![a, b],
+    });
+    let scene = compile_figure(&fx.build());
+    let (ax_a, ay_a) = axis_maps(&scene, a);
+    let (ax_b, ay_b) = axis_maps(&scene, b);
+    assert_eq!((ay_a.min, ay_a.max), (-0.7, 2.3));
+    assert_eq!((ay_b.min, ay_b.max), (0.2, 0.9));
+    assert_eq!((ax_a.min, ax_a.max), (-1.5, 3.1), "linked x is the union");
+    assert_eq!((ax_b.min, ax_b.max), (-1.5, 3.1), "linked x is the union");
+}
+
+// Why: tight limits describe the grid only. Other artists in the same axes still extend the limits,
+// and where they reach beyond the grid the limit is rounded outward to a labelled tick as for any
+// other data, while a side the grid alone determines stays at the grid edge.
+#[test]
+fn other_artists_extend_tight_gridded_limits_to_nice_ticks() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.contour(
+        ax,
+        &[-1.3, -0.3, 0.7, 1.5],
+        &[-0.7, 0.0, 0.7],
+        |x, y| x + y,
+        |_| {},
+    );
+    fx.line(ax, &[0.0, 2.2], &[0.0, 0.1], None, |_| {});
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let (x, y) = axis_maps(&scene, ax);
+    assert_eq!(x.min, -1.3, "the grid alone sets the left limit");
+    assert!(x.max > 2.2, "the line extends the right limit: {}", x.max);
+    let labels = x_tick_labels(&leaves(&scene), plot);
+    assert!(
+        labels.iter().any(|l| (l.value - x.max).abs() < 1e-9),
+        "the extended limit {} is a labelled tick",
+        x.max
+    );
+    assert_eq!(
+        (y.min, y.max),
+        (-0.7, 0.7),
+        "the line lies inside the grid in y"
+    );
+}
+
 // Why: hiding a series from its legend entry must not make the axes jump to new limits, so a hidden
 // artist's data still counts towards automatic limits.
 #[test]

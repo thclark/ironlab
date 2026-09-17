@@ -113,7 +113,10 @@ impl Ctx<'_> {
 ///   the middle colour of the colormap. The isolines of a filled contour are drawn only when their colour is an
 ///   explicit colour, because colormapped isolines would coincide with the band colours.
 /// - **Limits.** Automatic axis limits round the data range outward to major ticks, are computed over the data of
-///   every axes in the same link group, and are `[0, 1]` for an axes without data. Data that cannot be placed on a
+///   every axes in the same link group, and are `[0, 1]` for an axes without data. Gridded data is the exception, as
+///   in MATLAB's `contour`, `contourf`, `contour3`, `surf` and `mesh`: along x and y, an end of the range that only
+///   the grids of contour and surface artists reach is the exact end of those grids, while an end that other data
+///   reaches beyond the grids is rounded outward as usual. The z limits of a 3D axes are always rounded outward. Data that cannot be placed on a
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
 ///   range of the finite colour values of the axes' colormapped artists.
 /// - **Surface colour.** A colormapped face takes the colormap sample of the mean of its four corner colour values

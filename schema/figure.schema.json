@@ -725,7 +725,7 @@
       "description": "A range of data values.",
       "oneOf": [
         {
-          "description": "The range is computed from the data, rounded outwards to ticks.",
+          "description": "The range is computed from the data. Axis limits are rounded outwards to ticks, except where only the grid of a\ncontour or surface sets the x or y range, which then ends exactly at the grid.",
           "properties": {
             "type": {
               "const": "auto",

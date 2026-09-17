@@ -85,7 +85,7 @@ A View3d has four properties:
 
 ### Limits
 
-- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree.
+- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree. Along x and y, an end of the range reached only by the grid of a contour or surface is the exact end of that grid rather than a tick value. Automatic colour limits are the exact range of the colour data.
 - `{"type": "manual", "min": number, "max": number}` fixes the range. The bounds must be finite, `min` must be less than `max`, and both must be positive on a logarithmic axis.
 
 ### Legend

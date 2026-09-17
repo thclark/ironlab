@@ -346,6 +346,44 @@ fn same_geometry(a: &[Point], b: &[Point], tol: f64) -> bool {
             .all(|(p, q)| (p.x - q.x).abs() <= tol && (p.y - q.y).abs() <= tol)
 }
 
+// Why: `surf` and `mesh` in MATLAB fit the box to the grid in x and y, so the surface reaches the
+// edges of the box, while the vertical axis keeps nicely rounded limits so that the box ends on
+// labelled heights. A surface compiled with automatic limits must therefore be drawn exactly as with
+// manual limits equal to the grid extent in x and y and the rounded height range in z.
+#[test]
+fn surface_takes_tight_x_and_y_limits_and_nice_z_limits() {
+    let build = |manual: bool| {
+        let mut fx = Fx::new();
+        let ax = fx.axes3d(0, 0, View3d::default());
+        let (x, y) = ([-1.3, -0.3, 0.7, 1.7], [0.4, 1.0, 1.6, 2.2]);
+        let surf = fx.surface(
+            ax,
+            &x,
+            &y,
+            |x, y| 0.13 + 0.74 * (x + 1.3) * (y - 0.4) / 5.4,
+            |_| {},
+        );
+        if manual {
+            let axes = fx.ax(ax);
+            axes.x.limits = Limits::Manual {
+                min: -1.3,
+                max: 1.7,
+            };
+            axes.y.limits = Limits::Manual { min: 0.4, max: 2.2 };
+            axes.z.limits = Limits::Manual { min: 0.0, max: 1.0 };
+        }
+        (compile_figure(&fx.build()), surf)
+    };
+    let (automatic, a) = build(false);
+    let (manual, b) = build(true);
+    let (va, vb) = (vertices(&automatic, a), vertices(&manual, b));
+    assert!(!va.is_empty());
+    assert!(
+        same_geometry(&va, &vb, 1e-6),
+        "automatic limits differ from the expected ones"
+    );
+}
+
 // Why: `contour3` lifts each isoline to the height of its level, which must project differently from
 // the same isolines laid flat in a plane.
 #[test]

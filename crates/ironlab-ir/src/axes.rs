@@ -152,7 +152,8 @@ pub enum Scale {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Limits {
-    /// The range is computed from the data, rounded outwards to ticks.
+    /// The range is computed from the data. Axis limits are rounded outwards to ticks, except where only the grid of a
+    /// contour or surface sets the x or y range, which then ends exactly at the grid.
     #[default]
     Auto,
     /// The range is fixed.
