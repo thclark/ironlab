@@ -1,9 +1,31 @@
 //! Compilation of a figure IR into a display list and hit map.
+//!
+//! The work is split into private modules, run in this order by [`compile`]:
+//!
+//! 1. `data` resolves every artist's arrays, checks their shapes and reports invalid artists.
+//! 2. `layout` divides the page into tile cells.
+//! 3. `limits` computes axis limits (over link groups), colour limits and ticks.
+//! 4. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle.
+//! 5. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for the legend.
+//!
+//! `text`, `style` and `paths` hold shared helpers for text placement, colours and path geometry.
 
-use ironlab_ir::{Figure, NodeId};
+mod artists;
+mod axes2d;
+mod axes3d;
+mod data;
+mod decor;
+mod layout;
+mod legend;
+mod limits;
+mod paths;
+mod style;
+mod text;
+
+use ironlab_ir::{Figure, NodeId, Projection};
 use ironlab_text::TextEngine;
 
-use crate::display::DisplayList;
+use crate::display::{DisplayList, Item, Rect};
 use crate::hit::HitMap;
 
 /// A problem found while compiling a figure that did not prevent the figure from being drawn.
@@ -20,6 +42,25 @@ pub struct Scene {
     pub display_list: DisplayList,
     pub hit_map: HitMap,
     pub warnings: Vec<SceneWarning>,
+}
+
+/// State shared by every stage of one compilation.
+pub(crate) struct Ctx<'a> {
+    pub figure: &'a Figure,
+    pub text: &'a TextEngine,
+    /// The base font size in points, after replacing an invalid size with the default.
+    pub font_size: f64,
+    pub warnings: Vec<SceneWarning>,
+}
+
+impl Ctx<'_> {
+    /// Records a warning about `node`.
+    pub fn warn(&mut self, node: Option<NodeId>, message: impl Into<String>) {
+        self.warnings.push(SceneWarning {
+            node,
+            message: message.into(),
+        });
+    }
 }
 
 /// Compiles `figure` into a scene.
@@ -51,7 +92,8 @@ pub struct Scene {
 ///   axis is the math text `$10^{n}$` (see [`crate::maths::ticks::format_log`]). When
 ///   [`crate::maths::ticks::common_exponent`] of an axis's major ticks is `k ≠ 0`, the labels show the ticks divided
 ///   by `10^k`, and a single math label `$\times 10^{k}$` is drawn at the far end of the axis: for an x axis beyond
-///   the right end of the axis, below the tick labels, and for a y axis above the top end of the axis.
+///   the right end of the axis, below the tick labels, and for a y axis above the top end of the axis. In a 3D axes
+///   the label is drawn at the end of the axis's row of tick labels, beyond the label of the largest tick.
 /// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points. Each marker is
 ///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
 ///   is one path item that carries its face fill and, when edges are drawn, its edge stroke. Each filled-contour
@@ -63,6 +105,10 @@ pub struct Scene {
 ///   lists its artists and including hidden artists. Artists with an explicit or colormapped primary colour, and
 ///   contour and surface artists, take no entry. A marker face or edge set to `ColorSpec::Auto` takes the resolved
 ///   primary colour of its artist and takes no entry of its own.
+/// - **Colormapped colours.** `ColorSpec::Auto` on the isolines of a contour and on the faces or edges of a surface
+///   means `ColorSpec::Colormapped`. A line or quiver whose colour is colormapped has no colour data, so it takes
+///   the middle colour of the colormap. The isolines of a filled contour are drawn only when their colour is an
+///   explicit colour, because colormapped isolines would coincide with the band colours.
 /// - **Limits.** Automatic axis limits round the data range outward to major ticks, are computed over the data of
 ///   every axes in the same link group, and are `[0, 1]` for an axes without data. Data that cannot be placed on a
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
@@ -80,6 +126,81 @@ pub struct Scene {
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
-    let _ = (figure, text);
-    todo!("scene compilation")
+    let mut ctx = Ctx {
+        figure,
+        text,
+        font_size: layout::font_size(figure),
+        warnings: Vec::new(),
+    };
+    let (width, height) = layout::page_size(&mut ctx);
+    let mut items: Vec<Item> = Vec::new();
+    let mut hit_map = HitMap::default();
+
+    let page = Rect::new(0.0, 0.0, width, height);
+    let grid_area = layout::figure_title(&mut ctx, page, &mut items);
+    let outer: Vec<Rect> = figure
+        .axes
+        .iter()
+        .map(|axes| layout::cell_rect(figure.layout, axes.cell, grid_area))
+        .collect();
+
+    let prepared: Vec<Vec<data::Prepared>> = figure
+        .axes
+        .iter()
+        .map(|axes| data::prepare_axes(&mut ctx, axes))
+        .collect();
+    let targets: Vec<[usize; 3]> = figure
+        .axes
+        .iter()
+        .zip(&outer)
+        .map(|(axes, rect)| limits::tick_targets(&ctx, axes, *rect))
+        .collect();
+    let ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+
+    let decorations: Vec<decor::Decor> = figure
+        .axes
+        .iter()
+        .enumerate()
+        .map(|(i, axes)| decor::measure(&mut ctx, axes, &ranges[i], &targets[i]))
+        .collect();
+    let margins: Vec<layout::Margins> = figure
+        .axes
+        .iter()
+        .zip(&decorations)
+        .map(|(axes, d)| match axes.projection {
+            Projection::TwoD => axes2d::margins(&ctx, d),
+            Projection::ThreeD { .. } => axes3d::margins(&ctx, d),
+        })
+        .collect();
+    let plots = layout::plot_rects(figure, &outer, &margins);
+
+    for (i, axes) in figure.axes.iter().enumerate() {
+        let colour_scale = limits::colour_scale(&mut ctx, axes, &prepared[i]);
+        let input = artists::AxesInput {
+            axes,
+            prepared: &prepared[i],
+            ranges: &ranges[i],
+            colours: colour_scale,
+            decor: &decorations[i],
+            plot: plots[i],
+            outer: outer[i],
+        };
+        match axes.projection {
+            Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
+            Projection::ThreeD { view3d } => {
+                axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
+            }
+        }
+    }
+
+    Scene {
+        display_list: DisplayList {
+            width_pt: width,
+            height_pt: height,
+            background: style::ir_colour(figure.background),
+            items,
+        },
+        hit_map,
+        warnings: ctx.warnings,
+    }
 }
