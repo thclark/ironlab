@@ -235,14 +235,19 @@ Exporting and showing a figure validate it first, and return `Error::Invalid` wi
 
 ## Saving and loading
 
-A figure is saved as JSON in the `.fig.json` format, which is described in the [figure schema reference](../reference/figure-schema.md).
+A figure is saved in the format named by the extension of the file. A `.fig` file holds the default Protocol Buffers encoding, which is compact and fast to read even for large data. A `.json` file, conventionally named `.fig.json`, holds the JSON encoding, which can be read and edited as text and is useful for debugging and for other tools. Both encodings are described in the [figure schema reference](../reference/figure-schema.md#encodings).
 
 ```rust
+fig.save("pressure.fig")?;
+let fig = Figure::load("pressure.fig")?;
+
 fig.save("pressure.fig.json")?;
 let fig = Figure::load("pressure.fig.json")?;
 ```
 
-A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
+Extensions are matched without regard to case. Any other extension, or none, makes `save` and `load` fail with `Error::UnsupportedFormat`, without writing or reading a file. `save_json` and `load_json` write and read JSON whatever the extension, and `to_protobuf` and `from_protobuf` convert a figure to and from the bytes of a `.fig` file, for example to send it to another process.
+
+A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
 
 ## Exporting PDF
 
@@ -280,10 +285,10 @@ There are three ways to open figures in the interactive viewer, whose controls a
     fig.show()?;
     ```
 
-- **From saved files.** The viewer binary opens one or more `.fig.json` files, one tab per file:
+- **From saved files.** The viewer binary opens one or more `.fig` or `.json` files, one tab per file, choosing the format of each file from its extension:
 
     ```sh
-    cargo run -p ironlab-viewer -- pressure.fig.json velocity.fig.json
+    cargo run -p ironlab-viewer -- pressure.fig velocity.fig.json
     ```
 
 - **From the gallery.** The gallery binary opens every example figure, one tab per figure, or only the figures whose slugs are given:
@@ -293,4 +298,4 @@ There are three ways to open figures in the interactive viewer, whose controls a
     cargo run -p ironlab-gallery -- view surf legend_toggle
     ```
 
-The gallery binary also writes the PDF, `.fig.json` file and PNG image of every example into a directory with `cargo run -p ironlab-gallery -- export <dir>`.
+The gallery binary also writes the PDF, `.fig` file, `.fig.json` file and PNG image of every example into a directory with `cargo run -p ironlab-gallery -- export <dir>`.

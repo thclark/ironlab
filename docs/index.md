@@ -2,7 +2,7 @@
 
 IronLAB is a Rust library and application for building scientific figures, exploring them interactively and exporting them for publication. It offers three things.
 
-- **A retained figure model.** A figure is a tree of nodes (the figure, its axes and their plots) held in memory and saved as a JSON file. Every node has a stable identifier, and every property that affects the drawing is stored in the model, so a saved figure reopens exactly as it was built. The model is described by a published JSON Schema.
+- **A retained figure model.** A figure is a tree of nodes (the figure, its axes and their plots) held in memory and saved as a compact Protocol Buffers `.fig` file, or as JSON. Every node has a stable identifier, and every property that affects the drawing is stored in the model, so a saved figure reopens exactly as it was built. Other languages can read and write figures through `.proto` files generated from the model.
 - **An interactive viewer.** A desktop window shows one or more figures as tabs, in which axes can be panned, zoomed and rotated, and plots can be hidden or shown from the legend. Every interaction edits the figure model, so the view on screen is always a figure that can be saved or exported.
 - **Publication-quality PDF export.** A figure is exported as a single-page PDF whose page is exactly the size of the figure, with fonts embedded and text that can be selected and searched. Labels may contain LaTeX mathematics, which IronLAB typesets itself: no TeX installation is needed to build, view or export a figure.
 
@@ -40,7 +40,7 @@ The [getting started guide](guides/getting-started.md) explains each step and ev
     - [Using the viewer](guides/viewer.md) describes the viewer's tools, gestures and keyboard shortcut.
 - **[Gallery](gallery/index.md)** shows every example figure with the exact source code that produced it.
 - **Reference** describes the system precisely.
-    - [Figure schema](reference/figure-schema.md) explains every entity of the figure model and the rules for versioning it.
+    - [Figure schema](reference/figure-schema.md) explains every entity of the figure model, its Protocol Buffers and JSON encodings, and the rules for versioning it.
     - [Architecture](reference/architecture.md) describes the crates, how a figure becomes pixels or a PDF page, and how text is resolved.
 - **[Architecture decisions](adrs/index.md)** records the significant design decisions and the reasons for them.
 - **[Background](background/index.md)** contains the discussion from which the design emerged.

@@ -1,24 +1,76 @@
 # Figure schema
 
-This page explains the IronLAB figure model entity by entity. The model is the retained intermediate representation (IR) from which everything is drawn: the viewer, the PDF exporter and the `.fig.json` file format all use it, and nothing that affects a drawing is stored anywhere else. The decision to build IronLAB around this model is recorded in [ADR 0001](../adrs/0001-retained-figure-ir-and-json-schema.md).
+This page explains the IronLAB figure model entity by entity, and the two encodings in which a figure is stored and transported. The model is the retained intermediate representation (IR) from which everything is drawn: the viewer, the PDF exporter and both file formats use it, and nothing that affects a drawing is stored anywhere else. The decision to build IronLAB around this model, and to encode it with Protocol Buffers by default, is recorded in [ADR 0001](../adrs/0001-retained-figure-ir-and-protobuf-wire-format.md).
 
 ## Source of truth
 
-The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the source of truth. The JSON Schema of the file format, at `schema/figure.schema.json` in the repository ([view on GitHub](https://github.com/thclark/ironlab/blob/main/schema/figure.schema.json)), is generated from those types and uses JSON Schema draft 2020-12. The committed schema is regenerated with:
+The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model. The Protocol Buffers definition and the JSON Schema that describe the model to other software are generated from those types as build artefacts; neither is committed to the repository, so neither can drift from the code. How to generate them is described in [generating the schemas](#generating-the-schemas).
+
+## Encodings
+
+A figure has two encodings, which describe the same model:
+
+| Encoding | File extension | Purpose |
+| --- | --- | --- |
+| Protocol Buffers | `.fig` | The default file and transport format: compact, fast for large arrays, and readable from any language with generated types. |
+| JSON | `.json`, conventionally `.fig.json` | A secondary format for debugging, for tools that read text, and for simple web pages. |
+
+`Figure::save` and `Figure::load` in the `ironlab` crate, and the `ironlab-viewer` binary, choose the encoding from the file extension, as described in [getting started](../guides/getting-started.md#saving-and-loading).
+
+The entity sections below name each property as it appears in both encodings, and show tagged variants, enumerations and colours in their JSON form. The Protocol Buffers form of each follows from the conventions below.
+
+### Protocol Buffers encoding
+
+The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` file per module of `ironlab-ir` at `ironlab/ir/v0/<module>.proto`; the root message is `Figure` in `ironlab/ir/v0/figure.proto`. The encoding follows these conventions.
+
+- **Enumerations.** Every enum has the zero value `<ENUM>_UNSPECIFIED`, and every value is prefixed with the name of the enum in upper snake case. For example, the scale `log` is `SCALE_LOG`, and the legend location `north_east` is `LEGEND_LOCATION_NORTH_EAST`.
+- **Presence.** Singular numeric and boolean fields are declared `optional`, so that a value that was written is distinguished from an absent one, and every value, including negative zero, reloads bit for bit.
+- **Tagged variants.** An entity that takes one of several forms is a message with a single oneof named `kind`. Each variant of the oneof is a message of its own, such as `LimitsManual` with the fields `min` and `max`, so that a variant can gain fields in a later version without changing the others.
+- **Numeric arrays.** An array is a `repeated uint64 shape` and a packed `repeated double values`. NaN and infinities are stored natively as IEEE 754 values.
+- **Data table.** The `data` of a figure is a `map<uint64, NdArray>` keyed by DataId, written in ascending order of key.
+- **Colours.** A Color is a message of four `float` components, `r`, `g`, `b` and `a`, each from 0 to 1, stored at the full precision of the model.
+- **Absent values.** An absent message, an absent field with presence, an unset oneof and an `_UNSPECIFIED` enum value take the default of their context in the model. For example, an absent line colour of a contour is colormapped, whereas an absent line colour of a line is automatic. The encoder writes every field that has a value, so a file written by IronLAB never relies on these defaults.
+- **Required values.** A value that has no default in the model, namely the kind of an artist and the dimension of an axis link, makes decoding fail with an error when it is absent or unspecified.
+- **Fields without presence.** Strings, repeated fields, maps and colour components cannot be distinguished from their empty or zero values, so they decode as the value on the wire: an empty string is empty and an empty list is empty.
+- **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
+- **Versioning.** Field 1 of `Figure` is `schema_version` in every version of the schema, so that a reader can check the version of a file before decoding the rest of it, as described in [versioning](#versioning).
+
+Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch.
+
+### JSON encoding
+
+The JSON encoding follows these conventions.
+
+- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`.
+- **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value.
+- **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
+- **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes and view angles, as [validation](#validation) requires.
+- **Colours.** A Color is a string of eight bits per component, as described in [colours](#colours), so a colour that is not a multiple of 1/255 is rounded when it is saved as JSON.
+- **Unknown properties.** A property that the build does not know is ignored, so a file written by a later patch release still loads.
+
+A complete JSON file is shown in [a minimal JSON file](#a-minimal-json-file).
+
+### Generating the schemas
+
+The Protocol Buffers definition is written, together with a `buf.yaml` that configures `buf lint` and `buf breaking`, to `target/ironlab-proto/` by:
+
+```sh
+cargo run -p ironlab-ir --bin generate-proto
+```
+
+The JSON Schema of the JSON encoding, which uses JSON Schema draft 2020-12 and is split into one file per module of `ironlab-ir`, is written to `target/ironlab-schema/` by:
 
 ```sh
 cargo run -p ironlab-ir --bin generate-schema
 ```
 
-A test fails when the committed schema differs from the one generated from the types, so the schema cannot drift from the code.
+Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set, and replace any files from an earlier run. Other languages generate their own types from the `.proto` files, for example with `buf generate` or `protoc`.
 
-## Conventions
+## Model conventions
 
-The following conventions apply throughout the model.
+The following conventions apply throughout the model, in both encodings.
 
-- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`.
-- **Simple enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value.
 - **Units.** Physical sizes are in millimetres (`_mm`), font sizes and line widths are in points (`_pt`, 1/72 inch), and angles are in degrees (`_deg`).
 - **Identifiers.** Nodes (the figure, its axes and their artists) are identified by a `NodeId`, and arrays by a `DataId`. Both are unsigned 64-bit integers.
 
@@ -28,7 +80,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the file conforms to, such as `"0.1.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.1.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
@@ -36,7 +88,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 | `font_size_pt` | number | The base font size, from which titles and tick labels are scaled. The default is 9 pt. |
 | `background` | Color | The colour of the page. The default is white. |
 | `layout` | object | `rows` and `cols`, the grid of tiles in which axes are placed. The default is one tile. |
-| `data` | object | The [data arrays](#data-arrays), keyed by DataId written as a decimal string. |
+| `data` | map | The [data arrays](#data-arrays), keyed by DataId. |
 | `axes` | array of Axes | The axes of the figure, in drawing order. |
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
 | `provenance` | Provenance | A record of the software that wrote the figure; see [provenance](#provenance). |
@@ -72,7 +124,7 @@ A View3d has four properties:
 | `azimuth_deg` | The rotation about the vertical axis, measured counterclockwise from the negative y axis when viewed from above. The default is −37.5. |
 | `elevation_deg` | The angle of the view direction above the x–y plane, from −90 to 90. The default is 30. |
 | `zoom` | The magnification of the projected box, where 1 fits the box to the plot area. |
-| `pan` | The offset of the projected box, as fractions of the plot area's width and height. |
+| `pan` | The offset of the projected box, as fractions of the plot area's width and height. In Protocol Buffers, the two fractions are the fields `pan_x` and `pan_y`. |
 
 ### Axis
 
@@ -193,7 +245,7 @@ A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`).
 
 ## Colours
 
-A **Color** is an sRGB colour with straight (not premultiplied) alpha, written as the string `"#rrggbb"` when it is opaque and `"#rrggbbaa"` otherwise. It is therefore stored with eight bits per component.
+A **Color** is an sRGB colour with straight (not premultiplied) alpha, whose four components each lie from 0 to 1. In JSON it is written as the string `"#rrggbb"` when it is opaque and `"#rrggbbaa"` otherwise, and is therefore stored with eight bits per component. In Protocol Buffers it is a message of four `float` components, which keeps the full precision of the model.
 
 A **ColorSpec** says how a colour is chosen:
 
@@ -222,7 +274,7 @@ Artists refer to their numeric data by DataId rather than containing it, so that
 | `shape` | The length of each dimension, outermost first. A vector of `n` values has shape `[n]`; a field with `ny` rows and `nx` columns has shape `[ny, nx]`. |
 | `values` | The values in row-major order: the value in row `j` and column `i` of a two-dimensional array is `values[j * nx + i]`. |
 
-A missing value is NaN. JSON cannot represent non-finite numbers, so every non-finite value (NaN or an infinity) is written as `null` and read back as NaN. The number of values must equal the product of the shape.
+A missing value is NaN. Protocol Buffers stores every value, including NaN and infinities, as an IEEE 754 double. JSON cannot represent non-finite numbers, so every non-finite value (NaN or an infinity) is written as `null` and read back as NaN. The number of values must equal the product of the shape.
 
 Rows of a field correspond to y and columns to x, as in MATLAB: the value in row `j` and column `i` belongs to the point `(x[i], y[j])`.
 
@@ -258,13 +310,13 @@ The PDF exporter copies the provenance into the document metadata.
 
 ## Validation
 
-The schema describes the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
+The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
 Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, arrays of one artist with inconsistent lengths or shapes, a three-dimensional artist or placement in a two-dimensional axes, a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, and empty, non-finite or non-increasing contour levels. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn.
 
-## A minimal file
+## A minimal JSON file
 
-The following file describes one two-dimensional axes with a line through three points.
+The following JSON file describes one two-dimensional axes with a line through three points. The same figure saved as a `.fig` file holds the same fields in the Protocol Buffers encoding.
 
 ```json
 {
@@ -321,7 +373,9 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.1.0`. A file loads when its major and minor components equal those of the build; the patch component may differ. Properties that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.1.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+
+The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
 
 Changes to the schema are versioned as follows.
 
@@ -335,7 +389,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The model is designed so that further MATLAB plot types are added without restructuring it. Before any new plot type or entity is implemented, its data structure and options are defined in `ironlab-ir` and reviewed, as the project rules require.
 
-- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, images (`image`, `imagesc`), pseudocolour plots (`pcolor`), patches and streamlines each become a new `type` of Artist. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. Image-like artists take their colours from the axes colormap and colour limits, as surfaces do.
+- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, images (`image`, `imagesc`), pseudocolour plots (`pcolor`), patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. Image-like artists take their colours from the axes colormap and colour limits, as surfaces do.
 - **New coordinate systems are new projections.** Polar and geographic axes become new variants of Projection, each with its own view properties, alongside `two_d` and `three_d`.
 - **New axes-level decorations are new axes properties.** A colorbar, for example, becomes an optional property of an axes that refers to the axes colormap and colour limits, so that it cannot disagree with them.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.

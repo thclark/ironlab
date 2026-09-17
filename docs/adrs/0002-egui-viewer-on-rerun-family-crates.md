@@ -33,6 +33,6 @@ The workspace declares these crates with version requirements that each admit a 
 - Upgrading the user interface is one decision per egui release rather than one per widget crate, which removes most of the version-lockstep risk of the egui ecosystem.
 - The canvas can later be replaced by custom wgpu pipelines through egui's paint callbacks without changing the shell, as described in [ADR 0003](0003-shared-scene-compiler-and-display-list.md).
 - eframe also compiles to WebAssembly, which keeps a browser viewer possible without a second user-interface implementation.
-- The project depends substantially on the direction of one company and one principal maintainer. The licences (MIT and Apache 2.0) permit a fork if that direction diverges, and the retained figure model of [ADR 0001](0001-retained-figure-ir-and-json-schema.md) keeps the viewer replaceable: a different shell would reimplement the chrome, not the engine.
+- The project depends substantially on the direction of one company and one principal maintainer. The licences (MIT and Apache 2.0) permit a fork if that direction diverges, and the retained figure model of [ADR 0001](0001-retained-figure-ir-and-protobuf-wire-format.md) keeps the viewer replaceable: a different shell would reimplement the chrome, not the engine.
 - The workspace requires a recent Rust toolchain (1.95 or later), because egui 0.36 and its companion crates do.
 - Styling is limited to egui's `Style` structure. This is sufficient for a viewer whose chrome is meant to be quiet, but a richly styled interface would be costly.

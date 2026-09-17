@@ -8,11 +8,11 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 
 | Crate | Responsibility |
 | --- | --- |
-| `ironlab-ir` | The figure model: the Rust types of the [figure schema](figure-schema.md), JSON serialisation of `.fig.json` files, generation of `schema/figure.schema.json`, validation, identifier allocation, and linking of axis limits. It has no knowledge of drawing. |
+| `ironlab-ir` | The figure model: the Rust types of the [figure schema](figure-schema.md), which are its source of truth; their [encodings](figure-schema.md#encodings) as Protocol Buffers (`.fig`, through the `wire` module) and JSON (`.fig.json`); generation of the `.proto` files and the JSON Schema as build artefacts; validation, identifier allocation, and linking of axis limits. It has no knowledge of drawing. |
 | `ironlab-text` | Text: the bundled STIX Two fonts, shaping of plain text with HarfRust, typesetting of LaTeX mathematics with latex-rust, the memo of resolved text layouts, and the cache of glyph outlines. |
 | `ironlab-scene` | The scene compiler: layout of tiles, axes, titles, labels and legends; tick generation; automatic limits; colormaps; contour extraction; quiver scaling; three-dimensional projection and depth sorting. Its output is a display list and a hit map. |
 | `ironlab-pdf` | The PDF backend: draws a display list onto a single PDF page with krilla, embedding subset fonts and real text. |
-| `ironlab-viewer` | The interactive viewer: an eframe application with one tab per figure, a toolbar, the canvas that draws a display list as egui meshes, the interaction state machine, and an offscreen renderer that draws a figure into an image without a window. |
+| `ironlab-viewer` | The interactive viewer: an eframe application with one tab per figure, a toolbar, the canvas that draws a display list as egui meshes, the interaction state machine, an offscreen renderer that draws a figure into an image without a window, and the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
 | `ironlab` | The facade: the MATLAB-flavoured builder API, and the `show`, `save`, `load` and `export_pdf` operations described in [getting started](../guides/getting-started.md). |
 | `ironlab-gallery` | The example figures, each written against the facade API, and the `gallery` binary that views them, exports them and generates the documentation [gallery](../gallery/index.md). |
 

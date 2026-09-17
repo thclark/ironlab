@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Related:** [ADR 0001](0001-retained-figure-ir-and-json-schema.md), [ADR 0002](0002-egui-viewer-on-rerun-family-crates.md), [ADR 0004](0004-pdf-first-export-with-krilla.md), [ADR 0006](0006-interaction-mutates-the-ir.md), [ADR 0007](0007-mvp-scope.md)
+**Related:** [ADR 0001](0001-retained-figure-ir-and-protobuf-wire-format.md), [ADR 0002](0002-egui-viewer-on-rerun-family-crates.md), [ADR 0004](0004-pdf-first-export-with-krilla.md), [ADR 0006](0006-interaction-mutates-the-ir.md), [ADR 0007](0007-mvp-scope.md)
 
 ## Context
 

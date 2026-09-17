@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Related:** [ADR 0001](0001-retained-figure-ir-and-json-schema.md), [ADR 0003](0003-shared-scene-compiler-and-display-list.md), [ADR 0004](0004-pdf-first-export-with-krilla.md), [ADR 0007](0007-mvp-scope.md)
+**Related:** [ADR 0001](0001-retained-figure-ir-and-protobuf-wire-format.md), [ADR 0003](0003-shared-scene-compiler-and-display-list.md), [ADR 0004](0004-pdf-first-export-with-krilla.md), [ADR 0007](0007-mvp-scope.md)
 
 ## Context
 
