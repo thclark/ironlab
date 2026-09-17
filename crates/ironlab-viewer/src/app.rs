@@ -190,11 +190,7 @@ impl FigurePane {
     /// Asks for a destination and writes the current figure as a PDF there. Returns a notification of the outcome, or
     /// `None` when the user cancelled the dialog.
     fn export(&self, text: &TextEngine, now: f64) -> Option<Notification> {
-        let stem = self
-            .title
-            .strip_suffix(".fig.json")
-            .or_else(|| self.title.strip_suffix(".json"))
-            .unwrap_or(&self.title);
+        let stem = crate::files::figure_stem(&self.title);
         let path = rfd::FileDialog::new()
             .add_filter("PDF", &["pdf"])
             .set_file_name(format!("{stem}.pdf"))

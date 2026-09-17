@@ -277,13 +277,7 @@ impl Figure {
         }
 
         let probe: VersionProbe = serde_json::from_str(json)?;
-        let compatible = probe
-            .schema_version
-            .as_str()
-            .and_then(parse_version)
-            .zip(parse_version(SCHEMA_VERSION))
-            .is_some_and(|(found, supported)| found[..2] == supported[..2]);
-        if !compatible {
+        if !probe.schema_version.as_str().is_some_and(is_compatible) {
             let found = match probe.schema_version {
                 serde_json::Value::String(version) => version,
                 other => other.to_string(),
@@ -295,6 +289,70 @@ impl Figure {
         }
         Ok(serde_json::from_str(json)?)
     }
+}
+
+impl Figure {
+    /// Encodes the figure as Protocol Buffers bytes (the `.fig` format).
+    ///
+    /// The message is described by the generated `.proto` files of package
+    /// `ironlab.ir.v0` (see [`proto_files`](crate::proto_files)). Every floating-point
+    /// value, including NaN with its payload, infinities, negative zero and subnormals,
+    /// is stored as its IEEE 754 bits, in data arrays and in every other field. A figure
+    /// always encodes to the same bytes.
+    pub fn to_protobuf(&self) -> Vec<u8> {
+        use prost::Message;
+
+        crate::wire::Figure::from(self).encode_to_vec()
+    }
+
+    /// Decodes a figure from Protocol Buffers bytes (the `.fig` format).
+    ///
+    /// The schema version (field 1) is checked before the rest of the message is
+    /// decoded, so that a file from an incompatible version is reported as such
+    /// rather than as malformed. Fields that this build does not know are skipped, so
+    /// that a file written by a later patch release of the same minor schema version
+    /// still loads. Absent fields and unspecified enum values take the defaults of
+    /// their context, except where the domain has no meaningful default (such as a
+    /// node identifier or a reference to a data array), as described in
+    /// [`wire`](crate::wire). The loaded figure is not validated; call
+    /// [`Figure::validate`] to check it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IrError::IncompatibleSchemaVersion`] when the declared schema version
+    /// is not a `major.minor.patch` version with the same major and minor components
+    /// as [`SCHEMA_VERSION`], and [`IrError::Protobuf`] when the bytes are not a valid
+    /// encoding of a figure, hold an enum value that this build does not define, or
+    /// omit a value that has no default.
+    pub fn from_protobuf(bytes: &[u8]) -> Result<Figure, IrError> {
+        use prost::Message;
+
+        /// The part of a figure message decoded before the rest: field 1, which every
+        /// version of the schema declares as the schema version. Every other field is
+        /// skipped as unknown, whatever its wire type.
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct VersionProbe {
+            #[prost(string, tag = "1")]
+            schema_version: String,
+        }
+
+        let probe = VersionProbe::decode(bytes)?;
+        if !is_compatible(&probe.schema_version) {
+            return Err(IrError::IncompatibleSchemaVersion {
+                found: probe.schema_version,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        Figure::try_from(crate::wire::Figure::decode(bytes)?)
+    }
+}
+
+/// Returns whether a declared schema version is a `major.minor.patch` version with the
+/// same major and minor components as [`SCHEMA_VERSION`].
+fn is_compatible(version: &str) -> bool {
+    parse_version(version)
+        .zip(parse_version(SCHEMA_VERSION))
+        .is_some_and(|(found, supported)| found[..2] == supported[..2])
 }
 
 /// Parses a `major.minor.patch` version whose components are unsigned decimal

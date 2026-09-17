@@ -167,19 +167,16 @@ fn app_harness(figures: Vec<(String, ironlab_ir::Figure)>) -> Harness<'static, V
 #[test]
 fn the_app_shows_one_tab_per_figure_with_its_own_toolbar() {
     let mut harness = app_harness(vec![
+        ("flat.fig".to_owned(), figure_with(vec![axes_2d(2)], vec![])),
         (
-            "flat.fig.json".to_owned(),
-            figure_with(vec![axes_2d(2)], vec![]),
-        ),
-        (
-            "solid.fig.json".to_owned(),
+            "solid.fig".to_owned(),
             figure_with(vec![axes_3d(2)], vec![]),
         ),
     ]);
     harness.run();
 
-    assert!(harness.query_by_label("flat.fig.json").is_some());
-    assert!(harness.query_by_label("solid.fig.json").is_some());
+    assert!(harness.query_by_label("flat.fig").is_some());
+    assert!(harness.query_by_label("solid.fig").is_some());
     assert!(
         harness
             .get_by_label("Rotate")
@@ -188,7 +185,7 @@ fn the_app_shows_one_tab_per_figure_with_its_own_toolbar() {
         "the first (2D) tab is active"
     );
 
-    harness.get_by_label("solid.fig.json").click();
+    harness.get_by_label("solid.fig").click();
     harness.run();
     assert!(
         !harness
@@ -203,7 +200,7 @@ fn the_app_shows_one_tab_per_figure_with_its_own_toolbar() {
 #[test]
 fn pressing_r_resets_the_view_of_the_active_figure() {
     let mut harness = app_harness(vec![(
-        "flat.fig.json".to_owned(),
+        "flat.fig".to_owned(),
         figure_with(vec![axes_2d(2)], vec![]),
     )]);
     harness.run();
@@ -234,7 +231,7 @@ const CANVAS_CENTRE: egui::Pos2 = egui::pos2(450.0, 340.0);
 #[test]
 fn scrolling_up_over_the_canvas_zooms_the_figure_in() {
     let mut harness = app_harness(vec![(
-        "flat.fig.json".to_owned(),
+        "flat.fig".to_owned(),
         figure_with(vec![axes_2d(2)], vec![]),
     )]);
     harness.run();
@@ -267,7 +264,7 @@ fn scrolling_up_over_the_canvas_zooms_the_figure_in() {
 #[test]
 fn dragging_right_over_the_canvas_pans_the_data_to_the_right() {
     let mut harness = app_harness(vec![(
-        "flat.fig.json".to_owned(),
+        "flat.fig".to_owned(),
         figure_with(vec![axes_2d(2)], vec![]),
     )]);
     harness.run();

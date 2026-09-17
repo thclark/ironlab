@@ -559,3 +559,120 @@ pub fn kitchen_sink_figure() -> Figure {
 
     b.build()
 }
+
+/// Floating-point values whose bits a lossless format must preserve: NaNs of both signs
+/// and with payloads (including a signalling NaN), both infinities, both zeros, the
+/// smallest subnormals of both signs, and the extremes of the finite range.
+pub const SPECIAL_F64: [f64; 12] = [
+    f64::NAN,
+    -f64::NAN,
+    f64::from_bits(0x7ff8_dead_beef_0001),
+    f64::from_bits(0x7ff0_0000_0000_0001),
+    f64::INFINITY,
+    f64::NEG_INFINITY,
+    -0.0,
+    0.0,
+    f64::from_bits(1),
+    f64::from_bits(0x8000_0000_0000_0001),
+    f64::MAX,
+    f64::MIN,
+];
+
+/// Calls `visit` with a path and a mutable reference for every `f64` held by the
+/// figure outside colours: sizes, limits, views, style widths and sizes, artist
+/// parameters, explicit levels and every value of every data array.
+///
+/// A single traversal serves both to set special values and to read them back, so
+/// that a field cannot be set without also being checked.
+pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64)) {
+    visit("size.width_mm".into(), &mut fig.size.width_mm);
+    visit("size.height_mm".into(), &mut fig.size.height_mm);
+    visit("font_size_pt".into(), &mut fig.font_size_pt);
+    for (id, array) in fig.data.iter_mut() {
+        for (i, value) in array.values.iter_mut().enumerate() {
+            visit(format!("data[{}][{i}]", id.0), value);
+        }
+    }
+    for (a, axes) in fig.axes.iter_mut().enumerate() {
+        let at = |field: &str| format!("axes[{a}].{field}");
+        if let Projection::ThreeD { view3d } = &mut axes.projection {
+            visit(at("view3d.azimuth_deg"), &mut view3d.azimuth_deg);
+            visit(at("view3d.elevation_deg"), &mut view3d.elevation_deg);
+            visit(at("view3d.zoom"), &mut view3d.zoom);
+            visit(at("view3d.pan[0]"), &mut view3d.pan[0]);
+            visit(at("view3d.pan[1]"), &mut view3d.pan[1]);
+        }
+        for (name, limits) in [
+            ("x.limits", &mut axes.x.limits),
+            ("y.limits", &mut axes.y.limits),
+            ("z.limits", &mut axes.z.limits),
+            ("clim", &mut axes.clim),
+        ] {
+            if let Limits::Manual { min, max } = limits {
+                visit(at(&format!("{name}.min")), min);
+                visit(at(&format!("{name}.max")), max);
+            }
+        }
+        for (k, artist) in axes.artists.iter_mut().enumerate() {
+            let at = |field: &str| format!("axes[{a}].artists[{k}].{field}");
+            match artist {
+                Artist::Line(line) => {
+                    visit(at("line.width_pt"), &mut line.line.width_pt);
+                    visit(at("marker.size_pt"), &mut line.marker.size_pt);
+                }
+                Artist::Scatter(scatter) => {
+                    if let ScatterSize::Scalar { value } = &mut scatter.size {
+                        visit(at("size.value"), value);
+                    }
+                    visit(at("marker.size_pt"), &mut scatter.marker.size_pt);
+                }
+                Artist::Contour(contour) => {
+                    if let Levels::Explicit { values } = &mut contour.levels {
+                        for (i, value) in values.iter_mut().enumerate() {
+                            visit(at(&format!("levels[{i}]")), value);
+                        }
+                    }
+                    if let ContourPlacement::Plane { z: Some(z) } = &mut contour.placement {
+                        visit(at("placement.z"), z);
+                    }
+                    visit(at("line.width_pt"), &mut contour.line.width_pt);
+                }
+                Artist::Quiver(quiver) => {
+                    if let QuiverScale::Factor { value } = &mut quiver.scale {
+                        visit(at("scale.value"), value);
+                    }
+                    visit(at("line.width_pt"), &mut quiver.line.width_pt);
+                    visit(at("head_size"), &mut quiver.head_size);
+                }
+                Artist::Surface(surface) => {
+                    visit(at("edge_width_pt"), &mut surface.edge_width_pt);
+                }
+            }
+        }
+    }
+}
+
+/// Returns the path and bits of every `f64` that [`visit_floats_mut`] visits.
+pub fn float_bits(fig: &Figure) -> Vec<(String, u64)> {
+    let mut fig = fig.clone();
+    let mut bits = Vec::new();
+    visit_floats_mut(&mut fig, &mut |path, value| {
+        bits.push((path, value.to_bits()))
+    });
+    bits
+}
+
+/// The kitchen-sink figure with the special values of [`SPECIAL_F64`] assigned in turn
+/// to every `f64` field and array value, so that each kind of field holds each kind of
+/// special value somewhere in the figure.
+///
+/// Such a figure is not valid and cannot be written as JSON, whose numbers exclude
+/// non-finite values; it exists to test the losslessness of the binary format.
+pub fn special_values_figure() -> Figure {
+    let mut fig = kitchen_sink_figure();
+    let mut next = SPECIAL_F64.iter().cycle();
+    visit_floats_mut(&mut fig, &mut |_, value| {
+        *value = *next.next().expect("the cycle is infinite");
+    });
+    fig
+}

@@ -25,7 +25,7 @@ enum Command {
         /// The slugs of the figures to open; every figure is opened when none is given.
         slugs: Vec<String>,
     },
-    /// Write a PDF, a `.fig.json` file and a PNG image of each gallery figure into a directory.
+    /// Write a PDF, a `.fig` file, a `.fig.json` file and a PNG image of each gallery figure into a directory.
     Export {
         /// The directory to write into, which is created if necessary.
         dir: PathBuf,

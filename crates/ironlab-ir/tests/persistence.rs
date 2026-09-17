@@ -92,6 +92,18 @@ fn decay_figure() -> Figure {
     }
 }
 
+/// Returns the components of [`SCHEMA_VERSION`], so that the version tests describe
+/// versions relative to the supported one and remain meaningful when it changes.
+fn supported_version() -> [u64; 3] {
+    let parts: Vec<u64> = SCHEMA_VERSION
+        .split('.')
+        .map(|part| part.parse().expect("SCHEMA_VERSION is major.minor.patch"))
+        .collect();
+    parts
+        .try_into()
+        .expect("SCHEMA_VERSION has three components")
+}
+
 /// Returns the decay fixture as a JSON value with its schema version replaced.
 fn decay_fixture_with_version(version: Value) -> String {
     let mut value: Value = serde_json::from_str(DECAY_FIXTURE).unwrap();
@@ -291,11 +303,23 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
 // rejected with a version error rather than misread or reported as malformed JSON.
 #[test]
 fn incompatible_schema_versions_are_rejected() {
-    for version in ["0.2.0", "1.1.0", "1.0.0", "0.0.9"] {
+    let [major, minor, patch] = supported_version();
+    let mut versions = vec![
+        format!("{major}.{}.0", minor + 1),
+        format!("{}.{minor}.{patch}", major + 1),
+        format!("{}.0.0", major + 1),
+    ];
+    if minor > 0 {
+        versions.push(format!("{major}.{}.9", minor - 1));
+    }
+    if major > 0 {
+        versions.push(format!("{}.{minor}.{patch}", major - 1));
+    }
+    for version in versions {
         let result = Figure::from_json(&decay_fixture_with_version(json!(version)));
         assert!(
-            matches!(result, Err(IrError::IncompatibleSchemaVersion { ref found, .. }) if found == version),
-            "version {version} gave {result:?}"
+            matches!(result, Err(IrError::IncompatibleSchemaVersion { ref found, .. }) if *found == version),
+            "version {version:?} gave {result:?}"
         );
     }
 }
@@ -304,7 +328,9 @@ fn incompatible_schema_versions_are_rejected() {
 // fields this build does not know is reported as a version problem.
 #[test]
 fn newer_minor_version_with_unknown_structure_reports_the_version() {
-    let json = json!({ "schema_version": "0.9.0", "id": "not-a-number", "novel": [] });
+    let [major, minor, _] = supported_version();
+    let newer = format!("{major}.{}.0", minor + 8);
+    let json = json!({ "schema_version": newer, "id": "not-a-number", "novel": [] });
     let result = Figure::from_json(&json.to_string());
     assert!(
         matches!(result, Err(IrError::IncompatibleSchemaVersion { .. })),
@@ -315,16 +341,26 @@ fn newer_minor_version_with_unknown_structure_reports_the_version() {
 // Why: patch releases of the schema are compatible by definition, so they must load.
 #[test]
 fn different_patch_version_is_accepted() {
-    let fig = Figure::from_json(&decay_fixture_with_version(json!("0.1.42")))
+    let [major, minor, patch] = supported_version();
+    let version = format!("{major}.{minor}.{}", patch + 42);
+    let fig = Figure::from_json(&decay_fixture_with_version(json!(version)))
         .expect("patch versions are compatible");
-    assert_eq!(fig.schema_version, "0.1.42");
+    assert_eq!(fig.schema_version, version);
 }
 
 // Why: a version string that is not `major.minor.patch` cannot be checked for
 // compatibility and must not be silently accepted.
 #[test]
 fn malformed_or_missing_schema_version_is_rejected() {
-    for version in [json!("0.1"), json!("zero.one.zero"), json!(1), Value::Null] {
+    let [major, minor, patch] = supported_version();
+    let malformed = [
+        json!(format!("{major}.{minor}")),
+        json!(format!("{major}.{minor}.{patch}.0")),
+        json!("zero.one.zero"),
+        json!(major),
+        Value::Null,
+    ];
+    for version in malformed {
         let result = Figure::from_json(&decay_fixture_with_version(version.clone()));
         assert!(result.is_err(), "version {version} was accepted");
     }

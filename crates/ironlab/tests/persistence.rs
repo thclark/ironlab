@@ -27,22 +27,150 @@ fn sample_figure() -> Figure {
     fig
 }
 
-// WHY: `.fig.json` is the interchange format between user code, the viewer binary and
-// future bindings; saving and loading must reproduce the figure exactly.
+/// Removes a file left by an earlier run, so that a test observes only what it writes.
+fn fresh(name: &str) -> PathBuf {
+    let path = temp_path(name);
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+// WHY: `.fig` is the default file and transport format between user code, the viewer
+// binary and future bindings; saving and loading it must reproduce the figure exactly.
 #[test]
-fn save_then_load_round_trips() {
+fn save_then_load_round_trips_a_fig_file() {
     let fig = sample_figure();
-    let path = temp_path("round_trip.fig.json");
+    let path = fresh("round_trip.fig");
     fig.save(&path).unwrap();
     let loaded = Figure::load(&path).unwrap();
     assert_eq!(loaded, fig);
+}
+
+// WHY: JSON is the supported secondary format for debugging, other tools and web pages,
+// so it must reproduce the figure exactly too, under both of its accepted extensions.
+#[test]
+fn save_then_load_round_trips_json_files() {
+    let fig = sample_figure();
+    for name in ["round_trip.fig.json", "round_trip.json"] {
+        let path = fresh(name);
+        fig.save(&path).unwrap();
+        let loaded = Figure::load(&path).unwrap();
+        assert_eq!(loaded, fig, "{name}");
+    }
+}
+
+// WHY: the extension is the only statement of the format that a user makes, so `.fig`
+// must write the Protocol Buffers encoding (which the viewer and other languages decode
+// from the generated `.proto` files), not JSON with a misleading name.
+#[test]
+fn save_writes_protobuf_to_a_fig_file() {
+    let fig = sample_figure();
+    let path = fresh("dispatch.fig");
+    fig.save(&path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), fig.ir().to_protobuf());
+}
+
+// WHY: see save_writes_protobuf_to_a_fig_file; `.json` and `.fig.json` must write the
+// JSON encoding, which other tools read as text.
+#[test]
+fn save_writes_json_to_a_json_file() {
+    let fig = sample_figure();
+    for name in ["dispatch.fig.json", "dispatch.json"] {
+        let path = fresh(name);
+        fig.save(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            fig.ir().to_json(),
+            "{name}"
+        );
+    }
+}
+
+// WHY: load must decode by extension too; a `.fig` file holding the bytes that
+// `to_protobuf` produces (for example one received over a socket and written to disk)
+// must load, and a `.json` file must be read as JSON.
+#[test]
+fn load_reads_each_format_by_extension() {
+    let fig = sample_figure();
+    let fig_path = fresh("load_dispatch.fig");
+    std::fs::write(&fig_path, fig.to_protobuf()).unwrap();
+    assert_eq!(Figure::load(&fig_path).unwrap(), fig);
+
+    let json_path = fresh("load_dispatch.fig.json");
+    std::fs::write(&json_path, fig.ir().to_json()).unwrap();
+    assert_eq!(Figure::load(&json_path).unwrap(), fig);
+}
+
+// WHY: file systems on macOS and Windows treat extensions case-insensitively, and users
+// type `FIGURE.FIG` as readily as `figure.fig`; the format must not depend on case.
+#[test]
+fn extensions_are_matched_without_regard_to_case() {
+    let fig = sample_figure();
+    let path = fresh("upper_case.FIG");
+    fig.save(&path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), fig.ir().to_protobuf());
+    assert_eq!(Figure::load(&path).unwrap(), fig);
+}
+
+// WHY: an extension that names neither format (or no extension at all) must be refused
+// with an error that says so, rather than silently choosing a format that a later load
+// or another tool would misread; and nothing may be written.
+#[test]
+fn save_refuses_an_unsupported_extension_without_writing() {
+    for name in ["figure.txt", "figure", "figure.fig.bak"] {
+        let path = fresh(name);
+        let error = sample_figure().save(&path).unwrap_err();
+        assert!(
+            matches!(&error, Error::UnsupportedFormat(p) if p == &path),
+            "{name}: {error:?}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains(".fig") && message.contains(".json"),
+            "the message must name the supported extensions: {message}"
+        );
+        assert!(!path.exists(), "{name} was written");
+    }
+}
+
+// WHY: see save_refuses_an_unsupported_extension_without_writing; the format is decided
+// before the file is opened, so an unsupported extension is reported as such even when
+// the file does not exist, instead of as a misleading I/O error.
+#[test]
+fn load_refuses_an_unsupported_extension_before_reading() {
+    let path = fresh("missing.txt");
+    assert!(matches!(
+        Figure::load(&path),
+        Err(Error::UnsupportedFormat(p)) if p == path
+    ));
+}
+
+// WHY: callers who choose their own file names (such as a temporary file or a web
+// upload) still need to write and read JSON explicitly, whatever the extension.
+#[test]
+fn save_json_and_load_json_ignore_the_extension() {
+    let fig = sample_figure();
+    let path = fresh("explicit.txt");
+    fig.save_json(&path).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), fig.ir().to_json());
+    assert_eq!(Figure::load_json(&path).unwrap(), fig);
+}
+
+// WHY: protobuf is also the transport format (sockets, other processes), where figures
+// are bytes rather than files; the facade must convert to and from bytes without
+// dropping to the IR crate.
+#[test]
+fn protobuf_bytes_round_trip() {
+    let fig = sample_figure();
+    let bytes = fig.to_protobuf();
+    assert_eq!(bytes, fig.ir().to_protobuf());
+    assert_eq!(Figure::from_protobuf(&bytes).unwrap(), fig);
 }
 
 // WHY: a loaded figure must be extensible with the builder without identifier
 // collisions, since the id allocator is not serialised.
 #[test]
 fn a_loaded_figure_can_be_extended() {
-    let path = temp_path("extend.fig.json");
+    let path = fresh("extend.fig");
     sample_figure().save(&path).unwrap();
     let mut loaded = Figure::load(&path).unwrap();
     loaded.axes(0, 0).plot([0.0, 1.0], [1.0, 0.0]);
@@ -57,20 +185,27 @@ fn a_loaded_figure_can_be_extended() {
 }
 
 // WHY: loading a file that is not a figure must be an error the caller can handle, not
-// a panic, and must be distinguishable from a missing file.
+// a panic, and must be distinguishable from a missing file, in either format.
 #[test]
 fn load_rejects_a_file_that_is_not_a_figure() {
-    let path = temp_path("garbage.fig.json");
-    std::fs::write(&path, b"this is not json {").unwrap();
-    assert!(matches!(Figure::load(&path), Err(Error::Ir(_))));
+    // A JSON file in a `.fig` file is not a valid protobuf figure, and vice versa: the
+    // extension, not the content, decides how a file is read.
+    let fig_path = fresh("garbage.fig");
+    std::fs::write(&fig_path, sample_figure().ir().to_json()).unwrap();
+    assert!(matches!(Figure::load(&fig_path), Err(Error::Ir(_))));
+
+    let json_path = fresh("garbage.fig.json");
+    std::fs::write(&json_path, b"this is not json {").unwrap();
+    assert!(matches!(Figure::load(&json_path), Err(Error::Ir(_))));
 }
 
 // WHY: see load_rejects_a_file_that_is_not_a_figure; a missing file is an I/O error.
 #[test]
 fn load_reports_a_missing_file_as_io() {
-    let path = temp_path("does_not_exist.fig.json");
-    let _ = std::fs::remove_file(&path);
-    assert!(matches!(Figure::load(&path), Err(Error::Io(_))));
+    for name in ["does_not_exist.fig", "does_not_exist.fig.json"] {
+        let path = fresh(name);
+        assert!(matches!(Figure::load(&path), Err(Error::Io(_))), "{name}");
+    }
 }
 
 // WHY: export_pdf is the publication path; the file must be a PDF (checked by its

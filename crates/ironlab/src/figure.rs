@@ -247,31 +247,100 @@ impl Figure {
         self.ir.validate()
     }
 
-    /// Saves the figure as JSON in the `.fig.json` format.
+    /// Saves the figure in the format named by the extension of `path`.
+    ///
+    /// A path ending in `.fig` is written in the default Protocol Buffers format, and a
+    /// path ending in `.json` (including `.fig.json`) is written as JSON. Extensions are
+    /// matched without regard to case. Both formats describe the figure completely and
+    /// are described in the figure schema reference of the documentation.
     ///
     /// The figure is saved even if it has validation errors, so that a figure can be
     /// inspected or repaired later.
     ///
+    /// ```no_run
+    /// use ironlab::prelude::*;
+    ///
+    /// # fn main() -> Result<(), ironlab::Error> {
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).plot([0.0, 1.0, 2.0], [0.0, 1.0, 4.0]);
+    /// fig.save("squares.fig")?;
+    /// fig.save("squares.fig.json")?;
+    /// assert_eq!(Figure::load("squares.fig")?, fig);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::Io`] when the file cannot be written.
+    /// Returns [`Error::UnsupportedFormat`] when the extension is neither `.fig` nor
+    /// `.json` (and writes no file), and [`Error::Io`] when the file cannot be written.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        std::fs::write(path, self.ir.to_json())?;
+        let path = path.as_ref();
+        match Format::of(path)? {
+            Format::Protobuf => std::fs::write(path, self.to_protobuf())?,
+            Format::Json => self.save_json(path)?,
+        }
         Ok(())
     }
 
-    /// Loads a figure from a `.fig.json` file.
+    /// Loads a figure from a file in the format named by the extension of `path`: a
+    /// `.fig` file is read as Protocol Buffers and a `.json` file (including
+    /// `.fig.json`) as JSON, as for [`save`](Figure::save).
     ///
     /// The loaded figure is not validated; call [`validate`](Figure::validate) to
     /// check it.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Io`] when the file cannot be read, and [`Error::Ir`] when its
-    /// content is not a figure of a compatible schema version.
+    /// Returns [`Error::UnsupportedFormat`] when the extension is neither `.fig` nor
+    /// `.json` (without reading the file), [`Error::Io`] when the file cannot be read,
+    /// and [`Error::Ir`] when its content is not a figure of a compatible schema
+    /// version in that format.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        match Format::of(path)? {
+            Format::Protobuf => Ok(Self::from_protobuf(&std::fs::read(path)?)?),
+            Format::Json => Self::load_json(path),
+        }
+    }
+
+    /// Saves the figure as JSON, whatever the extension of `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the file cannot be written.
+    pub fn save_json(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        std::fs::write(path, self.ir.to_json())?;
+        Ok(())
+    }
+
+    /// Loads a figure from a JSON file, whatever the extension of `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the file cannot be read, and [`Error::Ir`] when its
+    /// content is not a JSON figure of a compatible schema version.
+    pub fn load_json(path: impl AsRef<Path>) -> Result<Self, Error> {
         let json = std::fs::read_to_string(path)?;
         Ok(Self::from_ir(ironlab_ir::Figure::from_json(&json)?))
+    }
+
+    /// Encodes the figure as Protocol Buffers bytes, the content of a `.fig` file and
+    /// the form in which figures are transported between processes.
+    #[must_use]
+    pub fn to_protobuf(&self) -> Vec<u8> {
+        self.ir.to_protobuf()
+    }
+
+    /// Decodes a figure from Protocol Buffers bytes, as written by
+    /// [`to_protobuf`](Figure::to_protobuf).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Ir`] when the bytes are not a figure of a compatible schema
+    /// version.
+    pub fn from_protobuf(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self::from_ir(ironlab_ir::Figure::from_protobuf(bytes)?))
     }
 
     /// Exports the figure as a single-page PDF whose page is the size of the figure.
@@ -344,6 +413,29 @@ impl From<ironlab_ir::Figure> for Figure {
 impl From<Figure> for ironlab_ir::Figure {
     fn from(figure: Figure) -> Self {
         figure.into_ir()
+    }
+}
+
+/// A file format of a figure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    /// Protocol Buffers, the default format, in a `.fig` file.
+    Protobuf,
+    /// JSON, the secondary format, in a `.json` or `.fig.json` file.
+    Json,
+}
+
+impl Format {
+    /// Returns the format named by the extension of a path.
+    ///
+    /// A `.fig.json` file has the extension `json`, so it is JSON.
+    fn of(path: &Path) -> Result<Self, Error> {
+        let extension = path.extension().and_then(|extension| extension.to_str());
+        match extension {
+            Some(ext) if ext.eq_ignore_ascii_case("fig") => Ok(Self::Protobuf),
+            Some(ext) if ext.eq_ignore_ascii_case("json") => Ok(Self::Json),
+            _ => Err(Error::UnsupportedFormat(path.to_path_buf())),
+        }
     }
 }
 

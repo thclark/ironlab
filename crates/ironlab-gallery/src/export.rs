@@ -7,8 +7,8 @@ use crate::GalleryEntry;
 use crate::docs::Renderer;
 use crate::error::GalleryError;
 
-/// Writes `<slug>.pdf`, `<slug>.fig.json` and `<slug>.png` (at `dpi`) for each entry into `out_dir`, creating the
-/// directory if necessary, and returns the paths written.
+/// Writes `<slug>.pdf`, `<slug>.fig` (Protocol Buffers), `<slug>.fig.json` (JSON) and `<slug>.png` (at `dpi`) for each
+/// entry into `out_dir`, creating the directory if necessary, and returns the paths written.
 ///
 /// # Errors
 ///
@@ -27,6 +27,7 @@ pub fn export_entries(
         let ir = figure.ir();
         let files = [
             (format!("{}.pdf", entry.slug), renderer.pdf(ir)?),
+            (format!("{}.fig", entry.slug), ir.to_protobuf()),
             (
                 format!("{}.fig.json", entry.slug),
                 ir.to_json().into_bytes(),

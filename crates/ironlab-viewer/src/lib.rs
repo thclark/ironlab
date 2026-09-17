@@ -2,16 +2,18 @@
 //!
 //! The viewer is a dumb consumer of the scene compiler: it draws the display list produced by
 //! [`ironlab_scene::compile()`] and turns pointer input into edits of the figure IR (axis limits, 3D views and
-//! artist visibility). The crate is split into four modules:
+//! artist visibility). The crate is split into five modules:
 //!
 //! - [`canvas`] converts a display list into `egui` triangle meshes with lyon.
 //! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits.
 //! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation
 //!   gallery and for tests.
 //! - [`app`] is the eframe application: one tab per figure, a toolbar, and PDF export.
+//! - [`files`] reads `.fig` (Protocol Buffers) and `.json` figure files by extension, for the `ironlab-viewer` binary.
 
 pub mod app;
 pub mod canvas;
+pub mod files;
 pub mod interaction;
 pub mod offscreen;
 

@@ -16,6 +16,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 schemars.workspace = true
 thiserror.workspace = true
+prost.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+prost-reflect.workspace = true
+protox.workspace = true

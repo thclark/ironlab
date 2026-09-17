@@ -6,7 +6,7 @@
 //! [`quiver`](AxesMut::quiver), [`surf`](AxesMut::surf) and their relatives. Each
 //! plotting function returns a handle whose chained setters change the properties of
 //! the new plot, in the way that MATLAB name–value arguments do. The figure can then be
-//! shown in the interactive viewer, saved as a `.fig.json` file or exported to PDF.
+//! shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported to PDF.
 //!
 //! Every call writes directly to the retained figure IR of the [`ir`] crate, which is
 //! the single source of truth for what is drawn. Builder calls never panic because of

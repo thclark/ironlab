@@ -1,19 +1,23 @@
-//! Writes the JSON Schema of the `.fig.json` format, one file per IR module, to
-//! `target/ironlab-schema/`.
+//! Writes the Protocol Buffers definition of the `.fig` format, one `.proto` file per
+//! IR module, together with a `buf.yaml`, to `target/ironlab-proto/`.
 //!
-//! The files are generated from the Rust types and are build artefacts: they are not
-//! committed.
+//! The files are generated from the Rust wire types and are build artefacts: they are
+//! not committed. Run `buf lint` in the output directory to check them.
 
 use std::path::PathBuf;
 
 fn main() -> std::io::Result<()> {
-    let dir = target_dir().join("ironlab-schema");
+    let dir = target_dir().join("ironlab-proto");
     // Files from an earlier generation (such as those of a removed module) must not
     // survive into this one.
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }
-    for (path, text) in ironlab_ir::json_schema_files() {
+    let files = ironlab_ir::proto_files().into_iter().chain([(
+        PathBuf::from("buf.yaml"),
+        ironlab_ir::wire::BUF_YAML.to_owned(),
+    )]);
+    for (path, text) in files {
         let path = dir.join(path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
