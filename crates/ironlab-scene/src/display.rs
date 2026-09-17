@@ -3,6 +3,14 @@
 //! Every backend (the interactive canvas and the PDF exporter) draws exactly these primitives, so that what is
 //! shown on screen and what is exported cannot diverge. Coordinates are in points (1/72 inch) in figure space,
 //! with the origin at the top-left corner of the figure, x increasing to the right and y increasing downwards.
+//!
+//! # Validity
+//!
+//! The scene compiler guarantees that every item it emits is valid: coordinates, widths, sizes and transforms are
+//! finite; every path starts with `MoveTo`; dash arrays contain finite, non-negative lengths with a positive sum;
+//! colour channels lie in `[0, 1]`; glyph text ranges are byte ranges within their run's text; and no clipped group
+//! is placed beneath a group whose transform rotates or skews. Backends must nevertheless skip (not panic on) items
+//! that violate these rules, because display lists can be built by hand.
 
 use ironlab_ir::NodeId;
 use ironlab_text::FontId;
@@ -25,12 +33,20 @@ impl Rgba {
     }
 
     pub fn from_u8(rgb: [u8; 3]) -> Self {
-        Self::new(rgb[0] as f32 / 255.0, rgb[1] as f32 / 255.0, rgb[2] as f32 / 255.0, 1.0)
+        Self::new(
+            rgb[0] as f32 / 255.0,
+            rgb[1] as f32 / 255.0,
+            rgb[2] as f32 / 255.0,
+            1.0,
+        )
     }
 
     /// Returns the same colour with its alpha multiplied by `factor`.
     pub fn with_alpha_factor(self, factor: f32) -> Self {
-        Self { a: self.a * factor, ..self }
+        Self {
+            a: self.a * factor,
+            ..self
+        }
     }
 }
 
@@ -58,7 +74,12 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn right(&self) -> f64 {
@@ -86,16 +107,34 @@ pub struct Transform {
 }
 
 impl Transform {
-    pub const IDENTITY: Transform = Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 };
+    pub const IDENTITY: Transform = Transform {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
 
     pub fn translate(x: f64, y: f64) -> Self {
-        Self { e: x, f: y, ..Self::IDENTITY }
+        Self {
+            e: x,
+            f: y,
+            ..Self::IDENTITY
+        }
     }
 
     /// A rotation by `degrees` about the local origin; positive angles turn clockwise on screen because y points down.
     pub fn rotate(degrees: f64) -> Self {
         let (s, c) = degrees.to_radians().sin_cos();
-        Self { a: c, b: s, c: -s, d: c, e: 0.0, f: 0.0 }
+        Self {
+            a: c,
+            b: s,
+            c: -s,
+            d: c,
+            e: 0.0,
+            f: 0.0,
+        }
     }
 
     /// Returns the transform that applies `self` first and then `other`.
@@ -111,7 +150,10 @@ impl Transform {
     }
 
     pub fn apply(&self, p: Point) -> Point {
-        Point::new(self.a * p.x + self.c * p.y + self.e, self.b * p.x + self.d * p.y + self.f)
+        Point::new(
+            self.a * p.x + self.c * p.y + self.e,
+            self.b * p.x + self.d * p.y + self.f,
+        )
     }
 }
 
@@ -155,7 +197,11 @@ pub enum LineJoin {
     Bevel,
 }
 
-/// A stroke applied along a path. Dash lengths are in points; an empty `dash` means a solid line.
+/// A stroke applied along a path.
+///
+/// Width and dash lengths are in the item's local space, so an enclosing group transform scales them exactly as it
+/// scales the geometry (the PDF convention). An empty `dash` means a solid line. `dash_offset` is the dash phase:
+/// the distance into the dash pattern at which the stroke starts. Miter joins use a miter limit of 4.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stroke {
     pub color: Rgba,
@@ -191,6 +237,7 @@ pub struct PlacedGlyph {
     pub id: u16,
     pub x: f64,
     pub y: f64,
+    /// The byte range of the run's `text` that this glyph represents.
     pub text_range: std::ops::Range<usize>,
 }
 
@@ -219,6 +266,65 @@ pub enum ItemKind {
 pub struct DisplayList {
     pub width_pt: f64,
     pub height_pt: f64,
+    /// The colour painted over the whole page before any item. A fully transparent background paints nothing.
     pub background: Rgba,
     pub items: Vec<Item>,
+}
+
+impl DisplayList {
+    /// Visits every leaf item (paths and glyph runs) in paint order.
+    ///
+    /// The callback receives the item, the accumulated transform from item space to figure space, and the
+    /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and
+    /// scalings; the scene compiler never places a clipped group beneath a rotation.
+    pub fn visit_leaves(&self, mut visit: impl FnMut(&Item, Transform, Option<Rect>)) {
+        fn walk(
+            items: &[Item],
+            transform: Transform,
+            clip: Option<Rect>,
+            visit: &mut dyn FnMut(&Item, Transform, Option<Rect>),
+        ) {
+            for item in items {
+                match &item.kind {
+                    ItemKind::Group {
+                        clip: group_clip,
+                        transform: group_transform,
+                        items,
+                    } => {
+                        let clip = match group_clip {
+                            Some(c) => {
+                                let a = transform.apply(Point::new(c.x, c.y));
+                                let b = transform.apply(Point::new(c.right(), c.bottom()));
+                                let local = Rect::new(
+                                    a.x.min(b.x),
+                                    a.y.min(b.y),
+                                    (b.x - a.x).abs(),
+                                    (b.y - a.y).abs(),
+                                );
+                                Some(match clip {
+                                    Some(outer) => intersect(outer, local),
+                                    None => local,
+                                })
+                            }
+                            None => clip,
+                        };
+                        let transform = match group_transform {
+                            Some(t) => t.then(transform),
+                            None => transform,
+                        };
+                        walk(items, transform, clip, visit);
+                    }
+                    _ => visit(item, transform, clip),
+                }
+            }
+        }
+        fn intersect(a: Rect, b: Rect) -> Rect {
+            let x = a.x.max(b.x);
+            let y = a.y.max(b.y);
+            let right = a.right().min(b.right());
+            let bottom = a.bottom().min(b.bottom());
+            Rect::new(x, y, (right - x).max(0.0), (bottom - y).max(0.0))
+        }
+        walk(&self.items, Transform::IDENTITY, None, &mut visit);
+    }
 }

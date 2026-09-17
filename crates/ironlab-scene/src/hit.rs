@@ -52,7 +52,10 @@ pub struct AxesHit {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AxesHitKind {
-    TwoD { x: AxisMap, y: AxisMap },
+    TwoD {
+        x: AxisMap,
+        y: AxisMap,
+    },
     /// Three-dimensional axes are manipulated through their camera, not through a data mapping.
     ThreeD,
 }
@@ -80,6 +83,9 @@ impl HitMap {
 
     /// Returns the legend entry containing `p`, if any.
     pub fn legend_entry_at(&self, p: Point) -> Option<&LegendHit> {
-        self.legend_entries.iter().rev().find(|e| e.rect.contains(p))
+        self.legend_entries
+            .iter()
+            .rev()
+            .find(|e| e.rect.contains(p))
     }
 }
