@@ -3,9 +3,8 @@ name: Docs
 # Build the Zensical site, including the gallery rendered by IronLAB itself, and publish it to GitHub Pages as a
 # deployment artefact: nothing is committed anywhere. Manual for now; the release flow will trigger it later.
 #
-# One-time repository settings: Pages → Source: "GitHub Actions". The site is served at
-# https://thclark.github.io/ironlab/, which zensical.toml's site_url must match (change both if a custom domain is
-# configured in the repository settings).
+# One-time repository settings: Pages → Source: "GitHub Actions"; custom domain ironlab.org (the CNAME lives in the
+# settings, not in the repo, and zensical.toml's site_url must match).
 
 on:
   workflow_dispatch:

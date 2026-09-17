@@ -1,6 +1,6 @@
 [project]
 site_name = "IronLAB"
-site_url = "https://thclark.github.io/ironlab/"
+site_url = "https://ironlab.org/"
 site_description = "Interactive, publication-quality scientific figures in Rust."
 repo_url = "https://github.com/thclark/ironlab"
 docs_dir = "docs"
