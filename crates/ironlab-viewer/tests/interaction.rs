@@ -629,6 +629,36 @@ fn clicking_a_legend_entry_toggles_its_artist_and_other_clicks_do_nothing() {
     assert!(visible(&state, 10));
 }
 
+// Why: the viewer reports the first click of a double-click as a click and the second as a double-click. On a legend
+// entry each click is a toggle, so a quick double-click must act as two toggles and leave the series as it was; it must
+// not also restore the axes limits, which would silently throw away the user's navigation.
+#[test]
+fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
+    let (mut state, hit) = figure_with_legend();
+    let navigated = manual(2.0, 4.0);
+    state.current.axes_mut(NodeId(2)).unwrap().x.limits = navigated;
+    let entry = Point::new(220.0, 30.0);
+
+    assert!(state.click(&hit, entry), "the first click hides the series");
+    assert!(!visible(&state, 10));
+    assert!(
+        state.double_click(&hit, entry),
+        "the second click shows it again"
+    );
+    assert!(visible(&state, 10));
+    assert_eq!(
+        state.current.axes(NodeId(2)).unwrap().x.limits,
+        navigated,
+        "a double-click on a legend entry does not reset the axes"
+    );
+
+    assert!(
+        state.double_click(&hit, Point::new(100.0, 100.0)),
+        "a double-click in the plot area still resets the axes"
+    );
+    assert_ne!(state.current.axes(NodeId(2)).unwrap().x.limits, navigated);
+}
+
 // Why: Reset view undoes navigation, not content choices; a user who hid a series should not see it reappear because
 // they reset the zoom. The changed flag drives recompilation, so a no-op reset must report no change.
 #[test]

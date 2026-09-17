@@ -6,7 +6,9 @@
 //!    parses and lays out recursively, so source above [`MAX_NESTING`] is
 //!    rejected before it reaches the parser. The remaining stages run on a
 //!    helper thread with a large stack, independent of the caller's stack.
-//! 2. `latex_rust::parse` builds the math AST.
+//! 2. [`propagate_font_styles`] restates the style of each font group (such
+//!    as `\mathrm{…}`) on every letter inside it, and `latex_rust::parse`
+//!    builds the math AST.
 //! 3. [`rewrite`] applies the TeX conventions that `latex-rust` 1.0.2 does
 //!    not: hyphen-minus becomes the minus sign U+2212, and unstyled Latin
 //!    letters and lowercase Greek letters become Mathematical Italic.
@@ -115,7 +117,7 @@ fn typeset_nested(
     params: &latex_rust::MathParams,
     faces: &Faces,
 ) -> Result<MathOutput, String> {
-    let laid_out = latex_rust::parse(inner)
+    let laid_out = latex_rust::parse(&propagate_font_styles(inner))
         .map_err(|e| e.to_string())
         .and_then(|mut ast| {
             if rewrite(&mut ast, 0) {
@@ -249,13 +251,181 @@ fn takes_no_argument(name: &str) -> bool {
     })
 }
 
+/// Commands that set their argument in a font style, which `latex-rust` applies only to the
+/// letters that sit directly in the argument's list.
+const FONT_COMMANDS: [&str; 16] = [
+    "mathrm",
+    "textrm",
+    "mathbf",
+    "textbf",
+    "mathit",
+    "textit",
+    "mathsf",
+    "textsf",
+    "mathtt",
+    "texttt",
+    "mathbb",
+    "mathcal",
+    "mathfrak",
+    "mathscr",
+    "boldsymbol",
+    "pmb",
+];
+
+/// Returns how many leading brace groups the command `name` reads as raw text rather than math.
+///
+/// Letters in these groups are names, dimensions or words, so they must reach the parser
+/// unchanged.
+fn raw_arguments(name: &str) -> usize {
+    match name {
+        "text" | "mbox" | "operatorname" | "hspace" | "begin" | "end" | "color" | "textcolor"
+        | "colorbox" | "label" | "ref" | "eqref" | "tag" => 1,
+        "fcolorbox" => 2,
+        _ => 0,
+    }
+}
+
+/// Restates the style of every font group on each letter inside it.
+///
+/// `latex-rust` 1.0.2 styles only the letters that are direct members of a font group's list,
+/// so in `\mathrm{rad\,s^{-1}}` the `s`, which is the nucleus of a superscript, would be left
+/// unstyled and then italicised by [`rewrite`]. This pass rewrites each letter that lies anywhere
+/// inside a braced font group as `{\style{letter}}`, using the innermost enclosing font command,
+/// so that it is styled wherever it appears. Adjacent letters of one group still merge into one
+/// styled run, because `latex-rust` joins adjacent runs of the same style. Letters are the
+/// characters that [`rewrite`] would italicise. Arguments that commands read as raw text (see
+/// [`raw_arguments`]) are copied unchanged, as are the column specification of an `array` and
+/// letters outside any font group.
+fn propagate_font_styles(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    // Each open font group: its command and the brace depth inside it.
+    let mut styles: Vec<(&str, usize)> = Vec::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        match ch {
+            '\\' => {
+                let start = i + 1;
+                let mut end = start;
+                while end < chars.len() && chars[end].is_ascii_alphabetic() {
+                    end += 1;
+                }
+                if end == start {
+                    // A control symbol such as `\,` or `\{`.
+                    out.extend(&chars[i..(start + 1).min(chars.len())]);
+                    i = start + 1;
+                    continue;
+                }
+                let name: String = chars[start..end].iter().collect();
+                out.push('\\');
+                out.push_str(&name);
+                i = end;
+                if chars.get(i) == Some(&'*') {
+                    out.push('*');
+                    i += 1;
+                }
+                if let Some(style) = FONT_COMMANDS.iter().find(|c| **c == name) {
+                    let mut j = i;
+                    while j < chars.len() && chars[j].is_whitespace() {
+                        j += 1;
+                    }
+                    if chars.get(j) == Some(&'{') {
+                        styles.push((style, depth + 1));
+                    }
+                    continue;
+                }
+                for _ in 0..raw_arguments(&name) {
+                    let group = copy_group(&chars, &mut i, &mut out);
+                    if name == "begin" && group.as_deref().is_some_and(|g| g.trim() == "array") {
+                        copy_group(&chars, &mut i, &mut out);
+                    }
+                }
+            }
+            '{' => {
+                depth += 1;
+                out.push(ch);
+                i += 1;
+            }
+            '}' => {
+                if styles.last().is_some_and(|(_, d)| *d == depth) {
+                    styles.pop();
+                }
+                depth = depth.saturating_sub(1);
+                out.push(ch);
+                i += 1;
+            }
+            _ => {
+                match styles.last() {
+                    Some((style, _)) if math_italic(ch).is_some() => {
+                        out.push_str("{\\");
+                        out.push_str(style);
+                        out.push('{');
+                        out.push(ch);
+                        out.push_str("}}");
+                    }
+                    _ => out.push(ch),
+                }
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Copies the brace group that starts at `chars[*i]`, after any whitespace, to `out` unchanged
+/// and returns its contents, or returns `None` without consuming a group when none starts there.
+fn copy_group(chars: &[char], i: &mut usize, out: &mut String) -> Option<String> {
+    while *i < chars.len() && chars[*i].is_whitespace() {
+        out.push(chars[*i]);
+        *i += 1;
+    }
+    if chars.get(*i) != Some(&'{') {
+        return None;
+    }
+    let mut contents = String::new();
+    let mut level = 0usize;
+    while let Some(&c) = chars.get(*i) {
+        *i += 1;
+        out.push(c);
+        match c {
+            '\\' => {
+                if let Some(&escaped) = chars.get(*i) {
+                    *i += 1;
+                    out.push(escaped);
+                    contents.push(c);
+                    contents.push(escaped);
+                }
+                continue;
+            }
+            '{' => {
+                level += 1;
+                if level == 1 {
+                    continue;
+                }
+            }
+            '}' => {
+                level -= 1;
+                if level == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        contents.push(c);
+    }
+    Some(contents)
+}
+
 /// Applies TeX's character conventions to a parsed math tree in place.
 ///
 /// Hyphen-minus atoms become the minus sign, keeping their atom class so that
 /// binary-operator spacing is unchanged. Unstyled Latin letters and lowercase
 /// Greek letters become their Mathematical Italic counterparts; letters inside
 /// `\mathrm`, `\text`, `\operatorname` and other styled runs are parsed as text
-/// or operator nodes and are left upright, as are digits.
+/// or operator nodes (after [`propagate_font_styles`] for font groups) and are
+/// left upright, as are digits.
 ///
 /// Returns false, leaving the tree partly rewritten, if the tree is deeper than
 /// [`MAX_AST_DEPTH`].
@@ -671,6 +841,34 @@ mod tests {
         assert!(nesting_depth(r"\left(\left(x\right)\right)") >= 2);
         let flat = "a^2 + b^2 + c^2 + d^2 + e^2 + f^2 + g^2 + h^2 + i^2 + j^2 + k^2 + l^2 + m^2";
         assert!(nesting_depth(flat) <= 2);
+    }
+
+    // Font styles must reach letters nested in scripts, but names, dimensions and words that
+    // commands read as raw text must reach the parser unchanged, or `\hspace{1em}` and
+    // `\begin{array}{cc}` inside a font group would stop parsing.
+    #[test]
+    fn font_styles_reach_nested_letters_but_not_raw_arguments() {
+        assert_eq!(
+            propagate_font_styles(r"\mathrm{s^{-1}}x"),
+            r"\mathrm{{\mathrm{s}}^{-1}}x"
+        );
+        assert_eq!(
+            propagate_font_styles(r"\mathbf{a\mathit{b}}"),
+            r"\mathbf{{\mathbf{a}}\mathit{{\mathit{b}}}}"
+        );
+        for raw in [
+            r"\mathrm{\text{per s}}",
+            r"\mathrm{\hspace{1em}}",
+            r"\mathrm{\operatorname*{sinc}}",
+            r"\mathrm{\color{red}}",
+        ] {
+            assert_eq!(propagate_font_styles(raw), raw);
+        }
+        assert_eq!(
+            propagate_font_styles(r"\mathrm{\begin{array}{cc}a\end{array}}"),
+            r"\mathrm{\begin{array}{cc}{\mathrm{a}}\end{array}}"
+        );
+        assert_eq!(propagate_font_styles(r"a\{b\}"), r"a\{b\}");
     }
 
     #[test]

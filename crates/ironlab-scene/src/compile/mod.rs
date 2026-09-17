@@ -28,6 +28,9 @@ use ironlab_text::TextEngine;
 use crate::display::{DisplayList, Item, Rect};
 use crate::hit::HitMap;
 
+/// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
+const MAX_TICK_FITTING_PASSES: usize = 10;
+
 /// A problem found while compiling a figure that did not prevent the figure from being drawn.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SceneWarning {
@@ -110,7 +113,10 @@ impl Ctx<'_> {
 ///   the middle colour of the colormap. The isolines of a filled contour are drawn only when their colour is an
 ///   explicit colour, because colormapped isolines would coincide with the band colours.
 /// - **Limits.** Automatic axis limits round the data range outward to major ticks, are computed over the data of
-///   every axes in the same link group, and are `[0, 1]` for an axes without data. Data that cannot be placed on a
+///   every axes in the same link group, and are `[0, 1]` for an axes without data. Gridded data is the exception, as
+///   in MATLAB's `contour`, `contourf`, `contour3`, `surf` and `mesh`: along x and y, an end of the range that only
+///   the grids of contour and surface artists reach is the exact end of those grids, while an end that other data
+///   reaches beyond the grids is rounded outward as usual. The z limits of a 3D axes are always rounded outward. Data that cannot be placed on a
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
 ///   range of the finite colour values of the axes' colormapped artists.
 /// - **Surface colour.** A colormapped face takes the colormap sample of the mean of its four corner colour values
@@ -122,7 +128,10 @@ impl Ctx<'_> {
 /// - **3D.** Faces, segments and markers are painted back to front for the current view. A line, scatter or quiver
 ///   without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
 ///   grid line on each of the two back planes (see [`crate::maths::camera::back_planes`]) that contain that axis's
-///   direction, except where the grid line would coincide with an edge of the box. The hit map describes a 3D axes
+///   direction, except where the grid line would coincide with an edge of the box. The edge that carries an axis's
+///   tick labels has a short tick mark at each major tick, pointing away from the box towards the label. Any two tick
+///   labels of a 3D axes keep a clear gap of at least 0.3 font sizes: labels are placed for x, then y, then z, and a
+///   label that would come closer to one already placed is left out, while its tick mark is still drawn. The hit map describes a 3D axes
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
@@ -149,13 +158,38 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .iter()
         .map(|axes| data::prepare_axes(&mut ctx, axes))
         .collect();
-    let targets: Vec<[usize; 3]> = figure
+    let mut targets: Vec<[usize; 3]> = figure
         .axes
         .iter()
         .zip(&outer)
         .map(|(axes, rect)| limits::tick_targets(&ctx, axes, *rect))
         .collect();
-    let ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+    let mut ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+    // Thin the x ticks until their labels fit. Every pass lowers at least one target or stops, and repeated passes
+    // would only repeat the warnings of the first, so those are discarded.
+    let kept = ctx.warnings.len();
+    for _ in 0..MAX_TICK_FITTING_PASSES {
+        let fitted: Vec<[usize; 3]> = figure
+            .axes
+            .iter()
+            .enumerate()
+            .map(|(i, axes)| {
+                let [x, y, z] = targets[i];
+                [
+                    decor::fit_x_target(&mut ctx, axes, ranges[i][0], x, outer[i]),
+                    y,
+                    z,
+                ]
+            })
+            .collect();
+        ctx.warnings.truncate(kept);
+        if fitted == targets {
+            break;
+        }
+        targets = fitted;
+        ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
+        ctx.warnings.truncate(kept);
+    }
 
     let decorations: Vec<decor::Decor> = figure
         .axes

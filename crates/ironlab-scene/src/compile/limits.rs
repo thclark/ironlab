@@ -31,11 +31,31 @@ pub(super) fn is_3d(axes: &Axes) -> bool {
     matches!(axes.projection, Projection::ThreeD { .. })
 }
 
+/// The fraction of a tile's width that a 2D x axis is estimated to span, before decorations are measured.
+const X_LENGTH_FRACTION: f64 = 0.85;
+/// The fraction of a tile's height that a 2D y axis is estimated to span, before decorations are measured.
+const Y_LENGTH_FRACTION: f64 = 0.8;
+/// The smallest distance between neighbouring major ticks of a 2D x axis, in font sizes, before the labels are fitted.
+const X_TICK_SPACING: f64 = 3.0;
+/// The smallest distance between neighbouring major ticks of a 2D y axis, in font sizes.
+///
+/// Nice steps grow by factors of two to two and a half, so the resulting distance usually lies between this spacing
+/// and two and a half times it, which averages about MATLAB's one label per three font sizes.
+const Y_TICK_SPACING: f64 = 2.5;
+/// The largest number of major tick intervals on a 2D axis.
+const MAX_INTERVALS_2D: usize = 10;
+
+/// Returns the estimated length in points of the x axis of a 2D axes in the tile `outer`.
+pub(super) fn x_length_estimate(outer: Rect) -> f64 {
+    X_LENGTH_FRACTION * outer.width
+}
+
 /// Chooses the largest number of major tick intervals for each axis of an axes, from the size of its tile.
 ///
 /// The target depends only on the tile, not on measured decorations, so that it is known before limits are
-/// computed. A horizontal axis allows one interval per five font sizes of width and a vertical axis one per six and
-/// a half font sizes of height, so that vertical axes favour coarse steps whose labels need no decimals; a 3D axis allows one per six font sizes of the shorter tile side.
+/// computed. A 2D x axis allows one interval per [`X_TICK_SPACING`] font sizes of its estimated length and a 2D y
+/// axis one per [`Y_TICK_SPACING`] font sizes, up to ten intervals, which gives MATLAB's density of labels; the x
+/// target is then thinned by [`super::decor::fit_x_target`] until the x tick labels fit. A 3D axis allows one interval per six font sizes of the shorter tile side.
 pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
     let fs = ctx.font_size;
     let count = |len: f64, spacing: f64, max: usize| -> usize {
@@ -51,37 +71,92 @@ pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
         [n; 3]
     } else {
         [
-            count(0.85 * outer.width, 5.0 * fs, 10),
-            count(0.8 * outer.height, 6.5 * fs, 10),
+            count(
+                x_length_estimate(outer),
+                X_TICK_SPACING * fs,
+                MAX_INTERVALS_2D,
+            ),
+            count(
+                Y_LENGTH_FRACTION * outer.height,
+                Y_TICK_SPACING * fs,
+                MAX_INTERVALS_2D,
+            ),
             5,
         ]
     }
 }
 
-/// Returns the finite extent of the values an axes' artists place along `dim`, dropping non-positive values when
+/// The finite extents of the values that artists place along one axis.
+#[derive(Clone, Copy, Debug, Default)]
+struct Extents {
+    /// The extent of gridded data (contours and surfaces) along x or y, which takes tight limits.
+    tight: Option<(f64, f64)>,
+    /// The extent of all other data, which is rounded outward to major ticks.
+    loose: Option<(f64, f64)>,
+}
+
+/// Returns the smallest interval covering two optional intervals.
+fn union(a: Option<(f64, f64)>, b: Option<(f64, f64)>) -> Option<(f64, f64)> {
+    match (a, b) {
+        (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
+        (a, None) => a,
+        (None, b) => b,
+    }
+}
+
+impl Extents {
+    fn union(self, other: Extents) -> Extents {
+        Extents {
+            tight: union(self.tight, other.tight),
+            loose: union(self.loose, other.loose),
+        }
+    }
+}
+
+/// Returns whether an artist's data along `dim` takes tight limits: the x and y values of contours and surfaces.
+fn is_tight(data: &ArtistData, dim: usize) -> bool {
+    dim < 2 && matches!(data, ArtistData::Contour(_) | ArtistData::Surface { .. })
+}
+
+/// Returns the finite extents of the values an axes' artists place along `dim`, dropping non-positive values when
 /// `log` is true.
-fn extent(axes: &Axes, prepared: &[Prepared], dim: usize, log: bool) -> Option<(f64, f64)> {
+fn extent(axes: &Axes, prepared: &[Prepared], dim: usize, log: bool) -> Extents {
     let three_d = is_3d(axes);
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
+    let mut out = Extents::default();
     for p in prepared {
         if let Some(data) = &p.data {
+            let mut lo = f64::INFINITY;
+            let mut hi = f64::NEG_INFINITY;
             values_along(p.artist, data, three_d, dim, &mut |v| {
                 if v.is_finite() && (!log || v > 0.0) {
                     lo = lo.min(v);
                     hi = hi.max(v);
                 }
             });
+            let found = (lo <= hi).then_some((lo, hi));
+            let this = if is_tight(data, dim) {
+                Extents {
+                    tight: found,
+                    loose: None,
+                }
+            } else {
+                Extents {
+                    tight: None,
+                    loose: found,
+                }
+            };
+            out = out.union(this);
         }
     }
-    (lo <= hi).then_some((lo, hi))
+    out
 }
 
 /// Computes the limits of every axis of every axes.
 ///
 /// Manual limits are used as given when they are finite, increasing and (on a log axis) positive; otherwise a
 /// warning names the axes and automatic limits are used. Automatic limits cover the data of every axes linked with
-/// the axes along that dimension, rounded outward to major ticks with the smallest tick target in the group.
+/// the axes along that dimension, rounded outward to major ticks with the smallest tick target in the group, except
+/// that the x and y extents of gridded data are used exactly (see [`auto_range`]).
 pub(super) fn axis_ranges(
     ctx: &mut Ctx,
     prepared: &[Vec<Prepared>],
@@ -115,6 +190,10 @@ pub(super) fn axis_ranges(
 }
 
 /// Computes automatic limits for one axis over its link group.
+///
+/// The data of the group is rounded outward to major ticks. When the group holds gridded data along the axis (the x
+/// or y values of a contour or surface), each end of the range that no other data reaches beyond the grid is the
+/// exact end of the grid instead, unless the grid has no extent along the axis.
 fn auto_range(
     figure: &ironlab_ir::Figure,
     axes: &Axes,
@@ -128,43 +207,17 @@ fn auto_range(
         ironlab_ir::Dimension::Y,
         ironlab_ir::Dimension::Z,
     ][dim];
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
+    let mut extents = Extents::default();
     let mut target = usize::MAX;
     for member in figure.linked_axes(axes.id, dimension) {
         let Some(index) = figure.axes.iter().position(|a| a.id == member) else {
             continue;
         };
         target = target.min(targets[index][dim]);
-        if let Some((a, b)) = extent(&figure.axes[index], &prepared[index], dim, log) {
-            lo = lo.min(a);
-            hi = hi.max(b);
-        }
+        extents = extents.union(extent(&figure.axes[index], &prepared[index], dim, log));
     }
     let target = if target == usize::MAX { 5 } else { target };
-    if lo > hi {
-        return if log {
-            Range {
-                min: 1.0,
-                max: 10.0,
-                log,
-            }
-        } else {
-            Range {
-                min: 0.0,
-                max: 1.0,
-                log,
-            }
-        };
-    }
-    let (min, max) = if log {
-        ticks::nice_log_limits(lo, hi)
-    } else {
-        ticks::nice_limits(lo, hi, target)
-    };
-    if min.is_finite() && max.is_finite() && min < max {
-        Range { min, max, log }
-    } else if log {
+    let fallback = if log {
         Range {
             min: 1.0,
             max: 10.0,
@@ -176,6 +229,39 @@ fn auto_range(
             max: 1.0,
             log,
         }
+    };
+    let Some((lo, hi)) = union(extents.tight, extents.loose) else {
+        return fallback;
+    };
+    let (nice_min, nice_max) = if log {
+        ticks::nice_log_limits(lo, hi)
+    } else {
+        ticks::nice_limits(lo, hi, target)
+    };
+    // A side of the range reached only by gridded data ends exactly at the grid, as MATLAB's contour and surf do;
+    // a side that other data reaches beyond the grid is rounded outward to a major tick.
+    let (min, max) = match extents.tight {
+        Some((tight_lo, tight_hi)) if tight_lo < tight_hi => {
+            let (loose_lo, loose_hi) = extents.loose.unwrap_or((tight_lo, tight_hi));
+            (
+                if loose_lo < tight_lo {
+                    nice_min
+                } else {
+                    tight_lo
+                },
+                if loose_hi > tight_hi {
+                    nice_max
+                } else {
+                    tight_hi
+                },
+            )
+        }
+        _ => (nice_min, nice_max),
+    };
+    if min.is_finite() && max.is_finite() && min < max {
+        Range { min, max, log }
+    } else {
+        fallback
     }
 }
 

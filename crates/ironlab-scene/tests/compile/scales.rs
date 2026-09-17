@@ -112,7 +112,8 @@ fn x_tick_labels_are_a_nice_sequence_spanning_the_limits() {
     }
 }
 
-// Why: publication typography uses U+2212 MINUS SIGN, never a hyphen, for negative tick labels.
+// Why: publication typography uses U+2212 MINUS SIGN, never a hyphen, for negative tick labels. The
+// number of decimals depends on the tick step, so both "−1" and "−1.0" are acceptable.
 #[test]
 fn negative_tick_labels_use_the_minus_sign() {
     let (fx, ax, ..) = sine_axes();
@@ -120,9 +121,102 @@ fn negative_tick_labels_use_the_minus_sign() {
     let plot = axes_hit(&scene, ax).plot_rect;
     let labels = y_tick_labels(&leaves(&scene), plot);
     let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
-    assert!(texts.contains(&"\u{2212}1"), "{texts:?}");
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.value == -1.0 && l.text.starts_with('\u{2212}')),
+        "{texts:?}"
+    );
     assert!(texts.iter().all(|t| !t.contains('-')), "{texts:?}");
-    assert!(labels.iter().any(|l| l.value < 0.0));
+    assert!(
+        labels
+            .iter()
+            .filter(|l| l.value < 0.0)
+            .all(|l| l.text.starts_with('\u{2212}')),
+        "{texts:?}"
+    );
+}
+
+// Why: a value is read off an axis by interpolating between its labelled ticks, so a y axis needs
+// MATLAB's density of labels: in a default figure, data spanning [−1, 1] is labelled every 0.5 or
+// finer, not only at −1, 0 and 1.
+#[test]
+fn y_axis_has_matlab_like_tick_density() {
+    let (fx, ax, ..) = sine_axes();
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let labels = y_tick_labels(&leaves(&scene), plot);
+    let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+    assert!(labels.len() >= 5, "{texts:?}");
+}
+
+// Why: manual limits that are not multiples of a coarse step (the scatter gallery figure uses
+// [−1.6, 1.6]) must still show several labelled ticks; a step chosen too coarse leaves a single
+// label at zero, and the axis cannot be read at all.
+#[test]
+fn manual_limits_off_the_tick_grid_still_show_several_labels() {
+    let mut fx = Fx::new();
+    fx.fig.size.width_mm = 120.0;
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &[-1.5, 1.5], &[-1.5, 1.5], None, |_| {});
+    let limits = Limits::Manual {
+        min: -1.6,
+        max: 1.6,
+    };
+    fx.ax(ax).x.limits = limits;
+    fx.ax(ax).y.limits = limits;
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let leaves = leaves(&scene);
+    for (name, labels) in [
+        ("x", x_tick_labels(&leaves, plot)),
+        ("y", y_tick_labels(&leaves, plot)),
+    ] {
+        let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+        assert!(labels.len() >= 5, "{name} labels: {texts:?}");
+    }
+}
+
+/// Returns the x tick labels of a single axes holding a line over `x`, in a figure `width_mm` wide,
+/// sorted from left to right.
+fn x_labels_at_width(x: [f64; 2], width_mm: f64) -> (Vec<crate::probe::NumericLabel>, f64) {
+    let mut fx = Fx::new();
+    fx.fig.size.width_mm = width_mm;
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &x, &[0.0, 1.0], None, |_| {});
+    let font_size = fx.fig.font_size_pt;
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let mut labels = x_tick_labels(&leaves(&scene), plot);
+    labels.sort_by(|a, b| a.bbox.x.total_cmp(&b.bbox.x));
+    (labels, font_size)
+}
+
+// Why: the number of x ticks depends on how wide the labels are, as in MATLAB: wide labels in a
+// narrow axes must be thinned so that neighbouring labels keep a clear gap and never run together,
+// while a wide axes with the same data shows more ticks.
+#[test]
+fn x_tick_density_follows_label_width_and_axis_width() {
+    let (narrow, font_size) = x_labels_at_width([1000.5, 1009.5], 60.0);
+    let (wide, _) = x_labels_at_width([1000.5, 1009.5], 240.0);
+    let texts = |l: &[crate::probe::NumericLabel]| -> Vec<String> {
+        l.iter().map(|l| l.text.clone()).collect()
+    };
+    assert!(narrow.len() >= 2, "{:?}", texts(&narrow));
+    for pair in narrow.windows(2) {
+        let gap = pair[1].bbox.x - pair[0].bbox.right();
+        assert!(
+            gap >= font_size,
+            "labels {:?} are {gap} pt apart",
+            texts(&narrow)
+        );
+    }
+    assert!(
+        wide.len() > narrow.len(),
+        "wide {:?}, narrow {:?}",
+        texts(&wide),
+        texts(&narrow)
+    );
 }
 
 /// A loglog axes with a line through four decades on both axes.
@@ -265,6 +359,73 @@ fn linked_auto_limits_cover_the_union_of_group_data() {
         (ax_c.min, ax_c.max),
         (0.0, 1.0),
         "unlinked axes is unaffected"
+    );
+}
+
+// Why: as in MATLAB, `contour` and `contourf` fill the plot area with the gridded field. Rounding the
+// grid extent outward to nice ticks would leave empty bands along the edges where no data exists, so
+// automatic x and y limits are exactly the extent of the grid. Linked axes still share the union of
+// their extents.
+#[test]
+fn gridded_data_takes_tight_limits_and_linked_axes_share_their_union() {
+    let mut fx = Fx::new();
+    fx.fig.layout.cols = 2;
+    let a = fx.axes2d(0, 0);
+    let b = fx.axes2d(0, 1);
+    let field = |x: f64, y: f64| x * x + y;
+    fx.contour(
+        a,
+        &[-1.5, -0.5, 0.5, 1.5],
+        &[-0.7, 0.3, 1.3, 2.3],
+        field,
+        |_| {},
+    );
+    fx.contour(b, &[0.0, 1.0, 3.1], &[0.2, 0.5, 0.9], field, |c| {
+        c.fill = true
+    });
+    fx.fig.links.push(AxisLink {
+        dimension: Dimension::X,
+        axes: vec![a, b],
+    });
+    let scene = compile_figure(&fx.build());
+    let (ax_a, ay_a) = axis_maps(&scene, a);
+    let (ax_b, ay_b) = axis_maps(&scene, b);
+    assert_eq!((ay_a.min, ay_a.max), (-0.7, 2.3));
+    assert_eq!((ay_b.min, ay_b.max), (0.2, 0.9));
+    assert_eq!((ax_a.min, ax_a.max), (-1.5, 3.1), "linked x is the union");
+    assert_eq!((ax_b.min, ax_b.max), (-1.5, 3.1), "linked x is the union");
+}
+
+// Why: tight limits describe the grid only. Other artists in the same axes still extend the limits,
+// and where they reach beyond the grid the limit is rounded outward to a labelled tick as for any
+// other data, while a side the grid alone determines stays at the grid edge.
+#[test]
+fn other_artists_extend_tight_gridded_limits_to_nice_ticks() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.contour(
+        ax,
+        &[-1.3, -0.3, 0.7, 1.5],
+        &[-0.7, 0.0, 0.7],
+        |x, y| x + y,
+        |_| {},
+    );
+    fx.line(ax, &[0.0, 2.2], &[0.0, 0.1], None, |_| {});
+    let scene = compile_figure(&fx.build());
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let (x, y) = axis_maps(&scene, ax);
+    assert_eq!(x.min, -1.3, "the grid alone sets the left limit");
+    assert!(x.max > 2.2, "the line extends the right limit: {}", x.max);
+    let labels = x_tick_labels(&leaves(&scene), plot);
+    assert!(
+        labels.iter().any(|l| (l.value - x.max).abs() < 1e-9),
+        "the extended limit {} is a labelled tick",
+        x.max
+    );
+    assert_eq!(
+        (y.min, y.max),
+        (-0.7, 0.7),
+        "the line lies inside the grid in y"
     );
 }
 

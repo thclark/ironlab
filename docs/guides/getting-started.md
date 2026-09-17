@@ -165,7 +165,7 @@ The remaining axes properties are also set on the axes handle.
 | `clim(min, max)` | Fixes the data values mapped to the ends of the colormap. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
-Limits that are not set are chosen automatically from the data and rounded outwards to tick values.
+Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour and surface plots are the exact extent of their grid instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
 
 ## Legends
 

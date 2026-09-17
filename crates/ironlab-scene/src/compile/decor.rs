@@ -5,8 +5,9 @@ use ironlab_ir::{Axes, NodeId};
 use crate::maths::ticks;
 
 use super::Ctx;
-use super::limits::{Range, axes_axis, is_3d};
+use super::limits::{Range, axes_axis, is_3d, x_length_estimate};
 use super::text::{self, TextBlock, measure_str};
+use crate::display::Rect;
 
 /// Tick labels are this fraction of the base font size.
 pub(super) const TICK_SCALE: f64 = 0.9;
@@ -88,6 +89,44 @@ pub(super) fn measure(
         labels,
         title,
     }
+}
+
+/// The smallest clear gap between neighbouring x tick labels of a 2D axes, in font sizes.
+const X_LABEL_GAP: f64 = 1.5;
+
+/// Returns the x tick target of a 2D axes reduced, when necessary, so that its tick labels fit along the axis.
+///
+/// The labels fit when the distance between neighbouring major ticks along the estimated axis length is at least the
+/// widest label plus [`X_LABEL_GAP`] font sizes. When they do not fit, the target becomes the number of such
+/// distances that the axis length holds, and always decreases, so that repeatedly fitting and recomputing the limits
+/// terminates. A logarithmic x axis, a 3D axes and a target of two are returned unchanged.
+pub(super) fn fit_x_target(
+    ctx: &mut Ctx,
+    axes: &Axes,
+    range: Range,
+    target: usize,
+    outer: Rect,
+) -> usize {
+    if is_3d(axes) || range.log || target <= 2 {
+        return target;
+    }
+    let ticks = axis_ticks(ctx, axes.id, range, target);
+    let [a, b, ..] = ticks.major[..] else {
+        return target;
+    };
+    let length = x_length_estimate(outer);
+    let spacing = length * (b - a) / (range.max - range.min);
+    let needed = ticks.max_width() + X_LABEL_GAP * ctx.font_size;
+    if !(spacing.is_finite() && needed.is_finite()) || spacing >= needed {
+        return target;
+    }
+    let fit = (length / needed).floor();
+    let fit = if fit.is_finite() && fit >= 2.0 {
+        fit as usize
+    } else {
+        2
+    };
+    fit.min(target - 1).max(2)
 }
 
 /// Computes the ticks of one axis and typesets their labels.
