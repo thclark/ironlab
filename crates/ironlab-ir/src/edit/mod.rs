@@ -34,11 +34,13 @@
 //! prevent it from being edited. Applying a transaction returns its inverse, which
 //! restores the figure exactly, including the bits of every floating-point value.
 
+mod choice;
 mod path;
 mod registry;
 mod value;
 mod walk;
 
+pub use choice::{Choice, choices};
 pub use path::{PathError, PropertyPath};
 pub use registry::{NodeKind, Property, properties};
 pub use value::{Value, ValueType};
