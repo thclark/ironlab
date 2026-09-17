@@ -12,7 +12,6 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-ironlab-ir.workspace = true
 harfrust.workspace = true
 ttf-parser.workspace = true
 latex-rust.workspace = true
