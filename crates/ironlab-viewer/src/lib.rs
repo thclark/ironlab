@@ -1,15 +1,18 @@
 //! Interactive egui viewer for IronLAB figures.
 //!
 //! The viewer is a dumb consumer of the scene compiler: it draws the display list produced by
-//! [`ironlab_scene::compile()`] and turns pointer input into edits of the figure IR (axis limits, 3D views and
-//! artist visibility). The crate is split into five modules:
+//! [`ironlab_scene::compile()`] and turns pointer input into typed edits of the figure IR (axis limits, 3D views and
+//! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
+//! is split into five modules:
 //!
 //! - [`canvas`] converts a display list into `egui` triangle meshes with lyon.
-//! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits.
+//! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits, keeps the
+//!   source figure and the user's overlay apart, and composes the figure that is displayed.
 //! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation
 //!   gallery and for tests.
-//! - [`app`] is the eframe application: one tab per figure, a toolbar, and PDF export.
-//! - [`files`] reads `.fig` (Protocol Buffers) and `.json` figure files by extension, for the `ironlab-viewer` binary.
+//! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
+//! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
+//!   `ironlab-viewer` binary and for saving from the viewer.
 
 pub mod app;
 pub mod canvas;

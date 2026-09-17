@@ -1,9 +1,13 @@
-//! Pointer gestures as edits of the figure IR, tested without a GPU or a window.
+//! Pointer gestures as edits recorded in the view overlay, tested without a GPU or a window.
+//!
+//! Every gesture records a transaction of sets in the overlay and the viewer draws the composition of the source
+//! figure with that overlay, so each test reads the displayed figure through [`FigureState::figure`] and the figure as
+//! loaded through [`FigureState::source`].
 
 mod common;
 
 use common::*;
-use ironlab_ir::{Artist, Dimension, Line, NodeId, Scale, Text};
+use ironlab_ir::{Artist, Dimension, Limits, Line, NodeId, Scale, Text, Value, View3d};
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxisMap, HitMap, LegendHit};
 use ironlab_viewer::interaction::MIN_BOX_ZOOM_POINTS;
@@ -34,6 +38,17 @@ fn remapped(old: AxisMap, (min, max): (f64, f64)) -> AxisMap {
     AxisMap { min, max, ..old }
 }
 
+/// Drags from `from` to `to` in one update, as one gesture.
+fn drag(state: &mut FigureState, hit: &HitMap, from: Point, to: Point) -> bool {
+    state.drag_start(hit, from);
+    let changed = state.drag_update(to);
+    state.drag_end(to) || changed
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Zooming, panning, rotating and box zoom: the behaviour a user relies on, whatever the model behind it
+// ---------------------------------------------------------------------------------------------------------------
+
 // Why: zooming about the cursor is what lets a user inspect a feature without it sliding away; if the data point under
 // the pointer moved, every wheel notch would need a compensating pan.
 #[test]
@@ -45,8 +60,8 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_linear_axes() {
 
     assert!(state.scroll(&hit, at, 2.0));
 
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert_close(x.1 - x.0, 5.0, EPS, "x range halves");
     assert_close(y.1 - y.0, 2.5, EPS, "y range halves");
     assert_close(
@@ -70,8 +85,8 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
     let (mut state, hit) = single_2d();
     let at = Point::new(180.0, 30.0);
     assert!(state.scroll(&hit, at, 1.25));
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     let zoomed = HitMap {
         axes: vec![ironlab_scene::hit::AxesHit {
             kind: ironlab_scene::hit::AxesHitKind::TwoD {
@@ -85,8 +100,8 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
 
     assert!(state.scroll(&zoomed, at, 1.0 / 1.25));
 
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert_close(x.0, 0.0, 1e-9, "x min");
     assert_close(x.1, 10.0, 1e-9, "x max");
     assert_close(y.0, 0.0, 1e-9, "y min");
@@ -117,7 +132,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
     let x0 = xm.to_data(at.x);
 
     assert!(state.scroll(&hit, at, 2.0));
-    let x = manual_of(&state.current, 2, Dimension::X);
+    let x = manual_of(state.figure(), 2, Dimension::X);
     assert_close(x.1.log10() - x.0.log10(), 2.0, 1e-9, "decades shown halve");
     assert_close(
         remapped(xm, x).to_data(at.x),
@@ -137,7 +152,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
         legend_entries: vec![],
     };
     assert!(state.scroll(&zoomed, at, 0.1));
-    let x = manual_of(&state.current, 2, Dimension::X);
+    let x = manual_of(state.figure(), 2, Dimension::X);
     assert!(
         x.0 > 0.0,
         "log limits stay positive after zooming out, got {x:?}"
@@ -145,13 +160,14 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
 }
 
 // Why: automatic limits are recomputed from the data on every compile, so a zoom that left them Auto would be undone
-// immediately; the zoom must start from the limits the user was looking at and pin them.
+// immediately; the zoom must start from the limits the user was looking at and pin them, while the source figure keeps
+// its automatic limits so that resetting the view makes them automatic again.
 #[test]
 fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() {
     let mut figure = figure_with(vec![axes_2d(2)], vec![]);
     let axes = figure.axes_mut(NodeId(2)).unwrap();
-    axes.x.limits = ironlab_ir::Limits::Auto;
-    axes.y.limits = ironlab_ir::Limits::Auto;
+    axes.x.limits = Limits::Auto;
+    axes.y.limits = Limits::Auto;
     let mut state = FigureState::new(figure);
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
@@ -161,12 +177,17 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
 
     assert!(state.scroll(&hit, centre, 2.0));
 
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert_close(x.0, 2.5, EPS, "x min");
     assert_close(x.1, 7.5, EPS, "x max");
     assert_close(y.0, 1.25, EPS, "y min");
     assert_close(y.1, 3.75, EPS, "y max");
+    assert_eq!(
+        limits_of(state.source(), 2, Dimension::X),
+        Limits::Auto,
+        "the source keeps its automatic limits"
+    );
 }
 
 // Why: a grabbed point must stay under the pointer for the whole drag; computing each update incrementally from the
@@ -189,8 +210,8 @@ fn pan_follows_the_pointer_without_drift_over_many_updates() {
         );
         state.drag_update(at);
     }
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
 
     assert_close(
         remapped(xm, x).to_figure(grab_x),
@@ -212,17 +233,43 @@ fn pan_follows_the_pointer_without_drift_over_many_updates() {
     assert_eq!(
         (x, y),
         (
-            manual_of(&direct.current, 2, Dimension::X),
-            manual_of(&direct.current, 2, Dimension::Y)
+            manual_of(direct.figure(), 2, Dimension::X),
+            manual_of(direct.figure(), 2, Dimension::Y)
         ),
         "many small updates give exactly the same limits as one update to the same point"
     );
 
     state.drag_end(end);
     assert_eq!(
-        manual_of(&state.current, 2, Dimension::X),
+        manual_of(state.figure(), 2, Dimension::X),
         x,
         "releasing does not move the view"
+    );
+}
+
+// Why: a drag that returns to where it began must leave the view where it began; otherwise a user who changes their
+// mind mid-drag cannot get back without resetting.
+#[test]
+fn a_pan_that_returns_to_its_start_restores_the_limits_it_started_from() {
+    let (mut state, hit) = single_2d();
+    let start = Point::new(100.0, 50.0);
+
+    state.drag_start(&hit, start);
+    assert!(state.drag_update(Point::new(160.0, 90.0)));
+    assert!(state.drag_update(start));
+    state.drag_end(start);
+
+    assert_close(
+        manual_of(state.figure(), 2, Dimension::X).0,
+        0.0,
+        1e-9,
+        "x min",
+    );
+    assert_close(
+        manual_of(state.figure(), 2, Dimension::Y).1,
+        5.0,
+        1e-9,
+        "y max",
     );
 }
 
@@ -253,7 +300,7 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
     state.drag_start(&hit, start);
     assert!(state.drag_update(end));
 
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert_close(
         y.1.log10() - y.0.log10(),
         4.0,
@@ -301,25 +348,25 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
     state.drag_start(&hit, Point::new(60.0, 60.0));
     assert!(state.drag_update(Point::new(100.0, 80.0)));
 
-    let a_x = manual_of(&state.current, 2, Dimension::X);
+    let a_x = manual_of(state.figure(), 2, Dimension::X);
     assert_ne!(a_x, (0.0, 10.0), "the dragged axes moved in x");
     assert_ne!(
-        manual_of(&state.current, 2, Dimension::Y),
+        manual_of(state.figure(), 2, Dimension::Y),
         (0.0, 5.0),
         "the dragged axes moved in y"
     );
     assert_eq!(
-        manual_of(&state.current, 3, Dimension::X),
+        manual_of(state.figure(), 3, Dimension::X),
         a_x,
         "the x-linked partner follows in x"
     );
     assert_eq!(
-        limits_of(&state.current, 3, Dimension::Y),
+        limits_of(state.figure(), 3, Dimension::Y),
         limits_of(&before, 3, Dimension::Y),
         "the partner is not linked in y"
     );
     assert_eq!(
-        state.current.axes(NodeId(4)),
+        state.figure().axes(NodeId(4)),
         before.axes(NodeId(4)),
         "the unlinked axes is untouched"
     );
@@ -331,12 +378,12 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
 fn rotate_drag_changes_azimuth_and_elevation_with_the_documented_sign_and_clamps_elevation() {
     let (mut state, hit) = single_3d();
     state.tool = Tool::Rotate;
-    let before = state.current.clone();
+    let before = state.figure().clone();
     let start = Point::new(150.0, 70.0);
 
     state.drag_start(&hit, start);
     assert!(state.drag_update(Point::new(start.x + 10.0, start.y + 4.0)));
-    let view = view_of(&state.current, 2);
+    let view = view_of(state.figure(), 2);
     assert_close(
         view.azimuth_deg,
         -37.5 - 10.0 * ROTATE_DEGREES_PER_POINT,
@@ -352,21 +399,21 @@ fn rotate_drag_changes_azimuth_and_elevation_with_the_documented_sign_and_clamps
 
     state.drag_update(Point::new(start.x, start.y + 1000.0));
     assert_close(
-        view_of(&state.current, 2).elevation_deg,
+        view_of(state.figure(), 2).elevation_deg,
         90.0,
         EPS,
         "elevation clamps at +90",
     );
     state.drag_update(Point::new(start.x, start.y - 1000.0));
     assert_close(
-        view_of(&state.current, 2).elevation_deg,
+        view_of(state.figure(), 2).elevation_deg,
         -90.0,
         EPS,
         "elevation clamps at -90",
     );
 
     state.drag_end(Point::new(start.x, start.y - 1000.0));
-    let axes = state.current.axes(NodeId(2)).unwrap();
+    let axes = state.figure().axes(NodeId(2)).unwrap();
     let old = before.axes(NodeId(2)).unwrap();
     assert_eq!(
         (&axes.x, &axes.y, &axes.z),
@@ -380,12 +427,12 @@ fn rotate_drag_changes_azimuth_and_elevation_with_the_documented_sign_and_clamps
 #[test]
 fn wheel_zoom_on_3d_axes_changes_the_camera_zoom_not_the_limits() {
     let (mut state, hit) = single_3d();
-    let before = state.current.clone();
+    let before = state.figure().clone();
 
     assert!(state.scroll(&hit, Point::new(150.0, 70.0), 2.0));
 
-    assert_close(view_of(&state.current, 2).zoom, 2.0, EPS, "zoom doubles");
-    let axes = state.current.axes(NodeId(2)).unwrap();
+    assert_close(view_of(state.figure(), 2).zoom, 2.0, EPS, "zoom doubles");
+    let axes = state.figure().axes(NodeId(2)).unwrap();
     let old = before.axes(NodeId(2)).unwrap();
     assert_eq!((&axes.x, &axes.y, &axes.z), (&old.x, &old.y, &old.z));
 }
@@ -396,15 +443,15 @@ fn wheel_zoom_on_3d_axes_changes_the_camera_zoom_not_the_limits() {
 #[test]
 fn pan_on_3d_axes_moves_the_view_offset_by_the_pointer_displacement_in_plot_fractions() {
     let (mut state, hit) = single_3d();
-    let before = state.current.clone();
+    let before = state.figure().clone();
 
     state.drag_start(&hit, Point::new(100.0, 50.0));
     assert!(state.drag_update(Point::new(120.0, 60.0)));
 
-    let view = view_of(&state.current, 2);
+    let view = view_of(state.figure(), 2);
     assert_close(view.pan_x, 20.0 / PLOT.width, EPS, "pan x");
     assert_close(view.pan_y, 10.0 / PLOT.height, EPS, "pan y");
-    let axes = state.current.axes(NodeId(2)).unwrap();
+    let axes = state.figure().axes(NodeId(2)).unwrap();
     assert_eq!(
         axes.x,
         before.axes(NodeId(2)).unwrap().x,
@@ -435,8 +482,8 @@ fn box_zoom_sets_the_limits_to_the_data_covered_by_the_rubber_band() {
         assert!(state.drag_end(to));
 
         assert_eq!(state.rubber_band(), None, "the band disappears on release");
-        let x = manual_of(&state.current, 2, Dimension::X);
-        let y = manual_of(&state.current, 2, Dimension::Y);
+        let x = manual_of(state.figure(), 2, Dimension::X);
+        let y = manual_of(state.figure(), 2, Dimension::Y);
         assert_close(x.0, 2.5, EPS, "x min");
         assert_close(x.1, 5.0, EPS, "x max");
         assert_close(y.0, 1.5, EPS, "y min");
@@ -460,8 +507,8 @@ fn box_zoom_clamps_the_band_to_the_plot_rectangle() {
     );
     assert!(state.drag_end(Point::new(400.0, 300.0)));
 
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert_close(x.0, 7.5, EPS, "x min");
     assert_close(x.1, 10.0, EPS, "x max is the old limit, not beyond it");
     assert_close(y.0, 0.0, EPS, "y min is the old limit, not beyond it");
@@ -475,24 +522,24 @@ fn box_zoom_clamps_the_band_to_the_plot_rectangle() {
 fn the_zoom_tool_does_not_drag_on_3d_axes_and_the_wheel_zooms_in_every_tool() {
     let (mut state, hit) = single_3d();
     state.tool = Tool::Zoom;
-    let before = state.current.clone();
+    let before = state.figure().clone();
 
     state.drag_start(&hit, Point::new(100.0, 40.0));
     assert!(!state.drag_update(Point::new(150.0, 90.0)));
     assert_eq!(state.rubber_band(), None, "no band is drawn over 3D axes");
     assert!(!state.drag_end(Point::new(150.0, 90.0)));
-    assert_eq!(state.current, before);
+    assert_eq!(state.figure(), &before);
 
     for tool in [Tool::Pan, Tool::Zoom, Tool::Rotate] {
         let (mut state, hit) = single_3d();
         state.tool = tool;
         assert!(state.scroll(&hit, Point::new(150.0, 70.0), 2.0), "{tool:?}");
-        assert_close(view_of(&state.current, 2).zoom, 2.0, EPS, "3D zoom");
+        assert_close(view_of(state.figure(), 2).zoom, 2.0, EPS, "3D zoom");
 
         let (mut state, hit) = single_2d();
         state.tool = tool;
         assert!(state.scroll(&hit, Point::new(150.0, 70.0), 2.0), "{tool:?}");
-        let x = manual_of(&state.current, 2, Dimension::X);
+        let x = manual_of(state.figure(), 2, Dimension::X);
         assert_close(x.1 - x.0, 5.0, EPS, "2D zoom");
     }
 }
@@ -509,14 +556,19 @@ fn box_zoom_ignores_bands_smaller_than_the_minimum_size() {
     ] {
         let (mut state, hit) = single_2d();
         state.tool = Tool::Zoom;
-        let before = state.current.clone();
+        let before = state.figure().clone();
 
         state.drag_start(&hit, Point::new(100.0, 40.0));
         state.drag_update(to);
         assert!(!state.drag_end(to), "band to {to:?} is ignored");
-        assert_eq!(state.current, before);
+        assert_eq!(state.figure(), &before);
+        assert!(!state.can_undo(), "an ignored band leaves nothing to undo");
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Restoring views
+// ---------------------------------------------------------------------------------------------------------------
 
 // Why: double-click is the local undo for one subplot; it must not throw away navigation in other subplots, but must
 // keep linked partners consistent with the axes it resets.
@@ -539,30 +591,29 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
         (3, (100.0, 110.0), (50.0, 60.0)),
         (4, (-3.0, 3.0), (-1.0, 1.0)),
     ] {
-        let axes = state.current.axes_mut(NodeId(id)).unwrap();
-        axes.x.limits = manual(x.0, x.1);
-        axes.y.limits = manual(y.0, y.1);
+        record_limits(&mut state, id, Dimension::X, manual(x.0, x.1));
+        record_limits(&mut state, id, Dimension::Y, manual(y.0, y.1));
     }
 
     assert!(state.double_click(&hit, Point::new(300.0, 60.0)));
-    assert_eq!(manual_of(&state.current, 4, Dimension::X), (0.0, 10.0));
-    assert_eq!(manual_of(&state.current, 4, Dimension::Y), (0.0, 5.0));
+    assert_eq!(manual_of(state.figure(), 4, Dimension::X), (0.0, 10.0));
+    assert_eq!(manual_of(state.figure(), 4, Dimension::Y), (0.0, 5.0));
     assert_eq!(
-        manual_of(&state.current, 2, Dimension::X),
+        manual_of(state.figure(), 2, Dimension::X),
         (100.0, 110.0),
         "other axes keep their view"
     );
 
     assert!(state.double_click(&hit, Point::new(60.0, 60.0)));
-    assert_eq!(manual_of(&state.current, 2, Dimension::X), (0.0, 10.0));
-    assert_eq!(manual_of(&state.current, 2, Dimension::Y), (0.0, 5.0));
+    assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 10.0));
+    assert_eq!(manual_of(state.figure(), 2, Dimension::Y), (0.0, 5.0));
     assert_eq!(
-        manual_of(&state.current, 3, Dimension::X),
+        manual_of(state.figure(), 3, Dimension::X),
         (0.0, 10.0),
         "x-linked partner follows"
     );
     assert_eq!(
-        manual_of(&state.current, 3, Dimension::Y),
+        manual_of(state.figure(), 3, Dimension::Y),
         (50.0, 60.0),
         "partner is not linked in y"
     );
@@ -573,21 +624,67 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
 #[test]
 fn double_click_restores_the_view_of_a_3d_axes() {
     let (mut state, hit) = single_3d();
-    set_view(
-        &mut state.current,
-        2,
-        ironlab_ir::View3d {
-            azimuth_deg: 10.0,
-            elevation_deg: -20.0,
-            zoom: 3.0,
-            pan_x: 0.2,
-            pan_y: -0.1,
-        },
-    );
+    let rotated = View3d {
+        azimuth_deg: 10.0,
+        elevation_deg: -20.0,
+        zoom: 3.0,
+        pan_x: 0.2,
+        pan_y: -0.1,
+    };
+    assert!(state.record(&set(2, "projection.view3d", Value::View3d(rotated))));
 
     assert!(state.double_click(&hit, Point::new(150.0, 70.0)));
-    assert_eq!(view_of(&state.current, 2), view_of(&state.snapshot, 2));
+    assert_eq!(view_of(state.figure(), 2), view_of(state.source(), 2));
 }
+
+// Why: Reset view undoes navigation, not content choices; a user who hid a series should not see it reappear because
+// they reset the zoom. The changed flag drives recompilation, so a no-op reset must report no change.
+#[test]
+fn reset_view_restores_limits_and_views_but_keeps_visibility() {
+    let mut axes = axes_2d(2);
+    axes.artists.push(Artist::Line(Line {
+        id: NodeId(10),
+        ..Line::default()
+    }));
+    let mut state = FigureState::new(figure_with(vec![axes, axes_3d(3)], vec![]));
+    let source = state.source().clone();
+    record_limits(&mut state, 2, Dimension::X, manual(3.0, 4.0));
+    record_limits(&mut state, 3, Dimension::Z, manual(-9.0, 9.0));
+    state.record(&set(
+        3,
+        "projection.view3d",
+        Value::View3d(View3d {
+            azimuth_deg: 45.0,
+            elevation_deg: 10.0,
+            zoom: 0.5,
+            pan_x: 0.1,
+            pan_y: 0.1,
+        }),
+    ));
+    state.record(&set(10, "visible", Value::Bool(false)));
+
+    assert!(state.reset_view());
+
+    for id in [2, 3] {
+        for dim in [Dimension::X, Dimension::Y, Dimension::Z] {
+            assert_eq!(
+                limits_of(state.figure(), id, dim),
+                limits_of(&source, id, dim),
+                "axes {id} {dim:?}"
+            );
+        }
+    }
+    assert_eq!(view_of(state.figure(), 3), view_of(&source, 3));
+    assert!(!visible(&state, 10), "visibility is kept");
+    assert!(
+        !state.reset_view(),
+        "resetting an already reset view changes nothing"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The legend
+// ---------------------------------------------------------------------------------------------------------------
 
 fn figure_with_legend() -> (FigureState, HitMap) {
     let mut axes = axes_2d(2);
@@ -609,7 +706,7 @@ fn figure_with_legend() -> (FigureState, HitMap) {
 }
 
 fn visible(state: &FigureState, id: u64) -> bool {
-    state.current.artist(NodeId(id)).unwrap().1.visible()
+    state.figure().artist(NodeId(id)).unwrap().1.visible()
 }
 
 // Why: clicking a legend entry is the MATLAB-style way to hide and re-show a series; it must be a clean toggle, and a
@@ -637,7 +734,7 @@ fn clicking_a_legend_entry_toggles_its_artist_and_other_clicks_do_nothing() {
 fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
     let (mut state, hit) = figure_with_legend();
     let navigated = manual(2.0, 4.0);
-    state.current.axes_mut(NodeId(2)).unwrap().x.limits = navigated;
+    record_limits(&mut state, 2, Dimension::X, navigated);
     let entry = Point::new(220.0, 30.0);
 
     assert!(state.click(&hit, entry), "the first click hides the series");
@@ -648,7 +745,7 @@ fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
     );
     assert!(visible(&state, 10));
     assert_eq!(
-        state.current.axes(NodeId(2)).unwrap().x.limits,
+        limits_of(state.figure(), 2, Dimension::X),
         navigated,
         "a double-click on a legend entry does not reset the axes"
     );
@@ -657,61 +754,204 @@ fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
         state.double_click(&hit, Point::new(100.0, 100.0)),
         "a double-click in the plot area still resets the axes"
     );
-    assert_ne!(state.current.axes(NodeId(2)).unwrap().x.limits, navigated);
+    assert_ne!(limits_of(state.figure(), 2, Dimension::X), navigated);
 }
 
-// Why: Reset view undoes navigation, not content choices; a user who hid a series should not see it reappear because
-// they reset the zoom. The changed flag drives recompilation, so a no-op reset must report no change.
+// ---------------------------------------------------------------------------------------------------------------
+// The source, the overlay and the displayed figure
+// ---------------------------------------------------------------------------------------------------------------
+
+// Why: the overlay only makes sense if the figure the viewer was given is never touched; the property editor, saving
+// and a future session all rely on the source being the owner's figure and on the user's changes being values that
+// can be dropped, reverted or sent elsewhere.
 #[test]
-fn reset_view_restores_limits_and_views_but_keeps_visibility() {
-    let mut axes = axes_2d(2);
-    axes.artists.push(Artist::Line(Line {
-        id: NodeId(10),
-        ..Line::default()
-    }));
-    let mut state = FigureState::new(figure_with(vec![axes, axes_3d(3)], vec![]));
-    let snapshot = state.snapshot.clone();
-    {
-        let a = state.current.axes_mut(NodeId(2)).unwrap();
-        a.x.limits = manual(3.0, 4.0);
-        a.y.limits = ironlab_ir::Limits::Auto;
-    }
-    state.current.axes_mut(NodeId(3)).unwrap().z.limits = manual(-9.0, 9.0);
-    set_view(
-        &mut state.current,
-        3,
-        ironlab_ir::View3d {
-            azimuth_deg: 45.0,
-            elevation_deg: 10.0,
-            zoom: 0.5,
-            pan_x: 0.1,
-            pan_y: 0.1,
-        },
+fn no_gesture_changes_the_source_figure() {
+    let (mut state, hit) = figure_with_legend();
+    let source = state.source().clone();
+
+    state.scroll(&hit, Point::new(100.0, 50.0), 2.0);
+    drag(
+        &mut state,
+        &hit,
+        Point::new(100.0, 50.0),
+        Point::new(140.0, 70.0),
     );
-    state
-        .current
-        .artist_mut(NodeId(10))
-        .unwrap()
-        .set_visible(false);
+    state.click(&hit, Point::new(220.0, 30.0));
+    state.double_click(&hit, Point::new(100.0, 50.0));
+
+    assert_ne!(
+        state.figure(),
+        &source,
+        "precondition: the gestures changed the displayed figure"
+    );
+    assert_eq!(state.source(), &source, "the source is untouched");
+
+    let (mut state, hit) = single_3d();
+    let source = state.source().clone();
+    state.tool = Tool::Rotate;
+    drag(
+        &mut state,
+        &hit,
+        Point::new(150.0, 70.0),
+        Point::new(180.0, 90.0),
+    );
+    assert_ne!(
+        state.figure(),
+        &source,
+        "precondition: the rotation applied"
+    );
+    assert_eq!(state.source(), &source, "the source is untouched");
+}
+
+// Why: a drag sends hundreds of pointer events; if each were an undo step the user would have to press undo hundreds
+// of times to get back to where they started, and the redo history would be equally unusable.
+#[test]
+fn a_drag_is_one_undo_step_whatever_the_number_of_pointer_events() {
+    let (mut state, hit) = single_2d();
+    let start = Point::new(100.0, 50.0);
+
+    state.drag_start(&hit, start);
+    for i in 1..=20 {
+        state.drag_update(Point::new(start.x + f64::from(i), start.y + f64::from(i)));
+    }
+    assert!(
+        !state.can_undo(),
+        "the step is still open while the drag continues"
+    );
+    state.drag_end(Point::new(start.x + 20.0, start.y + 20.0));
+
+    assert!(state.can_undo());
+    assert!(state.undo(), "one undo returns to the start of the drag");
+    assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 10.0));
+    assert_eq!(manual_of(state.figure(), 2, Dimension::Y), (0.0, 5.0));
+    assert!(!state.can_undo(), "the whole drag was one step");
+}
+
+// Why: undo and redo are only useful if they are exact inverses of each other, and if each step is a gesture: a user
+// who scrolls, pans and hides a series expects three undos to return to the figure as opened, and three redos to
+// return to what they had.
+#[test]
+fn undo_and_redo_walk_gesture_by_gesture_between_the_figure_as_opened_and_the_latest_view() {
+    let (mut state, hit) = figure_with_legend();
+    let opened = state.figure().clone();
+
+    state.scroll(&hit, Point::new(100.0, 50.0), 2.0);
+    drag(
+        &mut state,
+        &hit,
+        Point::new(100.0, 50.0),
+        Point::new(140.0, 70.0),
+    );
+    state.click(&hit, Point::new(220.0, 30.0));
+    let latest = state.figure().clone();
+
+    assert!(state.undo(), "the legend click");
+    assert!(visible(&state, 10), "undoing the click shows the series");
+    assert!(state.undo(), "the pan");
+    assert!(state.undo(), "the wheel notch");
+    assert_eq!(
+        state.figure(),
+        &opened,
+        "three undos reach the figure as opened"
+    );
+    assert!(!state.can_undo());
+
+    assert!(state.redo());
+    assert!(state.redo());
+    assert!(state.redo());
+    assert_eq!(state.figure(), &latest, "three redos reach the latest view");
+    assert!(!state.can_redo());
+    assert!(!state.redo(), "redo at the end of the history does nothing");
+}
+
+// Why: redo after a new gesture would re-apply a change that the user has already replaced, silently overwriting the
+// branch they chose; the redo history must be dropped as soon as they navigate again.
+#[test]
+fn a_gesture_after_an_undo_clears_the_redo_history() {
+    let (mut state, hit) = single_2d();
+    state.scroll(&hit, Point::new(100.0, 50.0), 2.0);
+    assert!(state.undo());
+    assert!(state.can_redo());
+
+    drag(
+        &mut state,
+        &hit,
+        Point::new(100.0, 50.0),
+        Point::new(140.0, 70.0),
+    );
+
+    assert!(!state.can_redo(), "the new drag replaced the undone zoom");
+    assert!(!state.redo());
+}
+
+// Why: Reset view and double-click throw away every view change at once, which is exactly the action a user is most
+// likely to regret; each must be one undo step of its own.
+#[test]
+fn resetting_a_view_is_one_undo_step() {
+    let (mut state, hit) = single_2d();
+    state.scroll(&hit, Point::new(100.0, 50.0), 2.0);
+    let zoomed = state.figure().clone();
 
     assert!(state.reset_view());
+    assert!(state.undo(), "the reset is undone");
+    assert_eq!(state.figure(), &zoomed, "the zoom comes back");
 
-    for id in [2, 3] {
-        for dim in [Dimension::X, Dimension::Y, Dimension::Z] {
-            assert_eq!(
-                limits_of(&state.current, id, dim),
-                limits_of(&snapshot, id, dim),
-                "axes {id} {dim:?}"
-            );
-        }
-    }
-    assert_eq!(view_of(&state.current, 3), view_of(&snapshot, 3));
-    assert!(!visible(&state, 10), "visibility is kept");
+    assert!(state.double_click(&hit, Point::new(100.0, 50.0)));
+    assert!(state.undo(), "the double-click is one step");
+    assert_eq!(state.figure(), &zoomed);
+}
+
+// Why: saving writes the composed figure, so the file and what the user sees must agree; and because the viewer then
+// owns that figure as its source, the changes it has just written must no longer be pending in the overlay.
+#[test]
+fn folding_the_overlay_moves_the_displayed_figure_into_the_source_and_empties_the_overlay() {
+    let (mut state, hit) = single_2d();
+    state.scroll(&hit, Point::new(100.0, 50.0), 2.0);
+    let displayed = state.figure().clone();
+    assert!(!state.overlay().entries().is_empty());
+
+    state.fold_overlay();
+
+    assert_eq!(state.source(), &displayed, "the source is what was written");
+    assert_eq!(state.figure(), &displayed, "the display does not move");
+    assert!(state.overlay().entries().is_empty());
+    assert!(
+        !state.can_undo() && !state.can_redo(),
+        "the folded changes are the source now, so they cannot be undone"
+    );
     assert!(
         !state.reset_view(),
-        "resetting an already reset view changes nothing"
+        "resetting restores the figure as saved, which is what is shown"
     );
 }
+
+// Why: an entry that the source cannot accept would otherwise be applied on every recomposition and silently ignored,
+// leaving the user looking at a figure that does not match what they asked for with no explanation.
+#[test]
+fn an_entry_that_the_figure_cannot_show_is_discarded_and_reported_as_a_problem() {
+    let (mut state, _) = single_2d();
+    assert!(state.problems().is_empty());
+
+    assert!(!state.record(&set(2, "x.limits", Value::Limits(manual(4.0, 4.0)))));
+
+    assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 10.0));
+    assert!(
+        state.overlay().entries().is_empty(),
+        "the entry is discarded rather than retried on every recomposition"
+    );
+    let problems = state.problems();
+    assert_eq!(problems.len(), 1, "one problem: {problems:?}");
+    assert_eq!(problems[0].node, Some(NodeId(2)));
+    assert!(
+        problems[0].message.contains("x.limits"),
+        "the problem names the property: {}",
+        problems[0].message
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Events that must do nothing
+// ---------------------------------------------------------------------------------------------------------------
 
 // Why: the canvas forwards every pointer event; events over margins, titles or empty figure space must not edit the
 // figure or trigger a recompile.
@@ -719,7 +959,7 @@ fn reset_view_restores_limits_and_views_but_keeps_visibility() {
 fn events_outside_every_axes_do_nothing_and_report_no_change() {
     let (mut state, hit) = figure_with_legend();
     let outside = Point::new(5.0, 5.0);
-    let before = state.current.clone();
+    let before = state.figure().clone();
 
     for tool in [Tool::Pan, Tool::Zoom, Tool::Rotate] {
         state.tool = tool;
@@ -735,7 +975,11 @@ fn events_outside_every_axes_do_nothing_and_report_no_change() {
         !state.drag_update(Point::new(10.0, 10.0)),
         "an update without a drag does nothing"
     );
-    assert_eq!(state.current, before);
+    assert_eq!(state.figure(), &before);
+    assert!(
+        !state.can_undo(),
+        "nothing that changed nothing is on the undo history"
+    );
 }
 
 // Why: the toolbar enables Rotate only for figures that have something to rotate.
@@ -752,11 +996,12 @@ fn has_3d_reports_whether_any_axes_is_three_dimensional() {
 fn a_rotate_drag_on_2d_axes_does_nothing() {
     let (mut state, hit) = single_2d();
     state.tool = Tool::Rotate;
-    let before = state.current.clone();
+    let before = state.figure().clone();
 
     state.drag_start(&hit, Point::new(100.0, 50.0));
     assert!(!state.drag_update(Point::new(160.0, 90.0)));
     assert!(!state.drag_end(Point::new(160.0, 90.0)));
 
-    assert_eq!(state.current, before);
+    assert_eq!(state.figure(), &before);
+    assert!(!state.can_undo());
 }

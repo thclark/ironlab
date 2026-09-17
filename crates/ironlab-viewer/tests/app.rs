@@ -18,6 +18,7 @@ struct ToolbarHarnessState {
     figure: FigureState,
     warnings: Vec<SceneWarning>,
     export_requested: bool,
+    save_requested: bool,
 }
 
 fn toolbar_harness(
@@ -28,11 +29,13 @@ fn toolbar_harness(
         |ui, state: &mut ToolbarHarnessState| {
             let response = toolbar(ui, &mut state.figure, &state.warnings);
             state.export_requested |= response.export_requested;
+            state.save_requested |= response.save_requested;
         },
         ToolbarHarnessState {
             figure,
             warnings,
             export_requested: false,
+            save_requested: false,
         },
     )
 }
@@ -55,7 +58,7 @@ fn panned_2d_state() -> FigureState {
 fn clicking_reset_view_after_a_pan_restores_the_limits() {
     let state = panned_2d_state();
     assert_ne!(
-        manual_of(&state.current, 2, Dimension::X),
+        manual_of(state.figure(), 2, Dimension::X),
         (0.0, 10.0),
         "precondition: the pan moved the view"
     );
@@ -65,8 +68,8 @@ fn clicking_reset_view_after_a_pan_restores_the_limits() {
     harness.run();
 
     let figure = &harness.state().figure;
-    assert_eq!(manual_of(&figure.current, 2, Dimension::X), (0.0, 10.0));
-    assert_eq!(manual_of(&figure.current, 2, Dimension::Y), (0.0, 5.0));
+    assert_eq!(manual_of(figure.figure(), 2, Dimension::X), (0.0, 10.0));
+    assert_eq!(manual_of(figure.figure(), 2, Dimension::Y), (0.0, 5.0));
 }
 
 // Why: rotating a 2D axes is meaningless; the Rotate tool must be unavailable rather than silently doing nothing, and
@@ -123,7 +126,7 @@ fn tool_buttons_select_the_drag_tool() {
 #[test]
 fn clicking_export_pdf_reports_an_export_request() {
     let state = FigureState::new(figure_with(vec![axes_2d(2)], vec![]));
-    let before = state.current.clone();
+    let before = state.figure().clone();
     let mut harness = toolbar_harness(state, vec![]);
     assert!(!harness.state().export_requested);
 
@@ -131,7 +134,7 @@ fn clicking_export_pdf_reports_an_export_request() {
     harness.run();
 
     assert!(harness.state().export_requested);
-    assert_eq!(harness.state().figure.current, before);
+    assert_eq!(harness.state().figure.figure(), &before);
 }
 
 // Why: unsupported LaTeX and invalid data never stop a figure from drawing, so the problems indicator is the only
@@ -204,21 +207,18 @@ fn pressing_r_resets_the_view_of_the_active_figure() {
         figure_with(vec![axes_2d(2)], vec![]),
     )]);
     harness.run();
-    harness
-        .state_mut()
-        .figure_state_mut(0)
-        .expect("one figure")
-        .current
-        .axes_mut(NodeId(2))
-        .unwrap()
-        .x
-        .limits = manual(3.0, 4.0);
+    record_limits(
+        harness.state_mut().figure_state_mut(0).expect("one figure"),
+        2,
+        Dimension::X,
+        manual(3.0, 4.0),
+    );
 
     harness.key_press(egui::Key::R);
     harness.run();
 
     let state = harness.state().figure_state(0).expect("one figure");
-    assert_eq!(manual_of(&state.current, 2, Dimension::X), (0.0, 10.0));
+    assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 10.0));
 }
 
 /// A position well inside the canvas of a 900 × 600 harness: the figure is scaled to fit the area below the tab bar
@@ -247,8 +247,8 @@ fn scrolling_up_over_the_canvas_zooms_the_figure_in() {
     harness.run();
 
     let state = harness.state().figure_state(0).expect("one figure");
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert!(
         x.1 - x.0 < 10.0 && y.1 - y.0 < 5.0,
         "the view narrowed: x {x:?}, y {y:?}"
@@ -277,8 +277,8 @@ fn dragging_right_over_the_canvas_pans_the_data_to_the_right() {
     harness.run();
 
     let state = harness.state().figure_state(0).expect("one figure");
-    let x = manual_of(&state.current, 2, Dimension::X);
-    let y = manual_of(&state.current, 2, Dimension::Y);
+    let x = manual_of(state.figure(), 2, Dimension::X);
+    let y = manual_of(state.figure(), 2, Dimension::Y);
     assert!(
         x.0 < 0.0 && x.1 < 10.0,
         "the data moved right, so the x limits decreased: {x:?}"
@@ -286,4 +286,134 @@ fn dragging_right_over_the_canvas_pans_the_data_to_the_right() {
     assert_close(x.1 - x.0, 10.0, 1e-9, "panning keeps the x range");
     assert_close(y.0, 0.0, 1e-9, "a horizontal drag leaves y alone");
     assert_close(y.1, 5.0, 1e-9, "a horizontal drag leaves y alone");
+}
+
+// Why: undo and redo are the only way back from a change the user did not intend; the buttons must act on the
+// figure and must be offered exactly when there is something to undo or redo, so that they never look available and
+// then do nothing.
+#[test]
+fn the_undo_and_redo_buttons_step_through_the_history_and_are_disabled_when_it_is_empty() {
+    let pristine = toolbar_harness(
+        FigureState::new(figure_with(vec![axes_2d(2)], vec![])),
+        vec![],
+    );
+    assert!(pristine.get_by_label("Undo").accesskit_node().is_disabled());
+    assert!(pristine.get_by_label("Redo").accesskit_node().is_disabled());
+
+    let state = panned_2d_state();
+    let panned = manual_of(state.figure(), 2, Dimension::X);
+    let mut harness = toolbar_harness(state, vec![]);
+    assert!(!harness.get_by_label("Undo").accesskit_node().is_disabled());
+    assert!(harness.get_by_label("Redo").accesskit_node().is_disabled());
+
+    harness.get_by_label("Undo").click();
+    harness.run();
+    assert_eq!(
+        manual_of(harness.state().figure.figure(), 2, Dimension::X),
+        (0.0, 10.0),
+        "undo restores the limits from before the pan"
+    );
+    assert!(harness.get_by_label("Undo").accesskit_node().is_disabled());
+
+    harness.get_by_label("Redo").click();
+    harness.run();
+    assert_eq!(
+        manual_of(harness.state().figure.figure(), 2, Dimension::X),
+        panned,
+        "redo re-applies the pan"
+    );
+}
+
+// Why: saving needs a native dialog, which the toolbar cannot own; it must report the request to the application and
+// leave the figure untouched, exactly as export does.
+#[test]
+fn clicking_save_figure_reports_a_save_request() {
+    let state = FigureState::new(figure_with(vec![axes_2d(2)], vec![]));
+    let before = state.figure().clone();
+    let mut harness = toolbar_harness(state, vec![]);
+    assert!(!harness.state().save_requested);
+
+    harness.get_by_label("Save figure…").click();
+    harness.run();
+
+    assert!(harness.state().save_requested);
+    assert!(!harness.state().export_requested, "saving is not exporting");
+    assert_eq!(harness.state().figure.figure(), &before);
+}
+
+// Why: ⌘Z and ⌘⇧Z (Ctrl+Z and Ctrl+Shift+Z elsewhere) are what every user reaches for first; they must act on the
+// figure in the visible tab without going through the toolbar.
+#[test]
+fn the_undo_and_redo_shortcuts_act_on_the_active_figure() {
+    let mut harness = app_harness(vec![(
+        "flat.fig".to_owned(),
+        figure_with(vec![axes_2d(2)], vec![]),
+    )]);
+    harness.run();
+    record_limits(
+        harness.state_mut().figure_state_mut(0).expect("one figure"),
+        2,
+        Dimension::X,
+        manual(3.0, 4.0),
+    );
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+    assert_eq!(
+        manual_of(
+            harness
+                .state()
+                .figure_state(0)
+                .expect("one figure")
+                .figure(),
+            2,
+            Dimension::X
+        ),
+        (0.0, 10.0),
+        "the undo shortcut restored the limits"
+    );
+
+    harness.key_press_modifiers(
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Key::Z,
+    );
+    harness.run();
+    assert_eq!(
+        manual_of(
+            harness
+                .state()
+                .figure_state(0)
+                .expect("one figure")
+                .figure(),
+            2,
+            Dimension::X
+        ),
+        (3.0, 4.0),
+        "the redo shortcut re-applied them"
+    );
+}
+
+// Why: an overlay entry that the figure cannot show is dropped during composition, and the problems indicator is the
+// only place the viewer can say so; a dropped change must be reported there rather than disappearing silently.
+#[test]
+fn a_dropped_overlay_entry_is_reported_by_the_problems_indicator() {
+    let mut harness = app_harness(vec![(
+        "flat.fig".to_owned(),
+        figure_with(vec![axes_2d(2)], vec![]),
+    )]);
+    harness.run();
+    assert!(harness.query_by_label_contains("problem").is_none());
+
+    harness
+        .state_mut()
+        .figure_state_mut(0)
+        .expect("one figure")
+        .record(&set(
+            2,
+            "x.limits",
+            ironlab_ir::Value::Limits(manual(4.0, 4.0)),
+        ));
+    harness.run();
+
+    assert!(harness.query_by_label_contains("1 problem").is_some());
 }

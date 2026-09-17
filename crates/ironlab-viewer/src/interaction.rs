@@ -1,20 +1,37 @@
-//! Pointer interaction as edits of the figure IR.
+//! Pointer interaction as typed edits recorded in a view overlay.
 //!
 //! This module is pure logic with no GPU or windowing dependency, so every gesture can be unit tested. All positions
 //! are in figure space (points, origin at the top-left corner of the figure, y down); the canvas converts screen
 //! positions with [`crate::ScreenTransform::invert`] before calling in. Geometry comes from the [`HitMap`] of the most
-//! recent compilation of [`FigureState::current`].
+//! recent compilation of the displayed figure.
+//!
+//! # The source, the overlay and the displayed figure
+//!
+//! As decided in ADR 0008, [`FigureState`] holds the figure as its owner defines it (the **source**, which for the
+//! viewer is the figure as opened or last saved), an [`Overlay`] of the sets the user has made, and the **displayed
+//! figure**, which is the composition of the two. A gesture never mutates the source: it builds a [`Transaction`] of
+//! sets and records it in the overlay with [`FigureState::record`], after which the displayed figure is composed
+//! again. Composition is the only expensive step, so it runs when the overlay changes rather than on every frame.
+//!
+//! Limits are set through [`ironlab_ir::command::set_limits`], so that the transaction carries the limits of every
+//! axes of the link group and a client that applies it reaches the same figure. Three-dimensional views and artist
+//! visibility are set literally, one property per edit.
+//!
+//! An entry that the figure cannot show (for example limits that are not increasing) is dropped when the displayed
+//! figure is composed. Such an entry is removed from the overlay and its reason is reported by
+//! [`FigureState::problems`], which the toolbar shows alongside the warnings of the scene compiler.
 //!
 //! # Semantics
 //!
 //! - **Wheel zoom** (2D) rescales the x and y limits of the axes under the pointer about the data point under the
 //!   pointer, in the axis' scale space (linear values, or base-10 logarithms for log axes), so that this data point
-//!   stays under the pointer. A factor greater than one zooms in. In 3D it multiplies `view3d.zoom` by the factor.
+//!   stays under the pointer. A factor greater than one zooms in. In 3D it multiplies `projection.view3d.zoom` by the
+//!   factor.
 //! - **Pan** (2D) shifts the limits so that the data point grabbed at the start of the drag stays under the pointer.
 //!   Every update is computed from the axis maps captured at the start of the drag rather than incrementally, so
-//!   repeated updates never accumulate rounding drift. In 3D, pan moves `view3d.pan_x` and `view3d.pan_y` by the pointer
-//!   displacement as fractions of the plot rectangle: `pan_x` increases to the right and `pan_y` increases downwards
-//!   (figure-space y), so the projected box follows the pointer.
+//!   repeated updates never accumulate rounding drift. In 3D, pan moves `projection.view3d.pan_x` and
+//!   `projection.view3d.pan_y` by the pointer displacement as fractions of the plot rectangle: `pan_x` increases to
+//!   the right and `pan_y` increases downwards (figure-space y), so the projected box follows the pointer.
 //! - **Rotate** (3D) follows MATLAB's `rotate3d`, in which the object follows the pointer: dragging right by `dx`
 //!   points decreases the azimuth by `dx ·` [`ROTATE_DEGREES_PER_POINT`], and dragging down (positive figure-space
 //!   `dy`) increases the elevation by `dy ·` [`ROTATE_DEGREES_PER_POINT`]. The elevation is clamped to `[-90, 90]`;
@@ -22,17 +39,24 @@
 //! - **Box zoom** (Zoom tool, 2D) records a rubber band from the drag start to the pointer, clamped to the plot
 //!   rectangle, and on release sets the x and y limits to the data range the band covers. A band narrower or shorter
 //!   than [`MIN_BOX_ZOOM_POINTS`] is ignored, so that an accidental click does not zoom to a sliver.
-//! - **Double click** restores the limits (x, y and z) and 3D view of the axes under the pointer from the snapshot.
-//!   On a legend entry, the second click of a double-click is a click like the first, so a double-click toggles the
-//!   artist twice, leaves its visibility as it was and does not restore any limits.
-//! - **Click** on a legend entry toggles the visibility of its artist.
-//! - **Reset view** restores the limits and 3D views of every axes from the snapshot, but keeps artist visibility.
+//! - **Double click** removes the view entries (limits and three-dimensional view) of the axes under the pointer from
+//!   the overlay, so that it shows the source again, and sets the axes linked with it to the limits restored. On a
+//!   legend entry, the second click of a double-click is a click like the first, so a double-click toggles the artist
+//!   twice, leaves its visibility as it was and does not restore any limits.
+//! - **Click** on a legend entry sets `visible` on its artist.
+//! - **Reset view** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
+//!   about content rather than about the view.
 //!
-//! Every limit change goes through [`Figure::set_limits`], so linked axes follow. A 2D gesture on an axes whose
-//! limits are [`Limits::Auto`] starts from the limits the compiler resolved (the hit map's
-//! [`AxisMap`]) and writes [`Limits::Manual`] limits.
+//! Each gesture is one step of the undo history: a whole drag is one step, as is a wheel notch, a legend click, a
+//! double-click and a reset. A 2D gesture on an axes whose limits are [`Limits::Auto`] starts from the limits the
+//! compiler resolved (the hit map's [`AxisMap`]) and records [`Limits::Manual`] limits, leaving the source automatic.
 
-use ironlab_ir::{Axes, Axis, Dimension, Figure, Limits, NodeId, Projection, Scale, View3d};
+use ironlab_ir::overlay::Overlay;
+use ironlab_ir::{
+    Axes, Axis, Dimension, Edit, EditError, Figure, Limits, NodeId, Projection, PropertyPath,
+    Scale, Transaction, Value, View3d, command,
+};
+use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
 
@@ -74,31 +98,122 @@ enum DragKind {
     /// A 2D axes, with its x and y axis maps at the start of the drag.
     TwoD { x: AxisMap, y: AxisMap },
     /// A 3D axes, with its view at the start of the drag.
-    ThreeD { view: ironlab_ir::View3d },
+    ThreeD { view: View3d },
 }
 
-/// The interactive state of one figure in the viewer.
+/// The interactive state of one figure in the viewer: its source, the user's overlay, and their composition.
 #[derive(Clone, Debug)]
 pub struct FigureState {
-    /// The figure as currently displayed; interaction edits it and export writes it.
-    pub current: Figure,
-    /// The figure as loaded, used to reset limits and views.
-    pub snapshot: Figure,
+    /// The figure as its owner defines it: as opened, or as last saved. Gestures never change it.
+    source: Figure,
+    /// The sets the user has made, with their undo history.
+    overlay: Overlay,
+    /// The source with the overlay applied: what is drawn, hit-tested, exported and saved. Recomposed when the
+    /// overlay changes rather than on every frame, because composing clones the source.
+    composed: Figure,
+    /// The overlay entries that composition dropped, as problems to show in the toolbar.
+    problems: Vec<SceneWarning>,
     /// The active drag tool.
     pub tool: Tool,
     drag: Option<Drag>,
 }
 
 impl FigureState {
-    /// Creates the state for a freshly loaded figure, with the Pan tool active.
+    /// Creates the state for a freshly opened figure, with the Pan tool active and an empty overlay.
     #[must_use]
     pub fn new(figure: Figure) -> Self {
         Self {
-            snapshot: figure.clone(),
-            current: figure,
+            composed: figure.clone(),
+            source: figure,
+            overlay: Overlay::new(),
+            problems: Vec::new(),
             tool: Tool::Pan,
             drag: None,
         }
+    }
+
+    /// Returns the displayed figure: the source with the overlay applied, which is what is drawn, exported and saved.
+    #[must_use]
+    pub fn figure(&self) -> &Figure {
+        &self.composed
+    }
+
+    /// Returns the source figure, which no gesture changes.
+    #[must_use]
+    pub fn source(&self) -> &Figure {
+        &self.source
+    }
+
+    /// Returns the overlay of the user's changes.
+    #[must_use]
+    pub fn overlay(&self) -> &Overlay {
+        &self.overlay
+    }
+
+    /// Returns the problems raised by changes that the figure could not show, in the order they arose.
+    ///
+    /// They are kept until the view is reset or the overlay is folded into the source, and the toolbar shows them
+    /// alongside the warnings of the scene compiler.
+    #[must_use]
+    pub fn problems(&self) -> &[SceneWarning] {
+        &self.problems
+    }
+
+    /// Records a transaction of sets made by the user in the overlay and recomposes the displayed figure.
+    ///
+    /// A set whose value the displayed figure already has is left out, so that a gesture that changes nothing records
+    /// nothing. A transaction that holds any edit other than a set is refused, because the overlay holds only sets.
+    /// Unless a drag is in progress, the transaction is one step of the undo history. Returns whether the overlay
+    /// changed, which is what tells the canvas to recompile the scene.
+    pub fn record(&mut self, transaction: &Transaction) -> bool {
+        let edits: Vec<Edit> = transaction
+            .edits
+            .iter()
+            .filter(|edit| self.changes_the_figure(edit))
+            .cloned()
+            .collect();
+        if edits.is_empty() {
+            return false;
+        }
+        let before = self.overlay.entries().to_vec();
+        if self.overlay.record(&Transaction { edits }).is_err() {
+            return false;
+        }
+        self.recompose();
+        self.overlay.entries() != before
+    }
+
+    /// Restores the overlay to its state before the most recent gesture. Returns whether there was one.
+    pub fn undo(&mut self) -> bool {
+        self.undone(Overlay::undo)
+    }
+
+    /// Re-applies the most recently undone gesture. Returns whether there was one.
+    pub fn redo(&mut self) -> bool {
+        self.undone(Overlay::redo)
+    }
+
+    /// Returns whether there is a gesture to undo.
+    #[must_use]
+    pub fn can_undo(&self) -> bool {
+        self.overlay.can_undo()
+    }
+
+    /// Returns whether there is a gesture to redo.
+    #[must_use]
+    pub fn can_redo(&self) -> bool {
+        self.overlay.can_redo()
+    }
+
+    /// Makes the displayed figure the source and empties the overlay, as saving does.
+    ///
+    /// The viewer owns the source, so the figure it has just written is the figure its owner now defines; the changes
+    /// written can no longer be undone, and resetting the view restores the figure as saved.
+    pub fn fold_overlay(&mut self) {
+        self.source = self.composed.clone();
+        self.overlay = Overlay::new();
+        self.problems.clear();
+        self.drag = None;
     }
 
     /// Zooms the axes under `at` by `zoom_factor` (greater than one zooms in). Returns whether the figure changed.
@@ -110,7 +225,7 @@ impl FigureState {
             return false;
         };
         let id = axes_hit.id;
-        let Some(axes) = self.current.axes(id) else {
+        let Some(axes) = self.composed.axes(id) else {
             return false;
         };
         match (&axes_hit.kind, axes.projection) {
@@ -125,16 +240,18 @@ impl FigureState {
                 };
                 let x_limits = zoom(&x, at.x);
                 let y_limits = zoom(&y, at.y);
-                let changed_x = self.set_scaled_limits(id, Dimension::X, &x, x_limits);
-                let changed_y = self.set_scaled_limits(id, Dimension::Y, &y, y_limits);
-                changed_x || changed_y
+                self.step(|state| {
+                    let changed_x = state.set_scaled_limits(id, Dimension::X, &x, x_limits);
+                    let changed_y = state.set_scaled_limits(id, Dimension::Y, &y, y_limits);
+                    changed_x || changed_y
+                })
             }
             (AxesHitKind::ThreeD, Projection::ThreeD { view3d }) => {
                 let zoom = view3d.zoom * zoom_factor;
                 if !(zoom.is_finite() && zoom > 0.0) {
                     return false;
                 }
-                self.set_view(id, View3d { zoom, ..view3d })
+                self.set_view(id, &[("zoom", zoom)])
             }
             _ => false,
         }
@@ -142,13 +259,14 @@ impl FigureState {
 
     /// Starts a drag at `at`, capturing the axes under the pointer and its axis maps or view.
     ///
-    /// A drag that starts outside every axes is ignored by the subsequent updates.
+    /// Everything the drag records is one step of the undo history. A drag that starts outside every axes is ignored
+    /// by the subsequent updates.
     pub fn drag_start(&mut self, hit: &HitMap, at: Point) {
-        self.drag = None;
+        self.end_drag();
         let Some(axes_hit) = hit.axes_at(at) else {
             return;
         };
-        let Some(axes) = self.current.axes(axes_hit.id) else {
+        let Some(axes) = self.composed.axes(axes_hit.id) else {
             return;
         };
         let kind = match (&axes_hit.kind, axes.projection) {
@@ -168,6 +286,7 @@ impl FigureState {
             last: at,
             kind,
         });
+        self.overlay.begin_step();
     }
 
     /// Updates the drag with the pointer at `at`. Returns whether the figure changed.
@@ -209,37 +328,29 @@ impl FigureState {
                 changed_x || changed_y || restored_x || restored_y
             }
             (Tool::Pan, DragKind::ThreeD { view }) => {
-                let Some(current) = self.view(drag.axes) else {
+                if self.view(drag.axes).is_none() {
                     return false;
-                };
+                }
                 let pan_x = view.pan_x + dx / drag.plot_rect.width;
                 let pan_y = view.pan_y + dy / drag.plot_rect.height;
                 if !(pan_x.is_finite() && pan_y.is_finite()) {
                     return false;
                 }
-                self.set_view(
-                    drag.axes,
-                    View3d {
-                        pan_x,
-                        pan_y,
-                        ..current
-                    },
-                )
+                self.set_view(drag.axes, &[("pan_x", pan_x), ("pan_y", pan_y)])
             }
             (Tool::Rotate, DragKind::ThreeD { view }) => {
-                let Some(current) = self.view(drag.axes) else {
+                if self.view(drag.axes).is_none() {
                     return false;
-                };
+                }
                 let azimuth_deg = view.azimuth_deg - dx * ROTATE_DEGREES_PER_POINT;
                 let elevation_deg =
                     (view.elevation_deg + dy * ROTATE_DEGREES_PER_POINT).clamp(-90.0, 90.0);
                 self.set_view(
                     drag.axes,
-                    View3d {
-                        azimuth_deg,
-                        elevation_deg,
-                        ..current
-                    },
+                    &[
+                        ("azimuth_deg", azimuth_deg),
+                        ("elevation_deg", elevation_deg),
+                    ],
                 )
             }
             // The Zoom tool only moves its rubber band while dragging, a 3D axes has no band, and a 2D axes has
@@ -285,7 +396,7 @@ impl FigureState {
         } else {
             changed = self.drag_update(at);
         }
-        self.drag = None;
+        self.end_drag();
         changed
     }
 
@@ -310,7 +421,9 @@ impl FigureState {
         ))
     }
 
-    /// Restores the limits and view of the axes under `at` (and, through links, its linked axes) from the snapshot.
+    /// Removes the view entries of the axes under `at` from the overlay, so that it shows the source again, and sets
+    /// the axes linked with it to the limits restored.
+    ///
     /// Over a legend entry it toggles the entry's artist instead, as [`FigureState::click`] does. Returns whether the
     /// figure changed.
     pub fn double_click(&mut self, hit: &HitMap, at: Point) -> bool {
@@ -321,109 +434,160 @@ impl FigureState {
             return false;
         };
         let id = axes_hit.id;
-        let Some(snapshot) = self.snapshot.axes(id).cloned() else {
+        if self.composed.axes(id).is_none() {
             return false;
-        };
-        let Some(current) = self.current.axes(id).cloned() else {
-            return false;
-        };
-        let mut changed = false;
-        for dimension in [Dimension::X, Dimension::Y, Dimension::Z] {
-            let (old, now) = (
-                axis(&snapshot, dimension).limits,
-                axis(&current, dimension).limits,
-            );
-            let group_differs = self
-                .current
-                .linked_axes(id, dimension)
-                .iter()
-                .filter_map(|&a| self.current.axes(a))
-                .any(|a| axis(a, dimension).limits != old);
-            if (old != now || group_differs) && self.current.set_limits(id, dimension, old).is_ok()
-            {
-                changed = true;
+        }
+        self.step(|state| {
+            let before = state.overlay.entries().to_vec();
+            state.overlay.reset_view(id);
+            let mut changed = state.overlay.entries() != before;
+            if changed {
+                state.recompose();
             }
-        }
-        if let (Projection::ThreeD { view3d: old }, Projection::ThreeD { .. }) =
-            (snapshot.projection, current.projection)
-        {
-            changed |= self.set_view(id, old);
-        }
-        changed
+            // The entries of the axes linked with this one are not removed, so they are set to the limits restored;
+            // a set of limits that an axes already shows records nothing.
+            for dimension in [Dimension::X, Dimension::Y, Dimension::Z] {
+                let axes = state.composed.axes(id).expect("the axes is in the figure");
+                let limits = axis(axes, dimension).limits;
+                if let Ok(transaction) = command::set_limits(&state.composed, id, dimension, limits)
+                {
+                    changed |= state.record(&transaction);
+                }
+            }
+            changed
+        })
     }
 
-    /// Toggles the visibility of the artist whose legend entry is under `at`. Returns whether the figure changed.
+    /// Sets `visible` on the artist whose legend entry is under `at`, to the opposite of what is displayed. Returns
+    /// whether the figure changed.
     pub fn click(&mut self, hit: &HitMap, at: Point) -> bool {
         let Some(entry) = hit.legend_entry_at(at) else {
             return false;
         };
-        let Some(artist) = self.current.artist_mut(entry.artist) else {
+        let Some((_, artist)) = self.composed.artist(entry.artist) else {
             return false;
         };
         let visible = artist.visible();
-        artist.set_visible(!visible);
+        self.record(&Transaction {
+            edits: vec![Edit::Set {
+                node: entry.artist,
+                path: path(&["visible"]),
+                value: Value::Bool(!visible),
+            }],
+        })
+    }
+
+    /// Removes the view entries of every axes from the overlay, so that the figure shows the limits and
+    /// three-dimensional views of the source again, and keeps the visibility of every artist.
+    ///
+    /// Returns whether the figure changed.
+    pub fn reset_view(&mut self) -> bool {
+        self.end_drag();
+        self.problems.clear();
+        let before = self.overlay.entries().to_vec();
+        self.overlay.reset_all_views();
+        if self.overlay.entries() == before {
+            return false;
+        }
+        self.recompose();
         true
     }
 
-    /// Restores the limits and 3D views of every axes from the snapshot, keeping artist visibility. Returns whether
-    /// the figure changed.
-    pub fn reset_view(&mut self) -> bool {
-        self.drag = None;
-        let mut changed = false;
-        for axes in &mut self.current.axes {
-            let Some(snapshot) = self.snapshot.axes.iter().find(|a| a.id == axes.id) else {
-                continue;
-            };
-            for (axis, old) in [
-                (&mut axes.x, &snapshot.x),
-                (&mut axes.y, &snapshot.y),
-                (&mut axes.z, &snapshot.z),
-            ] {
-                if axis.limits != old.limits {
-                    axis.limits = old.limits;
-                    changed = true;
-                }
-            }
-            if let (Projection::ThreeD { view3d }, Projection::ThreeD { view3d: old }) =
-                (&mut axes.projection, snapshot.projection)
-                && *view3d != old
-            {
-                *view3d = old;
-                changed = true;
-            }
-        }
-        changed
-    }
-
-    /// Returns whether the current figure has at least one 3D axes.
+    /// Returns whether the displayed figure has at least one 3D axes.
     #[must_use]
     pub fn has_3d(&self) -> bool {
-        self.current
+        self.composed
             .axes
             .iter()
             .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
     }
 
-    /// Returns the current 3D view of an axes, or `None` when it is not a 3D axes.
+    /// Composes the displayed figure from the source and the overlay, discarding the entries that it cannot apply and
+    /// keeping their reasons as problems.
+    fn recompose(&mut self) {
+        let composition = self.overlay.compose(&self.source);
+        for dropped in &composition.dropped {
+            let problem = SceneWarning {
+                node: Some(dropped.entry.node),
+                message: format!(
+                    "the change to {} was dropped: {}",
+                    dropped.entry.path,
+                    reason(&dropped.reason)
+                ),
+            };
+            if !self.problems.contains(&problem) {
+                self.problems.push(problem);
+            }
+        }
+        self.overlay.discard(&composition.dropped);
+        self.composed = composition.figure;
+    }
+
+    /// Runs a gesture whose changes are one step of the undo history, unless a drag is already open, in which case
+    /// they belong to the drag.
+    fn step(&mut self, gesture: impl FnOnce(&mut Self) -> bool) -> bool {
+        let open = self.drag.is_some();
+        if !open {
+            self.overlay.begin_step();
+        }
+        let changed = gesture(self);
+        if !open {
+            self.overlay.end_step();
+        }
+        changed
+    }
+
+    /// Ends the drag, closing its undo step.
+    fn end_drag(&mut self) {
+        self.drag = None;
+        self.overlay.end_step();
+    }
+
+    /// Moves through the undo history and recomposes the displayed figure. Returns whether there was a step.
+    fn undone(&mut self, step: impl FnOnce(&mut Overlay) -> bool) -> bool {
+        self.end_drag();
+        if !step(&mut self.overlay) {
+            return false;
+        }
+        self.recompose();
+        true
+    }
+
+    /// Returns whether an edit changes the displayed figure, so that a set of the value a property already has is
+    /// left out of the overlay.
+    fn changes_the_figure(&self, edit: &Edit) -> bool {
+        match edit {
+            Edit::Set { node, path, value } => match self.composed.get(*node, path) {
+                Ok(current) => current != *value,
+                Err(_) => true,
+            },
+            _ => true,
+        }
+    }
+
+    /// Returns the 3D view of an axes of the displayed figure, or `None` when it is not a 3D axes.
     fn view(&self, id: NodeId) -> Option<View3d> {
-        match self.current.axes(id)?.projection {
+        match self.composed.axes(id)?.projection {
             Projection::ThreeD { view3d } => Some(view3d),
             Projection::TwoD => None,
         }
     }
 
-    /// Sets the 3D view of an axes. Returns whether the figure changed.
-    fn set_view(&mut self, id: NodeId, view: View3d) -> bool {
-        let Some(axes) = self.current.axes_mut(id) else {
+    /// Sets properties of the 3D view of an axes, each by name, such as `zoom` or `azimuth_deg`. Returns whether the
+    /// figure changed.
+    fn set_view(&mut self, id: NodeId, properties: &[(&str, f64)]) -> bool {
+        if self.view(id).is_none() {
             return false;
-        };
-        match &mut axes.projection {
-            Projection::ThreeD { view3d } if *view3d != view => {
-                *view3d = view;
-                true
-            }
-            _ => false,
         }
+        let edits = properties
+            .iter()
+            .map(|&(property, value)| Edit::Set {
+                node: id,
+                path: path(&["projection", "view3d", property]),
+                value: Value::Double(value),
+            })
+            .collect();
+        self.record(&Transaction { edits })
     }
 
     /// Sets manual limits given in the scale space of `map` (base-10 logarithms on a log axis). Returns whether the
@@ -439,25 +603,19 @@ impl FigureState {
         self.set_manual(id, dimension, min, max)
     }
 
-    /// Sets manual limits, through links. Returns whether the figure changed.
+    /// Sets manual limits on an axes and on the axes linked with it. Returns whether the figure changed.
     fn set_manual(&mut self, id: NodeId, dimension: Dimension, min: f64, max: f64) -> bool {
         let limits = Limits::Manual { min, max };
-        let unchanged = self
-            .current
-            .linked_axes(id, dimension)
-            .iter()
-            .filter_map(|&a| self.current.axes(a))
-            .all(|a| axis(a, dimension).limits == limits);
-        if unchanged {
-            return false;
+        match command::set_limits(&self.composed, id, dimension, limits) {
+            Ok(transaction) => self.record(&transaction),
+            Err(_) => false,
         }
-        self.current.set_limits(id, dimension, limits).is_ok()
     }
 
     /// Restores the limits captured at the start of a drag, unless the figure still shows them (including when they
     /// are automatic and unchanged). Returns whether the figure changed.
     fn restore_captured(&mut self, id: NodeId, dimension: Dimension, map: &AxisMap) -> bool {
-        let Some(axes) = self.current.axes(id) else {
+        let Some(axes) = self.composed.axes(id) else {
             return false;
         };
         match axis(axes, dimension).limits {
@@ -466,6 +624,26 @@ impl FigureState {
             Limits::Manual { .. } => self.set_manual(id, dimension, map.min, map.max),
         }
     }
+}
+
+/// Why an overlay entry could not be applied, in a sentence fit for the problems indicator.
+///
+/// The validation errors that an entry would introduce are given by their messages, because the error itself formats
+/// them as the debug form of the whole report.
+fn reason(error: &EditError) -> String {
+    match error {
+        EditError::Invalid(issues) => issues
+            .iter()
+            .map(|issue| issue.message.clone())
+            .collect::<Vec<String>>()
+            .join("; "),
+        other => other.to_string(),
+    }
+}
+
+/// The property path of the given segments, which are the field names of the wire schema.
+fn path(segments: &[&str]) -> PropertyPath {
+    PropertyPath::new(segments.iter().copied()).expect("the segments name a property")
 }
 
 fn is_finite(p: Point) -> bool {

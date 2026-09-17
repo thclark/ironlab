@@ -7,10 +7,14 @@
 
 use std::sync::{Arc, LazyLock};
 
-use ironlab_ir::{Axes, Axis, AxisLink, Dimension, Figure, Limits, NodeId, Projection, View3d};
+use ironlab_ir::{
+    Axes, Axis, AxisLink, Dimension, Edit, Figure, Limits, NodeId, Projection, PropertyPath,
+    Transaction, Value, View3d, command,
+};
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::TextEngine;
+use ironlab_viewer::FigureState;
 
 /// One text engine for the whole test binary; building it parses the bundled fonts.
 pub static TEXT: LazyLock<Arc<TextEngine>> = LazyLock::new(|| Arc::new(TextEngine::new()));
@@ -144,6 +148,36 @@ pub fn view_of(figure: &Figure, id: u64) -> View3d {
 pub fn set_view(figure: &mut Figure, id: u64, view: View3d) {
     figure.axes_mut(NodeId(id)).expect("axes exists").projection =
         Projection::ThreeD { view3d: view };
+}
+
+/// A property path, panicking with the text when it is not one.
+pub fn path(text: &str) -> PropertyPath {
+    text.parse().expect("a property path")
+}
+
+/// A transaction of one set of a property of a node.
+pub fn set(node: u64, at: &str, value: Value) -> Transaction {
+    Transaction {
+        edits: vec![Edit::Set {
+            node: NodeId(node),
+            path: path(at),
+            value,
+        }],
+    }
+}
+
+/// Records limits for an axes, and for the axes linked with it, as a gesture does.
+///
+/// Returns whether the displayed figure changed.
+pub fn record_limits(
+    state: &mut FigureState,
+    id: u64,
+    dimension: Dimension,
+    limits: Limits,
+) -> bool {
+    let transaction = command::set_limits(state.figure(), NodeId(id), dimension, limits)
+        .expect("the axes accepts the limits");
+    state.record(&transaction)
 }
 
 pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
