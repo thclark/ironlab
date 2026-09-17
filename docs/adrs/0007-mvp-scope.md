@@ -42,4 +42,16 @@ The MVP excludes:
 
 Follow-up work is tracked in GitHub issues:
 
-<!-- issues -->
+- [#13: Replace the egui-mesh canvas with custom wgpu pipelines](https://github.com/thclark/ironlab/issues/13)
+- [#1: Add a GPU picking pass](https://github.com/thclark/ironlab/issues/1)
+- [#2: Add data cursors and pinned datatips](https://github.com/thclark/ironlab/issues/2)
+- [#3: Add view-dependent decimation with source index maps](https://github.com/thclark/ironlab/issues/3)
+- [#4: Use depth buffering for 3D artists in the viewer](https://github.com/thclark/ironlab/issues/4)
+- [#5: Add interpolated (Gouraud) shading with PDF mesh shadings](https://github.com/thclark/ironlab/issues/5)
+- [#6: Rasterise dense surfaces and images in PDF export](https://github.com/thclark/ironlab/issues/6)
+- [#7: Add image, imagesc and pcolor artists](https://github.com/thclark/ironlab/issues/7)
+- [#8: Add a colorbar node](https://github.com/thclark/ironlab/issues/8)
+- [#9: Check the semantic version of the Cargo workspace in CI](https://github.com/thclark/ironlab/issues/9)
+- [#10: Report latex-rust typesetting defects upstream](https://github.com/thclark/ironlab/issues/10)
+- [#11: Improve 3D axes clipping, label orientation and fit](https://github.com/thclark/ironlab/issues/11)
+- [#12: Add an SVG export backend](https://github.com/thclark/ironlab/issues/12)

@@ -36,4 +36,4 @@ IronLAB typesets LaTeX mathematics itself with latex-rust, and never runs an ext
 
 Follow-up work is tracked in GitHub issues:
 
-<!-- issues -->
+- [#10: Report latex-rust typesetting defects upstream](https://github.com/thclark/ironlab/issues/10)

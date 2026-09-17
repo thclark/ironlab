@@ -35,4 +35,8 @@ In a later change, custom wgpu pipelines will replace the canvas backend only: d
 
 Follow-up work is tracked in GitHub issues:
 
-<!-- issues -->
+- [#13: Replace the egui-mesh canvas with custom wgpu pipelines](https://github.com/thclark/ironlab/issues/13)
+- [#1: Add a GPU picking pass](https://github.com/thclark/ironlab/issues/1)
+- [#2: Add data cursors and pinned datatips](https://github.com/thclark/ironlab/issues/2)
+- [#3: Add view-dependent decimation with source index maps](https://github.com/thclark/ironlab/issues/3)
+- [#4: Use depth buffering for 3D artists in the viewer](https://github.com/thclark/ironlab/issues/4)

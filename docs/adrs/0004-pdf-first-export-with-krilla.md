@@ -37,4 +37,7 @@ PDF is the first and, for the MVP, only export format, written with krilla by th
 
 Follow-up work is tracked in GitHub issues:
 
-<!-- issues -->
+- [#5: Add interpolated (Gouraud) shading with PDF mesh shadings](https://github.com/thclark/ironlab/issues/5)
+- [#6: Rasterise dense surfaces and images in PDF export](https://github.com/thclark/ironlab/issues/6)
+- [#7: Add image, imagesc and pcolor artists](https://github.com/thclark/ironlab/issues/7)
+- [#12: Add an SVG export backend](https://github.com/thclark/ironlab/issues/12)
