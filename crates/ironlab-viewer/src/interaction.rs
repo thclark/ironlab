@@ -62,9 +62,10 @@ use ironlab_ir::{
     Axes, Axis, Dimension, Edit, EditError, Figure, Limits, NodeId, Projection, PropertyPath,
     Scale, Transaction, Value, View3d, command,
 };
-use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
+
+use crate::problems::{Origin, Problem};
 
 /// Degrees of azimuth or elevation per figure point of pointer travel in the Rotate tool.
 pub const ROTATE_DEGREES_PER_POINT: f64 = 0.5;
@@ -117,8 +118,10 @@ pub struct FigureState {
     /// The source with the overlay applied: what is drawn, hit-tested, exported and saved. Recomposed when the
     /// overlay changes rather than on every frame, because composing clones the source.
     composed: Figure,
-    /// The overlay entries that composition dropped, as problems to show in the toolbar.
-    problems: Vec<SceneWarning>,
+    /// What has gone wrong with the user's own changes: entries that composition
+    /// discarded and changes that the IR refused. Cleared whenever the overlay changes,
+    /// because a problem raised by a change that is no longer there is stale.
+    problems: Vec<Problem>,
     /// The active drag tool.
     pub tool: Tool,
     drag: Option<Drag>,
@@ -222,12 +225,14 @@ impl FigureState {
         true
     }
 
-    /// Returns the problems raised by changes that the figure could not show, in the order they arose.
+    /// Returns the problems raised by the user's own changes, in the order they arose:
+    /// the entries that composition discarded and the changes that the IR refused.
     ///
-    /// They are kept until the view is reset or the overlay is folded into the source, and the toolbar shows them
-    /// alongside the warnings of the scene compiler.
+    /// They are kept until the overlay next changes, because a problem raised by a change
+    /// that has since been undone, reverted or replaced no longer describes the figure.
+    /// The toolbar shows them alongside the warnings of the scene compiler.
     #[must_use]
-    pub fn problems(&self) -> &[SceneWarning] {
+    pub fn problems(&self) -> &[Problem] {
         &self.problems
     }
 
@@ -590,7 +595,6 @@ impl FigureState {
     /// Returns whether the figure changed.
     pub fn reset_view(&mut self) -> bool {
         self.end_drag();
-        self.problems.clear();
         let before = self.overlay.entries().to_vec();
         self.overlay.reset_all_views();
         if self.overlay.entries() == before {
@@ -613,18 +617,16 @@ impl FigureState {
     /// keeping their reasons as problems.
     fn recompose(&mut self) {
         let composition = self.overlay.compose(&self.source);
-        let mut problems = Vec::new();
+        // The overlay has changed, so every problem raised by the changes it used to hold
+        // describes a change that is no longer being made.
+        self.problems.clear();
         for dropped in &composition.dropped {
-            problems.push(SceneWarning {
+            let problem = Problem {
+                origin: Origin::Discarded,
                 node: Some(dropped.entry.node),
-                message: format!(
-                    "the change to {} was dropped: {}",
-                    dropped.entry.path,
-                    reason(&dropped.reason)
-                ),
-            });
-        }
-        for problem in problems {
+                path: Some(dropped.entry.path.clone()),
+                detail: reason(&dropped.reason),
+            };
             self.report(problem);
         }
         self.overlay.discard(&composition.dropped);
@@ -634,7 +636,7 @@ impl FigureState {
     }
 
     /// Adds a problem, unless it is already reported.
-    fn report(&mut self, problem: SceneWarning) {
+    fn report(&mut self, problem: Problem) {
         if !self.problems.contains(&problem) {
             self.problems.push(problem);
         }
@@ -762,18 +764,16 @@ fn reason(error: &EditError) -> String {
 ///
 /// The error of an edit names its own path; an error of validation names none, so the path of the edit the error
 /// concerns, or of the first set of the transaction, is used instead.
-fn refusal(transaction: &Transaction, error: &EditError) -> SceneWarning {
+fn refusal(transaction: &Transaction, error: &EditError) -> Problem {
     let named = transaction.edits.first().and_then(|edit| match edit {
         Edit::Set { node, path, .. } => Some((*node, path.clone())),
         _ => None,
     });
-    let message = match &named {
-        Some((_, path)) => format!("the change to {path} was refused: {}", reason(error)),
-        None => format!("the change was refused: {}", reason(error)),
-    };
-    SceneWarning {
-        node: named.map(|(node, _)| node),
-        message,
+    Problem {
+        origin: Origin::Refused,
+        node: named.as_ref().map(|(node, _)| *node),
+        path: named.map(|(_, path)| path),
+        detail: reason(error),
     }
 }
 

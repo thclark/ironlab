@@ -11,7 +11,7 @@ use ironlab_ir::{Artist, Dimension, Limits, Line, NodeId, Scale, Text, Value, Vi
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxisMap, HitMap, LegendHit};
 use ironlab_viewer::interaction::MIN_BOX_ZOOM_POINTS;
-use ironlab_viewer::{FigureState, ROTATE_DEGREES_PER_POINT, Tool};
+use ironlab_viewer::{FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
@@ -941,11 +941,12 @@ fn an_entry_that_the_figure_cannot_show_is_discarded_and_reported_as_a_problem()
     );
     let problems = state.problems();
     assert_eq!(problems.len(), 1, "one problem: {problems:?}");
+    assert_eq!(problems[0].origin, Origin::Discarded);
     assert_eq!(problems[0].node, Some(NodeId(2)));
-    assert!(
-        problems[0].message.contains("x.limits"),
-        "the problem names the property: {}",
-        problems[0].message
+    assert_eq!(
+        problems[0].path.as_ref().map(ToString::to_string),
+        Some("x.limits".to_owned()),
+        "the problem names the property it concerned"
     );
     assert!(
         !state.can_undo(),

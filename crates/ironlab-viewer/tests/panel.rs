@@ -18,7 +18,7 @@ use ironlab_viewer::inspector::{
     read_only_reason, tree_rows,
 };
 use ironlab_viewer::panel::revert_all_label;
-use ironlab_viewer::{FigureState, PropertyPanel, property_panel};
+use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
@@ -526,10 +526,11 @@ fn a_refused_edit_leaves_the_figure_unchanged_with_a_problem_and_no_undo_step() 
         "the refused edit is not in the overlay"
     );
     assert_eq!(state.problems().len(), 1, "the reason is reported");
-    assert!(
-        state.problems()[0].message.contains("x.limits"),
-        "the problem names the property: {:?}",
-        state.problems()[0].message
+    assert_eq!(state.problems()[0].origin, Origin::Refused);
+    assert_eq!(
+        state.problems()[0].path.as_ref().map(ToString::to_string),
+        Some("x.limits".to_owned()),
+        "the problem names the property"
     );
 
     assert!(state.undo(), "the change before the refusal is still there");

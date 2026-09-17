@@ -13,6 +13,8 @@
 //! - [`inspector`] builds what the property editor shows (the object tree, the properties of a node and the
 //!   parameters of a figure) and turns a change made in it into a transaction; it, too, is pure logic.
 //! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below.
+//! - [`problems`] describes what the viewer has to tell the user about a figure it cannot draw as asked, and is
+//!   pure logic too.
 //! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
@@ -24,6 +26,7 @@ pub mod inspector;
 pub mod interaction;
 pub mod offscreen;
 pub mod panel;
+pub mod problems;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use canvas::{ScreenTransform, tessellate};
@@ -32,3 +35,4 @@ pub use offscreen::{
     OffscreenRenderer, RenderError, RenderedImage, render_display_list_offscreen, render_offscreen,
 };
 pub use panel::{PropertyPanel, property_panel};
+pub use problems::{Origin, Problem};

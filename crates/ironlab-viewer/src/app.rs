@@ -21,12 +21,13 @@
 use std::sync::Arc;
 
 use ironlab_ir::Figure;
-use ironlab_scene::{Scene, SceneWarning};
+use ironlab_scene::Scene;
 use ironlab_text::TextEngine;
 
 use crate::canvas::{ScreenTransform, color32, tessellate};
 use crate::interaction::{FigureState, Tool};
 use crate::panel::PropertyPanel;
+use crate::problems::{Problem, indicator_label};
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
 /// typical mouse wheel (50 points) zooms by about 20 %.
@@ -37,6 +38,13 @@ const CANVAS_MARGIN: f32 = 12.0;
 
 /// How long a notification stays on screen, in seconds.
 const NOTIFICATION_SECONDS: f64 = 5.0;
+
+/// The width of the list of problems, in egui points, which is wide enough for a sentence
+/// naming a property and its reason.
+const PROBLEM_LIST_WIDTH: f32 = 380.0;
+
+/// The height beyond which the list of problems scrolls, in egui points.
+const PROBLEM_LIST_MAX_HEIGHT: f32 = 320.0;
 
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,12 +63,12 @@ pub struct ToolbarResponse {
 /// disabled when the figure has no 3D axes), "Undo" and "Redo" buttons that step through the overlay's history and
 /// are disabled when there is nothing to undo or redo, a "Reset view" button that calls [`FigureState::reset_view`],
 /// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
-/// `show_properties`, and, when `warnings` is not empty, a problems indicator whose label contains the number of
-/// problems (for example "2 problems") and whose hover text lists them.
+/// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
+/// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
 pub fn toolbar(
     ui: &mut egui::Ui,
     state: &mut FigureState,
-    warnings: &[SceneWarning],
+    problems: &[Problem],
     show_properties: &mut bool,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
@@ -145,28 +153,53 @@ pub fn toolbar(
         {
             response.save_requested = true;
         }
-        if !warnings.is_empty() {
+        if let Some(label) = indicator_label(problems) {
             ui.separator();
-            let count = warnings.len();
-            let label = format!(
-                "⚠ {count} {}",
-                if count == 1 { "problem" } else { "problems" }
-            );
-            ui.add(
-                egui::Button::new(egui::RichText::new(label).color(ui.visuals().warn_fg_color))
-                    .frame(false),
-            )
-            .on_hover_ui(|ui| {
-                for warning in warnings {
-                    match warning.node {
-                        Some(node) => ui.label(format!("Node {}: {}", node.0, warning.message)),
-                        None => ui.label(&warning.message),
-                    };
-                }
-            });
+            problems_indicator(ui, state.figure(), problems, &label);
         }
     });
     response
+}
+
+/// Draws the problems indicator and, while it is open, the list of problems below it.
+///
+/// The indicator is a button rather than a label because clicking it is how the user
+/// reads what is wrong: hovering gives only the invitation, and the list itself stays
+/// open until the user clicks outside it or clicks the indicator again.
+fn problems_indicator(ui: &mut egui::Ui, figure: &Figure, problems: &[Problem], label: &str) {
+    let response = ui
+        .add(
+            egui::Button::new(egui::RichText::new(label).color(ui.visuals().warn_fg_color))
+                .frame(false),
+        )
+        .on_hover_text("Show what is wrong with this figure.");
+    egui::Popup::from_toggle_button_response(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .width(PROBLEM_LIST_WIDTH)
+        .show(|ui| problems_list(ui, figure, problems));
+}
+
+/// Draws the list of problems: each one named in full, with the object and property it
+/// concerns and how it arose.
+pub fn problems_list(ui: &mut egui::Ui, figure: &Figure, problems: &[Problem]) {
+    ui.set_max_width(PROBLEM_LIST_WIDTH);
+    egui::ScrollArea::vertical()
+        .id_salt("ironlab_problems_list")
+        .max_height(PROBLEM_LIST_MAX_HEIGHT)
+        .show(ui, |ui| {
+            for (index, problem) in problems.iter().enumerate() {
+                if index > 0 {
+                    ui.separator();
+                }
+                ui.label(egui::RichText::new(problem.subject(figure)).strong());
+                ui.label(&problem.detail);
+                ui.label(
+                    egui::RichText::new(problem.origin.explanation())
+                        .weak()
+                        .small(),
+                );
+            }
+        });
 }
 
 /// Meshes tessellated for one placement of the figure on screen.
@@ -220,15 +253,14 @@ impl FigurePane {
         notification: &mut Option<Notification>,
     ) {
         self.scene(text);
-        let mut warnings: Vec<SceneWarning> = self
-            .scene
-            .as_ref()
-            .map_or_else(Vec::new, |scene| scene.warnings.clone());
-        warnings.extend(self.state.problems().iter().cloned());
+        let mut problems: Vec<Problem> = self.scene.as_ref().map_or_else(Vec::new, |scene| {
+            scene.warnings.iter().map(Problem::from_scene).collect()
+        });
+        problems.extend(self.state.problems().iter().cloned());
         let response = egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
-                toolbar(ui, &mut self.state, &warnings, &mut self.panel.open)
+                toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
             })
             .inner;
         if response.changed {
