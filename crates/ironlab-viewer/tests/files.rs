@@ -7,7 +7,7 @@ use std::process::Command;
 
 use common::*;
 use ironlab_ir::{Dimension, NdArray};
-use ironlab_viewer::files::{OpenError, figure_stem, read_figure};
+use ironlab_viewer::files::{OpenError, SaveError, figure_stem, read_figure, write_figure};
 
 /// Returns a path in Cargo's per-crate temporary directory, removing any file left there by an earlier run.
 fn fresh(name: &str) -> PathBuf {
@@ -144,4 +144,61 @@ fn the_binary_explains_its_usage_and_refuses_bad_files_without_a_window() {
         stderr.contains("figure.png") && stderr.contains(".fig"),
         "{stderr}"
     );
+}
+
+// Why: "Save figure…" writes the figure the user is looking at, and the format must follow the name they typed, so
+// that a `.fig` name gives the default Protocol Buffers file and a `.json` name a readable one; either must read back
+// as the same figure.
+#[test]
+fn a_figure_is_written_in_the_format_named_by_the_extension_and_reads_back_unchanged() {
+    for name in [
+        "written.fig",
+        "written.fig.json",
+        "written.json",
+        "WRITTEN.FIG",
+    ] {
+        let path = fresh(name);
+        write_figure(&path, &sample()).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let bytes = std::fs::read(&path).unwrap();
+        let is_json = name.to_ascii_lowercase().ends_with(".json");
+        assert_eq!(
+            bytes.starts_with(b"{"),
+            is_json,
+            "{name} is written as {}",
+            if is_json { "JSON" } else { "Protocol Buffers" }
+        );
+        assert_eq!(read_figure(&path).unwrap(), sample(), "{name}");
+    }
+}
+
+// Why: a user who types a name with no figure extension must be told what to rename it to, and must not be left with a
+// file whose content does not match its name.
+#[test]
+fn saving_to_an_unsupported_extension_is_refused_and_writes_no_file() {
+    let path = fresh("figure.png");
+    let error = write_figure(&path, &sample()).unwrap_err();
+    assert!(
+        matches!(&error, SaveError::UnsupportedFormat { path: p } if p == &path),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(message.contains("figure.png"), "{message}");
+    assert!(
+        message.contains(".fig") && message.contains(".json"),
+        "{message}"
+    );
+    assert!(!path.exists(), "no file was written");
+}
+
+// Why: a save into a directory that does not exist (or that the user cannot write to) must name the file it failed on,
+// because the viewer reports the failure in a notification with no other context.
+#[test]
+fn a_save_that_cannot_be_written_is_an_io_error_naming_the_file() {
+    let path = fresh("absent").join("figure.fig");
+    let error = write_figure(&path, &sample()).unwrap_err();
+    assert!(
+        matches!(&error, SaveError::Io { path: p, .. } if p == &path),
+        "{error:?}"
+    );
+    assert!(error.to_string().contains("figure.fig"), "{error}");
 }
