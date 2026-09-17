@@ -15,7 +15,12 @@ workspace = true
 ironlab-ir.workspace = true
 ironlab-text.workspace = true
 ironlab-scene.workspace = true
+# No krilla features are enabled. Font embedding and subsetting (skrifa, subsetter) and positioned-glyph drawing with
+# copyable text (`Surface::draw_glyphs`) are always available; `simple-text` only adds rustybuzz shaping for
+# `Surface::draw_text`, which is not used because glyphs arrive already shaped from ironlab-text, and
+# `raster-images` and `pdf` add image codecs and PDF embedding, which the display list does not use.
 krilla.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+image.workspace = true

@@ -384,7 +384,7 @@ pub struct GlyphRun {
     /// The source text the glyphs represent (for copyable PDF text); glyph
     /// `text_range`s index into it. For math runs this is the characters of
     /// the typeset glyphs rather than the LaTeX commands (so `$-\alpha$`
-    /// yields U+2212 followed by U+03B1). A glyph that replaces several
+    /// yields U+2212 followed by the Mathematical Italic alpha U+1D6FC). A glyph that replaces several
     /// characters, such as a ligature, claims all of them.
     pub text: String,
     /// Positioned glyphs.
