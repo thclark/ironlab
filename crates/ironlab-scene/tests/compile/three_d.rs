@@ -559,6 +559,125 @@ fn three_d_x_grid_adds_two_back_plane_lines_per_tick() {
     );
 }
 
+/// A 3D axes in the given view holding a surface over [−2, 2]², whose x and y limits end on labelled
+/// ticks, so that the tick labels of x and y meet at the corners of the box.
+fn corner_labels_3d(view3d: View3d) -> (Scene, NodeId, f64) {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, view3d);
+    let grid = linspace(-2.0, 2.0, 9);
+    fx.surface(ax, &grid, &grid, |x, y| x * x + y * y, |_| {});
+    let font_size = fx.fig.font_size_pt;
+    (compile_figure(&fx.build()), ax, font_size)
+}
+
+/// Returns the figure-space ink boxes and texts of the numeric tick labels of an axes.
+fn tick_label_boxes(scene: &Scene, ax: NodeId) -> Vec<(String, ironlab_scene::display::Rect)> {
+    let leaves = leaves(scene);
+    glyph_runs(&from_source(&leaves, ax))
+        .iter()
+        .filter(|(_, g)| parse_number(&g.text).is_some())
+        .filter_map(|(l, g)| Some((g.text.clone(), l.bbox()?)))
+        .collect()
+}
+
+// Why: where the rows of x and y tick labels meet at a corner of the box, or where the lowest z label
+// meets the end of a horizontal row, labels can land on top of each other and read as one number
+// ("−2−2"). Every pair of tick labels must keep a clear gap, at the default view and at views that
+// bring other corners to the front.
+#[test]
+fn three_d_tick_labels_never_overlap() {
+    for (azimuth_deg, elevation_deg) in [(-37.5, 30.0), (45.0, 20.0), (-30.0, 40.0), (-50.0, 35.0)]
+    {
+        let view = View3d {
+            azimuth_deg,
+            elevation_deg,
+            ..View3d::default()
+        };
+        let (scene, ax, font_size) = corner_labels_3d(view);
+        let boxes = tick_label_boxes(&scene, ax);
+        assert!(
+            boxes.len() >= 6,
+            "view ({azimuth_deg}, {elevation_deg}): {boxes:?}"
+        );
+        let clearance = 0.25 * font_size;
+        for (i, (ta, a)) in boxes.iter().enumerate() {
+            for (tb, b) in &boxes[i + 1..] {
+                let apart = a.right() + clearance <= b.x
+                    || b.right() + clearance <= a.x
+                    || a.bottom() + clearance <= b.y
+                    || b.bottom() + clearance <= a.y;
+                assert!(
+                    apart,
+                    "view ({azimuth_deg}, {elevation_deg}): {ta} at {a:?} and {tb} at {b:?} collide"
+                );
+            }
+        }
+    }
+}
+
+/// Returns the length of a segment.
+fn segment_length((p, q): (Point, Point)) -> f64 {
+    (q.x - p.x).hypot(q.y - p.y)
+}
+
+/// Returns the distance from `p` to the segment `(a, b)`.
+fn distance_to_segment(p: Point, (a, b): (Point, Point)) -> f64 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 {
+        (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (p.x - (a.x + t * dx)).hypot(p.y - (a.y + t * dy))
+}
+
+// Why: as in MATLAB, each labelled edge of a 3D box carries short tick marks at its major ticks, so the
+// reader can see exactly which point along the edge a label refers to. A tick mark starts on the box
+// edge and points away from the box, towards its label, so that it never cuts into the plotted data.
+#[test]
+fn three_d_labelled_edges_carry_outward_tick_marks() {
+    let (scene, ax, font_size) = corner_labels_3d(View3d::default());
+    let segments: Vec<(Point, Point)> = from_source(&leaves(&scene), ax)
+        .iter()
+        .flat_map(|l| l.line_segments())
+        .collect();
+    let edges: Vec<_> = segments
+        .iter()
+        .copied()
+        .filter(|s| segment_length(*s) > 5.0 * font_size)
+        .collect();
+    let marks: Vec<_> = segments
+        .iter()
+        .copied()
+        .filter(|s| {
+            let len = segment_length(*s);
+            len > 0.1 * font_size && len < font_size
+        })
+        .collect();
+    let labels = tick_label_boxes(&scene, ax);
+    assert!(!labels.is_empty());
+    assert!(
+        marks.len() >= labels.len(),
+        "{} marks for {} labels",
+        marks.len(),
+        labels.len()
+    );
+    for (text, bbox) in &labels {
+        let centre = Point::new(bbox.x + bbox.width / 2.0, bbox.y + bbox.height / 2.0);
+        let on_edge = |a: Point| edges.iter().any(|e| distance_to_segment(a, *e) < 1e-6);
+        let dist = |a: Point| (a.x - centre.x).hypot(a.y - centre.y);
+        let found = marks.iter().any(|&(p, q)| {
+            let (inner, outer) = if on_edge(p) { (p, q) } else { (q, p) };
+            on_edge(inner) && dist(outer) < dist(inner) && dist(inner) < 4.0 * font_size
+        });
+        assert!(
+            found,
+            "label {text} at {bbox:?} has an outward tick mark on the box"
+        );
+    }
+}
+
 /// Returns the figure-space centroid of every filled face of `surf`, in paint order.
 fn face_centroids(scene: &Scene, surf: NodeId) -> Vec<Point> {
     filled(&leaves(scene), surf)

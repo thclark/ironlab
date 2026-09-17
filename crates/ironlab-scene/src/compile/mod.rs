@@ -128,7 +128,10 @@ impl Ctx<'_> {
 /// - **3D.** Faces, segments and markers are painted back to front for the current view. A line, scatter or quiver
 ///   without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
 ///   grid line on each of the two back planes (see [`crate::maths::camera::back_planes`]) that contain that axis's
-///   direction, except where the grid line would coincide with an edge of the box. The hit map describes a 3D axes
+///   direction, except where the grid line would coincide with an edge of the box. The edge that carries an axis's
+///   tick labels has a short tick mark at each major tick, pointing away from the box towards the label. Any two tick
+///   labels of a 3D axes keep a clear gap of at least 0.3 font sizes: labels are placed for x, then y, then z, and a
+///   label that would come closer to one already placed is left out, while its tick mark is still drawn. The hit map describes a 3D axes
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {

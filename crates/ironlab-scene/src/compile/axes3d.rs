@@ -208,11 +208,6 @@ fn unit(v: Point, fallback: Point) -> Point {
     }
 }
 
-/// Returns whether two rectangles share interior points.
-fn overlaps(a: Rect, b: Rect) -> bool {
-    a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
-}
-
 /// The extent of a text box of `width` × `height` along the unit direction `d`, measured from its centre.
 fn half_extent(d: Point, width: f64, height: f64) -> f64 {
     (d.x.abs() * width + d.y.abs() * height) / 2.0
@@ -282,14 +277,33 @@ fn label_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
     best.map(|(edge, _, _)| edge)
 }
 
-/// Draws tick labels, common exponent labels, axis labels and the title of a 3D axes.
+/// The length of a 3D tick mark, in font sizes.
+const TICK_LENGTH: f64 = 0.35;
+/// The smallest clear gap between two tick labels of a 3D axes, in font sizes.
+const LABEL_CLEARANCE: f64 = 0.3;
+
+/// Returns whether two rectangles come closer than `clearance` along both axes.
+fn crowds(a: Rect, b: Rect, clearance: f64) -> bool {
+    a.x < b.right() + clearance
+        && b.x < a.right() + clearance
+        && a.y < b.bottom() + clearance
+        && b.y < a.bottom() + clearance
+}
+
+/// Draws tick marks, tick labels, common exponent labels, axis labels and the title of a 3D axes.
+///
+/// Each labelled edge carries a tick mark at every major tick, pointing away from the box, and each label lies beyond
+/// its tick mark. Labels are placed axis by axis in x, y, z order, and a label that would come closer than
+/// [`LABEL_CLEARANCE`] font sizes to a label already placed (of any axis) is left out, so where rows of labels meet at
+/// a corner of the box the earlier axis keeps its label.
 fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Vec<Item>) {
     let fs = ctx.font_size;
-    let pad = 0.4 * fs;
+    let tick_length = TICK_LENGTH * fs;
+    let pad = tick_length + 0.3 * fs;
     let gap = 0.4 * fs;
+    let clearance = LABEL_CLEARANCE * fs;
     let (id, decor) = (input.axes.id, input.decor);
-    // Tick labels of two axes meet where their edges share a corner; a label that would overlap one already placed
-    // is left out.
+    let mut marks = PathBuilder::new();
     let mut placed: Vec<Rect> = Vec::new();
     for dim in 0..3 {
         let Some(edge) = label_edge(projector, dim) else {
@@ -297,7 +311,7 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
         };
         let ticks = &decor.ticks[dim];
         let d = edge.outward;
-        let mut boxes: Vec<Rect> = Vec::new();
+        let first_box = placed.len();
         let mut last_centre = None;
         for (value, label) in ticks.major.iter().zip(&ticks.labels) {
             let Some(u) = normalised_along(projector, input, dim, *value) else {
@@ -308,17 +322,25 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
             let Some((q, _)) = projector.project(at) else {
                 continue;
             };
+            marks.polyline(
+                &[
+                    q,
+                    Point::new(q.x + d.x * tick_length, q.y + d.y * tick_length),
+                ],
+                false,
+            );
             let offset = pad + half_extent(d, label.width(), label.total_height());
             let centre = Point::new(q.x + d.x * offset, q.y + d.y * offset);
             let origin = label.origin_for_centre(centre);
             last_centre = Some((centre, label));
             let bounds = label.bounds(origin);
-            if placed.iter().any(|p| overlaps(*p, bounds)) {
+            if placed.iter().any(|p| crowds(*p, bounds, clearance)) {
                 continue;
             }
             label.draw(origin, INK, id, out);
-            boxes.push(bounds);
+            placed.push(bounds);
         }
+        let boxes = &placed[first_box..];
         if let (Some(e), Some((centre, last))) = (&ticks.exponent, last_centre) {
             let a = edge.along;
             let shift = half_extent(a, last.width(), last.total_height())
@@ -327,7 +349,6 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
             let c = Point::new(centre.x + a.x * shift, centre.y + a.y * shift);
             e.draw(e.origin_for_centre(c), INK, id, out);
         }
-        placed.extend(&boxes);
         let Some(label) = &decor.labels[dim] else {
             continue;
         };
@@ -347,6 +368,12 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
             label.draw(label.origin_for_centre(centre), INK, id, out);
         }
     }
+    out.extend(paths::item(
+        id,
+        marks.finish(),
+        None,
+        Some(paths::solid(INK, 0.5)),
+    ));
     if let Some(title) = &decor.title {
         let plot = input.plot;
         let origin = Point::new(
