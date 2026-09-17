@@ -306,6 +306,31 @@ impl Overlay {
         true
     }
 
+    /// Removes the entry for exactly one node and path, which is what the property
+    /// editor's revert control does, and returns whether there was one.
+    ///
+    /// Only an entry whose node and path are equal to those given is removed: an entry
+    /// for a path above it (`x.limits` when `x.limits.min` is reverted) or below it
+    /// (`projection.view3d.zoom` when `projection` is reverted), and every entry of
+    /// another node, is kept, so that reverting one property of the editor never
+    /// discards another. A conflict pending on the entry is cleared with it, because the
+    /// change it concerned is gone.
+    ///
+    /// Unless a step is open, a revert that removes an entry is one undo step, and a
+    /// revert that removes nothing adds no step and leaves the redo history alone.
+    pub fn revert(&mut self, node: NodeId, path: &PropertyPath) -> bool {
+        let before = self.entries.clone();
+        self.entries
+            .retain(|entry| !(entry.node == node && entry.path == *path));
+        if self.entries.len() == before.len() {
+            return false;
+        }
+        self.conflicts
+            .retain(|conflict| !(conflict.node == node && conflict.overlay_path == *path));
+        self.commit(before);
+        true
+    }
+
     /// Removes the view entries of one axes: the entries of that axes whose path is
     /// `x.limits`, `y.limits`, `z.limits` or `projection.view3d`, or below one of them.
     ///

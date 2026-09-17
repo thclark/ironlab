@@ -750,6 +750,138 @@ fn resolving_a_conflict_uses_the_source_or_keeps_the_users_value() {
 }
 
 // ---------------------------------------------------------------------------------
+// Reverting one property
+// ---------------------------------------------------------------------------------
+
+// Why: the property editor reverts the one property whose revert control was clicked, so
+// a revert that also removed an entry of a path above or below it, or of another node,
+// would silently throw away changes the user did not ask to lose.
+#[test]
+fn reverting_removes_the_entry_of_exactly_that_node_and_path() {
+    let f = fixture();
+    let mut overlay = mixed_overlay(&f);
+    assert!(overlay.revert(f.b, &path("projection")));
+    assert_eq!(
+        keys(&overlay),
+        [
+            (f.a, "x.limits".to_owned()),
+            (f.a, "y.limits.min".to_owned()),
+            (f.a, "x.scale".to_owned()),
+            (f.a, "colormap".to_owned()),
+            (f.b, "projection.view3d.zoom".to_owned()),
+            (f.b, "z.limits".to_owned()),
+            (f.b, "x.limits".to_owned()),
+            (f.line_a, "visible".to_owned()),
+        ],
+        "the entry below the reverted path is kept"
+    );
+    assert!(overlay.revert(f.a, &path("y.limits.min")));
+    assert!(
+        !overlay.revert(f.a, &path("y.limits")),
+        "the ancestor of a reverted path never had an entry of its own"
+    );
+    assert_eq!(
+        keys(&overlay),
+        [
+            (f.a, "x.limits".to_owned()),
+            (f.a, "x.scale".to_owned()),
+            (f.a, "colormap".to_owned()),
+            (f.b, "projection.view3d.zoom".to_owned()),
+            (f.b, "z.limits".to_owned()),
+            (f.b, "x.limits".to_owned()),
+            (f.line_a, "visible".to_owned()),
+        ]
+    );
+    assert!(
+        !overlay.revert(f.b, &path("x.scale")),
+        "the same path on another node is not this node's entry"
+    );
+}
+
+// Why: a revert is a change the user makes, as easy to do by accident as any other, so it
+// must be undoable on its own rather than folded into the change before it.
+#[test]
+fn reverting_is_its_own_undo_step() {
+    let f = fixture();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    record(&mut overlay, f.a, "x.scale", Value::Scale(Scale::Log));
+
+    assert!(overlay.revert(f.a, &path("x.limits")));
+    assert!(overlay.undo(), "the revert is a step");
+    assert_eq!(
+        overlay.entries(),
+        [
+            OverlayEntry {
+                node: f.a,
+                path: path("x.limits"),
+                value: limits(2.0, 3.0),
+            },
+            OverlayEntry {
+                node: f.a,
+                path: path("x.scale"),
+                value: Value::Scale(Scale::Log),
+            },
+        ],
+        "undoing the revert restores the entry it removed and nothing else"
+    );
+    assert!(overlay.redo());
+    assert_eq!(keys(&overlay), [(f.a, "x.scale".to_owned())]);
+}
+
+// Why: a revert control is shown for a property the overlay overrides, but a stale frame
+// or a reconciliation can leave it pointing at an entry that is already gone; reverting
+// nothing must then be inert rather than adding an undo step that appears to do nothing.
+#[test]
+fn reverting_a_property_that_the_overlay_does_not_override_changes_nothing() {
+    let f = fixture();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    assert!(overlay.undo());
+    assert!(!overlay.can_undo());
+
+    assert!(!overlay.revert(f.a, &path("x.limits")));
+    assert!(overlay.entries().is_empty());
+    assert!(!overlay.can_undo(), "reverting nothing adds no step");
+    assert!(overlay.redo(), "reverting nothing does not clear the redo");
+}
+
+// Why: an entry that is reverted while its conflict with the source is pending is gone,
+// so the notice about it must go with it, or the viewer would ask the user to decide the
+// fate of a change that no longer exists.
+#[test]
+fn reverting_an_entry_clears_its_pending_conflict() {
+    let f = fixture();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    record(
+        &mut overlay,
+        f.a,
+        "colormap",
+        Value::ColormapName(ColormapName::Gray),
+    );
+    overlay.reconcile(
+        &f.source,
+        &tx([
+            set(f.a, "x.limits", limits(0.0, 4.0)),
+            set(f.a, "colormap", Value::ColormapName(ColormapName::Magma)),
+        ]),
+    );
+    assert_eq!(overlay.conflicts().len(), 2);
+
+    assert!(overlay.revert(f.a, &path("x.limits")));
+
+    assert_eq!(
+        overlay
+            .conflicts()
+            .iter()
+            .map(|conflict| conflict.overlay_path.to_string())
+            .collect::<Vec<String>>(),
+        ["colormap".to_owned()]
+    );
+}
+
+// ---------------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------------
 
