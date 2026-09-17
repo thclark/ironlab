@@ -11,6 +11,10 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "ironlab-viewer"
+path = "src/main.rs"
+
 [dependencies]
 ironlab-ir.workspace = true
 ironlab-text.workspace = true
@@ -18,11 +22,18 @@ ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
 egui.workspace = true
 eframe.workspace = true
+# egui-wgpu re-exports the matching wgpu (30.x) as `egui_wgpu::wgpu`; the offscreen renderer uses that re-export so
+# that the wgpu version can never drift from the one egui-wgpu was built against.
+egui-wgpu = "0.36.2"
 egui_tiles.workspace = true
+kurbo.workspace = true
 lyon.workspace = true
 lyon_algorithms.workspace = true
+pollster = "1.0.1"
 rfd.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe"] }
+image.workspace = true
