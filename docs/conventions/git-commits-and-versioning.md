@@ -2,7 +2,7 @@
 
 How commits are written and how the package version is bumped. Both are enforced by
 pre-commit hooks and PR checks — getting them wrong fails CI. Opening and merging the PR
-itself is covered in [[pull-requests]]; branch handling in [[branching]].
+itself is covered in [Pull requests](git-pull-requests.md); branch handling in [Branching](git-branching.md).
 
 ## Never add a Co-Authored-By trailer
 
@@ -102,7 +102,5 @@ git commit -m "OPS: Bump version"   # the bump is its own commit
 ```
 
 ## Related notes
-- [[branching]] — bases, naming, protected branches, updating
-- [[pull-requests]] — opening, titling, never merging
-- [[ci-workflows]] — GitHub Actions style rules
-- [[guides/commands]] — `dj` and other CLI shortcuts
+- [Branching](git-branching.md) — bases, naming, protected branches, updating
+- [Pull requests](git-pull-requests.md) — opening, titling, never merging

@@ -1,6 +1,6 @@
 # Branching
 
-This explains how branches are created, named, pushed, and kept up to date. Opening and managing the resulting pull request is covered separately in [[pull-requests]].
+This explains how branches are created, named, pushed, and kept up to date. Opening and managing the resulting pull request is covered separately in [Pull requests](git-pull-requests.md).
 
 ## Start the branch from the right base
 
@@ -21,5 +21,5 @@ Bring a branch up to date by merging the target branch in (rebase only on reques
 
 ## Related notes
 
-- [[pull-requests]] — opening, titling, and versioning the PR
-- [[commit-and-versioning]] — commit message form and semver
+- [Pull requests](git-pull-requests.md) — opening, titling, and versioning the PR
+- [Commits and versioning](git-commits-and-versioning.md) — commit message form and semver
