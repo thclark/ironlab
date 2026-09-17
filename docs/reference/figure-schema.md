@@ -25,12 +25,13 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 
 - **Enumerations.** Every enum has the zero value `<ENUM>_UNSPECIFIED`, and every value is prefixed with the name of the enum in upper snake case. For example, the scale `log` is `SCALE_LOG`, and the legend location `north_east` is `LEGEND_LOCATION_NORTH_EAST`.
 - **Presence.** Singular numeric and boolean fields are declared `optional`, so that a value that was written is distinguished from an absent one, and every value, including negative zero, reloads bit for bit.
-- **Tagged variants.** An entity that takes one of several forms is a message with a single oneof named `kind`. Each variant of the oneof is a message of its own, such as `LimitsManual` with the fields `min` and `max`, so that a variant can gain fields in a later version without changing the others.
+- **Tagged variants.** An entity that takes one of several forms is a message with a single oneof named `kind`. Each variant of the oneof is a message of its own, such as `LimitsManual` with the fields `min` and `max`, so that a variant can gain fields in a later version without changing the others. A variant that holds a single value is also a message, such as `ParameterNumber` with the field `value`.
 - **Numeric arrays.** An array is a `repeated uint64 shape` and a packed `repeated double values`. NaN and infinities are stored natively as IEEE 754 values.
 - **Data table.** The `data` of a figure is a `map<uint64, NdArray>` keyed by DataId, written in ascending order of key.
+- **Parameters.** The `parameters` of a figure are a `map<string, Parameter>` keyed by name, written in ascending order of the UTF-8 bytes of the name, so that a figure always encodes to the same bytes.
 - **Colours.** A Color is a message of four `float` components, `r`, `g`, `b` and `a`, each from 0 to 1, stored at the full precision of the model.
 - **Absent values.** An absent message, an absent field with presence, an unset oneof and an `_UNSPECIFIED` enum value take the default of their context in the model. For example, an absent line colour of a contour is colormapped, whereas an absent line colour of a line is automatic. The encoder writes every field that has a value, so a file written by IronLAB never relies on these defaults.
-- **Required values.** A value that has no default in the model, namely the kind of an artist and the dimension of an axis link, makes decoding fail with an error when it is absent or unspecified.
+- **Required values.** A value that has no default in the model, namely the kind of an artist, the dimension of an axis link, and the kind of a parameter together with its value when it is a boolean, an integer or a number, makes decoding fail with an error when it is absent or unspecified.
 - **Fields without presence.** Strings, repeated fields, maps and colour components cannot be distinguished from their empty or zero values, so they decode as the value on the wire: an empty string is empty and an empty list is empty.
 - **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
 - **Versioning.** Field 1 of `Figure` is `schema_version` in every version of the schema, so that a reader can check the version of a file before decoding the rest of it, as described in [versioning](#versioning).
@@ -41,11 +42,11 @@ Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` ch
 
 The JSON encoding follows these conventions.
 
-- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`.
+- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. A [parameter](#parameters), whose forms are single values, holds its value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
 - **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value. The one exception is the `parameters` of a figure, which are omitted when the figure has none.
 - **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
-- **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes and view angles, as [validation](#validation) requires.
+- **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Colours.** A Color is a string of eight bits per component, as described in [colours](#colours), so a colour that is not a multiple of 1/255 is rounded when it is saved as JSON.
 - **Unknown properties.** A property that the build does not know is ignored, so a file written by a later patch release still loads.
 
@@ -92,6 +93,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 | `axes` | array of Axes | The axes of the figure, in drawing order. |
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
 | `provenance` | Provenance | A record of the software that wrote the figure; see [provenance](#provenance). |
+| `parameters` | map | Named values that describe the figure, used to sort, filter and search collections of figures; see [parameters](#parameters). Omitted from JSON when the figure has none. |
 
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
@@ -309,11 +311,34 @@ A **Provenance** records the software that wrote a figure, so that a figure that
 
 The PDF exporter copies the provenance into the document metadata.
 
+## Parameters
+
+A **Parameter** is a named value that describes a figure, such as the Reynolds number of the flow that it shows or the solver that produced its data. Parameters do not affect drawing; they are stored with the figure so that collections of figures can be sorted, filtered and searched. The `parameters` of a figure map each name to one parameter, so a name occurs at most once, and they are kept in ascending order of name.
+
+A parameter takes one of four forms:
+
+| JSON | Protocol Buffers variant | Value |
+| --- | --- | --- |
+| `{"type": "bool", "value": true}` | `bool_value` (ParameterBool) | A boolean. |
+| `{"type": "integer", "value": -4096}` | `integer_value` (ParameterInteger) | A signed 64-bit integer. |
+| `{"type": "number", "value": 100000.0}` | `number_value` (ParameterNumber) | A double-precision floating-point number, which must be finite. |
+| `{"type": "string", "value": "k–ω SST"}` | `string_value` (ParameterString) | A string, which may be empty. |
+
+The form is stated explicitly because JSON has a single number type: without it, the number `3.0` would reload as the integer `3`. A JavaScript program reads a JSON integer as a double, which holds integers exactly only up to 2<sup>53</sup> in magnitude, so a larger integer parameter is exact only in readers that parse JSON integers as 64-bit integers. A parameter name must not be empty; it may contain any other Unicode text, and names that differ only in case are distinct.
+
+```json
+"parameters": {
+  "converged": { "type": "bool", "value": true },
+  "reynolds_number": { "type": "number", "value": 100000.0 },
+  "solver": { "type": "string", "value": "k–ω SST" }
+}
+```
+
 ## Validation
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, arrays of one artist with inconsistent lengths or shapes, a three-dimensional artist or placement in a two-dimensional axes, a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, and empty, non-finite or non-increasing contour levels. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn.
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, arrays of one artist with inconsistent lengths or shapes, a three-dimensional artist or placement in a two-dimensional axes, a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, and a parameter with an empty name or a non-finite number. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn.
 
 ## A minimal JSON file
 
@@ -370,7 +395,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 }
 ```
 
-The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two.
+The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, so the file has no `parameters` property.
 
 ## Versioning
 
@@ -388,7 +413,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
-- **0.2.0** replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
+- **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
 - **0.1.0** was the first version.
 
 ## Extending the model with new plot types

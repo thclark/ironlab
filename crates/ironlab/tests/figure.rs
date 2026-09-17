@@ -246,3 +246,47 @@ fn from_ir_and_into_ir_are_lossless_and_allocation_continues() {
     assert_ne!(new, existing);
     assert_ne!(new, wrapped.ir().id);
 }
+
+// WHY: parameters are set from ordinary Rust values, and the kind stored in the IR
+// decides how figures sort and filter, so each Rust type must map to the matching kind.
+// Values of type i32 (the type of most integer variables, and of an integer literal that
+// nothing else constrains) and of type i64 must both be accepted as integers.
+#[test]
+fn parameter_stores_each_rust_value_as_the_matching_kind() {
+    let cells: i32 = 4096;
+    let count: i64 = 1 << 40;
+    let fig = Figure::new()
+        .parameter("converged", true)
+        .parameter("cells", cells)
+        .parameter("samples", count)
+        .parameter("reynolds_number", 1e5)
+        .parameter("ratio", 3.0)
+        .parameter("solver", "k–ω SST")
+        .parameter("case", String::from("baseline"));
+    let expected = [
+        ("case", Parameter::String("baseline".to_owned())),
+        ("cells", Parameter::Integer(4096)),
+        ("converged", Parameter::Bool(true)),
+        ("ratio", Parameter::Number(3.0)),
+        ("reynolds_number", Parameter::Number(1e5)),
+        ("samples", Parameter::Integer(1 << 40)),
+        ("solver", Parameter::String("k–ω SST".to_owned())),
+    ]
+    .map(|(name, value)| (name.to_owned(), value));
+    assert_eq!(
+        fig.parameters().clone().into_iter().collect::<Vec<_>>(),
+        expected
+    );
+}
+
+// WHY: a parameter is identified by its name, so setting a name again (for example when a
+// script refines a value) must replace the value, including its kind, rather than keep
+// two entries or the first value.
+#[test]
+fn setting_a_parameter_again_replaces_its_value_and_kind() {
+    let fig = Figure::new()
+        .parameter("mesh", "coarse")
+        .parameter("mesh", 3);
+    assert_eq!(fig.parameters().len(), 1);
+    assert_eq!(fig.parameters()["mesh"], Parameter::Integer(3));
+}

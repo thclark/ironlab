@@ -813,3 +813,92 @@ fn invalid_contour_levels_are_errors_on_the_contour() {
     });
     assert_eq!(fx.fig.validate().errors, vec![]);
 }
+
+// Why: a parameter is found by its name when collections of figures are sorted, filtered
+// and searched, so a parameter without a name can never be addressed and is a mistake of
+// the writer. It must be reported against the figure, because parameters belong to no
+// other node.
+#[test]
+fn parameter_with_an_empty_name_is_an_error_on_the_figure() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.parameters.insert(String::new(), Parameter::Bool(true));
+    let report = fig.validate();
+    assert_eq!(error_kinds(&report), vec![IssueKind::InvalidParameter]);
+    assert!(has_error(
+        &report,
+        IssueKind::InvalidParameter,
+        Some(fig.id)
+    ));
+}
+
+// Why: JSON cannot represent a non-finite number, so a figure holding one could be saved
+// to `.fig.json` but not reloaded from it, and a NaN never compares equal when figures are
+// sorted or filtered by it. Each non-finite value must be reported, with the name of
+// the parameter, so that the user can find it.
+#[test]
+fn non_finite_number_parameter_is_an_error_that_names_the_parameter() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let (mut fig, _, _) = single_line_figure();
+        fig.parameters
+            .insert("reynolds_number".to_owned(), Parameter::Number(bad));
+        let report = fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::InvalidParameter],
+            "{bad}: {report:?}"
+        );
+        assert!(has_error(
+            &report,
+            IssueKind::InvalidParameter,
+            Some(fig.id)
+        ));
+        assert!(
+            report.errors[0].message.contains("reynolds_number"),
+            "the message does not name the parameter: {}",
+            report.errors[0].message
+        );
+    }
+}
+
+// Why: the check must not be over-eager. Every non-empty name and every finite value is
+// valid, including the extremes of the integer range, negative zero, the smallest
+// subnormal, an empty string value, and names that are only whitespace or are not ASCII;
+// rejecting any of them would stop a user describing a real figure.
+#[test]
+fn every_parameter_value_that_both_encodings_represent_is_valid() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.parameters = [
+        (" ", Parameter::Bool(false)),
+        ("min", Parameter::Integer(i64::MIN)),
+        ("max", Parameter::Integer(i64::MAX)),
+        ("negative zero", Parameter::Number(-0.0)),
+        ("subnormal", Parameter::Number(f64::from_bits(1))),
+        ("largest", Parameter::Number(f64::MAX)),
+        ("empty", Parameter::String(String::new())),
+        ("Überströmung", Parameter::String("ja".to_owned())),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), value))
+    .collect();
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(report.warnings.is_empty(), "{report:?}");
+}
+
+// Why: a user repairing a figure needs every problem at once, so the check must not stop
+// at the first invalid parameter.
+#[test]
+fn every_invalid_parameter_is_reported() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.parameters.insert(String::new(), Parameter::Integer(1));
+    fig.parameters
+        .insert("a".to_owned(), Parameter::Number(f64::NAN));
+    fig.parameters
+        .insert("b".to_owned(), Parameter::Number(f64::INFINITY));
+    let report = fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::InvalidParameter; 3],
+        "{report:?}"
+    );
+}

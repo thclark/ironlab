@@ -1,9 +1,10 @@
 //! The figure builder.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use ironlab_ir::{Axes, Cell, Dimension, NodeId, Projection, Text, ValidationReport};
+use ironlab_ir::{Axes, Cell, Dimension, NodeId, Parameter, Projection, Text, ValidationReport};
 use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
@@ -76,6 +77,37 @@ impl Figure {
         self.ir.layout.rows = rows;
         self.ir.layout.cols = cols;
         self
+    }
+
+    /// Sets a named parameter that describes the figure, replacing any parameter of the
+    /// same name.
+    ///
+    /// Parameters do not affect drawing; they are saved with the figure so that
+    /// collections of figures can be sorted, filtered and searched. A value may be a
+    /// `bool`, an integer (`i32` or `i64`), an `f64` or a string, and keeps that kind
+    /// when it is saved in either format. A name that is empty, or a number that is not
+    /// finite, is reported by [`validate`](Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let fig = Figure::new()
+    ///     .parameter("reynolds_number", 1e5)
+    ///     .parameter("mesh_cells", 250_000)
+    ///     .parameter("solver", "k–ω SST")
+    ///     .parameter("converged", true);
+    /// assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(250_000));
+    /// ```
+    #[must_use]
+    pub fn parameter(mut self, name: impl Into<String>, value: impl Into<Parameter>) -> Self {
+        self.ir.parameters.insert(name.into(), value.into());
+        self
+    }
+
+    /// Returns the parameters of the figure, in ascending order of name.
+    #[must_use]
+    pub fn parameters(&self) -> &BTreeMap<String, Parameter> {
+        &self.ir.parameters
     }
 
     /// Returns the axes that occupies the tile at a zero-based row and column,

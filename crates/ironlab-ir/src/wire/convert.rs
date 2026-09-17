@@ -13,8 +13,8 @@ use crate::{
     Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
     DashStyle, DataId, Dimension, Figure, FigureSize, FontSetId, Grid, Interpreter, Legend,
     LegendLocation, Levels, Limits, Line, LineStyle, MarkerShape, MarkerStyle, NdArray, NodeId,
-    Projection, Provenance, Quiver, QuiverScale, Scale, Scatter, ScatterColor, ScatterSize,
-    Surface, Text, TileLayout, View3d,
+    Parameter, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter, ScatterColor,
+    ScatterSize, Surface, Text, TileLayout, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -116,8 +116,33 @@ impl From<&Figure> for w::Figure {
                 typesetter: figure.provenance.typesetter.clone(),
                 fonts: figure.provenance.fonts.clone(),
             }),
+            // Both maps are ordered by name, so the entries are written in ascending order
+            // of the UTF-8 bytes of the name.
+            parameters: figure
+                .parameters
+                .iter()
+                .map(|(name, parameter)| (name.clone(), encode_parameter(parameter)))
+                .collect(),
         }
     }
+}
+
+fn encode_parameter(parameter: &Parameter) -> w::Parameter {
+    let kind = match parameter {
+        Parameter::Bool(value) => w::ParameterKind::Bool(w::ParameterBool {
+            value: Some(*value),
+        }),
+        Parameter::Integer(value) => w::ParameterKind::Integer(w::ParameterInteger {
+            value: Some(*value),
+        }),
+        Parameter::Number(value) => w::ParameterKind::Number(w::ParameterNumber {
+            value: Some(*value),
+        }),
+        Parameter::String(value) => w::ParameterKind::String(w::ParameterString {
+            value: value.clone(),
+        }),
+    };
+    w::Parameter { kind: Some(kind) }
 }
 
 fn encode_text(text: &Text) -> w::Text {
@@ -429,6 +454,14 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let parameters = wire
+        .parameters
+        .into_iter()
+        .map(|(name, parameter)| {
+            let parameter = decode_parameter(parameter, &format!("parameters[{name:?}]"))?;
+            Ok((name, parameter))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
     Ok(Figure {
         schema_version: wire.schema_version,
         id: node_id(wire.id, "")?,
@@ -452,7 +485,26 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             typesetter: provenance.typesetter,
             fonts: provenance.fonts,
         },
+        parameters,
         id_allocator: default.id_allocator,
+    })
+}
+
+/// Decodes a parameter, whose kind and value have no default.
+fn decode_parameter(wire: w::Parameter, at: &str) -> Result<Parameter> {
+    Ok(match required(wire.kind, at, "kind")? {
+        w::ParameterKind::Bool(bool) => {
+            Parameter::Bool(required(bool.value, &join(at, "bool_value"), "value")?)
+        }
+        w::ParameterKind::Integer(integer) => Parameter::Integer(required(
+            integer.value,
+            &join(at, "integer_value"),
+            "value",
+        )?),
+        w::ParameterKind::Number(number) => {
+            Parameter::Number(required(number.value, &join(at, "number_value"), "value")?)
+        }
+        w::ParameterKind::String(string) => Parameter::String(string.value),
     })
 }
 

@@ -218,6 +218,23 @@ ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 
 A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
 
+## Parameters
+
+Parameters are named values that describe a figure, such as the conditions of the experiment or simulation that produced its data. They do not change the drawing; they are saved with the figure so that collections of figures can be sorted, filtered and searched. A parameter is set with the `parameter` builder method, and its value may be a `bool`, an integer, an `f64` or a string:
+
+```rust
+let fig = Figure::new()
+    .title("Wake behind a cylinder")
+    .parameter("reynolds_number", 3900.0)
+    .parameter("mesh_cells", 2_400_000)
+    .parameter("solver", "LES")
+    .parameter("converged", true);
+
+assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(2_400_000));
+```
+
+Setting a parameter again with the same name replaces its value. `fig.parameters()` returns every parameter in ascending order of name. Each value keeps its kind when the figure is saved in either format, so the number `3900.0` never reloads as an integer; how parameters are stored is described in the [figure schema reference](../reference/figure-schema.md#parameters).
+
 ## Validating a figure
 
 The builder never panics because of inconsistent input, such as arrays of different lengths or an axes placed outside the tile layout. Such problems are found by `validate`, which returns a report of errors and warnings:

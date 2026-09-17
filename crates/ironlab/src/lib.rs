@@ -81,7 +81,7 @@ pub use ironlab_ir::DashStyle as Dash;
 pub use ironlab_ir::ColormapName as Colormap;
 
 pub use ironlab_ir::{
-    Color, ColorSpec, Interpreter, LegendLocation, NodeId, Scale, Text, ValidationReport,
+    Color, ColorSpec, Interpreter, LegendLocation, NodeId, Parameter, Scale, Text, ValidationReport,
 };
 
 /// The types and functions needed to build figures, for glob import.
@@ -93,7 +93,7 @@ pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
         Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
-        IntoColorSpec, LegendLocation, LineMut, Marker, Matrix, NodeId, QuiverMut, Scale,
-        ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
+        IntoColorSpec, LegendLocation, LineMut, Marker, Matrix, NodeId, Parameter, QuiverMut,
+        Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
     };
 }

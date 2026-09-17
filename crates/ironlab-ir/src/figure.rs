@@ -47,6 +47,12 @@ pub struct Figure {
     pub links: Vec<AxisLink>,
     /// A record of the software that produced the figure.
     pub provenance: Provenance,
+    /// Named values that describe the figure, used to sort, filter and search
+    /// collections of figures, in ascending order of name.
+    ///
+    /// The property is omitted from JSON when there are no parameters.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, Parameter>,
     /// The state used to allocate node identifiers; not part of the figure's value.
     #[serde(skip)]
     #[schemars(skip)]
@@ -68,8 +74,65 @@ impl Default for Figure {
             axes: Vec::new(),
             links: Vec::new(),
             provenance: Provenance::default(),
+            parameters: BTreeMap::new(),
             id_allocator: NodeIdAllocator::default(),
         }
+    }
+}
+
+/// A named value that describes a figure, such as the Reynolds number of the flow that
+/// it shows or the name of the solver that produced its data.
+///
+/// Parameters do not affect drawing. They exist so that collections of figures can be
+/// sorted, filtered and searched. In JSON, a parameter is an object whose `type` names
+/// its kind and whose `value` holds the value, such as `{"type": "number", "value":
+/// 100000.0}`, so that the kind survives JSON's single number type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum Parameter {
+    /// A boolean.
+    Bool(bool),
+    /// A signed 64-bit integer.
+    Integer(i64),
+    /// A double-precision floating-point number, which must be finite.
+    Number(f64),
+    /// A string of Unicode text.
+    String(String),
+}
+
+impl From<bool> for Parameter {
+    fn from(value: bool) -> Self {
+        Parameter::Bool(value)
+    }
+}
+
+impl From<i32> for Parameter {
+    fn from(value: i32) -> Self {
+        Parameter::Integer(i64::from(value))
+    }
+}
+
+impl From<i64> for Parameter {
+    fn from(value: i64) -> Self {
+        Parameter::Integer(value)
+    }
+}
+
+impl From<f64> for Parameter {
+    fn from(value: f64) -> Self {
+        Parameter::Number(value)
+    }
+}
+
+impl From<&str> for Parameter {
+    fn from(value: &str) -> Self {
+        Parameter::String(value.to_owned())
+    }
+}
+
+impl From<String> for Parameter {
+    fn from(value: String) -> Self {
+        Parameter::String(value)
     }
 }
 
@@ -246,10 +309,10 @@ impl Figure {
     /// back to the same value, so a saved figure reloads bit for bit. Non-finite
     /// values in data arrays are written as `null` and reload as NaN. JSON cannot
     /// represent a non-finite value in any other numeric field (such as a limit, a
-    /// view angle or a size): such a value is written as `null`, which
-    /// [`Figure::from_json`] then rejects, so only figures whose scalar fields are
-    /// finite (as [`Figure::validate`] and [`Figure::set_limits`] require) survive a
-    /// round trip.
+    /// view angle, a size or a number parameter): such a value is written as `null`,
+    /// which [`Figure::from_json`] then rejects, so only figures whose scalar fields
+    /// are finite (as [`Figure::validate`] and [`Figure::set_limits`] require) survive
+    /// a round trip.
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("a figure always serialises to JSON")
     }

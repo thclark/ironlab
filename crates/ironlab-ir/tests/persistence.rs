@@ -88,6 +88,7 @@ fn decay_figure() -> Figure {
             typesetter: "latex-rust 1.0.2".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
+        parameters: BTreeMap::new(),
         id_allocator: NodeIdAllocator::default(),
     }
 }

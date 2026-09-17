@@ -536,9 +536,10 @@ fn singular_numeric_and_boolean_fields_have_presence_except_colour_components() 
             continue;
         }
         for field in message.fields() {
-            let numeric_or_bool = matches!(
+            // Every scalar kind other than a string or bytes is numeric or boolean.
+            let numeric_or_bool = !matches!(
                 field.kind(),
-                Kind::Double | Kind::Float | Kind::Uint32 | Kind::Uint64 | Kind::Bool
+                Kind::String | Kind::Bytes | Kind::Message(_) | Kind::Enum(_)
             );
             if numeric_or_bool && !field.is_list() {
                 assert!(

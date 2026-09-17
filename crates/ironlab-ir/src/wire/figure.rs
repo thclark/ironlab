@@ -29,6 +29,10 @@ proto_file! {
         repeated message AxisLink links = 11;
         /// A record of the software that produced the figure.
         message Provenance provenance = 12;
+        /// Named values that describe the figure, used to sort, filter and search
+        /// collections of figures, keyed by name and written in ascending order of the
+        /// UTF-8 bytes of the name.
+        map<string, message Parameter> parameters = 13;
     }
 
     /// The physical size of a figure.
@@ -61,5 +65,44 @@ proto_file! {
         string typesetter = 2;
         /// The names of the fonts used for text.
         repeated string fonts = 3;
+    }
+
+    /// A named value that describes a figure.
+    message Parameter {
+        /// The kind of value; it must be set.
+        oneof kind: ParameterKind {
+            /// A boolean.
+            Bool(ParameterBool) bool_value = 1;
+            /// A signed 64-bit integer.
+            Integer(ParameterInteger) integer_value = 2;
+            /// A double-precision floating-point number.
+            Number(ParameterNumber) number_value = 3;
+            /// A string of Unicode text.
+            String(ParameterString) string_value = 4;
+        }
+    }
+
+    /// A boolean parameter.
+    message ParameterBool {
+        /// The value; it must be present.
+        optional bool value = 1;
+    }
+
+    /// A signed 64-bit integer parameter.
+    message ParameterInteger {
+        /// The value; it must be present.
+        optional int64 value = 1;
+    }
+
+    /// A double-precision floating-point number parameter.
+    message ParameterNumber {
+        /// The value, which must be present and, in a valid figure, finite.
+        optional double value = 1;
+    }
+
+    /// A string parameter.
+    message ParameterString {
+        /// The value, which may be empty.
+        string value = 1;
     }
 }

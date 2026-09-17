@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::artist::{Artist, Contour, ContourPlacement, Grid, Levels, ScatterColor, ScatterSize};
 use crate::axes::{Axes, Axis, Limits, Projection, Scale};
 use crate::data::NdArray;
-use crate::figure::Figure;
+use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
 use crate::link::Dimension;
 
@@ -64,6 +64,9 @@ pub enum IssueKind {
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
+    /// A figure parameter has an empty name, or is a number that is not finite (which
+    /// JSON cannot represent).
+    InvalidParameter,
 }
 
 impl Figure {
@@ -73,7 +76,8 @@ impl Figure {
     /// shape, inconsistent array lengths and shapes within an artist, 3D artists in 2D
     /// axes, links to identifiers that are not axes, duplicate node identifiers,
     /// cells outside the tile layout, a non-positive figure size or font size, invalid
-    /// manual limits and invalid contour levels. Warnings report finite non-positive
+    /// manual limits, invalid contour levels, and parameters with an empty name or a
+    /// non-finite number. Warnings report finite non-positive
     /// data plotted along logarithmic axes; data that is not plotted along an axis
     /// (such as quiver components or colour data) never produces this warning.
     ///
@@ -129,7 +133,8 @@ impl Validator<'_> {
         });
     }
 
-    /// Checks the figure-level properties, the data table, node identifiers and links.
+    /// Checks the figure-level properties, the parameters, the data table, node
+    /// identifiers and links.
     fn check_figure(&mut self) {
         let figure = self.figure;
         let sizes = [
@@ -143,6 +148,25 @@ impl Validator<'_> {
                     Some(figure.id),
                     IssueKind::InvalidSize,
                     format!("the figure {name} of {value} {unit} is not a finite positive number"),
+                );
+            }
+        }
+
+        for (name, parameter) in &figure.parameters {
+            if name.is_empty() {
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidParameter,
+                    "a parameter has an empty name".to_owned(),
+                );
+            }
+            if let Parameter::Number(value) = parameter
+                && !value.is_finite()
+            {
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidParameter,
+                    format!("the parameter {name:?} is the number {value}, which is not finite"),
                 );
             }
         }
