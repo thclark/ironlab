@@ -331,6 +331,27 @@ impl Overlay {
         true
     }
 
+    /// Empties the overlay entirely — its entries, its conflicts, its open step and its
+    /// undo and redo history — so that the displayed figure is the source again, and
+    /// returns whether there was anything to empty.
+    ///
+    /// This is what the property editor's "Revert all changes" control does: it takes
+    /// back everything the user changed — limits, three-dimensional views, visibility and
+    /// every property edited — and leaves the source exactly as its owner defines it.
+    ///
+    /// It is a clean slate rather than a step of the history. The changes it discards are
+    /// how a user was looking at a figure rather than anything in the figure itself, so
+    /// there is nothing to go back to: after clearing, neither [`Overlay::can_undo`] nor
+    /// [`Overlay::can_redo`] is true, and the overlay is exactly as it was created.
+    /// Clearing an overlay that is already empty and has no history does nothing at all.
+    pub fn clear(&mut self) -> bool {
+        if *self == Self::default() {
+            return false;
+        }
+        *self = Self::default();
+        true
+    }
+
     /// Removes the view entries of one axes: the entries of that axes whose path is
     /// `x.limits`, `y.limits`, `z.limits` or `projection.view3d`, or below one of them.
     ///

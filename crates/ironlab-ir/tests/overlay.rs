@@ -980,6 +980,104 @@ fn resetting_every_view_keeps_visibility_and_other_properties() {
 }
 
 // ---------------------------------------------------------------------------------
+// Clearing every change
+// ---------------------------------------------------------------------------------
+
+// Why: the viewer's "Revert all changes" control must take back everything the user did,
+// of every kind, in one action; a clear that kept any entry would leave the figure in a
+// state the user never chose and could not name.
+#[test]
+fn clearing_removes_every_entry_whatever_its_kind() {
+    let f = fixture();
+    let mut overlay = mixed_overlay(&f);
+    assert!(overlay.clear());
+    assert_eq!(keys(&overlay), [] as [(NodeId, String); 0]);
+}
+
+// Why: the changes an overlay holds are how one user is looking at a figure, not
+// anything in the figure itself, so taking them all back is a clean slate rather than a
+// step to go back from: nothing is left to undo or redo, and the overlay is as it was
+// created.
+#[test]
+fn clearing_leaves_nothing_to_undo_or_redo() {
+    let f = fixture();
+    let mut overlay = mixed_overlay(&f);
+    overlay.undo();
+    assert!(
+        overlay.can_undo() && overlay.can_redo(),
+        "precondition: there is a history in both directions"
+    );
+
+    assert!(overlay.clear());
+
+    assert!(
+        !overlay.can_undo(),
+        "the undo history goes with the entries"
+    );
+    assert!(!overlay.can_redo(), "so does the redo history");
+    assert!(!overlay.undo());
+    assert!(!overlay.redo());
+    assert_eq!(overlay, Overlay::new());
+}
+
+// Why: the control is disabled when there is nothing to discard, but a stale frame can
+// still click it; clearing an overlay that is already empty and has no history must then
+// be inert, so that the clear reports a change only when it made one.
+#[test]
+fn clearing_an_overlay_that_is_already_empty_does_nothing() {
+    let f = fixture();
+    let mut overlay = Overlay::new();
+    assert!(!overlay.clear());
+
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    assert!(overlay.undo());
+    assert!(
+        overlay.entries().is_empty() && !overlay.can_undo() && overlay.can_redo(),
+        "precondition: no entries, but a history to discard"
+    );
+    assert!(
+        overlay.clear(),
+        "a history left behind is still something to clear"
+    );
+    assert!(!overlay.clear());
+}
+
+// Why: the overlay is the user's changes alone, so taking them all back must leave the
+// figure its owner defined exactly as it was, not a figure that merely resembles it.
+#[test]
+fn clearing_leaves_the_source_untouched_and_displays_it() {
+    let f = fixture();
+    let mut overlay = mixed_overlay(&f);
+    assert_ne!(
+        overlay.compose(&f.source).figure,
+        f.source,
+        "precondition: the overlay changes what is displayed"
+    );
+
+    overlay.clear();
+
+    let composition = overlay.compose(&f.source);
+    assert_eq!(composition.figure, f.source);
+    assert!(composition.dropped.is_empty());
+}
+
+// Why: a conflict asks the user to decide the fate of one of their changes; once every
+// change is gone there is nothing left to decide, and a pending notice would ask about a
+// change that no longer exists.
+#[test]
+fn clearing_removes_the_pending_conflicts() {
+    let f = fixture();
+    let mut overlay = Overlay::new();
+    record(&mut overlay, f.a, "x.limits", limits(2.0, 3.0));
+    overlay.reconcile(&f.source, &tx([set(f.a, "x.limits", limits(0.0, 4.0))]));
+    assert_eq!(overlay.conflicts().len(), 1);
+
+    overlay.clear();
+
+    assert!(overlay.conflicts().is_empty());
+}
+
+// ---------------------------------------------------------------------------------
 // Undo and redo
 // ---------------------------------------------------------------------------------
 
