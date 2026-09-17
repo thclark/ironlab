@@ -193,8 +193,8 @@ fn encode_axes(axes: &Axes) -> w::Axes {
                 azimuth_deg: Some(view3d.azimuth_deg),
                 elevation_deg: Some(view3d.elevation_deg),
                 zoom: Some(view3d.zoom),
-                pan_x: Some(view3d.pan[0]),
-                pan_y: Some(view3d.pan[1]),
+                pan_x: Some(view3d.pan_x),
+                pan_y: Some(view3d.pan_y),
             }),
         }),
     };
@@ -573,10 +573,8 @@ fn decode_projection(wire: Option<w::Projection>, default: Projection) -> Projec
                     azimuth_deg: wire.azimuth_deg.unwrap_or(view.azimuth_deg),
                     elevation_deg: wire.elevation_deg.unwrap_or(view.elevation_deg),
                     zoom: wire.zoom.unwrap_or(view.zoom),
-                    pan: [
-                        wire.pan_x.unwrap_or(view.pan[0]),
-                        wire.pan_y.unwrap_or(view.pan[1]),
-                    ],
+                    pan_x: wire.pan_x.unwrap_or(view.pan_x),
+                    pan_y: wire.pan_y.unwrap_or(view.pan_y),
                 },
             }
         }

@@ -18,7 +18,7 @@ use crate::text::Text;
 ///
 /// Files are compatible when their major and minor components equal this version's;
 /// the patch component may differ.
-pub const SCHEMA_VERSION: &str = "0.1.0";
+pub const SCHEMA_VERSION: &str = "0.2.0";
 
 /// A figure: the root of the retained IR, holding axes, data and axis links.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

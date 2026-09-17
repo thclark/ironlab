@@ -310,7 +310,8 @@ proptest! {
         fig.axes[0].projection = Projection::ThreeD {
             view3d: View3d {
                 azimuth_deg: f64::from_bits(azimuth),
-                pan: [f64::from_bits(pan), 0.0],
+                pan_x: f64::from_bits(pan),
+                pan_y: 0.0,
                 ..View3d::default()
             },
         };
@@ -750,7 +751,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         azimuth_deg: 11.0,
                         elevation_deg: 12.0,
                         zoom: 13.0,
-                        pan: [14.0, 15.0],
+                        pan_x: 14.0,
+                        pan_y: 15.0,
                     },
                 },
                 title: text("axes title", Interpreter::Latex),
@@ -1287,7 +1289,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     azimuth_deg: 0.0,
                     elevation_deg: 0.0,
                     zoom: 0.0,
-                    pan: [0.0, 0.0],
+                    pan_x: 0.0,
+                    pan_y: 0.0,
                 },
             },
             box_: false,
@@ -1973,7 +1976,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     azimuth_deg: -37.5,
                     elevation_deg: 30.0,
                     zoom: 1.25,
-                    pan: [0.125, -0.25],
+                    pan_x: 0.125,
+                    pan_y: -0.25,
                 },
             },
             title: Some(Text::new("Axes")),

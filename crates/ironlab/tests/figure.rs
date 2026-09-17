@@ -201,7 +201,8 @@ fn view_sets_azimuth_and_elevation_and_keeps_zoom_and_pan() {
         a.projection = Projection::ThreeD {
             view3d: View3d {
                 zoom: 2.0,
-                pan: [0.1, -0.2],
+                pan_x: 0.1,
+                pan_y: -0.2,
                 ..View3d::default()
             },
         };
@@ -214,7 +215,8 @@ fn view_sets_azimuth_and_elevation_and_keeps_zoom_and_pan() {
                 azimuth_deg: 120.0,
                 elevation_deg: 15.0,
                 zoom: 2.0,
-                pan: [0.1, -0.2],
+                pan_x: 0.1,
+                pan_y: -0.2,
             }
         }
     );

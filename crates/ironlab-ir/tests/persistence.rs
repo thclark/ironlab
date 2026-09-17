@@ -18,7 +18,7 @@ fn decay_figure() -> Figure {
     data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
     data.insert(DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135]));
     Figure {
-        schema_version: "0.1.0".to_owned(),
+        schema_version: "0.2.0".to_owned(),
         id: NodeId(1),
         title: Some(Text::new("Decay of $e^{-t}$")),
         size: FigureSize {
@@ -158,7 +158,8 @@ fn viewer_edits_survive_save_and_reopen() {
         azimuth_deg: -37.5 + 123.456_789,
         elevation_deg: 89.999_999_999_999_99,
         zoom: 1.0 / 3.0,
-        pan: [-0.1 + 0.2, 1.0e-17],
+        pan_x: -0.1 + 0.2,
+        pan_y: 1.0e-17,
     };
 
     fig.set_limits(three, Dimension::Z, z_limits).unwrap();
@@ -206,7 +207,7 @@ proptest! {
         fig.size.width_mm = width;
         fig.axes[0].x.limits = Limits::Manual { min, max };
         fig.axes[0].projection = Projection::ThreeD {
-            view3d: View3d { azimuth_deg: azimuth, elevation_deg: 30.0, zoom, pan: [pan, 0.0] },
+            view3d: View3d { azimuth_deg: azimuth, elevation_deg: 30.0, zoom, pan_x: pan, pan_y: 0.0 },
         };
 
         let reopened = Figure::from_json(&fig.to_json()).unwrap();
@@ -222,7 +223,7 @@ proptest! {
             (max, rmax),
             (azimuth, view3d.azimuth_deg),
             (zoom, view3d.zoom),
-            (pan, view3d.pan[0]),
+            (pan, view3d.pan_x),
             (width, reopened.size.width_mm),
         ];
         for (original, restored) in pairs {
@@ -256,7 +257,11 @@ fn serialised_figure_matches_the_hand_written_wire_format() {
 fn enum_variants_use_snake_case_names_and_a_type_tag() {
     let (mut fig, axes, _) = single_line_figure();
     fig.axes[0].projection = Projection::ThreeD {
-        view3d: View3d::default(),
+        view3d: View3d {
+            pan_x: 0.25,
+            pan_y: -0.5,
+            ..View3d::default()
+        },
     };
     fig.axes[0].artists.push(Artist::Contour(Contour {
         id: NodeId(90),
@@ -279,7 +284,7 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
         axes_json["projection"],
         json!({
             "type": "three_d",
-            "view3d": { "azimuth_deg": -37.5, "elevation_deg": 30.0, "zoom": 1.0, "pan": [0.0, 0.0] }
+            "view3d": { "azimuth_deg": -37.5, "elevation_deg": 30.0, "zoom": 1.0, "pan_x": 0.25, "pan_y": -0.5 }
         })
     );
     let contour = &axes_json["artists"][1];

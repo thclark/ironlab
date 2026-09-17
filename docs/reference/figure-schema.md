@@ -80,7 +80,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.1.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.2.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
@@ -117,14 +117,15 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 - `{"type": "two_d"}` is a two-dimensional Cartesian axes.
 - `{"type": "three_d", "view3d": View3d}` is a three-dimensional Cartesian axes seen through an orthographic camera.
 
-A View3d has four properties:
+A View3d has five properties:
 
 | Property | Meaning |
 | --- | --- |
 | `azimuth_deg` | The rotation about the vertical axis, measured counterclockwise from the negative y axis when viewed from above. The default is −37.5. |
 | `elevation_deg` | The angle of the view direction above the x–y plane, from −90 to 90. The default is 30. |
 | `zoom` | The magnification of the projected box, where 1 fits the box to the plot area. |
-| `pan` | The offset of the projected box, as fractions of the plot area's width and height. In Protocol Buffers, the two fractions are the fields `pan_x` and `pan_y`. |
+| `pan_x` | The horizontal offset of the projected box as a fraction of the plot area's width, increasing to the right. The default is 0. |
+| `pan_y` | The vertical offset of the projected box as a fraction of the plot area's height, increasing downwards. The default is 0. |
 
 ### Axis
 
@@ -320,7 +321,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 
 ```json
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -362,7 +363,7 @@ The following JSON file describes one two-dimensional axes with a line through t
   ],
   "links": [],
   "provenance": {
-    "ironlab_version": "0.1.0",
+    "ironlab_version": "0.2.0",
     "typesetter": "latex-rust 1.0.2",
     "fonts": ["STIX Two Text", "STIX Two Math"]
   }
@@ -373,7 +374,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.1.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.2.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
 
@@ -384,6 +385,11 @@ Changes to the schema are versioned as follows.
 - A **major** version is for changes that alter or remove the meaning of existing properties.
 
 While the major version is 0, the project may make breaking changes in a minor version, and a file of a different minor version is rejected in either case.
+
+The schema has had the following versions:
+
+- **0.2.0** replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
+- **0.1.0** was the first version.
 
 ## Extending the model with new plot types
 

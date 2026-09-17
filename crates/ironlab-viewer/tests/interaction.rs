@@ -391,7 +391,7 @@ fn wheel_zoom_on_3d_axes_changes_the_camera_zoom_not_the_limits() {
 }
 
 // Why: panning a 3D axes moves the camera offset, which the scene compiler interprets as fractions of the plot
-// rectangle; the direction contract (positive pan[1] is downwards) must match the compiler for the box to follow the
+// rectangle; the direction contract (positive pan_y is downwards) must match the compiler for the box to follow the
 // pointer.
 #[test]
 fn pan_on_3d_axes_moves_the_view_offset_by_the_pointer_displacement_in_plot_fractions() {
@@ -402,8 +402,8 @@ fn pan_on_3d_axes_moves_the_view_offset_by_the_pointer_displacement_in_plot_frac
     assert!(state.drag_update(Point::new(120.0, 60.0)));
 
     let view = view_of(&state.current, 2);
-    assert_close(view.pan[0], 20.0 / PLOT.width, EPS, "pan x");
-    assert_close(view.pan[1], 10.0 / PLOT.height, EPS, "pan y");
+    assert_close(view.pan_x, 20.0 / PLOT.width, EPS, "pan x");
+    assert_close(view.pan_y, 10.0 / PLOT.height, EPS, "pan y");
     let axes = state.current.axes(NodeId(2)).unwrap();
     assert_eq!(
         axes.x,
@@ -580,7 +580,8 @@ fn double_click_restores_the_view_of_a_3d_axes() {
             azimuth_deg: 10.0,
             elevation_deg: -20.0,
             zoom: 3.0,
-            pan: [0.2, -0.1],
+            pan_x: 0.2,
+            pan_y: -0.1,
         },
     );
 
@@ -683,7 +684,8 @@ fn reset_view_restores_limits_and_views_but_keeps_visibility() {
             azimuth_deg: 45.0,
             elevation_deg: 10.0,
             zoom: 0.5,
-            pan: [0.1, 0.1],
+            pan_x: 0.1,
+            pan_y: 0.1,
         },
     );
     state

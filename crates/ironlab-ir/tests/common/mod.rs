@@ -411,7 +411,8 @@ pub fn kitchen_sink_figure() -> Figure {
                 azimuth_deg: 45.0,
                 elevation_deg: -15.0,
                 zoom: 1.5,
-                pan: [0.1, -0.2],
+                pan_x: 0.1,
+                pan_y: -0.2,
             },
         };
         a.z = Axis {
@@ -599,8 +600,8 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             visit(at("view3d.azimuth_deg"), &mut view3d.azimuth_deg);
             visit(at("view3d.elevation_deg"), &mut view3d.elevation_deg);
             visit(at("view3d.zoom"), &mut view3d.zoom);
-            visit(at("view3d.pan[0]"), &mut view3d.pan[0]);
-            visit(at("view3d.pan[1]"), &mut view3d.pan[1]);
+            visit(at("view3d.pan_x"), &mut view3d.pan_x);
+            visit(at("view3d.pan_y"), &mut view3d.pan_y);
         }
         for (name, limits) in [
             ("x.limits", &mut axes.x.limits),
