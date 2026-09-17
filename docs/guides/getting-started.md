@@ -264,7 +264,7 @@ let fig = Figure::load("pressure.fig.json")?;
 
 Extensions are matched without regard to case. Any other extension, or none, makes `save` and `load` fail with `Error::UnsupportedFormat`, without writing or reading a file. `save_json` and `load_json` write and read JSON whatever the extension, and `to_protobuf` and `from_protobuf` convert a figure to and from the bytes of a `.fig` file, for example to send it to another process.
 
-A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
+A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. The viewer writes the same two formats, in the same way, with its [Save figure…](viewer.md#saving-the-figure) button. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
 
 ## Exporting PDF
 

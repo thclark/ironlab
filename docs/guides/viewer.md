@@ -4,7 +4,7 @@ The IronLAB viewer is a desktop window that shows figures as tabs and lets them 
 
 Each tab has a toolbar above a canvas. The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the tab. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
 
-Every interaction described on this page edits the figure itself, by changing axis limits, three-dimensional views or the visibility of plots, exactly as setting those properties from the Rust API would. The viewer keeps a copy of each figure as it was opened, called the snapshot, from which views are restored. The reasons for this design are recorded in [ADR 0006](../adrs/0006-interaction-mutates-the-ir.md).
+Every interaction described on this page changes the figure by setting a property of it — an axis limit, a three-dimensional view or the visibility of a plot — exactly as setting that property from the Rust API would. The viewer keeps the figure as it was opened, called the source, and the changes made to it, called the overlay, apart: what the canvas draws, what **Export PDF…** writes and what **Save figure…** writes is the source with the overlay applied. Because each change is a value of its own, any of them can be undone, and a view is restored by discarding the changes made to it rather than by copying an earlier figure back. The reasons for this design are recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md).
 
 ## Tools
 
@@ -42,12 +42,21 @@ The rate is half a degree for each point of pointer travel measured on the figur
 
 ## Restoring views
 
-- **Double-clicking** an axes restores the x, y and z limits and the three-dimensional view of that axes from the snapshot. Axes linked with it follow the restored limits.
-- **Reset view**, in the toolbar, restores the limits and three-dimensional views of every axes of the figure from the snapshot. Pressing **R** does the same for the figure in the visible tab, unless a text field has keyboard focus or a modifier key is held.
+- **Double-clicking** an axes discards the changes made to the x, y and z limits and to the three-dimensional view of that axes, so that it shows the view the figure was opened with. Axes linked with it follow the restored limits.
+- **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure in the visible tab, unless a text field has keyboard focus or a modifier key is held.
 
 Neither action changes the visibility of plots, so plots hidden from the legend stay hidden.
 
-A two-dimensional axes whose limits were automatic receives fixed limits as soon as it is panned or zoomed. Restoring its view makes its limits automatic again.
+A two-dimensional axes whose limits were automatic receives fixed limits as soon as it is panned or zoomed, computed from the limits it was showing. The figure itself keeps its automatic limits, so restoring the view makes the limits automatic again.
+
+## Undo and redo
+
+Every gesture is one step of the history: a drag from press to release, one notch of the wheel, one click on a legend entry, a double-click and Reset view each count as one.
+
+- **Undo**, in the toolbar or **⌘Z** (**Ctrl+Z** away from macOS), restores the figure to what it was before the most recent gesture.
+- **Redo**, in the toolbar or **⌘⇧Z** (**Ctrl+Shift+Z**), applies the most recently undone gesture again.
+
+Each button is disabled when there is nothing to undo or to redo, and both shortcuts are ignored while a text field has keyboard focus. Making a new gesture after undoing one discards what could have been redone, so the history never branches. Undo and redo act only on the changes made in the viewer: the figure as opened is the furthest back they go, and saving the figure makes the changes part of it, after which they can no longer be undone.
 
 ## Legend
 
@@ -61,6 +70,12 @@ When axes are linked along a dimension (see [linking axes](getting-started.md#li
 
 Links apply to limits only. The azimuth, elevation, magnification and position of a three-dimensional view belong to its own axes, and rotating or zooming one three-dimensional axes does not change another.
 
+## Saving the figure
+
+**Save figure…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown, with its current limits, three-dimensional views and plot visibility. The format follows the extension of the name given: `.fig` writes the default Protocol Buffers format and `.json` (including `.fig.json`) writes JSON, as described in [saving and loading](getting-started.md#saving-and-loading). A name with any other extension is refused and no file is written.
+
+The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Reset view restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
+
 ## Exporting to PDF
 
 **Export PDF…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown: with its current limits, current three-dimensional views, and without the plots hidden from the legend. The exported page has the same properties as one written by the API, which are described in [exporting PDF](getting-started.md#exporting-pdf). A notification in the bottom-right corner of the window reports whether the export succeeded.
@@ -68,3 +83,5 @@ Links apply to limits only. The azimuth, elevation, magnification and position o
 ## Problems
 
 When drawing a figure reveals problems that do not prevent it from being drawn, such as a LaTeX expression that the typesetter does not support or data that cannot be placed on a logarithmic axis, the toolbar shows a problems indicator: a warning sign followed by the number of problems, for example "2 problems". Hovering over the indicator lists each problem, with the identifier of the node (the figure, an axes or a plot) that it concerns. The figure is still drawn: unsupported mathematics is shown as its raw source, and data that cannot be placed is left out.
+
+A change made in the viewer that the figure cannot accept, such as limits that are not increasing, is dropped rather than applied, and the same indicator gives the property it concerned and the reason. Such a change is reported until the view is reset or the figure is saved.

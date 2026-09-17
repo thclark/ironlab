@@ -65,26 +65,31 @@ The hit map is the geometry that the viewer needs to relate a pointer position t
 - The **offscreen renderer** draws the same meshes into a texture without a window and reads the image back. The documentation gallery's images are made this way, so they show exactly what the viewer shows.
 - The **PDF backend** writes each path and glyph run to a single page whose MediaBox and CropBox equal the figure size, with fonts embedded as subsets. The decisions behind PDF-first export are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
 
-## Interaction mutates the model
+## Interaction records edits in an overlay
 
-The viewer has no view state of its own that affects drawing. Each gesture is converted into an edit of the figure model, in the same way that setting a property from the API edits it:
+The viewer has no view state of its own that affects drawing. Each gesture is converted into a transaction of typed edits of the figure model, in the same way that setting a property from the API edits it:
 
 - panning and zooming a two-dimensional axes set its axis limits to manual values;
-- panning, zooming and rotating a three-dimensional axes change its `view3d`;
-- clicking a legend entry toggles the `visible` flag of an artist.
+- panning, zooming and rotating a three-dimensional axes set the properties of its `projection.view3d`;
+- clicking a legend entry sets the `visible` property of an artist.
 
-Limit changes go through the same linking logic as the API, so linked axes follow. After an edit, the scene is recompiled and redrawn, and the next gesture is hit-tested against the new geometry. Each tab keeps the figure as it was opened (the snapshot), from which Reset view and double-click restore limits and views.
+Limits are set with the `set_limits` command, which reads the figure and returns the limits of every axes of the link group as literal edits, so linked axes follow without the viewer implementing the rule.
 
-Because the model is the only state, exporting from the viewer exports what is on screen, and the interaction logic is pure code with no GPU or window, which is tested directly. This design is recorded in [ADR 0006](../adrs/0006-interaction-mutates-the-ir.md), and its behaviour from the user's side is described in [using the viewer](../guides/viewer.md).
+A tab holds the figure as its owner defines it (the source, which for the viewer is the figure as opened or as last saved) and the user's edits (the overlay), and draws their composition, which is recomputed whenever either changes. A gesture therefore never mutates the source: undo and redo step through the overlay, double-click and Reset view discard the view entries of the overlay, and saving folds the overlay into the source. An overlay entry that the source cannot accept is dropped when the composition is made, and the reason is shown by the problems indicator.
+
+Because the composed figure is the only state that drawing depends on, exporting and saving from the viewer write what is on screen, and the interaction logic is pure code with no GPU or window, which is tested directly. This design is recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md), and its behaviour from the user's side is described in [using the viewer](../guides/viewer.md).
 
 ```text
- pointer input ──▶ interaction::FigureState ──edits──▶ Figure (current)
-                          ▲                               │
-                          │ hit map                       ▼
+ pointer input ──▶ interaction::FigureState ──sets──▶ Overlay
+                          ▲                             │
+                          │                             ▼
+                          │             Figure (source) + overlay = displayed figure
+                          │ hit map                     │
                           └──────────── Scene ◀── ironlab-scene::compile
                                           │
                                           ├──▶ canvas (redraw)
-                                          └──▶ ironlab-pdf (Export PDF…)
+                                          ├──▶ ironlab-pdf (Export PDF…)
+                                          └──▶ .fig or .json (Save figure…)
 ```
 
 ## Text resolution
