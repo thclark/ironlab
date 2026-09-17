@@ -310,7 +310,8 @@ proptest! {
         fig.axes[0].projection = Projection::ThreeD {
             view3d: View3d {
                 azimuth_deg: f64::from_bits(azimuth),
-                pan: [f64::from_bits(pan), 0.0],
+                pan_x: f64::from_bits(pan),
+                pan_y: 0.0,
                 ..View3d::default()
             },
         };
@@ -685,6 +686,48 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             typesetter: "typesetter 6.5".to_owned(),
             fonts: vec!["Font B".to_owned(), "Font A".to_owned()],
         }),
+        parameters: BTreeMap::from([
+            (
+                "a".to_owned(),
+                wire::Parameter {
+                    kind: Some(wire::ParameterKind::Number(wire::ParameterNumber {
+                        value: Some(16.0),
+                    })),
+                },
+            ),
+            (
+                "b".to_owned(),
+                wire::Parameter {
+                    kind: Some(wire::ParameterKind::Number(wire::ParameterNumber {
+                        value: Some(17.0),
+                    })),
+                },
+            ),
+            (
+                "c".to_owned(),
+                wire::Parameter {
+                    kind: Some(wire::ParameterKind::Bool(wire::ParameterBool {
+                        value: Some(true),
+                    })),
+                },
+            ),
+            (
+                "d".to_owned(),
+                wire::Parameter {
+                    kind: Some(wire::ParameterKind::Integer(wire::ParameterInteger {
+                        value: Some(-18),
+                    })),
+                },
+            ),
+            (
+                "e".to_owned(),
+                wire::Parameter {
+                    kind: Some(wire::ParameterKind::String(wire::ParameterString {
+                        value: "parameter".to_owned(),
+                    })),
+                },
+            ),
+        ]),
     };
 
     // Every field is written out, so that no expected value comes from a default.
@@ -750,7 +793,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         azimuth_deg: 11.0,
                         elevation_deg: 12.0,
                         zoom: 13.0,
-                        pan: [14.0, 15.0],
+                        pan_x: 14.0,
+                        pan_y: 15.0,
                     },
                 },
                 title: text("axes title", Interpreter::Latex),
@@ -990,6 +1034,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             typesetter: "typesetter 6.5".to_owned(),
             fonts: vec!["Font B".to_owned(), "Font A".to_owned()],
         },
+        parameters: BTreeMap::from([
+            ("a".to_owned(), Parameter::Number(16.0)),
+            ("b".to_owned(), Parameter::Number(17.0)),
+            ("c".to_owned(), Parameter::Bool(true)),
+            ("d".to_owned(), Parameter::Integer(-18)),
+            ("e".to_owned(), Parameter::String("parameter".to_owned())),
+        ]),
         id_allocator: NodeIdAllocator::default(),
     };
 
@@ -1287,7 +1338,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     azimuth_deg: 0.0,
                     elevation_deg: 0.0,
                     zoom: 0.0,
-                    pan: [0.0, 0.0],
+                    pan_x: 0.0,
+                    pan_y: 0.0,
                 },
             },
             box_: false,
@@ -1783,10 +1835,10 @@ fn unknown_enum_values_are_errors() {
 // Stability of field numbers
 // ---------------------------------------------------------------------------------
 
-/// A figure encoded by hand, field by field, from the field numbers of schema 0.1: a 3D
+/// A figure encoded by hand, field by field, from the field numbers of the schema: a 3D
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
-/// with an RGBA colour and a marker, two data arrays (one holding NaN), a link and
-/// provenance.
+/// with an RGBA colour and a marker, two data arrays (one holding NaN), a link,
+/// provenance and a parameter of every kind.
 ///
 /// The bytes are built without the wire types, so that renumbering a field in the
 /// `proto_file!` declarations changes what the decoder expects but not these bytes.
@@ -1902,6 +1954,19 @@ fn hand_encoded_bytes() -> Vec<u8> {
     ]
     .concat();
 
+    // A map entry of the parameters holds the name in field 1 and a Parameter in field 2,
+    // whose oneof variant (numbered 1 to 4) is a message holding the value in field 1.
+    let parameter = |name: &str, variant: u64, value: Vec<u8>| {
+        length_delimited(
+            13,
+            &[
+                length_delimited(1, name.as_bytes()),
+                length_delimited(2, &length_delimited(variant, &value)),
+            ]
+            .concat(),
+        )
+    };
+
     let data_entry = |key: u64, value: Vec<u8>| {
         length_delimited(
             9,
@@ -1932,6 +1997,12 @@ fn hand_encoded_bytes() -> Vec<u8> {
             ]
             .concat(),
         ),
+        // Out of order, as another writer may produce them.
+        parameter("solver", 4, length_delimited(1, "k–ω SST".as_bytes())),
+        parameter("reynolds_number", 3, double_field(1, 1.0e5)),
+        // An int64 is a varint of its two's complement, ten bytes for a negative value.
+        parameter("mesh_cells", 2, varint_field(1, (-4_096i64) as u64)),
+        parameter("converged", 1, varint_field(1, 1)),
     ]
     .concat()
 }
@@ -1973,7 +2044,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     azimuth_deg: -37.5,
                     elevation_deg: 30.0,
                     zoom: 1.25,
-                    pan: [0.125, -0.25],
+                    pan_x: 0.125,
+                    pan_y: -0.25,
                 },
             },
             title: Some(Text::new("Axes")),
@@ -2039,6 +2111,12 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
             typesetter: "latex-rust 1.0.2".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
+        parameters: BTreeMap::from([
+            ("converged".to_owned(), Parameter::Bool(true)),
+            ("mesh_cells".to_owned(), Parameter::Integer(-4_096)),
+            ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
+            ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
+        ]),
         id_allocator: NodeIdAllocator::default(),
     };
 

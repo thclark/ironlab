@@ -59,7 +59,8 @@ pub use axes::{
 pub use data::NdArray;
 pub use error::{IrError, ProtobufError};
 pub use figure::{
-    Figure, FigureSize, FontSetId, NodeIdAllocator, Provenance, SCHEMA_VERSION, TileLayout,
+    Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
+    TileLayout,
 };
 pub use ids::{DataId, NodeId};
 pub use link::{AxisLink, Dimension};

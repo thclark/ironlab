@@ -56,7 +56,8 @@ impl Projector {
         } else {
             1.0
         };
-        let pan = view.pan.map(|p| if p.is_finite() { p } else { 0.0 });
+        let finite_or_zero = |p: f64| if p.is_finite() { p } else { 0.0 };
+        let (pan_x, pan_y) = (finite_or_zero(view.pan_x), finite_or_zero(view.pan_y));
         let (fit, offset) = fit_to_rect(plot.width, plot.height);
         Self {
             camera,
@@ -65,8 +66,8 @@ impl Projector {
             log: ranges.map(|r| r.log),
             scale: fit * zoom,
             centre: Point::new(
-                plot.x + offset[0] + pan[0] * plot.width,
-                plot.y + offset[1] + pan[1] * plot.height,
+                plot.x + offset[0] + pan_x * plot.width,
+                plot.y + offset[1] + pan_y * plot.height,
             ),
         }
     }

@@ -38,12 +38,18 @@
 //!   exception, because a colour component has no meaningful negative zero.
 //! - A tagged domain enum is a message with a single oneof named `kind`, whose
 //!   variants are messages named after the enum and the variant, so that a variant can
-//!   gain fields in a later version without changing the others.
+//!   gain fields in a later version without changing the others. This holds even where
+//!   a variant holds a single scalar, as in `ScatterSizeScalar` and in the variants of
+//!   a figure `Parameter` (such as `ParameterNumber`, whose field `value` holds the
+//!   number), so that every tagged entity is read in the same way.
 //! - No field, oneof or oneof variant is named with a keyword of a language for which
 //!   code is commonly generated from `.proto` files (such as `auto` and `explicit` in
 //!   C++), so that generated code needs no renamed accessors. The Protocol Buffers
 //!   name of such a variant therefore differs from its domain name: the automatic
-//!   variants are named `automatic` and the explicit levels `explicit_values`.
+//!   variants are named `automatic`, the explicit levels `explicit_values`, and the
+//!   variants of a parameter `bool_value`, `integer_value`, `number_value` and
+//!   `string_value` (because `bool` and `string` are keywords of C++ and C#; the
+//!   suffix is used on all four variants so that their names are uniform).
 //! - A field number or name that is removed is reserved, with `reserved`, so that it
 //!   is never reused with another meaning.
 //! - A numeric array is a `repeated uint64 shape` and a packed `repeated double
@@ -52,6 +58,8 @@
 //!   order so that a figure always encodes to the same bytes. (Figures that compare
 //!   equal may still encode differently, because the equality of figures does not
 //!   distinguish negative from positive zero or one NaN from another.)
+//! - The parameters of a figure are a `map<string, Parameter>`, encoded in ascending
+//!   order of the UTF-8 bytes of the name, for the same reason.
 //! - Field 1 of `Figure` is `schema_version`. It never changes, so that any reader can
 //!   check the version of a file before decoding the rest of it.
 //!
@@ -70,7 +78,8 @@
 //! [`ProtobufError::MissingField`](crate::ProtobufError::MissingField), where the
 //! domain has no meaningful default:
 //!
-//! - the kind of an artist and the dimension of an axis link;
+//! - the kind of an artist, the dimension of an axis link, and the kind of a figure
+//!   parameter together with its value when it is a boolean, an integer or a number;
 //! - every identifier that refers to a node or a data array and is not optional in the
 //!   domain: the identifier of the figure, of each axes and of each artist, the x and y
 //!   data of a line, scatter or quiver, the u and v data of a quiver, the z data of a
@@ -111,6 +120,9 @@ macro_rules! wire_scalar {
     (uint64) => {
         u64
     };
+    (int64) => {
+        i64
+    };
     (bool) => {
         bool
     };
@@ -131,7 +143,8 @@ macro_rules! wire_scalar {
 /// - `message Type name = N;`, a singular message, absent when `None`;
 /// - `repeated message Type name = N;`, a repeated message;
 /// - `enum Type name = N;`, an enum, stored as `i32` so that unknown values are kept;
-/// - `map<uint64, message Type> name = N;`, a map from a scalar to a message;
+/// - `map<uint64, message Type> name = N;`, a map from a scalar (here `uint64`) to a
+///   message;
 /// - `oneof name: RustEnum { Variant(Type) field = N; ... }`, a oneof of messages.
 ///
 /// An enum lists `Variant = N;` values; the zero value `Unspecified` is added by the

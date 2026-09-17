@@ -107,9 +107,12 @@ pub struct View3d {
     pub elevation_deg: f64,
     /// The magnification of the projected box, where 1 fits the box to the plot area.
     pub zoom: f64,
-    /// The offset of the projected box as fractions of the plot area's width and
-    /// height.
-    pub pan: [f64; 2],
+    /// The horizontal offset of the projected box as a fraction of the plot area's
+    /// width, increasing to the right.
+    pub pan_x: f64,
+    /// The vertical offset of the projected box as a fraction of the plot area's
+    /// height, increasing downwards.
+    pub pan_y: f64,
 }
 
 impl Default for View3d {
@@ -118,7 +121,8 @@ impl Default for View3d {
             azimuth_deg: -37.5,
             elevation_deg: 30.0,
             zoom: 1.0,
-            pan: [0.0, 0.0],
+            pan_x: 0.0,
+            pan_y: 0.0,
         }
     }
 }

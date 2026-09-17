@@ -75,10 +75,10 @@ proto_file! {
         /// area.
         optional double zoom = 3;
         /// The horizontal offset of the projected box as a fraction of the plot
-        /// area's width.
+        /// area's width, increasing to the right.
         optional double pan_x = 4;
         /// The vertical offset of the projected box as a fraction of the plot area's
-        /// height.
+        /// height, increasing downwards.
         optional double pan_y = 5;
     }
 

@@ -694,14 +694,16 @@ fn face_centroids(scene: &Scene, surf: NodeId) -> Vec<Point> {
 }
 
 // Why: 3D pan is stored as fractions of the plot area, so the viewer can drag the box by a known
-// distance: pan [0.1, 0] must move the whole projection right by a tenth of the plot width and
-// nothing else.
+// distance: `pan_x` 0.1 must move the whole projection right by a tenth of the plot width, and
+// `pan_y` 0.2 must move it down (figure-space y increases downwards) by a fifth of the plot height,
+// without changing the layout. Distinct values on the two axes catch the fields being exchanged.
 #[test]
 fn three_d_pan_shifts_the_projection_by_a_fraction_of_the_plot_rect() {
     let (fx_a, ax, surf_a) = surface_axes(View3d::default(), |_| {});
     let (fx_b, bx, surf_b) = surface_axes(
         View3d {
-            pan: [0.1, 0.0],
+            pan_x: 0.1,
+            pan_y: 0.2,
             ..View3d::default()
         },
         |_| {},
@@ -717,7 +719,7 @@ fn three_d_pan_shifts_the_projection_by_a_fraction_of_the_plot_rect() {
     assert_eq!(ca.len(), cb.len());
     for (p, q) in ca.iter().zip(&cb) {
         crate::probe::assert_close(q.x - p.x, 0.1 * plot.width, 1e-6);
-        crate::probe::assert_close(q.y - p.y, 0.0, 1e-6);
+        crate::probe::assert_close(q.y - p.y, 0.2 * plot.height, 1e-6);
     }
 }
 

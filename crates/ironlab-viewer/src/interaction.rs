@@ -12,9 +12,9 @@
 //!   stays under the pointer. A factor greater than one zooms in. In 3D it multiplies `view3d.zoom` by the factor.
 //! - **Pan** (2D) shifts the limits so that the data point grabbed at the start of the drag stays under the pointer.
 //!   Every update is computed from the axis maps captured at the start of the drag rather than incrementally, so
-//!   repeated updates never accumulate rounding drift. In 3D, pan moves `view3d.pan` by the pointer displacement as
-//!   fractions of the plot rectangle: `pan[0]` increases to the right and `pan[1]` increases downwards (figure-space
-//!   y), so the projected box follows the pointer.
+//!   repeated updates never accumulate rounding drift. In 3D, pan moves `view3d.pan_x` and `view3d.pan_y` by the pointer
+//!   displacement as fractions of the plot rectangle: `pan_x` increases to the right and `pan_y` increases downwards
+//!   (figure-space y), so the projected box follows the pointer.
 //! - **Rotate** (3D) follows MATLAB's `rotate3d`, in which the object follows the pointer: dragging right by `dx`
 //!   points decreases the azimuth by `dx ·` [`ROTATE_DEGREES_PER_POINT`], and dragging down (positive figure-space
 //!   `dy`) increases the elevation by `dy ·` [`ROTATE_DEGREES_PER_POINT`]. The elevation is clamped to `[-90, 90]`;
@@ -212,14 +212,19 @@ impl FigureState {
                 let Some(current) = self.view(drag.axes) else {
                     return false;
                 };
-                let pan = [
-                    view.pan[0] + dx / drag.plot_rect.width,
-                    view.pan[1] + dy / drag.plot_rect.height,
-                ];
-                if !(pan[0].is_finite() && pan[1].is_finite()) {
+                let pan_x = view.pan_x + dx / drag.plot_rect.width;
+                let pan_y = view.pan_y + dy / drag.plot_rect.height;
+                if !(pan_x.is_finite() && pan_y.is_finite()) {
                     return false;
                 }
-                self.set_view(drag.axes, View3d { pan, ..current })
+                self.set_view(
+                    drag.axes,
+                    View3d {
+                        pan_x,
+                        pan_y,
+                        ..current
+                    },
+                )
             }
             (Tool::Rotate, DragKind::ThreeD { view }) => {
                 let Some(current) = self.view(drag.axes) else {

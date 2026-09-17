@@ -12,11 +12,17 @@ fn temp_path(name: &str) -> PathBuf {
     dir.join(name)
 }
 
-/// A small figure that exercises a line, a surface and a link.
+/// A small figure that exercises a line, a surface, a link and a parameter of every kind.
 fn sample_figure() -> Figure {
     let x = linspace(0.0, 1.0, 5);
     let z = Matrix::from_fn(x.len(), x.len(), |row, col| (row * col) as f64);
-    let mut fig = Figure::new().tiles(1, 2).title("Sample");
+    let mut fig = Figure::new()
+        .tiles(1, 2)
+        .title("Sample")
+        .parameter("converged", true)
+        .parameter("cells", -25)
+        .parameter("reynolds_number", 1e5)
+        .parameter("solver", "k–ω SST");
     fig.axes(0, 0)
         .plot(&x, &x)
         .display_name("$y = x$")

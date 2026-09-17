@@ -6,6 +6,8 @@
 
 #![allow(dead_code)]
 
+use std::collections::BTreeMap;
+
 use ironlab_ir::*;
 
 /// Builds figures with explicitly numbered nodes and data arrays.
@@ -181,7 +183,8 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 }
 
 /// A valid figure that uses every artist variant and every variant of every enum in
-/// the schema, including NaN data, non-default styles and links on every dimension.
+/// the schema, including NaN data, non-default styles, links on every dimension and a
+/// figure parameter of every kind.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -197,6 +200,12 @@ pub fn kitchen_sink_figure() -> Figure {
         typesetter: "latex-rust 1.0.2".to_owned(),
         fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
     };
+    b.fig.parameters = BTreeMap::from([
+        ("converged".to_owned(), Parameter::Bool(true)),
+        ("mesh_cells".to_owned(), Parameter::Integer(-4_096)),
+        ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
+        ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
+    ]);
 
     // Shared data. Positive values so that log axes produce no warnings.
     let t = b.vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
@@ -411,7 +420,8 @@ pub fn kitchen_sink_figure() -> Figure {
                 azimuth_deg: 45.0,
                 elevation_deg: -15.0,
                 zoom: 1.5,
-                pan: [0.1, -0.2],
+                pan_x: 0.1,
+                pan_y: -0.2,
             },
         };
         a.z = Axis {
@@ -579,8 +589,8 @@ pub const SPECIAL_F64: [f64; 12] = [
 ];
 
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
-/// figure outside colours: sizes, limits, views, style widths and sizes, artist
-/// parameters, explicit levels and every value of every data array.
+/// figure outside colours: sizes, numeric figure parameters, limits, views, style widths
+/// and sizes, artist parameters, explicit levels and every value of every data array.
 ///
 /// A single traversal serves both to set special values and to read them back, so
 /// that a field cannot be set without also being checked.
@@ -588,6 +598,11 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
     visit("size.width_mm".into(), &mut fig.size.width_mm);
     visit("size.height_mm".into(), &mut fig.size.height_mm);
     visit("font_size_pt".into(), &mut fig.font_size_pt);
+    for (name, parameter) in fig.parameters.iter_mut() {
+        if let Parameter::Number(value) = parameter {
+            visit(format!("parameters[{name:?}]"), value);
+        }
+    }
     for (id, array) in fig.data.iter_mut() {
         for (i, value) in array.values.iter_mut().enumerate() {
             visit(format!("data[{}][{i}]", id.0), value);
@@ -599,8 +614,8 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             visit(at("view3d.azimuth_deg"), &mut view3d.azimuth_deg);
             visit(at("view3d.elevation_deg"), &mut view3d.elevation_deg);
             visit(at("view3d.zoom"), &mut view3d.zoom);
-            visit(at("view3d.pan[0]"), &mut view3d.pan[0]);
-            visit(at("view3d.pan[1]"), &mut view3d.pan[1]);
+            visit(at("view3d.pan_x"), &mut view3d.pan_x);
+            visit(at("view3d.pan_y"), &mut view3d.pan_y);
         }
         for (name, limits) in [
             ("x.limits", &mut axes.x.limits),
