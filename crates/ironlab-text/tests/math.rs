@@ -235,6 +235,96 @@ fn mathrm_is_upright() {
     assert!(tau.y > 0.0 && tau_run.size_pt < 10.0);
 }
 
+/// Returns whether `ch` is a Mathematical Italic letter: the Mathematical Alphanumeric Symbols
+/// italic Latin and Greek ranges, or U+210E PLANCK CONSTANT, which stands in for italic h.
+fn is_math_italic(ch: char) -> bool {
+    ('\u{1D434}'..='\u{1D467}').contains(&ch)
+        || ('\u{1D6E2}'..='\u{1D71B}').contains(&ch)
+        || ch == '\u{210E}'
+}
+
+/// Returns the upright ASCII letters and the Mathematical Italic letters drawn by a layout.
+fn upright_and_italic_letters(layout: &ironlab_text::TextLayout) -> (String, String) {
+    let text = all_text(layout);
+    let upright = text.chars().filter(char::is_ascii_alphabetic).collect();
+    let italic = text.chars().filter(|c| is_math_italic(*c)).collect();
+    (upright, italic)
+}
+
+// Units are set upright (ISO 80000), and a unit such as rad s⁻¹ is written as one \mathrm group containing thin spaces and scripts. Every letter inside the group must stay upright, including a letter that carries a script or follows a spacing command, because an italic s reads as a variable rather than the second.
+#[test]
+fn mathrm_keeps_letters_upright_after_spaces_and_inside_scripts() {
+    let engine = TextEngine::new();
+    for (source, letters) in [
+        (r"$\mathrm{rad\,s^{-1}}$", "rads"),
+        (r"$\mathrm{m\,s^{-2}}$", "ms"),
+        (r"$\mathrm{T_{ref}}$", "Tref"),
+        (r"$\mathrm{\frac{m}{s}}$", "ms"),
+    ] {
+        let layout = engine.layout(source, true, 10.0);
+        common::assert_well_formed(&layout);
+        assert!(
+            layout.warnings.is_empty(),
+            "{source}: {:?}",
+            layout.warnings
+        );
+        let (upright, italic) = upright_and_italic_letters(&layout);
+        assert_eq!(upright, letters, "{source}: every letter is upright");
+        assert!(
+            italic.is_empty(),
+            "{source}: no italic letters, got {italic}"
+        );
+        for (run, g) in glyphs(&layout) {
+            let ch = common::glyph_text(run, g)
+                .chars()
+                .next()
+                .expect("glyph text");
+            if ch.is_ascii_alphabetic() {
+                assert_eq!(
+                    g.id,
+                    math_glyph_id(ch),
+                    "{source}: {ch:?} is the upright glyph"
+                );
+            }
+        }
+    }
+}
+
+// The upright style belongs to the \mathrm group only: a variable that follows the group, as the x in the differential dx, must still be italic, or fixing units would silently un-italicise the surrounding math.
+#[test]
+fn letters_after_a_mathrm_group_stay_italic() {
+    let engine = TextEngine::new();
+    let layout = engine.layout(r"$\mathrm{d}x\,\mathrm{s^{-1}}\,y^{2}$", true, 10.0);
+    common::assert_well_formed(&layout);
+    assert!(layout.warnings.is_empty(), "{:?}", layout.warnings);
+    let (upright, italic) = upright_and_italic_letters(&layout);
+    assert_eq!(upright, "ds");
+    assert_eq!(italic, "\u{1D465}\u{1D466}");
+}
+
+// \text and \operatorname hold words and operator names, which are upright in TeX whatever they contain; they must not be italicised any more than \mathrm.
+#[test]
+fn text_and_operatorname_are_upright() {
+    let engine = TextEngine::new();
+    for (source, letters) in [
+        (r"$\text{rad per s}$", "radpers"),
+        (r"$\operatorname{sinc}\,x$", "sinc"),
+    ] {
+        let layout = engine.layout(source, true, 10.0);
+        common::assert_well_formed(&layout);
+        assert!(
+            layout.warnings.is_empty(),
+            "{source}: {:?}",
+            layout.warnings
+        );
+        let (upright, _) = upright_and_italic_letters(&layout);
+        assert_eq!(
+            upright, letters,
+            "{source}: letters of the group are upright"
+        );
+    }
+}
+
 // Negative tick labels and exponents must use the typographic minus sign (U+2212) from the math face, as TeX does; a hyphen is visibly too short and too high. The replacement must happen before layout, so that the following digit is spaced for the wider minus rather than overlapping it.
 #[test]
 fn hyphen_in_math_is_typeset_as_minus_sign() {
