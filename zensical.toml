@@ -1,0 +1,6 @@
+[project]
+site_name = "IronLAB"
+site_description = "Interactive, publication-quality scientific figures in Rust."
+repo_url = "https://github.com/thclark/ironlab"
+docs_dir = "docs"
+site_dir = "site"

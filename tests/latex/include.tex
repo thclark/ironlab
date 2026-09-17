@@ -1,0 +1,10 @@
+% Compiles a document that includes IronLAB PDF figures at their natural size.
+% CI generates the figures with `cargo run -p ironlab-gallery -- export target/gallery` first.
+\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+\section*{IronLAB figure inclusion}
+\includegraphics{../../target/gallery/line_markers.pdf}
+
+\includegraphics{../../target/gallery/surf.pdf}
+\end{document}
