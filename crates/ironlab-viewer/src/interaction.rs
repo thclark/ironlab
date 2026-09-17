@@ -231,6 +231,36 @@ impl FigureState {
         &self.problems
     }
 
+    /// Returns the number of changes the user has made, which is the number of entries in
+    /// the overlay: what "Revert all changes" would discard.
+    #[must_use]
+    pub fn change_count(&self) -> usize {
+        self.overlay.entries().len()
+    }
+
+    /// Discards every change the user has made — limits, three-dimensional views,
+    /// visibility and every property edited — so that the figure its owner defines is
+    /// shown again, and returns whether there was one to discard.
+    ///
+    /// The source is not touched, so this removes every change made to the figure rather
+    /// than making one. It is a clean slate rather than a step of the history: the undo
+    /// and redo history goes with the changes, so nothing can be undone straight after
+    /// it, and every problem raised by those changes goes too.
+    ///
+    /// This is wider than [`FigureState::reset_view`], which discards only the limits and
+    /// three-dimensional views, keeps the visibility of plots and every property edited,
+    /// and is itself a step of the history.
+    pub fn revert_all(&mut self) -> bool {
+        self.end_drag();
+        let discarded = !self.overlay.entries().is_empty();
+        self.overlay.clear();
+        self.problems.clear();
+        if discarded {
+            self.recompose();
+        }
+        discarded
+    }
+
     /// Records a transaction of sets made by the user in the overlay and recomposes the displayed figure.
     ///
     /// A set whose value the displayed figure already has is left out, so that a gesture that changes nothing records

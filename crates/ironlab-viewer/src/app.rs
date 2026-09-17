@@ -113,7 +113,11 @@ pub fn toolbar(
         ui.separator();
         if ui
             .button("Reset view")
-            .on_hover_text("Restore the limits and 3D views of every axes (R). Double-click an axes to restore only that axes.")
+            .on_hover_text(
+                "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
+                 you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
+                 use Revert all changes at the foot of the property editor.",
+            )
             .clicked()
         {
             response.changed |= state.reset_view();

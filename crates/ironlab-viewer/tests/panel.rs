@@ -9,7 +9,7 @@ mod common;
 
 use common::*;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use ironlab_ir::{ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Value};
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
@@ -17,6 +17,7 @@ use ironlab_viewer::inspector::{
     Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, property_groups,
     read_only_reason, tree_rows,
 };
+use ironlab_viewer::panel::revert_all_label;
 use ironlab_viewer::{FigureState, PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
@@ -1093,4 +1094,116 @@ fn every_read_only_property_carries_a_reason() {
         }
     }
     assert!(seen > 0, "the figure has read-only properties to check");
+}
+
+// ---------------------------------------------------------------------------------
+// Taking back every change
+// ---------------------------------------------------------------------------------
+
+/// A state with one change of each kind the viewer records: a limit, a visibility and a
+/// property edited in the panel.
+fn state_with_three_changes() -> FigureState {
+    let mut state = state_with_artists();
+    record_limits(&mut state, FLAT.0, Dimension::X, manual(2.0, 3.0));
+    state.try_record(&set(LINE.0, "visible", Value::Bool(false)));
+    state.try_record(&set(
+        FLAT.0,
+        "colormap",
+        Value::ColormapName(ColormapName::Gray),
+    ));
+    assert_eq!(state.change_count(), 3, "three changes of three kinds");
+    state
+}
+
+// Why: the control discards changes of every kind, not only the view ones that Reset view
+// discards; a user who wants the figure back as its program defined it must get exactly
+// that, with the program's own figure untouched.
+#[test]
+fn reverting_all_changes_discards_every_kind_of_change_and_leaves_the_source() {
+    let mut state = state_with_three_changes();
+    let source = state.source().clone();
+    assert_ne!(state.figure(), &source, "precondition: the figure differs");
+
+    assert!(state.revert_all());
+
+    assert_eq!(state.change_count(), 0);
+    assert_eq!(state.figure(), &source, "the figure its program defined");
+    assert_eq!(state.source(), &source, "which was never touched");
+    assert!(!state.revert_all(), "there is nothing left to discard");
+}
+
+// Why: these changes are how one user was looking at a figure rather than anything in the
+// figure, so taking them all back is a clean slate: pressing undo straight afterwards must
+// do nothing, because no action has been taken since.
+#[test]
+fn reverting_all_changes_leaves_nothing_to_undo_or_redo() {
+    let mut state = state_with_three_changes();
+    state.undo();
+    assert!(
+        state.can_undo() && state.can_redo(),
+        "precondition: a history in both directions"
+    );
+
+    state.revert_all();
+
+    assert!(!state.can_undo());
+    assert!(!state.can_redo());
+    assert!(!state.undo());
+    assert!(!state.redo());
+}
+
+// Why: the control says how much it would throw away, so that a user knows what is at
+// stake before clicking, and says nothing to throw away when there is none.
+#[test]
+fn the_revert_all_control_counts_the_changes_it_would_discard() {
+    assert_eq!(revert_all_label(0), "Revert all changes");
+    assert_eq!(revert_all_label(1), "Revert all changes (1)");
+    assert_eq!(revert_all_label(7), "Revert all changes (7)");
+}
+
+// Why: a control that is enabled but does nothing teaches the user to distrust it; the
+// panel must offer the control only when there is something for it to do, and must say
+// how much that is.
+#[test]
+fn the_revert_all_control_is_disabled_until_there_is_a_change() {
+    let mut harness = panel_harness(figure_with_artists(), Some(LINE));
+    harness.run();
+    assert!(
+        harness
+            .get_by_label(&revert_all_label(0))
+            .accesskit_node()
+            .is_disabled(),
+        "nothing has been changed yet"
+    );
+
+    harness.get_by_label("visible").click();
+    harness.run();
+
+    assert!(harness.query_by_label(&revert_all_label(0)).is_none());
+    assert!(
+        !harness
+            .get_by_label(&revert_all_label(1))
+            .accesskit_node()
+            .is_disabled()
+    );
+}
+
+// Why: the control is the user's way out of a session of experimenting; clicking it must
+// restore the figure the program defined, in the panel as well as in the state.
+#[test]
+fn clicking_revert_all_in_the_panel_restores_the_figure_the_program_defined() {
+    let mut harness = panel_harness(figure_with_artists(), Some(LINE));
+    harness.run();
+    harness.get_by_label("visible").click();
+    harness.run();
+    let source = harness.state().figure.source().clone();
+    assert_ne!(harness.state().figure.figure(), &source);
+
+    harness.get_by_label(&revert_all_label(1)).click();
+    harness.run();
+
+    let state = &harness.state().figure;
+    assert_eq!(state.figure(), &source);
+    assert_eq!(state.change_count(), 0);
+    assert!(!state.can_undo(), "the clean slate leaves nothing to undo");
 }

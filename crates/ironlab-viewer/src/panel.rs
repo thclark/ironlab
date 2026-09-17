@@ -10,6 +10,9 @@
 //! reason when the IR will not accept it. While a numeric field is dragged or a text
 //! field is being typed into, one undo step is held open, so that the whole drag or the
 //! whole edit is undone at once.
+//!
+//! The foot of the panel holds the control that discards every change at once, away from
+//! the rows that edit one property each.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -94,6 +97,9 @@ pub fn property_panel(
                 .resizable(true)
                 .default_size(180.0)
                 .show(ui, |ui| object_tree(ui, state));
+            egui::Panel::bottom("ironlab_panel_footer").show(ui, |ui| {
+                changed |= footer(ui, state);
+            });
             egui::CentralPanel::default().show(ui, |ui| {
                 changed |= inspector(ui, panel, state);
             });
@@ -105,6 +111,52 @@ pub fn property_panel(
         panel.editing = None;
     }
     changed
+}
+
+// ---------------------------------------------------------------------------------
+// The foot of the panel
+// ---------------------------------------------------------------------------------
+
+/// The label of the control that discards every change the user has made, which names
+/// how many changes that is so the user knows what is at stake before clicking.
+#[must_use]
+pub fn revert_all_label(changes: usize) -> String {
+    match changes {
+        0 => "Revert all changes".to_owned(),
+        1 => "Revert all changes (1)".to_owned(),
+        changes => format!("Revert all changes ({changes})"),
+    }
+}
+
+/// What the control that discards every change says when there is something to discard.
+const REVERT_ALL_HINT: &str = "Discard every change you have made to this figure — axis \
+     limits, three-dimensional views, hidden plots and every property edited — and show \
+     the figure as the program that built it defined it. The figure itself is not \
+     touched. This cannot be undone, unlike Reset view in the toolbar, which discards \
+     only the limits and three-dimensional views and can be undone.";
+
+/// What it says when there is nothing to discard.
+const REVERT_ALL_EMPTY_HINT: &str =
+    "You have made no changes to this figure, so there is nothing to discard.";
+
+/// Draws the foot of the panel: the control that discards every change the user has made.
+///
+/// It sits in the bottom-right corner of the panel, away from the property rows, because
+/// it throws away every change at once rather than editing one of them. Returns whether
+/// the displayed figure changed.
+fn footer(ui: &mut egui::Ui, state: &mut FigureState) -> bool {
+    let changes = state.change_count();
+    ui.add_space(2.0);
+    let clicked = ui
+        .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_enabled(changes > 0, egui::Button::new(revert_all_label(changes)))
+                .on_hover_text(REVERT_ALL_HINT)
+                .on_disabled_hover_text(REVERT_ALL_EMPTY_HINT)
+                .clicked()
+        })
+        .inner;
+    ui.add_space(2.0);
+    clicked && state.revert_all()
 }
 
 // ---------------------------------------------------------------------------------
