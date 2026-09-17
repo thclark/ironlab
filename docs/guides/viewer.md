@@ -51,7 +51,7 @@ A two-dimensional axes whose limits were automatic receives fixed limits as soon
 
 ## Legend
 
-Clicking an entry of a legend hides its plot, and clicking the entry again shows the plot. The entry of a hidden plot stays in the legend and is drawn greyed out.
+Clicking an entry of a legend hides its plot, and clicking the entry again shows the plot. The entry of a hidden plot stays in the legend and is drawn greyed out. Double-clicking an entry counts as two clicks, so it leaves the plot as it was, and it does not restore the limits of the axes as double-clicking elsewhere in the axes does.
 
 A hidden plot still takes part in the layout of its axes: its data still contributes to automatic axis limits and colour limits, and it keeps its colour. Hiding or showing a plot therefore never moves, rescales or recolours anything else.
 
