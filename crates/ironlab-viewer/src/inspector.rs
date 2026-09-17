@@ -15,20 +15,32 @@
 //!   limits of an axes, which go through [`ironlab_ir::command::set_limits`] so that the
 //!   axes linked with it follow, exactly as a gesture on the canvas does.
 //!
-//! # Deliberate limits
+//! # What the editor does not change
 //!
-//! A property that refers to a data array (the x data of a line, the grid of a surface)
-//! is shown read-only, with the shape of the array it refers to. Editing it by typing an
-//! identifier invites a figure whose plot refers to data of the wrong shape or to no data
-//! at all, and the viewer has no other way to choose an array yet; data is changed
-//! through the API that owns it.
+//! The editor changes the properties of the nodes a figure already has. The structure of
+//! a figure — its tile layout, its axes, its plots — and the data those plots draw come
+//! from the program that builds the figure, which is what a figure viewer is for.
+//!
+//! Three kinds of property are therefore shown read-only rather than offered as controls
+//! that could not be used well:
+//!
+//! - A reference to a data array (the x data of a line, the grid of a surface) is shown
+//!   with the shape of the array it names.
+//! - The rows and columns of the figure's tile layout are shown as they are, because the
+//!   layout is the frame the program placed its axes in. The cell of an axes stays
+//!   editable, because moving an axes within that frame is a change to the axes.
+//! - The groups of axes whose limits are linked are shown as a count.
+//!
+//! [`read_only_reason`] states the reason for each, which the panel shows, so that a
+//! read-only row is never a dead control with nothing to say for itself.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Axes, Cell, DataId, Dimension, Edit, Figure, Limits, NodeId, NodeKind, Parameter,
-    Property, PropertyPath, Transaction, Value, ValueType, command, properties,
+    Artist, Axes, Cell, Choice, DataId, Dimension, Edit, Figure, Limits, NodeId, NodeKind,
+    Parameter, Property, PropertyPath, Transaction, Value, ValueType, command, meaningful_choices,
+    properties,
 };
 
 // ---------------------------------------------------------------------------------
@@ -151,9 +163,12 @@ pub enum Editor {
     /// A text field and a combo box of interpreters, which a [`Text`](ironlab_ir::Text)
     /// needs; the content and the interpreter below it are not listed separately.
     RichText,
-    /// A combo box of the choices of the value's type, from
-    /// [`choices`](ironlab_ir::choices).
-    Choice,
+    /// A combo box of the choices that are meaningful for this property of this node,
+    /// from [`meaningful_choices`].
+    Choice {
+        /// The choices offered, in the order they are offered.
+        offered: Vec<Choice>,
+    },
     /// A colour picker; the components below the colour are not listed separately.
     Color,
     /// A list of numbers, typed as text.
@@ -168,8 +183,12 @@ pub enum Editor {
     },
     /// A value that is only a container of the values below it, drawn as a heading.
     Group,
-    /// A value that the editor shows but cannot change.
-    ReadOnly,
+    /// A value that the editor shows but cannot change, with the reason it cannot, which
+    /// the panel shows so that a read-only row is never a dead control.
+    ReadOnly {
+        /// Why the property cannot be changed here.
+        reason: &'static str,
+    },
 }
 
 /// One property of the selected node, as the inspector shows it.
@@ -245,7 +264,7 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
         let Ok(value) = figure.get(node, &property.path) else {
             continue;
         };
-        let editor = editor_for(figure, &property, &value);
+        let editor = editor_for(figure, kind, node, &property, &value);
         if matches!(editor, Editor::RichText | Editor::Color) {
             covered.push(property.path.clone());
         }
@@ -290,11 +309,63 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
     groups
 }
 
-/// Returns the widget that a property needs, from its type and its current value.
+/// The reason the rows and columns of the figure's tile layout are not changed here.
+const TILE_LAYOUT_REASON: &str = "The tile layout is set by the program that builds the \
+     figure, together with the axes placed in it. The cell an axes occupies can be \
+     changed here, which moves it within that layout.";
+
+/// The reason the groups of linked axes are not changed here.
+const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
+     program that builds the figure, as part of how its axes relate to one another.";
+
+/// Returns why a property is shown but cannot be changed in the panel, or `None` when it
+/// can be changed.
+///
+/// A property is read-only here when it describes the structure of the figure rather than
+/// a property of a node: the editor changes what the program's nodes look like, not which
+/// nodes there are. A property whose value the IR merely constrains — limits that must
+/// increase, a positive font size — stays editable, because refusing the change and
+/// saying why is the better answer there.
+///
+/// The match over the kinds of node is exhaustive, so a kind added to the IR does not
+/// compile until it is said what of it is read-only.
+#[must_use]
+pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static str> {
+    let segments = path.segments();
+    match kind {
+        NodeKind::Figure => {
+            if segments == ["layout", "rows"] || segments == ["layout", "cols"] {
+                Some(TILE_LAYOUT_REASON)
+            } else if segments == ["links"] {
+                Some(LINKS_REASON)
+            } else {
+                None
+            }
+        }
+        NodeKind::Axes
+        | NodeKind::Line
+        | NodeKind::Scatter
+        | NodeKind::Contour
+        | NodeKind::Quiver
+        | NodeKind::Surface => None,
+    }
+}
+
+/// Returns the widget that a property needs, from what the panel can usefully do with it,
+/// its type and its current value.
 ///
 /// The match over the value types is exhaustive, so a type added to the IR does not
 /// compile until it is given an editor.
-fn editor_for(figure: &Figure, property: &Property, value: &Value) -> Editor {
+fn editor_for(
+    figure: &Figure,
+    kind: NodeKind,
+    node: NodeId,
+    property: &Property,
+    value: &Value,
+) -> Editor {
+    if let Some(reason) = read_only_reason(kind, &property.path) {
+        return Editor::ReadOnly { reason };
+    }
     match property.value_type {
         ValueType::Bool => Editor::Bool,
         ValueType::UInt32 => number_editor(&property.path, value, true),
@@ -304,7 +375,9 @@ fn editor_for(figure: &Figure, property: &Property, value: &Value) -> Editor {
         ValueType::Color => Editor::Color,
         ValueType::Doubles => Editor::Numbers,
         ValueType::Parameters => Editor::Parameters,
-        ValueType::Links => Editor::ReadOnly,
+        ValueType::Links => Editor::ReadOnly {
+            reason: LINKS_REASON,
+        },
         ValueType::DataId => Editor::Data {
             shape: match value {
                 Value::DataId(id) => figure.data.get(id).map(|array| array.shape.clone()),
@@ -326,7 +399,9 @@ fn editor_for(figure: &Figure, property: &Property, value: &Value) -> Editor {
         | ValueType::MarkerShape
         | ValueType::DashStyle
         | ValueType::Interpreter
-        | ValueType::FontSetId => Editor::Choice,
+        | ValueType::FontSetId => Editor::Choice {
+            offered: meaningful_choices(figure, node, &property.path),
+        },
         ValueType::FigureSize
         | ValueType::TileLayout
         | ValueType::Cell
@@ -631,6 +706,28 @@ impl ParametersDraft {
             }
         }
         Ok(map)
+    }
+}
+
+/// Returns the value of a read-only property, written for the row that shows it.
+///
+/// A read-only row shows what the figure holds rather than a control, so each value is
+/// written as a reader would say it rather than as the IR stores it.
+#[must_use]
+pub fn read_only_label(value: &Value) -> String {
+    match value {
+        Value::UInt32(number) => number.to_string(),
+        Value::Double(number) => number.to_string(),
+        Value::Float(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Bool(flag) => if *flag { "yes" } else { "no" }.to_owned(),
+        Value::Links(links) => match links.len() {
+            0 => "no linked axes".to_owned(),
+            1 => "1 group of linked axes".to_owned(),
+            groups => format!("{groups} groups of linked axes"),
+        },
+        Value::Unset => "unset".to_owned(),
+        other => format!("{other:?}"),
     }
 }
 

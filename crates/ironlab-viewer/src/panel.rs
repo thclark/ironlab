@@ -15,13 +15,13 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, Cell as IrCell, Color, FigureSize, Legend, LineStyle, MarkerStyle, NodeId, Parameter,
-    PropertyPath, Text, TileLayout, Value, ValueType, View3d, choices,
+    Axis, Cell as IrCell, Choice, Color, FigureSize, Legend, LineStyle, MarkerStyle, NodeId,
+    Parameter, PropertyPath, Text, TileLayout, Value, ValueType, View3d, choices,
 };
 
 use crate::inspector::{
     Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, TreeRow, commit, kind_name,
-    property_groups, shape_label, tree_rows,
+    property_groups, read_only_label, shape_label, tree_rows,
 };
 use crate::interaction::FigureState;
 
@@ -274,9 +274,9 @@ fn property_row(
                     name_label(ui, row, &name, indent);
                     number_row(ui, panel, state, node, row, *speed, *range, *integer)
                 }
-                Editor::Choice => {
+                Editor::Choice { offered } => {
                     name_label(ui, row, &name, indent);
-                    choice_row(ui, state, node, row)
+                    choice_row(ui, state, node, row, offered)
                 }
                 Editor::Color => {
                     name_label(ui, row, &name, indent);
@@ -295,7 +295,12 @@ fn property_row(
                     data_row(ui, row, shape.as_deref());
                     false
                 }
-                Editor::Group | Editor::ReadOnly | Editor::Parameters => {
+                Editor::ReadOnly { reason } => {
+                    name_label(ui, row, &name, indent);
+                    read_only_row(ui, row, reason);
+                    false
+                }
+                Editor::Group | Editor::Parameters => {
                     name_label(ui, row, &name, indent);
                     false
                 }
@@ -413,8 +418,13 @@ fn number_row(
     set(state, node, &row.path, value)
 }
 
-fn choice_row(ui: &mut egui::Ui, state: &mut FigureState, node: NodeId, row: &PropertyRow) -> bool {
-    let offered = choices(row.value_type, Some(&row.value));
+fn choice_row(
+    ui: &mut egui::Ui,
+    state: &mut FigureState,
+    node: NodeId,
+    row: &PropertyRow,
+    offered: &[Choice],
+) -> bool {
     let current = offered
         .iter()
         .find(|choice| choice.matches(&row.value))
@@ -423,7 +433,7 @@ fn choice_row(ui: &mut egui::Ui, state: &mut FigureState, node: NodeId, row: &Pr
     egui::ComboBox::from_id_salt(("ironlab_choice", row.path.to_string()))
         .selected_text(current)
         .show_ui(ui, |ui| {
-            for choice in &offered {
+            for choice in offered {
                 if ui
                     .selectable_label(choice.label == current, choice.label)
                     .clicked()
@@ -564,6 +574,17 @@ fn numbers_row(
     }
 }
 
+/// Draws a property that the panel shows but cannot change, with the reason it cannot as
+/// the tooltip of both the value and the lock beside it, so that the row says why rather
+/// than leaving a control that does nothing.
+fn read_only_row(ui: &mut egui::Ui, row: &PropertyRow, reason: &str) {
+    let hint = format!("{} {reason}", row.docs);
+    ui.label(egui::RichText::new(read_only_label(&row.value)).weak())
+        .on_hover_text(hint.clone());
+    ui.label(egui::RichText::new("🔒").weak())
+        .on_hover_text(hint);
+}
+
 /// Draws a reference to a data array, read-only, with the shape of what it refers to.
 fn data_row(ui: &mut egui::Ui, row: &PropertyRow, shape: Option<&[usize]>) {
     let text = match &row.value {
@@ -571,8 +592,9 @@ fn data_row(ui: &mut egui::Ui, row: &PropertyRow, shape: Option<&[usize]>) {
         _ => shape_label(shape),
     };
     ui.label(egui::RichText::new(text).weak()).on_hover_text(
-        "Data is shown but not edited here: a plot that refers to an array of the wrong \
-         shape cannot be drawn. Change it through the API that owns the figure.",
+        "The data a plot draws comes from the program that builds the figure, which is \
+         where it is changed. The editor changes how the figure looks, not what it \
+         draws.",
     );
 }
 

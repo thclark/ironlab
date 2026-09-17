@@ -14,7 +14,8 @@ use ironlab_ir::{ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, V
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
 use ironlab_viewer::inspector::{
-    Editor, ParameterKind, ParametersDraft, PropertyGroup, commit, property_groups, tree_rows,
+    Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, property_groups,
+    read_only_reason, tree_rows,
 };
 use ironlab_viewer::{FigureState, PropertyPanel, property_panel};
 
@@ -223,7 +224,7 @@ fn a_composite_value_is_a_heading_and_a_tagged_value_is_a_row_with_the_values_be
         .find(|row| row.label == "limits")
         .expect("the limits are a row");
     assert!(
-        matches!(limits.editor, Editor::Choice),
+        matches!(limits.editor, Editor::Choice { .. }),
         "a tagged value is chosen from a list: {:?}",
         limits.editor
     );
@@ -941,4 +942,155 @@ fn choosing_from_a_combo_box_commits_the_value_behind_its_label() {
         ColormapName::Viridis,
         "the source keeps its colormap"
     );
+}
+
+// ---------------------------------------------------------------------------------
+// Properties that the panel shows but does not change
+// ---------------------------------------------------------------------------------
+
+/// The row of a group whose label is `label`, or a panic naming the labels there are.
+fn row<'a>(groups: &'a [PropertyGroup], group_name: &str, label: &str) -> &'a PropertyRow {
+    let found = group(groups, group_name);
+    found
+        .rows
+        .iter()
+        .find(|row| row.label == label)
+        .unwrap_or_else(|| {
+            let labels: Vec<&str> = found.rows.iter().map(|row| row.label.as_str()).collect();
+            panic!("the group {group_name:?} has no row {label:?}; it has {labels:?}")
+        })
+}
+
+/// The labels a property offers in its combo box, or a panic when it offers none.
+fn offered(groups: &[PropertyGroup], group_name: &str, label: &str) -> Vec<&'static str> {
+    match &row(groups, group_name, label).editor {
+        Editor::Choice { offered } => offered.iter().map(|choice| choice.label).collect(),
+        other => panic!("{group_name}.{label} is not chosen from a list: {other:?}"),
+    }
+}
+
+// Why: a colormapped colour promises that the plot is coloured by its data, and the scene
+// compiler can keep that promise only where the IR gives it a value to look the colour up
+// by. A line has none, so offering the choice would leave the user with a flat colour and
+// no explanation; a surface face has one, so withdrawing it there would take away the
+// reason a surface is drawn in colour at all.
+#[test]
+fn a_colormapped_colour_is_offered_only_where_it_colours_by_data() {
+    let state = FigureState::new(figure_with_every_artist());
+    let (line, scatter, contour, quiver, surface) =
+        (NodeId(3), NodeId(4), NodeId(5), NodeId(6), NodeId(7));
+
+    for (node, group_name, label) in [
+        (line, "line", "color"),
+        (line, "marker", "face"),
+        (line, "marker", "edge"),
+        (scatter, "marker", "face"),
+        (scatter, "marker", "edge"),
+        (quiver, "line", "color"),
+    ] {
+        let labels = offered(&groups_of(&state, node), group_name, label);
+        assert!(
+            !labels.contains(&"Colormapped"),
+            "{group_name}.{label} of node {node} offers a colour it cannot use: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Fixed colour") && labels.contains(&"Automatic"),
+            "{group_name}.{label} of node {node} lost the colours it can use: {labels:?}"
+        );
+    }
+
+    assert!(
+        offered(&groups_of(&state, contour), "line", "color").contains(&"Colormapped"),
+        "an isoline is coloured by its level"
+    );
+    for label in ["face", "edge"] {
+        assert!(
+            offered(&groups_of(&state, surface), label, "").contains(&"Colormapped"),
+            "a surface {label} is coloured by its data or its height"
+        );
+    }
+}
+
+// Why: a scatter is the one plot whose markers the IR does colour by data, through the
+// array named by its colour; withdrawing the colormapped colour specification must not
+// take that with it, or a scatter could no longer be coloured by value from the panel.
+#[test]
+fn a_scatter_still_offers_its_colour_from_data() {
+    let state = FigureState::new(figure_with_every_artist());
+    let groups = groups_of(&state, NodeId(4));
+    assert_eq!(
+        offered(&groups, "color", ""),
+        ["Single colour", "From data"]
+    );
+}
+
+// Why: the tile layout is the frame the program placed its axes in, and the editor
+// changes the properties of those axes rather than the structure around them. Showing a
+// control that adds a row would offer a figure the panel cannot finish making.
+#[test]
+fn the_tile_layout_is_shown_read_only_and_says_why() {
+    let state = state_with_artists();
+    let groups = groups_of(&state, FIGURE);
+    for label in ["rows", "cols"] {
+        let row = row(&groups, "layout", label);
+        let Editor::ReadOnly { reason } = row.editor else {
+            panic!("layout.{label} is editable: {:?}", row.editor);
+        };
+        assert!(
+            reason.contains("program that builds the figure"),
+            "the reason must say where the layout comes from: {reason}"
+        );
+    }
+    assert_eq!(
+        read_only_reason(NodeKind::Figure, &path("layout.rows")),
+        match row(&groups, "layout", "rows").editor {
+            Editor::ReadOnly { reason } => Some(reason),
+            _ => None,
+        },
+        "the reason the panel shows is the one the inspector states"
+    );
+}
+
+// Why: moving an axes from one cell of the layout to another is a change to the axes, not
+// to the structure around it, and a cell outside the layout is caught by validation; a
+// read-only cell would make the panel unable to rearrange a figure at all.
+#[test]
+fn the_cell_of_an_axes_stays_editable() {
+    let state = state_with_artists();
+    for label in ["row", "col", "row_span", "col_span"] {
+        assert!(
+            read_only_reason(NodeKind::Axes, &path(&format!("cell.{label}"))).is_none(),
+            "cell.{label} must stay editable"
+        );
+        assert!(
+            matches!(
+                row(&groups_of(&state, FLAT), "cell", label).editor,
+                Editor::Number { .. }
+            ),
+            "cell.{label} must have a control"
+        );
+    }
+}
+
+// Why: a read-only row with nothing to say for itself looks like a control that is
+// broken; the user must be able to find out why the value cannot be changed here.
+#[test]
+fn every_read_only_property_carries_a_reason() {
+    let state = FigureState::new(figure_with_every_artist());
+    let mut seen = 0;
+    for node in (1..=7).map(NodeId) {
+        for group in groups_of(&state, node) {
+            for row in group.rows {
+                if let Editor::ReadOnly { reason } = row.editor {
+                    seen += 1;
+                    assert!(
+                        reason.len() > 40 && reason.ends_with('.'),
+                        "the reason for {} is not a sentence: {reason:?}",
+                        row.path
+                    );
+                }
+            }
+        }
+    }
+    assert!(seen > 0, "the figure has read-only properties to check");
 }
