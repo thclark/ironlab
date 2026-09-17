@@ -39,6 +39,7 @@
 
 mod artist;
 mod axes;
+pub mod command;
 mod data;
 mod edit;
 mod error;

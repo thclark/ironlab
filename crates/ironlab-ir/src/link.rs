@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::axes::{Axes, Axis, Limits};
+use crate::axes::Limits;
 use crate::error::IrError;
 use crate::figure::Figure;
 use crate::ids::NodeId;
@@ -42,62 +42,32 @@ impl Figure {
     /// Any existing group for that dimension that contains one of the given axes is
     /// merged with them into a single group, so groups for a dimension stay disjoint.
     /// The limits of every axes in the resulting group are then set to the current
-    /// limits of the first given axes. Fewer than two distinct axes leave the links
-    /// unchanged.
+    /// limits of the first given axes, except for an axes that cannot accept them (a
+    /// logarithmic axis and limits that are not positive), which is skipped and keeps
+    /// its own limits. Fewer than two distinct axes leave the links unchanged.
     ///
     /// The stored groups for the dimension are normalised at the same time: groups
     /// that overlap (which a hand-edited file may contain) are merged, repeated
     /// identifiers are removed, and groups with fewer than two members are dropped.
     /// Only the limits of the group containing the given axes are synchronised.
     ///
+    /// This applies the transaction of [`command::link`](crate::command::link).
+    ///
     /// # Errors
     ///
     /// Returns [`IrError::UnknownAxes`] when an identifier does not refer to an axes of
     /// the figure; the figure is then left unchanged.
     pub fn link(&mut self, dimension: Dimension, axes: &[NodeId]) -> Result<(), IrError> {
-        if let Some(&unknown) = axes.iter().find(|&&id| self.axes(id).is_none()) {
-            return Err(IrError::UnknownAxes(unknown));
-        }
-        let mut distinct: Vec<NodeId> = Vec::with_capacity(axes.len());
-        for &id in axes {
-            if !distinct.contains(&id) {
-                distinct.push(id);
-            }
-        }
-        let [reference, _, ..] = distinct[..] else {
-            return Ok(());
-        };
-
-        let groups = self
-            .links
-            .iter()
-            .filter(|link| link.dimension == dimension)
-            .map(|link| link.axes.clone())
-            .chain(std::iter::once(distinct));
-        let mut components: Vec<Vec<NodeId>> = connected_components(groups)
-            .into_iter()
-            .filter(|component| component.len() >= 2)
-            .map(|component| self.in_figure_order(&component))
-            .collect();
-        components.sort_by_cached_key(|component| self.order_key(component[0]));
-
-        self.links.retain(|link| link.dimension != dimension);
-        self.links.extend(
-            components
-                .into_iter()
-                .map(|axes| AxisLink { dimension, axes }),
-        );
-
-        let limits = self
-            .axes(reference)
-            .map(|a| axis(a, dimension).limits)
-            .expect("the reference axes was checked to exist");
-        self.apply_limits(reference, dimension, limits);
+        let transaction = crate::command::link(self, dimension, axes)?;
+        self.apply(&transaction)?;
         Ok(())
     }
 
     /// Links the limits of every axes of the figure along a dimension, synchronising
     /// them to the limits of the first axes.
+    ///
+    /// Linking cannot fail, because an axes that cannot accept the limits of the first
+    /// axes keeps its own, as [`Figure::link`] describes.
     pub fn link_all(&mut self, dimension: Dimension) {
         let ids: Vec<NodeId> = self.axes.iter().map(|axes| axes.id).collect();
         self.link(dimension, &ids)
@@ -138,38 +108,59 @@ impl Figure {
     /// Sets the limits of an axes along a dimension, and of every axes linked with it
     /// along that dimension.
     ///
-    /// Whether manual limits are positive on a logarithmic axis is not checked here,
-    /// because linked axes may differ in scale; [`Figure::validate`] reports it.
+    /// Every axes of the group that can accept the limits takes them; an axes other
+    /// than the one named that cannot (a logarithmic axis and limits that are not
+    /// positive) keeps its own. This applies the transaction of
+    /// [`command::set_limits`](crate::command::set_limits).
     ///
     /// # Errors
     ///
     /// Returns [`IrError::UnknownAxes`] when the identifier does not refer to an axes
-    /// of the figure, and [`IrError::InvalidLimits`] when manual limits are not finite
-    /// or not strictly increasing. The figure is left unchanged in either case.
+    /// of the figure, [`IrError::InvalidLimits`] when manual limits are not finite or
+    /// not strictly increasing, and [`IrError::Edit`] with
+    /// [`EditError::Invalid`](crate::EditError::Invalid) when the named axes cannot
+    /// accept the limits, such as limits that are not positive on a logarithmic axis.
+    /// The figure is left unchanged in every case.
     pub fn set_limits(
         &mut self,
         axes: NodeId,
         dimension: Dimension,
         limits: Limits,
     ) -> Result<(), IrError> {
-        if self.axes(axes).is_none() {
-            return Err(IrError::UnknownAxes(axes));
-        }
-        if let Limits::Manual { min, max } = limits
-            && !(min.is_finite() && max.is_finite() && min < max)
-        {
-            return Err(IrError::InvalidLimits { min, max });
-        }
-        self.apply_limits(axes, dimension, limits);
+        let transaction = crate::command::set_limits(self, axes, dimension, limits)?;
+        self.apply(&transaction)?;
         Ok(())
     }
 
-    /// Sets the limits of every axes in the link group of the given axes.
-    fn apply_limits(&mut self, axes: NodeId, dimension: Dimension, limits: Limits) {
-        let group = self.linked_axes(axes, dimension);
-        for a in self.axes.iter_mut().filter(|a| group.contains(&a.id)) {
-            axis_mut(a, dimension).limits = limits;
-        }
+    /// Returns the link groups of the figure with the given axes linked along a
+    /// dimension: the groups of the other dimensions unchanged, followed by the
+    /// normalised, disjoint groups of this one in figure order.
+    pub(crate) fn link_groups(&self, dimension: Dimension, axes: &[NodeId]) -> Vec<AxisLink> {
+        let groups = self
+            .links
+            .iter()
+            .filter(|link| link.dimension == dimension)
+            .map(|link| link.axes.clone())
+            .chain(std::iter::once(axes.to_vec()));
+        let mut components: Vec<Vec<NodeId>> = connected_components(groups)
+            .into_iter()
+            .filter(|component| component.len() >= 2)
+            .map(|component| self.in_figure_order(&component))
+            .collect();
+        components.sort_by_cached_key(|component| self.order_key(component[0]));
+
+        let mut links: Vec<AxisLink> = self
+            .links
+            .iter()
+            .filter(|link| link.dimension != dimension)
+            .cloned()
+            .collect();
+        links.extend(
+            components
+                .into_iter()
+                .map(|axes| AxisLink { dimension, axes }),
+        );
+        links
     }
 
     /// Orders identifiers as their axes appear in the figure, followed by any
@@ -185,24 +176,6 @@ impl Figure {
     fn order_key(&self, id: NodeId) -> (usize, NodeId) {
         let position = self.axes.iter().position(|a| a.id == id);
         (position.unwrap_or(usize::MAX), id)
-    }
-}
-
-/// Returns the coordinate axis of an axes along a dimension.
-fn axis(axes: &Axes, dimension: Dimension) -> &Axis {
-    match dimension {
-        Dimension::X => &axes.x,
-        Dimension::Y => &axes.y,
-        Dimension::Z => &axes.z,
-    }
-}
-
-/// Returns the coordinate axis of an axes along a dimension, mutably.
-fn axis_mut(axes: &mut Axes, dimension: Dimension) -> &mut Axis {
-    match dimension {
-        Dimension::X => &mut axes.x,
-        Dimension::Y => &mut axes.y,
-        Dimension::Z => &mut axes.z,
     }
 }
 
