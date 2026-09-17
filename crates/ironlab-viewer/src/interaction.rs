@@ -23,6 +23,8 @@
 //!   rectangle, and on release sets the x and y limits to the data range the band covers. A band narrower or shorter
 //!   than [`MIN_BOX_ZOOM_POINTS`] is ignored, so that an accidental click does not zoom to a sliver.
 //! - **Double click** restores the limits (x, y and z) and 3D view of the axes under the pointer from the snapshot.
+//!   On a legend entry, the second click of a double-click is a click like the first, so a double-click toggles the
+//!   artist twice, leaves its visibility as it was and does not restore any limits.
 //! - **Click** on a legend entry toggles the visibility of its artist.
 //! - **Reset view** restores the limits and 3D views of every axes from the snapshot, but keeps artist visibility.
 //!
@@ -304,8 +306,12 @@ impl FigureState {
     }
 
     /// Restores the limits and view of the axes under `at` (and, through links, its linked axes) from the snapshot.
-    /// Returns whether the figure changed.
+    /// Over a legend entry it toggles the entry's artist instead, as [`FigureState::click`] does. Returns whether the
+    /// figure changed.
     pub fn double_click(&mut self, hit: &HitMap, at: Point) -> bool {
+        if hit.legend_entry_at(at).is_some() {
+            return self.click(hit, at);
+        }
         let Some(axes_hit) = hit.axes_at(at) else {
             return false;
         };
