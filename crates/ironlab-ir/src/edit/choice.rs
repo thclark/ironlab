@@ -10,12 +10,20 @@
 //! Every type and every variant is listed exactly once in this module, in an exhaustive
 //! match, so a value type or a variant added to the IR does not compile until it is
 //! given its choices here.
+//!
+//! [`choices`] answers what a *type* can hold, which is all a caller with no figure can
+//! ask. [`meaningful_choices`] answers what a *property of a node* can usefully hold,
+//! which is less: a colour that the colormap indexes means nothing where the IR has no
+//! value to index it by. That is a fact about the semantics of the IR rather than about
+//! any user interface, so it is stated here and not in the viewer.
 
 use crate::artist::{ContourPlacement, Grid, Levels, QuiverScale, ScatterColor, ScatterSize};
 use crate::axes::{ColormapName, LegendLocation, Limits, Projection, Scale, View3d};
+use crate::edit::path::PropertyPath;
+use crate::edit::registry::{NodeKind, properties};
 use crate::edit::value::{Value, ValueType};
-use crate::figure::FontSetId;
-use crate::ids::DataId;
+use crate::figure::{Figure, FontSetId};
+use crate::ids::{DataId, NodeId};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
 use crate::text::Interpreter;
 
@@ -129,6 +137,64 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Legend
         | ValueType::LineStyle
         | ValueType::MarkerStyle => Vec::new(),
+    }
+}
+
+/// Returns the choices that are meaningful for one property of one node of a figure: the
+/// choices of the property's type, less those that the IR would not act on there.
+///
+/// The only such choice today is a colormapped colour. A colour is looked up in the
+/// axes' colormap only where the IR gives it a value to be looked up by: the level of
+/// each isoline of a contour (`line.color`), and the height or colour data of each face
+/// of a surface (`face` and `edge`). Everywhere else — the colour of a line or of a
+/// quiver, the fixed colour specification of a scatter, and every marker face and edge —
+/// there is no such value, and the scene compiler paints the whole artist in the middle
+/// colour of the colormap instead. Offering the choice there invites the user to ask for
+/// data colouring and receive a flat colour with no explanation, so it is not offered.
+/// Choosing a scatter's colour "from data" is offered as before, because that names the
+/// array to look the colour up by.
+///
+/// Returns an empty list when the node is not in the figure, when the path is not a
+/// property of its kind, when the path is not currently reachable (a property of a
+/// variant that is not set), or when the property's type has no choices at all.
+#[must_use]
+pub fn meaningful_choices(figure: &Figure, node: NodeId, path: &PropertyPath) -> Vec<Choice> {
+    let Some(kind) = figure.node_kind(node) else {
+        return Vec::new();
+    };
+    let Some(property) = properties(kind)
+        .into_iter()
+        .find(|property| property.path == *path)
+    else {
+        return Vec::new();
+    };
+    let Ok(value) = figure.get(node, path) else {
+        return Vec::new();
+    };
+    let mut offered = choices(property.value_type, Some(&value));
+    if !indexes_the_colormap(kind, path) {
+        offered.retain(|choice| !matches!(choice.value, Value::ColorSpec(ColorSpec::Colormapped)));
+    }
+    offered
+}
+
+/// Returns whether the IR gives the colour at this property of this kind of node a value
+/// to look up in the colormap.
+///
+/// The match over the kinds of node is exhaustive, so a kind added to the IR does not
+/// compile until it is said what its colormapped colours index.
+fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
+    let segments = path.segments();
+    match kind {
+        // Each isoline is coloured by its own level.
+        NodeKind::Contour => segments == ["line", "color"],
+        // Each face is coloured by its colour data, or by its height when it has none.
+        NodeKind::Surface => segments == ["face"] || segments == ["edge"],
+        NodeKind::Figure
+        | NodeKind::Axes
+        | NodeKind::Line
+        | NodeKind::Scatter
+        | NodeKind::Quiver => false,
     }
 }
 

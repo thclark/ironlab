@@ -444,3 +444,151 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         vec![Value::FontSetId(FontSetId::StixTwo)],
     );
 }
+
+// ---------------------------------------------------------------------------------
+// The choices that are meaningful at one property of one node
+// ---------------------------------------------------------------------------------
+
+/// The paths at which the scene compiler looks a colour up in the colormap, written by
+/// hand per kind of node so that the test checks [`meaningful_choices`] against the
+/// behaviour of the compiler rather than against itself.
+///
+/// Each isoline of a contour is coloured by its own level, and each face of a surface by
+/// its colour data or by its height. Nowhere else does the IR hold a value to look a
+/// colour up by: the compiler paints a colormapped line, quiver, fixed scatter colour or
+/// marker in the middle colour of the colormap instead.
+fn colormap_indexed(kind: NodeKind) -> Vec<&'static str> {
+    match kind {
+        NodeKind::Contour => vec!["line.color"],
+        NodeKind::Surface => vec!["face", "edge"],
+        _ => vec![],
+    }
+}
+
+/// Every property of a kind of node whose value is a colour specification.
+fn color_spec_paths(kind: NodeKind) -> Vec<String> {
+    properties(kind)
+        .into_iter()
+        .filter(|property| property.value_type == ValueType::ColorSpec)
+        .map(|property| property.path.to_string())
+        .collect()
+}
+
+// Why: a colormapped colour tells the user that the plot will be coloured by its data,
+// but the compiler has nothing to look the colour up by on a line, a quiver, a scatter
+// with a fixed colour specification, or any marker, and silently paints the middle
+// colour of the colormap instead. Offering the choice there promises something the
+// figure cannot deliver, so it must be offered exactly where the colormap is indexed.
+#[test]
+fn a_colormapped_colour_is_offered_exactly_where_the_ir_indexes_the_colormap() {
+    for figure in representative_figures() {
+        for (node, kind) in nodes(&figure) {
+            let indexed = colormap_indexed(kind);
+            let paths = color_spec_paths(kind);
+            assert!(
+                indexed
+                    .iter()
+                    .all(|path| paths.contains(&(*path).to_owned())),
+                "{kind:?} has no colour specification at {indexed:?}, only {paths:?}"
+            );
+            for path in paths {
+                let at = path.parse().expect("a registry path is a property path");
+                let offered = meaningful_choices(&figure, node, &at);
+                if offered.is_empty() {
+                    continue; // The property is not reachable in this figure.
+                }
+                assert_eq!(
+                    labels(&offered).contains(&"Colormapped"),
+                    indexed.contains(&path.as_str()),
+                    "{kind:?} offers the wrong colours at {path}: {:?}",
+                    labels(&offered)
+                );
+            }
+        }
+    }
+}
+
+// Why: only the meaningless choice is withdrawn; withdrawing anything else would take
+// away a change the figure can make, so the user could no longer make a line black or a
+// surface face a fixed colour from the panel.
+#[test]
+fn every_other_choice_of_a_property_is_offered_unchanged() {
+    for figure in representative_figures() {
+        for (node, kind) in nodes(&figure) {
+            for property in properties(kind) {
+                let Ok(value) = figure.get(node, &property.path) else {
+                    continue;
+                };
+                let all = choices(property.value_type, Some(&value));
+                let meaningful = meaningful_choices(&figure, node, &property.path);
+                let expected: Vec<&Choice> = all
+                    .iter()
+                    .filter(|choice| {
+                        choice.label != "Colormapped"
+                            || colormap_indexed(kind).contains(&property.path.to_string().as_str())
+                    })
+                    .collect();
+                assert_eq!(
+                    meaningful.iter().collect::<Vec<&Choice>>(),
+                    expected,
+                    "{kind:?} offers the wrong choices at {}",
+                    property.path
+                );
+            }
+        }
+    }
+}
+
+// Why: a scatter coloured from data is the supported way to colour markers by value, and
+// it names the array to look the colour up by; withdrawing the colormapped colour
+// specification must not withdraw it too, or the scatter would lose data colouring
+// altogether.
+#[test]
+fn a_scatter_still_offers_its_colour_and_size_from_data() {
+    for figure in representative_figures() {
+        for (node, kind) in nodes(&figure) {
+            if kind != NodeKind::Scatter {
+                continue;
+            }
+            assert_eq!(
+                labels(&meaningful_choices(
+                    &figure,
+                    node,
+                    &"color".parse().unwrap()
+                )),
+                ["Single colour", "From data"]
+            );
+            assert_eq!(
+                labels(&meaningful_choices(&figure, node, &"size".parse().unwrap())),
+                ["Single size", "From data"]
+            );
+        }
+    }
+}
+
+// Why: the property editor asks for the choices of whatever it is showing, which a
+// reconciliation or a stale frame can leave pointing at a node that has gone or a
+// property that is no longer reachable; answering with a list would offer a change that
+// cannot be made, so the answer must be no choices at all.
+#[test]
+fn a_node_or_a_path_that_the_figure_does_not_have_offers_no_choices() {
+    let figure = representative_figures().remove(0);
+    let axes = figure
+        .axes
+        .first()
+        .expect("a representative figure has axes");
+    let limits: PropertyPath = "x.limits".parse().unwrap();
+    assert!(
+        !meaningful_choices(&figure, axes.id, &limits).is_empty(),
+        "precondition: limits offer choices"
+    );
+    assert!(meaningful_choices(&figure, NodeId(u64::MAX), &limits).is_empty());
+    assert!(
+        meaningful_choices(&figure, axes.id, &"line.color".parse().unwrap()).is_empty(),
+        "an axes has no line colour"
+    );
+    assert!(
+        meaningful_choices(&figure, figure.id, &"font_size_pt".parse().unwrap()).is_empty(),
+        "a number is typed, not chosen"
+    );
+}
