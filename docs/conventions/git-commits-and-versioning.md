@@ -28,9 +28,9 @@ them wrong:**
 
 3. **Commit messages are succinct and descriptive of implementation with implicit outcome, not explanatory:** acceptable: `ENH: Improve performance of layer fetching`, better (descriptive of method and implicitly of outcome) `ENH: Remove N+1 penalisation in layer fetching`, bad (explanatory, vague) `ENH: Update layer fetching because app was too slow`, really bad (vague, relies on past context/knowledge) `ENH: Update to avoid the layer fetching problem`.
 
-4. **Breaking changes:** Where a breaking change is made, add `!` after the type code and include a description in the body of the commit message, which must begin with `BREAKING-CHANGE` followed by a description of what changed, and what actions users / consumers must do in order to migrate past the breaking change. Example:
+4. **Breaking changes:** Where a breaking change is made, keep the usual type code (do not add `!` after it, because the pinned `check-commit-message-is-conventional` hook rejects a header containing `!`) and start a paragraph of the body with `BREAKING-CHANGE:`, followed by a description of what changed and of what users or consumers must do to migrate past the breaking change. The hook recognises a breaking change from this paragraph. Example:
 ```
-ENH!: Use permission-gated layer nodes
+ENH: Use permission-gated layer nodes
 
 BREAKING-CHANGE: Remove the top level layer nodes in favour of site-gated layer nodes to respect site permissions. Consumers must query `{ site { layers { ...} }` instead of `{ layers { ... } }`.
 ```
