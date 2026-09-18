@@ -3,9 +3,9 @@ use std::f64::consts::TAU;
 use ironlab::prelude::*;
 
 pub const TITLE: &str = "Data decimation for very large datasets";
-pub const DESCRIPTION: &str = "Both panels plot the same hundred-thousand-sample vibration record: the upper over \
-     its whole extent is decimated (points/lines collapsed where they overlap) for quick rendering and compact \
-     exports, retaining significant features in the data. When zoomed in, as in the lower plot, data is rendered in \
+pub const DESCRIPTION: &str = "Both panels plot the same hundred-thousand-sample vibration record. The upper (over \
+     its whole time extent) is decimated (points and lines are collapsed where they overlap) for quick rendering and compact \
+     export, while retaining significant features in the data. When zoomed in, as in the lower panel, data is rendered in \
      full.";
 
 /// The number of samples in the record, which is far more than any plot of it can resolve.
