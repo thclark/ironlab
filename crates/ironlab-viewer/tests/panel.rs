@@ -16,8 +16,8 @@ use ironlab_ir::{
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
 use ironlab_viewer::inspector::{
-    Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, is_shown,
-    property_groups, read_only_reason, tree_rows,
+    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit,
+    is_shown, property_groups, read_only_reason, tree_rows,
 };
 use ironlab_viewer::panel::{FOOTER_ID, OBJECT_TREE_ID, revert_all_label};
 use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
@@ -1375,6 +1375,342 @@ fn every_read_only_property_carries_a_reason() {
         }
     }
     assert!(seen > 0, "the figure has read-only properties to check");
+}
+
+// Why: the data a plot draws is read-only for the same reason the tile layout is, so it
+// must be shown the same way and say so in the same words. The reason lives beside the
+// others rather than in the panel, so that the rule has one statement rather than one per
+// kind of row.
+#[test]
+fn a_data_reference_carries_the_same_kind_of_reason_as_every_other_read_only_row() {
+    assert!(
+        DATA_REASON.len() > 40 && DATA_REASON.ends_with('.'),
+        "the reason a data reference cannot be changed is not a sentence: {DATA_REASON:?}"
+    );
+    assert!(
+        DATA_REASON.contains("program that builds the figure"),
+        "the reason must say where the data comes from: {DATA_REASON}"
+    );
+    let state = FigureState::new(figure_with_every_artist());
+    let references = groups_of(&state, NodeId(3))
+        .iter()
+        .flat_map(|group| group.rows.iter())
+        .filter(|row| matches!(row.editor, Editor::Data { .. }))
+        .count();
+    assert!(references > 0, "a line refers to the data it draws");
+}
+
+// ---------------------------------------------------------------------------------
+// What the panel paints
+// ---------------------------------------------------------------------------------
+
+/// One run of text the panel paints.
+struct Painted {
+    /// The characters painted.
+    text: String,
+    /// The colour they are painted in.
+    color: egui::Color32,
+    /// Where they are painted.
+    rect: egui::Rect,
+}
+
+/// Every run of text the panel paints for a node.
+///
+/// The panel is run through an egui context of its own rather than through the
+/// accessibility harness, because what is asked of it here is what reaches the screen: the
+/// characters themselves and the colour they are drawn in, neither of which the
+/// accessibility tree carries.
+fn painted_text(figure: Figure, node: NodeId) -> Vec<Painted> {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let mut state = FigureState::new(figure);
+    state.select(Some(node));
+    let mut panel = PropertyPanel::default();
+    panel.open = true;
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut runs = Vec::new();
+    // egui lays a panel out over two passes; the second draws where the first decided, so
+    // it is the pass whose text is read.
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            property_panel(ui, &mut panel, &mut state);
+        });
+        output.textures_delta.clear();
+        runs.clear();
+        for clipped in &output.shapes {
+            collect_painted_text(&clipped.shape, &mut runs);
+        }
+    }
+    runs
+}
+
+/// Adds every run of text in a shape, and in the shapes it holds, to `runs`.
+fn collect_painted_text(shape: &egui::Shape, runs: &mut Vec<Painted>) {
+    match shape {
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_painted_text(shape, runs);
+            }
+        }
+        egui::Shape::Text(text) => {
+            let chosen = text.override_text_color.or_else(|| {
+                text.galley
+                    .job
+                    .sections
+                    .first()
+                    .map(|section| section.format.color)
+            });
+            let color = match chosen {
+                Some(color) if color != egui::Color32::PLACEHOLDER => color,
+                _ => text.fallback_color,
+            };
+            runs.push(Painted {
+                text: text.galley.text().to_owned(),
+                color,
+                rect: egui::Rect::from_min_size(text.pos, text.galley.size()),
+            });
+        }
+        _ => {}
+    }
+}
+
+/// The words the panel paints, without their colours or positions.
+fn painted_words(figure: Figure, node: NodeId) -> Vec<String> {
+    painted_text(figure, node)
+        .into_iter()
+        .map(|painted| painted.text)
+        .collect()
+}
+
+// Why: a value that is only a container of other values — the cell an axes occupies, the
+// size of a figure, the style of a line or of a marker — has nothing of its own to show,
+// because what it holds is the rows beneath it. Writing the value beside the heading puts
+// the field names of the IR on screen, which is what the reader saw as "Cell(Cell { row"
+// where the panel should say "cell". The rule is asked of a container that is read-only
+// and of containers that are not, because it is the container that decides, not what may
+// be done to it.
+#[test]
+fn a_composite_property_is_a_heading_that_carries_its_name_alone() {
+    for (node, name, members) in [
+        (FLAT, "cell", &["col", "col_span", "row", "row_span"][..]),
+        (FIGURE, "size", &["height_mm", "width_mm"][..]),
+        (LINE, "line", &["color", "dash", "width_pt"][..]),
+        (LINE, "marker", &["edge", "face", "shape", "size_pt"][..]),
+    ] {
+        let groups = groups_of(&FigureState::new(figure_with_artists()), node);
+        let group = group(&groups, name);
+        let labels: Vec<&str> = group.rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels, members,
+            "{name} is a heading whose members are the rows beneath it"
+        );
+        assert!(
+            group.rows.iter().all(|row| !row.label.is_empty()),
+            "{name} keeps no row of its own, which is what would carry a value beside the \
+             heading: {labels:?}"
+        );
+    }
+
+    // The camera of a three-dimensional axes is a container nested inside a tagged value,
+    // so it is reached through the projection rather than at the top level.
+    let solid = groups_of(&FigureState::new(figure_with_artists()), SOLID);
+    let projection = group(&solid, "projection");
+    assert!(
+        !projection
+            .rows
+            .iter()
+            .any(|row| row.label == "view3d" && row.value != Value::Unset),
+        "the camera is a heading, not a row: {:?}",
+        row_paths(std::slice::from_ref(projection))
+    );
+
+    // Nothing the panel paints for an axes may be a value written through Debug, whose
+    // braces and field names are what gave the fault away.
+    for word in painted_words(figure_with_artists(), FLAT) {
+        assert!(
+            !word.contains('{') && !word.contains("Cell("),
+            "the panel paints a value through Debug: {word:?}"
+        );
+    }
+}
+
+// Why: a read-only row is the panel's answer to "why can I not change this?", and the
+// answer is the value as it stands, quietened so that it does not read as a control, with
+// the reason on hover. Anything else in the row — a lock, a badge — adds no information,
+// and the lock the row once carried was a character the fonts do not have, so it reached
+// the screen as an empty box.
+#[test]
+fn a_read_only_property_is_its_value_dimmed_with_the_reason_on_hover() {
+    const VALUE: &str = "no linked axes";
+    let painted = painted_text(figure_with_artists(), FIGURE);
+    let value = painted
+        .iter()
+        .find(|painted| painted.text == VALUE)
+        .unwrap_or_else(|| {
+            let words: Vec<&str> = painted.iter().map(|run| run.text.as_str()).collect();
+            panic!("the groups of linked axes are not shown; the panel says {words:?}")
+        });
+    assert_eq!(
+        value.color,
+        ironlab_viewer::style::WEAK_TEXT,
+        "a read-only value is drawn in the colour of quiet text, not that of a control"
+    );
+
+    // The row holds the name of the property and its value, and nothing else. The runs
+    // drawn across the row are what says so, because the lock that was removed was a run
+    // of its own beside the value.
+    let across: Vec<&str> = painted
+        .iter()
+        .filter(|run| {
+            run.rect.center().y > value.rect.min.y && run.rect.center().y < value.rect.max.y
+        })
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(
+        across,
+        ["links", VALUE],
+        "a read-only row is its name and its value, with nothing beside them"
+    );
+
+    // Hovering the value says why the property cannot be changed here.
+    let mut harness = panel_harness(figure_with_artists(), Some(FIGURE));
+    harness.run();
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Label, VALUE)
+        .hover();
+    harness.run();
+    harness.get_by_label_contains("program that builds the figure");
+}
+
+// Why: a character the loaded fonts do not have is drawn as an empty box, which tells the
+// reader nothing and reads as a fault in the program. The panel is the densest part of the
+// interface and the place the fault appeared, so every character it paints must be one the
+// style has listed and the fonts are checked against.
+#[test]
+fn the_panel_paints_no_character_outside_the_listed_ones() {
+    let listed = ironlab_viewer::style::INTERFACE_CHARACTERS;
+    for node in [FIGURE, FLAT, SOLID, LINE, SCATTER, SURFACE] {
+        for word in painted_words(figure_with_artists(), node) {
+            for character in word.chars() {
+                assert!(
+                    character.is_ascii() || listed.contains(&character),
+                    "the panel paints {character:?} in {word:?}, which is not in \
+                     style::INTERFACE_CHARACTERS and is therefore not checked against the \
+                     fonts"
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// The order the inspector is read in
+// ---------------------------------------------------------------------------------
+
+/// Whether names are in order, ignoring case.
+fn ordered(names: &[&str]) -> bool {
+    names
+        .windows(2)
+        .all(|pair| pair[0].to_lowercase() <= pair[1].to_lowercase())
+}
+
+// Why: a node has thirty-odd properties, and the reader arrives knowing the name of the
+// one they want. Ordering by that name is what lets them find it without reading every
+// row; the order the registry happens to list properties in is an accident of how the IR
+// is written and tells the reader nothing. The headings and the properties that belong to
+// no group are ordered together, because both are read at the left edge of the panel and
+// the reader does not know which of the two the property they want will be.
+#[test]
+fn the_inspector_is_ordered_by_the_names_it_shows() {
+    let state = state_with_artists();
+    for node in [FIGURE, FLAT, SOLID, LINE] {
+        let groups = groups_of(&state, node);
+        assert!(
+            groups.len() > 3,
+            "this node must have several groups to order"
+        );
+        let names: Vec<&str> = groups.iter().map(|group| group.name.as_str()).collect();
+        assert!(
+            ordered(&names),
+            "the headings and the ungrouped rows are one alphabetical list: {names:?}"
+        );
+        for group in &groups {
+            let labels: Vec<&str> = group.rows.iter().map(|row| row.label.as_str()).collect();
+            assert!(
+                ordered(&labels),
+                "the rows of {} are ordered among themselves: {labels:?}",
+                group.name
+            );
+        }
+    }
+
+    // The three-dimensional axes is the node with the most groups, and mixes headings
+    // (cell, x, y, z) with properties that belong to no group (colormap, title).
+    let names: Vec<String> = groups_of(&state, SOLID)
+        .iter()
+        .map(|group| group.name.clone())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "box",
+            "cell",
+            "clim",
+            "colormap",
+            "legend",
+            "projection",
+            "title",
+            "x",
+            "y",
+            "z"
+        ],
+        "the headings and the ungrouped rows of an axes are one alphabetical list"
+    );
+    assert_eq!(
+        group(&groups_of(&state, SOLID), "cell")
+            .rows
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<&str>>(),
+        ["col", "col_span", "row", "row_span"],
+        "the members of a group are ordered among themselves"
+    );
+}
+
+// Why: the object tree is not a list to be searched by name but a picture of the figure:
+// the axes are listed in the order they are drawn, and each plot in the order it is drawn
+// over the one before. Sorting it would destroy the one thing it says that a list of names
+// cannot, which is which plot is drawn on top of which.
+#[test]
+fn the_object_tree_keeps_drawing_order_rather_than_taking_the_inspectors() {
+    let figure = figure_with_artists();
+    let labels: Vec<String> = tree_rows(&figure)
+        .into_iter()
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "Figure",
+            "Axes (Speed)",
+            "Line (Measured)",
+            "Scatter",
+            "Axes (row 0, col 1)",
+            "Surface",
+        ],
+        "the tree is in drawing order"
+    );
+    let mut alphabetical = labels.clone();
+    alphabetical.sort_by_key(|label| label.to_lowercase());
+    assert_ne!(
+        labels, alphabetical,
+        "this figure must be one whose drawing order differs from its alphabetical order, \
+         or the test proves nothing"
+    );
 }
 
 // ---------------------------------------------------------------------------------
