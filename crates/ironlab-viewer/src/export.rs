@@ -11,7 +11,7 @@
 //!
 //! A figure with nothing dense in it is exported without ever touching the GPU, so exporting on a machine with no
 //! graphics adapter works as it always has. Only a figure that must be rasterised needs an adapter, and when none is
-//! available that is reported as [`ExportError::NoRenderer`] rather than quietly exported as something else.
+//! available that is reported as [`ExportError::Render`] rather than quietly exported as something else.
 
 use std::path::Path;
 
@@ -28,30 +28,44 @@ pub enum ExportError {
     /// The PDF could not be written.
     #[error(transparent)]
     Pdf(#[from] PdfError),
-    /// The figure has content that the raster policy rasterises, but no renderer could be created for it.
+    /// The figure has content that the raster policy rasterises, and the renderer could not be created or could not
+    /// draw it.
     #[error("the figure has content that must be rasterised, but {0}")]
-    NoRenderer(#[from] RenderError),
+    Render(#[from] RenderError),
 }
 
 /// The viewer's headless renderer, presented to the PDF exporter as a [`Rasteriser`].
 pub struct GpuRasteriser<'a> {
     renderer: &'a mut OffscreenRenderer,
     text: &'a TextEngine,
+    /// The first failure of the renderer. The exporter only learns that rasterising failed, as a message, so the
+    /// failure itself is kept here: a readback failure means the device may have been lost, and only a
+    /// [`RenderError`] reaching [`with_shared_renderer`] makes it replace the device rather than hand the same dead
+    /// one to every later export.
+    failure: Option<RenderError>,
 }
 
 impl<'a> GpuRasteriser<'a> {
     /// Wraps a renderer, which resolves any text in the rasterised content through `text`.
     pub fn new(renderer: &'a mut OffscreenRenderer, text: &'a TextEngine) -> Self {
-        Self { renderer, text }
+        Self {
+            renderer,
+            text,
+            failure: None,
+        }
     }
 }
 
 impl Rasteriser for GpuRasteriser<'_> {
     fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
-        let rendered = self
-            .renderer
-            .render_display_list(list, self.text, dpi)
-            .map_err(|error| error.to_string())?;
+        let rendered = match self.renderer.render_display_list(list, self.text, dpi) {
+            Ok(rendered) => rendered,
+            Err(error) => {
+                let message = error.to_string();
+                self.failure.get_or_insert(error);
+                return Err(message);
+            }
+        };
         Ok(RasterImage {
             width: rendered.width,
             height: rendered.height,
@@ -64,8 +78,8 @@ impl Rasteriser for GpuRasteriser<'_> {
 ///
 /// # Errors
 ///
-/// Returns [`ExportError::NoRenderer`] when the figure has content the policy rasterises and no renderer can be
-/// created, and [`ExportError::Pdf`] when the PDF itself cannot be written.
+/// Returns [`ExportError::Render`] when the figure has content the policy rasterises and the renderer cannot be
+/// created or cannot draw it, and [`ExportError::Pdf`] when the PDF itself cannot be written.
 pub fn export_pdf(
     figure: &Figure,
     text: &TextEngine,
@@ -90,14 +104,13 @@ pub fn render_display_list(
     }
     with_shared_renderer(|renderer| {
         let mut raster = GpuRasteriser::new(renderer, text);
-        // The exporter's errors are returned through the outer result, not as render errors, so that a PDF failure is
-        // never mistaken for a lost device.
-        Ok(ironlab_pdf::render_display_list(
-            list,
-            text,
-            options,
-            Some(&mut raster),
-        ))
+        let result = ironlab_pdf::render_display_list(list, text, options, Some(&mut raster));
+        // A failure of the renderer is returned as itself, so that a lost device is recognised and replaced. Every
+        // other failure is the exporter's and travels through the inner result, where it cannot be mistaken for one.
+        match (result, raster.failure) {
+            (Err(PdfError::Raster(_)), Some(failure)) => Err(failure),
+            (result, _) => Ok(result),
+        }
     })?
     .map_err(ExportError::Pdf)
 }

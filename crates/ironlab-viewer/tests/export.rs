@@ -61,7 +61,7 @@ fn tools_available(tools: &[&str]) -> bool {
 fn exported_or_skip(result: Result<Vec<u8>, ExportError>) -> Option<Vec<u8>> {
     match result {
         Ok(bytes) => Some(bytes),
-        Err(ExportError::NoRenderer(RenderError::NoAdapter(message))) if !gpu_required() => {
+        Err(ExportError::Render(RenderError::NoAdapter(message))) if !gpu_required() => {
             eprintln!(
                 "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
             );
