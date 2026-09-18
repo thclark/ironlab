@@ -111,7 +111,7 @@ and the trunk is later promoted to `main` in one PR that carries the bump.
 
 ## Releasing
 
-Releases are tagged automatically. When a PR merges into `main`, `.github/workflows/release.yml` reads the workspace version, tags the merge commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
+Releases are tagged automatically. When a PR merges into `main`, the resulting push to `main` starts `.github/workflows/release.yml`, which reads the workspace version, tags the pushed commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
 
 ### Publication to crates.io
 
@@ -130,6 +130,8 @@ Publication is irreversible. A version can be yanked, which stops new dependency
 The release also rebuilds [ironlab.org](https://ironlab.org) and deploys it to GitHub Pages, from the tag rather than from whatever `main` has reached by then, so that the published site describes the version that was released. This happens alongside publication to crates.io rather than after it, the two being independent: a registry that rejects a crate is no reason to leave the documentation describing the previous release.
 
 `.github/workflows/docs.yml` is *called* by the release workflow rather than dispatched by it, for the same reason that publication lives in the release workflow: an event raised with a workflow's own token does not start another workflow run. It remains manually dispatchable, which rebuilds the site from whichever ref the dispatch names.
+
+The `github-pages` environment accepts deployments from `main` alone, and GitHub judges that by the ref the workflow run belongs to, not by the ref the site was built from. This is why the release workflow is triggered by the push to `main` rather than by the closing of the pull request: a `pull_request` run belongs to the test merge ref `refs/pull/<n>/merge`, which the environment rejects, whereas a `push` run belongs to `refs/heads/main`. For the same reason, a manual dispatch deploys only when it is started from `main`.
 
 Note that the site is built twice for different purposes. Every pull request builds it through the `docs` job of `.github/workflows/ci.yml`, which runs `zensical` in strict mode so that a broken cross-reference or a gallery figure that no longer renders fails the PR. Only the release deploys it.
 
