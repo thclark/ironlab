@@ -664,7 +664,9 @@ impl eframe::App for ViewerApp {
 
 /// Opens a native window showing `figures` as tabs and blocks until it is closed.
 ///
-/// The window is titled "IronLAB" and uses the wgpu backend with `NativeOptions { multisampling: 4, .. }`.
+/// The window is titled "IronLAB" and uses the wgpu backend with `NativeOptions { multisampling: 4, .. }`. Its text
+/// sizes and colours come from [`crate::style`], which is applied to the egui context as the window is created: this
+/// is the only place the interface is styled, so that what is on screen matches what that module defines.
 ///
 /// # Errors
 ///
@@ -682,6 +684,9 @@ pub fn run(figures: Vec<(String, Figure)>) -> eframe::Result<()> {
     eframe::run_native(
         "IronLAB",
         options,
-        Box::new(move |_cc| Ok(Box::new(ViewerApp::new(figures, text)))),
+        Box::new(move |cc| {
+            crate::style::apply(&cc.egui_ctx);
+            Ok(Box::new(ViewerApp::new(figures, text)))
+        }),
     )
 }

@@ -3,7 +3,7 @@
 //! The viewer is a dumb consumer of the scene compiler: it draws the display list produced by
 //! [`ironlab_scene::compile()`] and turns pointer input into typed edits of the figure IR (axis limits, 3D views and
 //! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
-//! is split into five modules:
+//! is split into nine modules:
 //!
 //! - [`canvas`] converts a display list into `egui` triangle meshes with lyon.
 //! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits, keeps the
@@ -15,6 +15,7 @@
 //! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below.
 //! - [`problems`] describes what the viewer has to tell the user about a figure it cannot draw as asked, and is
 //!   pure logic too.
+//! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
 //! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
@@ -27,6 +28,7 @@ pub mod interaction;
 pub mod offscreen;
 pub mod panel;
 pub mod problems;
+pub mod style;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use canvas::{ScreenTransform, tessellate};
