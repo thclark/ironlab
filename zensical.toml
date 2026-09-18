@@ -27,6 +27,7 @@ nav = [
     { "0006 Interaction mutates the IR" = "adrs/0006-interaction-mutates-the-ir.md" },
     { "0007 Scope of the MVP" = "adrs/0007-mvp-scope.md" },
     { "0008 Typed edits and a view overlay" = "adrs/0008-typed-edits-and-a-view-overlay.md" },
+    { "0009 View-dependent decimation with source index maps" = "adrs/0009-view-dependent-decimation-with-source-index-maps.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },
