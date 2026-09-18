@@ -5,14 +5,15 @@
 //! items of all artists back to front.
 
 use ironlab_ir::{
-    Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, Quiver, Scatter,
-    ScatterSize, Surface, View3d,
+    Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, MarkerShape,
+    Quiver, Scatter, ScatterSize, Surface, View3d,
 };
 
 use crate::display::{Item, Point, Rect, Rgba};
-use crate::hit::AxisMap;
+use crate::hit::{ArtistHit, AxisMap};
 use crate::maths::camera::{Camera, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth};
 use crate::maths::contour::{self, Coords, GridRef};
+use crate::maths::decimate::{self, Sample};
 use crate::maths::quiver;
 
 use super::data::{ArtistData, Points, Prepared};
@@ -98,6 +99,16 @@ pub(crate) enum Space<'a> {
 }
 
 impl Space<'_> {
+    /// Maps the point at index `i` of a series to a sample, or returns `None` when it cannot be placed.
+    fn sample(&self, source_index: usize, p: [f64; 3]) -> Option<Sample> {
+        let (position, depth) = self.map(p)?;
+        Some(Sample {
+            source_index,
+            position,
+            depth,
+        })
+    }
+
     /// Maps a data point to figure space and depth, or returns `None` when it cannot be placed.
     pub fn map(&self, p: [f64; 3]) -> Option<(Point, f64)> {
         match self {
@@ -126,7 +137,15 @@ struct Draw<'a> {
     scale: ColourScale,
     /// The lower z limit, at which planar contours without an explicit height are drawn.
     z_bottom: f64,
+    /// The axes being drawn, named by the hit-map entry of each artist.
+    axes: ironlab_ir::NodeId,
+    /// The number of points a series is decimated to for this plot rectangle.
+    target: usize,
+    /// The rectangle the artist geometry is clipped to, outside which nothing is drawn.
+    clip: Rect,
     out: Vec<Prim>,
+    /// The points each artist drew, for picking and datatips.
+    hits: Vec<ArtistHit>,
 }
 
 impl Draw<'_> {
@@ -135,15 +154,43 @@ impl Draw<'_> {
             self.out.push((depth, item));
         }
     }
+
+    /// Records the points an artist drew, merging the samples of its line and of its markers.
+    fn record(&mut self, artist: ironlab_ir::NodeId, mut samples: Vec<Sample>) {
+        samples.sort_by_key(|s| s.source_index);
+        samples.dedup_by_key(|s| s.source_index);
+        if !samples.is_empty() {
+            self.hits.push(ArtistHit {
+                axes: self.axes,
+                artist,
+                samples,
+            });
+        }
+    }
 }
 
-/// Draws every visible artist of an axes in artist order, returning items tagged with their depths.
-pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space) -> Vec<Prim> {
+/// Draws every visible artist of an axes in artist order.
+///
+/// Returns the items tagged with their depths, and the drawn points of every line and scatter,
+/// each carrying the index it has in the artist's data arrays.
+pub(super) fn draw_artists(
+    input: &AxesInput,
+    primaries: &[Paint],
+    space: &Space,
+) -> (Vec<Prim>, Vec<ArtistHit>) {
     let mut draw = Draw {
         space,
         scale: input.colours,
         z_bottom: input.ranges[2].min,
+        axes: input.axes.id,
+        target: decimate::target_points(input.plot.width),
+        clip: if space.is_3d() {
+            input.outer
+        } else {
+            input.plot
+        },
         out: Vec::new(),
+        hits: Vec::new(),
     };
     for (prepared, primary) in input.prepared.iter().zip(primaries) {
         let Some(data) = prepared.data else { continue };
@@ -177,23 +224,32 @@ pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space
             _ => {}
         }
     }
-    draw.out
+    (draw.out, draw.hits)
 }
 
-/// Returns the mean of the depths of mapped points.
-fn mean_depth(points: &[(Point, f64)]) -> f64 {
-    if points.is_empty() {
+/// Returns the mean of the depths of mapped samples.
+fn mean_depth(samples: &[Sample]) -> f64 {
+    if samples.is_empty() {
         return 0.0;
     }
-    points.iter().map(|(_, d)| d).sum::<f64>() / points.len() as f64
+    samples.iter().map(|s| s.depth).sum::<f64>() / samples.len() as f64
+}
+
+/// Returns the positions of mapped samples, in order.
+fn positions(samples: &[Sample]) -> Vec<Point> {
+    samples.iter().map(|s| s.position).collect()
 }
 
 /// Splits a sequence of data points into runs of consecutive points that can be placed.
-fn mapped_runs(space: &Space, points: impl Iterator<Item = [f64; 3]>) -> Vec<Vec<(Point, f64)>> {
+///
+/// A point that cannot be placed — one that is not finite, or that falls off a logarithmic axis —
+/// breaks the run, so the geometry drawn for one run never spans a break. Decimation is applied to
+/// each run separately for the same reason.
+fn mapped_runs(space: &Space, points: impl Iterator<Item = [f64; 3]>) -> Vec<Vec<Sample>> {
     let mut runs = vec![Vec::new()];
-    for p in points {
-        match space.map(p) {
-            Some(q) => runs.last_mut().expect("runs is never empty").push(q),
+    for (i, p) in points.enumerate() {
+        match space.sample(i, p) {
+            Some(s) => runs.last_mut().expect("runs is never empty").push(s),
             None => {
                 if !runs.last().expect("runs is never empty").is_empty() {
                     runs.push(Vec::new());
@@ -203,6 +259,102 @@ fn mapped_runs(space: &Space, points: impl Iterator<Item = [f64; 3]>) -> Vec<Vec
     }
     runs.retain(|r| r.len() >= 2);
     runs
+}
+
+/// Maps every point of a series, dropping those that cannot be placed.
+fn mapped_samples(space: &Space, points: impl Iterator<Item = [f64; 3]>) -> Vec<Sample> {
+    points
+        .enumerate()
+        .filter_map(|(i, p)| space.sample(i, p))
+        .collect()
+}
+
+/// The smallest square that markers are ever binned into, in points.
+const MIN_MARKER_BIN_PT: f64 = 0.5;
+
+/// Returns `rect` grown by `margin` on every side.
+fn expand(rect: Rect, margin: f64) -> Rect {
+    let margin = if margin.is_finite() && margin > 0.0 {
+        margin
+    } else {
+        0.0
+    };
+    Rect::new(
+        rect.x - margin,
+        rect.y - margin,
+        rect.width + 2.0 * margin,
+        rect.height + 2.0 * margin,
+    )
+}
+
+/// Returns whether a segment can paint inside `rect`, judged by its bounding box.
+fn segment_meets(rect: Rect, a: Point, b: Point) -> bool {
+    a.x.min(b.x) <= rect.right()
+        && a.x.max(b.x) >= rect.x
+        && a.y.min(b.y) <= rect.bottom()
+        && a.y.max(b.y) >= rect.y
+}
+
+/// Splits a run into the stretches of it that can paint inside `clip`.
+///
+/// Artist geometry is drawn inside a group clipped to the axes, so a segment whose bounding box
+/// misses the clip rectangle paints nothing. Dropping such segments therefore changes nothing on
+/// the page, and it spends the whole decimation budget on the part of the series the reader can
+/// see: zooming into a thousand points of a million draws those thousand in full.
+fn visible_stretches(run: &[Sample], clip: Rect) -> Vec<Vec<Sample>> {
+    let mut stretches: Vec<Vec<Sample>> = Vec::new();
+    let mut current: Vec<Sample> = Vec::new();
+    for pair in run.windows(2) {
+        if segment_meets(clip, pair[0].position, pair[1].position) {
+            if current.is_empty() {
+                current.push(pair[0]);
+            }
+            current.push(pair[1]);
+        } else if !current.is_empty() {
+            stretches.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        stretches.push(current);
+    }
+    stretches
+}
+
+/// Thins the polyline of a run to the resolution of the view, leaving short runs untouched.
+fn thin_polyline(run: Vec<Sample>, target: usize, clip: Rect) -> Vec<Vec<Sample>> {
+    if run.len() <= target {
+        return vec![run];
+    }
+    visible_stretches(&run, clip)
+        .into_iter()
+        .map(|stretch| decimate::largest_triangle_three_buckets(&stretch, target))
+        .collect()
+}
+
+/// Thins a set of markers of width `size_pt` when there are more of them than the view can show.
+///
+/// Markers that cannot paint inside `clip` are dropped first, so that a zoomed-in view keeps every
+/// marker it shows. The binning square is half the marker width, so a marker dropped from a square
+/// is at least three-quarters covered by the marker kept there; the width used is the smallest a
+/// marker of the artist takes, so no marker is dropped by a smaller one that fails to cover it.
+fn thin_markers(samples: Vec<Sample>, target: usize, size_pt: f64, clip: Rect) -> Vec<Sample> {
+    if samples.len() <= target {
+        return samples;
+    }
+    let side = if size_pt.is_finite() && size_pt > 0.0 {
+        (size_pt / 2.0).max(MIN_MARKER_BIN_PT)
+    } else {
+        MIN_MARKER_BIN_PT
+    };
+    let visible = expand(clip, if size_pt.is_finite() { size_pt } else { 0.0 });
+    let samples: Vec<Sample> = samples
+        .into_iter()
+        .filter(|s| visible.contains(s.position))
+        .collect();
+    if samples.len() <= target {
+        return samples;
+    }
+    decimate::bin(&samples, side)
 }
 
 /// Returns the stroke for a line style and colour, or `None` when no line is drawn.
@@ -217,43 +369,59 @@ fn line_stroke(
 }
 
 /// Draws a polyline through the finite points of a line, followed by its markers.
+///
+/// The polyline of each run is thinned by [`decimate::largest_triangle_three_buckets`] and the
+/// markers by [`decimate::bin`], so a series far denser than the plot rectangle can resolve costs
+/// only what the view can show.
 fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
     let colour = primary.single(&draw.scale);
+    let mut drawn: Vec<Sample> = Vec::new();
     if let Some(stroke) = line_stroke(&line.line, colour) {
-        let runs = mapped_runs(draw.space, (0..points.len()).map(|i| points.get(i)));
+        let clip = expand(draw.clip, stroke.width);
+        let runs: Vec<Vec<Sample>> =
+            mapped_runs(draw.space, (0..points.len()).map(|i| points.get(i)))
+                .into_iter()
+                .flat_map(|run| thin_polyline(run, draw.target, clip))
+                .collect();
+        drawn.extend(runs.iter().flatten().copied());
         if draw.space.is_3d() {
             for run in runs {
                 let mut b = PathBuilder::new();
-                b.polyline(&run.iter().map(|(p, _)| *p).collect::<Vec<_>>(), false);
+                b.polyline(&positions(&run), false);
                 let item = paths::item(line.id, b.finish(), None, Some(stroke.clone()));
                 draw.push(mean_depth(&run), item);
             }
         } else {
             let mut b = PathBuilder::new();
             for run in &runs {
-                b.polyline(&run.iter().map(|(p, _)| *p).collect::<Vec<_>>(), false);
+                b.polyline(&positions(run), false);
             }
             draw.push(0.0, paths::item(line.id, b.finish(), None, Some(stroke)));
         }
     }
-    let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
-    for i in 0..points.len() {
-        if let Some((p, depth)) = draw.space.map(points.get(i)) {
+    if line.marker.shape != MarkerShape::None {
+        let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
+        let samples = mapped_samples(draw.space, (0..points.len()).map(|i| points.get(i)));
+        let samples = thin_markers(samples, draw.target, line.marker.size_pt, draw.clip);
+        for s in &samples {
             let item = style::marker_item(
                 line.id,
                 &line.marker,
-                p,
+                s.position,
                 line.marker.size_pt,
                 colour,
                 width,
                 1.0,
             );
-            draw.push(depth, item);
+            draw.push(s.depth, item);
         }
+        drawn.extend(samples);
     }
+    draw.record(line.id, drawn);
 }
 
-/// Draws one marker per placeable point of a scatter.
+/// Draws one marker per placeable point of a scatter, thinned by [`decimate::bin`] when the points
+/// outnumber what the plot rectangle can resolve.
 fn draw_scatter(
     draw: &mut Draw,
     scatter: &Scatter,
@@ -262,24 +430,44 @@ fn draw_scatter(
     colours: Option<&[f64]>,
     primary: Paint,
 ) {
+    if scatter.marker.shape == MarkerShape::None {
+        return;
+    }
     let scalar_size = match scatter.size {
         ScatterSize::Scalar { value } => value,
         ScatterSize::Data { .. } => scatter.marker.size_pt,
     };
-    for i in 0..points.len() {
+    let size_at = |i: usize| sizes.map_or(scalar_size, |s| s[i]);
+    // A point whose colour value falls outside the colour scale is not drawn, so it takes no part
+    // in the binning either.
+    let drawable = (0..points.len())
+        .filter(|i| colours.is_none_or(|values| draw.scale.colour(values[*i]).is_some()));
+    let samples: Vec<Sample> = drawable
+        .filter_map(|i| draw.space.sample(i, points.get(i)))
+        .collect();
+    let smallest = samples
+        .iter()
+        .map(|s| size_at(s.source_index))
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    let samples = thin_markers(samples, draw.target, smallest, draw.clip);
+    for s in &samples {
         let colour = match colours {
-            Some(values) => match draw.scale.colour(values[i]) {
-                Some(c) => Some(c),
-                None => continue,
-            },
+            Some(values) => draw.scale.colour(values[s.source_index]),
             None => primary.single(&draw.scale),
         };
-        let size = sizes.map_or(scalar_size, |s| s[i]);
-        if let Some((p, depth)) = draw.space.map(points.get(i)) {
-            let item = style::marker_item(scatter.id, &scatter.marker, p, size, colour, 0.5, 1.0);
-            draw.push(depth, item);
-        }
+        let item = style::marker_item(
+            scatter.id,
+            &scatter.marker,
+            s.position,
+            size_at(s.source_index),
+            colour,
+            0.5,
+            1.0,
+        );
+        draw.push(s.depth, item);
     }
+    draw.record(scatter.id, samples);
 }
 
 /// Returns the finite range of a field's values.
@@ -321,14 +509,15 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
                 continue;
             };
             let mut b = PathBuilder::new();
-            let mut mapped_all = Vec::new();
+            let mut mapped_all: Vec<Sample> = Vec::new();
             for polygon in contour::isobands(grid, lo, hi) {
-                let mapped: Option<Vec<(Point, f64)>> = polygon
+                let mapped: Option<Vec<Sample>> = polygon
                     .iter()
-                    .map(|q| draw.space.map([q[0], q[1], plane]))
+                    .enumerate()
+                    .map(|(i, q)| draw.space.sample(i, [q[0], q[1], plane]))
                     .collect();
                 let Some(mapped) = mapped else { continue };
-                b.polyline(&mapped.iter().map(|(p, _)| *p).collect::<Vec<_>>(), true);
+                b.polyline(&positions(&mapped), true);
                 mapped_all.extend(mapped);
             }
             let item = paths::item(c.id, b.finish(), Some(paths::fill(colour)), None);
@@ -357,7 +546,7 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
             let closed =
                 polyline.closed && runs.len() == 1 && runs[0].len() == polyline.points.len();
             for run in runs {
-                let pts: Vec<Point> = run.iter().map(|(p, _)| *p).collect();
+                let pts = positions(&run);
                 if draw.space.is_3d() {
                     let mut single = PathBuilder::new();
                     single.polyline(&pts, closed);
@@ -465,11 +654,12 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
                 continue;
             }
             let mean = corners.iter().map(|c| values[index(*c)]).sum::<f64>() / 4.0;
-            let mapped: Option<Vec<(Point, f64)>> = corners
+            let mapped: Option<Vec<Sample>> = corners
                 .iter()
-                .map(|&(ci, cj)| {
+                .enumerate()
+                .map(|(k, &(ci, cj))| {
                     let [x, y] = node_xy(grid, ci, cj);
-                    draw.space.map([x, y, grid.z[index((ci, cj))]])
+                    draw.space.sample(k, [x, y, grid.z[index((ci, cj))]])
                 })
                 .collect();
             let Some(mapped) = mapped else { continue };
@@ -480,7 +670,7 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
             let fill = paint(s.face).map(paths::fill);
             let stroke = paint(s.edge).map(|c| paths::stroke(c, width, Vec::new()));
             let mut b = PathBuilder::new();
-            b.polyline(&mapped.iter().map(|(p, _)| *p).collect::<Vec<_>>(), true);
+            b.polyline(&positions(&mapped), true);
             draw.push(
                 mean_depth(&mapped),
                 paths::item(s.id, b.finish(), fill, stroke),

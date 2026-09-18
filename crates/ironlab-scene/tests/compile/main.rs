@@ -8,6 +8,7 @@ mod common;
 mod probe;
 
 mod artists;
+mod decimation;
 mod layout;
 mod legend;
 mod robustness;

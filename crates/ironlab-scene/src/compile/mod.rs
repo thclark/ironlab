@@ -97,10 +97,20 @@ impl Ctx<'_> {
 ///   by `10^k`, and a single math label `$\times 10^{k}$` is drawn at the far end of the axis: for an x axis beyond
 ///   the right end of the axis, below the tick labels, and for a y axis above the top end of the axis. In a 3D axes
 ///   the label is drawn at the end of the axis's row of tick labels, beyond the label of the largest tick.
-/// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points. Each marker is
+/// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points, or, where the
+///   series is decimated, one per stretch of such a run that reaches the axes. Each marker is
 ///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
 ///   is one path item that carries its face fill and, when edges are drawn, its edge stroke. Each filled-contour
 ///   band is one path item filled with the nonzero rule. A contour isoline path never mixes levels.
+/// - **Decimation.** A line or scatter with more points than its plot rectangle can resolve is thinned to about
+///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
+///   largest-triangle-three-buckets rule, applied to each run of placeable points separately so that a break in the
+///   line is never smoothed over, and a set of markers by keeping the one painted on top in each square of half a
+///   marker width. The thinning depends on the axis limits and on the 3D camera, so it is redone whenever the view
+///   changes, and the display list the PDF exporter draws is the one the screen shows.
+/// - **Picking.** The hit map records the points every line and scatter drew, each naming the index it has in the
+///   artist's own data arrays, so a front end reports the index and the values of the user's data whether or not the
+///   series was decimated.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
 ///   Within each axes, every line, scatter and quiver artist whose primary colour is `ColorSpec::Auto` (the

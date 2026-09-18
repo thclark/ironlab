@@ -8,10 +8,12 @@
 //! - [`contour`] extracts isolines and filled isobands from gridded scalar fields.
 //! - [`quiver`] scales vector fields and builds arrow geometry.
 //! - [`camera`] projects the normalised 3D data box onto the screen and orders geometry by depth.
+//! - [`decimate`] thins large point series to the resolution the current view can show.
 
 pub mod camera;
 pub mod colormap;
 mod colormap_data;
 pub mod contour;
+pub mod decimate;
 pub mod quiver;
 pub mod ticks;

@@ -11,7 +11,7 @@ use ironlab_ir::{Artist, Dimension, Limits, Line, NodeId, Scale, Text, Value, Vi
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxisMap, HitMap, LegendHit};
 use ironlab_viewer::interaction::MIN_BOX_ZOOM_POINTS;
-use ironlab_viewer::{FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
+use ironlab_viewer::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
@@ -20,6 +20,7 @@ fn single_2d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
     (state, hit)
 }
@@ -29,6 +30,7 @@ fn single_3d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_3d(2, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
     (state, hit)
 }
@@ -96,6 +98,7 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        artists: vec![],
     };
 
     assert!(state.scroll(&zoomed, at, 1.0 / 1.25));
@@ -127,6 +130,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        artists: vec![],
     };
     let at = Point::new(100.0, 70.0);
     let x0 = xm.to_data(at.x);
@@ -150,6 +154,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        artists: vec![],
     };
     assert!(state.scroll(&zoomed, at, 0.1));
     let x = manual_of(state.figure(), 2, Dimension::X);
@@ -172,6 +177,7 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
     let centre = Point::new(PLOT.x + PLOT.width / 2.0, PLOT.y + PLOT.height / 2.0);
 
@@ -292,6 +298,7 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        artists: vec![],
     };
     let start = Point::new(120.0, 90.0);
     let end = Point::new(120.0, 40.0);
@@ -343,6 +350,7 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
             hit_2d(4, rect_c),
         ],
         legend_entries: vec![],
+        artists: vec![],
     };
 
     state.drag_start(&hit, Point::new(60.0, 60.0));
@@ -585,6 +593,7 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
     let hit = HitMap {
         axes: vec![hit_2d(2, rect_a), hit_2d(3, rect_b), hit_2d(4, rect_c)],
         legend_entries: vec![],
+        artists: vec![],
     };
     for (id, x, y) in [
         (2, (100.0, 110.0), (7.0, 8.0)),
@@ -701,6 +710,7 @@ fn figure_with_legend() -> (FigureState, HitMap) {
             artist: NodeId(10),
             rect: Rect::new(200.0, 25.0, 45.0, 10.0),
         }],
+        artists: vec![],
     };
     (state, hit)
 }
@@ -1009,4 +1019,128 @@ fn a_rotate_drag_on_2d_axes_does_nothing() {
 
     assert_eq!(state.figure(), &before);
     assert!(!state.can_undo());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Datatips
+// ---------------------------------------------------------------------------------------------------------------
+//
+// These tests compile the figure rather than building a hit map by hand, because what they are about is the
+// agreement between the points the scene compiler drew and the data the viewer reports for them.
+
+/// A figure of one axes holding a line of `n` points, with automatic limits so that the whole series is in view.
+///
+/// Returns the state and the x and y arrays, whose values differ at every index so that a reported value identifies
+/// the index it was read from.
+fn dense_line(n: usize) -> (FigureState, Vec<f64>, Vec<f64>) {
+    use ironlab_ir::{Axes, DataId, Figure, NdArray};
+
+    let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    let y: Vec<f64> = (0..n)
+        .map(|i| (i as f64 / 250.0).sin() + i as f64 / 1e6)
+        .collect();
+    let (xi, yi) = (DataId(0), DataId(1));
+    let figure = Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (xi, NdArray::vector(x.clone())),
+            (yi, NdArray::vector(y.clone())),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                display_name: Some(Text::plain("Measured")),
+                x: xi,
+                y: yi,
+                ..Line::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    };
+    (FigureState::new(figure), x, y)
+}
+
+// Why: this is what the index map is for. A series too dense to draw in full is drawn from a subset of its points,
+// and a datatip that reported a position in that subset would name a different measurement every time the reader
+// zoomed. The index must be the one the user's own arrays use, and the values must be read from those arrays at
+// that index.
+#[test]
+fn a_datatip_on_a_decimated_series_reports_the_index_and_values_of_the_original_data() {
+    let n = 80_000;
+    let (state, x, y) = dense_line(n);
+    let scene = ironlab_scene::compile(state.figure(), &TEXT);
+    let drawn = &scene.hit_map.artists[0];
+    assert!(
+        drawn.samples.len() < n / 10,
+        "the series was decimated: {} of {n} points drawn",
+        drawn.samples.len()
+    );
+
+    let position_in_the_drawn_series = 500;
+    let sample = drawn.samples[position_in_the_drawn_series];
+    let tip = state
+        .datatip(&scene.hit_map, sample.position)
+        .expect("a drawn point lies under its own position");
+
+    assert_eq!(tip.artist, NodeId(3));
+    assert_eq!(tip.axes, NodeId(2));
+    assert_eq!(tip.name.as_deref(), Some("Measured"));
+    assert_ne!(
+        tip.index, position_in_the_drawn_series,
+        "the index reported is the one in the source data, not the place in the drawn series"
+    );
+    assert!(tip.index < n);
+    assert_eq!(tip.x, x[tip.index]);
+    assert_eq!(tip.y, y[tip.index]);
+    assert_eq!(tip.z, None);
+}
+
+// Why: the pointer is never exactly on a point, and a datatip that appeared for any position inside the axes would
+// name a measurement the reader is not pointing at, so reading is limited to the neighbourhood of a drawn point.
+#[test]
+fn a_datatip_is_read_only_near_a_point_that_was_drawn() {
+    let (state, _, _) = dense_line(80_000);
+    let scene = ironlab_scene::compile(state.figure(), &TEXT);
+    let sample = scene.hit_map.artists[0].samples[100];
+    let just_inside = Point::new(
+        sample.position.x,
+        sample.position.y + DATATIP_RADIUS_POINTS - 0.5,
+    );
+    // The top-left corner of the page, which is outside every axes.
+    let well_away = Point::new(2.0, 2.0);
+
+    assert!(state.datatip(&scene.hit_map, just_inside).is_some());
+    assert!(state.datatip(&scene.hit_map, well_away).is_none());
+}
+
+// Why: decimation is redone for every view, so the points that are drawn — and so the points a datatip can read —
+// change as the reader zooms. Zooming in must give access to measurements that were thinned away before, or the
+// datatip would stay at the resolution of the first view however far the reader zoomed.
+#[test]
+fn zooming_in_lets_a_datatip_read_points_that_were_thinned_away() {
+    let (mut state, _, _) = dense_line(80_000);
+    let readable = |state: &FigureState| {
+        let scene = ironlab_scene::compile(state.figure(), &TEXT);
+        scene.hit_map.artists[0]
+            .samples
+            .iter()
+            .map(|s| s.source_index)
+            .collect::<std::collections::BTreeSet<usize>>()
+    };
+    let before = readable(&state);
+    record_limits(&mut state, 2, Dimension::X, manual(40_000.0, 40_500.0));
+    let after = readable(&state);
+
+    let window = 40_000..=40_500;
+    let in_window = |set: &std::collections::BTreeSet<usize>| {
+        set.iter().filter(|i| window.contains(*i)).count()
+    };
+    assert!(
+        in_window(&after) > in_window(&before),
+        "the zoomed view can read {} points of the window against {}",
+        in_window(&after),
+        in_window(&before)
+    );
 }

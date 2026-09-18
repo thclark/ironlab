@@ -225,3 +225,74 @@ fn exported_figure_metadata_names_its_title_creator_and_provenance() {
         "subject {subject:?} does not record the figure's provenance; pdfinfo: {info:?}"
     );
 }
+
+/// A figure holding one line of `n` points, far more than a page of this size can resolve.
+fn dense_line(n: usize) -> Figure {
+    let mut figure = Figure::new();
+    figure.size = FigureSize {
+        width_mm: WIDTH_MM,
+        height_mm: HEIGHT_MM,
+    };
+    let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    let y: Vec<f64> = (0..n).map(|i| (i as f64 / 250.0).sin()).collect();
+    let x_id = figure.add_data(NdArray::vector(x));
+    let y_id = figure.add_data(NdArray::vector(y));
+    let axes_id = figure.alloc_node_id();
+    let line_id = figure.alloc_node_id();
+    figure.axes.push(Axes {
+        id: axes_id,
+        artists: vec![Artist::Line(Line {
+            id: line_id,
+            x: x_id,
+            y: y_id,
+            ..Line::default()
+        })],
+        ..Axes::default()
+    });
+    figure
+}
+
+/// Counts the path segments of every leaf of a display list.
+fn segment_count(list: &ironlab_scene::display::DisplayList) -> usize {
+    let mut total = 0;
+    list.visit_leaves(|item, _, _| {
+        if let ironlab_scene::display::ItemKind::Path(path) = &item.kind {
+            total += path.segments.len();
+        }
+    });
+    total
+}
+
+#[test]
+fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
+    // WHY: decimation must not be a property of the canvas. The exporter draws the display list of the compiled
+    // scene, which is the very list the viewer tessellates, so a series thinned for the current view is thinned
+    // identically in the vector file. Were the two to diverge, a user would export a figure they had never seen.
+    let text = engine();
+    let points = 200_000;
+    let figure = dense_line(points);
+    let scene = ironlab_scene::compile(&figure, &text);
+
+    let segments = segment_count(&scene.display_list);
+    assert!(
+        segments < points / 20,
+        "the compiled scene the exporter draws holds {segments} path segments for {points} data points"
+    );
+
+    let exported = export_pdf(&figure, &text).expect("export figure");
+    let from_the_compiled_scene = ironlab_pdf::render_display_list(
+        &scene.display_list,
+        &text,
+        &PdfOptions::for_figure(&figure),
+    )
+    .expect("render the compiled display list");
+    assert_eq!(
+        exported, from_the_compiled_scene,
+        "exporting a figure draws the compiled scene and nothing else"
+    );
+    assert!(
+        exported.len() < 200_000,
+        "the exported file is {} bytes, so the decimated geometry reached the vector output",
+        exported.len()
+    );
+}

@@ -25,7 +25,7 @@ use ironlab_scene::Scene;
 use ironlab_text::TextEngine;
 
 use crate::canvas::{ScreenTransform, color32, tessellate};
-use crate::interaction::{FigureState, Tool};
+use crate::interaction::{Datatip, FigureState, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
 
@@ -36,6 +36,9 @@ const WHEEL_ZOOM_RATE: f64 = 0.0036;
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
 const CANVAS_MARGIN: f32 = 12.0;
 
+/// The radius, in egui points, of the ring drawn around the data point under the pointer.
+const DATATIP_RING_POINTS: f32 = 4.0;
+
 /// How long a notification stays on screen, in seconds.
 const NOTIFICATION_SECONDS: f64 = 5.0;
 
@@ -45,6 +48,40 @@ const PROBLEM_LIST_WIDTH: f32 = 380.0;
 
 /// The height beyond which the list of problems scrolls, in egui points.
 const PROBLEM_LIST_MAX_HEIGHT: f32 = 320.0;
+
+/// Formats a data value for a datatip, with enough digits to tell neighbouring points apart and without the noise
+/// that printing a binary fraction in full would add.
+fn datatip_value(value: f64) -> String {
+    if !value.is_finite() {
+        return value.to_string();
+    }
+    if value != 0.0 && !(1e-4..1e6).contains(&value.abs()) {
+        return format!("{value:.4e}");
+    }
+    let text = format!("{value:.6}");
+    match text.split_once('.') {
+        Some(_) => text.trim_end_matches('0').trim_end_matches('.').to_owned(),
+        None => text,
+    }
+}
+
+/// The text of the tooltip that names the data point under the pointer.
+///
+/// The index shown is the one the point has in the artist's own data arrays, so it is what the user would use to
+/// find the same point in the data they plotted.
+fn datatip_text(tip: &Datatip) -> String {
+    let mut lines = Vec::new();
+    if let Some(name) = &tip.name {
+        lines.push(name.clone());
+    }
+    lines.push(format!("x = {}", datatip_value(tip.x)));
+    lines.push(format!("y = {}", datatip_value(tip.y)));
+    if let Some(z) = tip.z {
+        lines.push(format!("z = {}", datatip_value(z)));
+    }
+    lines.push(format!("index {}", tip.index));
+    lines.join("\n")
+}
 
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -389,6 +426,8 @@ impl FigurePane {
             }
         }
 
+        self.datatip(ui, &response, &painter, to_screen, text);
+
         if let Some(band) = self.state.rubber_band() {
             let band = egui::Rect::from_min_max(
                 to_screen.apply(ironlab_scene::display::Point::new(band.x, band.y)),
@@ -406,6 +445,34 @@ impl FigurePane {
                 egui::StrokeKind::Middle,
             );
         }
+    }
+
+    /// Reads the data point under the pointer and shows it, ringed on the canvas and named in a tooltip.
+    ///
+    /// The point comes from the hit map of the current compilation, so it names the index and the values of the
+    /// user's own data even where the series was thinned to fit the view.
+    fn datatip(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        painter: &egui::Painter,
+        to_screen: ScreenTransform,
+        text: &TextEngine,
+    ) {
+        if response.dragged() || !response.hovered() {
+            return;
+        }
+        let Some(pointer) = response.hover_pos() else {
+            return;
+        };
+        self.scene(text);
+        let hit = &self.scene.as_ref().expect("compiled above").hit_map;
+        let Some(tip) = self.state.datatip(hit, to_screen.invert(pointer)) else {
+            return;
+        };
+        let stroke = ui.visuals().selection.stroke;
+        painter.circle_stroke(to_screen.apply(tip.position), DATATIP_RING_POINTS, stroke);
+        response.clone().on_hover_text(datatip_text(&tip));
     }
 
     /// Converts this frame's pointer input on the canvas into edits of the figure, recompiling the scene after each

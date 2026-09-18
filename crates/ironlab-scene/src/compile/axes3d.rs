@@ -118,7 +118,8 @@ pub(super) fn emit(
     ));
 
     let primaries = style::primaries(axes);
-    let mut prims = draw_artists(input, &primaries, &Space::ThreeD(&projector));
+    let (mut prims, artist_hits) = draw_artists(input, &primaries, &Space::ThreeD(&projector));
+    hits.artists.extend(artist_hits);
     depth_order(&mut prims);
     content.extend(prims.into_iter().map(|(_, item)| item));
 

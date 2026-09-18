@@ -109,10 +109,9 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     draw_grid(input, &x, &y, out);
 
     let primaries = style::primaries(axes);
-    let data: Vec<Item> = draw_artists(input, &primaries, &space)
-        .into_iter()
-        .map(|(_, item)| item)
-        .collect();
+    let (prims, artist_hits) = draw_artists(input, &primaries, &space);
+    hits.artists.extend(artist_hits);
+    let data: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
     if !data.is_empty() {
