@@ -85,14 +85,14 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
         summary,
         [
             (FIGURE, 0, "Figure"),
-            (FLAT, 1, "Speed"),
-            (LINE, 2, "Measured"),
+            (FLAT, 1, "Axes (Speed)"),
+            (LINE, 2, "Line (Measured)"),
             (SCATTER, 2, "Scatter"),
-            (SOLID, 1, "Axes (row 0, column 1)"),
+            (SOLID, 1, "Axes (row 0, col 1)"),
             (SURFACE, 2, "Surface"),
         ],
-        "an axes is labelled by its title or else by its cell, and an artist by its \
-         display name or else by its kind"
+        "every row names its kind first, and the name of the object itself follows in \
+         brackets when it has one"
     );
     assert_eq!(
         rows.iter().map(|row| row.kind).collect::<Vec<NodeKind>>(),
@@ -104,6 +104,94 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             NodeKind::Axes,
             NodeKind::Surface,
         ]
+    );
+}
+
+// Why: the tree mixes objects of six kinds, and a title such as "Speed" says nothing
+// about what kind of object carries it. Naming the kind first, and the object's own name
+// after it in brackets, is what makes a row readable on its own; this pins that rule for
+// every kind of node, for a titled and an untitled object of each kind that can have a
+// title, and for a name written as LaTeX, which the tree shows as its source because it
+// does not typeset it.
+#[test]
+fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
+    use ironlab_ir::{Artist, Axes, Cell, Contour, Line, Quiver, Scatter, Surface, Text};
+
+    let titled = Axes {
+        id: NodeId(2),
+        title: Some(Text::plain("Speed")),
+        artists: vec![
+            Artist::Line(Line {
+                id: NodeId(3),
+                display_name: Some(Text::new(r"$\sin \omega t$")),
+                ..Line::default()
+            }),
+            Artist::Scatter(Scatter {
+                id: NodeId(4),
+                display_name: Some(Text::plain("Samples")),
+                ..Scatter::default()
+            }),
+            Artist::Contour(Contour {
+                id: NodeId(5),
+                ..Contour::default()
+            }),
+            Artist::Quiver(Quiver {
+                id: NodeId(6),
+                display_name: Some(Text::plain("Wind")),
+                ..Quiver::default()
+            }),
+            Artist::Surface(Surface {
+                id: NodeId(7),
+                ..Surface::default()
+            }),
+        ],
+        ..Axes::default()
+    };
+    let untitled = Axes {
+        id: NodeId(8),
+        cell: Cell {
+            row: 1,
+            col: 2,
+            ..Cell::default()
+        },
+        ..Axes::default()
+    };
+    let mut figure = Figure {
+        id: NodeId(1),
+        title: Some(Text::plain("A damped oscillator")),
+        axes: vec![titled, untitled],
+        ..Figure::new()
+    };
+
+    let labels: Vec<String> = tree_rows(&figure)
+        .into_iter()
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "Figure (A damped oscillator)",
+            "Axes (Speed)",
+            r"Line ($\sin \omega t$)",
+            "Scatter (Samples)",
+            "Contour",
+            "Quiver (Wind)",
+            "Surface",
+            "Axes (row 1, col 2)",
+        ],
+        "a title or display name is shown in brackets after the kind, as its source; an \
+         axes with no title shows its cell instead, and a figure or artist with no name \
+         shows its kind alone"
+    );
+
+    figure.title = None;
+    assert_eq!(
+        tree_rows(&figure)
+            .first()
+            .expect("the figure is a row")
+            .label,
+        "Figure",
+        "a figure with no title is named by its kind alone, with no empty brackets"
     );
 }
 
@@ -704,7 +792,7 @@ fn the_properties_panel_is_hidden_until_the_toolbar_button_is_clicked() {
     harness.run();
 
     assert!(
-        harness.query_by_label("Speed").is_none(),
+        harness.query_by_label("Axes (Speed)").is_none(),
         "the object tree is not shown until the panel is opened"
     );
 
@@ -712,13 +800,16 @@ fn the_properties_panel_is_hidden_until_the_toolbar_button_is_clicked() {
     harness.run();
 
     assert!(
-        harness.query_by_label("Speed").is_some(),
+        harness.query_by_label("Axes (Speed)").is_some(),
         "the panel shows the object tree"
     );
 
     harness.get_by_label("Properties").click();
     harness.run();
-    assert!(harness.query_by_label("Speed").is_none(), "it closes again");
+    assert!(
+        harness.query_by_label("Axes (Speed)").is_none(),
+        "it closes again"
+    );
 }
 
 /// A position inside the canvas of a 900 × 600 harness while the property editor takes
@@ -766,17 +857,13 @@ fn selecting_a_node_in_the_tree_shows_that_node_in_the_inspector() {
     let mut harness = panel_harness(figure_with_artists(), Some(FIGURE));
     harness.run();
 
-    harness.get_by_label("Measured").click();
+    harness.get_by_label("Line (Measured)").click();
     harness.run();
 
     assert_eq!(harness.state().figure.selection(), Some(LINE));
     assert!(
-        harness.query_by_label_contains("Line").is_some(),
-        "the inspector names the kind and the identifier of the selected node"
-    );
-    assert!(
         harness.query_by_label_contains("node 4").is_some(),
-        "the inspector names the identifier"
+        "the inspector names the kind and the identifier of the selected node"
     );
 }
 
@@ -964,7 +1051,7 @@ fn typing_into_a_text_field_is_one_undo_step_that_closes_when_the_field_is_left(
     );
 
     // Selecting another object takes the field away, which must close the step.
-    harness.get_by_label("Measured").click();
+    harness.get_by_label("Line (Measured)").click();
     harness.run();
     assert!(harness.state().figure.can_undo());
 

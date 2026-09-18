@@ -19,7 +19,7 @@
 use ironlab_ir::{Figure, NodeId, PropertyPath};
 use ironlab_scene::SceneWarning;
 
-use crate::inspector::{kind_name, tree_rows};
+use crate::inspector::tree_rows;
 
 /// How a problem arose, which decides how the user should read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,18 +88,13 @@ impl Problem {
     }
 }
 
-/// The name of a node, as the object tree writes it, qualified by its kind so that
-/// "Speed" is recognisable as an axes.
+/// The name of a node, exactly as the object tree writes it, which already names the kind
+/// before the object's own name so that "Speed" is recognisable as an axes.
 fn node_label(figure: &Figure, node: NodeId) -> String {
-    let Some(row) = tree_rows(figure).into_iter().find(|row| row.node == node) else {
-        return format!("Node {}", node.0);
-    };
-    let kind = kind_name(row.kind);
-    if row.label == kind {
-        kind.to_owned()
-    } else {
-        format!("{kind} “{}”", row.label)
-    }
+    tree_rows(figure)
+        .into_iter()
+        .find(|row| row.node == node)
+        .map_or_else(|| format!("Node {}", node.0), |row| row.label)
 }
 
 /// The label of the problems indicator, or `None` when there is nothing to report.

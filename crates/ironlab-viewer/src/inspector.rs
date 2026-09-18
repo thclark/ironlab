@@ -59,8 +59,10 @@ pub struct TreeRow {
     pub node: NodeId,
     /// The kind of the node, which decides its properties.
     pub kind: NodeKind,
-    /// The name shown: the title of the figure or of an axes, the display name of an
-    /// artist, or a name made from the node's cell or kind when it has none.
+    /// The name shown: the kind of the node, followed in brackets by the title of the
+    /// figure or of an axes, the display name of an artist, or the cell of an axes that
+    /// has no title. A figure with no title and an artist with no display name are
+    /// shown as their kind alone.
     pub label: String,
     /// The depth in the tree: 0 for the figure, 1 for an axes, 2 for an artist.
     pub depth: usize,
@@ -71,16 +73,21 @@ pub struct TreeRow {
 /// Returns the rows of the object tree of a figure: the figure, then each axes in
 /// drawing order, each followed by its artists in drawing order.
 ///
-/// An axes is labelled by its title when it has one and otherwise by the cell it
-/// occupies, such as `Axes (row 0, column 1)`, because that is what tells two untitled
-/// axes apart on screen. An artist is labelled by its display name when it has one and
-/// otherwise by its kind. A hidden artist is marked [`dimmed`](TreeRow::dimmed).
+/// Every row begins with the kind of the object, and the name the object carries follows
+/// it in brackets: `Figure (A damped oscillator)`, `Axes (Speed)`, `Line ($\sin \omega
+/// t$)`. The kind comes first because a title alone says nothing about what carries it,
+/// and the name is shown as its source, because the tree does not typeset LaTeX.
+///
+/// An axes with no title is named by the cell it occupies, as `Axes (row 0, col 1)`,
+/// because that is what tells two untitled axes apart on screen. A figure with no title
+/// and an artist with no display name are named by their kind alone, with no empty
+/// brackets. A hidden artist is marked [`dimmed`](TreeRow::dimmed).
 #[must_use]
 pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
     let mut rows = vec![TreeRow {
         node: figure.id,
         kind: NodeKind::Figure,
-        label: text_label(figure.title.as_ref()).unwrap_or_else(|| "Figure".to_owned()),
+        label: row_label(NodeKind::Figure, text_label(figure.title.as_ref())),
         depth: 0,
         dimmed: false,
     }];
@@ -88,7 +95,10 @@ pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
         rows.push(TreeRow {
             node: axes.id,
             kind: NodeKind::Axes,
-            label: text_label(axes.title.as_ref()).unwrap_or_else(|| cell_label(axes)),
+            label: row_label(
+                NodeKind::Axes,
+                Some(text_label(axes.title.as_ref()).unwrap_or_else(|| cell_name(axes))),
+            ),
             depth: 1,
             dimmed: false,
         });
@@ -97,14 +107,22 @@ pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
             rows.push(TreeRow {
                 node: artist.id(),
                 kind,
-                label: text_label(artist.display_name())
-                    .unwrap_or_else(|| kind_name(kind).to_owned()),
+                label: row_label(kind, text_label(artist.display_name())),
                 depth: 2,
                 dimmed: !artist.visible(),
             });
         }
     }
     rows
+}
+
+/// The label of a row: the kind of the object, followed by the name it carries in
+/// brackets, or the kind alone when it carries none.
+fn row_label(kind: NodeKind, name: Option<String>) -> String {
+    match name {
+        Some(name) => format!("{} ({name})", kind_name(kind)),
+        None => kind_name(kind).to_owned(),
+    }
 }
 
 /// Returns the name of a kind of node, as the object tree and the inspector write it.
@@ -129,9 +147,9 @@ fn text_label(text: Option<&ironlab_ir::Text>) -> Option<String> {
 }
 
 /// The name of an axes that has no title, taken from the cell it occupies.
-fn cell_label(axes: &Axes) -> String {
+fn cell_name(axes: &Axes) -> String {
     let Cell { row, col, .. } = axes.cell;
-    format!("Axes (row {row}, column {col})")
+    format!("row {row}, col {col}")
 }
 
 fn artist_kind(artist: &Artist) -> NodeKind {

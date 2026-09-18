@@ -188,17 +188,17 @@ fn a_problem_is_headed_by_the_object_and_property_it_concerns() {
 
     assert_eq!(
         problem(Some(NodeId(2)), Some("x.limits")).subject(&figure),
-        "Axes “Speed” — x.limits",
+        "Axes (Speed) — x.limits",
         "an axes is named by its title, as the object tree names it"
     );
     assert_eq!(
         problem(Some(NodeId(4)), None).subject(&figure),
-        "Line “Measured”",
+        "Line (Measured)",
         "a plot is named by its display name"
     );
     assert_eq!(
         problem(Some(NodeId(3)), None).subject(&figure),
-        "Axes “Axes (row 0, column 1)”",
+        "Axes (row 0, col 1)",
         "an axes with no title is named by its cell"
     );
     assert_eq!(
