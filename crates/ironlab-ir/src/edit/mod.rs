@@ -40,7 +40,7 @@ mod registry;
 mod value;
 mod walk;
 
-pub use choice::{Choice, choices, meaningful_choices};
+pub use choice::{Choice, choices, property_choices};
 pub use path::{PathError, PropertyPath};
 pub use registry::{NodeKind, Property, properties};
 pub use value::{Value, ValueType};

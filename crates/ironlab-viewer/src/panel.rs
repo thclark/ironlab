@@ -486,7 +486,13 @@ fn choice_row(
         .selected_text(current)
         .show_ui(ui, |ui| {
             for choice in offered {
-                if ui
+                // A choice the IR would not act on here is shown disabled, with the
+                // reason on hover, rather than left out: the user sees that the value
+                // exists and reads what would make it available.
+                if let Some(reason) = choice.unavailable {
+                    ui.add_enabled(false, egui::Button::selectable(false, choice.label))
+                        .on_disabled_hover_text(reason);
+                } else if ui
                     .selectable_label(choice.label == current, choice.label)
                     .clicked()
                     && choice.label != current

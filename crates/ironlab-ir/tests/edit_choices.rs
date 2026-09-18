@@ -446,17 +446,18 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
 }
 
 // ---------------------------------------------------------------------------------
-// The choices that are meaningful at one property of one node
+// The choices of one property of one node, and whether each is available there
 // ---------------------------------------------------------------------------------
 
 /// The paths at which the scene compiler looks a colour up in the colormap, written by
-/// hand per kind of node so that the test checks [`meaningful_choices`] against the
+/// hand per kind of node so that the test checks [`property_choices`] against the
 /// behaviour of the compiler rather than against itself.
 ///
 /// Each isoline of a contour is coloured by its own level, and each face of a surface by
 /// its colour data or by its height. Nowhere else does the IR hold a value to look a
-/// colour up by: the compiler paints a colormapped line, quiver, fixed scatter colour or
-/// marker in the middle colour of the colormap instead.
+/// colour up by: the compiler paints a colormapped line, quiver or single scatter colour
+/// in the middle colour of the colormap, and draws a colormapped marker in the colour of
+/// the plot it belongs to, exactly as an automatic one.
 fn colormap_indexed(kind: NodeKind) -> Vec<&'static str> {
     match kind {
         NodeKind::Contour => vec!["line.color"],
@@ -474,13 +475,54 @@ fn color_spec_paths(kind: NodeKind) -> Vec<String> {
         .collect()
 }
 
-// Why: a colormapped colour tells the user that the plot will be coloured by its data,
-// but the compiler has nothing to look the colour up by on a line, a quiver, a scatter
-// with a fixed colour specification, or any marker, and silently paints the middle
-// colour of the colormap instead. Offering the choice there promises something the
-// figure cannot deliver, so it must be offered exactly where the colormap is indexed.
+// Why: a choice that is simply removed from a combo box tells the user nothing, and a
+// value the IR has is then invisible from the viewer. Every choice of the type must be
+// listed at every property, in the order the type offers them, so that what is offered
+// differs from what can be taken only by the mark each choice carries.
 #[test]
-fn a_colormapped_colour_is_offered_exactly_where_the_ir_indexes_the_colormap() {
+fn every_choice_of_a_property_is_listed_whether_or_not_it_is_available() {
+    let mut checked = 0usize;
+    for figure in representative_figures() {
+        for (node, kind) in nodes(&figure) {
+            for property in properties(kind) {
+                let Ok(value) = figure.get(node, &property.path) else {
+                    continue;
+                };
+                let all = choices(property.value_type, Some(&value));
+                let offered = property_choices(&figure, node, &property.path);
+                assert_eq!(
+                    labels(&offered),
+                    labels(&all),
+                    "{kind:?} lists the wrong choices at {}",
+                    property.path
+                );
+                assert_eq!(
+                    offered
+                        .iter()
+                        .map(|choice| choice.value.clone())
+                        .collect::<Vec<Value>>(),
+                    all.iter()
+                        .map(|choice| choice.value.clone())
+                        .collect::<Vec<Value>>(),
+                    "{kind:?} lists the wrong values at {}",
+                    property.path
+                );
+                checked += offered.len();
+            }
+        }
+    }
+    assert!(
+        checked > 100,
+        "the representative figures listed only {checked} choices"
+    );
+}
+
+// Why: a colormapped colour promises that the plot is coloured by its data, and the scene
+// compiler can keep that promise only where the IR gives it a value to look the colour up
+// by. Marking it available where it is not would deliver a flat colour with no
+// explanation; marking it unavailable where it works would make a surface uncolourable.
+#[test]
+fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap() {
     for figure in representative_figures() {
         for (node, kind) in nodes(&figure) {
             let indexed = colormap_indexed(kind);
@@ -493,56 +535,117 @@ fn a_colormapped_colour_is_offered_exactly_where_the_ir_indexes_the_colormap() {
             );
             for path in paths {
                 let at = path.parse().expect("a registry path is a property path");
-                let offered = meaningful_choices(&figure, node, &at);
+                let offered = property_choices(&figure, node, &at);
                 if offered.is_empty() {
                     continue; // The property is not reachable in this figure.
                 }
+                let colormapped = offered
+                    .iter()
+                    .find(|choice| choice.label == "Colormapped")
+                    .unwrap_or_else(|| panic!("{kind:?} lists no colormapped colour at {path}"));
                 assert_eq!(
-                    labels(&offered).contains(&"Colormapped"),
+                    colormapped.available(),
                     indexed.contains(&path.as_str()),
-                    "{kind:?} offers the wrong colours at {path}: {:?}",
-                    labels(&offered)
+                    "{kind:?} marks the colormapped colour at {path} wrongly: {:?}",
+                    colormapped.unavailable
                 );
             }
         }
     }
 }
 
-// Why: only the meaningless choice is withdrawn; withdrawing anything else would take
-// away a change the figure can make, so the user could no longer make a line black or a
-// surface face a fixed colour from the panel.
+// Why: a disabled entry the user cannot act on is worse than no entry at all unless it
+// says what would make it available, and a reason on a choice that can be taken would
+// warn about nothing. Every unavailable choice must therefore carry a sentence, and every
+// available one must carry none.
 #[test]
-fn every_other_choice_of_a_property_is_offered_unchanged() {
+fn an_unavailable_choice_carries_a_reason_and_an_available_one_carries_none() {
+    let mut reasons = 0usize;
     for figure in representative_figures() {
         for (node, kind) in nodes(&figure) {
             for property in properties(kind) {
-                let Ok(value) = figure.get(node, &property.path) else {
-                    continue;
-                };
-                let all = choices(property.value_type, Some(&value));
-                let meaningful = meaningful_choices(&figure, node, &property.path);
-                let expected: Vec<&Choice> = all
-                    .iter()
-                    .filter(|choice| {
-                        choice.label != "Colormapped"
-                            || colormap_indexed(kind).contains(&property.path.to_string().as_str())
-                    })
-                    .collect();
-                assert_eq!(
-                    meaningful.iter().collect::<Vec<&Choice>>(),
-                    expected,
-                    "{kind:?} offers the wrong choices at {}",
-                    property.path
-                );
+                for choice in property_choices(&figure, node, &property.path) {
+                    match choice.unavailable {
+                        None => assert!(
+                            choice.available(),
+                            "{kind:?} calls {:?} at {} unavailable with no reason",
+                            choice.label,
+                            property.path
+                        ),
+                        Some(reason) => {
+                            reasons += 1;
+                            assert!(
+                                !choice.available(),
+                                "{kind:?} gives {:?} at {} a reason it does not need",
+                                choice.label,
+                                property.path
+                            );
+                            assert!(
+                                reason.len() > 40
+                                    && reason.ends_with('.')
+                                    && reason.starts_with(|first: char| first.is_uppercase()),
+                                "the reason for {:?} at {} is not a sentence: {reason:?}",
+                                choice.label,
+                                property.path
+                            );
+                        }
+                    }
+                }
             }
         }
     }
+    assert!(
+        reasons > 0,
+        "the representative figures have unavailable choices to check"
+    );
+}
+
+// Why: the reason is the only thing a user has to go on when a choice is shown disabled,
+// so it must name what the property lacks and where the same choice does work. A reason
+// that named neither would leave the user stuck in front of a value they can see but
+// cannot pick.
+#[test]
+fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used() {
+    let figure = representative_figures().remove(0);
+    let (line, kind) = nodes(&figure)
+        .into_iter()
+        .find(|(_, kind)| *kind == NodeKind::Line)
+        .expect("a representative figure has a line");
+    assert_eq!(kind, NodeKind::Line);
+
+    let reason = property_choices(&figure, line, &"line.color".parse().unwrap())
+        .into_iter()
+        .find(|choice| choice.label == "Colormapped")
+        .expect("a line lists the colormapped colour")
+        .unavailable
+        .expect("a line cannot be colormapped");
+    assert!(
+        reason.starts_with("A line is drawn in one colour and provides no value to look"),
+        "the reason must say what a line lacks: {reason}"
+    );
+    for available in ["surface", "isolines of a contour", "colour comes from data"] {
+        assert!(
+            reason.contains(available),
+            "the reason must send the user to {available:?}: {reason}"
+        );
+    }
+
+    let marker = property_choices(&figure, line, &"marker.face".parse().unwrap())
+        .into_iter()
+        .find(|choice| choice.label == "Colormapped")
+        .expect("a marker lists the colormapped colour")
+        .unavailable
+        .expect("a marker cannot be colormapped");
+    assert!(
+        marker.contains("takes the colour of the plot it belongs to"),
+        "a marker's reason must say where its colour comes from: {marker}"
+    );
 }
 
 // Why: a scatter coloured from data is the supported way to colour markers by value, and
-// it names the array to look the colour up by; withdrawing the colormapped colour
-// specification must not withdraw it too, or the scatter would lose data colouring
-// altogether.
+// it names the array to look the colour up by; marking the colormapped colour
+// specification unavailable must not touch it, or the scatter would appear to have lost
+// data colouring altogether.
 #[test]
 fn a_scatter_still_offers_its_colour_and_size_from_data() {
     for figure in representative_figures() {
@@ -550,18 +653,20 @@ fn a_scatter_still_offers_its_colour_and_size_from_data() {
             if kind != NodeKind::Scatter {
                 continue;
             }
-            assert_eq!(
-                labels(&meaningful_choices(
-                    &figure,
-                    node,
-                    &"color".parse().unwrap()
-                )),
-                ["Single colour", "From data"]
-            );
-            assert_eq!(
-                labels(&meaningful_choices(&figure, node, &"size".parse().unwrap())),
-                ["Single size", "From data"]
-            );
+            for path in ["color", "size"] {
+                let offered = property_choices(&figure, node, &path.parse().unwrap());
+                assert_eq!(
+                    labels(&offered),
+                    match path {
+                        "color" => ["Single colour", "From data"],
+                        _ => ["Single size", "From data"],
+                    }
+                );
+                assert!(
+                    offered.iter().all(Choice::available),
+                    "a scatter's {path} lost a choice it can take: {offered:?}"
+                );
+            }
         }
     }
 }
@@ -579,16 +684,30 @@ fn a_node_or_a_path_that_the_figure_does_not_have_offers_no_choices() {
         .expect("a representative figure has axes");
     let limits: PropertyPath = "x.limits".parse().unwrap();
     assert!(
-        !meaningful_choices(&figure, axes.id, &limits).is_empty(),
+        !property_choices(&figure, axes.id, &limits).is_empty(),
         "precondition: limits offer choices"
     );
-    assert!(meaningful_choices(&figure, NodeId(u64::MAX), &limits).is_empty());
+    assert!(property_choices(&figure, NodeId(u64::MAX), &limits).is_empty());
     assert!(
-        meaningful_choices(&figure, axes.id, &"line.color".parse().unwrap()).is_empty(),
+        property_choices(&figure, axes.id, &"line.color".parse().unwrap()).is_empty(),
         "an axes has no line colour"
     );
     assert!(
-        meaningful_choices(&figure, figure.id, &"font_size_pt".parse().unwrap()).is_empty(),
+        property_choices(&figure, figure.id, &"font_size_pt".parse().unwrap()).is_empty(),
         "a number is typed, not chosen"
     );
+}
+
+// Why: the choices of a type are asked for by callers with no figure (the control that
+// gives an absent value one, the interpreter beside a text field), which have no property
+// to judge availability at; a reason there would be a claim about a property that was
+// never named.
+#[test]
+fn the_choices_of_a_type_alone_are_all_available() {
+    for value_type in WITH_CHOICES {
+        assert!(
+            choices(value_type, None).iter().all(Choice::available),
+            "{value_type:?} marks a choice unavailable with no property to judge it at"
+        );
+    }
 }

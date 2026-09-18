@@ -63,7 +63,7 @@ pub use axes::{
 pub use data::NdArray;
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
-    ValueType, choices, meaningful_choices, properties,
+    ValueType, choices, properties, property_choices,
 };
 pub use error::{IrError, ProtobufError};
 pub use figure::{

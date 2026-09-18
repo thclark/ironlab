@@ -12,10 +12,14 @@
 //! given its choices here.
 //!
 //! [`choices`] answers what a *type* can hold, which is all a caller with no figure can
-//! ask. [`meaningful_choices`] answers what a *property of a node* can usefully hold,
-//! which is less: a colour that the colormap indexes means nothing where the IR has no
-//! value to index it by. That is a fact about the semantics of the IR rather than about
-//! any user interface, so it is stated here and not in the viewer.
+//! ask. [`property_choices`] answers the same question for a *property of a node*, and
+//! marks each choice with whether the IR would act on it there: a colour that the
+//! colormap indexes means nothing where the IR has no value to index it by. Such a
+//! choice is still returned, carrying the sentence that says why it is unavailable and
+//! where it is available, so that a combo box can show it disabled rather than hide it
+//! and leave the user to guess that the value exists. Which choices the IR acts on is a
+//! fact about the semantics of the IR rather than about any user interface, so it is
+//! stated here and not in the viewer.
 
 use crate::artist::{ContourPlacement, Grid, Levels, QuiverScale, ScatterColor, ScatterSize};
 use crate::axes::{ColormapName, LegendLocation, Limits, Projection, Scale, View3d};
@@ -37,9 +41,25 @@ pub struct Choice {
     pub label: &'static str,
     /// A value of the choice, which the property can be set to as it stands.
     pub value: Value,
+    /// Why the IR would not act on this choice at the property it was asked for, or
+    /// `None` when it would.
+    ///
+    /// The reason is a short sentence or two, written for the user: it says what the
+    /// property lacks and where the same choice is available instead, so that a choice
+    /// shown disabled tells the user how to reach it rather than only that they cannot.
+    /// [`choices`] is asked about a type rather than about a property and leaves this
+    /// `None`; [`property_choices`] fills it in.
+    pub unavailable: Option<&'static str>,
 }
 
 impl Choice {
+    /// Returns whether the choice can be taken at the property it was asked for, which is
+    /// the negation of [`unavailable`](Choice::unavailable).
+    #[must_use]
+    pub fn available(&self) -> bool {
+        self.unavailable.is_none()
+    }
+
     /// Returns whether `value` is of the variant that this choice selects, whatever
     /// contents it carries.
     ///
@@ -99,6 +119,10 @@ const FALLBACK_QUIVER_FACTOR: f64 = 1.0;
 /// structure of fields are edited field by field instead. The match over the value types
 /// and the matches over the variants of each type are exhaustive, so a type or a variant
 /// added to the IR does not compile until its choices are declared here.
+///
+/// Every choice returned here is [available](Choice::available), because whether the IR
+/// acts on a choice depends on the property it is offered for rather than on its type.
+/// [`property_choices`] answers that question.
 #[must_use]
 pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> {
     match value_type {
@@ -140,25 +164,29 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
     }
 }
 
-/// Returns the choices that are meaningful for one property of one node of a figure: the
-/// choices of the property's type, less those that the IR would not act on there.
+/// Returns every choice of one property of one node of a figure, each marked with
+/// whether the IR would act on it there and, when it would not, with the reason.
 ///
-/// The only such choice today is a colormapped colour. A colour is looked up in the
-/// axes' colormap only where the IR gives it a value to be looked up by: the level of
+/// A choice the IR would not act on is returned rather than withheld, carrying its
+/// reason in [`Choice::unavailable`], so that the property editor can show it disabled.
+/// A user who can see a value they cannot pick, and read what would make it available,
+/// learns what the figure can do; a value removed from the list teaches nothing.
+///
+/// The only unavailable choice today is a colormapped colour. A colour is looked up in
+/// the axes' colormap only where the IR gives it a value to be looked up by: the level of
 /// each isoline of a contour (`line.color`), and the height or colour data of each face
-/// of a surface (`face` and `edge`). Everywhere else — the colour of a line or of a
-/// quiver, the fixed colour specification of a scatter, and every marker face and edge —
-/// there is no such value, and the scene compiler paints the whole artist in the middle
-/// colour of the colormap instead. Offering the choice there invites the user to ask for
-/// data colouring and receive a flat colour with no explanation, so it is not offered.
-/// Choosing a scatter's colour "from data" is offered as before, because that names the
-/// array to look the colour up by.
+/// of a surface (`face` and `edge`). The colour of a line or of a quiver, and the single
+/// colour of a scatter, have no such value, and the scene compiler paints the whole
+/// artist in the middle colour of the colormap instead; a marker takes the colour of the
+/// plot it belongs to, so a colormapped marker is drawn exactly as an automatic one.
+/// Choosing a scatter's colour "from data" stays available, because that names the array
+/// to look the colour up by.
 ///
 /// Returns an empty list when the node is not in the figure, when the path is not a
 /// property of its kind, when the path is not currently reachable (a property of a
 /// variant that is not set), or when the property's type has no choices at all.
 #[must_use]
-pub fn meaningful_choices(figure: &Figure, node: NodeId, path: &PropertyPath) -> Vec<Choice> {
+pub fn property_choices(figure: &Figure, node: NodeId, path: &PropertyPath) -> Vec<Choice> {
     let Some(kind) = figure.node_kind(node) else {
         return Vec::new();
     };
@@ -172,10 +200,107 @@ pub fn meaningful_choices(figure: &Figure, node: NodeId, path: &PropertyPath) ->
         return Vec::new();
     };
     let mut offered = choices(property.value_type, Some(&value));
-    if !indexes_the_colormap(kind, path) {
-        offered.retain(|choice| !matches!(choice.value, Value::ColorSpec(ColorSpec::Colormapped)));
+    for choice in &mut offered {
+        choice.unavailable = RULES
+            .iter()
+            .find_map(|rule| rule(figure, kind, node, path, &choice.value));
     }
     offered
+}
+
+/// A rule that says whether the IR would act on one choice at one property of one node.
+///
+/// A rule is given the figure, the kind of the node, the node, the path of the property
+/// and the value the choice would set, and returns the sentence shown when the IR would
+/// not act on that value there, or `None` when it would. A rule that concerns another
+/// value type, or another kind of node, answers `None` for everything else.
+type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'static str>;
+
+/// Every rule that marks a choice unavailable, asked in order about every choice of every
+/// property; the first reason given is the one shown.
+///
+/// A new rule is a function of the type above added to this list, so marking a choice
+/// unavailable never needs the property editor, or this module's callers, to change.
+const RULES: [Rule; 1] = [colormapped_without_a_value_to_index_by];
+
+/// Completes the reason a colormapped colour is unavailable at a property, which is why
+/// the property holds no value to look a colour up by followed by where the colormap can
+/// be used instead.
+macro_rules! colormapped_unavailable {
+    ($why:literal) => {
+        concat!(
+            $why,
+            " Colouring by the colormap is available for the faces and edges of a \
+             surface, for the isolines of a contour, which take the colour of their \
+             level, and for a scatter whose colour comes from data."
+        )
+    };
+}
+
+/// Why a colormapped colour is unavailable on a line.
+const COLORMAPPED_ON_A_LINE: &str = colormapped_unavailable!(
+    "A line is drawn in one colour and provides no value to look that colour up by, so a \
+     colormapped line is drawn in the middle colour of the colormap."
+);
+
+/// Why a colormapped colour is unavailable on a quiver.
+const COLORMAPPED_ON_A_QUIVER: &str = colormapped_unavailable!(
+    "A quiver is drawn in one colour and provides no value to look that colour up by, so \
+     colormapped arrows are drawn in the middle colour of the colormap."
+);
+
+/// Why a colormapped colour is unavailable as the single colour of a scatter.
+const COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR: &str = colormapped_unavailable!(
+    "A scatter that has one colour for every marker provides no value to look that \
+     colour up by, so colormapped markers are drawn in the middle colour of the colormap."
+);
+
+/// Why a colormapped colour is unavailable on the face or the edge of a marker.
+const COLORMAPPED_ON_A_MARKER: &str = colormapped_unavailable!(
+    "A marker takes the colour of the plot it belongs to rather than looking a colour up \
+     itself, so a colormapped marker is drawn exactly as an automatic one."
+);
+
+/// Why a colormapped colour is unavailable anywhere else.
+const COLORMAPPED_ELSEWHERE: &str = colormapped_unavailable!(
+    "This property provides no value to look a colour up by, so a colormapped colour \
+     here is drawn in the middle colour of the colormap."
+);
+
+/// Marks a colormapped colour unavailable wherever the IR holds no value to look the
+/// colour up by, and leaves every other choice and every other property alone.
+fn colormapped_without_a_value_to_index_by(
+    _figure: &Figure,
+    kind: NodeKind,
+    _node: NodeId,
+    path: &PropertyPath,
+    value: &Value,
+) -> Option<&'static str> {
+    if !matches!(value, Value::ColorSpec(ColorSpec::Colormapped))
+        || indexes_the_colormap(kind, path)
+    {
+        return None;
+    }
+    if path
+        .segments()
+        .first()
+        .is_some_and(|first| first == "marker")
+    {
+        return Some(COLORMAPPED_ON_A_MARKER);
+    }
+    // The match is exhaustive, so a kind added to the IR does not compile until it is
+    // said why a colour of that kind cannot be colormapped.
+    Some(match kind {
+        NodeKind::Line => COLORMAPPED_ON_A_LINE,
+        NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
+        NodeKind::Scatter => COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR,
+        // Every colour of a contour and of a surface indexes the colormap, and a figure
+        // and an axes hold no colour specification at all, so these kinds reach this
+        // reason only if they gain a colour that indexes nothing.
+        NodeKind::Contour | NodeKind::Surface | NodeKind::Figure | NodeKind::Axes => {
+            COLORMAPPED_ELSEWHERE
+        }
+    })
 }
 
 /// Returns whether the IR gives the colour at this property of this kind of node a value
@@ -257,7 +382,11 @@ macro_rules! tagged_choices {
         }
     )*) => {$(
         fn $offer($replacing: Option<&Value>) -> Vec<Choice> {
-            vec![$( Choice { label: $label, value: Value::$variant($default) }, )+]
+            vec![$( Choice {
+                label: $label,
+                value: Value::$variant($default),
+                unavailable: None,
+            }, )+]
         }
 
         /// The match is exhaustive, so a variant added to the type does not compile
@@ -277,7 +406,11 @@ macro_rules! plain_choices {
         }
     )*) => {$(
         fn $offer() -> Vec<Choice> {
-            vec![$( Choice { label: $label, value: Value::$variant($case) }, )+]
+            vec![$( Choice {
+                label: $label,
+                value: Value::$variant($case),
+                unavailable: None,
+            }, )+]
         }
 
         /// The match is exhaustive, so a variant added to the enumeration does not

@@ -259,7 +259,7 @@ A **ColorSpec** says how a colour is chosen:
 - `{"type": "none"}` draws nothing.
 - `{"type": "colormapped"}` takes the colour from the axes colormap, indexed by the data value scaled into the axes colour limits.
 
-A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver, a scatter with a fixed colour specification and every marker hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap. The property editor does not offer the choice where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap; a marker takes the resolved colour of the artist it belongs to, so a colormapped marker face or edge is drawn exactly as an automatic one. The property editor lists the choice everywhere and shows it disabled, with the reason, where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
 
 ## Text
 

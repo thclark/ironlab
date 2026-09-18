@@ -39,8 +39,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, Axes, Cell, Choice, DataId, Dimension, Edit, Figure, Limits, NodeId, NodeKind,
-    Parameter, Property, PropertyPath, Transaction, Value, ValueType, command, meaningful_choices,
-    properties,
+    Parameter, Property, PropertyPath, Transaction, Value, ValueType, command, properties,
+    property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -163,10 +163,12 @@ pub enum Editor {
     /// A text field and a combo box of interpreters, which a [`Text`](ironlab_ir::Text)
     /// needs; the content and the interpreter below it are not listed separately.
     RichText,
-    /// A combo box of the choices that are meaningful for this property of this node,
-    /// from [`meaningful_choices`].
+    /// A combo box of every choice of this property of this node, from
+    /// [`property_choices`], each marked with whether it is available here.
     Choice {
-        /// The choices offered, in the order they are offered.
+        /// The choices offered, in the order they are offered. A choice the IR would not
+        /// act on here is listed like the rest, carrying the reason it cannot be taken,
+        /// so that the panel can show it disabled rather than hide it.
         offered: Vec<Choice>,
     },
     /// A colour picker; the components below the colour are not listed separately.
@@ -400,7 +402,7 @@ fn editor_for(
         | ValueType::DashStyle
         | ValueType::Interpreter
         | ValueType::FontSetId => Editor::Choice {
-            offered: meaningful_choices(figure, node, &property.path),
+            offered: property_choices(figure, node, &property.path),
         },
         ValueType::FigureSize
         | ValueType::TileLayout

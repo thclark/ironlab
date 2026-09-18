@@ -10,7 +10,7 @@ mod common;
 use common::*;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use ironlab_ir::{ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Value};
+use ironlab_ir::{Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Value};
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
 use ironlab_viewer::inspector::{
@@ -946,6 +946,46 @@ fn choosing_from_a_combo_box_commits_the_value_behind_its_label() {
     );
 }
 
+// Why: a choice the figure cannot act on is listed so that the user can see it exists and
+// read what would make it available, which is worth nothing if clicking it changes the
+// figure anyway. The entry must therefore be drawn disabled and must commit nothing.
+#[test]
+fn a_choice_that_cannot_be_taken_is_disabled_in_the_combo_box_and_commits_nothing() {
+    let mut harness = panel_harness(figure_with_artists(), Some(LINE));
+    harness.run();
+
+    widget_showing(&harness, egui::accesskit::Role::ComboBox, "Automatic").scroll_to_me();
+    harness.run();
+    widget_showing(&harness, egui::accesskit::Role::ComboBox, "Automatic").click();
+    harness.run();
+    harness.run();
+
+    {
+        let colormapped = harness.get_by_label("Colormapped");
+        assert!(
+            colormapped.accesskit_node().is_disabled(),
+            "a line cannot be coloured by the colormap, so the entry must be disabled"
+        );
+        assert!(
+            !harness
+                .get_by_label("Fixed colour")
+                .accesskit_node()
+                .is_disabled(),
+            "a colour the line can take must stay live in the same list"
+        );
+        colormapped.click();
+    }
+    harness.run();
+
+    let state = &harness.state().figure;
+    assert!(
+        state.overlay().entries().is_empty(),
+        "clicking a disabled choice changed the figure: {:?}",
+        state.overlay().entries()
+    );
+    assert!(!state.can_undo(), "nothing was recorded to undo");
+}
+
 // ---------------------------------------------------------------------------------
 // Properties that the panel shows but does not change
 // ---------------------------------------------------------------------------------
@@ -971,13 +1011,34 @@ fn offered(groups: &[PropertyGroup], group_name: &str, label: &str) -> Vec<&'sta
     }
 }
 
+/// One choice a property offers, found by its label, or a panic naming the choices there
+/// are.
+fn choice<'a>(
+    groups: &'a [PropertyGroup],
+    group_name: &str,
+    label: &str,
+    choice_label: &str,
+) -> &'a Choice {
+    match &row(groups, group_name, label).editor {
+        Editor::Choice { offered } => offered
+            .iter()
+            .find(|choice| choice.label == choice_label)
+            .unwrap_or_else(|| {
+                let labels: Vec<&str> = offered.iter().map(|choice| choice.label).collect();
+                panic!("{group_name}.{label} offers no {choice_label:?}; it offers {labels:?}")
+            }),
+        other => panic!("{group_name}.{label} is not chosen from a list: {other:?}"),
+    }
+}
+
 // Why: a colormapped colour promises that the plot is coloured by its data, and the scene
 // compiler can keep that promise only where the IR gives it a value to look the colour up
-// by. A line has none, so offering the choice would leave the user with a flat colour and
-// no explanation; a surface face has one, so withdrawing it there would take away the
-// reason a surface is drawn in colour at all.
+// by. Removing the choice where it cannot be honoured would hide from the user that data
+// colouring exists at all, so it is listed everywhere and marked where it cannot be taken;
+// marking it where a surface face uses it would take away the reason a surface is drawn in
+// colour.
 #[test]
-fn a_colormapped_colour_is_offered_only_where_it_colours_by_data() {
+fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours_by_data() {
     let state = FigureState::new(figure_with_every_artist());
     let (line, scatter, contour, quiver, surface) =
         (NodeId(3), NodeId(4), NodeId(5), NodeId(6), NodeId(7));
@@ -992,30 +1053,40 @@ fn a_colormapped_colour_is_offered_only_where_it_colours_by_data() {
     ] {
         let labels = offered(&groups_of(&state, node), group_name, label);
         assert!(
-            !labels.contains(&"Colormapped"),
-            "{group_name}.{label} of node {node} offers a colour it cannot use: {labels:?}"
+            labels.contains(&"Colormapped"),
+            "{group_name}.{label} of node {node} hides a colour instead of disabling it: \
+             {labels:?}"
         );
         assert!(
             labels.contains(&"Fixed colour") && labels.contains(&"Automatic"),
             "{group_name}.{label} of node {node} lost the colours it can use: {labels:?}"
         );
+        let reason = choice(&groups_of(&state, node), group_name, label, "Colormapped")
+            .unavailable
+            .unwrap_or_else(|| {
+                panic!("{group_name}.{label} of node {node} offers a colour it cannot use")
+            });
+        assert!(
+            reason.contains("colormap") && reason.ends_with('.'),
+            "{group_name}.{label} of node {node} gives no usable reason: {reason}"
+        );
     }
 
-    assert!(
-        offered(&groups_of(&state, contour), "line", "color").contains(&"Colormapped"),
-        "an isoline is coloured by its level"
-    );
-    for label in ["face", "edge"] {
+    for (node, group_name, label) in [
+        (contour, "line", "color"),
+        (surface, "face", ""),
+        (surface, "edge", ""),
+    ] {
         assert!(
-            offered(&groups_of(&state, surface), label, "").contains(&"Colormapped"),
-            "a surface {label} is coloured by its data or its height"
+            choice(&groups_of(&state, node), group_name, label, "Colormapped").available(),
+            "{group_name}.{label} of node {node} cannot be coloured by its data"
         );
     }
 }
 
 // Why: a scatter is the one plot whose markers the IR does colour by data, through the
-// array named by its colour; withdrawing the colormapped colour specification must not
-// take that with it, or a scatter could no longer be coloured by value from the panel.
+// array named by its colour; marking the colormapped colour specification unavailable
+// must not touch that choice, or a scatter could no longer be coloured by value.
 #[test]
 fn a_scatter_still_offers_its_colour_from_data() {
     let state = FigureState::new(figure_with_every_artist());
@@ -1023,6 +1094,10 @@ fn a_scatter_still_offers_its_colour_from_data() {
     assert_eq!(
         offered(&groups, "color", ""),
         ["Single colour", "From data"]
+    );
+    assert!(
+        choice(&groups, "color", "", "From data").available(),
+        "a scatter's colour from data must stay available"
     );
 }
 

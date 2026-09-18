@@ -110,7 +110,9 @@ The editor changes the properties of the objects a figure already has. Its struc
 
 A property that the figure merely constrains is not read-only. Limits that must increase and a font size that must be positive stay editable, and a value the figure will not accept is refused with its reason, which is the more useful answer.
 
-One choice is withheld for the same reason. A colour may be **colormapped**, which colours a plot from its data through the axes colormap, and that is offered only where the figure holds a value to look the colour up by: the isolines of a contour, coloured by their level; the faces and edges of a surface, coloured by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a marker hold no such value, so the choice is not offered for them.
+A choice a combo box cannot honour is shown in the same spirit: it is listed, drawn greyed, and cannot be picked, and hovering over it gives the reason and says where the same choice does work. Removing it would hide from you that the figure has the value at all, whereas a greyed entry invites you to find the property that makes it available.
+
+A colour may be **colormapped**, which colours a plot from its data through the axes colormap, and that works only where the figure holds a value to look the colour up by: the isolines of a contour, coloured by their level; the faces and edges of a surface, coloured by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value and would be drawn in the middle colour of the colormap, and a marker takes the colour of the plot it belongs to whether or not it is colormapped, so the choice is greyed for all of them.
 
 ## Linked axes
 
