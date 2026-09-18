@@ -19,6 +19,7 @@ use crate::error::Error;
 /// ```
 /// use ironlab::prelude::*;
 ///
+/// # fn main() -> Result<(), ironlab::Error> {
 /// let mut fig = Figure::new()
 ///     .size_mm(160.0, 60.0)
 ///     .tiles(1, 2)
@@ -26,7 +27,9 @@ use crate::error::Error;
 ///     .font_size_pt(8.0);
 /// fig.axes(0, 0).plot([0.0, 1.0], [0.0, 1.0]);
 /// fig.axes(0, 1).plot([0.0, 1.0], [1.0, 0.0]);
-/// fig.link_all_y();
+/// fig.link_all_y()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Figure {
@@ -220,8 +223,10 @@ impl Figure {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Ir`] when an identifier is not an axes of this figure, in which
-    /// case no links are changed.
+    /// Returns [`Error::Ir`] when an identifier is not an axes of this figure, or when an
+    /// axes of the group cannot show the limits it would take, such as limits that reach
+    /// below zero on a logarithmic axis. Axes that cannot share limits cannot be linked,
+    /// so the whole change is refused and no links are changed.
     pub fn link(&mut self, dim: Dimension, axes: &[NodeId]) -> Result<&mut Self, Error> {
         self.ir.link(dim, axes)?;
         Ok(self)
@@ -230,18 +235,31 @@ impl Figure {
     /// Links the limits of every axes of the figure along a dimension.
     ///
     /// Only axes that exist when this is called are linked.
-    pub fn link_all(&mut self, dim: Dimension) -> &mut Self {
-        self.ir.link_all(dim);
-        self
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Ir`] when an axes of the figure cannot show the limits of the
+    /// first axes, as [`link`](Figure::link) describes; no links are then changed.
+    pub fn link_all(&mut self, dim: Dimension) -> Result<&mut Self, Error> {
+        self.ir.link_all(dim)?;
+        Ok(self)
     }
 
     /// Links the x limits of every axes of the figure (MATLAB's `linkaxes(ax, 'x')`).
-    pub fn link_all_x(&mut self) -> &mut Self {
+    ///
+    /// # Errors
+    ///
+    /// As [`link_all`](Figure::link_all).
+    pub fn link_all_x(&mut self) -> Result<&mut Self, Error> {
         self.link_all(Dimension::X)
     }
 
     /// Links the y limits of every axes of the figure (MATLAB's `linkaxes(ax, 'y')`).
-    pub fn link_all_y(&mut self) -> &mut Self {
+    ///
+    /// # Errors
+    ///
+    /// As [`link_all`](Figure::link_all).
+    pub fn link_all_y(&mut self) -> Result<&mut Self, Error> {
         self.link_all(Dimension::Y)
     }
 

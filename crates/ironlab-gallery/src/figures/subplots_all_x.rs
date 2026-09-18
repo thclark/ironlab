@@ -31,6 +31,6 @@ pub fn figure() -> Figure {
         ax.ylabel(label).grid(true);
     }
     fig.axes(2, 0).xlabel("Time $t$ (s)");
-    fig.link_all_x();
+    fig.link_all_x().expect("every row shares the same time axis");
     fig
 }

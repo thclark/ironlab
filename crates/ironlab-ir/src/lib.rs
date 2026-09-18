@@ -39,11 +39,15 @@
 
 mod artist;
 mod axes;
+pub mod command;
 mod data;
+mod edit;
 mod error;
 mod figure;
 mod ids;
 mod link;
+pub mod overlay;
+pub mod selection;
 mod style;
 mod text;
 mod validate;
@@ -57,6 +61,10 @@ pub use axes::{
     Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
 };
 pub use data::NdArray;
+pub use edit::{
+    Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
+    ValueType, choices, properties, property_choices,
+};
 pub use error::{IrError, ProtobufError};
 pub use figure::{
     Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
@@ -76,6 +84,12 @@ pub fn json_schema() -> serde_json::Value {
     schemars::schema_for!(Figure).to_value()
 }
 
+/// Generates the JSON Schema of a transaction of the edit protocol from the Rust types,
+/// as a single document whose definitions hold every type.
+pub fn transaction_json_schema() -> serde_json::Value {
+    schemars::schema_for!(Transaction).to_value()
+}
+
 /// Generates the JSON Schema of the `.fig.json` format as one file per module of this
 /// crate, with paths relative to the output directory.
 ///
@@ -83,8 +97,10 @@ pub fn json_schema() -> serde_json::Value {
 /// the definitions of other modules by relative references. The files are written to
 /// `target/ironlab-schema/` by `cargo run -p ironlab-ir --bin generate-schema`.
 ///
-/// The root file, `figure.schema.json`, describes a figure document. Every other file
-/// is named `<module>.schema.json` and holds only definitions.
+/// Two files describe a document rather than only definitions: `figure.schema.json`
+/// describes a figure, and `edit.schema.json` describes a transaction of the edit
+/// protocol. Every other file is named `<module>.schema.json` and holds only
+/// definitions.
 ///
 /// # Panics
 ///
@@ -93,13 +109,19 @@ pub fn json_schema() -> serde_json::Value {
 pub fn json_schema_files() -> Vec<(PathBuf, String)> {
     use serde_json::{Map, Value};
 
-    /// The name of the root module, whose file also describes a figure document.
-    const ROOT: &str = "figure";
+    /// The module of the figure document, whose file also describes a figure.
+    const FIGURE: &str = "figure";
+
+    /// The module of the edit protocol, whose file also describes a transaction.
+    const EDIT: &str = "edit";
 
     /// Returns the module that declares the domain type of the given name.
     fn module_of(name: &str) -> &'static str {
         match name {
             "NodeId" | "DataId" => "ids",
+            // A property path has no wire message of its own: it is a string field of
+            // the edit messages.
+            "PropertyPath" => EDIT,
             _ => wire::schema::module_declaring(name)
                 .unwrap_or_else(|| panic!("the JSON Schema definition {name} has no module")),
         }
@@ -131,31 +153,46 @@ pub fn json_schema_files() -> Vec<(PathBuf, String)> {
         }
     }
 
-    let mut root = json_schema();
-    let object = root
-        .as_object_mut()
-        .expect("the root of a JSON Schema is an object");
-    let definitions = match object.remove("$defs") {
-        Some(Value::Object(definitions)) => definitions,
-        _ => Map::new(),
-    };
-    let dialect = object.get("$schema").cloned();
+    /// Takes the definitions out of a root document, leaving the document that
+    /// describes its own type.
+    fn split_definitions(root: &mut Value) -> Map<String, Value> {
+        let object = root
+            .as_object_mut()
+            .expect("the root of a JSON Schema is an object");
+        match object.remove("$defs") {
+            Some(Value::Object(definitions)) => definitions,
+            _ => Map::new(),
+        }
+    }
+
+    let mut roots = std::collections::BTreeMap::from([
+        (FIGURE, json_schema()),
+        (EDIT, transaction_json_schema()),
+    ]);
+    let dialect = roots[FIGURE].get("$schema").cloned();
+
+    // The two roots describe overlapping sets of types, which schemars generates
+    // identically, so the definitions of both are collected into one set.
+    let mut definitions = Map::new();
+    for root in roots.values_mut() {
+        definitions.extend(split_definitions(root));
+    }
 
     let mut modules: std::collections::BTreeMap<&'static str, Map<String, Value>> =
-        std::collections::BTreeMap::from([(ROOT, Map::new())]);
+        roots.keys().map(|module| (*module, Map::new())).collect();
     for (name, mut definition) in definitions {
         let module = module_of(&name);
         relocate_refs(&mut definition, module);
         modules.entry(module).or_default().insert(name, definition);
     }
-    relocate_refs(&mut root, ROOT);
+    for (module, root) in roots.iter_mut() {
+        relocate_refs(root, module);
+    }
 
     modules
         .into_iter()
         .map(|(module, definitions)| {
-            let mut document = if module == ROOT {
-                std::mem::take(&mut root)
-            } else {
+            let mut document = roots.remove(module).unwrap_or_else(|| {
                 let mut document = Map::new();
                 if let Some(dialect) = &dialect {
                     document.insert("$schema".to_owned(), dialect.clone());
@@ -165,7 +202,7 @@ pub fn json_schema_files() -> Vec<(PathBuf, String)> {
                     Value::String(format!("The definitions of the {module} module")),
                 );
                 Value::Object(document)
-            };
+            });
             document
                 .as_object_mut()
                 .expect("a schema document is an object")

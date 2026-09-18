@@ -1,17 +1,19 @@
 //! Errors raised by operations on the figure IR.
 
+use crate::edit::EditError;
 use crate::ids::NodeId;
 
 /// An error raised by an operation on the figure IR.
 #[derive(Debug, thiserror::Error)]
 pub enum IrError {
-    /// The JSON text could not be parsed or does not describe a figure.
-    #[error("invalid figure JSON: {0}")]
+    /// The JSON text could not be parsed, or does not describe the figure or the
+    /// transaction that was expected.
+    #[error("invalid JSON: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// The bytes could not be decoded as a Protocol Buffers figure (the `.fig`
-    /// format), or they hold a value that the figure schema does not allow.
-    #[error("invalid figure protobuf: {0}")]
+    /// The bytes could not be decoded as a Protocol Buffers figure (the `.fig` format)
+    /// or transaction, or they hold a value that the schema does not allow.
+    #[error("invalid protobuf: {0}")]
     Protobuf(#[from] ProtobufError),
 
     /// The file declares a schema version whose major or minor component differs
@@ -41,6 +43,10 @@ pub enum IrError {
     #[error("invalid colour {0:?}; expected #rrggbb or #rrggbbaa")]
     InvalidColor(String),
 
+    /// A transaction could not be applied to the figure; the figure is unchanged.
+    #[error(transparent)]
+    Edit(#[from] EditError),
+
     /// The number of values does not equal the product of the array's shape.
     #[error("array of {len} values does not match shape {shape:?}")]
     InvalidShape {
@@ -51,18 +57,19 @@ pub enum IrError {
     },
 }
 
-/// The reason why bytes could not be decoded as a Protocol Buffers figure.
+/// The reason why bytes could not be decoded as a Protocol Buffers figure or
+/// transaction.
 #[derive(Debug, thiserror::Error)]
 pub enum ProtobufError {
-    /// The bytes are not a valid Protocol Buffers encoding of a figure message, for
-    /// example because they are truncated inside a field.
+    /// The bytes are not a valid Protocol Buffers encoding of the message, for example
+    /// because they are truncated inside a field.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
 
     /// An enum field holds a value that this build does not define.
     #[error("{field} has the unknown enum value {value}")]
     UnknownEnumValue {
-        /// The path of the field within the figure, such as `axes[0].x.scale`.
+        /// The path of the field within the message, such as `axes[0].x.scale`.
         field: String,
         /// The value found.
         value: i32,
@@ -73,7 +80,8 @@ pub enum ProtobufError {
     /// reference to a data array.
     #[error("{field} is required but absent or unspecified")]
     MissingField {
-        /// The path of the field within the figure, such as `axes[0].artists[1].kind`.
+        /// The path of the field within the message, such as
+        /// `axes[0].artists[1].kind`.
         field: String,
     },
 
@@ -81,7 +89,7 @@ pub enum ProtobufError {
     /// dimension larger than the address space.
     #[error("{field} has an unrepresentable value: {reason}")]
     InvalidValue {
-        /// The path of the field within the figure.
+        /// The path of the field within the message.
         field: String,
         /// Why the value cannot be represented.
         reason: String,

@@ -197,11 +197,13 @@ fig.link(Dim::X, &[left, right])?;
 
 `link` returns an error if an identifier is not an axes of the figure. Linking axes that already belong to a group for the same dimension merges the groups, so `link(Dim::X, &[a, b])` followed by `link(Dim::X, &[b, c])` links `a`, `b` and `c` together. When a group is formed, every member takes the limits of the first axes given.
 
+Linking also returns an error when a member cannot show the limits it would take, as a logarithmic axis cannot show a range that reaches zero. Axes that cannot share limits cannot be linked, so the whole call is refused and the figure keeps the links and the limits it had, rather than leaving a group that is linked in name only. Setting limits on a linked axes is refused for the same reason when any member of its group cannot show them.
+
 Two shortcuts link every axes of the figure, as MATLAB's `linkaxes(ax, 'x')` and `linkaxes(ax, 'y')` do:
 
 ```rust
-fig.link_all_x();
-fig.link_all_y();
+fig.link_all_x()?;
+fig.link_all_y()?;
 ```
 
 These link only the axes that exist when they are called, so they are called after every axes has been created. `fig.link_all(Dim::Z)` links the z limits of every axes. The [linked subplots](../gallery/subplots_linked.md) gallery entry shows rows, columns and arbitrary pairs linked in one figure.
@@ -264,7 +266,7 @@ let fig = Figure::load("pressure.fig.json")?;
 
 Extensions are matched without regard to case. Any other extension, or none, makes `save` and `load` fail with `Error::UnsupportedFormat`, without writing or reading a file. `save_json` and `load_json` write and read JSON whatever the extension, and `to_protobuf` and `from_protobuf` convert a figure to and from the bytes of a `.fig` file, for example to send it to another process.
 
-A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
+A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. The viewer writes the same two formats, in the same way, with its [Save figure…](viewer.md#saving-the-figure) button. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
 
 ## Exporting PDF
 

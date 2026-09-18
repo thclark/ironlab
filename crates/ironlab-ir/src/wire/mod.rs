@@ -87,7 +87,15 @@
 //!   coordinate arrays), and the data of per-point scatter sizes and colours. Zero is a
 //!   valid identifier, so substituting it would silently attach an artist to the wrong
 //!   data;
-//! - the bounds of manual limits and the factor of a quiver scale.
+//! - the bounds of manual limits and the factor of a quiver scale;
+//! - in a transaction (`edit.proto`), the kind of an edit, of a node and of a value, the
+//!   identifiers that an edit names, the value of a set, the node of an insertion, the
+//!   array of a data edit, and the value held by a value message (an unspecified enum
+//!   value included), because an edit has no context from which a default could be
+//!   taken. The path of a set is a string without presence, so an absent path is the
+//!   empty path, which is reported as
+//!   [`ProtobufError::InvalidValue`](crate::ProtobufError::InvalidValue) like any other
+//!   path that is not valid.
 //!
 //! Optional references (the z data of a line, scatter or quiver, the w data of a
 //! quiver and the colour data of a surface) are absent in the domain when they are
@@ -401,6 +409,7 @@ pub(crate) mod schema;
 mod artist;
 mod axes;
 mod data;
+mod edit;
 mod figure;
 mod link;
 mod style;
@@ -409,6 +418,7 @@ mod text;
 pub use artist::*;
 pub use axes::*;
 pub use data::*;
+pub use edit::*;
 pub use figure::*;
 pub use link::*;
 pub use style::*;
@@ -460,4 +470,5 @@ pub(crate) const FILES: &[schema::FileDef] = &[
     text::FILE,
     data::FILE,
     link::FILE,
+    edit::FILE,
 ];

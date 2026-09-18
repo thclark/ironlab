@@ -151,7 +151,7 @@ fn link_all_links_every_axes_on_one_dimension() {
         .map(|&id| limits_of(&fig, id, Dimension::X))
         .collect();
 
-    fig.link_all(Dimension::Y);
+    fig.link_all(Dimension::Y).unwrap();
 
     for &id in &ids {
         assert_eq!(fig.linked_axes(id, Dimension::Y), ids);
@@ -176,7 +176,7 @@ fn link_all_links_every_axes_on_one_dimension() {
 fn link_all_absorbs_existing_groups() {
     let (mut fig, ids) = row_of_axes(3);
     fig.link(Dimension::Y, &[ids[1], ids[2]]).unwrap();
-    fig.link_all(Dimension::Y);
+    fig.link_all(Dimension::Y).unwrap();
     let y_groups = fig
         .links
         .iter()
@@ -339,10 +339,10 @@ fn linking_fewer_than_two_distinct_axes_changes_nothing() {
 
     // The "share all x" shortcut on a figure with a single axes or none has no partner.
     let (mut single, _) = row_of_axes(1);
-    single.link_all(Dimension::X);
+    single.link_all(Dimension::X).unwrap();
     assert!(single.links.is_empty(), "{:?}", single.links);
     let mut empty = Figure::new();
-    empty.link_all(Dimension::X);
+    empty.link_all(Dimension::X).unwrap();
     assert!(empty.links.is_empty(), "{:?}", empty.links);
 }
 

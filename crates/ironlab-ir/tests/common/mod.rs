@@ -6,9 +6,35 @@
 
 #![allow(dead_code)]
 
+pub mod edits;
+
 use std::collections::BTreeMap;
 
 use ironlab_ir::*;
+
+/// The fields of the wire schema whose IR values may be absent (an optional title, label,
+/// legend, display name or coordinate array), by full Protocol Buffers name.
+///
+/// The list is written by hand, independently of the encoder and of the property
+/// registry, so that the tests that use it check those against the IR rather than against
+/// themselves.
+pub const OPTIONAL_IN_IR: [&str; 15] = [
+    "ironlab.ir.v0.Figure.title",
+    "ironlab.ir.v0.Axes.title",
+    "ironlab.ir.v0.Axes.legend",
+    "ironlab.ir.v0.Axis.label",
+    "ironlab.ir.v0.Line.display_name",
+    "ironlab.ir.v0.Line.z",
+    "ironlab.ir.v0.Scatter.display_name",
+    "ironlab.ir.v0.Scatter.z",
+    "ironlab.ir.v0.Contour.display_name",
+    "ironlab.ir.v0.ContourPlacementPlane.z",
+    "ironlab.ir.v0.Quiver.display_name",
+    "ironlab.ir.v0.Quiver.z",
+    "ironlab.ir.v0.Quiver.w",
+    "ironlab.ir.v0.Surface.display_name",
+    "ironlab.ir.v0.Surface.c",
+];
 
 /// Builds figures with explicitly numbered nodes and data arrays.
 pub struct FigureBuilder {

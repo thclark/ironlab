@@ -12,7 +12,7 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 | `ironlab-text` | Text: the bundled STIX Two fonts, shaping of plain text with HarfRust, typesetting of LaTeX mathematics with latex-rust, the memo of resolved text layouts, and the cache of glyph outlines. |
 | `ironlab-scene` | The scene compiler: layout of tiles, axes, titles, labels and legends; tick generation; automatic limits; colormaps; contour extraction; quiver scaling; three-dimensional projection and depth sorting. Its output is a display list and a hit map. |
 | `ironlab-pdf` | The PDF backend: draws a display list onto a single PDF page with krilla, embedding subset fonts and real text. |
-| `ironlab-viewer` | The interactive viewer: an eframe application with one tab per figure, a toolbar, the canvas that draws a display list as egui meshes, the interaction state machine, an offscreen renderer that draws a figure into an image without a window, and the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
+| `ironlab-viewer` | The interactive viewer: an eframe application with one tab per figure, a toolbar, the canvas that draws a display list as egui meshes, the interaction state machine, the property editor, an offscreen renderer that draws a figure into an image without a window, and the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
 | `ironlab` | The facade: the MATLAB-flavoured builder API, and the `show`, `save`, `load` and `export_pdf` operations described in [getting started](../guides/getting-started.md). |
 | `ironlab-gallery` | The example figures, each written against the facade API, and the `gallery` binary that views them, exports them and generates the documentation [gallery](../gallery/index.md). |
 
@@ -65,26 +65,36 @@ The hit map is the geometry that the viewer needs to relate a pointer position t
 - The **offscreen renderer** draws the same meshes into a texture without a window and reads the image back. The documentation gallery's images are made this way, so they show exactly what the viewer shows.
 - The **PDF backend** writes each path and glyph run to a single page whose MediaBox and CropBox equal the figure size, with fonts embedded as subsets. The decisions behind PDF-first export are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
 
-## Interaction mutates the model
+## Interaction records edits in an overlay
 
-The viewer has no view state of its own that affects drawing. Each gesture is converted into an edit of the figure model, in the same way that setting a property from the API edits it:
+The viewer has no view state of its own that affects drawing. Each gesture is converted into a transaction of typed edits of the figure model, in the same way that setting a property from the API edits it:
 
 - panning and zooming a two-dimensional axes set its axis limits to manual values;
-- panning, zooming and rotating a three-dimensional axes change its `view3d`;
-- clicking a legend entry toggles the `visible` flag of an artist.
+- panning, zooming and rotating a three-dimensional axes set the properties of its `projection.view3d`;
+- clicking a legend entry sets the `visible` property of an artist;
+- changing a property in the property editor sets that property.
 
-Limit changes go through the same linking logic as the API, so linked axes follow. After an edit, the scene is recompiled and redrawn, and the next gesture is hit-tested against the new geometry. Each tab keeps the figure as it was opened (the snapshot), from which Reset view and double-click restore limits and views.
+Limits are set with the `set_limits` command, which reads the figure and returns the limits of every axes of the link group as literal edits, so linked axes follow without the viewer implementing the rule. An axes of the group that cannot show the limits makes the transaction fail, and the figure is left unchanged.
 
-Because the model is the only state, exporting from the viewer exports what is on screen, and the interaction logic is pure code with no GPU or window, which is tested directly. This design is recorded in [ADR 0006](../adrs/0006-interaction-mutates-the-ir.md), and its behaviour from the user's side is described in [using the viewer](../guides/viewer.md).
+A tab holds the figure as its owner defines it (the source, which for the viewer is the figure as opened or as last saved) and the user's edits (the overlay), and draws their composition, which is recomputed whenever either changes. A gesture therefore never mutates the source: undo and redo step through the overlay, double-click and Reset view discard the view entries of the overlay, and saving folds the overlay into the source. An overlay entry that the source cannot accept is dropped when the composition is made, and the reason is shown by the problems indicator.
+
+The property editor is the first part of the viewer that is not a gesture, and it uses the same path. Its contents come from the property registry of `ironlab-ir`, which lists every settable path of each kind of node with its type and documentation, and from the choices of each value type, which give the variants of a tagged value and the values of an enumeration ready to be set. Which of those choices mean anything at a given property of a given node is also answered by `ironlab-ir`, because it is a fact about the semantics of the model rather than about the interface: a colormapped colour is offered only where the model holds a value to index the colormap by. What the editor shows and what a change commits are built in a module of pure logic, as gestures are, so the panel itself only draws. A change it cannot apply is refused before it is recorded, so the figure is left unchanged and no undo step is spent; one property of the overlay is taken back by reverting exactly that entry, and the whole overlay, with its history, by clearing it.
+
+The editor changes the properties of the nodes a figure has, and leaves its structure and its data to the program that builds the figure; such properties are shown read-only with the reason. Everything the viewer has to report — the scene's warnings, the overlay entries that composition discarded and the changes the model refused — is carried as one kind of value, which the problems indicator lists with the node, the property and the origin of each.
+
+Because the composed figure is the only state that drawing depends on, exporting and saving from the viewer write what is on screen, and the interaction logic is pure code with no GPU or window, which is tested directly. This design is recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md), and its behaviour from the user's side is described in [using the viewer](../guides/viewer.md).
 
 ```text
- pointer input ──▶ interaction::FigureState ──edits──▶ Figure (current)
-                          ▲                               │
-                          │ hit map                       ▼
+ pointer input ──▶ interaction::FigureState ──sets──▶ Overlay
+                          ▲                             │
+                          │                             ▼
+                          │             Figure (source) + overlay = displayed figure
+                          │ hit map                     │
                           └──────────── Scene ◀── ironlab-scene::compile
                                           │
                                           ├──▶ canvas (redraw)
-                                          └──▶ ironlab-pdf (Export PDF…)
+                                          ├──▶ ironlab-pdf (Export PDF…)
+                                          └──▶ .fig or .json (Save figure…)
 ```
 
 ## Text resolution
