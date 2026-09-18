@@ -33,14 +33,17 @@
 //!
 //! [`read_only_reason`] states the reason for each, which the panel shows, so that a
 //! read-only row is never a dead control with nothing to say for itself.
+//!
+//! A property that the figure ignores altogether is hidden instead of shown read-only,
+//! because there is nothing about it worth reading. [`is_shown`] decides that.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, Axes, Cell, Choice, DataId, Dimension, Edit, Figure, Limits, NodeId, NodeKind,
-    Parameter, Property, PropertyPath, Transaction, Value, ValueType, command, properties,
-    property_choices,
+    Parameter, Projection, Property, PropertyPath, Transaction, Value, ValueType, command,
+    properties, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -235,9 +238,10 @@ pub struct PropertyGroup {
 /// two-dimensional axes) and a property below an optional value that is absent (the
 /// content of a title that the node does not have) are left out rather than shown as
 /// errors; the value they hang from is still listed, so the user can set the variant or
-/// give the absent value one. A value that is only a container of other values is left
-/// out when those values are listed, because it has nothing to change of its own, and the
-/// values below a text or a colour are left out because their editor covers them.
+/// give the absent value one. A property that the figure ignores in the state the node is
+/// in is left out by [`is_shown`]. A value that is only a container of other values is
+/// left out when those values are listed, because it has nothing to change of its own,
+/// and the values below a text or a colour are left out because their editor covers them.
 ///
 /// A row is marked [`overridden`](PropertyRow::overridden) when the overlay holds an
 /// entry for exactly that node and path, which is what the panel marks and what its
@@ -257,6 +261,9 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
     let mut covered: Vec<PropertyPath> = Vec::new();
     let mut rows: Vec<PropertyRow> = Vec::new();
     for property in properties(kind) {
+        if !is_shown(figure, node, kind, &property.path) {
+            continue;
+        }
         if covered
             .iter()
             .any(|above| *above != property.path && above.contains(&property.path))
@@ -309,6 +316,29 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
         }
     }
     groups
+}
+
+/// Returns whether the panel shows a property of a node at all.
+///
+/// A property is hidden when the figure ignores it in the state the node is in, so that
+/// the panel never offers a control that changes nothing and says nothing. Most such
+/// properties cannot even be read: the camera of a two-dimensional axes belongs to a
+/// variant that is not set, and [`property_groups`] leaves it out for that reason alone.
+///
+/// The z axis of a two-dimensional axes is the one property that must be hidden by a rule
+/// of its own. An axes holds an x, a y and a z axis whatever its projection, so the label,
+/// the scale, the limits and the grid lines of the z axis can all be read and set, and a
+/// two-dimensional axes draws none of them. The rule therefore reads the projection of
+/// the node rather than the path alone. It is asked afresh for every frame the panel
+/// draws, so promoting an axes to three dimensions brings the rows back at once.
+#[must_use]
+pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPath) -> bool {
+    if kind != NodeKind::Axes || path.segments().first().is_none_or(|first| first != "z") {
+        return true;
+    }
+    figure
+        .axes(node)
+        .is_none_or(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
 }
 
 /// The reason the rows and columns of the figure's tile layout are not changed here.

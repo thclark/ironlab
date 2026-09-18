@@ -10,12 +10,14 @@ mod common;
 use common::*;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use ironlab_ir::{Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Value};
+use ironlab_ir::{
+    Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Projection, Value, View3d,
+};
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
 use ironlab_viewer::inspector::{
-    Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, property_groups,
-    read_only_reason, tree_rows,
+    Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, is_shown,
+    property_groups, read_only_reason, tree_rows,
 };
 use ironlab_viewer::panel::revert_all_label;
 use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
@@ -172,6 +174,62 @@ fn only_a_three_dimensional_axes_shows_the_properties_of_its_camera() {
         solid.contains(&"projection/view3d.azimuth_deg".to_owned()),
         "a 3D axes shows its camera: {solid:?}"
     );
+}
+
+// Why: a two-dimensional axes ignores its z axis altogether, so a label, a scale, limits
+// and grid lines shown for it would be controls that change nothing on screen. The rule
+// reads the projection rather than the path, so promoting the axes to three dimensions
+// must bring the rows back; otherwise the panel would be the one place a z axis could not
+// be set up.
+#[test]
+fn the_z_axis_is_shown_only_while_the_axes_is_three_dimensional() {
+    let mut state = state_with_artists();
+
+    let flat = row_paths(&groups_of(&state, FLAT));
+    assert!(
+        !flat.iter().any(|row| row.starts_with('z')),
+        "a 2D axes shows nothing of its z axis: {flat:?}"
+    );
+    assert!(
+        flat.contains(&"x/limits".to_owned()) && flat.contains(&"y/limits".to_owned()),
+        "the axes it does draw are still shown: {flat:?}"
+    );
+    for label in ["label", "scale", "limits", "grid"] {
+        assert!(
+            !is_shown(
+                state.figure(),
+                FLAT,
+                NodeKind::Axes,
+                &path(&format!("z.{label}"))
+            ),
+            "z.{label} is hidden while the axes is two-dimensional"
+        );
+    }
+
+    let solid = row_paths(&groups_of(&state, SOLID));
+    for row in ["z/label", "z/scale", "z/limits", "z/limits.min", "z/grid"] {
+        assert!(
+            solid.contains(&(*row).to_owned()),
+            "a 3D axes shows {row}: {solid:?}"
+        );
+    }
+
+    // Promoting the flat axes must reveal exactly the rows that were hidden, because the
+    // rule is asked afresh for every frame rather than fixed when the figure was opened.
+    assert!(state.try_record(&set(
+        FLAT.0,
+        "projection",
+        Value::Projection(Projection::ThreeD {
+            view3d: View3d::default()
+        })
+    )));
+    let promoted = row_paths(&groups_of(&state, FLAT));
+    for row in ["z/label", "z/scale", "z/limits", "z/grid"] {
+        assert!(
+            promoted.contains(&(*row).to_owned()),
+            "promoting the axes shows {row}: {promoted:?}"
+        );
+    }
 }
 
 // Why: a property below a variant that is not set, or below an optional value that is

@@ -109,7 +109,7 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 | `cell` | object | The block of tiles occupied: `row` and `col` of the top-left tile, counted from zero at the top-left of the figure, and `row_span` and `col_span`, each at least one. |
 | `projection` | Projection | Whether the axes is two- or three-dimensional. |
 | `title` | Text or `null` | The title drawn above the axes. |
-| `x`, `y`, `z` | Axis | The coordinate axes. In a two-dimensional axes, `z` is ignored. |
+| `x`, `y`, `z` | Axis | The coordinate axes. In a two-dimensional axes, `z` is ignored, and the property editor hides it until the axes is made three-dimensional. |
 | `box` | boolean | Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels. The default is `true`. |
 | `colormap` | string | The colormap used by colormapped colours: `viridis` (the default), `cividis`, `magma`, `inferno`, `plasma`, `coolwarm` or `gray`. |
 | `clim` | Limits | The data values mapped to the first and last colours of the colormap. Automatic colour limits are the exact range of the axes' colour data. |
