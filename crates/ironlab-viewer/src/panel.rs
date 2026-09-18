@@ -43,7 +43,29 @@ pub const OBJECT_TREE_ID: &str = "ironlab_object_tree";
 pub const FOOTER_ID: &str = "ironlab_panel_footer";
 
 /// The width of the column of property names, in egui points.
-const LABEL_WIDTH: f32 = 96.0;
+///
+/// Every name is drawn within this column and every control begins where it ends, so that
+/// the controls of a node form one column down the panel however deeply the properties
+/// they belong to are nested.
+const NAME_WIDTH: f32 = 104.0;
+
+/// The width of the column at the right of every property row, in egui points, which
+/// holds the control that takes back a change to that property.
+///
+/// The column is the same width on every row, whether or not the row is overridden, so
+/// that a control never shifts sideways when the property it edits becomes overridden and
+/// the revert controls stand in a column of their own.
+const REVERT_WIDTH: f32 = 24.0;
+
+/// The least width the column of controls keeps, in egui points, when the panel is too
+/// narrow to give every column its share. The room a narrow panel needs is taken from the
+/// controls, which are still the same controls in less room, rather than from the names,
+/// which are what make a row findable at all.
+const CONTROL_MIN_WIDTH: f32 = 56.0;
+
+/// The least width a property name is drawn in, in egui points, however deeply it is
+/// nested.
+const NAME_MIN_WIDTH: f32 = 32.0;
 
 /// The height the object tree is given when the panel is first opened, in egui points.
 const TREE_HEIGHT: f32 = 180.0;
@@ -61,8 +83,9 @@ const INSPECTOR_MIN_HEIGHT: f32 = 120.0;
 /// The room left above and below the control in the foot of the panel, in egui points.
 const FOOTER_PADDING: f32 = 4.0;
 
-/// The indent of each level of nesting, in egui points.
-const INDENT: f32 = 10.0;
+/// The indent of each level of nesting, in egui points. It is wide enough that the level
+/// a property belongs to can be seen without comparing it with the row above.
+const INDENT: f32 = 16.0;
 
 /// The state of the property editor that belongs to the panel rather than to the figure.
 #[derive(Clone, Debug, Default)]
@@ -337,9 +360,12 @@ fn property_group(
 ) -> bool {
     ui.add_space(4.0);
     // A group whose own value is a row is named by that row; one that is only a
-    // container (an axis, a line style) is named by a heading of its own.
+    // container (an axis, a line style) is named by a heading of its own. The heading is
+    // drawn at the size of the body text, because it is read as much as the rows are,
+    // and at the left edge of the rows, where a property that belongs to no group is
+    // drawn, so that the properties it gathers are visibly indented beneath it.
     if group.rows.first().is_none_or(|row| !row.label.is_empty()) {
-        ui.label(egui::RichText::new(&group.name).strong().small());
+        ui.label(egui::RichText::new(&group.name).strong());
     }
     let mut changed = false;
     for row in &group.rows {
@@ -349,6 +375,13 @@ fn property_group(
 }
 
 /// Draws one property, and returns whether the figure changed.
+///
+/// Every row is laid out in the same three columns, so that the panel can be read down
+/// them: the name of the property at the left, indented by how deeply the property is
+/// nested; the control at the right of the column between them, so that the controls of a
+/// node line up with one another; and the control that takes back a change to the
+/// property in a column of its own at the right, which is reserved whether or not this
+/// row is overridden.
 fn property_row(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
@@ -363,10 +396,21 @@ fn property_row(
         row.label.clone()
     };
     if matches!(row.editor, Editor::Parameters) {
+        // The parameters are edited in a table of their own below the row that names
+        // them, which is too wide for the column of controls. The row itself keeps the
+        // columns of every other row, so that the control that takes the parameters back
+        // stands where every other revert control stands.
         let mut changed = ui
             .horizontal(|ui| {
-                name_label(ui, row, &name, 0.0);
-                row.overridden && revert_button(ui, state, node, &row.path, &name)
+                let room = ui.available_width();
+                name_column(ui, row, &name, 0.0);
+                column(
+                    ui,
+                    control_width(ui, room),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |_| (),
+                );
+                revert_column(ui, state, node, row, &name)
             })
             .inner;
         changed |= parameters_editor(ui, panel, state);
@@ -374,75 +418,117 @@ fn property_row(
     }
     ui.horizontal(|ui| {
         let indent = INDENT * row.depth as f32;
-        ui.add_space(indent);
-        let mut changed = if row.value == Value::Unset {
-            unset_row(ui, state, node, row, &name, indent)
-        } else {
-            match &row.editor {
-                Editor::Bool => bool_row(ui, panel, state, node, row, &name),
-                Editor::Number {
-                    speed,
-                    range,
-                    integer,
-                } => {
-                    name_label(ui, row, &name, indent);
-                    number_row(ui, panel, state, node, row, *speed, *range, *integer)
+        let room = ui.available_width();
+        name_column(ui, row, &name, indent);
+        let mut changed = column(
+            ui,
+            control_width(ui, room),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                if row.value == Value::Unset {
+                    return unset_control(ui, state, node, row, &name);
                 }
-                Editor::Choice { offered } => {
-                    name_label(ui, row, &name, indent);
-                    choice_row(ui, state, node, row, offered)
+                match &row.editor {
+                    Editor::Bool => bool_control(ui, panel, state, node, row, &name),
+                    Editor::Number {
+                        speed,
+                        range,
+                        integer,
+                    } => number_control(ui, panel, state, node, row, *speed, *range, *integer),
+                    Editor::Choice { offered } => choice_control(ui, state, node, row, offered),
+                    Editor::Color => color_control(ui, panel, state, node, row),
+                    Editor::Text | Editor::RichText => text_control(ui, panel, state, node, row),
+                    Editor::Numbers => numbers_control(ui, panel, state, node, row),
+                    Editor::Data { shape } => {
+                        data_control(ui, row, shape.as_deref());
+                        false
+                    }
+                    Editor::ReadOnly { reason } => {
+                        read_only_control(ui, row, reason);
+                        false
+                    }
+                    Editor::Group | Editor::Parameters => false,
                 }
-                Editor::Color => {
-                    name_label(ui, row, &name, indent);
-                    color_row(ui, panel, state, node, row)
-                }
-                Editor::Text | Editor::RichText => {
-                    name_label(ui, row, &name, indent);
-                    text_row(ui, panel, state, node, row)
-                }
-                Editor::Numbers => {
-                    name_label(ui, row, &name, indent);
-                    numbers_row(ui, panel, state, node, row)
-                }
-                Editor::Data { shape } => {
-                    name_label(ui, row, &name, indent);
-                    data_row(ui, row, shape.as_deref());
-                    false
-                }
-                Editor::ReadOnly { reason } => {
-                    name_label(ui, row, &name, indent);
-                    read_only_row(ui, row, reason);
-                    false
-                }
-                Editor::Group | Editor::Parameters => {
-                    name_label(ui, row, &name, indent);
-                    false
-                }
-            }
-        };
-        if row.overridden {
-            changed |= revert_button(ui, state, node, &row.path, &name);
-        }
+            },
+        );
+        changed |= revert_column(ui, state, node, row, &name);
         changed
     })
     .inner
 }
 
-/// Draws the name of a property, in bold when the overlay overrides it, with its
-/// documentation as a tooltip.
-fn name_label(ui: &mut egui::Ui, row: &PropertyRow, name: &str, indent: f32) {
-    let mut text = egui::RichText::new(name);
-    if row.overridden {
-        text = text.strong();
+/// The width of the column of controls in a row that was given `room` points, which is
+/// what the names and the revert control leave. A panel too narrow to give every column
+/// its share takes the room from the controls rather than from the names.
+fn control_width(ui: &egui::Ui, room: f32) -> f32 {
+    let spacing = 2.0 * ui.spacing().item_spacing.x;
+    (room - NAME_WIDTH - REVERT_WIDTH - spacing).max(CONTROL_MIN_WIDTH)
+}
+
+/// Draws one column of a property row, `width` points wide, and leaves the cursor at the
+/// far edge of the column whatever the column holds, so that the next column of every row
+/// begins at the same place.
+///
+/// A control too wide for its column overflows towards the edge the column's layout
+/// starts from, which for the right-justified column of controls is its own right edge,
+/// so that even an overflowing control leaves the column beyond it where it was.
+fn column<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    layout: egui::Layout,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let start = ui.cursor().left();
+    let height = ui.spacing().interact_size.y;
+    let inner = ui
+        .allocate_ui_with_layout(egui::vec2(width, height), layout, add)
+        .inner;
+    let short = start + width + ui.spacing().item_spacing.x - ui.cursor().left();
+    if short > 0.0 {
+        ui.add_space(short);
     }
-    ui.add_sized(
-        [
-            (LABEL_WIDTH - indent).max(24.0),
-            ui.spacing().interact_size.y,
-        ],
-        egui::Label::new(text).truncate(),
+    inner
+}
+
+/// Draws the left column of a property row: the name of the property, justified to the
+/// left edge of the level it belongs to, in bold when the overlay overrides it, with its
+/// documentation as a tooltip.
+///
+/// The column is the same width whatever the indent, so that a nested property moves to
+/// the right without moving the control beside it.
+fn name_column(ui: &mut egui::Ui, row: &PropertyRow, name: &str, indent: f32) {
+    column(
+        ui,
+        NAME_WIDTH,
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.add_space(indent.min(NAME_WIDTH - NAME_MIN_WIDTH));
+            let mut text = egui::RichText::new(name);
+            if row.overridden {
+                text = text.strong();
+            }
+            ui.add(egui::Label::new(text).truncate())
+                .on_hover_text(row.docs);
+        },
+    );
+}
+
+/// Draws the right-hand column of a property row, which holds the control that takes back
+/// the user's change to the property when there is one to take back, and is left empty
+/// but reserved when there is not.
+fn revert_column(
+    ui: &mut egui::Ui,
+    state: &mut FigureState,
+    node: NodeId,
+    row: &PropertyRow,
+    name: &str,
+) -> bool {
+    column(
+        ui,
+        REVERT_WIDTH,
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| row.overridden && revert_button(ui, state, node, &row.path, name),
     )
-    .on_hover_text(row.docs);
 }
 
 /// Draws the control that takes back the user's change to one property.
@@ -471,7 +557,12 @@ fn set(state: &mut FigureState, node: NodeId, path: &PropertyPath, value: Value)
     state.try_record(&transaction)
 }
 
-fn bool_row(
+/// Draws the control of a boolean property: a checkbox with no label of its own, so that
+/// it stands in the column of controls with the numeric fields and combo boxes rather
+/// than at the left of its row. The name of the property it changes is given to the
+/// accessibility tree in its place, so that the control is still named where it is read
+/// rather than seen.
+fn bool_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
@@ -483,17 +574,19 @@ fn bool_row(
         return false;
     };
     let mut flag = current;
-    let mut text = egui::RichText::new(name);
-    if row.overridden {
-        text = text.strong();
-    }
-    let response = ui.checkbox(&mut flag, text).on_hover_text(row.docs);
+    let enabled = ui.is_enabled();
+    let response = ui.checkbox(&mut flag, "");
+    let label = name.to_owned();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, flag, label.clone())
+    });
+    let response = response.on_hover_text(row.docs);
     panel.hold(state, response.id, response.has_focus());
     response.changed() && set(state, node, &row.path, Value::Bool(flag))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn number_row(
+fn number_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
@@ -532,7 +625,7 @@ fn number_row(
     set(state, node, &row.path, value)
 }
 
-fn choice_row(
+fn choice_control(
     ui: &mut egui::Ui,
     state: &mut FigureState,
     node: NodeId,
@@ -569,7 +662,7 @@ fn choice_row(
     }
 }
 
-fn color_row(
+fn color_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
@@ -591,7 +684,12 @@ fn color_row(
     chosen != current && set(state, node, &row.path, Value::Color(chosen))
 }
 
-fn text_row(
+/// Draws the control of a text property: the source, and for a rich text the interpreter
+/// that reads it.
+///
+/// The column of controls is filled from its right edge, so the interpreter is drawn
+/// before the field it belongs to and the field takes whatever room is left.
+fn text_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
@@ -603,35 +701,17 @@ fn text_row(
         Value::String(text) => (text.clone(), None),
         _ => return false,
     };
-    let response = ui
-        .add(
-            egui::TextEdit::singleline(&mut content)
-                .desired_width(110.0)
-                .hint_text("empty"),
-        )
-        .on_hover_text(row.docs);
-    panel.hold(state, response.id, response.has_focus());
     let mut changed = false;
-    if response.changed() {
-        let value = match interpreter {
-            Some(interpreter) => Value::Text(Text {
-                content: content.clone(),
-                interpreter,
-            }),
-            None => Value::String(content.clone()),
-        };
-        changed |= set(state, node, &row.path, value);
-    }
+    let mut chosen = None;
     if let Some(interpreter) = interpreter {
         let offered = choices(ValueType::Interpreter, None);
         let current = offered
             .iter()
             .find(|choice| choice.matches(&Value::Interpreter(interpreter)))
             .map_or("…", |choice| choice.label);
-        let mut chosen = None;
         egui::ComboBox::from_id_salt(("ironlab_interpreter", row.path.to_string()))
             .selected_text(current)
-            .width(72.0)
+            .width(64.0)
             .show_ui(ui, |ui| {
                 for choice in &offered {
                     if ui
@@ -643,24 +723,42 @@ fn text_row(
                     }
                 }
             });
-        if let Some(picked) = chosen
-            && picked != interpreter
-        {
-            changed |= set(
-                state,
-                node,
-                &row.path,
-                Value::Text(Text {
-                    content,
-                    interpreter: picked,
-                }),
-            );
-        }
+    }
+    let response = ui
+        .add(
+            egui::TextEdit::singleline(&mut content)
+                .desired_width(ui.available_width())
+                .hint_text("empty"),
+        )
+        .on_hover_text(row.docs);
+    panel.hold(state, response.id, response.has_focus());
+    if response.changed() {
+        let value = match interpreter {
+            Some(interpreter) => Value::Text(Text {
+                content: content.clone(),
+                interpreter,
+            }),
+            None => Value::String(content.clone()),
+        };
+        changed |= set(state, node, &row.path, value);
+    }
+    if let Some(picked) = chosen
+        && Some(picked) != interpreter
+    {
+        changed |= set(
+            state,
+            node,
+            &row.path,
+            Value::Text(Text {
+                content,
+                interpreter: picked,
+            }),
+        );
     }
     changed
 }
 
-fn numbers_row(
+fn numbers_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
@@ -676,7 +774,7 @@ fn numbers_row(
         .collect::<Vec<String>>()
         .join(", ");
     let response = ui
-        .add(egui::TextEdit::singleline(&mut text).desired_width(130.0))
+        .add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()))
         .on_hover_text(format!("{} Separate the numbers with commas.", row.docs));
     panel.hold(state, response.id, response.has_focus());
     if !response.changed() {
@@ -697,40 +795,44 @@ fn numbers_row(
 /// Draws a property that the panel shows but cannot change, with the reason it cannot as
 /// the tooltip of both the value and the lock beside it, so that the row says why rather
 /// than leaving a control that does nothing.
-fn read_only_row(ui: &mut egui::Ui, row: &PropertyRow, reason: &str) {
+///
+/// The column of controls is filled from its right edge, so the lock is drawn before the
+/// value it locks and the value takes whatever room is left.
+fn read_only_control(ui: &mut egui::Ui, row: &PropertyRow, reason: &str) {
     let hint = format!("{} {reason}", row.docs);
-    ui.label(egui::RichText::new(read_only_label(&row.value)).weak())
-        .on_hover_text(hint.clone());
     ui.label(egui::RichText::new("🔒").weak())
+        .on_hover_text(hint.clone());
+    ui.add(egui::Label::new(egui::RichText::new(read_only_label(&row.value)).weak()).truncate())
         .on_hover_text(hint);
 }
 
 /// Draws a reference to a data array, read-only, with the shape of what it refers to.
-fn data_row(ui: &mut egui::Ui, row: &PropertyRow, shape: Option<&[usize]>) {
+fn data_control(ui: &mut egui::Ui, row: &PropertyRow, shape: Option<&[usize]>) {
     let text = match &row.value {
         Value::DataId(id) => format!("{id} {}", shape_label(shape)),
         _ => shape_label(shape),
     };
-    ui.label(egui::RichText::new(text).weak()).on_hover_text(
-        "The data a plot draws comes from the program that builds the figure, which is \
-         where it is changed. The editor changes how the figure looks, not what it \
-         draws.",
-    );
+    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate())
+        .on_hover_text(
+            "The data a plot draws comes from the program that builds the figure, which \
+             is where it is changed. The editor changes how the figure looks, not what \
+             it draws.",
+        );
 }
 
 /// Draws an optional value that is absent, with a control that gives it the default of
 /// its type; a data reference has no default to give, so it is only reported.
-fn unset_row(
+///
+/// The column of controls is filled from its right edge, so the control that gives the
+/// value one is drawn before the word that says there is none.
+fn unset_control(
     ui: &mut egui::Ui,
     state: &mut FigureState,
     node: NodeId,
     row: &PropertyRow,
     name: &str,
-    indent: f32,
 ) -> bool {
-    name_label(ui, row, name, indent);
-    ui.label(egui::RichText::new("unset").weak());
-    match default_value(row.value_type) {
+    let changed = match default_value(row.value_type) {
         None => false,
         Some(value) => {
             ui.small_button("Set")
@@ -738,7 +840,9 @@ fn unset_row(
                 .clicked()
                 && set(state, node, &row.path, value)
         }
-    }
+    };
+    ui.label(egui::RichText::new("unset").weak());
+    changed
 }
 
 /// The value that an absent optional property is given when the user asks for one, or

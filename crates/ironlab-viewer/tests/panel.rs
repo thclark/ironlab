@@ -776,6 +776,16 @@ fn sized_panel_harness(
     )
 }
 
+/// The checkbox of the boolean property named `name`. The name is drawn beside the
+/// checkbox, in the left column of the row, so the accessibility tree holds it twice: as
+/// the label that is read and as the name of the control it names.
+fn checkbox<'t>(
+    harness: &'t Harness<'_, PanelHarnessState>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    harness.get_by_role_and_label(egui::accesskit::Role::CheckBox, name)
+}
+
 fn app_harness(figure: Figure) -> Harness<'static, ironlab_viewer::ViewerApp> {
     Harness::builder()
         .with_size(egui::vec2(900.0, 600.0))
@@ -875,7 +885,7 @@ fn toggling_a_checkbox_records_one_change_in_the_overlay_and_leaves_the_source_a
     let mut harness = panel_harness(figure_with_artists(), Some(LINE));
     harness.run();
 
-    harness.get_by_label("visible").click();
+    checkbox(&harness, "visible").click();
     harness.run();
 
     let state = &harness.state().figure;
@@ -913,7 +923,7 @@ fn a_revert_control_appears_only_for_a_changed_property_and_takes_it_back() {
         "an unchanged property has nothing to revert"
     );
 
-    harness.get_by_label("visible").click();
+    checkbox(&harness, "visible").click();
     harness.run();
     harness.get_by_label("Revert visible").click();
     harness.run();
@@ -1446,7 +1456,7 @@ fn the_revert_all_control_is_disabled_until_there_is_a_change() {
         "nothing has been changed yet"
     );
 
-    harness.get_by_label("visible").click();
+    checkbox(&harness, "visible").click();
     harness.run();
 
     assert!(harness.query_by_label(&revert_all_label(0)).is_none());
@@ -1464,7 +1474,7 @@ fn the_revert_all_control_is_disabled_until_there_is_a_change() {
 fn clicking_revert_all_in_the_panel_restores_the_figure_the_program_defined() {
     let mut harness = panel_harness(figure_with_artists(), Some(LINE));
     harness.run();
-    harness.get_by_label("visible").click();
+    checkbox(&harness, "visible").click();
     harness.run();
     let source = harness.state().figure.source().clone();
     assert_ne!(harness.state().figure.figure(), &source);
@@ -1600,7 +1610,7 @@ fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are()
         settle(&mut harness);
 
         let foot = part_rect(&harness, FOOTER_ID);
-        let row = harness.get_by_label("visible").rect();
+        let row = checkbox(&harness, "visible").rect();
         assert!(
             row.height() > 0.0 && row.max.y <= foot.min.y,
             "the row of the line's visibility is drawn whole, above the foot of the \
@@ -1611,7 +1621,7 @@ fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are()
             "the foot counts the {changes} changes while the row is reached"
         );
 
-        harness.get_by_label("visible").click();
+        checkbox(&harness, "visible").click();
         harness.run();
 
         let state = &harness.state().figure;
@@ -1649,7 +1659,7 @@ fn a_figure_of_many_axes_still_leaves_the_inspector_its_room() {
     let tree = part_rect(&harness, OBJECT_TREE_ID);
     let foot = part_rect(&harness, FOOTER_ID);
     let inspector = foot.min.y - tree.max.y;
-    let row = harness.get_by_label("visible").rect();
+    let row = checkbox(&harness, "visible").rect();
     assert!(
         row.min.y >= tree.max.y && row.max.y <= foot.min.y,
         "a property of the selected artist is drawn between the tree and the foot: the \
@@ -1686,7 +1696,7 @@ fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector(
 
     let tree = part_rect(&harness, OBJECT_TREE_ID);
     let foot = part_rect(&harness, FOOTER_ID);
-    let row = harness.get_by_label("visible").rect();
+    let row = checkbox(&harness, "visible").rect();
     assert!(
         tree.height() < TREE_HEIGHT,
         "the tree gave up part of its usual height: {} points",
@@ -1705,5 +1715,197 @@ fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector(
          {} points",
         foot.min.y - tree.max.y,
         row.height()
+    );
+}
+
+// ---------------------------------------------------------------------------------
+// The shape of a property row
+// ---------------------------------------------------------------------------------
+
+/// The rectangles of every widget the accessibility tree labels `label`, in the order it
+/// lists them, or a panic when it labels none.
+fn labelled_rects(harness: &Harness<'_, PanelHarnessState>, label: &str) -> Vec<egui::Rect> {
+    harness
+        .get_all_by_label(label)
+        .map(|node| node.rect())
+        .collect()
+}
+
+/// The rectangle of the name drawn in the left column of a property row, told apart by
+/// its role from the control of the same name that may stand beside it.
+fn name_rect(harness: &Harness<'_, PanelHarnessState>, label: &str) -> egui::Rect {
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Label, label)
+        .rect()
+}
+
+// Why: a property row is read across three columns — what the property is called, what it
+// is set to, and the control that takes back a change to it — and the panel is scanned
+// down those columns rather than along one row. A name that begins wherever the row
+// before it happened to end tells the reader nothing about what is nested under what, so
+// every name of one depth must begin at one left edge, and a nested property must begin
+// further right than the property it belongs to.
+#[test]
+fn every_property_name_of_one_depth_begins_at_the_same_left_edge() {
+    let mut harness = panel_harness(figure_with_artists(), Some(SOLID));
+    harness.run();
+
+    // The x, y and z axes of the selected axes each hold a scale and manual limits, so
+    // each of these names is drawn three times, once in each group.
+    let shallow = labelled_rects(&harness, "scale");
+    let deep = labelled_rects(&harness, "limits.min");
+    assert_eq!(shallow.len(), 3, "the three axes each name their scale");
+    assert_eq!(deep.len(), 3, "the three axes each name the lower bound");
+
+    let left = shallow[0].min.x;
+    for rect in &shallow {
+        assert!(
+            (rect.min.x - left).abs() < 0.5,
+            "every property of one depth begins at one left edge: {shallow:?}"
+        );
+    }
+    let nested = deep[0].min.x;
+    for rect in &deep {
+        assert!(
+            (rect.min.x - nested).abs() < 0.5,
+            "every nested property of one depth begins at one left edge: {deep:?}"
+        );
+    }
+    assert!(
+        nested > left + 8.0,
+        "a property nested below another begins visibly further right: {nested} against \
+         {left}"
+    );
+}
+
+// Why: the headings gather thirty-odd properties into the values they belong to, which is
+// the only structure the inspector has. A heading drawn smaller than the properties under
+// it is the hardest text in the panel to read and the least like a heading, and a heading
+// indented as though it were itself a property hides which rows belong to it. It must
+// therefore be read at the body size and sit at the left edge of the rows, with the
+// properties it gathers indented beneath it.
+#[test]
+fn a_group_heading_is_read_at_the_body_size_at_the_left_edge_of_the_rows() {
+    let mut harness = panel_harness(figure_with_artists(), Some(SOLID));
+    harness.run();
+
+    let heading = name_rect(&harness, "x");
+    let title = name_rect(&harness, "title");
+    let inspector = harness.get_by_label_contains("node 3").rect();
+    let inside = labelled_rects(&harness, "scale")[0];
+
+    assert!(
+        (heading.min.x - title.min.x).abs() < 0.5,
+        "a heading begins where a property that belongs to no group begins: the heading \
+         is {heading:?} and the property is {title:?}"
+    );
+    assert!(
+        inside.min.x > heading.min.x + 8.0,
+        "a property gathered under a heading is indented below it: {inside:?} under \
+         {heading:?}"
+    );
+    assert!(
+        (heading.height() - inspector.height()).abs() < 0.5,
+        "a heading is drawn at the size of the body text, as the heading of the \
+         inspector is: {} points against {} points",
+        heading.height(),
+        inspector.height()
+    );
+}
+
+// Why: the controls are compared with one another down the panel — which axis is
+// logarithmic, which plot is hidden — and a column of controls that begins at a different
+// place on every row cannot be compared at a glance. Every control therefore ends at one
+// right edge, whatever it is; a checkbox that carried its own label would sit at the left
+// of its row instead, breaking that column exactly where a property is easiest to change
+// by mistake.
+#[test]
+fn every_control_of_a_node_ends_at_one_right_edge_including_a_checkbox() {
+    let mut harness = panel_harness(figure_with_artists(), Some(LINE));
+    harness.run();
+
+    let control = checkbox(&harness, "visible").rect();
+    let numbers: Vec<egui::Rect> = harness
+        .get_all_by_role(egui::accesskit::Role::SpinButton)
+        .map(|node| node.rect())
+        .collect();
+    assert!(
+        !numbers.is_empty(),
+        "the line has numeric properties to line the checkbox up with"
+    );
+    for rect in &numbers {
+        assert!(
+            (rect.max.x - control.max.x).abs() < 1.0,
+            "the checkbox ends where the numeric controls end: the checkbox is \
+             {control:?} and the number is {rect:?}"
+        );
+    }
+    assert!(
+        control.min.x > name_rect(&harness, "visible").max.x,
+        "the checkbox is drawn in the control column, to the right of its name"
+    );
+}
+
+// Why: the control that takes back a change appears only on a row the user has changed.
+// If it took its room from the row when it appeared, every control above and below would
+// shift sideways the moment a property was edited, which is the moment the user is
+// reading them most closely. The column it occupies is therefore reserved on every row,
+// and the revert controls form a straight column of their own at the right.
+#[test]
+fn the_revert_column_is_reserved_so_a_control_stays_put_when_it_is_overridden() {
+    let mut harness = panel_harness(figure_with_artists(), Some(LINE));
+    harness.run();
+
+    let before = checkbox(&harness, "visible").rect();
+    assert!(
+        harness.query_by_label("Revert visible").is_none(),
+        "precondition: the property has not been changed yet"
+    );
+
+    checkbox(&harness, "visible").click();
+    harness.run();
+
+    let after = checkbox(&harness, "visible").rect();
+    assert!(
+        (after.min.x - before.min.x).abs() < 0.5 && (after.max.x - before.max.x).abs() < 0.5,
+        "the control did not move when the property became overridden: {before:?} then \
+         {after:?}"
+    );
+    let revert = harness.get_by_label("Revert visible").rect();
+    assert!(
+        revert.min.x >= after.max.x,
+        "the revert control sits in its own column to the right of every control: \
+         {revert:?} against {after:?}"
+    );
+}
+
+// Why: the panel can be dragged narrow, and the names are what make the rows findable at
+// all: a truncated name says nothing, while a control that has less room to draw itself
+// in is still the same control. The room must therefore come out of the controls.
+#[test]
+fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
+    let mut wide = sized_panel_harness(selected_state(figure_with_artists(), LINE), WINDOW);
+    let mut narrow = sized_panel_harness(
+        selected_state(figure_with_artists(), LINE),
+        egui::vec2(260.0, 700.0),
+    );
+    wide.run();
+    narrow.run();
+
+    let wide_name = name_rect(&wide, "visible");
+    let narrow_name = name_rect(&narrow, "visible");
+    let wide_control = checkbox(&wide, "visible").rect();
+    let narrow_control = checkbox(&narrow, "visible").rect();
+
+    assert!(
+        (narrow_name.width() - wide_name.width()).abs() < 0.5,
+        "the name column keeps its width in a narrow panel: {narrow_name:?} against \
+         {wide_name:?}"
+    );
+    assert!(
+        narrow_control.max.x - narrow_name.max.x < wide_control.max.x - wide_name.max.x,
+        "the control column is what gives way: {} points against {} points",
+        narrow_control.max.x - narrow_name.max.x,
+        wide_control.max.x - wide_name.max.x
     );
 }
