@@ -272,14 +272,15 @@ fn stylesheet_is_written_beside_the_gallery_directory() {
     assert!(GALLERY_CSS.contains(".card"));
 }
 
-/// WHY: the entry page shows a full-resolution image and the index a small thumbnail, so that the index stays light
-/// while each page is sharp; each asset must be rendered from its own figure at the right resolution.
+/// WHY: the entry page shows a full-resolution image and the index a thumbnail at a lower resolution that is still
+/// sharp at its displayed width, so that the index stays light while each page is sharp; each asset must be rendered
+/// from its own figure at the right resolution.
 #[test]
 fn assets_are_rendered_from_their_figure_at_the_configured_resolutions() {
     let renderer = FakeRenderer::default();
     let options = DocsOptions::new(&renderer);
-    assert_eq!((options.png_dpi, options.thumbnail_dpi), (150.0, 40.0));
-    assert_eq!((DEFAULT_PNG_DPI, DEFAULT_THUMBNAIL_DPI), (150.0, 40.0));
+    assert_eq!((options.png_dpi, options.thumbnail_dpi), (150.0, 120.0));
+    assert_eq!((DEFAULT_PNG_DPI, DEFAULT_THUMBNAIL_DPI), (150.0, 120.0));
 
     let out = generate_synthetic("docs-assets");
     for entry in synthetic_entries() {
@@ -292,7 +293,7 @@ fn assets_are_rendered_from_their_figure_at_the_configured_resolutions() {
         );
         assert_eq!(
             fs::read(out.join(format!("{slug}-thumb.png"))).unwrap(),
-            FakeRenderer::png_bytes(&figure, 40.0),
+            FakeRenderer::png_bytes(&figure, 120.0),
             "{slug}-thumb.png is not the thumbnail of its figure"
         );
         assert_eq!(
