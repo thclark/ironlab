@@ -1,4 +1,4 @@
-# ADR 0011: Colour scales are referenced table entries
+# ADR 0011: Colour scales are nodes that axes and artists refer to
 
 **Status:** Accepted
 
@@ -14,13 +14,13 @@ An axes currently holds its colormap and its colour limits as two inline propert
 
 A colorbar beside a filled contour must also be divided exactly as the contour is. Today a contour derives its levels from the range of its own field, which a colorbar cannot know, so the two can disagree.
 
-The [concept discussion](../background/concept-discussion.md) states that a colorbar is an IR node linked to a colormap and colour limits. Its intent, that a colorbar never holds a second copy of the mapping, is kept. The word "node" is not: a node in the IR has a `NodeId`, a parent, and a position in the drawing order, and neither a colour scale nor a colorbar has any of those.
+The [concept discussion](../background/concept-discussion.md) states that a colorbar is an IR node linked to a colormap and colour limits. Its intent, that a colorbar never holds a second copy of the mapping, is kept. A colour scale is such a node. A colorbar is not: it is a decoration of an axes, as a legend is, and holds nothing that could disagree with the scale it shows.
 
 ## Decision
 
-### A colour scale is an entry in a table of the figure
+### A colour scale is a node of the figure
 
-A `ColorScale` is stored once in `Figure::color_scales`, a map keyed by a new `ColorScaleId`, exactly as a data array is stored once in `Figure::data` and keyed by `DataId`. A colour scale is not a node. It has no place in the object tree, it cannot be selected, and it is created and removed by two edits, `PutColorScale` and `RemoveColorScale`, which mirror `PutData` and `RemoveData` of [ADR 0008](0008-typed-edits-and-a-view-overlay.md).
+A `ColorScale` is stored once in `Figure::color_scales`, a map keyed by `NodeId`, and is a node in its own right: it has an identifier drawn from the same space as those of the axes and the artists, a kind (`NodeKind::ColorScale`), and properties that are read and set at its own property paths. A scale is drawn nowhere and has no position in the drawing order, so it is not inserted, moved or removed by the structural edits of [ADR 0008](0008-typed-edits-and-a-view-overlay.md); it is created, replaced and removed by two edits, `PutColorScale` and `RemoveColorScale`, which mirror `PutData` and `RemoveData`. The viewer lists the colour scales of a figure in its object tree, where one is selected to be inspected, and a scale has no region on the canvas.
 
 ```rust
 pub struct ColorScale {
@@ -45,13 +45,13 @@ The three colours `below`, `above` and `missing` default to fully transparent fo
 
 ### Axes and artists refer to a scale by identifier
 
-An axes holds `color_scale: ColorScaleId`, which replaces its `colormap` and `clim` properties. The reference is mandatory, so that the colormap of an axes is always reachable by the property editor. Every artist holds `color_scale: Option<ColorScaleId>`, in which an absent value means the scale of the axes that holds the artist.
+An axes holds `color_scale: NodeId`, which replaces its `colormap` and `clim` properties, and an axes always names a scale. Every artist holds `color_scale: Option<NodeId>`, in which an absent value means the scale of the axes that holds the artist.
 
-Because a reference only ever points at a table entry and never at a node, removing an axes or an artist cannot leave a dangling colour-scale reference, and no removal needs to cascade. A reference that names no entry of the table is reported by validation as a warning, and the axes or artist is drawn through the default scale, because a default mapping always exists.
+Because references point from the axes and the artists to a scale and never the other way, removing an axes or an artist cannot leave a dangling reference, and no removal needs to cascade. A reference that names no colour scale of the figure is reported by validation as a warning, and the axes or artist is drawn through the default scale, because a default mapping always exists.
 
 The automatic colour limits of a scale are the range of the finite colour values of every artist of the figure that resolves to that scale. An artist with a scale of its own therefore takes its limits from its own data alone, and the automatic limits of an axes' scale come only from the artists that inherit it.
 
-The properties of a scale are edited through the node that refers to it. The property path `color_scale.colormap` of an axes reads and writes the colormap of the scale that the axes names, through a rule of the property registry that resolves a path through a reference. Which scale a node refers to is structure that the program builds, so the viewer shows the reference read-only, with the number of nodes that share the scale, in the same way as it shows a data reference.
+The properties of a scale are set on the scale and never through a node that refers to it. Setting the colour limits is `Set { node, path: "clim", value }`, in which `node` is the identifier of the scale, whichever axes and artists are drawn through it. An axes or an artist has the single property `color_scale`, which holds the reference and has no paths beneath it. A change to a scale therefore has one address, so an entry of the viewer's overlay and a transaction of the owner that change the same property of the same scale are compared by node and path exactly as for any other property, however many axes share the scale. Which scale a node refers to is structure that the program builds, so the viewer shows the reference read-only, in the same way as it shows a data reference.
 
 ### Discretisation belongs to the scale, and is called levels
 
@@ -119,7 +119,7 @@ On a continuous scale, automatic ticks are placed at round values within the col
 
 ## Alternatives considered
 
-- **A colour scale as a node.** The property editor is keyed by node kind, so a node would have been editable with no new mechanism. A node must, however, answer structural edits that ask for a parent and an index, appear at a depth of the object tree, and be hit-tested and selected, and a colour scale can answer none of these meaningfully.
+- **A colour scale that is not a node, edited through the axes or artist that refers to it.** A property path such as `color_scale.clim` of an axes would have resolved through the reference into a table of scales. One property of one shared scale would then have had as many addresses as nodes referring to it, so the overlay could not tell that a change by the owner through one axes and a change by the user through another were changes to the same value.
 - **A colour scale held inline by the axes and optionally by each artist.** This needs no table, but two artists or two axes could not share a scale, and a shared quantity would be named and limited in several places that could drift apart.
 - **A colorbar that names an artist.** The artist knows whether it is drawn in levels, but the reference would dangle when the artist is removed, so every removal would have to cascade, and the bar would imply that it describes one artist when it describes every artist drawn through the scale.
 - **A colorbar that surveys the artists of its axes to decide whether it is discretised.** Adding a second contour with different levels would silently change a discretised bar into a smooth one. Holding the levels on the scale gives the bar one reference and nothing to survey.
