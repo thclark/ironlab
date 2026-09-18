@@ -1,0 +1,19 @@
+name: semantic
+
+# The version represents the contents of a merge into main, so the check runs only on main-bound pull requests.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-semantic-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # All tags are needed for git-mkver to find the last release and calculate the expected version from it.
+          fetch-depth: 0
+      - uses: octue/check-semantic-version@1.1.0
+        with:
+          path: Cargo.toml
+          breaking_change_indicated_by: minor
