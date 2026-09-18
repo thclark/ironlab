@@ -343,3 +343,66 @@ pub fn figure_with_every_artist() -> Figure {
         ..Figure::new()
     }
 }
+
+/// A figure of many axes and many artists, for the tests of how the property editor
+/// divides its height when the object tree is long.
+///
+/// Six two-dimensional axes fill a layout of two rows and three columns. Each is titled,
+/// each holds four artists — two lines and two scatters, named so that a test can find
+/// one of them — and all of them draw the same two data arrays, so that the figure is
+/// valid and the object tree has thirty-one rows.
+pub fn figure_with_many_axes() -> Figure {
+    use ironlab_ir::{Artist, Cell, DataId, Line, NdArray, Scatter, Text, TileLayout};
+
+    let (x, y) = (DataId(0), DataId(1));
+    let data = std::collections::BTreeMap::from([
+        (x, NdArray::vector(vec![1.0, 2.0, 3.0])),
+        (y, NdArray::vector(vec![1.0, 4.0, 9.0])),
+    ]);
+    let mut next: u64 = 2;
+    let mut all = Vec::new();
+    for index in 0u32..6 {
+        let id = next;
+        next += 1;
+        let mut artists = Vec::new();
+        for plot in 0u32..4 {
+            let artist = NodeId(next);
+            next += 1;
+            let name = Text::plain(format!("Plot {index}.{plot}"));
+            artists.push(if plot.is_multiple_of(2) {
+                Artist::Line(Line {
+                    id: artist,
+                    display_name: Some(name),
+                    x,
+                    y,
+                    ..Line::default()
+                })
+            } else {
+                Artist::Scatter(Scatter {
+                    id: artist,
+                    display_name: Some(name),
+                    x,
+                    y,
+                    ..Scatter::default()
+                })
+            });
+        }
+        all.push(Axes {
+            title: Some(Text::plain(format!("Axes {index}"))),
+            cell: Cell {
+                row: index / 3,
+                col: index % 3,
+                ..Cell::default()
+            },
+            artists,
+            ..axes_2d(id)
+        });
+    }
+    Figure {
+        id: NodeId(1),
+        layout: TileLayout { rows: 2, cols: 3 },
+        data,
+        axes: all,
+        ..Figure::new()
+    }
+}

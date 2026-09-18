@@ -19,7 +19,7 @@ use ironlab_viewer::inspector::{
     Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit, is_shown,
     property_groups, read_only_reason, tree_rows,
 };
-use ironlab_viewer::panel::revert_all_label;
+use ironlab_viewer::panel::{FOOTER_ID, OBJECT_TREE_ID, revert_all_label};
 use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
@@ -660,22 +660,32 @@ struct PanelHarnessState {
     panel: PropertyPanel,
 }
 
+/// The size of the window the panel is driven in, which is that of a window a user would
+/// work in rather than one just big enough for the panel.
+const WINDOW: egui::Vec2 = egui::vec2(520.0, 700.0);
+
 fn panel_harness(figure: Figure, selected: Option<NodeId>) -> Harness<'static, PanelHarnessState> {
     let mut state = FigureState::new(figure);
     state.select(selected);
+    sized_panel_harness(state, WINDOW)
+}
+
+/// The panel, open on `state`, in a window of `size`.
+fn sized_panel_harness(
+    state: FigureState,
+    size: egui::Vec2,
+) -> Harness<'static, PanelHarnessState> {
     let mut panel = PropertyPanel::default();
     panel.open = true;
-    Harness::builder()
-        .with_size(egui::vec2(520.0, 700.0))
-        .build_ui_state(
-            |ui, state: &mut PanelHarnessState| {
-                property_panel(ui, &mut state.panel, &mut state.figure);
-            },
-            PanelHarnessState {
-                figure: state,
-                panel,
-            },
-        )
+    Harness::builder().with_size(size).build_ui_state(
+        |ui, state: &mut PanelHarnessState| {
+            property_panel(ui, &mut state.panel, &mut state.figure);
+        },
+        PanelHarnessState {
+            figure: state,
+            panel,
+        },
+    )
 }
 
 fn app_harness(figure: Figure) -> Harness<'static, ironlab_viewer::ViewerApp> {
@@ -1379,4 +1389,234 @@ fn clicking_revert_all_in_the_panel_restores_the_figure_the_program_defined() {
     assert_eq!(state.figure(), &source);
     assert_eq!(state.change_count(), 0);
     assert!(!state.can_undo(), "the clean slate leaves nothing to undo");
+}
+
+// ---------------------------------------------------------------------------------
+// The shape of the panel
+// ---------------------------------------------------------------------------------
+
+/// The rectangle egui gave a part of the panel in the last frame it drew.
+fn part_rect(harness: &Harness<'_, PanelHarnessState>, id: &'static str) -> egui::Rect {
+    egui::PanelState::load(&harness.ctx, egui::Id::new(id))
+        .unwrap_or_else(|| panic!("the panel drew no part under {id:?}"))
+        .outer_rect
+}
+
+/// Draws the panel for a few seconds of frames without touching it, as a user does while
+/// reading it. A part of the panel that takes its size from the size it was given last
+/// creeps by a little each frame, so a layout fault of that kind shows only after the
+/// panel has been drawn many times.
+fn settle(harness: &mut Harness<'_, PanelHarnessState>) {
+    for _ in 0..200 {
+        harness.run();
+    }
+}
+
+/// The height the object tree is given when there is room for it, which a window too
+/// short for it must take back.
+const TREE_HEIGHT: f32 = 180.0;
+
+/// The artist of [`figure_with_many_axes`] that the tests of the panel's shape select:
+/// the first plot of its first axes, which is a line and so has a visibility to toggle.
+const CROWDED_LINE: NodeId = NodeId(3);
+
+/// The state of a figure with one node selected.
+fn selected_state(figure: Figure, node: NodeId) -> FigureState {
+    let mut state = FigureState::new(figure);
+    state.select(Some(node));
+    state
+}
+
+/// Renames every axes and every artist but `spared`, so that the foot of the panel counts
+/// many changes, and returns how many it counts.
+fn change_every_node_but(state: &mut FigureState, spared: NodeId) -> usize {
+    for row in tree_rows(state.figure()) {
+        if row.node == spared || row.kind == NodeKind::Figure {
+            continue;
+        }
+        let name = Value::Text(ironlab_ir::Text::plain(format!("Renamed {}", row.node.0)));
+        let property = if row.kind == NodeKind::Axes {
+            "title"
+        } else {
+            "display_name"
+        };
+        assert!(
+            state.try_record(&set(row.node.0, property, name)),
+            "the figure accepts a new {property} for {}",
+            row.node
+        );
+    }
+    let changes = state.change_count();
+    assert!(
+        changes >= 10,
+        "the foot must have a large count to show: {changes}"
+    );
+    changes
+}
+
+// Why: the foot holds the control that discards every change, and that control names how
+// many changes there are. The foot is also all that stands between the inspector and the
+// bottom of the panel, so a foot that takes its height from what it holds steals the
+// inspector's room whenever the label, the count or the width it is given changes — and
+// a foot laid out from the height it was given last grows every frame until the inspector
+// has none at all. The foot must therefore occupy the same strip whatever it says, in a
+// roomy window and in a cramped one, for as long as the panel is drawn.
+#[test]
+fn the_foot_of_the_panel_keeps_one_height_whatever_it_counts() {
+    for size in [WINDOW, egui::vec2(300.0, 360.0)] {
+        let mut empty =
+            sized_panel_harness(selected_state(figure_with_many_axes(), CROWDED_LINE), size);
+        let mut counted = {
+            let mut state = selected_state(figure_with_many_axes(), CROWDED_LINE);
+            change_every_node_but(&mut state, CROWDED_LINE);
+            sized_panel_harness(state, size)
+        };
+        empty.run();
+        counted.run();
+
+        let height = part_rect(&empty, FOOTER_ID).height();
+        assert!(height > 0.0, "the foot is drawn in a window of {size:?}");
+        assert_eq!(
+            part_rect(&counted, FOOTER_ID).height(),
+            height,
+            "the foot is the same strip whether it counts no changes or many, in a \
+             window of {size:?}"
+        );
+
+        settle(&mut empty);
+        settle(&mut counted);
+        for harness in [&empty, &counted] {
+            assert_eq!(
+                part_rect(harness, FOOTER_ID).height(),
+                height,
+                "the foot is the same strip however long it is drawn, in a window of {size:?}"
+            );
+        }
+    }
+}
+
+// Why: the inspector is what the panel is for, and the foot is drawn after it, so a foot
+// that grows covers it. A row the user cannot see, or can see but not click because
+// something is drawn over it, is a property that cannot be edited at all — which is what
+// the panel does. Both must hold whether the user has changed nothing yet or a great
+// deal.
+#[test]
+fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are() {
+    for many in [false, true] {
+        let mut state = selected_state(figure_with_many_axes(), CROWDED_LINE);
+        let changes = if many {
+            change_every_node_but(&mut state, CROWDED_LINE)
+        } else {
+            0
+        };
+        let mut harness = sized_panel_harness(state, WINDOW);
+        settle(&mut harness);
+
+        let foot = part_rect(&harness, FOOTER_ID);
+        let row = harness.get_by_label("visible").rect();
+        assert!(
+            row.height() > 0.0 && row.max.y <= foot.min.y,
+            "the row of the line's visibility is drawn whole, above the foot of the \
+             panel: the row is {row:?} and the foot is {foot:?} (with {changes} changes)"
+        );
+        assert!(
+            harness.query_by_label(&revert_all_label(changes)).is_some(),
+            "the foot counts the {changes} changes while the row is reached"
+        );
+
+        harness.get_by_label("visible").click();
+        harness.run();
+
+        let state = &harness.state().figure;
+        assert_eq!(
+            state.overlay().entries().len(),
+            changes + 1,
+            "clicking the row reached the checkbox and recorded one change (with \
+             {changes} changes already made)"
+        );
+        assert!(
+            !state
+                .figure()
+                .artist(CROWDED_LINE)
+                .expect("the line is in the figure")
+                .1
+                .visible(),
+            "the click hid the line"
+        );
+    }
+}
+
+// Why: the object tree grows with the figure, and a figure of many axes and artists fills
+// it. The tree and the inspector divide the height the foot leaves them, so a tree that
+// took as much as its rows asked for would leave the inspector nothing and the properties
+// of the node the user just selected in the tree would be unreachable. The tree must
+// scroll within its share instead.
+#[test]
+fn a_figure_of_many_axes_still_leaves_the_inspector_its_room() {
+    let figure = figure_with_many_axes();
+    let rows = tree_rows(&figure).len();
+    assert!(rows >= 30, "the tree of this figure is long: {rows} rows");
+    let mut harness = sized_panel_harness(selected_state(figure, CROWDED_LINE), WINDOW);
+    settle(&mut harness);
+
+    let tree = part_rect(&harness, OBJECT_TREE_ID);
+    let foot = part_rect(&harness, FOOTER_ID);
+    let inspector = foot.min.y - tree.max.y;
+    let row = harness.get_by_label("visible").rect();
+    assert!(
+        row.min.y >= tree.max.y && row.max.y <= foot.min.y,
+        "a property of the selected artist is drawn between the tree and the foot: the \
+         row is {row:?}, the tree ends at {} and the foot starts at {}",
+        tree.max.y,
+        foot.min.y
+    );
+    assert!(
+        inspector >= 4.0 * row.height(),
+        "the inspector keeps room for several properties: {inspector} points for rows \
+         of {} points",
+        row.height()
+    );
+    assert!(
+        tree.height() <= 0.5 * (foot.max.y - tree.min.y),
+        "the object tree takes at most half of the panel however many nodes there are: \
+         {} points of {}",
+        tree.height(),
+        foot.max.y - tree.min.y
+    );
+}
+
+// Why: a window can be too short for the tree's usual height and the inspector's room
+// both, and the user is then reading the properties of the object just selected. The tree
+// must be the part that gives way, because it scrolls and because the inspector below it
+// is what the panel is for; a tree that kept its height would leave the properties a strip
+// too thin to use.
+#[test]
+fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector() {
+    let short = egui::vec2(300.0, 260.0);
+    let mut harness =
+        sized_panel_harness(selected_state(figure_with_many_axes(), CROWDED_LINE), short);
+    settle(&mut harness);
+
+    let tree = part_rect(&harness, OBJECT_TREE_ID);
+    let foot = part_rect(&harness, FOOTER_ID);
+    let row = harness.get_by_label("visible").rect();
+    assert!(
+        tree.height() < TREE_HEIGHT,
+        "the tree gave up part of its usual height: {} points",
+        tree.height()
+    );
+    assert!(
+        row.min.y >= tree.max.y && row.max.y <= foot.min.y,
+        "a property row is still drawn between the tree and the foot: the row is \
+         {row:?}, the tree ends at {} and the foot starts at {}",
+        tree.max.y,
+        foot.min.y
+    );
+    assert!(
+        foot.min.y - tree.max.y >= 4.0 * row.height(),
+        "the inspector still keeps room for several properties: {} points for rows of \
+         {} points",
+        foot.min.y - tree.max.y,
+        row.height()
+    );
 }

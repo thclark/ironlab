@@ -13,6 +13,12 @@
 //!
 //! The foot of the panel holds the control that discards every change at once, away from
 //! the rows that edit one property each.
+//!
+//! The panel's height is divided before its parts are drawn: the foot takes a strip of
+//! fixed height at the bottom, the object tree takes the top and can be dragged between a
+//! floor and a ceiling, and the inspector fills what is left. No part takes its height
+//! from what it holds, so neither a long tree nor a long label in the foot can cover the
+//! properties.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -28,8 +34,32 @@ use crate::inspector::{
 };
 use crate::interaction::FigureState;
 
+/// The identifier egui lays the object tree out under. It is named here so that the
+/// space the tree is given can be measured.
+pub const OBJECT_TREE_ID: &str = "ironlab_object_tree";
+
+/// The identifier egui lays the foot of the panel out under. It is named here so that the
+/// strip the foot occupies can be measured.
+pub const FOOTER_ID: &str = "ironlab_panel_footer";
+
 /// The width of the column of property names, in egui points.
 const LABEL_WIDTH: f32 = 96.0;
+
+/// The height the object tree is given when the panel is first opened, in egui points.
+const TREE_HEIGHT: f32 = 180.0;
+
+/// The least height the object tree keeps, in egui points: enough for a heading and a
+/// few rows, below which the tree is of no use.
+const TREE_MIN_HEIGHT: f32 = 64.0;
+
+/// The least height the inspector keeps, in egui points: enough for its heading and
+/// several property rows. The object tree is never given so much of the panel that the
+/// inspector is left less than this, so that the properties of the node just selected in
+/// the tree can always be read and edited.
+const INSPECTOR_MIN_HEIGHT: f32 = 120.0;
+
+/// The room left above and below the control in the foot of the panel, in egui points.
+const FOOTER_PADDING: f32 = 4.0;
 
 /// The indent of each level of nesting, in egui points.
 const INDENT: f32 = 10.0;
@@ -93,13 +123,25 @@ pub fn property_panel(
         .min_size(220.0)
         .show(ui, |ui| {
             let mut changed = false;
-            egui::Panel::top("ironlab_object_tree")
+            // The panel is divided before anything is drawn in it: the foot takes a strip
+            // of the bottom whose height comes from the style, the object tree takes the
+            // top and is held between a floor and a ceiling that leave the inspector its
+            // room, and the inspector fills what is left. Each part is given its height
+            // rather than taking the height of what it holds, so that neither a long tree
+            // nor a long label in the foot can squeeze another part out.
+            let foot = footer_height(ui);
+            let tree_max =
+                (ui.available_height() - foot - INSPECTOR_MIN_HEIGHT).max(TREE_MIN_HEIGHT);
+            egui::Panel::top(OBJECT_TREE_ID)
                 .resizable(true)
-                .default_size(180.0)
+                .default_size(TREE_HEIGHT)
+                .size_range(TREE_MIN_HEIGHT.min(tree_max)..=tree_max)
                 .show(ui, |ui| object_tree(ui, state));
-            egui::Panel::bottom("ironlab_panel_footer").show(ui, |ui| {
-                changed |= footer(ui, state);
-            });
+            egui::Panel::bottom(FOOTER_ID)
+                .exact_size(foot)
+                .show(ui, |ui| {
+                    changed |= footer(ui, state);
+                });
             egui::CentralPanel::default().show(ui, |ui| {
                 changed |= inspector(ui, panel, state);
             });
@@ -139,23 +181,43 @@ const REVERT_ALL_HINT: &str = "Discard every change you have made to this figure
 const REVERT_ALL_EMPTY_HINT: &str =
     "You have made no changes to this figure, so there is nothing to discard.";
 
+/// The height of the strip at the foot of the panel, in egui points.
+///
+/// It is read from the style, so that it follows the size of the text and of the controls
+/// the user has chosen, and never from what the foot holds, so that neither the number of
+/// changes the control names nor the width the label is given can change how much of the
+/// panel is left for the inspector above it.
+fn footer_height(ui: &egui::Ui) -> f32 {
+    let spacing = ui.spacing();
+    let button = spacing.interact_size.y + 2.0 * spacing.button_padding.y;
+    let margin = egui::Frame::side_top_panel(ui.style())
+        .total_margin()
+        .sum()
+        .y;
+    button + 2.0 * FOOTER_PADDING + margin
+}
+
 /// Draws the foot of the panel: the control that discards every change the user has made.
 ///
 /// It sits in the bottom-right corner of the panel, away from the property rows, because
-/// it throws away every change at once rather than editing one of them. Returns whether
-/// the displayed figure changed.
+/// it throws away every change at once rather than editing one of them. The control is
+/// centred in the strip [`footer_height`] gives the foot, and its label is truncated
+/// rather than wrapped, so that a narrow panel or a large number of changes shortens what
+/// the foot says instead of making the foot taller. Returns whether the displayed figure
+/// changed.
 fn footer(ui: &mut egui::Ui, state: &mut FigureState) -> bool {
     let changes = state.change_count();
-    ui.add_space(2.0);
     let clicked = ui
         .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_enabled(changes > 0, egui::Button::new(revert_all_label(changes)))
-                .on_hover_text(REVERT_ALL_HINT)
-                .on_disabled_hover_text(REVERT_ALL_EMPTY_HINT)
-                .clicked()
+            ui.add_enabled(
+                changes > 0,
+                egui::Button::new(revert_all_label(changes)).truncate(),
+            )
+            .on_hover_text(REVERT_ALL_HINT)
+            .on_disabled_hover_text(REVERT_ALL_EMPTY_HINT)
+            .clicked()
         })
         .inner;
-    ui.add_space(2.0);
     clicked && state.revert_all()
 }
 

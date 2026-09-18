@@ -68,7 +68,7 @@ A hidden plot still takes part in the layout of its axes: its data still contrib
 
 **Properties**, in the toolbar, opens a panel on the right of the tab; it is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
 
-The panel has three parts: the objects of the figure at the top, the properties of the selected object below, and the control that takes back every change at the foot.
+The panel has three parts: the objects of the figure at the top, the properties of the selected object below, and the control that takes back every change at the foot. The foot is a strip of the same height whatever it says, and the object tree and the properties divide the rest of the panel: the boundary between them can be dragged, and the tree is held short of the point at which the properties would have no room, so that the properties of the selected object can always be reached. Both the tree and the properties scroll within the height they are given.
 
 ### Selecting an object
 
