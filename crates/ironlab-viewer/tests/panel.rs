@@ -223,8 +223,8 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
     let labels: Vec<&str> = x.rows.iter().map(|row| row.label.as_str()).collect();
     assert_eq!(
         labels,
-        ["label", "scale", "limits", "grid"],
-        "the rows of a group are labelled by the rest of their path, in registry order"
+        ["grid", "label", "limits", "scale"],
+        "the rows of a group are labelled by the rest of their path"
     );
     assert_eq!(x.rows[2].path.to_string(), "x.limits");
     assert!(
@@ -386,7 +386,7 @@ fn a_composite_value_is_a_heading_and_a_tagged_value_is_a_row_with_the_values_be
         .collect();
     assert_eq!(
         bounds,
-        [("limits.min", 2), ("limits.max", 2)],
+        [("limits.max", 2), ("limits.min", 2)],
         "the bounds of manual limits are nested below them"
     );
 }
@@ -1697,7 +1697,10 @@ fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector(
 
     let tree = part_rect(&harness, OBJECT_TREE_ID);
     let foot = part_rect(&harness, FOOTER_ID);
-    let row = checkbox(&harness, "visible").rect();
+    // The first property of the line, which the inspector draws at the top of whatever
+    // room it is left, so that what is measured is the room rather than how far the
+    // inspector has been scrolled.
+    let row = name_rect(&harness, "display_name");
     assert!(
         tree.height() < TREE_HEIGHT,
         "the tree gave up part of its usual height: {} points",

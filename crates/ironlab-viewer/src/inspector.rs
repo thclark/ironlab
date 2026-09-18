@@ -8,8 +8,9 @@
 //!   would name it.
 //! - **What can be changed about one node?** [`property_groups`] reads the property
 //!   registry of [`ironlab_ir::properties`], keeps the properties that the node can
-//!   actually show, gathers them under the value they belong to, and says which widget
-//!   each one needs and which of them the overlay overrides.
+//!   actually show, gathers them under the value they belong to, orders them by the name
+//!   the user reads, and says which widget each one needs and which of them the overlay
+//!   overrides.
 //! - **What does a change commit?** [`commit`] turns a new value into the transaction
 //!   that the viewer records, which is one [`Edit::Set`] for every property except the
 //!   limits of an axes, which go through [`ironlab_ir::command::set_limits`] so that the
@@ -21,11 +22,12 @@
 //! a figure — its tile layout, its axes, its plots — and the data those plots draw come
 //! from the program that builds the figure, which is what a figure viewer is for.
 //!
-//! Four kinds of property are therefore shown read-only rather than offered as controls
-//! that could not be used well:
+//! **A property the editor cannot change is shown with its value, drawn dimmed, and the
+//! reason it cannot be changed in its tooltip, and with nothing else beside it.** That is
+//! the whole rule, and it holds for every such property:
 //!
 //! - A reference to a data array (the x data of a line, the grid of a surface) is shown
-//!   with the shape of the array it names.
+//!   with the shape of the array it names; [`DATA_REASON`] says why.
 //! - The rows and columns of the figure's tile layout, and the cell each axes occupies
 //!   within it, are shown as they are, because the layout is the frame the program placed
 //!   its axes in and where an axes sits in that frame is part of it.
@@ -33,8 +35,13 @@
 //! - A property that another property of the same node overrides, of which the marker
 //!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
 //!
-//! [`read_only_reason`] states the reason for each, which the panel shows, so that a
-//! read-only row is never a dead control with nothing to say for itself.
+//! [`read_only_reason`] states the reason for each of the last three, and the panel draws
+//! all four through one function, so that a read-only row is never a dead control with
+//! nothing to say for itself and never grows an ornament of its own.
+//!
+//! A value that is only a container of the values below it is not a read-only row but a
+//! heading: [`is_composite`] names those types, and a heading carries its name alone,
+//! because the values it holds are the rows beneath it.
 //!
 //! A property that the figure ignores altogether is hidden instead of shown read-only,
 //! because there is nothing about it worth reading. [`is_shown`] decides that.
@@ -246,12 +253,30 @@ pub struct PropertyRow {
 pub struct PropertyGroup {
     /// The first segment of the paths of the group's properties, such as `x`.
     pub name: String,
-    /// The properties, in the order in which the registry lists them.
+    /// The properties, ordered by the name the user reads.
     pub rows: Vec<PropertyRow>,
 }
 
-/// Returns the properties of a node, grouped by the first segment of their paths, in the
-/// order in which [`properties`] lists them.
+/// Orders items by a name, ignoring case and keeping the order of equal names.
+///
+/// The inspector is read by looking for a name, so its contents are ordered by the name
+/// on screen rather than by the order the registry happens to list them in. Case is
+/// ignored because a reader looking for `Limits` and a reader looking for `limits` are
+/// looking for the same row, and the sort is stable so that two names that differ only in
+/// case keep the order the registry gave them rather than swapping between frames.
+fn order_by_name<T>(items: &mut [T], name: impl Fn(&T) -> &str) {
+    items.sort_by_key(|item| name(item).to_lowercase());
+}
+
+/// Returns the properties of a node, grouped by the first segment of their paths.
+///
+/// The groups are ordered by their names and the rows within each group by the names they
+/// show, both ignoring case, so that a property can be found by reading down the panel for
+/// its name. A group's name is what the panel writes at the top level, whether it names a
+/// heading or the single row of a group that has one, so ordering the groups by name
+/// orders the headings and the ungrouped rows together as one alphabetical list. The row
+/// that names a group itself carries an empty label and therefore stays at the head of its
+/// group, above the values it gathers.
 ///
 /// Only the properties that the node can show are returned. A property that belongs to a
 /// variant that is not set (the bounds of automatic limits, the camera of a
@@ -327,13 +352,17 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
     let mut groups: Vec<PropertyGroup> = Vec::new();
     for row in rows {
         let name = row.path.segments()[0].clone();
-        match groups.last_mut() {
-            Some(group) if group.name == name => group.rows.push(row),
-            _ => groups.push(PropertyGroup {
+        match groups.iter_mut().find(|group| group.name == name) {
+            Some(group) => group.rows.push(row),
+            None => groups.push(PropertyGroup {
                 name,
                 rows: vec![row],
             }),
         }
+    }
+    order_by_name(&mut groups, |group| &group.name);
+    for group in &mut groups {
+        order_by_name(&mut group.rows, |row| &row.label);
     }
     groups
 }
