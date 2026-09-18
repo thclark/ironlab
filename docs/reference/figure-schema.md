@@ -106,7 +106,7 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `id` | NodeId | The identifier of the axes. |
-| `cell` | object | The block of tiles occupied: `row` and `col` of the top-left tile, counted from zero at the top-left of the figure, and `row_span` and `col_span`, each at least one. |
+| `cell` | object | The block of tiles occupied: `row` and `col` of the top-left tile, counted from zero at the top-left of the figure, and `row_span` and `col_span`, each at least one. Where an axes sits is part of the arrangement of the figure, so the property editor shows it read-only. |
 | `projection` | Projection | Whether the axes is two- or three-dimensional. |
 | `title` | Text or `null` | The title drawn above the axes. |
 | `x`, `y`, `z` | Axis | The coordinate axes. In a two-dimensional axes, `z` is ignored, and the property editor hides it until the axes is made three-dimensional. |

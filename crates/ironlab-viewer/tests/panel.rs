@@ -1293,23 +1293,24 @@ fn the_tile_layout_is_shown_read_only_and_says_why() {
     );
 }
 
-// Why: moving an axes from one cell of the layout to another is a change to the axes, not
-// to the structure around it, and a cell outside the layout is caught by validation; a
-// read-only cell would make the panel unable to rearrange a figure at all.
+// Why: where an axes sits in the tile layout is part of the structure of the figure, which
+// the program that builds it defines, exactly as the rows and columns of the layout are.
+// The viewer views figures rather than building them, so the cell is shown with the reason
+// it cannot be changed rather than offering controls that would rearrange the figure.
 #[test]
-fn the_cell_of_an_axes_stays_editable() {
+fn the_cell_of_an_axes_is_read_only_and_says_why() {
     let state = state_with_artists();
     for label in ["row", "col", "row_span", "col_span"] {
+        let reason = read_only_reason(NodeKind::Axes, &path(&format!("cell.{label}")))
+            .unwrap_or_else(|| panic!("cell.{label} must be read-only"));
         assert!(
-            read_only_reason(NodeKind::Axes, &path(&format!("cell.{label}"))).is_none(),
-            "cell.{label} must stay editable"
+            reason.contains("program that builds the figure"),
+            "cell.{label} must say who does set it: {reason}"
         );
-        assert!(
-            matches!(
-                row(&groups_of(&state, FLAT), "cell", label).editor,
-                Editor::Number { .. }
-            ),
-            "cell.{label} must have a control"
+        assert_eq!(
+            row(&groups_of(&state, FLAT), "cell", label).editor,
+            Editor::ReadOnly { reason },
+            "cell.{label} must be shown with the reason rather than a control"
         );
     }
 }

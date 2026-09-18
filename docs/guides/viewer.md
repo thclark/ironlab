@@ -104,10 +104,10 @@ While the table cannot be committed — an entry has no name, two entries share 
 
 ### What the editor does not change
 
-The editor changes the properties of the objects a figure already has. Its structure — the tile layout, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure. Four kinds of row are therefore shown with a padlock rather than a control, each with the reason in its tooltip.
+The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes sits in it, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure. Four kinds of row are therefore shown with a padlock rather than a control, each with the reason in its tooltip.
 
 - **The data a plot draws**, shown as the array it names and that array's shape.
-- **The rows and columns of the figure's tile layout.** The cell an axes occupies stays editable, because moving an axes within the layout is a change to that axes; a cell outside the layout is refused.
+- **The rows and columns of the figure's tile layout, and the cell each axes occupies within it.** Where an axes sits is part of how the figure is arranged, which the program that builds it defines.
 - **The groups of axes whose limits are linked**, shown as a count.
 - **The marker size of a scatter**, because a scatter sizes its markers by its own **size**, which overrides it. Change **size** instead, to give every marker the same size or to take each marker's size from an array. Every other plot draws its markers at the size in its marker style, which stays editable.
 

@@ -26,9 +26,9 @@
 //!
 //! - A reference to a data array (the x data of a line, the grid of a surface) is shown
 //!   with the shape of the array it names.
-//! - The rows and columns of the figure's tile layout are shown as they are, because the
-//!   layout is the frame the program placed its axes in. The cell of an axes stays
-//!   editable, because moving an axes within that frame is a change to the axes.
+//! - The rows and columns of the figure's tile layout, and the cell each axes occupies
+//!   within it, are shown as they are, because the layout is the frame the program placed
+//!   its axes in and where an axes sits in that frame is part of it.
 //! - The groups of axes whose limits are linked are shown as a count.
 //! - A property that another property of the same node overrides, of which the marker
 //!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
@@ -369,8 +369,13 @@ const SCATTER_MARKER_SIZE_REASON: &str = "A scatter sizes its markers by its own
 
 /// The reason the rows and columns of the figure's tile layout are not changed here.
 const TILE_LAYOUT_REASON: &str = "The tile layout is set by the program that builds the \
-     figure, together with the axes placed in it. The cell an axes occupies can be \
-     changed here, which moves it within that layout.";
+     figure, together with the axes placed in it. The editor changes the properties of \
+     the objects a figure has, not which objects there are or where they sit.";
+
+/// The reason the cell an axes occupies is not changed here.
+const CELL_REASON: &str = "The cell an axes occupies, like the tile layout it sits in, is \
+     set by the program that builds the figure. The editor changes how a figure looks, \
+     not how it is arranged.";
 
 /// The reason the groups of linked axes are not changed here.
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
@@ -406,6 +411,11 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // never reads `marker.size_pt` there. Every other artist draws its markers at
         // that size, so it stays editable for them.
         NodeKind::Scatter if segments == ["marker", "size_pt"] => Some(SCATTER_MARKER_SIZE_REASON),
+        // Where an axes sits in the tile layout is part of the structure of the figure,
+        // which the program that builds it defines, as the layout itself is.
+        NodeKind::Axes if segments.first().is_some_and(|first| first == "cell") => {
+            Some(CELL_REASON)
+        }
         NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter
