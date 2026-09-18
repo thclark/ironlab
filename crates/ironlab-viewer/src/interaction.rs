@@ -59,8 +59,8 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Axes, Axis, Dimension, Edit, EditError, Figure, Limits, NodeId, Projection, PropertyPath,
-    Scale, Transaction, Value, View3d, command,
+    Artist, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NodeId, Projection,
+    PropertyPath, Scale, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
@@ -72,6 +72,32 @@ pub const ROTATE_DEGREES_PER_POINT: f64 = 0.5;
 
 /// The smallest width and height, in figure points, of a rubber band that the Zoom tool applies.
 pub const MIN_BOX_ZOOM_POINTS: f64 = 3.0;
+
+/// How far, in figure points, the pointer may be from a drawn data point and still read it.
+pub const DATATIP_RADIUS_POINTS: f64 = 6.0;
+
+/// The data point under the pointer, as the viewer reports it.
+///
+/// `index` is the index the point has in the artist's own data arrays, before the scene compiler thinned the series
+/// to the current view, and `x`, `y` and `z` are the values held at that index. A datatip therefore names the
+/// measurement the user recorded, whatever decimation drew.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Datatip {
+    /// The axes the point was drawn in.
+    pub axes: NodeId,
+    /// The artist the point belongs to.
+    pub artist: NodeId,
+    /// The display name of the artist, when it has one.
+    pub name: Option<String>,
+    /// The index of the point in the artist's own data arrays.
+    pub index: usize,
+    /// Where the point was drawn, in figure space, which is where a callout is anchored.
+    pub position: Point,
+    pub x: f64,
+    pub y: f64,
+    /// The z value, for an artist that has one.
+    pub z: Option<f64>,
+}
 
 /// The gesture that a primary-button drag performs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -586,6 +612,35 @@ impl FigureState {
                 path: path(&["visible"]),
                 value: Value::Bool(!visible),
             }],
+        })
+    }
+
+    /// Returns the drawn data point nearest the pointer, within [`DATATIP_RADIUS_POINTS`].
+    ///
+    /// The point comes from the hit map of the most recent compilation, which records the index every drawn point
+    /// has in the artist's own arrays even when the series was decimated to fit the view. The values are then read
+    /// from those arrays at that index, so a datatip reports the measurement the user recorded rather than anything
+    /// the scene compiler derived from it.
+    #[must_use]
+    pub fn datatip(&self, hit: &HitMap, at: Point) -> Option<Datatip> {
+        let (drawn, sample) = hit.sample_at(at, DATATIP_RADIUS_POINTS)?;
+        let (_, artist) = self.composed.artist(drawn.artist)?;
+        let (x, y, z) = match artist {
+            Artist::Line(line) => (line.x, line.y, line.z),
+            Artist::Scatter(scatter) => (scatter.x, scatter.y, scatter.z),
+            _ => return None,
+        };
+        let index = sample.source_index;
+        let value = |id: DataId| self.composed.data.get(&id)?.values.get(index).copied();
+        Some(Datatip {
+            axes: drawn.axes,
+            artist: drawn.artist,
+            name: artist.display_name().map(|text| text.content.clone()),
+            index,
+            position: sample.position,
+            x: value(x)?,
+            y: value(y)?,
+            z: z.and_then(value),
         })
     }
 

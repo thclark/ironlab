@@ -573,6 +573,7 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
             artist,
             rect: Rect::new(60.0, 30.0, 20.0, 10.0),
         }],
+        artists: vec![],
     }
 }
 
@@ -611,6 +612,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
 
     assert!(
@@ -637,6 +639,7 @@ fn the_selection_survives_a_gesture() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
 
     state.drag_start(&hit, Point::new(100.0, 50.0));

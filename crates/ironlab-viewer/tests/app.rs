@@ -69,6 +69,7 @@ fn panned_2d_state() -> FigureState {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        artists: vec![],
     };
     state.drag_start(&hit, Point::new(100.0, 50.0));
     state.drag_update(Point::new(160.0, 90.0));
@@ -608,4 +609,67 @@ fn a_dropped_overlay_entry_is_reported_by_the_problems_indicator() {
     harness.run();
 
     assert!(harness.query_by_label_contains("1 problem").is_some());
+}
+
+/// A figure of one axes holding a scatter of `n` points spread over the whole plot, so that any position inside the
+/// plot rectangle is close to a drawn marker.
+fn figure_with_dense_scatter(n: usize) -> ironlab_ir::Figure {
+    use ironlab_ir::{Artist, Axes, DataId, Figure, NdArray, NodeId, Scatter, Text};
+
+    let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
+    let y: Vec<f64> = (0..n)
+        .map(|i| ((i as u64).wrapping_mul(2_654_435_761) % 10_000) as f64 / 10_000.0)
+        .collect();
+    let (xi, yi) = (DataId(0), DataId(1));
+    Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (xi, NdArray::vector(x)),
+            (yi, NdArray::vector(y)),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::Scatter(Scatter {
+                id: NodeId(3),
+                display_name: Some(Text::plain("Samples")),
+                x: xi,
+                y: yi,
+                ..Scatter::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+// Why: the datatip logic is tested in figure space, so the canvas glue — converting the pointer position, reading the
+// hit map of the current compilation and showing the result — is otherwise untested. Hovering over a dense series must
+// name a point of it, and hovering where the figure draws nothing must say nothing.
+#[test]
+fn hovering_over_a_dense_series_reads_the_point_under_the_pointer() {
+    let mut harness = app_harness(vec![(
+        "dense.fig".to_owned(),
+        figure_with_dense_scatter(200_000),
+    )]);
+    harness.run();
+
+    harness.hover_at(CANVAS_CENTRE);
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("index ").is_some(),
+        "the datatip names the index of the point under the pointer"
+    );
+    assert!(
+        harness.query_by_label_contains("Samples").is_some(),
+        "the datatip names the series the point belongs to"
+    );
+
+    harness.hover_at(egui::pos2(10.0, 590.0));
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("index ").is_none(),
+        "nothing is read where the figure draws no data"
+    );
 }

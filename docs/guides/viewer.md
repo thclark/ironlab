@@ -64,6 +64,12 @@ Clicking an entry of a legend hides its plot, and clicking the entry again shows
 
 A hidden plot still takes part in the layout of its axes: its data still contributes to automatic axis limits and colour limits, and it keeps its colour. Hiding or showing a plot therefore never moves, rescales or recolours anything else.
 
+## Datatips
+
+Resting the pointer near a point of a line or a scatter rings that point and shows its name, its coordinates and its index. The index is the position the point has in the arrays you plotted, so it is what you would use to find the same point in your own data.
+
+Very large series are thinned to what the plot can resolve before they are drawn, on screen and in an exported PDF alike, and only the points that were drawn can be read. The index reported is always the original one, never a position in the thinned series, and zooming in draws more of the series, so more of it becomes readable. How the thinning works is described under [large series are thinned for the current view](../reference/architecture.md#large-series-are-thinned-for-the-current-view).
+
 ## The property editor
 
 **Properties**, in the toolbar, opens a panel on the right of the tab; it is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
