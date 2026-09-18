@@ -17,12 +17,17 @@ jobs:
   release:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      # The version that was tagged, or empty when this merge left the version alone and nothing was released. The
+      # publish job reads it both as a condition and as the ref to publish from.
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           # The merge commit is the commit that landed on main; github.sha is the event's test merge ref, not it.
           ref: ${{ github.event.pull_request.merge_commit_sha }}
       - name: Tag the workspace version and release it
+        id: tag
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.merge_commit_sha }}
@@ -34,6 +39,7 @@ jobs:
           # configuration with an empty tagPrefix and silently ignores any tag that does not match the version verbatim.
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$version" >/dev/null 2>&1; then
             echo "Tag $version already exists, so this merge did not change the version and there is nothing to release."
+            echo "version=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Tags and releases are permanent public artefacts, so this only ever creates them: it never forces, moves or
@@ -44,3 +50,44 @@ jobs:
           # squash-merging means they never reach main as separate commits, so recovering them needs the pull request's
           # commit list from the API. That is a separate piece of work.
           gh release create "$version" --target "$SHA" --title "$TITLE" --generate-notes
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  publish:
+    # Publishing belongs to this workflow rather than to a separate one answering the tag, because a tag pushed with a
+    # workflow's own token does not start another workflow run: a tag-triggered publish would simply never fire.
+    needs: release
+    # An empty version means the merge left the version alone, so no tag was created and there is nothing to publish.
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      # Job permissions replace the workflow's rather than adding to them, so `contents` is restated here. Publishing
+      # only reads the tag it publishes. `id-token` lets the job obtain the OpenID Connect token with which it proves
+      # to crates.io which workflow of which repository it is; that proof is what stands in for a stored API token, so
+      # no crates.io credential exists in this repository at all.
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Publish exactly what was tagged, rather than whatever main has reached by the time this job starts.
+          ref: ${{ needs.release.outputs.version }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Exchange this workflow's identity for a short-lived crates.io token
+        id: auth
+        # The token lasts thirty minutes, and the action revokes it when the job ends.
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish the workspace to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        # Cargo works out the order from the dependency graph and waits for each crate to reach the index before
+        # starting the next, so the six are published as ironlab-ir, ironlab-text, ironlab-scene, ironlab-pdf,
+        # ironlab-viewer and finally ironlab. `--locked` publishes the dependency versions recorded in Cargo.lock.
+        # `ironlab-gallery` sets `publish = false` and is skipped.
+        #
+        # If this fails part way through, do not simply re-run the job: `--workspace` refuses outright when any member
+        # of the workspace is already on the registry, rather than stepping over it. Publish the remainder one at a
+        # time instead, with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
+        run: cargo publish --workspace --locked
