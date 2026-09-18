@@ -26,3 +26,5 @@ clap.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+# The decimation entry demonstrates a property of the scene compiler, so its test inspects the compiled scene.
+ironlab-scene.workspace = true
