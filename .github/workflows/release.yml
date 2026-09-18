@@ -91,3 +91,19 @@ jobs:
         # of the workspace is already on the registry, rather than stepping over it. Publish the remainder one at a
         # time instead, with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
         run: cargo publish --workspace --locked
+
+  docs:
+    # The published site describes a released version, so it is rebuilt from the tag rather than from whatever main has
+    # reached by now. This runs alongside publication rather than after it, the two being independent: a registry that
+    # rejects a crate is no reason to leave the documentation describing the previous release.
+    needs: release
+    if: needs.release.outputs.version != ''
+    # A called workflow receives the permissions its caller grants, so the three the site's deployment needs are
+    # granted here: reading the tag, writing the Pages deployment, and the identity token that deployment is made with.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml
+    with:
+      ref: ${{ needs.release.outputs.version }}
