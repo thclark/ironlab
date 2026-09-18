@@ -156,11 +156,12 @@ fn options_are_written_to_the_document_metadata() {
     let ws = Workspace::new("metadata");
     let text = engine();
     let options = PdfOptions {
+        raster: Default::default(),
         title: Some("Damped oscillation".to_owned()),
         creator: "IronLAB test suite".to_owned(),
         subject: Some("typesetter: test; fonts: A, B".to_owned()),
     };
-    let bytes = render_display_list(&page(100.0, 100.0), &text, &options).expect("render");
+    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None).expect("render");
     let info = pdfinfo(&ws.write_pdf("figure", &bytes), false);
     assert_eq!(
         info.get("Title").map(String::as_str),
@@ -187,11 +188,12 @@ fn absent_title_is_omitted_from_the_metadata() {
     let ws = Workspace::new("no-title");
     let text = engine();
     let options = PdfOptions {
+        raster: Default::default(),
         title: None,
         creator: "IronLAB test suite".to_owned(),
         subject: None,
     };
-    let bytes = render_display_list(&page(100.0, 100.0), &text, &options).expect("render");
+    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None).expect("render");
     let info = pdfinfo(&ws.write_pdf("figure", &bytes), false);
     assert!(
         info.get("Title").is_none_or(String::is_empty),
@@ -249,7 +251,7 @@ fn degenerate_page_size_is_an_error() {
         (f64::NAN, 100.0),
         (100.0, f64::INFINITY),
     ] {
-        let result = render_display_list(&page(width, height), &text, &PdfOptions::default());
+        let result = render_display_list(&page(width, height), &text, &PdfOptions::default(), None);
         assert!(
             matches!(result, Err(PdfError::Krilla(_))),
             "page size {width} x {height} gave {:?}",

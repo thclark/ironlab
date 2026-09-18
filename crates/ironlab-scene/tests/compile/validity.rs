@@ -189,6 +189,20 @@ fn check(items: &[Item], rotated: bool, problems: &mut Vec<String>) {
                 }
                 check(items, rotates, problems);
             }
+            ItemKind::Dense { cells, items } => {
+                if *cells == 0 {
+                    problems.push(format!("{at}: dense group with no cells"));
+                }
+                if items.is_empty() {
+                    problems.push(format!("{at}: dense group with no items"));
+                }
+                check(items, rotated, problems);
+            }
+            ItemKind::Image(image) => {
+                if !image.is_valid() {
+                    problems.push(format!("{at}: invalid image {image:?}"));
+                }
+            }
         }
     }
 }

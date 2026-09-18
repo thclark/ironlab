@@ -169,7 +169,14 @@ impl Leaf {
                 }
                 bbox_of(corners)
             }
-            ItemKind::Group { .. } => None,
+            ItemKind::Image(image) => Some(Rect::new(
+                image.rect.x,
+                image.rect.y,
+                image.rect.width,
+                image.rect.height,
+            )),
+            // Groups, dense ones included, are descended into by `visit_leaves` and never become leaves.
+            ItemKind::Group { .. } | ItemKind::Dense { .. } => None,
         }
     }
 
@@ -192,7 +199,7 @@ impl Leaf {
                 .chain(p.stroke.as_ref().map(|s| s.color))
                 .collect(),
             ItemKind::Glyphs(g) => vec![g.color],
-            ItemKind::Group { .. } => Vec::new(),
+            ItemKind::Image(_) | ItemKind::Group { .. } | ItemKind::Dense { .. } => Vec::new(),
         }
     }
 

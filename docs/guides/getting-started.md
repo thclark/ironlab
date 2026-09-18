@@ -132,6 +132,8 @@ fig.axes3(0, 0)
 
 Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, and a `ColorSpec` chooses the automatic colour (`ColorSpec::Auto`) or a colour taken from the colormap (`ColorSpec::Colormapped`).
 
+A surface of ten thousand faces or more is exported as an image rather than as one path per face; see [dense surfaces](#dense-surfaces).
+
 ## Titles, labels and LaTeX
 
 Axes titles and labels are set on the axes handle, and each setter returns the handle so that they can be chained.
@@ -218,7 +220,7 @@ ax.surf(&x, &y, &z);
 ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
-A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
+A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md).
 
 ## Parameters
 
@@ -277,6 +279,38 @@ fig.export_pdf("pressure.pdf")?;
 ```
 
 The page of the PDF is exactly the size of the figure, with no margins, and all text is embedded as real, selectable text in subsets of the bundled fonts. A plot hidden through its visibility flag (for example from the viewer's legend) is left out of the PDF.
+
+### Dense surfaces
+
+A surface is drawn as one filled path per face, so a surface of a hundred thousand faces is a hundred thousand paths: the file grows in proportion, and readers become slow to open it, for detail no printer can resolve. IronLAB therefore draws a surface of **ten thousand faces or more** as an image instead. The image is rendered by the same pipeline that draws the interactive viewer, at **600 dots per inch** by default, so it shows exactly what is on screen at a resolution suitable for print. Everything else on the page — the axes, ticks, tick labels, axis labels, titles, legends and every other artist — stays vector, and all text stays selectable.
+
+Ten thousand faces is where the two representations cost about the same. On a figure of the default size at the default resolution, a surface of 4900 faces is 59 KiB as vectors and 98 KiB as an image, one of 9801 faces is 112 against 105 KiB, and one of 39 601 faces is 618 against 115 KiB.
+
+`export_pdf_with` overrides both the decision and the resolution:
+
+```rust
+use ironlab::{RasterOptions, RasterPolicy};
+
+// Never rasterise, whatever the surface costs: the figure is going to be edited in Inkscape.
+fig.export_pdf_with("pressure.pdf", RasterOptions {
+    policy: RasterPolicy::Never,
+    ..RasterOptions::default()
+})?;
+
+// Always rasterise, at 1200 dots per inch, because the figure will be printed at full page size.
+fig.export_pdf_with("pressure.pdf", RasterOptions {
+    policy: RasterPolicy::Always,
+    dpi: 1200.0,
+})?;
+
+// Rasterise from five thousand faces upwards, at the default resolution.
+fig.export_pdf_with("pressure.pdf", RasterOptions {
+    policy: RasterPolicy::Auto { cells: 5_000 },
+    ..RasterOptions::default()
+})?;
+```
+
+Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else.
 
 ### Including a figure in a LaTeX document
 

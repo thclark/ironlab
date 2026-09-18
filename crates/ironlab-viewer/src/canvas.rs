@@ -120,7 +120,11 @@ pub fn tessellate(
             ItemKind::Glyphs(glyphs) => {
                 tessellate_glyphs(glyphs, text, &context, &mut tessellators)
             }
-            ItemKind::Group { .. } => None,
+            // The scene compiler does not yet emit image items; when the image artists of issue #7 land, the canvas
+            // must upload their samples as egui textures and draw them as a textured quad.
+            ItemKind::Image(_) => None,
+            // Groups, dense ones included, are descended into by `visit_leaves` and never reach this point.
+            ItemKind::Group { .. } | ItemKind::Dense { .. } => None,
         };
         let Some(mut mesh) = mesh else {
             return;

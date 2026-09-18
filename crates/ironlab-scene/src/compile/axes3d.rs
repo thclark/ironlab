@@ -8,7 +8,7 @@ use crate::hit::{AxesHit, AxesHitKind, HitMap};
 use crate::maths::camera::{Plane, UNIT_BOX_CORNERS, back_planes, depth_order};
 
 use super::Ctx;
-use super::artists::{AxesInput, Projector, Space, draw_artists};
+use super::artists::{AxesInput, Projector, Space, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::legend;
@@ -118,10 +118,12 @@ pub(super) fn emit(
     ));
 
     let primaries = style::primaries(axes);
-    let (mut prims, artist_hits) = draw_artists(input, &primaries, &Space::ThreeD(&projector));
-    hits.artists.extend(artist_hits);
+    let drawn = draw_artists(input, &primaries, &Space::ThreeD(&projector));
+    hits.artists.extend(drawn.hits);
+    let mut prims = drawn.prims;
     depth_order(&mut prims);
-    content.extend(prims.into_iter().map(|(_, item)| item));
+    let sorted: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();
+    content.extend(group_dense(sorted, &drawn.dense));
 
     if axes.box_ {
         content.extend(paths::item(

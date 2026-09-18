@@ -9,6 +9,7 @@
 //! `IRONLAB_REQUIRE_PDF_TOOLS` is set (as it is in CI), in which case the test fails.
 
 mod common;
+mod dense;
 mod document;
 mod export;
 mod raster;

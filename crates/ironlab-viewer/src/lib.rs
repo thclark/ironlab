@@ -17,11 +17,14 @@
 //!   pure logic too.
 //! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
 //! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
+//! - [`export`] writes a figure as a PDF, supplying the PDF exporter with the viewer's own renderer so that the
+//!   dense parts of a figure are rasterised by the pipeline that draws the screen.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
 
 pub mod app;
 pub mod canvas;
+pub mod export;
 pub mod files;
 pub mod inspector;
 pub mod interaction;
@@ -32,11 +35,13 @@ pub mod style;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use canvas::{ScreenTransform, tessellate};
+pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
 pub use interaction::{
     DATATIP_RADIUS_POINTS, Datatip, FigureState, ROTATE_DEGREES_PER_POINT, Tool,
 };
 pub use offscreen::{
     OffscreenRenderer, RenderError, RenderedImage, render_display_list_offscreen, render_offscreen,
+    with_shared_renderer,
 };
 pub use panel::{PropertyPanel, property_panel};
 pub use problems::{Origin, Problem};

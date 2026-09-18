@@ -159,7 +159,13 @@ pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
                     }
                 }
             }
-            ItemKind::Group { items, .. } => for_each_vertex(items, visit),
+            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => {
+                for_each_vertex(items, visit)
+            }
+            ItemKind::Image(image) => {
+                visit(Point::new(image.rect.x, image.rect.y));
+                visit(Point::new(image.rect.right(), image.rect.bottom()));
+            }
             ItemKind::Glyphs(_) => {}
         }
     }

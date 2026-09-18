@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 use ironlab_ir::{Axes, Cell, Dimension, NodeId, Parameter, Projection, Text, ValidationReport};
 use ironlab_text::TextEngine;
 
+use crate::RasterOptions;
 use crate::axes::AxesMut;
 use crate::error::Error;
 
@@ -396,16 +397,59 @@ impl Figure {
     /// Exports the figure as a single-page PDF whose page is the size of the figure.
     ///
     /// Text is embedded as real, selectable text in the bundled fonts, so the PDF can
-    /// be included unscaled in a LaTeX document.
+    /// be included unscaled in a LaTeX document. An artist too dense to be worth writing
+    /// as vector paths, such as a surface of many thousands of faces, is drawn as an
+    /// image rendered by the same pipeline that draws the viewer; axes, ticks, labels,
+    /// legends and every other artist stay vector.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Invalid`] when the figure has validation errors (and writes no
-    /// file), [`Error::Pdf`] when the exporter fails and [`Error::Io`] when the file
-    /// cannot be written.
+    /// file), [`Error::Export`] when the exporter fails or the figure needs rasterising
+    /// and no graphics adapter is available, and [`Error::Io`] when the file cannot be
+    /// written.
     pub fn export_pdf(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        self.export_pdf_with(path, RasterOptions::default())
+    }
+
+    /// Exports the figure as a PDF, choosing how dense artists are drawn and at what
+    /// resolution they are rasterised.
+    ///
+    /// [`RasterOptions::policy`] overrides the decision that [`export_pdf`](Figure::export_pdf)
+    /// makes from the cell count, and [`RasterOptions::dpi`] sets the resolution, in dots per
+    /// inch, of the rasterised part of the page.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), ironlab::Error> {
+    /// # let fig = ironlab::Figure::new();
+    /// use ironlab::{RasterOptions, RasterPolicy};
+    ///
+    /// fig.export_pdf_with(
+    ///     "pressure.pdf",
+    ///     RasterOptions {
+    ///         policy: RasterPolicy::Never,
+    ///         ..RasterOptions::default()
+    ///     },
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As for [`export_pdf`](Figure::export_pdf).
+    pub fn export_pdf_with(
+        &self,
+        path: impl AsRef<Path>,
+        raster: RasterOptions,
+    ) -> Result<(), Error> {
         self.check_valid()?;
-        let bytes = ironlab_pdf::export_pdf(&self.ir, text_engine())?;
+        let text = text_engine();
+        let options = ironlab_pdf::PdfOptions {
+            raster,
+            ..ironlab_pdf::PdfOptions::for_figure(&self.ir)
+        };
+        let bytes = ironlab_viewer::export_pdf(&self.ir, text, &options)?;
         std::fs::write(path, bytes)?;
         Ok(())
     }

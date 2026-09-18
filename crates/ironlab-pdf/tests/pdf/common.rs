@@ -111,7 +111,7 @@ pub fn engine() -> TextEngine {
 
 /// Renders a display list with default options.
 pub fn render(list: &DisplayList, text: &TextEngine) -> Vec<u8> {
-    render_display_list(list, text, &PdfOptions::default()).expect("render display list")
+    render_display_list(list, text, &PdfOptions::default(), None).expect("render display list")
 }
 
 /// An empty display list on a white page.
@@ -370,6 +370,57 @@ pub fn pdffonts(path: &Path) -> Vec<FontInfo> {
                 embedded: yes(tokens[n - 5]),
                 subset: yes(tokens[n - 4]),
                 unicode: yes(tokens[n - 3]),
+            }
+        })
+        .collect()
+}
+
+/// The tool that lists the images embedded in a PDF.
+pub const IMAGE_TOOL: &str = "pdfimages";
+
+/// An image embedded in a PDF, as reported by `pdfimages -list`.
+#[derive(Debug)]
+pub struct ImageInfo {
+    /// `image` for a picture, `smask` for the soft mask that carries another image's transparency.
+    pub kind: String,
+    pub width: u32,
+    pub height: u32,
+    /// The number of colour components: 3 for RGB, 1 for the grey of a soft mask.
+    pub components: u32,
+    /// The stream filter, reported as `image` for a deflated sampled image and `jpeg` for a JPEG.
+    pub encoding: String,
+    /// Whether the image carries `/Interpolate true`.
+    pub interpolated: bool,
+    /// The resolution at which the image is placed on the page, in pixels per inch.
+    pub x_ppi: f64,
+    pub y_ppi: f64,
+}
+
+/// Lists the images embedded in a PDF with `pdfimages -list`.
+///
+/// The columns are: page, num, type, width, height, color, comp, bpc, enc, interp, object, ID, x-ppi, y-ppi, size,
+/// ratio.
+pub fn pdfimages(path: &Path) -> Vec<ImageInfo> {
+    let output = run(Command::new(IMAGE_TOOL).arg("-list").arg(path));
+    assert_poppler_quiet(IMAGE_TOOL, &output);
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .skip(2)
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let t: Vec<&str> = line.split_whitespace().collect();
+            assert!(t.len() >= 16, "unexpected pdfimages line {line:?}");
+            let count = |token: &str| token.parse::<u32>().unwrap_or_default();
+            let ppi = |token: &str| token.parse::<f64>().unwrap_or_default();
+            ImageInfo {
+                kind: t[2].to_owned(),
+                width: count(t[3]),
+                height: count(t[4]),
+                components: count(t[6]),
+                encoding: t[8].to_owned(),
+                interpolated: t[9] == "yes",
+                x_ppi: ppi(t[12]),
+                y_ppi: ppi(t[13]),
             }
         })
         .collect()

@@ -18,6 +18,8 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 
 The dependencies run in one direction. `ironlab-ir` and `ironlab-text` depend on no other IronLAB crate; `ironlab-scene` depends on both of them; `ironlab-pdf` depends on `ironlab-scene`; `ironlab-viewer` depends on `ironlab-scene` and on `ironlab-pdf`, which it uses to export; the facade depends on every crate above it; and the gallery depends on the facade, the viewer and the PDF backend.
 
+`ironlab-pdf` therefore cannot reach the viewer's renderer, and does not try to: it defines what it needs of a rasteriser and the viewer provides it. Every export in the project goes through `ironlab_viewer::export_pdf`, which supplies the renderer, so the raster fallback described under [the backends](#the-backends) is always available and never duplicated.
+
 ## One path to pixels
 
 Every drawing of a figure, whether on screen, in an offscreen image or on a PDF page, is produced by the same pipeline:
@@ -45,11 +47,13 @@ The scene compiler is the only place in which geometry is computed. Tick positio
 
 ### The display list
 
-The display list is a backend-neutral description of one page. Its coordinates are in points in figure space, with the origin at the top-left corner of the figure, x increasing to the right and y increasing downwards. It has three kinds of item:
+The display list is a backend-neutral description of one page. Its coordinates are in points in figure space, with the origin at the top-left corner of the figure, x increasing to the right and y increasing downwards. It has five kinds of item:
 
 - **Path**: a sequence of move, line, cubic Bézier and close segments, with an optional fill (a colour and a fill rule) and an optional stroke (a colour, width, dash pattern, cap and join).
 - **Glyphs**: a run of glyphs from one bundled font at one size, each placed at a point on its baseline, together with the text that the run represents, so that the PDF backend can write selectable text.
+- **Image**: a rectangle and the true-colour samples drawn into it, three channels for an opaque image and four when it has straight alpha.
 - **Group**: a list of items with an optional clip rectangle and an optional transform.
+- **Dense**: a list of items drawn for one artist whose data is dense enough that a backend may replace them with an image, together with the number of data cells the artist drew. A dense item has neither a clip nor a transform of its own, so a backend that ignores the marking draws exactly the same picture.
 
 Every item names the node of the figure model that produced it, so that selection and picking can be added without changing the display list.
 
@@ -80,7 +84,9 @@ Each drawn point carries its position in figure space together with the index it
 
 - The **canvas** tessellates paths with lyon (splitting dashed strokes into dashes first) and glyph outlines into triangle meshes, which egui draws with its wgpu renderer using four-times multisample anti-aliasing. The figure is drawn at its physical aspect ratio, scaled to fit its tab.
 - The **offscreen renderer** draws the same meshes into a texture without a window and reads the image back. The documentation gallery's images are made this way, so they show exactly what the viewer shows.
-- The **PDF backend** writes each path and glyph run to a single page whose MediaBox and CropBox equal the figure size, with fonts embedded as subsets. The decisions behind PDF-first export are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
+- The **PDF backend** writes each path and glyph run to a single page whose MediaBox and CropBox equal the figure size, with fonts embedded as subsets. The decisions behind PDF-first export, and behind the raster fallback below, are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md).
+
+The PDF backend draws a dense item as a deflated image XObject instead of one path per cell when the cell count reaches the threshold described in [exporting PDF](../guides/getting-started.md#dense-surfaces). It does not rasterise anything itself: it asks for the image, and the only thing that answers is the offscreen renderer above, rendering the dense geometry alone at the export resolution into a transparent image and reading it back. The pixels in an exported PDF are therefore the pixels the viewer would draw, and there is no second rasteriser that could drift from the screen. The image is placed at the rectangle the geometry occupies in figure space and clipped exactly as the geometry was, so it lands where the paths would have; everything else on the page, including all text, stays vector.
 
 ## Interaction records edits in an overlay
 

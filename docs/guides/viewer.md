@@ -143,7 +143,7 @@ The figure written is the figure the viewer now holds: the changes saved become 
 
 ## Exporting to PDF
 
-**Export PDF…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown: with its current limits, current three-dimensional views, and without the plots hidden from the legend. The exported page has the same properties as one written by the API, which are described in [exporting PDF](getting-started.md#exporting-pdf). A notification in the bottom-right corner of the window reports whether the export succeeded.
+**Export PDF…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown: with its current limits, current three-dimensional views, and without the plots hidden from the legend. The exported page has the same properties as one written by the API, which are described in [exporting PDF](getting-started.md#exporting-pdf), and it is written with the default settings for [dense surfaces](getting-started.md#dense-surfaces). A notification in the bottom-right corner of the window reports whether the export succeeded.
 
 ## Problems
 

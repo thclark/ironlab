@@ -54,7 +54,7 @@ fn exported_figure_is_one_page_at_the_figure_size_with_its_text() {
     require_tools!("pdfinfo", "pdftotext", "pdffonts");
     let ws = Workspace::new("export");
     let text = engine();
-    let bytes = export_pdf(&damped_oscillation(), &text).expect("export figure");
+    let bytes = export_pdf(&damped_oscillation(), &text, None).expect("export figure");
     assert!(bytes.starts_with(b"%PDF-"));
     let pdf = ws.write_pdf("figure", &bytes);
 
@@ -105,7 +105,7 @@ fn exported_figure_rasterises_identically_in_both_engines() {
     let text = engine();
     let pdf = ws.write_pdf(
         "figure",
-        &export_pdf(&damped_oscillation(), &text).expect("export figure"),
+        &export_pdf(&damped_oscillation(), &text, None).expect("export figure"),
     );
     let poppler = rasterise(&pdf, Engine::Poppler);
     let ghostscript = rasterise(&pdf, Engine::Ghostscript);
@@ -120,9 +120,9 @@ fn write_pdf_writes_the_exported_bytes() {
     let text = engine();
     let figure = damped_oscillation();
     let path = ws.dir.join("written.pdf");
-    write_pdf(&figure, &text, &path).expect("write figure");
+    write_pdf(&figure, &text, None, &path).expect("write figure");
     let written = std::fs::read(&path).expect("read written PDF");
-    let exported = export_pdf(&figure, &text).expect("export figure");
+    let exported = export_pdf(&figure, &text, None).expect("export figure");
     assert!(
         written == exported,
         "written file differs from exported bytes"
@@ -136,7 +136,7 @@ fn write_pdf_to_an_unwritable_path_is_an_io_error() {
     let ws = Workspace::new("write-error");
     let text = engine();
     let path = ws.dir.join("missing-directory").join("figure.pdf");
-    let result = write_pdf(&damped_oscillation(), &text, &path);
+    let result = write_pdf(&damped_oscillation(), &text, None, &path);
     assert!(
         matches!(result, Err(PdfError::Io(_))),
         "writing to {} gave {result:?}",
@@ -205,7 +205,7 @@ fn exported_figure_metadata_names_its_title_creator_and_provenance() {
     figure.provenance = distinctive_provenance();
     let pdf = ws.write_pdf(
         "figure",
-        &export_pdf(&figure, &text).expect("export figure"),
+        &export_pdf(&figure, &text, None).expect("export figure"),
     );
 
     let info = pdfinfo(&pdf, false);
@@ -279,11 +279,13 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
         "the compiled scene the exporter draws holds {segments} path segments for {points} data points"
     );
 
-    let exported = export_pdf(&figure, &text).expect("export figure");
+    // A line is never marked dense, so neither call needs a rasteriser and both draw pure vector geometry.
+    let exported = export_pdf(&figure, &text, None).expect("export figure");
     let from_the_compiled_scene = ironlab_pdf::render_display_list(
         &scene.display_list,
         &text,
         &PdfOptions::for_figure(&figure),
+        None,
     )
     .expect("render the compiled display list");
     assert_eq!(
