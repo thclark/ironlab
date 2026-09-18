@@ -29,8 +29,8 @@ use ironlab_ir::{
 };
 
 use crate::inspector::{
-    Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, TreeRow, commit, kind_name,
-    property_groups, read_only_label, shape_label, tree_rows,
+    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, TreeRow,
+    commit, kind_name, property_groups, read_only_label, shape_label, tree_rows,
 };
 use crate::interaction::FigureState;
 
@@ -440,11 +440,12 @@ fn property_row(
                     Editor::Text | Editor::RichText => text_control(ui, panel, state, node, row),
                     Editor::Numbers => numbers_control(ui, panel, state, node, row),
                     Editor::Data { shape } => {
-                        data_control(ui, row, shape.as_deref());
+                        let text = data_label(row, shape.as_deref());
+                        read_only_control(ui, row, text, DATA_REASON);
                         false
                     }
                     Editor::ReadOnly { reason } => {
-                        read_only_control(ui, row, reason);
+                        read_only_control(ui, row, read_only_label(&row.value), reason);
                         false
                     }
                     Editor::Group | Editor::Parameters => false,
@@ -792,32 +793,25 @@ fn numbers_control(
     }
 }
 
-/// Draws a property that the panel shows but cannot change, with the reason it cannot as
-/// the tooltip of both the value and the lock beside it, so that the row says why rather
-/// than leaving a control that does nothing.
+/// Draws a property that the panel shows but cannot change: its value, drawn dimmed, with
+/// what the property means and the reason it cannot be changed here in its tooltip.
 ///
-/// The column of controls is filled from its right edge, so the lock is drawn before the
-/// value it locks and the value takes whatever room is left.
-fn read_only_control(ui: &mut egui::Ui, row: &PropertyRow, reason: &str) {
-    let hint = format!("{} {reason}", row.docs);
-    ui.label(egui::RichText::new("🔒").weak())
-        .on_hover_text(hint.clone());
-    ui.add(egui::Label::new(egui::RichText::new(read_only_label(&row.value)).weak()).truncate())
-        .on_hover_text(hint);
+/// Every read-only property is drawn here, whichever kind it is, so that the rule holds in
+/// one place: the value dimmed, the reason on hover, and nothing else. Nothing is drawn
+/// beside the value — no lock, no badge — because a mark that says only "this cannot be
+/// changed" says less than the dimmed value does and costs a glyph the fonts may not have.
+fn read_only_control(ui: &mut egui::Ui, row: &PropertyRow, text: String, reason: &str) {
+    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate())
+        .on_hover_text(format!("{} {reason}", row.docs));
 }
 
-/// Draws a reference to a data array, read-only, with the shape of what it refers to.
-fn data_control(ui: &mut egui::Ui, row: &PropertyRow, shape: Option<&[usize]>) {
-    let text = match &row.value {
+/// The value of a reference to a data array, written as the array it names and that
+/// array's shape.
+fn data_label(row: &PropertyRow, shape: Option<&[usize]>) -> String {
+    match &row.value {
         Value::DataId(id) => format!("{id} {}", shape_label(shape)),
         _ => shape_label(shape),
-    };
-    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate())
-        .on_hover_text(
-            "The data a plot draws comes from the program that builds the figure, which \
-             is where it is changed. The editor changes how the figure looks, not what \
-             it draws.",
-        );
+    }
 }
 
 /// Draws an optional value that is absent, with a control that gives it the default of

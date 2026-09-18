@@ -381,6 +381,12 @@ const CELL_REASON: &str = "The cell an axes occupies, like the tile layout it si
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
      program that builds the figure, as part of how its axes relate to one another.";
 
+/// The reason the data a plot draws is not changed here, which the row of a data reference
+/// shows exactly as every other read-only row shows its own reason.
+pub const DATA_REASON: &str = "The data a plot draws comes from the program that builds \
+     the figure, which is where it is changed. The editor changes how the figure looks, \
+     not what it draws.";
+
 /// Returns why a property is shown but cannot be changed in the panel, or `None` when it
 /// can be changed.
 ///
