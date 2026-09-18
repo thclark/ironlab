@@ -55,9 +55,24 @@ Every item names the node of the figure model that produced it, so that selectio
 
 Compilation never fails. An artist whose data cannot be drawn is skipped, and text that cannot be typeset is drawn as its source; each such problem becomes a warning in the scene, which the viewer shows in its [problems indicator](../guides/viewer.md#problems).
 
+### Large series are thinned for the current view
+
+A series of a million points drawn into a plot a few hundred points wide cannot show a million distinct positions. The scene compiler therefore thins a line or a scatter that holds more points than its plot rectangle can resolve, before the geometry reaches the display list. Because the thinning happens in the compiler rather than in a backend, the canvas and the PDF draw the same thinned series, and the figure that is exported is the figure that was on screen.
+
+The target is four drawn points per point of plot width, with a floor of 256 points, and it is not configurable: it is a fidelity-preserving optimisation rather than a choice about how a figure looks, and a knob would let a figure be exported at a different fidelity from the one it was designed at. A series no longer than the target is drawn in full, including the parts of it that lie outside the axes.
+
+Thinning is applied in figure space, so it follows the view. The axis limits, the axis scales, the plot rectangle and, in three dimensions, the camera all decide which points survive, and the compiler runs again whenever any of them changes. Two rules are used:
+
+- A **line** is thinned by the largest-triangle-three-buckets rule, which divides the points into consecutive buckets and keeps from each the one that forms the largest triangle with its neighbours. It keeps the peaks, troughs and corners that carry the shape of a curve, which taking every *n*th point loses. The first and last points always survive, and each run of drawable points is thinned on its own, so a non-finite value still breaks the line rather than being smoothed over.
+- A **set of markers**, whether a scatter or the markers of a line, is thinned by keeping one marker per square of half a marker width, the one that would be painted over the others. The cost of a dense scatter is then set by the area of its plot rather than by the size of its data.
+
+Segments and markers that the axes clip away are dropped before either rule is applied, so the whole budget is spent on what the reader can see: zooming into a thousand points of a million draws those thousand in full.
+
 ### The hit map
 
-The hit map is the geometry that the viewer needs to relate a pointer position to the figure: for each axes, its plot rectangle and, in two dimensions, the mapping between data values and figure coordinates along each axis; and for each legend entry, its rectangle and the artist it represents.
+The hit map is the geometry that the viewer needs to relate a pointer position to the figure: for each axes, its plot rectangle and, in two dimensions, the mapping between data values and figure coordinates along each axis; for each legend entry, its rectangle and the artist it represents; and, for each line and scatter, the points it drew.
+
+Each drawn point carries its position in figure space together with the index it has in the artist's own data arrays, in one value, so that the two cannot be separated or fall out of step. The index is the one the user's data uses, never a position in the thinned series, which is what lets the viewer's [datatip](../guides/viewer.md#datatips) name the measurement the reader is pointing at however hard the series was thinned.
 
 ### The backends
 
