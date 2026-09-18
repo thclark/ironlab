@@ -4,12 +4,14 @@
 //! (zero in 2D). Each emitted item carries a depth, so 2D axes can keep the emission order while 3D axes sort all
 //! items of all artists back to front.
 
+use std::collections::BTreeMap;
+
 use ironlab_ir::{
     Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, MarkerShape,
-    Quiver, Scatter, ScatterSize, Surface, View3d,
+    NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
 };
 
-use crate::display::{Item, Point, Rect, Rgba};
+use crate::display::{Item, ItemKind, Point, Rect, Rgba};
 use crate::hit::{ArtistHit, AxisMap};
 use crate::maths::camera::{Camera, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth};
 use crate::maths::contour::{self, Coords, GridRef};
@@ -131,6 +133,21 @@ impl Space<'_> {
 /// A drawable item with the depth at which it is sorted in 3D.
 pub(crate) type Prim = (f64, Item);
 
+/// Everything the artists of one axes drew.
+pub(crate) struct Drawn {
+    /// The items, tagged with the depths at which a 3D axes sorts them.
+    pub prims: Vec<Prim>,
+    /// The points each line and scatter drew, for picking and datatips.
+    pub hits: Vec<ArtistHit>,
+    /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
+    ///
+    /// The count is of the cells the artist actually drew, not of the cells its data holds. A backend thresholds on
+    /// it to decide whether drawing the artist as vector geometry is worth the file size, so what matters is the
+    /// geometry that would be drawn: a cell dropped for a NaN corner, or one removed by decimation, costs nothing
+    /// and must not count towards rasterising the rest.
+    pub dense: BTreeMap<NodeId, u64>,
+}
+
 /// State shared while drawing the artists of one axes.
 struct Draw<'a> {
     space: &'a Space<'a>,
@@ -146,12 +163,19 @@ struct Draw<'a> {
     out: Vec<Prim>,
     /// The points each artist drew, for picking and datatips.
     hits: Vec<ArtistHit>,
+    /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
+    dense: BTreeMap<NodeId, u64>,
 }
 
 impl Draw<'_> {
-    fn push(&mut self, depth: f64, item: Option<Item>) {
-        if let Some(item) = item {
-            self.out.push((depth, item));
+    /// Emits an item at a depth, and reports whether there was one to emit.
+    fn push(&mut self, depth: f64, item: Option<Item>) -> bool {
+        match item {
+            Some(item) => {
+                self.out.push((depth, item));
+                true
+            }
+            None => false,
         }
     }
 
@@ -171,13 +195,9 @@ impl Draw<'_> {
 
 /// Draws every visible artist of an axes in artist order.
 ///
-/// Returns the items tagged with their depths, and the drawn points of every line and scatter,
-/// each carrying the index it has in the artist's data arrays.
-pub(super) fn draw_artists(
-    input: &AxesInput,
-    primaries: &[Paint],
-    space: &Space,
-) -> (Vec<Prim>, Vec<ArtistHit>) {
+/// Returns the items tagged with their depths, the drawn points of every line and scatter, each carrying the index
+/// it has in the artist's data arrays, and the cell count of every artist a backend may rasterise.
+pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space) -> Drawn {
     let mut draw = Draw {
         space,
         scale: input.colours,
@@ -191,6 +211,7 @@ pub(super) fn draw_artists(
         },
         out: Vec::new(),
         hits: Vec::new(),
+        dense: BTreeMap::new(),
     };
     for (prepared, primary) in input.prepared.iter().zip(primaries) {
         let Some(data) = prepared.data else { continue };
@@ -224,7 +245,54 @@ pub(super) fn draw_artists(
             _ => {}
         }
     }
-    (draw.out, draw.hits)
+    Drawn {
+        prims: draw.out,
+        hits: draw.hits,
+        dense: draw.dense,
+    }
+}
+
+/// Wraps every maximal run of consecutive items drawn for the same dense artist in an [`ItemKind::Dense`] group.
+///
+/// `items` are in final paint order, so the runs are exactly the stretches of the picture that a backend can replace
+/// with a raster image without changing what covers what. In a 2D axes each dense artist yields one run; in a 3D axes
+/// depth sorting can interleave the faces of a surface with the geometry of other artists, and each run is then
+/// marked separately so that the back-to-front order survives rasterisation. Every group of one artist records that
+/// artist's total cell count, not the size of the run.
+pub(super) fn group_dense(items: Vec<Item>, dense: &BTreeMap<NodeId, u64>) -> Vec<Item> {
+    if dense.is_empty() {
+        return items;
+    }
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    let mut run: Vec<Item> = Vec::new();
+    let mut run_source: Option<NodeId> = None;
+    let flush = |out: &mut Vec<Item>, run: &mut Vec<Item>, source: Option<NodeId>| {
+        if let Some(source) = source
+            && !run.is_empty()
+        {
+            out.push(Item {
+                source: Some(source),
+                kind: ItemKind::Dense {
+                    cells: dense[&source],
+                    items: std::mem::take(run),
+                },
+            });
+        }
+    };
+    for item in items {
+        let source = item.source.filter(|id| dense.contains_key(id));
+        if source != run_source {
+            flush(&mut out, &mut run, run_source);
+            run_source = source;
+        }
+        if run_source.is_some() {
+            run.push(item);
+        } else {
+            out.push(item);
+        }
+    }
+    flush(&mut out, &mut run, run_source);
+    out
 }
 
 /// Returns the mean of the depths of mapped samples.
@@ -639,10 +707,11 @@ fn node_xy(grid: &GridRef, i: usize, j: usize) -> [f64; 2] {
     }
 }
 
-/// Draws one flat face per grid cell of a surface.
+/// Draws one flat face per grid cell of a surface, and records how many faces it drew.
 fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[f64]>) {
     let values = colours.unwrap_or(grid.z);
     let width = style::width_or(s.edge_width_pt, 0.5);
+    let mut faces: u64 = 0;
     for j in 0..grid.ny - 1 {
         for i in 0..grid.nx - 1 {
             let corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)];
@@ -671,10 +740,15 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
             let stroke = paint(s.edge).map(|c| paths::stroke(c, width, Vec::new()));
             let mut b = PathBuilder::new();
             b.polyline(&positions(&mapped), true);
-            draw.push(
+            if draw.push(
                 mean_depth(&mapped),
                 paths::item(s.id, b.finish(), fill, stroke),
-            );
+            ) {
+                faces += 1;
+            }
         }
+    }
+    if faces > 0 {
+        *draw.dense.entry(s.id).or_default() += faces;
     }
 }

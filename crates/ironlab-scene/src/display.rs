@@ -12,6 +12,8 @@
 //! is placed beneath a group whose transform rotates or skews. Backends must nevertheless skip (not panic on) items
 //! that violate these rules, because display lists can be built by hand.
 
+use std::sync::Arc;
+
 use ironlab_ir::NodeId;
 use ironlab_text::FontId;
 
@@ -220,6 +222,73 @@ pub struct PathItem {
     pub stroke: Option<Stroke>,
 }
 
+/// A raster image drawn into an axis-aligned rectangle of the item's local coordinate space.
+///
+/// `samples` holds `width · height · channels` bytes, row by row from the top-left pixel of the image, which is
+/// drawn at the top-left corner of `rect`: three channels for opaque red, green and blue, and four for red, green,
+/// blue and straight (non-premultiplied) alpha. The values are sRGB, as everywhere else in the display list.
+///
+/// The samples are resolved true colour rather than data values with a colour mapping, so that a backend draws them
+/// without consulting anything else. Whether the display list should also be able to carry unmapped samples with
+/// their colour mapping, so that changing the colour limits of an image artist is a uniform update rather than a
+/// re-mapping of every pixel, is an open question for the image artists of
+/// [issue #7](https://github.com/thclark/ironlab/issues/7); a second variant can be added beside this one without
+/// disturbing it.
+///
+/// The samples are shared behind an [`Arc`] so that cloning a display list does not copy them.
+#[derive(Clone, PartialEq)]
+pub struct ImageItem {
+    /// Where the image is drawn, in the item's local coordinate space.
+    pub rect: Rect,
+    /// The number of columns of samples.
+    pub width: u32,
+    /// The number of rows of samples.
+    pub height: u32,
+    /// The number of channels per sample: 3 for opaque RGB, 4 for RGB with straight alpha.
+    pub channels: u8,
+    /// `width · height · channels` bytes.
+    pub samples: Arc<[u8]>,
+}
+
+impl ImageItem {
+    /// The number of channels of an opaque image.
+    pub const RGB: u8 = 3;
+    /// The number of channels of an image with straight alpha.
+    pub const RGBA: u8 = 4;
+
+    /// Reports whether the item can be drawn: a positive, finite rectangle, a non-empty grid of samples, a supported
+    /// channel count, and exactly `width · height · channels` bytes of samples.
+    pub fn is_valid(&self) -> bool {
+        let finite = [self.rect.x, self.rect.y, self.rect.width, self.rect.height]
+            .iter()
+            .all(|v| v.is_finite());
+        let expected = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|pixels| pixels.checked_mul(usize::from(self.channels)));
+        finite
+            && self.rect.width > 0.0
+            && self.rect.height > 0.0
+            && self.width > 0
+            && self.height > 0
+            && matches!(self.channels, Self::RGB | Self::RGBA)
+            && expected == Some(self.samples.len())
+            && !self.samples.is_empty()
+    }
+}
+
+impl std::fmt::Debug for ImageItem {
+    /// Prints the shape of the image rather than its samples, of which there can be millions.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageItem")
+            .field("rect", &self.rect)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("channels", &self.channels)
+            .field("samples", &format_args!("{} bytes", self.samples.len()))
+            .finish()
+    }
+}
+
 /// A run of glyphs from one font at one size, positioned in figure space.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlyphsItem {
@@ -252,11 +321,31 @@ pub struct Item {
 pub enum ItemKind {
     Path(PathItem),
     Glyphs(GlyphsItem),
+    /// A raster image. The scene compiler does not emit image items yet; the PDF exporter builds them when it
+    /// replaces dense vector content with a raster, and the image artists of
+    /// [issue #7](https://github.com/thclark/ironlab/issues/7) will emit them directly.
+    Image(ImageItem),
     /// A group of items. `clip` is expressed in the parent coordinate space and applied before `transform`; the
     /// items are expressed in the group's local space, which `transform` maps into the parent space.
     Group {
         clip: Option<Rect>,
         transform: Option<Transform>,
+        items: Vec<Item>,
+    },
+    /// Items drawn for one artist whose data is dense enough that a backend may draw them as a raster image instead
+    /// of as vector geometry.
+    ///
+    /// A dense group carries neither a clip nor a transform: its items are expressed in the enclosing coordinate
+    /// space and are subject to the enclosing clips, so a backend that ignores the marking and draws the items
+    /// produces exactly the same picture as one that honours it. The interactive canvas ignores it; the PDF
+    /// exporter uses it to replace the items with an image XObject (see [`crate::display`] consumers).
+    ///
+    /// `cells` is the number of data cells (surface faces, and in future image pixels) that the artist draws over
+    /// the whole display list, which is what a backend thresholds on. It is deliberately not the number of items in
+    /// this group, because depth sorting in a 3D axes can split one artist's geometry into several dense groups
+    /// separated by the geometry of other artists; every one of them records the same total.
+    Dense {
+        cells: u64,
         items: Vec<Item>,
     },
 }
@@ -277,6 +366,9 @@ impl DisplayList {
     /// The callback receives the item, the accumulated transform from item space to figure space, and the
     /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and
     /// scalings; the scene compiler never places a clipped group beneath a rotation.
+    ///
+    /// [`ItemKind::Dense`] groups are descended into like any other group, so a backend that draws leaves through
+    /// this method draws dense content as vector geometry without having to know about the marking.
     pub fn visit_leaves(&self, mut visit: impl FnMut(&Item, Transform, Option<Rect>)) {
         fn walk(
             items: &[Item],
@@ -314,6 +406,7 @@ impl DisplayList {
                         };
                         walk(items, transform, clip, visit);
                     }
+                    ItemKind::Dense { items, .. } => walk(items, transform, clip, visit),
                     _ => visit(item, transform, clip),
                 }
             }
