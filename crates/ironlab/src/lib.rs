@@ -84,6 +84,10 @@ pub use ironlab_ir::{
     Color, ColorSpec, Interpreter, LegendLocation, NodeId, Parameter, Scale, Text, ValidationReport,
 };
 
+/// How a dense artist is drawn when the figure is exported, and at what resolution it is
+/// rasterised. See [`Figure::export_pdf_with`].
+pub use ironlab_pdf::{RasterOptions, RasterPolicy};
+
 /// The types and functions needed to build figures, for glob import.
 ///
 /// ```
@@ -94,6 +98,7 @@ pub mod prelude {
     pub use crate::{
         Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
         IntoColorSpec, LegendLocation, LineMut, Marker, Matrix, NodeId, Parameter, QuiverMut,
-        Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
+        RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, linspace, logspace,
+        meshgrid,
     };
 }

@@ -8,6 +8,15 @@
 //! Display-list coordinates have their origin at the top-left corner of the figure with y increasing downwards;
 //! krilla uses the same convention for page content, so no flip is applied by this crate.
 //!
+//! # Dense content
+//!
+//! Content that the scene compiler marked as dense, such as a surface with tens of thousands of faces, is drawn as a
+//! deflated image XObject instead of one vector path per face when it reaches the threshold of
+//! [`RasterOptions::policy`]. Everything else — axes, ticks, tick labels, axis labels, titles, legends and every
+//! other artist — stays vector, and text stays selectable. The image is rendered by the [`Rasteriser`] the caller
+//! supplies, which is the viewer's own headless GPU renderer, so the exported pixels are the ones the user saw on
+//! screen. See [`raster`] for the placement rules and for what happens when no rasteriser is given.
+//!
 //! # Invalid items
 //!
 //! The scene compiler guarantees that the items it emits are valid (see the `Validity` section of
@@ -22,7 +31,13 @@
 //!   appearance and loses only its copyable text.
 //! - A group with a non-finite clip, or a non-finite or singular transform, is skipped with all of its items; a
 //!   singular transform collapses its content to a line or a point, so nothing visible is lost.
+//! - An image whose rectangle is not finite and positive, whose grid of samples is empty, whose channel count is
+//!   neither three nor four, or whose samples are not exactly `width · height · channels` bytes, is skipped.
+//! - A dense group that encloses no finite geometry within its clips, or that lies beneath a transform whose inverse
+//!   would not be finite, is drawn as vector geometry, because there is nowhere to place an image for it.
 //! - Colour channels are clamped to `[0, 1]`, with NaN treated as 0.
+
+pub mod raster;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -33,8 +48,10 @@ use ironlab_text::{FontId, TextEngine};
 use krilla::Document;
 use krilla::color::rgb;
 use krilla::geom::{
-    Path as KrillaPath, PathBuilder, Point as KrillaPoint, Transform as KrillaTransform,
+    Path as KrillaPath, PathBuilder, Point as KrillaPoint, Size as KrillaSize,
+    Transform as KrillaTransform,
 };
+use krilla::image::Image;
 use krilla::metadata::Metadata;
 use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
@@ -42,10 +59,14 @@ use krilla::paint::{Fill, FillRule, LineCap, LineJoin, Stroke, StrokeDash};
 use krilla::surface::Surface;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 
+pub use raster::{
+    DEFAULT_RASTER_CELLS, DEFAULT_RASTER_DPI, RasterImage, RasterOptions, RasterPolicy, Rasteriser,
+};
+
 /// The miter limit fixed by the display list contract; krilla's default is 10.
 const MITER_LIMIT: f32 = 4.0;
 
-/// Options controlling the document-level properties of an exported PDF.
+/// Options controlling the document-level properties of an exported PDF and its raster fallback.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PdfOptions {
     /// The document title written to the PDF metadata, or `None` to omit it.
@@ -55,6 +76,8 @@ pub struct PdfOptions {
     /// The document subject written to the PDF metadata, or `None` to omit it. Figure exports use it to record
     /// provenance.
     pub subject: Option<String>,
+    /// How dense content is drawn, and at what resolution it is rasterised.
+    pub raster: RasterOptions,
 }
 
 impl Default for PdfOptions {
@@ -63,6 +86,7 @@ impl Default for PdfOptions {
             title: None,
             creator: format!("IronLAB {}", env!("CARGO_PKG_VERSION")),
             subject: None,
+            raster: RasterOptions::default(),
         }
     }
 }
@@ -99,6 +123,12 @@ pub enum PdfError {
     /// The bytes of a bundled font could not be loaded by krilla.
     #[error("failed to load font {0:?}")]
     Font(FontId),
+    /// The rasteriser could not render dense content.
+    #[error(
+        "failed to rasterise dense content: {0}; set the export's raster policy to `Never` to draw it as vector \
+         geometry instead"
+    )]
+    Raster(String),
     /// The PDF could not be written to its destination.
     #[error("failed to write PDF: {0}")]
     Io(#[from] std::io::Error),
@@ -110,14 +140,20 @@ pub enum PdfError {
 /// Items that cannot be represented, such as paths or glyphs with non-finite coordinates, are skipped so that the
 /// resulting PDF is always valid.
 ///
+/// Dense content is drawn as an image when `raster` is `Some` and [`RasterOptions::policy`] says so, and as vector
+/// geometry otherwise. Passing `None` therefore guarantees a wholly vector page whatever the policy, which is what a
+/// caller without access to a renderer wants.
+///
 /// # Errors
 ///
 /// Returns [`PdfError::Krilla`] when the page size is not finite and positive or krilla fails to serialise the
-/// document, and [`PdfError::Font`] when a bundled font cannot be loaded.
+/// document, [`PdfError::Font`] when a bundled font cannot be loaded, and [`PdfError::Raster`] when the rasteriser
+/// fails on content the policy says to rasterise.
 pub fn render_display_list(
     list: &DisplayList,
     text: &TextEngine,
     options: &PdfOptions,
+    raster: Option<&mut dyn Rasteriser>,
 ) -> Result<Vec<u8>, PdfError> {
     let (width, height) = (list.width_pt as f32, list.height_pt as f32);
     if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
@@ -153,6 +189,11 @@ pub fn render_display_list(
         let mut painter = Painter {
             text,
             fonts: HashMap::new(),
+            raster,
+            options: options.raster,
+            page: display::Rect::new(0.0, 0.0, list.width_pt, list.height_pt),
+            to_figure: display::Transform::IDENTITY,
+            clip: None,
         };
         let result = painter.draw_page(&mut surface, list, width, height);
         surface.finish();
@@ -167,12 +208,24 @@ pub fn render_display_list(
 
 /// Compiles and exports a figure, with the document metadata given by [`PdfOptions::for_figure`].
 ///
+/// `raster` renders the dense parts of the figure; pass `None` to draw the whole figure as vector geometry. The
+/// viewer's headless renderer implements [`Rasteriser`], and `ironlab_viewer::export_pdf` wires it in.
+///
 /// # Errors
 ///
 /// Returns an error under the same conditions as [`render_display_list`].
-pub fn export_pdf(figure: &Figure, text: &TextEngine) -> Result<Vec<u8>, PdfError> {
+pub fn export_pdf(
+    figure: &Figure,
+    text: &TextEngine,
+    raster: Option<&mut dyn Rasteriser>,
+) -> Result<Vec<u8>, PdfError> {
     let scene = ironlab_scene::compile(figure, text);
-    render_display_list(&scene.display_list, text, &PdfOptions::for_figure(figure))
+    render_display_list(
+        &scene.display_list,
+        text,
+        &PdfOptions::for_figure(figure),
+        raster,
+    )
 }
 
 /// Compiles and exports a figure, writing the PDF to `path`.
@@ -183,9 +236,10 @@ pub fn export_pdf(figure: &Figure, text: &TextEngine) -> Result<Vec<u8>, PdfErro
 pub fn write_pdf(
     figure: &Figure,
     text: &TextEngine,
+    raster: Option<&mut dyn Rasteriser>,
     path: impl AsRef<Path>,
 ) -> Result<(), PdfError> {
-    let bytes = export_pdf(figure, text)?;
+    let bytes = export_pdf(figure, text, raster)?;
     std::fs::write(path.as_ref(), bytes)?;
     Ok(())
 }
@@ -198,12 +252,26 @@ struct LoadedFont {
 }
 
 /// Draws display items onto a krilla surface, loading each font at most once per document.
-struct Painter<'a> {
-    text: &'a TextEngine,
+///
+/// The painter mirrors krilla's own transform and clip stack in `to_figure` and `clip`, because krilla exposes
+/// neither the accumulated clip nor an inverse of its transform, and both are needed to place a raster image: the
+/// image's rectangle is computed in figure space, and the image is drawn beneath the inverse of the current
+/// transform so that it lands there whatever groups enclose it.
+struct Painter<'t, 'r> {
+    text: &'t TextEngine,
     fonts: HashMap<FontId, LoadedFont>,
+    /// The renderer of dense content, or `None` when dense content is drawn as vector geometry.
+    raster: Option<&'r mut dyn Rasteriser>,
+    options: RasterOptions,
+    /// The page, in figure space, which bounds every raster.
+    page: display::Rect,
+    /// The transform from the current item space to figure space.
+    to_figure: display::Transform,
+    /// The intersection of the clips enclosing the current items, in figure space.
+    clip: Option<display::Rect>,
 }
 
-impl Painter<'_> {
+impl Painter<'_, '_> {
     fn draw_page(
         &mut self,
         surface: &mut Surface<'_>,
@@ -227,11 +295,13 @@ impl Painter<'_> {
             match &item.kind {
                 ItemKind::Path(path) => draw_path(surface, path),
                 ItemKind::Glyphs(glyphs) => self.draw_glyphs(surface, glyphs)?,
+                ItemKind::Image(image) => draw_image(surface, image),
                 ItemKind::Group {
                     clip,
                     transform,
                     items,
                 } => self.draw_group(surface, *clip, *transform, items)?,
+                ItemKind::Dense { cells, items } => self.draw_dense(surface, *cells, items)?,
             }
         }
         Ok(())
@@ -246,27 +316,41 @@ impl Painter<'_> {
     ) -> Result<(), PdfError> {
         let clip = match clip {
             Some(rect) => match clip_path(surface, rect) {
-                Some(path) => Some(path),
+                Some(path) => Some((rect, path)),
                 None => return Ok(()),
             },
             None => None,
         };
         let transform = match transform {
             Some(t) => match convert_transform(t) {
-                Some(t) => Some(t),
+                Some(converted) => Some((t, converted)),
                 None => return Ok(()),
             },
             None => None,
         };
 
         // The clip is expressed in the parent space, so it is pushed before the group's transform.
-        if let Some(path) = &clip {
+        if let Some((_, path)) = &clip {
             surface.push_clip_path(path, &FillRule::NonZero);
         }
-        if let Some(t) = &transform {
+        if let Some((_, t)) = &transform {
             surface.push_transform(t);
         }
+        let (outer_clip, outer_transform) = (self.clip, self.to_figure);
+        if let Some((rect, _)) = &clip {
+            self.clip = Some(match self.clip {
+                Some(outer) => raster::intersect(outer, map_rect(self.to_figure, *rect)),
+                None => map_rect(self.to_figure, *rect),
+            });
+        }
+        if let Some((t, _)) = &transform {
+            self.to_figure = t.then(self.to_figure);
+        }
+
         let result = self.draw_items(surface, items);
+
+        self.clip = outer_clip;
+        self.to_figure = outer_transform;
         if transform.is_some() {
             surface.pop();
         }
@@ -274,6 +358,47 @@ impl Painter<'_> {
             surface.pop();
         }
         result
+    }
+
+    /// Draws content the scene compiler marked as dense, either as a raster image or as vector geometry.
+    ///
+    /// The items are drawn as vector geometry whenever there is no rasteriser, the policy keeps them vector, the
+    /// content has no finite extent within its clips, or the current transform cannot be inverted (which would leave
+    /// nowhere to put the image). Only a rasteriser that is asked to render and fails is an error, because at that
+    /// point the caller has asked for something that cannot be delivered silently.
+    fn draw_dense(
+        &mut self,
+        surface: &mut Surface<'_>,
+        cells: u64,
+        items: &[Item],
+    ) -> Result<(), PdfError> {
+        if self.raster.is_none() || !self.options.policy.rasterises(cells) {
+            return self.draw_items(surface, items);
+        }
+        let Some(inverse) = invert(self.to_figure) else {
+            return self.draw_items(surface, items);
+        };
+        let Some(plan) = raster::plan(items, self.to_figure, self.clip, self.page, &self.options)
+        else {
+            return self.draw_items(surface, items);
+        };
+        let rasteriser = self
+            .raster
+            .as_mut()
+            .expect("the rasteriser was just checked to be present");
+        let rendered = rasteriser
+            .rasterise(&plan.list, self.options.dpi)
+            .map_err(PdfError::Raster)?;
+        let Some(image) = plan.image(&rendered) else {
+            return self.draw_items(surface, items);
+        };
+
+        // The image rectangle is in figure space, so the enclosing transforms are undone before it is drawn. The
+        // enclosing clips stay in force, which re-clips the raster to the plot box exactly as the vector geometry is.
+        surface.push_transform(&inverse);
+        draw_image(surface, &image);
+        surface.pop();
+        Ok(())
     }
 
     fn draw_glyphs(
@@ -428,6 +553,129 @@ fn convert_path(segments: &[PathSegment]) -> Option<KrillaPath> {
         }
     }
     builder.finish()
+}
+
+/// Draws an image item as a deflated image XObject, or nothing when the item is invalid.
+///
+/// krilla deflates the samples and, for an image with alpha, its soft mask, so both streams carry `/FlateDecode`.
+/// It writes `/Interpolate` only when interpolation is asked for, and the key defaults to false, so omitting it is
+/// exactly `/Interpolate false`: the raster is drawn with hard pixel edges, which is what a figure needs, because
+/// smoothing would blur the boundaries between faces that the vector version draws sharply.
+///
+/// This is the only path by which an image reaches the PDF, so the image artists of
+/// [issue #7](https://github.com/thclark/ironlab/issues/7) will use it unchanged.
+fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
+    if !item.is_valid() {
+        return;
+    }
+    let (Some(size), Some(origin)) = (
+        KrillaSize::from_wh(item.rect.width as f32, item.rect.height as f32),
+        point(display::Point::new(item.rect.x, item.rect.y)),
+    ) else {
+        return;
+    };
+    let Ok(image) = Image::from_custom(Samples::new(item), false) else {
+        return;
+    };
+    surface.push_transform(&KrillaTransform::from_translate(origin.0, origin.1));
+    surface.draw_image(image, size);
+    surface.pop();
+}
+
+/// The samples of an [`display::ImageItem`] presented to krilla as a custom image.
+///
+/// PDF holds an image's colour and its transparency in separate streams, the second of which is a soft mask, so the
+/// interleaved samples of the display list are split here. An opaque image keeps three channels and is written with
+/// no soft mask at all, which is both smaller and free of the transparency that strict PDF profiles restrict.
+#[derive(Clone, Hash)]
+struct Samples {
+    width: u32,
+    height: u32,
+    /// `width · height · 3` bytes of red, green and blue.
+    color: std::sync::Arc<[u8]>,
+    /// `width · height` bytes of straight alpha, or `None` when the image is opaque.
+    alpha: Option<std::sync::Arc<[u8]>>,
+}
+
+impl Samples {
+    fn new(item: &display::ImageItem) -> Self {
+        let (color, alpha) = if item.channels == display::ImageItem::RGB {
+            (item.samples.clone(), None)
+        } else {
+            let pixels = item.samples.len() / usize::from(display::ImageItem::RGBA);
+            let mut color = Vec::with_capacity(pixels * usize::from(display::ImageItem::RGB));
+            let mut alpha = Vec::with_capacity(pixels);
+            for pixel in item.samples.as_chunks::<4>().0 {
+                color.extend_from_slice(&pixel[..3]);
+                alpha.push(pixel[3]);
+            }
+            (color.into(), Some(alpha.into()))
+        };
+        Self {
+            width: item.width,
+            height: item.height,
+            color,
+            alpha,
+        }
+    }
+}
+
+impl krilla::image::CustomImage for Samples {
+    fn color_channel(&self) -> &[u8] {
+        &self.color
+    }
+
+    fn alpha_channel(&self) -> Option<&[u8]> {
+        self.alpha.as_deref()
+    }
+
+    fn bits_per_component(&self) -> krilla::image::BitsPerComponent {
+        krilla::image::BitsPerComponent::Eight
+    }
+
+    fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn icc_profile(&self) -> Option<&[u8]> {
+        None
+    }
+
+    fn color_space(&self) -> krilla::image::ImageColorspace {
+        krilla::image::ImageColorspace::Rgb
+    }
+}
+
+/// The inverse of a transform, or `None` when it is not finite or is singular.
+fn invert(t: display::Transform) -> Option<KrillaTransform> {
+    let det = t.a * t.d - t.b * t.c;
+    if !det.is_finite() || det == 0.0 {
+        return None;
+    }
+    let inverse = display::Transform {
+        a: t.d / det,
+        b: -t.b / det,
+        c: -t.c / det,
+        d: t.a / det,
+        e: (t.c * t.f - t.d * t.e) / det,
+        f: (t.b * t.e - t.a * t.f) / det,
+    };
+    convert_transform(inverse)
+}
+
+/// Maps a rectangle through a transform, taking the axis-aligned bound of the result.
+///
+/// The scene compiler never places a clipped group beneath a rotation, so for the clips this is applied to the
+/// bound is the mapped rectangle itself.
+fn map_rect(t: display::Transform, rect: display::Rect) -> display::Rect {
+    let a = t.apply(display::Point::new(rect.x, rect.y));
+    let b = t.apply(display::Point::new(rect.right(), rect.bottom()));
+    display::Rect::new(
+        a.x.min(b.x),
+        a.y.min(b.y),
+        (b.x - a.x).abs(),
+        (b.y - a.y).abs(),
+    )
 }
 
 /// Converts a stroke. The outer `None` marks an invalid stroke (which invalidates its item); the inner `None` marks a

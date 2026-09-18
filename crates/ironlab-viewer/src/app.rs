@@ -14,7 +14,8 @@
 //! Everything shown, exported and saved is the displayed figure of [`FigureState`]: the source figure with the user's
 //! overlay applied. Pressing `R` resets the view of the active figure, and ⌘Z and ⌘⇧Z (Ctrl+Z and Ctrl+Shift+Z away
 //! from macOS) undo and redo its gestures. "Export PDF…" writes the displayed figure with
-//! [`ironlab_pdf::write_pdf`], and "Save figure…" writes it as a figure file with [`crate::files::write_figure`],
+//! [`crate::export::write_pdf`], which rasterises the dense parts of the figure through the viewer's own renderer,
+//! and "Save figure…" writes it as a figure file with [`crate::files::write_figure`],
 //! after which the overlay is folded into the source because the viewer owns it. Both open a native save dialog and
 //! report the outcome in a notification.
 
@@ -329,7 +330,12 @@ impl FigurePane {
             .set_file_name(format!("{stem}.pdf"))
             .save_file()?;
         Some(
-            match ironlab_pdf::write_pdf(self.state.figure(), text, &path) {
+            match crate::export::write_pdf(
+                self.state.figure(),
+                text,
+                &ironlab_pdf::PdfOptions::for_figure(self.state.figure()),
+                &path,
+            ) {
                 Ok(()) => Notification {
                     message: format!("Exported {}", path.display()),
                     is_error: false,

@@ -115,6 +115,21 @@ pub fn render_display_list_offscreen(
     text: &TextEngine,
     dpi: f64,
 ) -> Result<RenderedImage, RenderError> {
+    with_shared_renderer(|renderer| renderer.render_display_list(list, text, dpi))
+}
+
+/// Runs `use_renderer` against the process-wide renderer, creating its device on first use.
+///
+/// The device is by far the most expensive part of an offscreen render, so every caller in the process shares one,
+/// and the renderer is discarded when a render fails at readback, which is how a lost device shows itself.
+///
+/// # Errors
+///
+/// Returns [`RenderError::NoAdapter`] or [`RenderError::Device`] when the renderer cannot be created, and otherwise
+/// whatever `use_renderer` returns.
+pub fn with_shared_renderer<T>(
+    use_renderer: impl FnOnce(&mut OffscreenRenderer) -> Result<T, RenderError>,
+) -> Result<T, RenderError> {
     static SHARED: Mutex<Option<OffscreenRenderer>> = Mutex::new(None);
     let mut shared = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
     if shared.is_none() {
@@ -123,7 +138,7 @@ pub fn render_display_list_offscreen(
     let renderer = shared
         .as_mut()
         .expect("the shared renderer was just created");
-    let result = renderer.render_display_list(list, text, dpi);
+    let result = use_renderer(renderer);
     if matches!(result, Err(RenderError::Readback(_))) {
         // The device may have been lost; create a new one on the next call.
         *shared = None;
