@@ -23,7 +23,7 @@ Opening a PR is the assistant's job; merging it is the human's — in every repo
 
 ## Version bumps
 
-Bump `version` in `pyproject.toml` **only on PRs whose base is `main`** — never on sub-branch PRs into a trunk like `geo` (the `semantic` check only runs on `main`-bound PRs, and trunk-PR bumps just create `pyproject.toml` conflicts). How to calculate and apply the bump is in [Commits and versioning](git-commits-and-versioning.md).
+Bump the workspace `version` in the root `Cargo.toml` **only on PRs whose base is `main`** — never on sub-branch PRs into a trunk like `geo` (the `semantic` check only runs on `main`-bound PRs, and trunk-PR bumps just create `Cargo.toml` conflicts). How to calculate and apply the bump is in [Commits and versioning](git-commits-and-versioning.md).
 
 ## Related notes
 
