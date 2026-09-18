@@ -113,10 +113,12 @@ impl Ctx<'_> {
 ///   series was decimated.
 /// - **Dense content.** The faces of a surface are wrapped in [`crate::display::ItemKind::Dense`] groups that record
 ///   how many faces the artist drew, so that a backend can replace them with a raster image instead of drawing one
-///   vector path per face. Each group holds one maximal run of consecutive faces of one artist in paint order, so a
-///   surface whose faces the 3D depth sort interleaves with the geometry of other artists yields several groups, each
-///   recording the artist's total face count. A dense group has no clip and no transform of its own, so a backend
-///   that ignores the marking draws exactly the same picture.
+///   vector path per face. The count is of the faces actually drawn, not of the cells the grid holds: a face dropped
+///   for a NaN corner, and geometry a future decimation removes, cost a backend nothing and do not count towards
+///   rasterising the rest. Each group holds one maximal run of consecutive faces of one artist in paint order, so a
+///   surface whose faces the 3D depth sort interleaves with the geometry of other artists — including a line thinned
+///   by the decimation above — yields several groups, each recording the artist's total face count. A dense group has
+///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
 ///   Within each axes, every line, scatter and quiver artist whose primary colour is `ColorSpec::Auto` (the
