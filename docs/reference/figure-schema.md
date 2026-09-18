@@ -184,7 +184,7 @@ Markers at data points, each with its own size and colour (MATLAB's `scatter` an
 | Property | Meaning |
 | --- | --- |
 | `x`, `y`, `z` | As for a line. |
-| `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": DataId}` gives one size per point. It overrides `marker.size_pt`. |
+| `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": DataId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
 | `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": DataId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
 | `marker` | The MarkerStyle; its shape defaults to `circle`. |
 

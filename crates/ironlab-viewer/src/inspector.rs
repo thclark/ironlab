@@ -21,7 +21,7 @@
 //! a figure — its tile layout, its axes, its plots — and the data those plots draw come
 //! from the program that builds the figure, which is what a figure viewer is for.
 //!
-//! Three kinds of property are therefore shown read-only rather than offered as controls
+//! Four kinds of property are therefore shown read-only rather than offered as controls
 //! that could not be used well:
 //!
 //! - A reference to a data array (the x data of a line, the grid of a surface) is shown
@@ -30,6 +30,8 @@
 //!   layout is the frame the program placed its axes in. The cell of an axes stays
 //!   editable, because moving an axes within that frame is a change to the axes.
 //! - The groups of axes whose limits are linked are shown as a count.
+//! - A property that another property of the same node overrides, of which the marker
+//!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
 //!
 //! [`read_only_reason`] states the reason for each, which the panel shows, so that a
 //! read-only row is never a dead control with nothing to say for itself.
@@ -341,6 +343,12 @@ pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPa
         .is_none_or(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
 }
 
+/// The reason a scatter's marker size is not changed here, which names the row that does
+/// change it as the panel labels it.
+const SCATTER_MARKER_SIZE_REASON: &str = "A scatter sizes its markers by its own size \
+     property, in the row named size above, which overrides this one. Change size to give \
+     every marker the same size, or to take each marker's size from an array.";
+
 /// The reason the rows and columns of the figure's tile layout are not changed here.
 const TILE_LAYOUT_REASON: &str = "The tile layout is set by the program that builds the \
      figure, together with the axes placed in it. The cell an axes occupies can be \
@@ -354,10 +362,12 @@ const LINKS_REASON: &str = "The groups of axes whose limits are linked are set b
 /// can be changed.
 ///
 /// A property is read-only here when it describes the structure of the figure rather than
-/// a property of a node: the editor changes what the program's nodes look like, not which
-/// nodes there are. A property whose value the IR merely constrains — limits that must
-/// increase, a positive font size — stays editable, because refusing the change and
-/// saying why is the better answer there.
+/// a property of a node, or when another property of the same node overrides it: the
+/// editor changes what the program's nodes look like, not which nodes there are, and a
+/// control whose value another property overrules would do nothing and explain nothing. A
+/// property whose value the IR merely constrains — limits that must increase, a positive
+/// font size — stays editable, because refusing the change and saying why is the better
+/// answer there.
 ///
 /// The match over the kinds of node is exhaustive, so a kind added to the IR does not
 /// compile until it is said what of it is read-only.
@@ -374,6 +384,10 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
                 None
             }
         }
+        // A scatter's size overrides the size of its marker style, so the scene compiler
+        // never reads `marker.size_pt` there. Every other artist draws its markers at
+        // that size, so it stays editable for them.
+        NodeKind::Scatter if segments == ["marker", "size_pt"] => Some(SCATTER_MARKER_SIZE_REASON),
         NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter

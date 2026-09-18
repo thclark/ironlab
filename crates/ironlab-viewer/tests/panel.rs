@@ -1207,6 +1207,45 @@ fn the_cell_of_an_axes_stays_editable() {
     }
 }
 
+// Why: a scatter takes the size of its markers from its own size property, so the size in
+// its marker style changes nothing; a control that does nothing is worse than a locked row
+// that says where the size comes from. Every other artist draws its markers at that size,
+// so locking it for them would remove the only way to set it.
+#[test]
+fn the_marker_size_of_a_scatter_is_read_only_and_that_of_a_line_is_not() {
+    let state = FigureState::new(figure_with_every_artist());
+    let (line, scatter) = (NodeId(3), NodeId(4));
+
+    let Editor::ReadOnly { reason } = row(&groups_of(&state, scatter), "marker", "size_pt").editor
+    else {
+        panic!(
+            "a scatter's marker size is editable: {:?}",
+            row(&groups_of(&state, scatter), "marker", "size_pt").editor
+        );
+    };
+    assert!(
+        reason.contains("the row named size"),
+        "the reason must send the user to the row that does set the size: {reason}"
+    );
+    assert_eq!(
+        read_only_reason(NodeKind::Scatter, &path("marker.size_pt")),
+        Some(reason),
+        "the reason the panel shows is the one the inspector states"
+    );
+
+    assert!(
+        read_only_reason(NodeKind::Line, &path("marker.size_pt")).is_none(),
+        "a line draws its markers at the size of its marker style"
+    );
+    assert!(
+        matches!(
+            row(&groups_of(&state, line), "marker", "size_pt").editor,
+            Editor::Number { .. }
+        ),
+        "a line's marker size must keep its control"
+    );
+}
+
 // Why: a read-only row with nothing to say for itself looks like a control that is
 // broken; the user must be able to find out why the value cannot be changed here.
 #[test]
