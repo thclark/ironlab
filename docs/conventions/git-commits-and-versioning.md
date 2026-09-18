@@ -125,6 +125,14 @@ If publication fails part way through, do not re-run the job. `cargo publish --w
 
 Publication is irreversible. A version can be yanked, which stops new dependency resolution against it, but it can never be deleted, and a crate name is never released once taken.
 
+### Publication of the documentation site
+
+The release also rebuilds [ironlab.org](https://ironlab.org) and deploys it to GitHub Pages, from the tag rather than from whatever `main` has reached by then, so that the published site describes the version that was released. This happens alongside publication to crates.io rather than after it, the two being independent: a registry that rejects a crate is no reason to leave the documentation describing the previous release.
+
+`.github/workflows/docs.yml` is *called* by the release workflow rather than dispatched by it, for the same reason that publication lives in the release workflow: an event raised with a workflow's own token does not start another workflow run. It remains manually dispatchable, which rebuilds the site from whichever ref the dispatch names.
+
+Note that the site is built twice for different purposes. Every pull request builds it through the `docs` job of `.github/workflows/ci.yml`, which runs `zensical` in strict mode so that a broken cross-reference or a gallery figure that no longer renders fails the PR. Only the release deploys it.
+
 ## Related notes
 - [Branching](git-branching.md) — bases, naming, protected branches, updating
 - [Pull requests](git-pull-requests.md) — opening, titling, never merging
