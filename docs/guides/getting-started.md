@@ -220,7 +220,7 @@ ax.surf(&x, &y, &z);
 ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
-A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0004](../adrs/0004-pdf-first-export-with-krilla.md).
+A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md).
 
 ## Parameters
 
