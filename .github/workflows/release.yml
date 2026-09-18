@@ -1,0 +1,46 @@
+name: release
+
+# A merged pull request carries its own title, which becomes the release title; a push to main would mean recovering
+# that title from the first line of the squash commit instead. Since main is protected, every change arrives through a
+# pull request, so this trigger misses nothing.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  # Creating the tag and the release both write repository contents; nothing else is needed, because the pull request
+  # title arrives in the event payload rather than from the API.
+  contents: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge commit is the commit that landed on main; github.sha is the event's test merge ref, not it.
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - name: Tag the workspace version and release it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          # The tag is the bare version, with no `v` prefix, because check-semantic-version generates a git-mkver
+          # configuration with an empty tagPrefix and silently ignores any tag that does not match the version verbatim.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$version" >/dev/null 2>&1; then
+            echo "Tag $version already exists, so this merge did not change the version and there is nothing to release."
+            exit 0
+          fi
+          # Tags and releases are permanent public artefacts, so this only ever creates them: it never forces, moves or
+          # deletes one.
+          #
+          # The body is whatever GitHub generates. Deliberately out of scope: collecting the `BREAKING-CHANGE:`
+          # paragraphs of the individual commits into the notes. The convention puts them in commit bodies, and
+          # squash-merging means they never reach main as separate commits, so recovering them needs the pull request's
+          # commit list from the API. That is a separate piece of work.
+          gh release create "$version" --target "$SHA" --title "$TITLE" --generate-notes
