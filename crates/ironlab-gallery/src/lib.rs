@@ -90,6 +90,7 @@ macro_rules! gallery {
 gallery!(
     line_markers,
     scatter_2d,
+    decimated_timeseries,
     log_axes,
     latex_labels,
     legend_toggle,

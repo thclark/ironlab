@@ -72,7 +72,7 @@ Thinning is applied in figure space, so it follows the view. The axis limits, th
 
 Segments and markers that the axes clip away are dropped before either rule is applied, so the whole budget is spent on what the reader can see: zooming into a thousand points of a million draws those thousand in full.
 
-The reasons for thinning in the compiler rather than in a backend, for these two rules, for a fixed target and for carrying each drawn point's source index with it are recorded in [ADR 0009](../adrs/0009-view-dependent-decimation-with-source-index-maps.md).
+The reasons for thinning in the compiler rather than in a backend, for these two rules, for a fixed target and for carrying each drawn point's source index with it are recorded in [ADR 0009](../adrs/0009-view-dependent-decimation-with-source-index-maps.md). The gallery entry [Zooming into a large record](../gallery/decimated_timeseries.md) shows the effect: two views of one hundred-thousand-sample record, each thinned to what its own view resolves.
 
 ### The hit map
 
