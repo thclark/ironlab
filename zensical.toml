@@ -29,6 +29,7 @@ nav = [
     { "0008 Typed edits and a view overlay" = "adrs/0008-typed-edits-and-a-view-overlay.md" },
     { "0009 View-dependent decimation with source index maps" = "adrs/0009-view-dependent-decimation-with-source-index-maps.md" },
     { "0010 PDF-first export with a raster fallback for dense artists" = "adrs/0010-pdf-export-with-a-raster-fallback.md" },
+    { "0011 Colour scales are referenced table entries" = "adrs/0011-colour-scales-are-referenced-table-entries.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },
