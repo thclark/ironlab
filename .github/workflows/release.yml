@@ -1,21 +1,22 @@
 name: release
 
-# A merged pull request carries its own title, which becomes the release title; a push to main would mean recovering
-# that title from the first line of the squash commit instead. Since main is protected, every change arrives through a
-# pull request, so this trigger misses nothing.
+# The release runs on a push to main rather than on the closing of a pull request, because the run's ref decides which
+# environments it may deploy to. A pull_request event runs on the test merge ref, `refs/pull/<n>/merge`, which the
+# `github-pages` environment rejects, since that environment admits deployments from main alone. A push to main runs on
+# `refs/heads/main`, which it admits. Since main is protected, every push to it is the merge of a pull request, so this
+# trigger misses nothing and fires on nothing else.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
 permissions:
-  # Creating the tag and the release both write repository contents; nothing else is needed, because the pull request
-  # title arrives in the event payload rather than from the API.
+  # Creating the tag and the release both write repository contents. Reading pull requests lets the job look up the
+  # pull request that produced the pushed commit, whose title becomes the release title.
   contents: write
+  pull-requests: read
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       # The version that was tagged, or empty when this merge left the version alone and nothing was released. The
@@ -23,15 +24,11 @@ jobs:
       version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The merge commit is the commit that landed on main; github.sha is the event's test merge ref, not it.
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
       - name: Tag the workspace version and release it
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          TITLE: ${{ github.event.pull_request.title }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           version=$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
@@ -49,7 +46,14 @@ jobs:
           # paragraphs of the individual commits into the notes. The convention puts them in commit bodies, and
           # squash-merging means they never reach main as separate commits, so recovering them needs the pull request's
           # commit list from the API. That is a separate piece of work.
-          gh release create "$version" --target "$SHA" --title "$TITLE" --generate-notes
+          #
+          # The title is that of the pull request whose merge produced this commit. The commit subject is the fallback,
+          # with the ` (#<n>)` suffix that a squash merge appends removed, for a commit that no pull request claims.
+          title=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '.[0].title // empty' || true)
+          if [ -z "$title" ]; then
+            title=$(git log -1 --format=%s "$SHA" | sed -E 's/ \(#[0-9]+\)$//')
+          fi
+          gh release create "$version" --target "$SHA" --title "$title" --generate-notes
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   publish:

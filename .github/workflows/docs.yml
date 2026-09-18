@@ -38,9 +38,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The release workflow passes the tag it has just created. A pull_request event's own ref is the test merge
-          # ref rather than the commit that landed, so the caller must say what to build and cannot be relied on to
-          # default to the right thing.
+          # The release workflow passes the tag it has just created, so that the site is built from the released
+          # commit rather than from whatever main has reached by the time this job starts.
           ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@master
         with:
