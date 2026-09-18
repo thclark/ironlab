@@ -22,4 +22,6 @@ IronLAB is moving quickly and breaking changes are expected. Pin to an exact ver
 
 This crate is licensed under the GNU Affero General Public License, either version 3 or (at your option) any later version (`AGPL-3.0-or-later`).
 
-The crate additionally embeds the STIX Two Text fonts, which are licensed separately under the SIL Open Font License; their terms are in `fonts/OFL.txt`.
+If this conflicts with your use case, please raise an issue on the IronLAB repository and describe what you're trying to do. For commercial projects we can simply arrange a one-off license fee and for non-profit / academic efforts we may waive the fee.
+
+This crate additionally embeds the STIX Two Text fonts, which are licensed separately under the SIL Open Font License; their terms are in `fonts/OFL.txt`.
