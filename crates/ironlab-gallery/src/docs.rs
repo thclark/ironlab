@@ -2,13 +2,13 @@
 //!
 //! [`generate_docs`] writes a Markdown site section for the zensical documentation engine:
 //!
-//! - `index.md`: an introduction and a responsive grid of cards, one per entry, each with a thumbnail, a title
+//! - `index.md`: an introduction and a column of full-width cards, one per entry, each with a thumbnail, a title
 //!   linking to the entry's page and the entry's description;
 //! - `<slug>.md` for each entry: the title, the description, the rendered figure linked to its PDF, the exact source
 //!   of the entry and, when the source uses the shared data helpers, a link to their page;
 //! - `fields.md`: the source of the shared data helpers;
 //! - `<slug>.png`, `<slug>-thumb.png` and `<slug>.pdf` for each entry, produced by a [`Renderer`];
-//! - `../stylesheets/gallery.css`, the stylesheet of the card grid, which the site configuration must list in
+//! - `../stylesheets/gallery.css`, the stylesheet of the cards, which the site configuration must list in
 //!   `extra_css`.
 //!
 //! The generator owns the gallery directory: it removes every file in it apart from `.gitkeep` before writing, so the
@@ -36,28 +36,35 @@ use crate::{GalleryEntry, all};
 pub const DEFAULT_PNG_DPI: f64 = 150.0;
 
 /// The resolution of the thumbnail image on the gallery index, in dots per inch.
-pub const DEFAULT_THUMBNAIL_DPI: f64 = 40.0;
+///
+/// The stylesheet shows a thumbnail at most 14 rem wide, which is at most 280 CSS pixels in the documentation theme. A
+/// gallery figure is about 120 mm wide, so this resolution gives a thumbnail about 570 pixels wide: at least two image
+/// pixels for every CSS pixel, which keeps the lines and the text of the figure sharp on a high-density display.
+pub const DEFAULT_THUMBNAIL_DPI: f64 = 120.0;
 
 /// The path of the gallery stylesheet relative to the documentation directory, as it must appear in the `extra_css`
 /// list of `zensical.toml`.
 pub const GALLERY_CSS_PATH: &str = "stylesheets/gallery.css";
 
-/// The stylesheet of the gallery card grid, written to [`GALLERY_CSS_PATH`] in the documentation directory.
+/// The stylesheet of the gallery cards, written to [`GALLERY_CSS_PATH`] in the documentation directory.
 ///
 /// Colours come from the theme's custom properties, so the cards follow the light and dark palettes.
 pub const GALLERY_CSS: &str = r#"/* Styles for the generated IronLAB figure gallery (written by `gallery docs`; do not edit). */
 
 .md-typeset .ironlab-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
   margin: 1.5rem 0;
 }
 
 .md-typeset .ironlab-gallery .card {
-  display: flex;
-  flex-direction: column;
-  padding: 0.6rem 0.8rem 0.8rem;
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  column-gap: 1rem;
+  align-items: start;
+  padding: 0.7rem 0.9rem;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.4rem;
   background-color: var(--md-default-bg-color);
@@ -70,7 +77,13 @@ pub const GALLERY_CSS: &str = r#"/* Styles for the generated IronLAB figure gall
 }
 
 .md-typeset .ironlab-gallery .card p {
-  margin: 0.4rem 0 0;
+  margin: 0 0 0.3rem;
+}
+
+/* The thumbnail occupies the left column beside the title and the description. */
+.md-typeset .ironlab-gallery .card > p:first-child {
+  grid-row: 1 / span 2;
+  margin: 0;
 }
 
 .md-typeset .ironlab-gallery .card img {
@@ -79,6 +92,19 @@ pub const GALLERY_CSS: &str = r#"/* Styles for the generated IronLAB figure gall
   height: auto;
   background-color: #ffffff;
   border-radius: 0.2rem;
+}
+
+/* On a narrow screen the thumbnail sits above the text, at a slightly larger width. */
+@media screen and (max-width: 40em) {
+  .md-typeset .ironlab-gallery .card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .md-typeset .ironlab-gallery .card > p:first-child {
+    grid-row: auto;
+    max-width: 14rem;
+    margin-bottom: 0.5rem;
+  }
 }
 
 .md-typeset .ironlab-gallery .card strong a {
@@ -204,7 +230,7 @@ pub struct DocsReport {
     pub pages: Vec<PathBuf>,
     /// The images and PDFs.
     pub assets: Vec<PathBuf>,
-    /// The stylesheet of the card grid.
+    /// The stylesheet of the cards.
     pub stylesheet: PathBuf,
     /// Validation warnings of the figures, as `(slug, message)` pairs. Warnings do not stop generation.
     pub warnings: Vec<(String, String)>,
