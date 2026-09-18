@@ -44,4 +44,4 @@ The [getting started guide](guides/getting-started.md) explains each step and ev
     - [Architecture](reference/architecture.md) describes the crates, how a figure becomes pixels or a PDF page, and how text is resolved.
 - **[Architecture decisions](adrs/index.md)** records the significant design decisions and the reasons for them.
 - **[Background](background/index.md)** contains the discussion from which the design emerged.
-- **Conventions** describe how the project is developed: [branching](conventions/git-branching.md), [commits and versioning](conventions/git-commits-and-versioning.md) and [pull requests](conventions/git-pull-requests.md).
+- **Conventions** describe how the project is developed: [branching](conventions/git-branching.md), [commits and versioning](conventions/git-commits-and-versioning.md) and [pull requests](conventions/git-pull-requests.md). The [contributing guide](https://github.com/thclark/ironlab/blob/main/CONTRIBUTING.md) sets out how contributions are licensed.
