@@ -1,13 +1,26 @@
 name: Docs
 
 # Build the Zensical site, including the gallery rendered by IronLAB itself, and publish it to GitHub Pages as a
-# deployment artefact: nothing is committed anywhere. Manual for now; the release flow will trigger it later.
+# deployment artefact: nothing is committed anywhere. The release workflow calls this one after it has tagged a
+# release, so the published site describes the released version; a manual dispatch rebuilds it at any other time.
 #
 # One-time repository settings: Pages → Source: "GitHub Actions"; custom domain ironlab.org (the CNAME lives in the
 # settings, not in the repo, and zensical.toml's site_url must match).
 
 on:
   workflow_dispatch:
+  # Called rather than dispatched, because a release workflow cannot start another workflow: an event raised with a
+  # workflow's own token does not trigger one. Calling also keeps the site's build in the release run, where a failure
+  # to publish the documentation is visible beside the release that failed to document itself.
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          The commit, tag or branch to build the site from. Empty, as on a manual dispatch, builds the ref the
+          workflow was started on.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release workflow passes the tag it has just created. A pull_request event's own ref is the test merge
+          # ref rather than the commit that landed, so the caller must say what to build and cannot be relied on to
+          # default to the right thing.
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1

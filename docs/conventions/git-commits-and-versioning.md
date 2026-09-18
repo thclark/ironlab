@@ -96,8 +96,6 @@ The updated version for a PR should be calculated as the greatest version bump o
 
 The `semantic` check is the source of truth. if it's red, its run log prints the exact expected version, so set the workspace version to that. **The check only runs on PRs whose base is `main`** (`on: pull_request: branches: [main]`) — see the version-bump rule below.
 
-Releases are tagged automatically. When a PR merges into `main`, `.github/workflows/release.yml` reads the workspace version, tags the merge commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
-
 ### Bump the version only on PRs into `main`
 
 The version represents the entire contents of a trunk's merge into `main`, so it is bumped
@@ -110,6 +108,30 @@ and the trunk is later promoted to `main` in one PR that carries the bump.
   is a constant source of merge conflicts. The `semantic` check does not run on these PRs,
   so a bump is never needed to make CI pass.
 - **PR into `main`: bump only when commits are added that would change the version**, from the highest-impact code among all commits since the last release tag.
+
+## Releasing
+
+Releases are tagged automatically. When a PR merges into `main`, `.github/workflows/release.yml` reads the workspace version, tags the merge commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
+
+### Publication to crates.io
+
+The same workflow then publishes the workspace to [crates.io](https://crates.io/crates/ironlab), from the tag it has just created. A merge that released nothing publishes nothing, because the publish job runs only when the tagging step reports a version it actually tagged.
+
+Publication is ordered by Cargo from the dependency graph — `ironlab-ir`, `ironlab-text`, `ironlab-scene`, `ironlab-pdf`, `ironlab-viewer`, then `ironlab` — and each crate reaches the index before the next begins. `ironlab-gallery` is never published, because it sets `publish = false`.
+
+No crates.io credential is stored in this repository. The job proves its identity to crates.io with an OpenID Connect token issued by GitHub, which crates.io accepts because each crate names this repository and this workflow as a trusted publisher, and exchanges for a token that expires after thirty minutes and is revoked when the job ends. A consequence worth knowing is that trusted publishing cannot claim a crate that does not yet exist: the first publication of a **new** crate must be done by hand with a scoped API token, after which that crate is configured as a trusted publisher like the others.
+
+If publication fails part way through, do not re-run the job. `cargo publish --workspace` refuses outright when any member of the workspace is already on the registry rather than stepping over it, so a re-run fails on the first crate that succeeded. Publish what remains one crate at a time with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
+
+Publication is irreversible. A version can be yanked, which stops new dependency resolution against it, but it can never be deleted, and a crate name is never released once taken.
+
+### Publication of the documentation site
+
+The release also rebuilds [ironlab.org](https://ironlab.org) and deploys it to GitHub Pages, from the tag rather than from whatever `main` has reached by then, so that the published site describes the version that was released. This happens alongside publication to crates.io rather than after it, the two being independent: a registry that rejects a crate is no reason to leave the documentation describing the previous release.
+
+`.github/workflows/docs.yml` is *called* by the release workflow rather than dispatched by it, for the same reason that publication lives in the release workflow: an event raised with a workflow's own token does not start another workflow run. It remains manually dispatchable, which rebuilds the site from whichever ref the dispatch names.
+
+Note that the site is built twice for different purposes. Every pull request builds it through the `docs` job of `.github/workflows/ci.yml`, which runs `zensical` in strict mode so that a broken cross-reference or a gallery figure that no longer renders fails the PR. Only the release deploys it.
 
 ## Related notes
 - [Branching](git-branching.md) — bases, naming, protected branches, updating

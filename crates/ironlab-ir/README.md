@@ -1,6 +1,8 @@
 # ironlab-ir
 
-The retained figure intermediate representation for [IronLAB](https://ironlab.org), an interactive plotting tool for scientific computing in Rust.
+The [retained figure intermediate representation for IronLAB](https://ironlab.org/reference/figure-schema/), an interactive plotting tool for scientific computing built in Rust.
+
+TL;DR: This crate defines the data structure for figure contents.
 
 A figure is a serialisable tree of nodes — the figure, its axes and their artists — in which every node carries a stable identifier and every property that affects the drawing. Numeric arrays are held in a table beside the tree and referenced by identifier, so the same data can be shared. The crate also provides validation, identifier allocation, the linking of axis limits, and the typed edit and overlay machinery through which the viewer records a user's changes without mutating the figure it was given.
 
@@ -21,3 +23,5 @@ IronLAB is moving quickly and breaking changes are expected. Pin to an exact ver
 ## Licence
 
 This crate is licensed under the GNU Affero General Public License, either version 3 or (at your option) any later version (`AGPL-3.0-or-later`).
+
+If this conflicts with your use case, please raise an issue on the IronLAB repository and describe what you're trying to do. For commercial projects we can simply arrange a one-off license fee and for non-profit / academic efforts we may waive the fee.
