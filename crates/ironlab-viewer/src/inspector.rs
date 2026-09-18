@@ -425,8 +425,65 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
     }
 }
 
+/// Returns whether a value is only a container of the values below it, such as an axis, a
+/// marker style or the cell an axes occupies.
+///
+/// A container has nothing of its own to show or to change: what it holds is the rows
+/// beneath it. The inspector therefore draws it as a heading carrying its name alone, and
+/// never as a value beside that name. A tagged value such as limits or a projection is not
+/// a container, because choosing its variant is a change in itself.
+///
+/// The match over the value types is exhaustive, so a type added to the IR does not
+/// compile until it is said whether it is a container.
+#[must_use]
+pub fn is_composite(value_type: ValueType) -> bool {
+    match value_type {
+        ValueType::FigureSize
+        | ValueType::TileLayout
+        | ValueType::Cell
+        | ValueType::View3d
+        | ValueType::Axis
+        | ValueType::Legend
+        | ValueType::LineStyle
+        | ValueType::MarkerStyle => true,
+        ValueType::Bool
+        | ValueType::UInt32
+        | ValueType::Double
+        | ValueType::Float
+        | ValueType::String
+        | ValueType::DataId
+        | ValueType::Doubles
+        | ValueType::Text
+        | ValueType::Interpreter
+        | ValueType::FontSetId
+        | ValueType::Color
+        | ValueType::Links
+        | ValueType::Parameters
+        | ValueType::Projection
+        | ValueType::Scale
+        | ValueType::Limits
+        | ValueType::ColormapName
+        | ValueType::LegendLocation
+        | ValueType::ColorSpec
+        | ValueType::DashStyle
+        | ValueType::MarkerShape
+        | ValueType::ScatterSize
+        | ValueType::ScatterColor
+        | ValueType::Grid
+        | ValueType::Levels
+        | ValueType::ContourPlacement
+        | ValueType::QuiverScale => false,
+    }
+}
+
 /// Returns the widget that a property needs, from what the panel can usefully do with it,
 /// its type and its current value.
+///
+/// A container is a heading whatever else is true of it, so [`is_composite`] is asked
+/// before [`read_only_reason`]. A read-only container would otherwise be a row, and a row
+/// shows its value: the cell an axes occupies would print itself whole beside its own
+/// name, where the panel should write `cell` and list `row`, `col`, `row_span` and
+/// `col_span` beneath it.
 ///
 /// The match over the value types is exhaustive, so a type added to the IR does not
 /// compile until it is given an editor.
@@ -437,6 +494,9 @@ fn editor_for(
     property: &Property,
     value: &Value,
 ) -> Editor {
+    if is_composite(property.value_type) {
+        return Editor::Group;
+    }
     if let Some(reason) = read_only_reason(kind, &property.path) {
         return Editor::ReadOnly { reason };
     }
@@ -476,6 +536,9 @@ fn editor_for(
         | ValueType::FontSetId => Editor::Choice {
             offered: property_choices(figure, node, &property.path),
         },
+        // The container types, which [`is_composite`] answered for above. They are listed
+        // again so that this match stays exhaustive and a type added to the IR must be
+        // given an editor here as well as a place in `is_composite`.
         ValueType::FigureSize
         | ValueType::TileLayout
         | ValueType::Cell
@@ -786,7 +849,8 @@ impl ParametersDraft {
 /// Returns the value of a read-only property, written for the row that shows it.
 ///
 /// A read-only row shows what the figure holds rather than a control, so each value is
-/// written as a reader would say it rather than as the IR stores it.
+/// written as a reader would say it rather than as the IR stores it. No value is ever
+/// written through [`Debug`], which would put the field names of the IR on screen.
 #[must_use]
 pub fn read_only_label(value: &Value) -> String {
     match value {
@@ -801,7 +865,13 @@ pub fn read_only_label(value: &Value) -> String {
             groups => format!("{groups} groups of linked axes"),
         },
         Value::Unset => "unset".to_owned(),
-        other => format!("{other:?}"),
+        // No other value reaches a read-only row: a container is drawn as a heading with
+        // its members beneath it, and a tagged value is chosen from a list. Should one
+        // ever arrive, it is named by its type rather than dumped, because the name of a
+        // value is readable where the contents of one are not.
+        other => other
+            .value_type()
+            .map_or_else(String::new, |value_type| format!("{value_type:?}")),
     }
 }
 
