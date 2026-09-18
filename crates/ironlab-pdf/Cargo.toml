@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["pdf", "export", "plotting", "figures", "ironlab"]
+categories = ["visualization", "graphics", "science"]
 
 [lints]
 workspace = true

@@ -6,8 +6,9 @@ members = ["crates/*"]
 version = "0.5.1"
 edition = "2024"
 rust-version = "1.95"
-license = "AGPL-3.0-only"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/thclark/ironlab"
+homepage = "https://ironlab.org"
 authors = ["Tom Clark"]
 
 [workspace.dependencies]

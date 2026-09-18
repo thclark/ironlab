@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["plotting", "viewer", "egui", "figures", "ironlab"]
+categories = ["visualization", "gui", "science"]
 
 [lints]
 workspace = true
