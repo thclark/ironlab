@@ -96,7 +96,7 @@ The updated version for a PR should be calculated as the greatest version bump o
 
 The `semantic` check is the source of truth. if it's red, its run log prints the exact expected version, so set the workspace version to that. **The check only runs on PRs whose base is `main`** (`on: pull_request: branches: [main]`) — see the version-bump rule below.
 
-Releases are tagged by hand from `main` once a version-bumping PR has merged, by publishing a GitHub release whose tag is exactly the new version, with no `v` prefix. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not.
+Releases are tagged automatically. When a PR merges into `main`, `.github/workflows/release.yml` reads the workspace version, tags the merge commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
 
 ### Bump the version only on PRs into `main`
 

@@ -15,7 +15,7 @@ Same reasoning as for commit co-authoring.
 ## PR title
 
 The title follows conventional-commit form (`CODE: Capitalised summary`) using the
-"greatest" commit code in the PR (top-most in the [Commits and versioning](git-commits-and-versioning.md) type-code table). It matters because the PR is squash-merged, so the title becomes the single commit message that lands on `main`. That message is what the `semantic` check reads when it calculates the expected version of the next PR, so a title carrying the wrong code makes the check demand the wrong version later.
+"greatest" commit code in the PR (top-most in the [Commits and versioning](git-commits-and-versioning.md) type-code table). It matters because the PR is squash-merged, so the title becomes the single commit message that lands on `main`. That message is what the `semantic` check reads when it calculates the expected version of the next PR, so a title carrying the wrong code makes the check demand the wrong version later. The title also becomes the title of the GitHub release that `.github/workflows/release.yml` publishes when the PR merges and the version has moved, so it is read by anyone browsing the releases.
 
 ## Never merge a pull request
 
