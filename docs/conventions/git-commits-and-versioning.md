@@ -70,17 +70,33 @@ A commit is breaking if it:
 
 ### How to update the version
 
-Bump the `version` in `pyproject.toml`. (`[tool.poetry] version` for poetry projects like backend, (`[project] version` for `uv` based projects). 
+This repository is a single Cargo workspace whose crates all inherit one version, so a bump
+touches three places in the root `Cargo.toml` and the lockfile:
 
-For `uv` based projects, then run `uv lock` to synchronize the lockfile to the version.
+1. Bump `version` under `[workspace.package]`. Every `ironlab-*` crate inherits it through
+   `version.workspace = true`, so no crate's own `Cargo.toml` is edited.
+2. Bump the `version` field of each `ironlab-*` entry under `[workspace.dependencies]`. These
+   are path dependencies that also carry a version for publication, and Cargo rejects the
+   workspace if a path dependency's version no longer matches the version of the crate it
+   points at.
+3. Run `cargo update --workspace` to rewrite the `ironlab-*` entries in `Cargo.lock`. It
+   re-resolves only the workspace's own members, so it leaves every third-party pin alone.
+
+```bash
+# After editing both version fields in the root Cargo.toml:
+cargo update --workspace
+git commit -m "OPS: Bump version"   # the bump is its own commit
+```
 
 ### How to calculate the updated version
 
-The `semantic` GitHub check (`octue/check-semantic-version`, configured in `.github/workflows/semantic.yml` with `breaking_change_indicated_by: minor`) computes the expected version from the commits since the last release tag and **fails the PR if `pyproject.toml` doesn't match**.
+The `semantic` GitHub check (`octue/check-semantic-version`, configured in `.github/workflows/semantic.yml` with `breaking_change_indicated_by: minor`) computes the expected version from the commits since the last release tag and **fails the PR if the workspace version in `Cargo.toml` doesn't match**.
 
 The updated version for a PR should be calculated as the greatest version bump of all those commit codes (not the combination of bumps from all of them) .
 
-The `semantic` check is the source of truth. if it's red, its run log prints the exact expected version, so set `pyproject.toml` to that. **The check only runs on PRs whose base is `main`** (`on: pull_request: branches: [main]`) — see the version-bump rule below.
+The `semantic` check is the source of truth. if it's red, its run log prints the exact expected version, so set the workspace version to that. **The check only runs on PRs whose base is `main`** (`on: pull_request: branches: [main]`) — see the version-bump rule below.
+
+Releases are tagged by hand from `main` once a version-bumping PR has merged, by publishing a GitHub release whose tag is exactly the new version, with no `v` prefix. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not.
 
 ### Bump the version only on PRs into `main`
 
@@ -90,16 +106,10 @@ trunks (e.g. `geo`) off `main`; feature work branches off the trunk and PRs back
 and the trunk is later promoted to `main` in one PR that carries the bump.
 
 - **PR into a trunk (`geo`, or any non-`main` base): do NOT touch `version`.** Bumping on
-  sub-branches makes every parallel branch collide on the same `pyproject.toml` line, which
+  sub-branches makes every parallel branch collide on the same `Cargo.toml` lines, which
   is a constant source of merge conflicts. The `semantic` check does not run on these PRs,
   so a bump is never needed to make CI pass.
 - **PR into `main`: bump only when commits are added that would change the version**, from the highest-impact code among all commits since the last release tag.
-
-```bash
-poetry version patch   # or: poetry version minor
-poetry check           # if it complains the lockfile is stale: poetry lock --no-update
-git commit -m "OPS: Bump version"   # the bump is its own commit
-```
 
 ## Related notes
 - [Branching](git-branching.md) — bases, naming, protected branches, updating

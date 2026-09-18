@@ -15,7 +15,7 @@ Same reasoning as for commit co-authoring.
 ## PR title
 
 The title follows conventional-commit form (`CODE: Capitalised summary`) using the
-"greatest" commit code in the PR (top-most in the [Commits and versioning](git-commits-and-versioning.md) type-code table). It matters because it is used as the squash-merge commit: it becomes the GitHub release title via `release.yml`, and `update-pull-request.yml` groups commits by code in the auto-generated PR changelog.
+"greatest" commit code in the PR (top-most in the [Commits and versioning](git-commits-and-versioning.md) type-code table). It matters because the PR is squash-merged, so the title becomes the single commit message that lands on `main`. That message is what the `semantic` check reads when it calculates the expected version of the next PR, so a title carrying the wrong code makes the check demand the wrong version later.
 
 ## Never merge a pull request
 
@@ -23,7 +23,7 @@ Opening a PR is the assistant's job; merging it is the human's — in every repo
 
 ## Version bumps
 
-Bump `version` in `pyproject.toml` **only on PRs whose base is `main`** — never on sub-branch PRs into a trunk like `geo` (the `semantic` check only runs on `main`-bound PRs, and trunk-PR bumps just create `pyproject.toml` conflicts). How to calculate and apply the bump is in [Commits and versioning](git-commits-and-versioning.md).
+Bump the workspace `version` in the root `Cargo.toml` **only on PRs whose base is `main`** — never on sub-branch PRs into a trunk like `geo` (the `semantic` check only runs on `main`-bound PRs, and trunk-PR bumps just create `Cargo.toml` conflicts). How to calculate and apply the bump is in [Commits and versioning](git-commits-and-versioning.md).
 
 ## Related notes
 
