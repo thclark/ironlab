@@ -190,3 +190,59 @@ fn depth_sorting_splits_a_3d_surface_into_runs_that_each_record_the_whole_count(
         "the runs between them hold every face exactly once"
     );
 }
+
+// WHY: decimation and dense marking both restructure what the drawing functions emit, and they meet in the same
+// stream of items. Two things must hold at that seam. A thinned artist lying between two stretches of a surface must
+// break the dense runs rather than be swallowed into one, because a backend replaces a run with an image that would
+// otherwise paint over the line. And the count each run records must still be the surface's whole face count, which
+// decimation does not touch, so that thinning a line never changes whether the surface beside it is rasterised.
+#[test]
+fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, ironlab_ir::View3d::default());
+    let n = 7;
+    let surface = fx.surface(
+        ax,
+        &linspace(0.0, 1.0, n),
+        &linspace(0.0, 1.0, n),
+        |_, _| 0.5,
+        |_| {},
+    );
+    // Far more points than any plot rectangle can resolve, running diagonally from beneath the surface to above it so
+    // that the depth sort has to place the line among the faces.
+    let count = 5_000;
+    let t = linspace(0.0, 1.0, count);
+    let z: Vec<f64> = t.iter().map(|v| 0.1 + 0.8 * v).collect();
+    let line = fx.line(ax, &t, &t, Some(&z), |_| {});
+    let scene = compile_figure(&fx.fig);
+
+    let drawn: usize = crate::probe::from_source(&crate::probe::leaves(&scene), line)
+        .iter()
+        .flat_map(crate::probe::Leaf::subpaths)
+        .map(|sub| sub.len())
+        .sum();
+    assert!(
+        drawn < count,
+        "the line is decimated, so this test exercises the seam: {drawn} of {count} points drawn"
+    );
+
+    let groups = dense_groups(&scene);
+    let faces = (n - 1) * (n - 1);
+    assert!(
+        groups.len() > 1,
+        "the thinned line interrupts the faces, so the surface is marked as several runs, not {groups:?}"
+    );
+    assert!(
+        groups.iter().all(|g| g.0 == Some(surface)),
+        "the thinned line is never inside a dense group: {groups:?}"
+    );
+    assert!(
+        groups.iter().all(|g| g.1 as usize == faces),
+        "decimating the line leaves the surface's face count at {faces}: {groups:?}"
+    );
+    assert_eq!(
+        groups.iter().map(|g| g.2).sum::<usize>(),
+        faces,
+        "the runs between them still hold every face exactly once"
+    );
+}

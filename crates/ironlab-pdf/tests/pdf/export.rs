@@ -279,11 +279,13 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
         "the compiled scene the exporter draws holds {segments} path segments for {points} data points"
     );
 
-    let exported = export_pdf(&figure, &text).expect("export figure");
+    // A line is never marked dense, so neither call needs a rasteriser and both draw pure vector geometry.
+    let exported = export_pdf(&figure, &text, None).expect("export figure");
     let from_the_compiled_scene = ironlab_pdf::render_display_list(
         &scene.display_list,
         &text,
         &PdfOptions::for_figure(&figure),
+        None,
     )
     .expect("render the compiled display list");
     assert_eq!(
