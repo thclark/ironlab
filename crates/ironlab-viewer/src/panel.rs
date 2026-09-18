@@ -542,7 +542,7 @@ fn revert_button(
 ) -> bool {
     let label = format!("Revert {name}");
     let enabled = ui.is_enabled();
-    let response = ui.small_button("↺");
+    let response = ui.small_button(crate::style::REVERT);
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label.clone())
     });
@@ -971,7 +971,7 @@ fn parameters_editor(
                         }
                     }
                     if ui
-                        .small_button("✖")
+                        .small_button("Remove")
                         .on_hover_text("Remove this parameter.")
                         .clicked()
                     {

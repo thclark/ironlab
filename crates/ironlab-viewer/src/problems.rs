@@ -101,12 +101,16 @@ fn node_label(figure: &Figure, node: NodeId) -> String {
 ///
 /// The indicator is silent when there are no problems, so that a figure that draws
 /// cleanly says nothing at all.
+///
+/// The label is words alone. It once began with a warning sign, which the fonts the viewer
+/// loads do not have and therefore drew as an empty box; the indicator is already drawn in
+/// the warning colour, and the count says what the sign was there to say.
 #[must_use]
 pub fn indicator_label(problems: &[Problem]) -> Option<String> {
     let count = problems.len();
     match count {
         0 => None,
-        1 => Some("⚠ 1 problem".to_owned()),
-        _ => Some(format!("⚠ {count} problems")),
+        1 => Some("1 problem".to_owned()),
+        _ => Some(format!("{count} problems")),
     }
 }

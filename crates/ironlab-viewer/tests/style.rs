@@ -185,3 +185,65 @@ fn applying_the_style_enlarges_the_text_of_both_themes() {
     assert_eq!(ctx.style_of(Theme::Light).text_styles, style::text_styles());
     assert_eq!(ctx.style_of(Theme::Dark).text_styles, style::text_styles());
 }
+
+// Why: egui loads four fonts, and between them they cover far less than Unicode. A character they do not have is
+// drawn as an empty box, which says nothing and reads as a fault in the program — which is exactly what the padlock
+// once drawn on a read-only row did. The guard is to keep every character the interface draws in one list and to
+// ask the fonts, through egui's own coverage check, whether they have each of them. A character added to the
+// interface and not to the list is caught by the tests of what the panel paints; a character added to the list that
+// the fonts cannot draw is caught here.
+#[test]
+fn the_fonts_have_every_character_the_interface_draws() {
+    let ctx = egui::Context::default();
+    style::apply(&ctx);
+    // The fonts are not built until a pass has run, because the size of a point is not known until then.
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+    output.textures_delta.clear();
+
+    // Every text style of the interface but the monospaced one is proportional, and the viewer draws no monospaced
+    // text, so the proportional family is the family every character reaches the screen through.
+    let families: Vec<FontFamily> = style::text_styles()
+        .values()
+        .map(|font| font.family.clone())
+        .filter(|family| *family == FontFamily::Proportional)
+        .collect();
+    assert!(
+        !families.is_empty(),
+        "the interface draws proportional text, so there is a family to check"
+    );
+
+    ctx.fonts_mut(|fonts| {
+        // A character the fonts certainly do not have, which shows that the check answers "no" for a real gap
+        // rather than answering "yes" to everything.
+        const MISSING: char = '\u{2B6E}';
+        for family in &families {
+            let font = FontId::new(style::BODY_SIZE_PT, family.clone());
+            assert!(
+                !fonts.has_glyph(&font, MISSING),
+                "the check must report a character the fonts lack, or it proves nothing"
+            );
+            for character in style::INTERFACE_CHARACTERS {
+                assert!(
+                    fonts.has_glyph(&font, *character),
+                    "the interface draws {character:?} (U+{:04X}), which the fonts of the {family:?} family \
+                     cannot draw and would show as an empty box",
+                    *character as u32
+                );
+            }
+        }
+    });
+}
+
+// Why: the list is what the code draws from and what the fonts are checked against, so a character used in the
+// interface but left out of it would never be checked. The revert control is the one character the interface draws
+// on its own, so it must be in the list by construction rather than by someone remembering to add it.
+#[test]
+fn the_revert_control_is_one_of_the_listed_characters() {
+    let revert: Vec<char> = style::REVERT.chars().collect();
+    assert_eq!(revert.len(), 1, "the revert control is one character");
+    assert!(
+        style::INTERFACE_CHARACTERS.contains(&revert[0]),
+        "the revert control {:?} is not in the list the fonts are checked against",
+        style::REVERT
+    );
+}

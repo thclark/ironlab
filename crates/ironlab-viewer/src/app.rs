@@ -106,14 +106,14 @@ pub fn toolbar(
         ui.separator();
         if ui
             .add_enabled(state.can_undo(), egui::Button::new("Undo"))
-            .on_hover_text("Undo the last change (⌘Z, Ctrl+Z).")
+            .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
             .clicked()
         {
             response.changed |= state.undo();
         }
         if ui
             .add_enabled(state.can_redo(), egui::Button::new("Redo"))
-            .on_hover_text("Redo the last undone change (⌘⇧Z, Ctrl+Shift+Z).")
+            .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
             .clicked()
         {
             response.changed |= state.redo();
