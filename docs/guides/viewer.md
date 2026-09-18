@@ -80,6 +80,10 @@ Clicking a row selects that object and shows its properties below. Clicking insi
 
 The properties of the selected object are gathered under the value they belong to — the scale, limits and grid lines of the x axis appear together under "x" — and each row carries the control that suits what it holds: a checkbox, a number that is dragged or typed into, a text field with a choice of LaTeX or literal, a colour picker, or a combo box of the values the property can take. What each property means is described in the [figure schema](../reference/figure-schema.md), and hovering over the name of a property shows the same explanation.
 
+A value that holds other values, such as the x axis or the style of a line, is a heading carrying its name alone, and the values it holds are the rows beneath it. The heading is never a value in itself, because everything it holds is already on screen below it.
+
+The properties are ordered alphabetically by the name you read, so that a property can be found by its name rather than by learning where the figure schema happens to list it. The headings and the properties that belong to no heading are ordered together as one list, because both are read at the left edge of the panel; the rows gathered under a heading are ordered among themselves. Letter case is ignored. The object tree above is not ordered this way: it stays in drawing order, which is what tells you which plot is drawn over which.
+
 Every row is laid out in the same three columns, so that the panel is read down them rather than along each row. The name of the property is at the left, indented by how deeply the property is nested, so that a heading and a property that belongs to no group share a left edge and the properties gathered under a heading are indented beneath it. The control is at the right of the column beside the names, so that the controls of an object line up with one another whatever they are. The control that takes back a change to one property occupies a column of its own at the far right, which is kept clear on every row, so that no control moves sideways when the property it changes becomes one the user has changed.
 
 A property that is absent, such as an axes with no title, is shown as "unset" with a control that gives it a value. A property that the figure does not use in the state the object is in is not shown until it applies: the bounds of manual limits appear once the limits are manual, the camera of an axes once the axes is three-dimensional, and the label, scale, limits and grid lines of the z axis once the axes is three-dimensional, because a two-dimensional axes ignores its z axis. None of this is an error, and each row returns as soon as the property applies again.
@@ -104,7 +108,9 @@ While the table cannot be committed — an entry has no name, two entries share 
 
 ### What the editor does not change
 
-The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes sits in it, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure. Four kinds of row are therefore shown with a padlock rather than a control, each with the reason in its tooltip.
+The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes sits in it, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure.
+
+**A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Four kinds of property are shown this way.
 
 - **The data a plot draws**, shown as the array it names and that array's shape.
 - **The rows and columns of the figure's tile layout, and the cell each axes occupies within it.** Where an axes sits is part of how the figure is arranged, which the program that builds it defines.
@@ -135,7 +141,7 @@ The figure written is the figure the viewer now holds: the changes saved become 
 
 ## Problems
 
-When something is wrong with a figure, the toolbar shows a problems indicator: a warning sign followed by the number of problems, for example "2 problems". It appears only when there is something to report. Clicking it opens a list of the problems and clicking away closes the list again.
+When something is wrong with a figure, the toolbar shows a problems indicator: the number of problems, for example "2 problems", written in the warning colour. It appears only when there is something to report. Clicking it opens a list of the problems and clicking away closes the list again.
 
 Each entry names the object the problem concerns, as the [object tree](#selecting-an-object) names it, and the property where one is concerned. It then gives the reason in full and says how the problem arose, in one of three ways.
 
