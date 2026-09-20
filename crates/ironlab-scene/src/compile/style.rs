@@ -98,7 +98,8 @@ pub(super) fn resolve(spec: ColorSpec, auto: Paint) -> Paint {
 
 /// Resolves the primary colour of every artist of an axes, assigning automatic colours in artist order.
 ///
-/// Contour and surface artists have no primary colour and receive `Paint::Colormapped`.
+/// Contour, surface and image artists have no primary colour and receive `Paint::Colormapped`; none of them takes
+/// a colour from the colour order.
 pub(super) fn primaries(axes: &Axes) -> Vec<Paint> {
     let mut next = 0usize;
     let mut auto = || {
@@ -116,7 +117,11 @@ pub(super) fn primaries(axes: &Axes) -> Vec<Paint> {
                     ScatterColor::Spec { spec } => spec,
                     ScatterColor::Data { .. } => ColorSpec::Colormapped,
                 },
-                Artist::Contour(_) | Artist::Surface(_) => ColorSpec::Colormapped,
+                Artist::Contour(_)
+                | Artist::Surface(_)
+                | Artist::Image(_)
+                | Artist::IndexedImage(_)
+                | Artist::MappedImage(_) => ColorSpec::Colormapped,
             };
             match spec {
                 ColorSpec::Auto => auto(),

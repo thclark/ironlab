@@ -187,6 +187,14 @@ proto_file! {
             ContourPlacement(ValueContourPlacement) contour_placement_value = 35;
             /// The scaling of quiver arrows.
             QuiverScale(ValueQuiverScale) quiver_scale_value = 36;
+            /// The placement of an image in its axes.
+            ImagePlacement(ValueImagePlacement) image_placement_value = 37;
+            /// The centres of the first and last pixels of an image along an axis.
+            PixelRange(ValuePixelRange) pixel_range_value = 38;
+            /// The plane of an image.
+            ImagePlane(ValueImagePlane) image_plane_value = 39;
+            /// The policy of an image for pixels it cannot colour.
+            OutOfRange(ValueOutOfRange) out_of_range_value = 40;
         }
     }
 
@@ -401,5 +409,29 @@ proto_file! {
     message ValueQuiverScale {
         /// The quiver scale; it must be present.
         message QuiverScale value = 1;
+    }
+
+    /// An image placement value.
+    message ValueImagePlacement {
+        /// The placement; it must be present.
+        message ImagePlacement value = 1;
+    }
+
+    /// A pixel range value.
+    message ValuePixelRange {
+        /// The range; it must be present.
+        message PixelRange value = 1;
+    }
+
+    /// An image plane value.
+    message ValueImagePlane {
+        /// The plane; it must be present.
+        message ImagePlane value = 1;
+    }
+
+    /// An out-of-range policy value.
+    message ValueOutOfRange {
+        /// The policy; it must be present.
+        message OutOfRange value = 1;
     }
 }

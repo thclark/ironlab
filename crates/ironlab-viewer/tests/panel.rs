@@ -17,7 +17,7 @@ use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
 use ironlab_viewer::inspector::{
     DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit,
-    is_shown, property_groups, read_only_reason, tree_rows,
+    is_shown, kind_name, property_groups, read_only_reason, tree_rows,
 };
 use ironlab_viewer::panel::{FOOTER_ID, OBJECT_TREE_ID, revert_all_label};
 use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
@@ -115,7 +115,10 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
 // does not typeset it.
 #[test]
 fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
-    use ironlab_ir::{Artist, Axes, Cell, Contour, Line, Quiver, Scatter, Surface, Text};
+    use ironlab_ir::{
+        Artist, Axes, Cell, Contour, Image, IndexedImage, Line, MappedImage, Quiver, Scatter,
+        Surface, Text,
+    };
 
     let titled = Axes {
         id: NodeId(2),
@@ -144,11 +147,24 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
                 id: NodeId(7),
                 ..Surface::default()
             }),
+            Artist::Image(Image {
+                id: NodeId(8),
+                ..Image::default()
+            }),
+            Artist::IndexedImage(IndexedImage {
+                id: NodeId(9),
+                display_name: Some(Text::plain("Classes")),
+                ..IndexedImage::default()
+            }),
+            Artist::MappedImage(MappedImage {
+                id: NodeId(10),
+                ..MappedImage::default()
+            }),
         ],
         ..Axes::default()
     };
     let untitled = Axes {
-        id: NodeId(8),
+        id: NodeId(11),
         cell: Cell {
             row: 1,
             col: 2,
@@ -177,6 +193,9 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
             "Contour",
             "Quiver (Wind)",
             "Surface",
+            "Image",
+            "Indexed image (Classes)",
+            "Mapped image",
             "Axes (row 1, col 2)",
         ],
         "a title or display name is shown in brackets after the kind, as its source; an \
@@ -982,7 +1001,7 @@ fn the_panel_draws_every_kind_of_node_without_changing_the_figure() {
     let figure = figure_with_every_artist();
     let expected = figure.clone();
     let nodes: Vec<NodeId> = tree_rows(&figure).iter().map(|row| row.node).collect();
-    assert_eq!(nodes.len(), 7, "the figure holds every kind of node");
+    assert_eq!(nodes.len(), 10, "the figure holds every kind of node");
 
     for node in nodes {
         let mut harness = panel_harness(figure.clone(), Some(node));
@@ -1363,7 +1382,7 @@ fn the_marker_size_of_a_scatter_is_read_only_and_that_of_a_line_is_not() {
 fn every_read_only_property_carries_a_reason() {
     let state = FigureState::new(figure_with_every_artist());
     let mut seen = 0;
-    for node in (1..=7).map(NodeId) {
+    for node in (1..=10).map(NodeId) {
         for group in groups_of(&state, node) {
             for row in group.rows {
                 if let Editor::ReadOnly { reason } = row.editor {
@@ -1378,6 +1397,120 @@ fn every_read_only_property_carries_a_reason() {
         }
     }
     assert!(seen > 0, "the figure has read-only properties to check");
+}
+
+// Why: an image is placed by a plane, two pixel ranges and, for the two mapped kinds,
+// three policies, and the inspector is where a user reads those off a figure. The kinds
+// must be named as a user would say them; the placement and each range must be headings
+// whose members are the rows beneath them, never a value printed through Debug; the
+// plane must be chosen from the three planes; the pixels must be shown read-only with
+// their shape like every other data reference; and clamping must be listed disabled at
+// the non-finite category with its reason, as the IR marks it, and live at the others.
+#[test]
+fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_where_it_means_nothing()
+ {
+    const IMAGE: NodeId = NodeId(8);
+    const INDEXED_IMAGE: NodeId = NodeId(9);
+    const MAPPED_IMAGE: NodeId = NodeId(10);
+    assert_eq!(kind_name(NodeKind::Image), "Image");
+    assert_eq!(kind_name(NodeKind::IndexedImage), "Indexed image");
+    assert_eq!(kind_name(NodeKind::MappedImage), "Mapped image");
+
+    let figure = figure_with_every_artist();
+    let labels: Vec<String> = tree_rows(&figure)
+        .into_iter()
+        .filter(|row| row.depth == 2)
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(
+        &labels[labels.len() - 3..],
+        ["Image", "Indexed image", "Mapped image"],
+        "the images are the last three artists of the axes"
+    );
+
+    let state = FigureState::new(figure);
+    for (node, data, shape) in [
+        (IMAGE, "pixels", vec![2usize, 2, 4]),
+        (INDEXED_IMAGE, "indices", vec![3, 3]),
+        (MAPPED_IMAGE, "values", vec![3, 3]),
+    ] {
+        let groups = groups_of(&state, node);
+        let placement = group(&groups, "placement");
+        let labels: Vec<&str> = placement
+            .rows
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect();
+        assert!(
+            !labels.contains(&""),
+            "the placement of {node} is a heading, not a row: {labels:?}"
+        );
+        for range in ["columns", "rows"] {
+            assert!(
+                !placement
+                    .rows
+                    .iter()
+                    .any(|row| row.label == range && row.value != Value::Unset),
+                "{range} of {node} is a heading, not a row: {labels:?}"
+            );
+            for centre in ["first", "last"] {
+                let centre_row = row(&groups, "placement", &format!("{range}.{centre}"));
+                assert_eq!(
+                    centre_row.depth, 2,
+                    "{range}.{centre} of {node} lies below {range}"
+                );
+                assert!(
+                    matches!(centre_row.editor, Editor::Number { .. }),
+                    "{range}.{centre} of {node} is a number: {:?}",
+                    centre_row.editor
+                );
+            }
+        }
+        assert_eq!(
+            offered(&groups, "placement", "plane"),
+            ["Plane xy", "Plane xz", "Plane yz"],
+            "the plane of {node} is chosen from the three planes"
+        );
+        match &row(&groups, data, "").editor {
+            Editor::Data { shape: found } => assert_eq!(
+                found.as_deref(),
+                Some(shape.as_slice()),
+                "the {data} of {node} carry their shape"
+            ),
+            other => panic!("the {data} of {node} are a data reference, not {other:?}"),
+        }
+        for word in painted_words(figure_with_every_artist(), node) {
+            assert!(
+                !word.contains('{') && !word.contains("Placement("),
+                "the panel paints a value of {node} through Debug: {word:?}"
+            );
+        }
+    }
+
+    for node in [INDEXED_IMAGE, MAPPED_IMAGE] {
+        let groups = groups_of(&state, node);
+        for category in ["below", "above", "non_finite"] {
+            assert_eq!(
+                offered(&groups, category, ""),
+                ["Strict", "Transparent", "Clamp", "Fixed colour"],
+                "{category} of {node} offers every policy"
+            );
+            let clamp = choice(&groups, category, "", "Clamp");
+            assert_eq!(
+                clamp.available(),
+                category != "non_finite",
+                "{category} of {node} marks clamping wrongly: {:?}",
+                clamp.unavailable
+            );
+        }
+        let reason = choice(&groups, "non_finite", "", "Clamp")
+            .unavailable
+            .expect("clamping cannot be taken for non-finite values");
+        assert!(
+            reason.contains("non-finite") && reason.ends_with('.'),
+            "the reason must say what a non-finite value lacks: {reason}"
+        );
+    }
 }
 
 // Why: the data a plot draws is read-only for the same reason the tile layout is, so it

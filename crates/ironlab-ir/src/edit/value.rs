@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::artist::{ContourPlacement, Grid, Levels, QuiverScale, ScatterColor, ScatterSize};
+use crate::artist::{
+    ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
+    QuiverScale, ScatterColor, ScatterSize,
+};
 use crate::axes::{
     Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
 };
@@ -107,6 +110,14 @@ pub enum Value {
     ContourPlacement(ContourPlacement),
     /// The scaling of quiver arrows.
     QuiverScale(QuiverScale),
+    /// The placement of an image in its axes.
+    ImagePlacement(ImagePlacement),
+    /// The centres of the first and last pixels of an image along an axis.
+    PixelRange(PixelRange),
+    /// The plane of an image.
+    ImagePlane(ImagePlane),
+    /// The policy of an image for pixels it cannot colour.
+    OutOfRange(OutOfRange),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -183,6 +194,14 @@ pub enum ValueType {
     ContourPlacement,
     /// See [`Value::QuiverScale`].
     QuiverScale,
+    /// See [`Value::ImagePlacement`].
+    ImagePlacement,
+    /// See [`Value::PixelRange`].
+    PixelRange,
+    /// See [`Value::ImagePlane`].
+    ImagePlane,
+    /// See [`Value::OutOfRange`].
+    OutOfRange,
 }
 
 impl Value {
@@ -228,6 +247,10 @@ impl Value {
             Value::Levels(_) => ValueType::Levels,
             Value::ContourPlacement(_) => ValueType::ContourPlacement,
             Value::QuiverScale(_) => ValueType::QuiverScale,
+            Value::ImagePlacement(_) => ValueType::ImagePlacement,
+            Value::PixelRange(_) => ValueType::PixelRange,
+            Value::ImagePlane(_) => ValueType::ImagePlane,
+            Value::OutOfRange(_) => ValueType::OutOfRange,
         })
     }
 }

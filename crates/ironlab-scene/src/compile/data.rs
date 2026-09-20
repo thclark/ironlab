@@ -1,9 +1,10 @@
 //! Resolution and checking of artist data.
 //!
 //! Every artist's data identifiers are looked up once, and the element types and shapes of its arrays are checked,
-//! before limits are computed or anything is drawn. Every artist requires floating-point values, so an array of
-//! 8-bit values cannot be used. An artist whose data cannot be used is reported with a warning naming it and is
-//! then ignored by every later stage.
+//! before limits are computed or anything is drawn. Every artist resolved here requires floating-point values, so
+//! an array of 8-bit values cannot be used. An artist whose data cannot be used is reported with a warning naming
+//! it and is then ignored by every later stage. The three image kinds, which accept 8-bit values, are not resolved
+//! yet: they are carried through without data, so that nothing is drawn for them and nothing is reported.
 
 use ironlab_ir::{
     Artist, Axes, ContourPlacement, DataId, Figure, Grid, NdArray, Projection, QuiverScale, Scale,
@@ -69,10 +70,11 @@ pub(super) fn prepare_axes<'a>(ctx: &mut Ctx<'a>, axes: &'a Axes) -> Vec<Prepare
         .iter()
         .map(|artist| {
             let data = match resolve(figure, artist) {
-                Ok(data) => {
+                Ok(Some(data)) => {
                     warn_log_drops(ctx, axes, artist, &data);
                     Some(data)
                 }
+                Ok(None) => None,
                 Err(message) => {
                     ctx.warn(
                         Some(artist.id()),
@@ -173,9 +175,9 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, S
     Ok(grid)
 }
 
-/// Resolves the data of one artist.
-fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<ArtistData<'a>, String> {
-    Ok(match artist {
+/// Resolves the data of one artist, or `None` for an artist that this stage of the compiler does not draw.
+fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<Option<ArtistData<'a>>, String> {
+    Ok(Some(match artist {
         Artist::Line(line) => ArtistData::Line(points(figure, line.x, line.y, line.z)?),
         Artist::Scatter(scatter) => {
             let points = points(figure, scatter.x, scatter.y, scatter.z)?;
@@ -233,7 +235,11 @@ fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<ArtistData<'a>, St
                 .transpose()?;
             ArtistData::Surface { grid, colours }
         }
-    })
+        // The image kinds are resolved and drawn by the next stage of the image work (issue #7). Until then they
+        // are carried through the compiler without data, so that nothing is drawn for them and no warning is
+        // raised.
+        Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => return Ok(None),
+    }))
 }
 
 /// Computes the factor applied to quiver vectors, counting only arrows whose base and vector are finite.

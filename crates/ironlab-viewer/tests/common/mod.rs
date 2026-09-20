@@ -261,17 +261,22 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 ///
 /// A three-dimensional axes (node 2) holds a line (3), a scatter (4) whose size and
 /// colour come from data, a contour (5) with explicit levels, a quiver (6) with a scale
-/// factor and a surface (7). Every artist is three-dimensional, so the figure is valid.
+/// factor, a surface (7), a true-colour image (8) of 8-bit RGBA pixels on the xz wall, a
+/// colour-indexed image (9) of 8-bit indices on the yz wall and a colour-mapped image
+/// (10) of the field on the floor, the images with both pixel ranges set and the two
+/// mapped kinds with a fixed colour, a clamp and a transparent policy between them.
+/// Every artist is three-dimensional or planar, so the figure is valid.
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::{
-        Artist, Contour, Grid, Levels, Line, NdArray, Quiver, QuiverScale, Scatter, ScatterColor,
-        ScatterSize, Surface,
+        Artist, Color, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, Levels,
+        Line, MappedImage, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+        ScatterColor, ScatterSize, Surface,
     };
     use ironlab_ir::{ContourPlacement, DataId};
 
-    let ids: Vec<DataId> = (0..8).map(DataId).collect();
+    let ids: Vec<DataId> = (0..10).map(DataId).collect();
     let (x, y, z, u, v, w) = (ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]);
-    let (gx, field) = (ids[6], ids[7]);
+    let (gx, field, pixels, indices) = (ids[6], ids[7], ids[8], ids[9]);
     let vector = |start: f64| NdArray::vector(vec![start, start + 1.0, start + 2.0]);
     let data = std::collections::BTreeMap::from([
         (x, vector(1.0)),
@@ -286,7 +291,28 @@ pub fn figure_with_every_artist() -> Figure {
             NdArray::from_shape(vec![3, 3], (0..9).map(f64::from).collect())
                 .expect("the shape matches the values"),
         ),
+        (
+            pixels,
+            NdArray::from_shape_u8(vec![2, 2, 4], (0..16).collect())
+                .expect("the shape matches the values"),
+        ),
+        (
+            indices,
+            NdArray::from_shape_u8(vec![3, 3], (0..9).collect())
+                .expect("the shape matches the values"),
+        ),
     ]);
+    let ranges = ImagePlacement {
+        plane: ImagePlane::default(),
+        columns: Some(PixelRange {
+            first: -1.0,
+            last: 1.0,
+        }),
+        rows: Some(PixelRange {
+            first: 0.0,
+            last: 3.0,
+        }),
+    };
     let artists = vec![
         Artist::Line(Line {
             id: NodeId(3),
@@ -331,6 +357,43 @@ pub fn figure_with_every_artist() -> Figure {
             z: field,
             c: Some(field),
             ..Surface::default()
+        }),
+        Artist::Image(Image {
+            id: NodeId(8),
+            pixels,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xz { y: Some(0.0) },
+                ..ranges
+            },
+            ..Image::default()
+        }),
+        Artist::IndexedImage(IndexedImage {
+            id: NodeId(9),
+            indices,
+            placement: ImagePlacement {
+                plane: ImagePlane::Yz { x: Some(0.5) },
+                ..ranges
+            },
+            below: OutOfRange::Rgba {
+                color: Color::BLACK,
+            },
+            above: OutOfRange::Clamp,
+            non_finite: OutOfRange::Transparent,
+            ..IndexedImage::default()
+        }),
+        Artist::MappedImage(MappedImage {
+            id: NodeId(10),
+            values: field,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: Some(1.0) },
+                ..ranges
+            },
+            below: OutOfRange::Transparent,
+            above: OutOfRange::Transparent,
+            non_finite: OutOfRange::Rgba {
+                color: Color::BLACK,
+            },
+            ..MappedImage::default()
         }),
     ];
     Figure {

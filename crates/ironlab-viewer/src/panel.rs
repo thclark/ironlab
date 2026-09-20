@@ -24,8 +24,9 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, Cell as IrCell, Choice, Color, FigureSize, Legend, LineStyle, MarkerStyle, NodeId,
-    Parameter, PropertyPath, Text, TileLayout, Value, ValueType, View3d, choices,
+    Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, Legend, LineStyle,
+    MarkerStyle, NodeId, Parameter, PixelRange, PropertyPath, Text, TileLayout, Value, ValueType,
+    View3d, choices,
 };
 
 use crate::inspector::{
@@ -867,6 +868,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Legend => Some(Value::Legend(Legend::default())),
         ValueType::LineStyle => Some(Value::LineStyle(LineStyle::default())),
         ValueType::MarkerStyle => Some(Value::MarkerStyle(MarkerStyle::default())),
+        ValueType::ImagePlacement => Some(Value::ImagePlacement(ImagePlacement::default())),
+        ValueType::PixelRange => Some(Value::PixelRange(PixelRange::default())),
         ValueType::DataId => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
@@ -878,6 +881,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::Levels
         | ValueType::ContourPlacement
         | ValueType::QuiverScale
+        | ValueType::ImagePlane
+        | ValueType::OutOfRange
         | ValueType::Scale
         | ValueType::ColormapName
         | ValueType::LegendLocation

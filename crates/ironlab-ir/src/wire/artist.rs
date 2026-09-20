@@ -15,6 +15,13 @@ proto_file! {
             Quiver(Quiver) quiver = 4;
             /// A gridded surface of faces.
             Surface(Surface) surface = 5;
+            /// A raster of true-colour pixels.
+            Image(Image) image = 6;
+            /// A raster of pixels that name entries of the axes colormap.
+            IndexedImage(IndexedImage) indexed_image = 7;
+            /// A raster of data values mapped through the axes colormap and colour
+            /// limits.
+            MappedImage(MappedImage) mapped_image = 8;
         }
     }
 
@@ -280,5 +287,157 @@ proto_file! {
         message ColorSpec edge = 8;
         /// The width of the face edges in points.
         optional double edge_width_pt = 9;
+    }
+
+    /// A true-colour image: a raster of pixels, each with its own colour.
+    message Image {
+        /// The node identifier of the artist, unique within the figure.
+        optional uint64 id = 1;
+        /// The name shown for the artist in the legend; absent when there is none.
+        message Text display_name = 2;
+        /// Whether the artist is drawn.
+        optional bool visible = 3;
+        /// The data identifier of the pixels, of shape `[ny, nx, 3]` (red, green and
+        /// blue) or `[ny, nx, 4]` (red, green, blue and alpha), holding floating-point
+        /// components from 0 to 1 or 8-bit components from 0 to 255.
+        optional uint64 pixels = 4;
+        /// Where the pixels lie in the axes.
+        message ImagePlacement placement = 5;
+    }
+
+    /// A colour-indexed image: a raster of pixels whose values name entries of the axes
+    /// colormap directly, an index being truncated toward zero and taking the entry
+    /// from 0 to 255 of that number.
+    message IndexedImage {
+        /// The node identifier of the artist, unique within the figure.
+        optional uint64 id = 1;
+        /// The name shown for the artist in the legend; absent when there is none.
+        message Text display_name = 2;
+        /// Whether the artist is drawn.
+        optional bool visible = 3;
+        /// The data identifier of the indices, of shape `[ny, nx]`, holding
+        /// floating-point or 8-bit values.
+        optional uint64 indices = 4;
+        /// Where the pixels lie in the axes.
+        message ImagePlacement placement = 5;
+        /// What is drawn for a pixel whose truncated index is less than 0.
+        message OutOfRange below = 6;
+        /// What is drawn for a pixel whose truncated index is greater than 255.
+        message OutOfRange above = 7;
+        /// What is drawn for a pixel whose index is not finite.
+        message OutOfRange non_finite = 8;
+    }
+
+    /// A colour-mapped image: a raster of data values, each scaled through the colour
+    /// limits of the axes into its colormap.
+    message MappedImage {
+        /// The node identifier of the artist, unique within the figure.
+        optional uint64 id = 1;
+        /// The name shown for the artist in the legend; absent when there is none.
+        message Text display_name = 2;
+        /// Whether the artist is drawn.
+        optional bool visible = 3;
+        /// The data identifier of the values, of shape `[ny, nx]`, holding
+        /// floating-point or 8-bit values.
+        optional uint64 values = 4;
+        /// Where the pixels lie in the axes.
+        message ImagePlacement placement = 5;
+        /// What is drawn for a pixel whose value is less than the lower colour limit.
+        message OutOfRange below = 6;
+        /// What is drawn for a pixel whose value is greater than the upper colour
+        /// limit.
+        message OutOfRange above = 7;
+        /// What is drawn for a pixel whose value is not finite.
+        message OutOfRange non_finite = 8;
+    }
+
+    /// Where the pixels of an image lie in its axes: the plane of the image and the
+    /// coordinates of its pixel centres along the two axes of that plane.
+    message ImagePlacement {
+        /// The plane in which the image lies; unset means the xy plane at the bottom
+        /// of the z axis.
+        message ImagePlane plane = 1;
+        /// The centres of the first and last columns along the first axis of the
+        /// plane; absent for centres at 0 to nx - 1.
+        message PixelRange columns = 2;
+        /// The centres of the first and last rows along the second axis of the plane;
+        /// absent for centres at 0 to ny - 1.
+        message PixelRange rows = 3;
+    }
+
+    /// The coordinates of the centres of the first and last pixels of an image along
+    /// one axis of its plane; a last centre before the first mirrors the image.
+    message PixelRange {
+        /// The coordinate of the centre of the first pixel.
+        optional double first = 1;
+        /// The coordinate of the centre of the last pixel.
+        optional double last = 2;
+    }
+
+    /// The plane of an axes in which an image lies, with the offset of the plane along
+    /// the third axis.
+    message ImagePlane {
+        /// The plane; unset means the xy plane at the bottom of the z axis.
+        oneof kind: ImagePlaneKind {
+            /// The plane of the x and y axes.
+            Xy(ImagePlaneXy) xy = 1;
+            /// The plane of the x and z axes.
+            Xz(ImagePlaneXz) xz = 2;
+            /// The plane of the y and z axes.
+            Yz(ImagePlaneYz) yz = 3;
+        }
+    }
+
+    /// The plane of the x and y axes: the floor of a three-dimensional axes.
+    message ImagePlaneXy {
+        /// The height of the plane; absent for the bottom of the z axis. Ignored by
+        /// two-dimensional axes.
+        optional double z = 1;
+    }
+
+    /// The plane of the x and z axes: a wall of a three-dimensional axes.
+    message ImagePlaneXz {
+        /// The y coordinate of the plane; absent for the low end of the y axis.
+        optional double y = 1;
+    }
+
+    /// The plane of the y and z axes: the other wall of a three-dimensional axes.
+    message ImagePlaneYz {
+        /// The x coordinate of the plane; absent for the low end of the x axis.
+        optional double x = 1;
+    }
+
+    /// What is drawn for a pixel of a colour-indexed or colour-mapped image that the
+    /// artist cannot colour.
+    message OutOfRange {
+        /// The policy; unset means the default of the context, which is transparent.
+        oneof kind: OutOfRangeKind {
+            /// Such a pixel makes the figure invalid.
+            Strict(OutOfRangeStrict) strict = 1;
+            /// Nothing is drawn for the pixel.
+            Transparent(OutOfRangeTransparent) transparent = 2;
+            /// The pixel takes the nearest end colour of the colormap.
+            Clamp(OutOfRangeClamp) clamp = 3;
+            /// The pixel is drawn in a fixed colour.
+            Rgba(OutOfRangeRgba) rgba = 4;
+        }
+    }
+
+    /// Such a pixel makes the figure invalid, so it is refused until the data is
+    /// corrected.
+    message OutOfRangeStrict {}
+
+    /// Nothing is drawn for the pixel.
+    message OutOfRangeTransparent {}
+
+    /// The pixel takes the nearest end colour of the colormap: its first entry below the
+    /// range and its last entry above it; a non-finite value has no nearest end, so
+    /// nothing is drawn for it.
+    message OutOfRangeClamp {}
+
+    /// The pixel is drawn in a fixed colour.
+    message OutOfRangeRgba {
+        /// The colour of the pixel; absent means black.
+        message Color color = 1;
     }
 }

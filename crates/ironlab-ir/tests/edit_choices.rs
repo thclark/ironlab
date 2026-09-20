@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use common::edits::{nodes, representative_figures, sample_values};
+use common::edits::{nodes, path, representative_figures, sample_values};
 use ironlab_ir::*;
 
 /// The value types whose values the property editor offers as a list: the tagged values,
@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 16] = [
+const WITH_CHOICES: [ValueType; 18] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -28,6 +28,8 @@ const WITH_CHOICES: [ValueType; 16] = [
     ValueType::Levels,
     ValueType::ContourPlacement,
     ValueType::QuiverScale,
+    ValueType::ImagePlane,
+    ValueType::OutOfRange,
     ValueType::Interpreter,
     ValueType::FontSetId,
 ];
@@ -239,6 +241,56 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
         }),
         "a grid keeps the coordinate arrays it replaces"
     );
+
+    // An image plane chosen afresh is the default placement's plane, and a policy chosen
+    // afresh is the default policy; a fixed colour starts from black, as a fixed colour
+    // specification does.
+    assert_eq!(
+        fresh(ValueType::ImagePlane, "Plane xy"),
+        Value::ImagePlane(ImagePlane::default())
+    );
+    assert_eq!(
+        fresh(ValueType::OutOfRange, "Transparent"),
+        Value::OutOfRange(OutOfRange::default())
+    );
+    assert_eq!(
+        fresh(ValueType::OutOfRange, "Fixed colour"),
+        Value::OutOfRange(OutOfRange::Rgba {
+            color: Color::BLACK
+        })
+    );
+    // A plane keeps its offset when the choice is the plane the image already lies in,
+    // and starts without one when the image moves to another plane, because an offset
+    // along the third axis of one plane says nothing about the third axis of another.
+    for (plane, label) in [
+        (ImagePlane::Xy { z: Some(2.0) }, "Plane xy"),
+        (ImagePlane::Xz { y: Some(2.0) }, "Plane xz"),
+        (ImagePlane::Yz { x: Some(2.0) }, "Plane yz"),
+    ] {
+        assert_eq!(
+            replacing(ValueType::ImagePlane, Value::ImagePlane(plane), label),
+            Value::ImagePlane(plane),
+            "{label} keeps the offset of the plane it replaces"
+        );
+    }
+    assert_eq!(
+        replacing(
+            ValueType::ImagePlane,
+            Value::ImagePlane(ImagePlane::Xy { z: Some(2.0) }),
+            "Plane xz"
+        ),
+        Value::ImagePlane(ImagePlane::Xz { y: None })
+    );
+    // A fixed out-of-range colour keeps the colour it replaces.
+    let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
+    assert_eq!(
+        replacing(
+            ValueType::OutOfRange,
+            Value::OutOfRange(OutOfRange::Rgba { color: blue }),
+            "Fixed colour"
+        ),
+        Value::OutOfRange(OutOfRange::Rgba { color: blue })
+    );
 }
 
 // Why: every choice is offered to the user as something to click, so each one must either
@@ -376,6 +428,25 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::QuiverScale(QuiverScale::Auto),
             Value::QuiverScale(QuiverScale::Factor { value: 1.0 }),
             Value::QuiverScale(QuiverScale::Off),
+        ],
+    );
+    covered(
+        ValueType::ImagePlane,
+        vec![
+            Value::ImagePlane(ImagePlane::Xy { z: None }),
+            Value::ImagePlane(ImagePlane::Xz { y: Some(1.0) }),
+            Value::ImagePlane(ImagePlane::Yz { x: Some(-1.0) }),
+        ],
+    );
+    covered(
+        ValueType::OutOfRange,
+        vec![
+            Value::OutOfRange(OutOfRange::Strict),
+            Value::OutOfRange(OutOfRange::Transparent),
+            Value::OutOfRange(OutOfRange::Clamp),
+            Value::OutOfRange(OutOfRange::Rgba {
+                color: Color::WHITE,
+            }),
         ],
     );
     covered(
@@ -639,6 +710,74 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
     assert!(
         marker.contains("takes the colour of the plot it belongs to"),
         "a marker's reason must say where its colour comes from: {marker}"
+    );
+}
+
+// Why: clamping paints a pixel in the nearest end colour of the colormap, which a value
+// below or above the range has and a non-finite value has not, so offering it at the
+// non-finite category would offer a policy that paints nothing. It must be listed there
+// like every other choice, disabled, and stay available at the two categories where it
+// means something, on both kinds of image that have policies; and every other policy
+// must be available at every category, because each of them paints something everywhere.
+#[test]
+fn clamping_is_unavailable_at_the_non_finite_category_and_available_below_and_above() {
+    let mut checked = 0usize;
+    for figure in representative_figures() {
+        for (node, kind) in nodes(&figure) {
+            if !matches!(kind, NodeKind::IndexedImage | NodeKind::MappedImage) {
+                continue;
+            }
+            for category in ["below", "above", "non_finite"] {
+                let offered = property_choices(&figure, node, &path(category));
+                assert_eq!(
+                    labels(&offered),
+                    labels(&choices(ValueType::OutOfRange, None)),
+                    "{kind:?} offers the wrong policies at {category}"
+                );
+                for choice in &offered {
+                    let expected = !(choice.label == "Clamp" && category == "non_finite");
+                    assert_eq!(
+                        choice.available(),
+                        expected,
+                        "{kind:?} marks {:?} at {category} wrongly: {:?}",
+                        choice.label,
+                        choice.unavailable
+                    );
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked >= 6,
+        "the representative figures hold both kinds of image with policies"
+    );
+}
+
+// Why: the reason is the only thing a user has to go on when a choice is shown disabled,
+// so it must say what a non-finite value lacks (a nearest end of the colormap) and where
+// clamping does work (the categories below and above the range), or the user would be
+// left in front of a policy they can see but cannot pick.
+#[test]
+fn the_reason_clamping_is_unavailable_names_what_a_non_finite_value_lacks_and_where_it_works() {
+    let figure = representative_figures().remove(0);
+    let (mapped, _) = nodes(&figure)
+        .into_iter()
+        .find(|(_, kind)| *kind == NodeKind::MappedImage)
+        .expect("a representative figure has a mapped image");
+    let reason = property_choices(&figure, mapped, &path("non_finite"))
+        .into_iter()
+        .find(|choice| choice.label == "Clamp")
+        .expect("a mapped image lists clamping for non-finite values")
+        .unavailable
+        .expect("clamping cannot be taken for non-finite values");
+    assert!(
+        reason.contains("non-finite") && reason.contains("colormap"),
+        "the reason must say what a non-finite value lacks: {reason}"
+    );
+    assert!(
+        reason.contains("below") && reason.contains("above"),
+        "the reason must send the user to the categories where clamping works: {reason}"
     );
 }
 

@@ -20,11 +20,17 @@ pub enum NodeKind {
     Quiver,
     /// A surface artist.
     Surface,
+    /// A true-colour image artist.
+    Image,
+    /// A colour-indexed image artist.
+    IndexedImage,
+    /// A colour-mapped image artist.
+    MappedImage,
 }
 
 impl NodeKind {
     /// Every kind of node, in declaration order.
-    pub const ALL: [NodeKind; 7] = [
+    pub const ALL: [NodeKind; 10] = [
         NodeKind::Figure,
         NodeKind::Axes,
         NodeKind::Line,
@@ -32,6 +38,9 @@ impl NodeKind {
         NodeKind::Contour,
         NodeKind::Quiver,
         NodeKind::Surface,
+        NodeKind::Image,
+        NodeKind::IndexedImage,
+        NodeKind::MappedImage,
     ];
 }
 

@@ -271,3 +271,64 @@ fn the_json_schema_of_a_transaction_is_generated_in_the_edit_module() {
         "edit.schema.json does not refer to the definition of limits in axes.schema.json"
     );
 }
+
+// Why: the image kinds are new to the schema, and the tools that validate `.fig.json`
+// files find their definitions by name in the file of the artist module; a definition
+// missing, or one placed in another module's file (the split by module panics on a type
+// that has no wire message of its name), would leave such files unvalidatable or the
+// generation broken. The tagged types must also admit exactly the variant names of the
+// documented form, which is what a hand-written file writes.
+#[test]
+fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
+    let schema = ironlab_ir::json_schema();
+    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
+        .into_iter()
+        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
+        .collect();
+    let artist = files
+        .get(Path::new("artist.schema.json"))
+        .expect("artist.schema.json is generated");
+    for name in [
+        "Image",
+        "IndexedImage",
+        "MappedImage",
+        "ImagePlacement",
+        "PixelRange",
+        "ImagePlane",
+        "OutOfRange",
+    ] {
+        assert!(
+            schema.pointer(&format!("/$defs/{name}")).is_some(),
+            "the schema does not define {name}"
+        );
+        assert!(
+            artist.pointer(&format!("/$defs/{name}")).is_some(),
+            "artist.schema.json does not define {name}"
+        );
+    }
+
+    let strings_under = |name: &str| {
+        let definition = schema
+            .pointer(&format!("/$defs/{name}"))
+            .unwrap_or_else(|| panic!("the schema defines {name}"));
+        let mut allowed = BTreeSet::new();
+        allowed_strings(&schema, definition, &mut BTreeSet::new(), &mut allowed);
+        allowed
+    };
+    for (name, variants) in [
+        ("ImagePlane", &["xy", "xz", "yz"][..]),
+        (
+            "OutOfRange",
+            &["strict", "transparent", "clamp", "rgba"][..],
+        ),
+        ("Artist", &["image", "indexed_image", "mapped_image"][..]),
+    ] {
+        let allowed = strings_under(name);
+        for variant in variants {
+            assert!(
+                allowed.contains(*variant),
+                "{name} does not admit {variant:?}; it admits {allowed:?}"
+            );
+        }
+    }
+}

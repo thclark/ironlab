@@ -1263,6 +1263,9 @@ fn set_artist_id(artist: &mut Artist, id: NodeId) {
         Artist::Contour(a) => a.id = id,
         Artist::Quiver(a) => a.id = id,
         Artist::Surface(a) => a.id = id,
+        Artist::Image(a) => a.id = id,
+        Artist::IndexedImage(a) => a.id = id,
+        Artist::MappedImage(a) => a.id = id,
     }
 }
 

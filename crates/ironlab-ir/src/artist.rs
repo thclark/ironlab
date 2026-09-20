@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{DataId, NodeId};
+use crate::link::Dimension;
 use crate::style::{Color, ColorSpec, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
@@ -24,6 +25,14 @@ pub enum Artist {
     Quiver(Quiver),
     /// A gridded surface of faces (surf, mesh).
     Surface(Surface),
+    /// A raster of true-colour pixels (image with a true-colour array).
+    Image(Image),
+    /// A raster of pixels that name entries of the axes colormap (image with an
+    /// indexed array).
+    IndexedImage(IndexedImage),
+    /// A raster of data values mapped through the axes colormap and colour limits
+    /// (imagesc).
+    MappedImage(MappedImage),
 }
 
 impl Artist {
@@ -35,6 +44,9 @@ impl Artist {
             Artist::Contour(a) => a.id,
             Artist::Quiver(a) => a.id,
             Artist::Surface(a) => a.id,
+            Artist::Image(a) => a.id,
+            Artist::IndexedImage(a) => a.id,
+            Artist::MappedImage(a) => a.id,
         }
     }
 
@@ -46,6 +58,9 @@ impl Artist {
             Artist::Contour(a) => a.display_name.as_ref(),
             Artist::Quiver(a) => a.display_name.as_ref(),
             Artist::Surface(a) => a.display_name.as_ref(),
+            Artist::Image(a) => a.display_name.as_ref(),
+            Artist::IndexedImage(a) => a.display_name.as_ref(),
+            Artist::MappedImage(a) => a.display_name.as_ref(),
         }
     }
 
@@ -57,6 +72,9 @@ impl Artist {
             Artist::Contour(a) => a.visible,
             Artist::Quiver(a) => a.visible,
             Artist::Surface(a) => a.visible,
+            Artist::Image(a) => a.visible,
+            Artist::IndexedImage(a) => a.visible,
+            Artist::MappedImage(a) => a.visible,
         }
     }
 
@@ -68,6 +86,9 @@ impl Artist {
             Artist::Contour(a) => a.visible = visible,
             Artist::Quiver(a) => a.visible = visible,
             Artist::Surface(a) => a.visible = visible,
+            Artist::Image(a) => a.visible = visible,
+            Artist::IndexedImage(a) => a.visible = visible,
+            Artist::MappedImage(a) => a.visible = visible,
         }
     }
 }
@@ -430,4 +451,262 @@ impl Default for Surface {
             edge_width_pt: 0.5,
         }
     }
+}
+
+/// A true-colour image: a raster of pixels, each with its own colour (image with a
+/// true-colour array).
+///
+/// An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is
+/// planar: it lies in one of the coordinate planes of its axes, where its
+/// [`placement`](Image::placement) puts it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Image {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The name shown for the artist in the legend.
+    pub display_name: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// The pixels, a three-dimensional array of shape `[ny, nx, 3]` (the red, green and
+    /// blue components of every pixel) or `[ny, nx, 4]` (with an alpha component), so
+    /// that the components of the pixel in row `j` and column `i` start at index
+    /// `(j * nx + i) * channels`. The array may hold floating-point components from 0
+    /// to 1 or 8-bit components from 0 to 255. A pixel with a non-finite component is
+    /// transparent.
+    pub pixels: DataId,
+    /// Where the pixels lie in the axes.
+    pub placement: ImagePlacement,
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            display_name: None,
+            visible: true,
+            pixels: DataId::default(),
+            placement: ImagePlacement::default(),
+        }
+    }
+}
+
+/// A colour-indexed image: a raster of pixels whose values name entries of the axes
+/// colormap directly (image with an indexed array).
+///
+/// An index is looked up without any mapping: a floating-point index is truncated toward
+/// zero, and an index from 0 to 255 takes that entry of the 256-entry colormap. The
+/// indices neither use nor change the colour limits of the axes. A pixel whose index lies
+/// outside the colormap, or is not finite, is drawn as the policy of its category says.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct IndexedImage {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The name shown for the artist in the legend.
+    pub display_name: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// The indices, a two-dimensional array of shape `[ny, nx]`. The array may hold
+    /// floating-point indices, which are truncated toward zero, or 8-bit indices, which
+    /// always lie within the colormap.
+    pub indices: DataId,
+    /// Where the pixels lie in the axes.
+    pub placement: ImagePlacement,
+    /// What is drawn for a pixel whose truncated index is less than 0.
+    pub below: OutOfRange,
+    /// What is drawn for a pixel whose truncated index is greater than 255.
+    pub above: OutOfRange,
+    /// What is drawn for a pixel whose index is NaN or infinite.
+    pub non_finite: OutOfRange,
+}
+
+impl Default for IndexedImage {
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            display_name: None,
+            visible: true,
+            indices: DataId::default(),
+            placement: ImagePlacement::default(),
+            below: OutOfRange::default(),
+            above: OutOfRange::default(),
+            non_finite: OutOfRange::default(),
+        }
+    }
+}
+
+/// A colour-mapped image: a raster of data values, each scaled through the colour limits
+/// of the axes into its colormap (imagesc).
+///
+/// The values are coloured as the colour data of a surface is, and contribute to
+/// automatic colour limits in the same way. A pixel whose value lies outside the colour
+/// limits, or is not finite, is drawn as the policy of its category says.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MappedImage {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The name shown for the artist in the legend.
+    pub display_name: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// The values, a two-dimensional array of shape `[ny, nx]`, mapped through the axes
+    /// colormap and colour limits. The array may hold floating-point or 8-bit values; an
+    /// 8-bit value is mapped as the number it denotes.
+    pub values: DataId,
+    /// Where the pixels lie in the axes.
+    pub placement: ImagePlacement,
+    /// What is drawn for a pixel whose value is less than the lower colour limit.
+    pub below: OutOfRange,
+    /// What is drawn for a pixel whose value is greater than the upper colour limit.
+    pub above: OutOfRange,
+    /// What is drawn for a pixel whose value is NaN or infinite.
+    pub non_finite: OutOfRange,
+}
+
+impl Default for MappedImage {
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            display_name: None,
+            visible: true,
+            values: DataId::default(),
+            placement: ImagePlacement::default(),
+            below: OutOfRange::default(),
+            above: OutOfRange::default(),
+            non_finite: OutOfRange::default(),
+        }
+    }
+}
+
+/// Where the pixels of an image lie in its axes: the plane of the image, and the
+/// coordinates of its pixel centres along the two axes of that plane.
+///
+/// Along each axis of the plane the pixels are placed by the centres of the first and
+/// last pixels, from which the pitch between centres follows, and the image covers half
+/// a pitch beyond each centre. An absent range places the centres at 0, 1, …, n − 1, so
+/// an image of `nx` columns covers −0.5 to nx − 0.5 along the first axis of its plane.
+/// Row 0 of the array lies at the centre of the first row and column 0 at the centre of
+/// the first column, whichever way the ranges run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ImagePlacement {
+    /// The plane in which the image lies, with its offset along the third axis.
+    pub plane: ImagePlane,
+    /// The centres of the first and last columns along the first axis of the plane, or
+    /// `None` for centres at 0 to nx − 1.
+    pub columns: Option<PixelRange>,
+    /// The centres of the first and last rows along the second axis of the plane, or
+    /// `None` for centres at 0 to ny − 1.
+    pub rows: Option<PixelRange>,
+}
+
+/// The coordinates of the centres of the first and last pixels of an image along one
+/// axis of its plane.
+///
+/// With `n` pixels along the axis the pitch is `(last − first) / (n − 1)`, so the image
+/// covers `first − pitch / 2` to `last + pitch / 2`; a single pixel has a pitch of 1
+/// whatever its range. A `last` less than `first` mirrors the image along the axis. Both
+/// centres must be finite, and they may coincide only when the image has one pixel
+/// along the axis, as validation checks.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PixelRange {
+    /// The coordinate of the centre of the first pixel.
+    pub first: f64,
+    /// The coordinate of the centre of the last pixel.
+    pub last: f64,
+}
+
+impl Default for PixelRange {
+    /// The range from 0 to 1, which places an image of any number of pixels validly; it
+    /// is the range an absent range is given when the property editor creates one.
+    fn default() -> Self {
+        Self {
+            first: 0.0,
+            last: 1.0,
+        }
+    }
+}
+
+/// The plane of an axes in which an image lies, with the offset of the plane along the
+/// third axis.
+///
+/// The columns of the image run along the first axis of the plane and its rows along
+/// the second. The offset is the coordinate of the plane along the third axis, or
+/// `None` for the low end of that axis. A two-dimensional axes shows only the xy plane
+/// and ignores its offset; the xz and yz planes are the walls of a three-dimensional
+/// axes and are valid only there.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImagePlane {
+    /// The plane of the x and y axes: the floor of a three-dimensional axes.
+    Xy {
+        /// The height of the plane, or `None` for the bottom of the z axis; ignored by
+        /// two-dimensional axes.
+        z: Option<f64>,
+    },
+    /// The plane of the x and z axes: a wall of a three-dimensional axes.
+    Xz {
+        /// The y coordinate of the plane, or `None` for the low end of the y axis.
+        y: Option<f64>,
+    },
+    /// The plane of the y and z axes: the other wall of a three-dimensional axes.
+    Yz {
+        /// The x coordinate of the plane, or `None` for the low end of the x axis.
+        x: Option<f64>,
+    },
+}
+
+impl Default for ImagePlane {
+    /// The xy plane at the bottom of the z axis.
+    fn default() -> Self {
+        ImagePlane::Xy { z: None }
+    }
+}
+
+impl ImagePlane {
+    /// Returns the dimensions along which the columns and the rows of an image in this
+    /// plane lie, in that order.
+    pub fn axes(self) -> [Dimension; 2] {
+        match self {
+            ImagePlane::Xy { .. } => [Dimension::X, Dimension::Y],
+            ImagePlane::Xz { .. } => [Dimension::X, Dimension::Z],
+            ImagePlane::Yz { .. } => [Dimension::Y, Dimension::Z],
+        }
+    }
+
+    /// Returns the offset of the plane along its third axis, or `None` for the low end
+    /// of that axis.
+    pub fn offset(self) -> Option<f64> {
+        match self {
+            ImagePlane::Xy { z } => z,
+            ImagePlane::Xz { y } => y,
+            ImagePlane::Yz { x } => x,
+        }
+    }
+}
+
+/// What is drawn for a pixel of a colour-indexed or colour-mapped image that the artist
+/// cannot colour: an index outside the colormap, a value outside the colour limits, or
+/// an index or value that is not finite.
+///
+/// Each of the three categories of such pixels (`below`, `above` and `non_finite`)
+/// holds a policy of its own, so that, for example, non-finite values may be tolerated
+/// while values outside the range are refused, or the reverse. Every category is
+/// transparent by default, so that an image reaches the page whatever its data holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OutOfRange {
+    /// Such a pixel is a validation error, so the figure is refused until the data is
+    /// corrected.
+    Strict,
+    /// Nothing is drawn for the pixel.
+    #[default]
+    Transparent,
+    /// The pixel takes the nearest end colour of the colormap: its first entry below the
+    /// range and its last entry above it. A non-finite value has no nearest end, so at
+    /// the `non_finite` category a clamp draws nothing.
+    Clamp,
+    /// The pixel is drawn in a fixed colour.
+    Rgba {
+        /// The colour of the pixel.
+        color: Color,
+    },
 }

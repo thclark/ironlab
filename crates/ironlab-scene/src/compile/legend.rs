@@ -280,6 +280,9 @@ fn draw_sample(
             let paint = |spec| style::resolve(spec, Paint::Colormapped).single(scale);
             patch(paint(s.face), paint(s.edge), out);
         }
+        // An image has no legend sample yet: the sample of each image kind is drawn by the next stage of the image
+        // work (issue #7), so its entry carries its name alone.
+        Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => {}
     }
 }
 

@@ -560,6 +560,172 @@ fn the_array_message_declares_its_element_and_byte_payload() {
     );
 }
 
+/// Returns the fields of a message of the package as `(number, name, kind)`, in order of
+/// number, where the kind of a message or enum field is the name of that type and the
+/// kind of a scalar is its Protocol Buffers type name.
+fn declared_fields(pool: &DescriptorPool, name: &str) -> Vec<(u32, String, String)> {
+    let message = pool
+        .get_message_by_name(&format!("ironlab.ir.v0.{name}"))
+        .unwrap_or_else(|| panic!("the package declares {name}"));
+    let mut fields: Vec<(u32, String, String)> = message
+        .fields()
+        .map(|field| {
+            let kind = match field.kind() {
+                Kind::Message(inner) => inner.name().to_owned(),
+                Kind::Enum(inner) => inner.name().to_owned(),
+                scalar => format!("{scalar:?}").to_lowercase(),
+            };
+            (field.number(), field.name().to_owned(), kind)
+        })
+        .collect();
+    fields.sort();
+    fields
+}
+
+// Why: the messages of the image kinds, and their variants of `Artist.kind` and
+// `Value.kind`, are the part of the schema that clients in other languages will write
+// from the day the files are generated, and `buf breaking` against `main` cannot check
+// a number that `main` does not have; the schema must declare exactly the agreed fields
+// at the agreed numbers, continuing the numbering of the two oneofs after the last
+// existing variant so that no existing number changes meaning, with every tagged value
+// read through a oneof named `kind` like the rest.
+#[test]
+fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
+    let pool = compile();
+    let expect = |name: &str, fields: &[(u32, &str, &str)]| {
+        let expected: Vec<(u32, String, String)> = fields
+            .iter()
+            .map(|(number, field, kind)| (*number, (*field).to_owned(), (*kind).to_owned()))
+            .collect();
+        assert_eq!(declared_fields(&pool, name), expected, "{name}");
+    };
+    expect(
+        "Image",
+        &[
+            (1, "id", "uint64"),
+            (2, "display_name", "Text"),
+            (3, "visible", "bool"),
+            (4, "pixels", "uint64"),
+            (5, "placement", "ImagePlacement"),
+        ],
+    );
+    expect(
+        "IndexedImage",
+        &[
+            (1, "id", "uint64"),
+            (2, "display_name", "Text"),
+            (3, "visible", "bool"),
+            (4, "indices", "uint64"),
+            (5, "placement", "ImagePlacement"),
+            (6, "below", "OutOfRange"),
+            (7, "above", "OutOfRange"),
+            (8, "non_finite", "OutOfRange"),
+        ],
+    );
+    expect(
+        "MappedImage",
+        &[
+            (1, "id", "uint64"),
+            (2, "display_name", "Text"),
+            (3, "visible", "bool"),
+            (4, "values", "uint64"),
+            (5, "placement", "ImagePlacement"),
+            (6, "below", "OutOfRange"),
+            (7, "above", "OutOfRange"),
+            (8, "non_finite", "OutOfRange"),
+        ],
+    );
+    expect(
+        "ImagePlacement",
+        &[
+            (1, "plane", "ImagePlane"),
+            (2, "columns", "PixelRange"),
+            (3, "rows", "PixelRange"),
+        ],
+    );
+    expect(
+        "PixelRange",
+        &[(1, "first", "double"), (2, "last", "double")],
+    );
+    expect(
+        "ImagePlane",
+        &[
+            (1, "xy", "ImagePlaneXy"),
+            (2, "xz", "ImagePlaneXz"),
+            (3, "yz", "ImagePlaneYz"),
+        ],
+    );
+    expect("ImagePlaneXy", &[(1, "z", "double")]);
+    expect("ImagePlaneXz", &[(1, "y", "double")]);
+    expect("ImagePlaneYz", &[(1, "x", "double")]);
+    expect(
+        "OutOfRange",
+        &[
+            (1, "strict", "OutOfRangeStrict"),
+            (2, "transparent", "OutOfRangeTransparent"),
+            (3, "clamp", "OutOfRangeClamp"),
+            (4, "rgba", "OutOfRangeRgba"),
+        ],
+    );
+    expect("OutOfRangeStrict", &[]);
+    expect("OutOfRangeTransparent", &[]);
+    expect("OutOfRangeClamp", &[]);
+    expect("OutOfRangeRgba", &[(1, "color", "Color")]);
+    for (wrapper, inner) in [
+        ("ValueImagePlacement", "ImagePlacement"),
+        ("ValuePixelRange", "PixelRange"),
+        ("ValueImagePlane", "ImagePlane"),
+        ("ValueOutOfRange", "OutOfRange"),
+    ] {
+        expect(wrapper, &[(1, "value", inner)]);
+    }
+
+    let artist = declared_fields(&pool, "Artist");
+    for (number, field, kind) in [
+        (6, "image", "Image"),
+        (7, "indexed_image", "IndexedImage"),
+        (8, "mapped_image", "MappedImage"),
+    ] {
+        assert!(
+            artist.contains(&(number, field.to_owned(), kind.to_owned())),
+            "Artist lacks {field} = {number} of {kind}: {artist:?}"
+        );
+    }
+    let value = declared_fields(&pool, "Value");
+    for (number, field, kind) in [
+        (37, "image_placement_value", "ValueImagePlacement"),
+        (38, "pixel_range_value", "ValuePixelRange"),
+        (39, "image_plane_value", "ValueImagePlane"),
+        (40, "out_of_range_value", "ValueOutOfRange"),
+    ] {
+        assert!(
+            value.contains(&(number, field.to_owned(), kind.to_owned())),
+            "Value lacks {field} = {number} of {kind}: {value:?}"
+        );
+    }
+    for (message, field) in [
+        ("Artist", "image"),
+        ("Artist", "indexed_image"),
+        ("Artist", "mapped_image"),
+        ("Value", "image_placement_value"),
+        ("Value", "out_of_range_value"),
+        ("ImagePlane", "xy"),
+        ("ImagePlane", "yz"),
+        ("OutOfRange", "strict"),
+        ("OutOfRange", "rgba"),
+    ] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        let oneof = descriptor
+            .get_field_by_name(field)
+            .unwrap_or_else(|| panic!("{message} declares {field}"))
+            .containing_oneof()
+            .map(|oneof| oneof.name().to_owned());
+        assert_eq!(oneof.as_deref(), Some("kind"), "{message}.{field}");
+    }
+}
+
 // Why: proto3 decodes an absent enum as its zero value, so the zero value must mean
 // "unspecified" rather than a real choice, and enum values share the package's
 // namespace, so each must carry its enum's name (as the buf STANDARD rules require).
