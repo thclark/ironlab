@@ -252,6 +252,33 @@ fn serialised_figure_matches_the_hand_written_wire_format() {
     assert_eq!(written, expected);
 }
 
+// Why: a figure that holds an image's pixels must save to `.fig.json` and reopen as the
+// same figure: the array of bytes is written in the documented form (an `element` tag
+// and integer values) and reloads with its element type, while the float arrays beside
+// it are written exactly as before, and saving the reopened figure changes nothing.
+#[test]
+fn a_figure_with_an_array_of_bytes_survives_a_json_round_trip_in_the_documented_form() {
+    let (mut fig, _, _) = single_line_figure();
+    let bytes = NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap();
+    fig.data.insert(DataId(9), bytes.clone());
+
+    let text = fig.to_json();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        value["data"]["9"],
+        json!({ "shape": [2, 2], "element": "u8", "values": [0, 1, 254, 255] })
+    );
+    assert_eq!(
+        value["data"]["0"],
+        json!({ "shape": [3], "values": [1.0, 2.0, 3.0] })
+    );
+
+    let reopened = Figure::from_json(&text).expect("own output parses");
+    assert_eq!(reopened.data[&DataId(9)], bytes);
+    assert_eq!(reopened, fig);
+    assert_eq!(reopened.to_json(), text);
+}
+
 // Why: the JSON produced for each tagged enum and unit enum is a public contract, and a
 // renamed variant or a changed tagging strategy would silently break existing files.
 #[test]

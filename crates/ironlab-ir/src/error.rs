@@ -85,13 +85,14 @@ pub enum ProtobufError {
         field: String,
     },
 
-    /// A field holds a value that cannot be represented in memory, such as an array
-    /// dimension larger than the address space.
-    #[error("{field} has an unrepresentable value: {reason}")]
+    /// A field holds a value that cannot be accepted: an array dimension larger than
+    /// the address space, a property path that is not valid, or a payload of an array
+    /// that disagrees with the array's element.
+    #[error("{field} holds an invalid value: {reason}")]
     InvalidValue {
         /// The path of the field within the message.
         field: String,
-        /// Why the value cannot be represented.
+        /// Why the value cannot be accepted.
         reason: String,
     },
 }

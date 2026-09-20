@@ -631,7 +631,7 @@ impl FigureState {
             _ => return None,
         };
         let index = sample.source_index;
-        let value = |id: DataId| self.composed.data.get(&id)?.values.get(index).copied();
+        let value = |id: DataId| self.composed.data.get(&id)?.get(index);
         Some(Datatip {
             axes: drawn.axes,
             artist: drawn.artist,

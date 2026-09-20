@@ -511,6 +511,55 @@ fn field_one_of_figure_is_the_schema_version_string() {
     assert!(!field.is_list());
 }
 
+// Why: a reader in another language finds an array's values in the payload that its
+// element names, so the generated schema must declare the element as an enum field of
+// the array message, whose values carry the wire names that such readers use, and the
+// byte payload as a `bytes` field (one byte per value, which is the point of the
+// element type), each at the number that the decoder reads, beside the packed doubles
+// of a float array.
+#[test]
+fn the_array_message_declares_its_element_and_byte_payload() {
+    let pool = compile();
+    let array = pool
+        .get_message_by_name("ironlab.ir.v0.NdArray")
+        .expect("the package declares NdArray");
+
+    let values = array.get_field(2).expect("NdArray has field 2");
+    assert_eq!(values.name(), "values");
+    assert_eq!(values.kind(), Kind::Double);
+    assert!(values.is_list());
+
+    let element = array.get_field(3).expect("NdArray has field 3");
+    assert_eq!(element.name(), "element");
+    assert!(
+        matches!(element.kind(), Kind::Enum(e) if e.name() == "NdArrayElement"),
+        "{:?}",
+        element.kind()
+    );
+    assert!(!element.is_list());
+
+    let payload = array.get_field(4).expect("NdArray has field 4");
+    assert_eq!(payload.name(), "u8_values");
+    assert_eq!(payload.kind(), Kind::Bytes);
+    assert!(!payload.is_list());
+
+    let element_type = pool
+        .get_enum_by_name("ironlab.ir.v0.NdArrayElement")
+        .expect("the package declares NdArrayElement");
+    let names: BTreeMap<i32, String> = element_type
+        .values()
+        .map(|value| (value.number(), value.name().to_owned()))
+        .collect();
+    assert_eq!(
+        names,
+        BTreeMap::from([
+            (0, "ND_ARRAY_ELEMENT_UNSPECIFIED".to_owned()),
+            (1, "ND_ARRAY_ELEMENT_F64".to_owned()),
+            (2, "ND_ARRAY_ELEMENT_U8".to_owned()),
+        ])
+    );
+}
+
 // Why: proto3 decodes an absent enum as its zero value, so the zero value must mean
 // "unspecified" rather than a real choice, and enum values share the package's
 // namespace, so each must carry its enum's name (as the buf STANDARD rules require).

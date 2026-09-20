@@ -6,7 +6,7 @@ mod common;
 use common::edits::{
     VALUE_VARIANTS, every_kind_transaction, rows, sample_values, set, tx, value_variants_in,
 };
-use common::{SPECIAL_F64, float_bits, kitchen_sink_figure};
+use common::{SPECIAL_F64, float_bits, floats, kitchen_sink_figure};
 use ironlab_ir::*;
 use prost::Message;
 
@@ -46,6 +46,8 @@ fn one_value() -> wire::NdArray {
     wire::NdArray {
         shape: vec![1],
         values: vec![1.0],
+        element: wire::NdArrayElement::F64 as i32,
+        u8_values: vec![],
     }
 }
 
@@ -196,8 +198,35 @@ fn negative_zero_and_nan_in_arrays_survive_json() {
         panic!("unexpected edits {decoded:?}");
     };
     assert_eq!(pan.to_bits(), (-0.0f64).to_bits());
-    assert_eq!(array.values[0].to_bits(), (-0.0f64).to_bits());
-    assert!(array.values[1].is_nan() && array.values[2].is_nan());
+    let values = floats(array);
+    assert_eq!(values[0].to_bits(), (-0.0f64).to_bits());
+    assert!(values[1].is_nan() && values[2].is_nan());
+}
+
+// Why: a web client that sends an image's pixels writes the array in the documented
+// form, an `element` tag with integer values, and must get the same array back when the
+// transaction is read; the float arrays of other edits keep their untagged form, which
+// `the_json_form_of_an_edit_is_tagged_and_uses_dotted_paths` pins.
+#[test]
+fn an_array_of_bytes_in_an_edit_is_tagged_with_its_element_in_json() {
+    let bytes = NdArray::from_shape_u8(vec![2], vec![0, 255]).unwrap();
+    let transaction = tx([Edit::PutData {
+        id: DataId(5),
+        array: bytes.clone(),
+    }]);
+    let json: serde_json::Value = serde_json::from_str(&transaction.to_json()).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "edits": [{
+                "type": "put_data",
+                "id": 5,
+                "array": {"shape": [2], "element": "u8", "values": [0, 255]}
+            }]
+        })
+    );
+    let decoded = Transaction::from_json(&json.to_string()).unwrap();
+    assert_eq!(decoded, transaction);
 }
 
 // Why: web clients build transactions as JSON by hand, so the documented form (edits

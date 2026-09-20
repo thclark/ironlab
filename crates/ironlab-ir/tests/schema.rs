@@ -4,10 +4,10 @@
 //! committed copy to compare against; these tests check that generation works and that
 //! the generated files form a consistent set.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 // Why: `generate-schema` writes these files for other tools, so generating them must
 // not fail, must produce at least one file, and must produce files that are JSON.
@@ -116,6 +116,117 @@ fn every_reference_resolves_to_a_definition_in_a_generated_file() {
         cross_file > 0,
         "no file refers to another, so the schema is not split by module"
     );
+}
+
+/// Collects every string that a schema allows under its `enum` and `const` keywords,
+/// following local references (`#/$defs/...`) within `root`, so that the check does not
+/// depend on whether the generator inlines an enumeration or refers to a definition, or
+/// wraps it to allow `null`.
+fn allowed_strings(
+    root: &Value,
+    schema: &Value,
+    seen: &mut BTreeSet<String>,
+    out: &mut BTreeSet<String>,
+) {
+    match schema {
+        Value::Object(map) => {
+            for (key, inner) in map {
+                match (key.as_str(), inner) {
+                    ("enum", Value::Array(items)) => {
+                        out.extend(items.iter().filter_map(Value::as_str).map(str::to_owned));
+                    }
+                    ("const", Value::String(text)) => {
+                        out.insert(text.clone());
+                    }
+                    ("$ref", Value::String(reference)) => {
+                        if seen.insert(reference.clone()) {
+                            let pointer = reference
+                                .strip_prefix('#')
+                                .unwrap_or_else(|| panic!("{reference} is not a local reference"));
+                            let target = root
+                                .pointer(pointer)
+                                .unwrap_or_else(|| panic!("{reference} does not resolve"));
+                            allowed_strings(root, target, seen, out);
+                        }
+                    }
+                    ("description" | "title" | "default" | "examples", _) => {}
+                    (_, inner) => allowed_strings(root, inner, seen, out),
+                }
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| allowed_strings(root, item, seen, out)),
+        _ => {}
+    }
+}
+
+// Why: the array definition is what other tools validate figure files against. It must
+// keep the name `NdArray`, which artists' data and the edit protocol refer to, whatever
+// Rust type now produces it; its `element` property must admit exactly the element types
+// that the reader accepts (`f64` and `u8`) and must not be required, because every file
+// written before the element type existed omits it; its `values` must still admit `null`,
+// which is how a missing float is written; and the Rust enum that holds the values must
+// not surface as a definition of its own (`Values`), because the split into one file per
+// module maps each definition to the module of the wire type of the same name and there
+// is no such wire type.
+#[test]
+fn the_array_definition_keeps_its_name_and_declares_the_element_type() {
+    let schema = ironlab_ir::json_schema();
+    let array = schema
+        .pointer("/$defs/NdArray")
+        .expect("the schema defines NdArray");
+    let element = array
+        .pointer("/properties/element")
+        .expect("NdArray has an element property");
+    let mut allowed = BTreeSet::new();
+    allowed_strings(&schema, element, &mut BTreeSet::new(), &mut allowed);
+    assert_eq!(
+        allowed,
+        BTreeSet::from(["f64".to_owned(), "u8".to_owned()]),
+        "the element property allows {allowed:?}"
+    );
+    let required: Vec<&str> = array
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    assert!(
+        !required.contains(&"element"),
+        "element is required, so files without it would not validate: {required:?}"
+    );
+    assert!(
+        required.contains(&"shape") && required.contains(&"values"),
+        "shape and values are required: {required:?}"
+    );
+    assert_eq!(
+        array.pointer("/properties/values/items/type"),
+        Some(&json!(["number", "null"])),
+        "the values must stay number-or-null, so that a missing float is still written as null"
+    );
+    assert!(
+        schema.pointer("/$defs/Values").is_none(),
+        "the schema defines Values"
+    );
+
+    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
+        .into_iter()
+        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
+        .collect();
+    assert!(
+        files
+            .get(Path::new("data.schema.json"))
+            .and_then(|document| document.pointer("/$defs/NdArray"))
+            .is_some(),
+        "data.schema.json does not define NdArray"
+    );
+    for (path, document) in &files {
+        assert!(
+            document.pointer("/$defs/Values").is_none(),
+            "{} defines Values",
+            path.display()
+        );
+    }
 }
 
 // Why: web clients that build transactions as JSON need a schema to validate them against,

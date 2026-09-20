@@ -3,7 +3,9 @@
 //! The types in this crate are the single source of truth for the IronLAB figure
 //! format. A [`Figure`] is a serialisable tree of nodes (the figure, its axes and
 //! their artists), each identified by a stable [`NodeId`], together with a table of
-//! numeric arrays referenced by [`DataId`].
+//! numeric arrays ([`NdArray`]) referenced by [`DataId`]. An array holds either 64-bit
+//! floating-point values or 8-bit unsigned integers, which is its element type
+//! ([`NdArrayElement`]); every artist of this version requires floating-point values.
 //!
 //! # Formats
 //!
@@ -12,7 +14,10 @@
 //! of the [`wire`] module. JSON (`.fig.json`), written by [`Figure::to_json`] and read by
 //! [`Figure::from_json`], is a supported secondary format for debugging, other tools and
 //! simple web pages. Both describe the same figure, so converting between them loses
-//! nothing.
+//! nothing. An array keeps its element type in both: Protocol Buffers stores
+//! floating-point values as IEEE 754 doubles and 8-bit values as bytes, and JSON writes
+//! floating-point values as numbers with `null` for a non-finite value and 8-bit values
+//! as integers under an `element` of `"u8"`.
 //!
 //! The schemas of both formats are generated from the Rust types as build artefacts
 //! and are not committed: [`proto_files`] returns the `.proto` files (written by
@@ -60,7 +65,7 @@ pub use artist::{
 pub use axes::{
     Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
 };
-pub use data::NdArray;
+pub use data::{NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
     ValueType, choices, properties, property_choices,

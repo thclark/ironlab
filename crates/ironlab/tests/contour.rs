@@ -17,7 +17,7 @@ fn contour_stores_the_field_with_shape_rows_by_cols() {
     let c = contour(&fig, id);
     let stored = data(&fig, c.z);
     assert_eq!(stored.shape, vec![3, 4]);
-    assert_eq!(stored.values, z.values());
+    assert_eq!(stored.as_f64(), Some(z.values()));
 }
 
 // WHY: coordinate vectors must produce a rectilinear grid (x per column, y per row),
@@ -47,8 +47,8 @@ fn matrix_coordinates_make_a_curvilinear_grid() {
     match contour(&fig, id).grid {
         Grid::Curvilinear { x: gx, y: gy } => {
             assert_eq!(data(&fig, gx).shape, vec![3, 4]);
-            assert_eq!(data(&fig, gx).values, xx.values());
-            assert_eq!(data(&fig, gy).values, yy.values());
+            assert_eq!(data(&fig, gx).as_f64(), Some(xx.values()));
+            assert_eq!(data(&fig, gy).as_f64(), Some(yy.values()));
         }
         other => panic!("expected a curvilinear grid, found {other:?}"),
     }
@@ -68,7 +68,7 @@ fn a_vector_mixed_with_a_matrix_is_repeated_to_the_field_shape() {
         Grid::Curvilinear { x: gx, .. } => {
             let (xx, _) = meshgrid(&x, &y);
             assert_eq!(data(&fig, gx).shape, vec![3, 4]);
-            assert_eq!(data(&fig, gx).values, xx.values());
+            assert_eq!(data(&fig, gx).as_f64(), Some(xx.values()));
         }
         other => panic!("expected a curvilinear grid, found {other:?}"),
     }
@@ -97,8 +97,8 @@ fn mixed_coordinates_on_a_square_field_are_not_transposed() {
     for id in [x_vector, y_vector] {
         let (gx, gy) = node_coordinates(id);
         assert_eq!(gx.shape, vec![3, 3]);
-        assert_eq!(gx.values, xx.values(), "x coordinates of {id}");
-        assert_eq!(gy.values, yy.values(), "y coordinates of {id}");
+        assert_eq!(gx.as_f64(), Some(xx.values()), "x coordinates of {id}");
+        assert_eq!(gy.as_f64(), Some(yy.values()), "y coordinates of {id}");
     }
 }
 

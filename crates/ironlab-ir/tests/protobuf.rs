@@ -7,7 +7,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::{
-    SPECIAL_F64, float_bits, kitchen_sink_figure, single_line_figure, special_values_figure,
+    SPECIAL_F64, float_bits, floats_mut, kitchen_sink_figure, single_line_figure,
+    special_values_figure,
 };
 use ironlab_ir::*;
 use proptest::prelude::*;
@@ -227,6 +228,26 @@ fn wire_quiver_scale(kind: wire::QuiverScaleKind) -> Option<wire::QuiverScale> {
     Some(wire::QuiverScale { kind: Some(kind) })
 }
 
+/// A wire array of floats, with its element written explicitly as the encoder writes it.
+fn wire_floats(shape: Vec<u64>, values: Vec<f64>) -> wire::NdArray {
+    wire::NdArray {
+        shape,
+        values,
+        element: wire::NdArrayElement::F64 as i32,
+        u8_values: vec![],
+    }
+}
+
+/// A wire array of 8-bit values, held in the byte payload.
+fn wire_bytes(shape: Vec<u64>, values: Vec<u8>) -> wire::NdArray {
+    wire::NdArray {
+        shape,
+        values: vec![],
+        element: wire::NdArrayElement::U8 as i32,
+        u8_values: values,
+    }
+}
+
 // ---------------------------------------------------------------------------------
 // Lossless round trips
 // ---------------------------------------------------------------------------------
@@ -315,7 +336,7 @@ proptest! {
                 ..View3d::default()
             },
         };
-        fig.data.get_mut(&DataId(0)).unwrap().values[1] = f64::from_bits(sample);
+        floats_mut(fig.data.get_mut(&DataId(0)).unwrap())[1] = f64::from_bits(sample);
 
         let restored = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
         prop_assert_eq!(float_bits(&restored), float_bits(&fig));
@@ -357,6 +378,50 @@ fn extreme_identifiers_and_counts_survive_a_round_trip() {
     assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
 }
 
+// Why: an image's pixels are stored as bytes, and every one of the 256 byte values, in
+// an array of more than one dimension, must reload as itself with its element type;
+// figure equality distinguishes the element types, so it checks that the array did not
+// come back as floats.
+#[test]
+fn every_byte_value_reloads_with_its_element_type() {
+    let (mut fig, _, _) = single_line_figure();
+    let values: Vec<u8> = (0..=255).collect();
+    let array = NdArray::from_shape_u8(vec![16, 16], values.clone()).unwrap();
+    fig.data.insert(DataId(9), array.clone());
+    let restored = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
+    assert_eq!(restored.data[&DataId(9)].as_u8(), Some(values.as_slice()));
+    assert_eq!(restored.data[&DataId(9)], array);
+    assert_eq!(restored, fig);
+}
+
+// Why: readers in other languages take an array's values from the payload that its
+// element names, so the encoder must write the element of every array explicitly
+// (floats included, whose element is not the protobuf zero value, as
+// `the_encoder_writes_every_value_explicitly` also requires) and put the values in the
+// payload of that element only, leaving the other payload empty so that no reader finds
+// two candidate payloads.
+#[test]
+fn the_encoder_writes_the_element_of_every_array_and_one_payload() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.data.insert(
+        DataId(9),
+        NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
+    );
+    let wire_figure = wire::Figure::from(&fig);
+
+    let floats = &wire_figure.data[&0];
+    assert_eq!(floats.element, wire::NdArrayElement::F64 as i32);
+    assert_eq!(floats.shape, [3]);
+    assert_eq!(floats.values, [1.0, 2.0, 3.0]);
+    assert!(floats.u8_values.is_empty());
+
+    let bytes = &wire_figure.data[&9];
+    assert_eq!(bytes.element, wire::NdArrayElement::U8 as i32);
+    assert_eq!(bytes.shape, [2, 2]);
+    assert_eq!(bytes.u8_values, [0, 1, 254, 255]);
+    assert!(bytes.values.is_empty());
+}
+
 // ---------------------------------------------------------------------------------
 // Agreement between the binary and JSON formats
 // ---------------------------------------------------------------------------------
@@ -392,6 +457,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
     const B: u64 = 10;
     const C: u64 = 12;
     const D: u64 = 15;
+    // An array of bytes, which no artist refers to, so that the byte payload is pinned to
+    // the domain's 8-bit values and the float payload to its floats.
+    const E: u64 = 18;
 
     let wire_figure = wire::Figure {
         schema_version: SCHEMA_VERSION.to_owned(),
@@ -409,34 +477,11 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             cols: Some(3),
         }),
         data: BTreeMap::from([
-            (
-                A,
-                wire::NdArray {
-                    shape: vec![2],
-                    values: vec![1.0, 2.0],
-                },
-            ),
-            (
-                B,
-                wire::NdArray {
-                    shape: vec![1, 3],
-                    values: vec![3.0, 4.0, 5.0],
-                },
-            ),
-            (
-                C,
-                wire::NdArray {
-                    shape: vec![3, 1],
-                    values: vec![6.0, 7.0, 8.0],
-                },
-            ),
-            (
-                D,
-                wire::NdArray {
-                    shape: vec![2, 2],
-                    values: vec![9.0, 10.0, 11.0, 12.0],
-                },
-            ),
+            (A, wire_floats(vec![2], vec![1.0, 2.0])),
+            (B, wire_floats(vec![1, 3], vec![3.0, 4.0, 5.0])),
+            (C, wire_floats(vec![3, 1], vec![6.0, 7.0, 8.0])),
+            (D, wire_floats(vec![2, 2], vec![9.0, 10.0, 11.0, 12.0])),
+            (E, wire_bytes(vec![3], vec![13, 14, 15])),
         ]),
         axes: vec![
             wire::Axes {
@@ -761,21 +806,28 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 DataId(B),
                 NdArray {
                     shape: vec![1, 3],
-                    values: vec![3.0, 4.0, 5.0],
+                    values: Values::F64(vec![3.0, 4.0, 5.0]),
                 },
             ),
             (
                 DataId(C),
                 NdArray {
                     shape: vec![3, 1],
-                    values: vec![6.0, 7.0, 8.0],
+                    values: Values::F64(vec![6.0, 7.0, 8.0]),
                 },
             ),
             (
                 DataId(D),
                 NdArray {
                     shape: vec![2, 2],
-                    values: vec![9.0, 10.0, 11.0, 12.0],
+                    values: Values::F64(vec![9.0, 10.0, 11.0, 12.0]),
+                },
+            ),
+            (
+                DataId(E),
+                NdArray {
+                    shape: vec![3],
+                    values: Values::U8(vec![13, 14, 15]),
                 },
             ),
         ]),
@@ -1091,12 +1143,14 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         name
     }
 
-    /// A wire figure with a place for every enum: a title, a link, and an axes with an
-    /// x axis, a legend and a line with a line style and a marker style.
+    /// A wire figure with a place for every enum: a title, a link, an array without
+    /// values (so that either element decodes), and an axes with an x axis, a legend and
+    /// a line with a line style and a marker style.
     fn carrier() -> wire::Figure {
         wire::Figure {
             font_set: wire::FontSetId::StixTwo as i32,
             title: wire_text("title", wire::Interpreter::Latex),
+            data: BTreeMap::from([(0, wire_floats(vec![0], vec![]))]),
             axes: vec![wire::Axes {
                 id: Some(2),
                 x: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
@@ -1171,6 +1225,15 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         check::<wire::Dimension>(
             |w, v| w.links[0].dimension = v,
             |f| format!("{:?}", f.links[0].dimension),
+        ),
+        check::<wire::NdArrayElement>(
+            |w, v| {
+                w.data
+                    .get_mut(&0)
+                    .expect("the carrier holds an array")
+                    .element = v;
+            },
+            |f| format!("{:?}", f.data[&DataId(0)].element()),
         ),
     ]
     .into_iter()
@@ -1396,8 +1459,9 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
 // Why: strings, repeated fields and maps have no presence in proto3, so an empty string
 // or list cannot be told apart from an absent one on the wire. Such a field must decode
 // as empty, not as the default of its context; otherwise a provenance that lists no
-// fonts would reload listing the default fonts, and an empty title would reload with
-// text.
+// fonts would reload listing the default fonts, an empty title would reload with text,
+// and an empty array of bytes, whose payloads are both empty so that only its element
+// says that it holds bytes, would reload as the float default.
 #[test]
 fn empty_strings_and_lists_reload_as_empty_rather_than_as_defaults() {
     let (mut fig, axes, _) = single_line_figure();
@@ -1411,9 +1475,11 @@ fn empty_strings_and_lists_reload_as_empty_rather_than_as_defaults() {
         DataId(99),
         NdArray {
             shape: vec![0],
-            values: vec![],
+            values: Values::F64(vec![]),
         },
     );
+    fig.data
+        .insert(DataId(98), NdArray::from_shape_u8(vec![0], vec![]).unwrap());
     fig.links.push(AxisLink {
         dimension: Dimension::Z,
         axes: vec![],
@@ -1831,14 +1897,83 @@ fn unknown_enum_values_are_errors() {
     );
 }
 
+// Why: the element of an array is an enum like any other, so a value that this build
+// does not define must be refused with the array named, rather than read as floats or
+// as bytes; either guess would silently recolour every image that used the array.
+#[test]
+fn an_unknown_array_element_is_an_error_that_names_the_array() {
+    let (fig, _, _) = single_line_figure();
+    let mut wire_figure = wire::Figure::from(&fig);
+    wire_figure
+        .data
+        .get_mut(&0)
+        .expect("the encoder writes every array")
+        .element = 99;
+    let result = Figure::from_protobuf(&encode_wire(&wire_figure));
+    assert!(
+        matches!(
+            &result,
+            Err(IrError::Protobuf(ProtobufError::UnknownEnumValue { field, value: 99 }))
+                if field == "data[0].element"
+        ),
+        "{result:?}"
+    );
+}
+
+// Why: an array carries its values in the payload of its element (`values` for floats,
+// `u8_values` for bytes) and never in both; a message in which the element and the
+// payloads disagree comes from a faulty writer, and reading either payload would draw
+// data the writer did not mean. An unspecified element means floats, as in every file
+// written before the element type existed, so bytes under an unspecified element are a
+// disagreement too. The error must name the array.
+#[test]
+fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
+    use ironlab_ir::wire::NdArrayElement::{F64, U8, Unspecified};
+    let cases = [
+        ("floats with both payloads", F64, vec![1.0], vec![1]),
+        ("floats with only a byte payload", F64, vec![], vec![1]),
+        ("bytes with a float payload", U8, vec![1.0], vec![]),
+        ("bytes with both payloads", U8, vec![1.0], vec![1]),
+        (
+            "unspecified with a byte payload",
+            Unspecified,
+            vec![],
+            vec![1],
+        ),
+    ];
+    for (case, element, values, u8_values) in cases {
+        let (fig, _, _) = single_line_figure();
+        let mut wire_figure = wire::Figure::from(&fig);
+        *wire_figure
+            .data
+            .get_mut(&0)
+            .expect("the encoder writes every array") = wire::NdArray {
+            shape: vec![1],
+            values,
+            element: element as i32,
+            u8_values,
+        };
+        let result = Figure::from_protobuf(&encode_wire(&wire_figure));
+        assert!(
+            matches!(
+                &result,
+                Err(IrError::Protobuf(ProtobufError::InvalidValue { field, .. }))
+                    if field.starts_with("data[0]")
+            ),
+            "{case}: {result:?}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------
 // Stability of field numbers
 // ---------------------------------------------------------------------------------
 
 /// A figure encoded by hand, field by field, from the field numbers of the schema: a 3D
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
-/// with an RGBA colour and a marker, two data arrays (one holding NaN), a link,
-/// provenance and a parameter of every kind.
+/// with an RGBA colour and a marker, three data arrays (floats without an element as
+/// every writer wrote them before the element type existed, floats holding NaN with the
+/// element written, and bytes), a link, provenance and a parameter of every kind.
 ///
 /// The bytes are built without the wire types, so that renumbering a field in the
 /// `proto_file!` declarations changes what the decoder expects but not these bytes.
@@ -1862,6 +1997,15 @@ fn hand_encoded_bytes() -> Vec<u8> {
     let empty = |number| length_delimited(number, &[]);
     let array = |shape: &[u64], values: &[f64]| {
         [packed_varints(1, shape), packed_doubles(2, values)].concat()
+    };
+    // An array of bytes: the element of bytes (field 3, value 2) and the bytes (field 4).
+    let byte_array = |shape: &[u64], values: &[u8]| {
+        [
+            packed_varints(1, shape),
+            varint_field(3, 2),
+            length_delimited(4, values),
+        ]
+        .concat()
     };
     let limits_manual = |min: f64, max: f64| {
         length_delimited(2, &[double_field(1, min), double_field(2, max)].concat())
@@ -1983,8 +2127,14 @@ fn hand_encoded_bytes() -> Vec<u8> {
         double_field(6, 9.5),
         length_delimited(7, &colour(1.0, 1.0, 0.5, 1.0)),
         length_delimited(8, &[varint_field(1, 2), varint_field(2, 3)].concat()),
+        // Written without an element, as every writer before the element type existed.
         data_entry(0, array(&[3], &[0.0, 1.0, 2.0])),
-        data_entry(7, array(&[3], &[1.0, f64::NAN, 0.135])),
+        // Written with the element of floats (field 3, value 1), as this build writes it.
+        data_entry(
+            7,
+            [array(&[3], &[1.0, f64::NAN, 0.135]), varint_field(3, 1)].concat(),
+        ),
+        data_entry(8, byte_array(&[2, 2], &[0, 1, 254, 255])),
         length_delimited(10, &axes),
         length_delimited(11, &[varint_field(1, 3), packed_varints(2, &[2])].concat()),
         length_delimited(
@@ -2030,6 +2180,10 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
         data: BTreeMap::from([
             (DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0])),
             (DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135])),
+            (
+                DataId(8),
+                NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
+            ),
         ]),
         axes: vec![Axes {
             id: NodeId(2),
@@ -2305,5 +2459,25 @@ fn large_arrays_encode_at_eight_bytes_per_value() {
         "{} bytes for {} values is {per_value:.3} bytes per value",
         bytes.len(),
         2 * POINTS
+    );
+}
+
+// Why: the element type exists so that images are stored compactly; each 8-bit value
+// must cost one byte in a `bytes` payload rather than a varint (two bytes for every
+// value above 127) or a double, so an array of bytes that spans the whole range stays
+// within 1.01 bytes per value including the figure's structure.
+#[test]
+fn large_byte_arrays_encode_at_one_byte_per_value() {
+    const PIXELS: usize = 100_000;
+    let mut fig = Figure::new();
+    let values: Vec<u8> = (0..PIXELS).map(|i| (i % 256) as u8).collect();
+    fig.add_data(NdArray::from_shape_u8(vec![250, 400], values).unwrap());
+
+    let bytes = fig.to_protobuf();
+    let per_value = bytes.len() as f64 / PIXELS as f64;
+    assert!(
+        per_value <= 1.01,
+        "{} bytes for {PIXELS} values is {per_value:.3} bytes per value",
+        bytes.len()
     );
 }

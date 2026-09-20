@@ -506,7 +506,8 @@ pub fn sample_values() -> Vec<Value> {
 }
 
 /// A transaction that holds every kind of edit and a set of every sample value, with
-/// NaN in a data array and identifiers above 2^53.
+/// NaN in a data array, arrays of 8-bit values in a put and in an append, and
+/// identifiers above 2^53.
 ///
 /// It exercises the encodings only and is not meant to be applied: its sets name paths
 /// and nodes that do not match their values.
@@ -548,6 +549,11 @@ pub fn every_kind_transaction() -> Transaction {
             id: DataId(u64::MAX),
             array: NdArray::vector(vec![1.0, f64::NAN, -3.5]),
         },
+        Edit::PutData {
+            id: DataId(3),
+            array: NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255])
+                .expect("the shape matches the values"),
+        },
         Edit::AppendData {
             id: DataId(0),
             array: rows(2, 3, 0.5),
@@ -557,6 +563,12 @@ pub fn every_kind_transaction() -> Transaction {
             id: DataId(1),
             array: NdArray::vector(vec![]),
             retain: None,
+        },
+        Edit::AppendData {
+            id: DataId(3),
+            array: NdArray::from_shape_u8(vec![1, 2], vec![7, 8])
+                .expect("the shape matches the values"),
+            retain: Some(3),
         },
         Edit::RemoveData {
             id: DataId((1 << 53) + 1),

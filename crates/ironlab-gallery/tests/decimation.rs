@@ -39,13 +39,14 @@ fn line_data(axes: &Axes) -> (ironlab::ir::DataId, ironlab::ir::DataId) {
     }
 }
 
-/// Returns the values of a data array of the figure.
+/// Returns the values of a data array of the figure, which holds floats.
 fn values(figure: &Figure, id: ironlab::ir::DataId) -> &[f64] {
-    &figure
+    figure
         .data
         .get(&id)
         .expect("the array is in the figure")
-        .values
+        .as_f64()
+        .expect("the array holds f64 values")
 }
 
 /// Returns the source indices of the points drawn for `axes`, which the hit map publishes for picking.

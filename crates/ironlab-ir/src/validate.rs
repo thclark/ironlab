@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::artist::{Artist, Contour, ContourPlacement, Grid, Levels, ScatterColor, ScatterSize};
 use crate::axes::{Axes, Axis, Limits, Projection, Scale};
-use crate::data::NdArray;
+use crate::data::{NdArray, NdArrayElement};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
 use crate::link::Dimension;
@@ -45,6 +45,10 @@ pub enum IssueKind {
     InvalidArray,
     /// The arrays referenced by an artist have inconsistent lengths or shapes.
     ShapeMismatch,
+    /// An artist refers to an array whose element type it cannot use: every artist
+    /// requires 64-bit floating-point values, so an array of 8-bit values cannot be
+    /// plotted.
+    ElementTypeMismatch,
     /// A three-dimensional artist or placement is used in a two-dimensional axes.
     ThreeDArtistInTwoDAxes,
     /// An axis link refers to an identifier that is not an axes of the figure.
@@ -73,18 +77,21 @@ impl Figure {
     /// Checks the figure for structural problems.
     ///
     /// Errors report unknown data identifiers, arrays whose values do not match their
-    /// shape, inconsistent array lengths and shapes within an artist, 3D artists in 2D
-    /// axes, links to identifiers that are not axes, duplicate node identifiers,
-    /// cells outside the tile layout, a non-positive figure size or font size, invalid
-    /// manual limits, invalid contour levels, and parameters with an empty name or a
-    /// non-finite number. Warnings report finite non-positive
-    /// data plotted along logarithmic axes; data that is not plotted along an axis
-    /// (such as quiver components or colour data) never produces this warning.
+    /// shape, arrays of 8-bit values referenced by an artist (every artist requires
+    /// 64-bit floating-point values), inconsistent array lengths and shapes within an
+    /// artist, 3D artists in 2D axes, links to identifiers that are not axes, duplicate
+    /// node identifiers, cells outside the tile layout, a non-positive figure size or
+    /// font size, invalid manual limits, invalid contour levels, and parameters with an
+    /// empty name or a non-finite number. Warnings report finite non-positive data
+    /// plotted along logarithmic axes; data that is not plotted along an axis (such as
+    /// quiver components or colour data) never produces this warning. An array of 8-bit
+    /// values that no artist refers to is not an error.
     ///
     /// The z limits and z scale of a 2D axes are ignored, as they are when drawing.
     /// A line, scatter or quiver without z data in a 3D axes is not an error: it is
     /// drawn in the plane z = 0. Shape checks are skipped for an artist that refers
-    /// to unknown or invalid arrays, so that one problem is not reported repeatedly.
+    /// to unknown, invalid or 8-bit arrays, so that one problem is not reported
+    /// repeatedly.
     pub fn validate(&self) -> ValidationReport {
         let mut validator = Validator {
             figure: self,
@@ -297,10 +304,10 @@ impl Validator<'_> {
             if axis.scale != Scale::Log {
                 continue;
             }
-            let Some(array) = self.figure.data.get(&data) else {
+            let Some(values) = self.figure.data.get(&data).and_then(NdArray::as_f64) else {
                 continue;
             };
-            if array.values.iter().any(|&v| v.is_finite() && v <= 0.0) {
+            if values.iter().any(|&v| v.is_finite() && v <= 0.0) {
                 self.warning(
                     Some(id),
                     IssueKind::NonPositiveOnLogAxis,
@@ -313,24 +320,36 @@ impl Validator<'_> {
         }
     }
 
-    /// Reports each distinct unknown data reference of an artist, and returns whether
-    /// every reference is to a known array whose values match its shape.
+    /// Reports each distinct unknown data reference of an artist and each distinct
+    /// reference to an array of 8-bit values, which no artist can use, and returns
+    /// whether every reference is to a known array of floating-point values whose
+    /// values match its shape.
     fn check_references(&mut self, node: NodeId, references: &[DataId]) -> bool {
         let mut valid = true;
         let mut reported: Vec<DataId> = Vec::new();
         for &data in references {
-            match self.figure.data.get(&data) {
-                Some(array) => valid &= is_consistent(array),
-                None => {
-                    valid = false;
-                    if !reported.contains(&data) {
-                        reported.push(data);
-                        self.error(
-                            Some(node),
-                            IssueKind::UnknownData,
-                            format!("{data} is not in the data table"),
-                        );
-                    }
+            let problem = match self.figure.data.get(&data) {
+                Some(array) if array.element() != NdArrayElement::F64 => Some((
+                    IssueKind::ElementTypeMismatch,
+                    format!(
+                        "{data} holds {} values, but the artist requires f64 values",
+                        array.element()
+                    ),
+                )),
+                Some(array) => {
+                    valid &= is_consistent(array);
+                    None
+                }
+                None => Some((
+                    IssueKind::UnknownData,
+                    format!("{data} is not in the data table"),
+                )),
+            };
+            if let Some((kind, message)) = problem {
+                valid = false;
+                if !reported.contains(&data) {
+                    reported.push(data);
+                    self.error(Some(node), kind, message);
                 }
             }
         }

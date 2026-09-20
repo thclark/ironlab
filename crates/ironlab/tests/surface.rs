@@ -24,7 +24,7 @@ fn surf_defaults_to_colormapped_faces_and_black_edges() {
     assert_eq!(s.c, None);
     let stored = data(&fig, s.z);
     assert_eq!(stored.shape, vec![3, 4]);
-    assert_eq!(stored.values, z.values());
+    assert_eq!(stored.as_f64(), Some(z.values()));
     assert!(matches!(s.grid, Grid::Rectilinear { .. }));
 }
 

@@ -1,7 +1,8 @@
 //! Resolution and checking of artist data.
 //!
-//! Every artist's data identifiers are looked up once, and the shapes of its arrays are checked, before limits are
-//! computed or anything is drawn. An artist whose data cannot be used is reported with a warning naming it and is
+//! Every artist's data identifiers are looked up once, and the element types and shapes of its arrays are checked,
+//! before limits are computed or anything is drawn. Every artist requires floating-point values, so an array of
+//! 8-bit values cannot be used. An artist whose data cannot be used is reported with a warning naming it and is
 //! then ignored by every later stage.
 
 use ironlab_ir::{
@@ -105,14 +106,24 @@ fn array(figure: &Figure, id: DataId) -> Result<&NdArray, String> {
     Ok(array)
 }
 
-/// Looks up an array that must hold `len` values.
+/// Looks up an array that must hold floating-point values, which every artist requires. `what` names the role of
+/// the array in the artist, such as `x` or `colour`.
+fn f64_values<'a>(figure: &'a Figure, id: DataId, what: &str) -> Result<&'a [f64], String> {
+    array(figure, id)?.as_f64().ok_or_else(|| {
+        format!(
+            "its {what} array {id} holds 8-bit values and the artist requires floating-point values"
+        )
+    })
+}
+
+/// Looks up an array of floating-point values that must hold `len` values.
 fn values_of_len<'a>(
     figure: &'a Figure,
     id: DataId,
     len: usize,
     what: &str,
 ) -> Result<&'a [f64], String> {
-    let values = &array(figure, id)?.values;
+    let values = f64_values(figure, id, what)?;
     if values.len() != len {
         return Err(format!(
             "its {what} array holds {} values but its x array holds {len}",
@@ -124,7 +135,7 @@ fn values_of_len<'a>(
 
 /// Resolves the x, y and optional z arrays of a point set, which must have equal lengths.
 fn points(figure: &Figure, x: DataId, y: DataId, z: Option<DataId>) -> Result<Points<'_>, String> {
-    let x = array(figure, x)?.values.as_slice();
+    let x = f64_values(figure, x, "x")?;
     let y = values_of_len(figure, y, x.len(), "y")?;
     let z = z
         .map(|z| values_of_len(figure, z, x.len(), "z"))
@@ -143,19 +154,19 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, S
     };
     let coords = match *grid {
         Grid::Rectilinear { x, y } => Coords::Rectilinear {
-            x: &array(figure, x)?.values,
-            y: &array(figure, y)?.values,
+            x: f64_values(figure, x, "x")?,
+            y: f64_values(figure, y, "y")?,
         },
         Grid::Curvilinear { x, y } => Coords::Curvilinear {
-            x: &array(figure, x)?.values,
-            y: &array(figure, y)?.values,
+            x: f64_values(figure, x, "x")?,
+            y: f64_values(figure, y, "y")?,
         },
     };
     let grid = GridRef {
         nx,
         ny,
         coords,
-        z: &field.values,
+        z: f64_values(figure, z, "z")?,
     };
     grid.validate()
         .map_err(|e| format!("its grid is invalid: {e}"))?;
@@ -208,9 +219,9 @@ fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<ArtistData<'a>, St
             let colours = surface
                 .c
                 .map(|c| {
-                    let values = &array(figure, c)?.values;
+                    let values = f64_values(figure, c, "colour")?;
                     if values.len() == grid.z.len() {
-                        Ok(values.as_slice())
+                        Ok(values)
                     } else {
                         Err(format!(
                             "its colour array {c} holds {} values but its field holds {}",
