@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{FigureBuilder, kitchen_sink_figure, single_line_figure};
+use common::{FigureBuilder, floats_mut, kitchen_sink_figure, single_line_figure};
 use ironlab_ir::*;
 
 fn has_error(report: &ValidationReport, kind: IssueKind, node: Option<NodeId>) -> bool {
@@ -42,7 +42,8 @@ struct GridFixture {
 /// Data available to the artist of a [`GridFixture`]: a rectilinear grid (`gx` of 4
 /// values along columns, `gy` of 3 values along rows), a matching 3 × 4 `field`,
 /// curvilinear 3 × 4 coordinates `cx` and `cy`, three vectors `p`, `q` and `r` of 12
-/// positive values, a vector `short` of 11 values and a vector `column` of 3 values.
+/// positive values, a vector `short` of 11 values, a vector `column` of 3 values and a
+/// 3 × 4 array `bytes` of 8-bit values.
 struct GridData {
     gx: DataId,
     gy: DataId,
@@ -54,6 +55,7 @@ struct GridData {
     r: DataId,
     short: DataId,
     column: DataId,
+    bytes: DataId,
 }
 
 /// A deferred constructor of the artist placed in a [`GridFixture`].
@@ -78,6 +80,7 @@ fn grid_fixture(three_d: bool, make: impl FnOnce(NodeId, &GridData) -> Artist) -
         r: b.vector(&[3.0; 12]),
         short: b.vector(&[1.0; 11]),
         column: b.vector(&[1.0, 2.0, 3.0]),
+        bytes: b.bytes(vec![3, 4], (0..12).collect()),
     };
     let artist = b.node();
     let made = make(artist, &data);
@@ -147,12 +150,92 @@ fn array_whose_shape_does_not_match_its_values_is_an_error() {
         DataId(50),
         NdArray {
             shape: vec![2, 2],
-            values: vec![1.0, 2.0, 3.0],
+            values: Values::F64(vec![1.0, 2.0, 3.0]),
         },
     );
     let report = fig.validate();
     assert!(
         error_kinds(&report).contains(&IssueKind::InvalidArray),
+        "{report:?}"
+    );
+}
+
+// Why: an array of bytes is checked against its shape exactly as an array of floats,
+// because a byte count that disagrees with the shape would make every consumer index
+// past the end of the bytes; it can only arrive through a hand-edited file, since the
+// checked constructor refuses it.
+#[test]
+fn array_of_bytes_whose_shape_does_not_match_its_values_is_an_error() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.data.insert(
+        DataId(50),
+        NdArray {
+            shape: vec![2, 2],
+            values: Values::U8(vec![1, 2, 3]),
+        },
+    );
+    let report = fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::InvalidArray],
+        "{report:?}"
+    );
+}
+
+// Why: an array of bytes that no artist refers to is ordinary data (an image's pixels
+// waiting for their artist), so a check that reported it would make correct figures
+// invalid.
+#[test]
+fn unreferenced_array_of_bytes_is_valid() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.data.insert(
+        DataId(50),
+        NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
+    );
+    let report = fig.validate();
+    assert_eq!(report.errors, vec![]);
+    assert_eq!(report.warnings, vec![]);
+}
+
+// Why: every artist that exists today reads floats, so an artist that refers to an
+// array of bytes, as a coordinate or as a surface's colour data, cannot be drawn.
+// Validation must report it against the artist as an element type mismatch, and only
+// as that: the bytes have the right shape and count, so a shape mismatch beside it
+// would send the user looking for a problem that does not exist.
+#[test]
+fn artist_referring_to_an_array_of_bytes_is_an_element_type_mismatch() {
+    let (mut fig, _, line) = single_line_figure();
+    let x = line_mut(&mut fig).x;
+    fig.data
+        .insert(x, NdArray::from_shape_u8(vec![3], vec![1, 2, 3]).unwrap());
+    let report = fig.validate();
+    assert!(
+        has_error(&report, IssueKind::ElementTypeMismatch, Some(line)),
+        "{report:?}"
+    );
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::ElementTypeMismatch],
+        "{report:?}"
+    );
+
+    let fx = grid_fixture(true, |id, d| {
+        Artist::Surface(Surface {
+            id,
+            grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+            z: d.field,
+            c: Some(d.bytes),
+            ..Surface::default()
+        })
+    });
+    let report = fx.fig.validate();
+    assert!(
+        has_error(&report, IssueKind::ElementTypeMismatch, Some(fx.artist)),
+        "{report:?}"
+    );
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::ElementTypeMismatch],
         "{report:?}"
     );
 }
@@ -603,7 +686,7 @@ fn non_positive_data_on_a_log_axis_is_a_warning() {
         let (mut fig, _, line) = single_line_figure();
         fig.axes[0].y.scale = Scale::Log;
         let y = line_mut(&mut fig).y;
-        fig.data.get_mut(&y).unwrap().values[1] = bad;
+        floats_mut(fig.data.get_mut(&y).unwrap())[1] = bad;
         let report = fig.validate();
         assert!(
             has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(line)),
@@ -624,8 +707,8 @@ fn log_axis_warning_is_limited_to_finite_data_on_that_axis() {
     fig.axes[0].x.scale = Scale::Log;
     let y = line_mut(&mut fig).y;
     let x = line_mut(&mut fig).x;
-    fig.data.get_mut(&y).unwrap().values[1] = -5.0;
-    fig.data.get_mut(&x).unwrap().values[1] = f64::NAN;
+    floats_mut(fig.data.get_mut(&y).unwrap())[1] = -5.0;
+    floats_mut(fig.data.get_mut(&x).unwrap())[1] = f64::NAN;
     let report = fig.validate();
     assert_eq!(report.warnings, vec![]);
 }
@@ -648,7 +731,7 @@ fn non_positive_surface_heights_on_a_log_z_axis_are_a_warning() {
         Artist::Surface(s) => s.z,
         _ => unreachable!(),
     };
-    fx.fig.data.get_mut(&field).unwrap().values[5] = 0.0;
+    floats_mut(fx.fig.data.get_mut(&field).unwrap())[5] = 0.0;
     let report = fx.fig.validate();
     assert!(
         has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(fx.artist)),
@@ -713,7 +796,7 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
         Artist::Surface(s) => s.c.unwrap(),
         _ => unreachable!(),
     };
-    fx.fig.data.get_mut(&colour).unwrap().values[0] = -1.0;
+    floats_mut(fx.fig.data.get_mut(&colour).unwrap())[0] = -1.0;
     let report = fx.fig.validate();
     assert_eq!(report.errors, vec![]);
     assert_eq!(report.warnings, vec![]);

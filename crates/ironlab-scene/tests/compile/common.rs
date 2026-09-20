@@ -114,6 +114,11 @@ impl Fx {
         self.store(NdArray::from_shape(vec![ny, nx], values).expect("matrix shape"))
     }
 
+    /// Stores an array of 8-bit values with the given shape and returns its identifier.
+    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> DataId {
+        self.store(NdArray::from_shape_u8(shape, values).expect("byte array shape"))
+    }
+
     fn store(&mut self, array: NdArray) -> DataId {
         let id = DataId(self.next_data);
         self.next_data += 1;

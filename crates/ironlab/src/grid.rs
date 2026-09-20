@@ -1,6 +1,6 @@
 //! Coordinates of gridded data.
 
-use ironlab_ir::{DataId, Grid, NdArray};
+use ironlab_ir::{DataId, Grid, NdArray, Values};
 
 use crate::matrix::Matrix;
 
@@ -128,6 +128,6 @@ fn store_node_coordinates(
 pub(crate) fn matrix_array(matrix: &Matrix) -> NdArray {
     NdArray {
         shape: vec![matrix.rows(), matrix.cols()],
-        values: matrix.values().to_vec(),
+        values: Values::F64(matrix.values().to_vec()),
     }
 }

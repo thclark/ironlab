@@ -48,12 +48,18 @@ fn quiver3_maps_all_six_arrays_and_promotes_the_axes() {
         .quiver3([1.0], [2.0], [3.0], [4.0], [5.0], [6.0])
         .id();
     let q = quiver(&fig, id);
-    assert_eq!(data(&fig, q.x).values, vec![1.0]);
-    assert_eq!(data(&fig, q.y).values, vec![2.0]);
-    assert_eq!(data(&fig, q.z.expect("quiver3 stores z")).values, vec![3.0]);
-    assert_eq!(data(&fig, q.u).values, vec![4.0]);
-    assert_eq!(data(&fig, q.v).values, vec![5.0]);
-    assert_eq!(data(&fig, q.w.expect("quiver3 stores w")).values, vec![6.0]);
+    assert_eq!(data(&fig, q.x).as_f64(), Some(&[1.0][..]));
+    assert_eq!(data(&fig, q.y).as_f64(), Some(&[2.0][..]));
+    assert_eq!(
+        data(&fig, q.z.expect("quiver3 stores z")).as_f64(),
+        Some(&[3.0][..])
+    );
+    assert_eq!(data(&fig, q.u).as_f64(), Some(&[4.0][..]));
+    assert_eq!(data(&fig, q.v).as_f64(), Some(&[5.0][..]));
+    assert_eq!(
+        data(&fig, q.w.expect("quiver3 stores w")).as_f64(),
+        Some(&[6.0][..])
+    );
     assert!(is_3d(parent(&fig, id)));
     assert!(fig.validate().is_valid());
 }

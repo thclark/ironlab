@@ -89,10 +89,12 @@ impl FigureBuilder {
             .flat_map(|j| (0..nx).map(move |i| (j, i)))
             .map(|(j, i)| f(j, i))
             .collect();
-        self.data(NdArray {
-            shape: vec![ny, nx],
-            values,
-        })
+        self.data(NdArray::from_shape(vec![ny, nx], values).expect("the shape matches the values"))
+    }
+
+    /// Inserts an array of 8-bit values with the given shape.
+    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> DataId {
+        self.data(NdArray::from_shape_u8(shape, values).expect("the shape matches the values"))
     }
 
     /// Adds a 2D axes occupying one cell and returns its identifier.
@@ -136,6 +138,20 @@ impl FigureBuilder {
 
     pub fn build(self) -> Figure {
         self.fig
+    }
+}
+
+/// Returns the values of an `f64` array, panicking for an array of 8-bit values.
+pub fn floats(array: &NdArray) -> &[f64] {
+    array.as_f64().expect("the array holds f64 values")
+}
+
+/// Returns the values of an `f64` array for modification, so that a fixture can place a
+/// particular value in an existing array; panics for an array of 8-bit values.
+pub fn floats_mut(array: &mut NdArray) -> &mut Vec<f64> {
+    match &mut array.values {
+        Values::F64(values) => values,
+        Values::U8(_) => panic!("the fixture array holds 8-bit values, not floats"),
     }
 }
 
@@ -242,6 +258,9 @@ pub fn kitchen_sink_figure() -> Figure {
     let field = b.matrix(ny, nx, |j, i| (j * nx + i) as f64 + 0.5);
     let cx = b.matrix(ny, nx, |j, i| i as f64 + 0.1 * j as f64);
     let cy = b.matrix(ny, nx, |j, i| j as f64 - 0.1 * i as f64);
+    // An array of 8-bit values, which no artist of this figure can use, so that the
+    // element type is exercised by every format and edit that covers the data table.
+    let _bytes = b.bytes(vec![2, 3], vec![0, 1, 2, 253, 254, 255]);
 
     let shapes = [
         MarkerShape::None,
@@ -616,7 +635,8 @@ pub const SPECIAL_F64: [f64; 12] = [
 
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
 /// figure outside colours: sizes, numeric figure parameters, limits, views, style widths
-/// and sizes, artist parameters, explicit levels and every value of every data array.
+/// and sizes, artist parameters, explicit levels and every value of every `f64` data
+/// array. An array of 8-bit values holds no floats and is skipped.
 ///
 /// A single traversal serves both to set special values and to read them back, so
 /// that a field cannot be set without also being checked.
@@ -630,8 +650,10 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
         }
     }
     for (id, array) in fig.data.iter_mut() {
-        for (i, value) in array.values.iter_mut().enumerate() {
-            visit(format!("data[{}][{i}]", id.0), value);
+        if let Values::F64(values) = &mut array.values {
+            for (i, value) in values.iter_mut().enumerate() {
+                visit(format!("data[{}][{i}]", id.0), value);
+            }
         }
     }
     for (a, axes) in fig.axes.iter_mut().enumerate() {

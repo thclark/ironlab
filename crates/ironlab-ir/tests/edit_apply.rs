@@ -10,8 +10,8 @@ use common::edits::{
     set, streaming_figure, tx,
 };
 use common::{
-    FigureBuilder, SPECIAL_F64, find_axes, float_bits, kitchen_sink_figure, limits_of, row_of_axes,
-    single_line_figure,
+    FigureBuilder, SPECIAL_F64, find_axes, float_bits, floats, kitchen_sink_figure, limits_of,
+    row_of_axes, single_line_figure,
 };
 use ironlab_ir::*;
 use proptest::prelude::*;
@@ -19,6 +19,11 @@ use proptest::prelude::*;
 /// Returns whether a list of issues contains one of the given kind.
 fn has_issue(issues: &[ValidationIssue], kind: IssueKind) -> bool {
     issues.iter().any(|issue| issue.kind == kind)
+}
+
+/// An array of 8-bit values with the given shape.
+fn bytes(shape: Vec<usize>, values: Vec<u8>) -> NdArray {
+    NdArray::from_shape_u8(shape, values).expect("the shape matches the values")
 }
 
 /// A figure with one 2D axes holding three lines on shared data, and a second, empty
@@ -643,8 +648,8 @@ fn appending_rows_extends_a_two_dimensional_array() {
     .unwrap();
     let z = &edited.data[&s.z];
     assert_eq!(z.shape, vec![5, 3]);
-    assert_eq!(&z.values[..12], s.fig.data[&s.z].values.as_slice());
-    assert_eq!(&z.values[12..], &[100.0, 101.0, 102.0]);
+    assert_eq!(&floats(z)[..12], floats(&s.fig.data[&s.z]));
+    assert_eq!(&floats(z)[12..], &[100.0, 101.0, 102.0]);
 }
 
 // Why: entries whose shape after the first dimension differs cannot be rows of the array;
@@ -661,7 +666,7 @@ fn appending_entries_of_another_trailing_shape_fails() {
             s.x,
             NdArray {
                 shape: vec![],
-                values: vec![1.0],
+                values: Values::F64(vec![1.0]),
             },
             vec![5],
         ),
@@ -738,8 +743,8 @@ fn retain_keeps_the_last_entries_along_the_first_dimension() {
     .unwrap();
     let z = &edited.data[&s.z];
     assert_eq!(z.shape, vec![3, 3]);
-    assert_eq!(&z.values[..6], &s.fig.data[&s.z].values[6..]);
-    assert_eq!(&z.values[6..], &[100.0, 101.0, 102.0]);
+    assert_eq!(&floats(z)[..6], &floats(&s.fig.data[&s.z])[6..]);
+    assert_eq!(&floats(z)[6..], &[100.0, 101.0, 102.0]);
     assert_eq!(edited.data[&s.gy], NdArray::vector(vec![2.0, 3.0, 4.0]));
 }
 
@@ -792,7 +797,7 @@ fn retain_zero_keeps_no_entries_and_its_inverse_restores_them() {
     ]);
     let (edited, inverse) = applied(&s.fig, &transaction).unwrap();
     assert_eq!(edited.data[&s.z].shape, vec![0, 3]);
-    assert!(edited.data[&s.z].values.is_empty());
+    assert!(edited.data[&s.z].is_empty());
     assert_eq!(edited.data[&s.gy], NdArray::vector(vec![]));
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, s.fig);
@@ -815,6 +820,167 @@ fn appending_to_one_coordinate_of_a_line_alone_is_refused() {
         "{result:?}"
     );
     assert_eq!(edited, s.fig);
+}
+
+// Why: a session sends an image's pixels as an array of bytes; `PutData` must store it
+// with its element type, and its inverse must be the removal of a new array or the
+// restoration of the array it replaced, exactly as for floats, so that undo brings
+// back bytes and floats alike.
+#[test]
+fn put_data_stores_an_array_of_bytes_and_its_inverse_restores_what_was_there() {
+    let s = streaming_figure();
+    let id = DataId(100);
+    let pixels = bytes(vec![2, 2], vec![0, 1, 254, 255]);
+    let (with_bytes, inverse) = applied(
+        &s.fig,
+        &tx([Edit::PutData {
+            id,
+            array: pixels.clone(),
+        }]),
+    )
+    .unwrap();
+    assert_eq!(with_bytes.data[&id], pixels);
+    assert_eq!(inverse.edits, [Edit::RemoveData { id }]);
+
+    let float_array = NdArray::vector(vec![1.0, 2.0]);
+    let (with_floats, inverse) = applied(
+        &with_bytes,
+        &tx([Edit::PutData {
+            id,
+            array: float_array.clone(),
+        }]),
+    )
+    .unwrap();
+    assert_eq!(with_floats.data[&id], float_array);
+    assert_eq!(
+        inverse.edits,
+        [Edit::PutData {
+            id,
+            array: pixels.clone()
+        }]
+    );
+    let (restored, _) = applied(&with_floats, &inverse).unwrap();
+    assert_eq!(restored, with_bytes);
+}
+
+// Why: the artists that exist today read floats, so replacing the array of a line with
+// bytes would leave the line undrawable; validation reports it, and the transaction
+// must be refused and leave the figure unchanged.
+#[test]
+fn replacing_the_array_of_an_artist_with_bytes_is_refused() {
+    let s = streaming_figure();
+    let mut edited = s.fig.clone();
+    let result = edited.apply(&tx([Edit::PutData {
+        id: s.y,
+        array: bytes(vec![5], vec![10, 11, 12, 13, 14]),
+    }]));
+    assert!(
+        matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::ElementTypeMismatch)),
+        "{result:?}"
+    );
+    assert_eq!(edited, s.fig);
+}
+
+// Why: a stream of frames appends rows of bytes to an image exactly as it appends rows
+// of floats to a field: along the first dimension, concatenated in row-major order, with
+// `retain` keeping the last rows; and the inverse must restore the bytes exactly.
+#[test]
+fn appending_bytes_to_an_array_of_bytes_extends_it() {
+    let s = streaming_figure();
+    let id = DataId(100);
+    let (fig, _) = applied(
+        &s.fig,
+        &tx([Edit::PutData {
+            id,
+            array: bytes(vec![2, 3], vec![0, 1, 2, 3, 4, 5]),
+        }]),
+    )
+    .unwrap();
+
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([Edit::AppendData {
+            id,
+            array: bytes(vec![1, 3], vec![6, 7, 8]),
+            retain: None,
+        }]),
+    )
+    .unwrap();
+    assert_eq!(edited.data[&id], bytes(vec![3, 3], (0..9).collect()));
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
+
+    let (windowed, inverse) = applied(
+        &fig,
+        &tx([Edit::AppendData {
+            id,
+            array: bytes(vec![1, 3], vec![6, 7, 8]),
+            retain: Some(2),
+        }]),
+    )
+    .unwrap();
+    assert_eq!(
+        windowed.data[&id],
+        bytes(vec![2, 3], vec![3, 4, 5, 6, 7, 8])
+    );
+    let (restored, _) = applied(&windowed, &inverse).unwrap();
+    assert_eq!(restored, fig);
+}
+
+// Why: bytes appended to floats, or floats to bytes, could only be stored by converting
+// them, which would change the data the sender meant; the append must be refused with
+// an error that names the failing edit, the array and both element types (the trailing
+// shapes agree, so the shape check must not be what catches it), and the figure must be
+// left unchanged, which includes rolling back the edit that succeeded before it.
+#[test]
+fn appending_entries_of_another_element_type_fails() {
+    let s = streaming_figure();
+    let id = DataId(100);
+    let (fig, _) = applied(
+        &s.fig,
+        &tx([Edit::PutData {
+            id,
+            array: bytes(vec![2], vec![1, 2]),
+        }]),
+    )
+    .unwrap();
+    let cases = [
+        (
+            s.x,
+            bytes(vec![1], vec![5]),
+            NdArrayElement::F64,
+            NdArrayElement::U8,
+        ),
+        (
+            id,
+            NdArray::vector(vec![5.0]),
+            NdArrayElement::U8,
+            NdArrayElement::F64,
+        ),
+    ];
+    for (target, array, existing, appended) in cases {
+        let mut edited = fig.clone();
+        let result = edited.apply(&tx([
+            Edit::PutData {
+                id: DataId(101),
+                array: NdArray::vector(vec![1.0]),
+            },
+            Edit::AppendData {
+                id: target,
+                array,
+                retain: None,
+            },
+        ]));
+        assert!(
+            matches!(
+                &result,
+                Err(EditError::ElementMismatch { edit: Some(1), id: i, existing: e, appended: a })
+                    if *i == target && *e == existing && *a == appended
+            ),
+            "{result:?}"
+        );
+        assert_eq!(edited, fig);
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -977,7 +1143,8 @@ fn an_empty_transaction_changes_nothing_and_has_an_empty_inverse() {
 /// Returns single edits of every kind on every node and array of a figure: a changed value
 /// for every readable property, `Unset` for every present optional property, the removal,
 /// reordering and duplication of every node, and the replacement, extension, truncation
-/// and removal of every array. Some of them are invalid for the figure.
+/// and removal of every array (of floats or of bytes, each with entries of its own
+/// element type). Some of them are invalid for the figure.
 fn candidate_edits(fig: &Figure) -> Vec<Edit> {
     let mut edits = Vec::new();
     let mut fresh = nodes(fig).iter().map(|(id, _)| id.0).max().unwrap() + 1000;
@@ -1052,21 +1219,28 @@ fn candidate_edits(fig: &Figure) -> Vec<Edit> {
         array: NdArray::vector(vec![1.0, f64::NAN]),
     });
     for (&id, array) in &fig.data {
-        edits.push(Edit::PutData {
-            id,
-            array: NdArray {
-                shape: array.shape.clone(),
-                values: array.values.iter().map(|v| v + 1.0).collect(),
-            },
-        });
+        let shifted = match &array.values {
+            Values::F64(values) => NdArray::from_shape(
+                array.shape.clone(),
+                values.iter().map(|v| v + 1.0).collect(),
+            ),
+            Values::U8(values) => NdArray::from_shape_u8(
+                array.shape.clone(),
+                values.iter().map(|v| v.wrapping_add(1)).collect(),
+            ),
+        }
+        .expect("the shape is unchanged");
+        edits.push(Edit::PutData { id, array: shifted });
+        let entry_shape: Vec<usize> = [1]
+            .into_iter()
+            .chain(array.shape[1..].iter().copied())
+            .collect();
         let entry_len = array.shape[1..].iter().product::<usize>();
-        let entry = NdArray {
-            shape: [1]
-                .into_iter()
-                .chain(array.shape[1..].iter().copied())
-                .collect(),
-            values: vec![0.5; entry_len],
-        };
+        let entry = match array.element() {
+            NdArrayElement::F64 => NdArray::from_shape(entry_shape, vec![0.5; entry_len]),
+            NdArrayElement::U8 => NdArray::from_shape_u8(entry_shape, vec![7; entry_len]),
+        }
+        .expect("the entry has the trailing shape of the array");
         edits.push(Edit::AppendData {
             id,
             array: entry.clone(),

@@ -12,9 +12,10 @@ use crate::wire as w;
 use crate::{
     Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
     DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Interpreter, Legend,
-    LegendLocation, Levels, Limits, Line, LineStyle, MarkerShape, MarkerStyle, NdArray, Node,
-    NodeId, Parameter, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter, ScatterColor,
-    ScatterSize, Surface, Text, TileLayout, Transaction, Value, View3d,
+    LegendLocation, Levels, Limits, Line, LineStyle, MarkerShape, MarkerStyle, NdArray,
+    NdArrayElement, Node, NodeId, Parameter, Projection, Provenance, Quiver, QuiverScale, Scale,
+    Scatter, ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values,
+    View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -68,6 +69,7 @@ wire_enum! {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point,
     }
     Dimension => Dimension { X, Y, Z }
+    NdArrayElement => NdArrayElement { F64, U8 }
 }
 
 // ---------------------------------------------------------------------------------
@@ -108,10 +110,18 @@ impl From<&Figure> for w::Figure {
     }
 }
 
+/// Encodes an array, writing its element explicitly and its values in the payload of
+/// that element only, so that a reader never finds two candidate payloads.
 fn encode_array(array: &NdArray) -> w::NdArray {
+    let (values, u8_values) = match &array.values {
+        Values::F64(values) => (values.clone(), Vec::new()),
+        Values::U8(values) => (Vec::new(), values.clone()),
+    };
     w::NdArray {
         shape: array.shape.iter().map(|&len| len as u64).collect(),
-        values: array.values.clone(),
+        values,
+        element: array.element().to_wire(),
+        u8_values,
     }
 }
 
@@ -545,6 +555,8 @@ fn decode_parameter(wire: w::Parameter, at: &str) -> Result<Parameter> {
     })
 }
 
+/// Decodes an array, taking an unspecified element as floating-point values and
+/// refusing values in the payload of the other element.
 fn decode_array(wire: w::NdArray, at: &str) -> Result<NdArray> {
     let shape = wire
         .shape
@@ -556,10 +568,32 @@ fn decode_array(wire: w::NdArray, at: &str) -> Result<NdArray> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(NdArray {
-        shape,
-        values: wire.values,
-    })
+    let element = decode_enum(wire.element, Some(NdArrayElement::F64), at, "element")?;
+    let values = match element {
+        NdArrayElement::F64 if wire.u8_values.is_empty() => Values::F64(wire.values),
+        NdArrayElement::U8 if wire.values.is_empty() => Values::U8(wire.u8_values),
+        NdArrayElement::F64 => {
+            return Err(ProtobufError::InvalidValue {
+                field: join(at, "u8_values"),
+                reason: format!(
+                    "the element of the array is f64, whose values belong in `values`, \
+                     but `u8_values` holds {} bytes",
+                    wire.u8_values.len()
+                ),
+            });
+        }
+        NdArrayElement::U8 => {
+            return Err(ProtobufError::InvalidValue {
+                field: join(at, "values"),
+                reason: format!(
+                    "the element of the array is u8, whose values belong in `u8_values`, \
+                     but `values` holds {} doubles",
+                    wire.values.len()
+                ),
+            });
+        }
+    };
+    Ok(NdArray { shape, values })
 }
 
 fn decode_figure_size(wire: w::FigureSize) -> FigureSize {

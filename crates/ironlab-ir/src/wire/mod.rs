@@ -52,8 +52,15 @@
 //!   suffix is used on all four variants so that their names are uniform).
 //! - A field number or name that is removed is reserved, with `reserved`, so that it
 //!   is never reused with another meaning.
-//! - A numeric array is a `repeated uint64 shape` and a packed `repeated double
-//!   values`, in which NaN is stored natively.
+//! - A numeric array is a `repeated uint64 shape`, an `NdArrayElement element` that
+//!   names the type of its values, and one of two payloads: a packed `repeated double
+//!   values` for 64-bit floating-point values, in which NaN is stored natively, or a
+//!   `bytes u8_values` for 8-bit unsigned integers, one byte per value. The encoder
+//!   writes the element of every array and leaves the other payload empty. The decoder
+//!   takes an unspecified element as floating-point values, which is what every file
+//!   written before the element existed holds, and rejects an array whose payloads
+//!   disagree with its element (values in the other payload, or in both) as
+//!   [`ProtobufError::InvalidValue`](crate::ProtobufError::InvalidValue).
 //! - The data table of a figure is a `map<uint64, NdArray>`, encoded in ascending key
 //!   order so that a figure always encodes to the same bytes. (Figures that compare
 //!   equal may still encode differently, because the equality of figures does not
@@ -103,10 +110,10 @@
 //! provenance (empty strings and no fonts) rather than as the provenance of this build,
 //! which did not write the file.
 //!
-//! Strings, repeated fields, maps and colour components have no presence, so an empty
-//! or zero value cannot be told apart from an absent one. They decode as the value on
-//! the wire: an empty string is empty and an empty list is empty, even where the
-//! domain's default is not (such as the fonts of a present
+//! Strings, bytes, repeated fields, maps and colour components have no presence, so an
+//! empty or zero value cannot be told apart from an absent one. They decode as the
+//! value on the wire: an empty string is empty and an empty list is empty, even where
+//! the domain's default is not (such as the fonts of a present
 //! [`Provenance`](crate::Provenance)).
 //!
 //! An enum value that this build does not define is an error rather than a default.
@@ -137,6 +144,9 @@ macro_rules! wire_scalar {
     (string) => {
         ::std::string::String
     };
+    (bytes) => {
+        ::std::vec::Vec<u8>
+    };
 }
 
 /// Declares the wire types of one `.proto` file, which is named after the Rust module
@@ -145,7 +155,8 @@ macro_rules! wire_scalar {
 /// Each item is a `message` or an `enum`, preceded by its documentation. A message
 /// field has one of the following forms, each preceded by its documentation:
 ///
-/// - `string name = N;` and `float name = N;`, a scalar without presence;
+/// - `string name = N;`, `bytes name = N;` and `float name = N;`, a scalar without
+///   presence;
 /// - `optional double name = N;`, a scalar with presence (any scalar type);
 /// - `repeated double name = N;`, a repeated scalar, packed when numeric;
 /// - `message Type name = N;`, a singular message, absent when `None`;

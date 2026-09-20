@@ -52,7 +52,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::artist::Artist;
 use crate::axes::Axes;
-use crate::data::NdArray;
+use crate::data::{NdArray, NdArrayElement, Values};
 use crate::error::IrError;
 use crate::figure::Figure;
 use crate::ids::{DataId, NodeId};
@@ -126,8 +126,8 @@ pub enum Edit {
     AppendData {
         /// The identifier of the existing array.
         id: DataId,
-        /// The entries to append, whose shape after the first dimension must equal that
-        /// of the existing array.
+        /// The entries to append, whose shape after the first dimension and whose
+        /// element type must equal those of the existing array.
         array: NdArray,
         /// When set, only the last `retain` entries along the first dimension are kept
         /// after appending, which gives a rolling window for streamed data.
@@ -321,6 +321,22 @@ pub enum EditError {
         appended: Vec<usize>,
     },
 
+    /// Appended entries hold values of another element type than the existing array,
+    /// and could only be stored by converting them.
+    #[error(
+        "edit {edit:?}: entries of {appended} values cannot be appended to {id}, which holds {existing} values"
+    )]
+    ElementMismatch {
+        /// The index of the edit.
+        edit: Option<usize>,
+        /// The array appended to.
+        id: DataId,
+        /// The element type of the existing array.
+        existing: NdArrayElement,
+        /// The element type of the appended entries.
+        appended: NdArrayElement,
+    },
+
     /// An edit other than [`Edit::Set`] was given to an overlay, which holds only sets.
     #[error("edit {edit:?} is not a set, and an overlay holds only sets")]
     NotASet {
@@ -351,6 +367,7 @@ impl EditError {
             | EditError::RootNode { edit, .. }
             | EditError::IndexOutOfRange { edit, .. }
             | EditError::ShapeMismatch { edit, .. }
+            | EditError::ElementMismatch { edit, .. }
             | EditError::NotASet { edit } => edit,
             EditError::Invalid(_) => return self,
         };
@@ -737,6 +754,14 @@ impl Figure {
             .data
             .get_mut(&id)
             .ok_or(EditError::UnknownData { edit: index, id })?;
+        if existing.element() != array.element() {
+            return Err(EditError::ElementMismatch {
+                edit: index,
+                id,
+                existing: existing.element(),
+                appended: array.element(),
+            });
+        }
         let mismatched = existing.shape.is_empty()
             || array.shape.is_empty()
             || existing.shape[1..] != array.shape[1..];
@@ -750,13 +775,26 @@ impl Figure {
         }
         let old = existing.clone();
         existing.shape[0] += array.shape[0];
-        existing.values.extend_from_slice(&array.values);
+        match (&mut existing.values, &array.values) {
+            (Values::F64(values), Values::F64(appended)) => values.extend_from_slice(appended),
+            (Values::U8(values), Values::U8(appended)) => values.extend_from_slice(appended),
+            (Values::F64(_), Values::U8(_)) | (Values::U8(_), Values::F64(_)) => {
+                unreachable!("the element types were compared above")
+            }
+        }
         if let Some(retain) = retain {
             let kept = usize::try_from(retain).unwrap_or(usize::MAX);
             if kept < existing.shape[0] {
                 let discarded = existing.shape[0] - kept;
                 let entry: usize = existing.shape[1..].iter().product();
-                existing.values.drain(..discarded * entry);
+                match &mut existing.values {
+                    Values::F64(values) => {
+                        values.drain(..discarded * entry);
+                    }
+                    Values::U8(values) => {
+                        values.drain(..discarded * entry);
+                    }
+                }
                 existing.shape[0] = kept;
             }
         }
