@@ -1,10 +1,13 @@
 //! Selections of nodes and of data points, kept consistent with edits.
 //!
 //! A [`Selection`] names a node and, optionally, flat indices into the primary array of
-//! an artist: the x data of a line, scatter or quiver, and the z data of a contour or
-//! surface, whose flat index of row `j` and column `i` is `j * nx + i`. When a
-//! transaction is applied to the figure, [`Selection::updated`] returns the selection
-//! that refers to the same things afterwards, as decided in ADR 0008.
+//! an artist: the x data of a line, scatter or quiver, the z data of a contour or
+//! surface, and the pixels, indices or values of an image. The flat index of row `j` and
+//! column `i` of a two-dimensional array is `j * nx + i`, and the indices into the pixels
+//! of a true-colour image count colour components, so that a row of `nx` pixels of
+//! `channels` components holds `nx * channels` entries. When a transaction is applied to
+//! the figure, [`Selection::updated`] returns the selection that refers to the same
+//! things afterwards, as decided in ADR 0008.
 
 use std::collections::BTreeSet;
 
@@ -163,6 +166,18 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
             all.extend([x, y, a.z]);
             all.extend(a.c);
             a.z
+        }
+        Artist::Image(a) => {
+            all.push(a.pixels);
+            a.pixels
+        }
+        Artist::IndexedImage(a) => {
+            all.push(a.indices);
+            a.indices
+        }
+        Artist::MappedImage(a) => {
+            all.push(a.values);
+            a.values
         }
     };
     Some(Arrays { primary, all })

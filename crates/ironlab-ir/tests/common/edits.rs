@@ -57,6 +57,9 @@ pub fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Contour(_) => NodeKind::Contour,
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
+        Artist::Image(_) => NodeKind::Image,
+        Artist::IndexedImage(_) => NodeKind::IndexedImage,
+        Artist::MappedImage(_) => NodeKind::MappedImage,
     }
 }
 
@@ -107,17 +110,49 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 /// The figures on which every settable property of every kind of node is reachable
 /// somewhere: the kitchen-sink figure, and a copy of it in which every optional title,
 /// label, legend and display name is present, every automatic axis limit is manual (and
-/// positive, for logarithmic axes), and every colour specification of an artist is a fixed
-/// colour, so that the colour components below it are reachable.
+/// positive, for logarithmic axes), every colour specification of an artist is a fixed
+/// colour, so that the colour components below it are reachable, every out-of-range
+/// policy of an image is a fixed colour for the same reason, both pixel ranges and the
+/// plane offset of every image are present, and every image on a wall of a
+/// three-dimensional axes is moved to the other wall.
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
 /// both projections, both grids, both kinds of levels, scatter sizes and colours, every
-/// quiver scale and both contour placements), so a path below any variant is reachable
-/// in one of them.
+/// quiver scale, both contour placements, and for each image kind every plane), so a
+/// path below any variant is reachable in one of them.
 pub fn representative_figures() -> Vec<Figure> {
+    /// Gives the plane offset and both pixel ranges a value, and moves an image on a wall
+    /// to the other wall, so that between the kitchen-sink figure (where each kind lies on
+    /// the floor of a 2D axes and on one wall of a 3D axes) and the copy, each kind lies
+    /// on every plane in one of the two figures, and every offset and every range of the
+    /// copy holds a value. The kitchen-sink figure places wall images only in
+    /// three-dimensional axes, so the move keeps the copy valid.
+    fn fill_placement(placement: &mut ImagePlacement) {
+        placement.plane = match placement.plane {
+            ImagePlane::Xy { z } => ImagePlane::Xy {
+                z: Some(z.unwrap_or(0.25)),
+            },
+            ImagePlane::Xz { y } => ImagePlane::Yz {
+                x: Some(y.unwrap_or(0.25)),
+            },
+            ImagePlane::Yz { x } => ImagePlane::Xz {
+                y: Some(x.unwrap_or(0.25)),
+            },
+        };
+        for range in [&mut placement.columns, &mut placement.rows] {
+            range.get_or_insert(PixelRange {
+                first: 0.0,
+                last: 1.0,
+            });
+        }
+    }
+
     let base = kitchen_sink_figure();
     let mut full = base.clone();
     let fixed = ColorSpec::Rgba {
+        color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
+    };
+    let painted = OutOfRange::Rgba {
         color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
     };
     for (k, axes) in full.axes.iter_mut().enumerate() {
@@ -161,6 +196,26 @@ pub fn representative_figures() -> Vec<Figure> {
                     a.display_name.get_or_insert_with(|| Text::new("surface"));
                     a.face = fixed;
                     a.edge = fixed;
+                }
+                Artist::Image(a) => {
+                    a.display_name.get_or_insert_with(|| Text::new("image"));
+                    fill_placement(&mut a.placement);
+                }
+                Artist::IndexedImage(a) => {
+                    a.display_name
+                        .get_or_insert_with(|| Text::new("indexed image"));
+                    fill_placement(&mut a.placement);
+                    a.below = painted;
+                    a.above = painted;
+                    a.non_finite = painted;
+                }
+                Artist::MappedImage(a) => {
+                    a.display_name
+                        .get_or_insert_with(|| Text::new("mapped image"));
+                    fill_placement(&mut a.placement);
+                    a.below = painted;
+                    a.above = painted;
+                    a.non_finite = painted;
                 }
             }
         }
@@ -364,11 +419,37 @@ pub fn perturb(value: &Value) -> Value {
             Value::QuiverScale(QuiverScale::Factor { value: 2.0 })
         }
         Value::QuiverScale(QuiverScale::Factor { .. }) => Value::QuiverScale(QuiverScale::Auto),
+        // A placement gains or loses its column range, which keeps every figure valid.
+        Value::ImagePlacement(placement) => Value::ImagePlacement(ImagePlacement {
+            columns: match placement.columns {
+                None => Some(PixelRange {
+                    first: 0.0,
+                    last: 1.0,
+                }),
+                Some(_) => None,
+            },
+            ..*placement
+        }),
+        // Both centres move together, so a mirrored or single-pixel range stays one.
+        Value::PixelRange(range) => Value::PixelRange(PixelRange {
+            first: range.first + 1.0,
+            last: range.last + 1.0,
+        }),
+        // The next plane, keeping the offset; a wall in a 2D axes is refused as invalid.
+        Value::ImagePlane(ImagePlane::Xy { z }) => Value::ImagePlane(ImagePlane::Xz { y: *z }),
+        Value::ImagePlane(ImagePlane::Xz { y }) => Value::ImagePlane(ImagePlane::Yz { x: *y }),
+        Value::ImagePlane(ImagePlane::Yz { x }) => Value::ImagePlane(ImagePlane::Xy { z: *x }),
+        Value::OutOfRange(OutOfRange::Strict) => Value::OutOfRange(OutOfRange::Transparent),
+        Value::OutOfRange(OutOfRange::Transparent) => Value::OutOfRange(OutOfRange::Clamp),
+        Value::OutOfRange(OutOfRange::Clamp) => Value::OutOfRange(OutOfRange::Rgba {
+            color: Color::rgb(0.25, 0.5, 0.75),
+        }),
+        Value::OutOfRange(OutOfRange::Rgba { .. }) => Value::OutOfRange(OutOfRange::Strict),
     }
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 36;
+pub const VALUE_VARIANTS: usize = 40;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -413,6 +494,10 @@ pub fn value_variant(value: &Value) -> usize {
         Value::Levels(_) => 33,
         Value::ContourPlacement(_) => 34,
         Value::QuiverScale(_) => 35,
+        Value::ImagePlacement(_) => 36,
+        Value::PixelRange(_) => 37,
+        Value::ImagePlane(_) => 38,
+        Value::OutOfRange(_) => 39,
     }
 }
 
@@ -502,6 +587,22 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::ContourPlacement(ContourPlacement::Plane { z: Some(-0.5) }),
         Value::QuiverScale(QuiverScale::Factor { value: 0.75 }),
+        Value::ImagePlacement(ImagePlacement {
+            plane: ImagePlane::Xz { y: Some(-0.5) },
+            columns: Some(PixelRange {
+                first: -1.5,
+                last: 1.5,
+            }),
+            rows: None,
+        }),
+        Value::PixelRange(PixelRange {
+            first: 2.0,
+            last: -2.0,
+        }),
+        Value::ImagePlane(ImagePlane::Yz { x: Some(0.25) }),
+        Value::OutOfRange(OutOfRange::Rgba {
+            color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+        }),
     ]
 }
 

@@ -14,9 +14,10 @@ use crate::error::IrError;
 /// the value in row `j` and column `i` is at index `j * nx + i` of the values. The
 /// values are of one of two element types, which [`Values`] distinguishes and
 /// [`NdArray::element`] names: 64-bit floating-point numbers, in which a missing value
-/// is NaN, or 8-bit unsigned integers, which hold the pixels of images compactly. Every
-/// artist of this version requires floating-point values; an artist that refers to an
-/// array of 8-bit values is reported by validation.
+/// is NaN, or 8-bit unsigned integers, which hold the pixels of images compactly. The
+/// three image artists accept either element type; every other artist requires
+/// floating-point values, and one that refers to an array of 8-bit values is reported
+/// by validation.
 ///
 /// # JSON
 ///

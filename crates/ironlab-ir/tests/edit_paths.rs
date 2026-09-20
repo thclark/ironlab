@@ -244,7 +244,7 @@ fn collect_paths(
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
     let read_only: &[&str] = &["id"];
-    let cases: [(NodeKind, &str, &[&str]); 7] = [
+    let cases: [(NodeKind, &str, &[&str]); 10] = [
         (
             NodeKind::Figure,
             "Figure",
@@ -256,6 +256,9 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Contour, "Contour", read_only),
         (NodeKind::Quiver, "Quiver", read_only),
         (NodeKind::Surface, "Surface", read_only),
+        (NodeKind::Image, "Image", read_only),
+        (NodeKind::IndexedImage, "IndexedImage", read_only),
+        (NodeKind::MappedImage, "MappedImage", read_only),
     ];
     for (kind, message, skip) in cases {
         let descriptor = pool
@@ -548,12 +551,18 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
     let two_d = fig.axes[1].id; // automatic x limits
     let contour = fig.axes[2].artists[0].id(); // automatic levels
     let quiver = fig.axes[3].artists[0].id(); // automatic scale
+    let image = fig.axes[6].artists[0].id(); // on the xy plane
+    let mapped = fig.axes[7].artists[0].id(); // transparent below
     for (node, at, value) in [
         (two_d, "projection.view3d.zoom", Value::Double(2.0)),
         (two_d, "projection.view3d", Value::View3d(View3d::default())),
         (two_d, "x.limits.min", Value::Double(0.0)),
         (contour, "levels.values", Value::Doubles(vec![1.0])),
         (quiver, "scale.value", Value::Double(2.0)),
+        (image, "placement.plane.y", Value::Double(1.0)),
+        (image, "placement.plane.x", Value::Unset),
+        (mapped, "below.color", Value::Color(Color::BLACK)),
+        (mapped, "below.color.a", Value::Float(0.5)),
     ] {
         let expected_path = path(at);
         assert!(
@@ -583,6 +592,7 @@ fn a_path_through_an_absent_optional_value_is_an_absent_value() {
     let fig = kitchen_sink_figure();
     let untitled = fig.axes[9].id; // no title and no legend
     let unnamed = fig.axes[1].artists[0].id(); // no display name
+    let image = fig.axes[6].artists[0].id(); // no pixel ranges
     for (node, at, value) in [
         (untitled, "title.content", Value::String("t".to_owned())),
         (untitled, "legend.boxed", Value::Bool(true)),
@@ -591,6 +601,8 @@ fn a_path_through_an_absent_optional_value_is_an_absent_value() {
             "display_name.content",
             Value::String("n".to_owned()),
         ),
+        (image, "placement.columns.first", Value::Double(0.0)),
+        (image, "placement.rows.last", Value::Double(0.0)),
     ] {
         assert!(
             matches!(
@@ -774,6 +786,8 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
     let fig = kitchen_sink_figure();
     let axes = fig.axes[0].id;
     let line = fig.axes[0].artists[0].id();
+    let image = fig.axes[6].artists[0].id();
+    let mapped = fig.axes[7].artists[0].id();
     for (node, at, value, expected, found) in [
         (
             axes,
@@ -781,6 +795,32 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
             Value::Double(1.0),
             ValueType::Limits,
             Some(ValueType::Double),
+        ),
+        // A policy is not a colour specification, and a plane is not a contour placement,
+        // although each pair looks alike.
+        (
+            mapped,
+            "non_finite",
+            Value::ColorSpec(ColorSpec::None),
+            ValueType::OutOfRange,
+            Some(ValueType::ColorSpec),
+        ),
+        (
+            image,
+            "placement.plane",
+            Value::ContourPlacement(ContourPlacement::default()),
+            ValueType::ImagePlane,
+            Some(ValueType::ContourPlacement),
+        ),
+        (
+            image,
+            "placement",
+            Value::PixelRange(PixelRange {
+                first: 0.0,
+                last: 1.0,
+            }),
+            ValueType::ImagePlacement,
+            Some(ValueType::PixelRange),
         ),
         (
             line,
@@ -850,6 +890,83 @@ fn unset_clears_an_optional_property_and_a_whole_value_creates_it() {
         edited.get(untitled, &path("title.content")).unwrap(),
         Value::String("new".to_owned())
     );
+}
+
+// Why: the placement of an image is edited a field at a time from the property editor
+// (a wall chosen, a pixel centre dragged, a range given or taken away, a colour picked
+// for the pixels a policy paints), and each part follows a different rule of the walk:
+// the plane is a tagged value whose offset exists only under the plane that has it and
+// may be absent, the ranges are optional values created and cleared whole, and the
+// colour of a policy exists only under a fixed colour. Each must be pathed as the value
+// it mirrors (a contour plane, an optional title, a fixed colour specification) or the
+// editor's rows for images would be dead, and the inverse must undo the lot.
+#[test]
+fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() {
+    let fig = kitchen_sink_figure();
+    let image = fig.axes[5].artists[2].id(); // on the xz wall, with columns and no rows
+    let mapped = fig.axes[7].artists[0].id(); // on the floor, transparent below
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([
+            set(
+                image,
+                "placement.plane",
+                Value::ImagePlane(ImagePlane::Yz { x: None }),
+            ),
+            set(image, "placement.plane.x", Value::Double(-2.5)),
+            set(
+                image,
+                "placement.rows",
+                Value::PixelRange(PixelRange {
+                    first: 3.0,
+                    last: 1.0,
+                }),
+            ),
+            set(image, "placement.rows.last", Value::Double(0.0)),
+            set(image, "placement.columns", Value::Unset),
+            set(
+                mapped,
+                "below",
+                Value::OutOfRange(OutOfRange::Rgba {
+                    color: Color::BLACK,
+                }),
+            ),
+            set(mapped, "below.color.a", Value::Float(0.5)),
+            set(mapped, "placement.plane.z", Value::Double(4.0)),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        edited.get(image, &path("placement")).unwrap(),
+        Value::ImagePlacement(ImagePlacement {
+            plane: ImagePlane::Yz { x: Some(-2.5) },
+            columns: None,
+            rows: Some(PixelRange {
+                first: 3.0,
+                last: 0.0,
+            }),
+        })
+    );
+    assert_eq!(
+        edited.get(image, &path("placement.plane.x")).unwrap(),
+        Value::Double(-2.5)
+    );
+    assert_eq!(
+        edited.get(image, &path("placement.columns")).unwrap(),
+        Value::Unset
+    );
+    assert_eq!(
+        edited.get(mapped, &path("below")).unwrap(),
+        Value::OutOfRange(OutOfRange::Rgba {
+            color: Color::rgba(0.0, 0.0, 0.0, 0.5),
+        })
+    );
+    assert_eq!(
+        edited.get(mapped, &path("placement.plane")).unwrap(),
+        Value::ImagePlane(ImagePlane::Xy { z: Some(4.0) })
+    );
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
 }
 
 // Why: a transaction can switch limits to manual and then adjust one bound, because each

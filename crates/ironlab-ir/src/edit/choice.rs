@@ -21,7 +21,9 @@
 //! fact about the semantics of the IR rather than about any user interface, so it is
 //! stated here and not in the viewer.
 
-use crate::artist::{ContourPlacement, Grid, Levels, QuiverScale, ScatterColor, ScatterSize};
+use crate::artist::{
+    ContourPlacement, Grid, ImagePlane, Levels, OutOfRange, QuiverScale, ScatterColor, ScatterSize,
+};
 use crate::axes::{ColormapName, LegendLocation, Limits, Projection, Scale, View3d};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, properties};
@@ -135,6 +137,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Levels => levels_choices(replacing),
         ValueType::ContourPlacement => contour_placement_choices(replacing),
         ValueType::QuiverScale => quiver_scale_choices(replacing),
+        ValueType::ImagePlane => image_plane_choices(replacing),
+        ValueType::OutOfRange => out_of_range_choices(replacing),
         ValueType::Scale => scale_choices(),
         ValueType::ColormapName => colormap_name_choices(),
         ValueType::LegendLocation => legend_location_choices(),
@@ -160,7 +164,9 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Axis
         | ValueType::Legend
         | ValueType::LineStyle
-        | ValueType::MarkerStyle => Vec::new(),
+        | ValueType::MarkerStyle
+        | ValueType::ImagePlacement
+        | ValueType::PixelRange => Vec::new(),
     }
 }
 
@@ -172,15 +178,18 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// A user who can see a value they cannot pick, and read what would make it available,
 /// learns what the figure can do; a value removed from the list teaches nothing.
 ///
-/// The only unavailable choice today is a colormapped colour. A colour is looked up in
-/// the axes' colormap only where the IR gives it a value to be looked up by: the level of
-/// each isoline of a contour (`line.color`), and the height or colour data of each face
-/// of a surface (`face` and `edge`). The colour of a line or of a quiver, and the single
+/// Two choices are unavailable somewhere. A colormapped colour is looked up in the axes'
+/// colormap only where the IR gives it a value to be looked up by: the level of each
+/// isoline of a contour (`line.color`), and the height or colour data of each face of a
+/// surface (`face` and `edge`). The colour of a line or of a quiver, and the single
 /// colour of a scatter, have no such value, and the scene compiler paints the whole
 /// artist in the middle colour of the colormap instead; a marker takes the colour of the
 /// plot it belongs to, so a colormapped marker is drawn exactly as an automatic one.
 /// Choosing a scatter's colour "from data" stays available, because that names the array
-/// to look the colour up by.
+/// to look the colour up by. A clamp, which paints a pixel of an image in the nearest end
+/// colour of the colormap, is unavailable at the `non_finite` category of a
+/// colour-indexed or colour-mapped image, because a non-finite value has no nearest end;
+/// it stays available at the `below` and `above` categories.
 ///
 /// Returns an empty list when the node is not in the figure, when the path is not a
 /// property of its kind, when the path is not currently reachable (a property of a
@@ -221,7 +230,10 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 ///
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
-const RULES: [Rule; 1] = [colormapped_without_a_value_to_index_by];
+const RULES: [Rule; 2] = [
+    colormapped_without_a_value_to_index_by,
+    clamp_without_a_nearest_end_of_the_colormap,
+];
 
 /// Completes the reason a colormapped colour is unavailable at a property, which is why
 /// the property holds no value to look a colour up by followed by where the colormap can
@@ -294,13 +306,37 @@ fn colormapped_without_a_value_to_index_by(
         NodeKind::Line => COLORMAPPED_ON_A_LINE,
         NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
         NodeKind::Scatter => COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR,
-        // Every colour of a contour and of a surface indexes the colormap, and a figure
-        // and an axes hold no colour specification at all, so these kinds reach this
-        // reason only if they gain a colour that indexes nothing.
-        NodeKind::Contour | NodeKind::Surface | NodeKind::Figure | NodeKind::Axes => {
-            COLORMAPPED_ELSEWHERE
-        }
+        // Every colour of a contour and of a surface indexes the colormap, and a figure,
+        // an axes and an image hold no colour specification at all (the fixed colour of
+        // an image's out-of-range policy is a colour, not a specification), so these
+        // kinds reach this reason only if they gain a colour that indexes nothing.
+        NodeKind::Contour
+        | NodeKind::Surface
+        | NodeKind::Figure
+        | NodeKind::Axes
+        | NodeKind::Image
+        | NodeKind::IndexedImage
+        | NodeKind::MappedImage => COLORMAPPED_ELSEWHERE,
     })
+}
+
+/// Why a clamp is unavailable at the non-finite category of an image.
+const CLAMP_AT_NON_FINITE: &str = "A non-finite value has no nearest end of the colormap \
+     to be clamped to, so clamping is available only below and above the range.";
+
+/// Marks a clamp unavailable at the `non_finite` category of a colour-indexed or
+/// colour-mapped image, where the pixels have no nearest end of the colormap to be
+/// clamped to, and leaves every other choice and every other property alone.
+fn clamp_without_a_nearest_end_of_the_colormap(
+    _figure: &Figure,
+    kind: NodeKind,
+    _node: NodeId,
+    path: &PropertyPath,
+    value: &Value,
+) -> Option<&'static str> {
+    let clamp = matches!(value, Value::OutOfRange(OutOfRange::Clamp));
+    let image = matches!(kind, NodeKind::IndexedImage | NodeKind::MappedImage);
+    (clamp && image && path.segments() == ["non_finite"]).then_some(CLAMP_AT_NON_FINITE)
 }
 
 /// Returns whether the IR gives the colour at this property of this kind of node a value
@@ -315,11 +351,17 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         NodeKind::Contour => segments == ["line", "color"],
         // Each face is coloured by its colour data, or by its height when it has none.
         NodeKind::Surface => segments == ["face"] || segments == ["edge"],
+        // An image holds no colour specification: a true-colour image carries its own
+        // colours, and the two mapped kinds index the colormap by their data rather
+        // than by a colour property.
         NodeKind::Figure
         | NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter
-        | NodeKind::Quiver => false,
+        | NodeKind::Quiver
+        | NodeKind::Image
+        | NodeKind::IndexedImage
+        | NodeKind::MappedImage => false,
     }
 }
 
@@ -339,6 +381,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Levels(v) => levels_label(v),
         Value::ContourPlacement(v) => contour_placement_label(v),
         Value::QuiverScale(v) => quiver_scale_label(v),
+        Value::ImagePlane(v) => image_plane_label(v),
+        Value::OutOfRange(v) => out_of_range_label(v),
         Value::Scale(v) => scale_label(v),
         Value::ColormapName(v) => colormap_name_label(v),
         Value::LegendLocation(v) => legend_location_label(v),
@@ -365,7 +409,9 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Axis(_)
         | Value::Legend(_)
         | Value::LineStyle(_)
-        | Value::MarkerStyle(_) => return None,
+        | Value::MarkerStyle(_)
+        | Value::ImagePlacement(_)
+        | Value::PixelRange(_) => return None,
     })
 }
 
@@ -528,6 +574,39 @@ tagged_choices! {
         };
         QuiverScale::Off => "Data units" = QuiverScale::Off;
     }
+
+    // A plane keeps its offset when it is the plane the image already lies in, and starts
+    // without one otherwise, because an offset along the third axis of one plane says
+    // nothing about the third axis of another.
+    ImagePlane as ImagePlane (image_plane_choices, image_plane_label) replacing replacing {
+        ImagePlane::Xy { .. } => "Plane xy" = ImagePlane::Xy {
+            z: match replacing {
+                Some(Value::ImagePlane(ImagePlane::Xy { z })) => *z,
+                _ => None,
+            },
+        };
+        ImagePlane::Xz { .. } => "Plane xz" = ImagePlane::Xz {
+            y: match replacing {
+                Some(Value::ImagePlane(ImagePlane::Xz { y })) => *y,
+                _ => None,
+            },
+        };
+        ImagePlane::Yz { .. } => "Plane yz" = ImagePlane::Yz {
+            x: match replacing {
+                Some(Value::ImagePlane(ImagePlane::Yz { x })) => *x,
+                _ => None,
+            },
+        };
+    }
+
+    OutOfRange as OutOfRange (out_of_range_choices, out_of_range_label) replacing replacing {
+        OutOfRange::Strict => "Strict" = OutOfRange::Strict;
+        OutOfRange::Transparent => "Transparent" = OutOfRange::Transparent;
+        OutOfRange::Clamp => "Clamp" = OutOfRange::Clamp;
+        OutOfRange::Rgba { .. } => "Fixed colour" = OutOfRange::Rgba {
+            color: replaced_color(replacing),
+        };
+    }
 }
 
 plain_choices! {
@@ -589,13 +668,15 @@ plain_choices! {
 }
 
 /// The colour that a fixed colour takes from the value it replaces: the colour of a
-/// fixed colour, of a scatter colour that holds one, or black.
+/// fixed colour, of a scatter colour that holds one, of an out-of-range policy that
+/// paints one, or black.
 fn replaced_color(replacing: Option<&Value>) -> Color {
     match replacing {
         Some(Value::ColorSpec(ColorSpec::Rgba { color })) => *color,
         Some(Value::ScatterColor(ScatterColor::Spec {
             spec: ColorSpec::Rgba { color },
         })) => *color,
+        Some(Value::OutOfRange(OutOfRange::Rgba { color })) => *color,
         _ => Color::BLACK,
     }
 }

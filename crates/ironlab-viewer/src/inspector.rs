@@ -143,6 +143,9 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
         NodeKind::Contour => "Contour",
         NodeKind::Quiver => "Quiver",
         NodeKind::Surface => "Surface",
+        NodeKind::Image => "Image",
+        NodeKind::IndexedImage => "Indexed image",
+        NodeKind::MappedImage => "Mapped image",
     }
 }
 
@@ -166,6 +169,9 @@ fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Contour(_) => NodeKind::Contour,
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
+        Artist::Image(_) => NodeKind::Image,
+        Artist::IndexedImage(_) => NodeKind::IndexedImage,
+        Artist::MappedImage(_) => NodeKind::MappedImage,
     }
 }
 
@@ -451,22 +457,28 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         NodeKind::Axes if segments.first().is_some_and(|first| first == "cell") => {
             Some(CELL_REASON)
         }
+        // The pixels, indices or values of an image are a data reference, which is read-only
+        // by its type, so an image has no read-only property of its own.
         NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter
         | NodeKind::Contour
         | NodeKind::Quiver
-        | NodeKind::Surface => None,
+        | NodeKind::Surface
+        | NodeKind::Image
+        | NodeKind::IndexedImage
+        | NodeKind::MappedImage => None,
     }
 }
 
 /// Returns whether a value is only a container of the values below it, such as an axis, a
-/// marker style or the cell an axes occupies.
+/// marker style, the cell an axes occupies or the placement of an image.
 ///
 /// A container has nothing of its own to show or to change: what it holds is the rows
 /// beneath it. The inspector therefore draws it as a heading carrying its name alone, and
-/// never as a value beside that name. A tagged value such as limits or a projection is not
-/// a container, because choosing its variant is a change in itself.
+/// never as a value beside that name. A tagged value such as limits, a projection, the
+/// plane of an image or an out-of-range policy is not a container, because choosing its
+/// variant is a change in itself.
 ///
 /// The match over the value types is exhaustive, so a type added to the IR does not
 /// compile until it is said whether it is a container.
@@ -480,7 +492,9 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Axis
         | ValueType::Legend
         | ValueType::LineStyle
-        | ValueType::MarkerStyle => true,
+        | ValueType::MarkerStyle
+        | ValueType::ImagePlacement
+        | ValueType::PixelRange => true,
         ValueType::Bool
         | ValueType::UInt32
         | ValueType::Double
@@ -507,7 +521,9 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement
-        | ValueType::QuiverScale => false,
+        | ValueType::QuiverScale
+        | ValueType::ImagePlane
+        | ValueType::OutOfRange => false,
     }
 }
 
@@ -562,6 +578,8 @@ fn editor_for(
         | ValueType::Levels
         | ValueType::ContourPlacement
         | ValueType::QuiverScale
+        | ValueType::ImagePlane
+        | ValueType::OutOfRange
         | ValueType::Scale
         | ValueType::ColormapName
         | ValueType::LegendLocation
@@ -581,7 +599,9 @@ fn editor_for(
         | ValueType::Axis
         | ValueType::Legend
         | ValueType::LineStyle
-        | ValueType::MarkerStyle => Editor::Group,
+        | ValueType::MarkerStyle
+        | ValueType::ImagePlacement
+        | ValueType::PixelRange => Editor::Group,
     }
 }
 

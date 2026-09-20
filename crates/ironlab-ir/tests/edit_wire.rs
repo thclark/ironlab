@@ -270,6 +270,80 @@ fn the_json_form_of_an_edit_is_tagged_and_uses_dotted_paths() {
     );
 }
 
+// Why: web clients write the values of image properties by hand from the documented
+// form, so the type names of the four value kinds and the form of each value are a
+// contract: tags in snake case, a plane and a policy tagged like every tagged value with
+// `null` for an absent offset or range, and the colour of a fixed colour as a hex string.
+#[test]
+fn the_json_form_of_the_image_values_uses_snake_case_type_names() {
+    let transaction = tx([
+        set(
+            NodeId(3),
+            "placement",
+            Value::ImagePlacement(ImagePlacement {
+                plane: ImagePlane::Xz { y: Some(-1.5) },
+                columns: Some(PixelRange {
+                    first: 2.0,
+                    last: 0.0,
+                }),
+                rows: None,
+            }),
+        ),
+        set(
+            NodeId(3),
+            "placement.columns",
+            Value::PixelRange(PixelRange {
+                first: 0.0,
+                last: 1.0,
+            }),
+        ),
+        set(
+            NodeId(3),
+            "placement.plane",
+            Value::ImagePlane(ImagePlane::Xy { z: None }),
+        ),
+        set(
+            NodeId(3),
+            "non_finite",
+            Value::OutOfRange(OutOfRange::Rgba {
+                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+            }),
+        ),
+        set(NodeId(3), "below", Value::OutOfRange(OutOfRange::Clamp)),
+    ]);
+    let json: serde_json::Value = serde_json::from_str(&transaction.to_json()).unwrap();
+    let values: Vec<&serde_json::Value> = json["edits"]
+        .as_array()
+        .expect("the edits are a list")
+        .iter()
+        .map(|edit| &edit["value"])
+        .collect();
+    assert_eq!(
+        values,
+        [
+            &serde_json::json!({
+                "type": "image_placement",
+                "value": {
+                    "plane": {"type": "xz", "y": -1.5},
+                    "columns": {"first": 2.0, "last": 0.0},
+                    "rows": null
+                }
+            }),
+            &serde_json::json!({"type": "pixel_range", "value": {"first": 0.0, "last": 1.0}}),
+            &serde_json::json!({"type": "image_plane", "value": {"type": "xy", "z": null}}),
+            &serde_json::json!({
+                "type": "out_of_range",
+                "value": {"type": "rgba", "color": "#ff000080"}
+            }),
+            &serde_json::json!({"type": "out_of_range", "value": {"type": "clamp"}}),
+        ]
+    );
+    assert_eq!(
+        Transaction::from_json(&json.to_string()).unwrap(),
+        transaction
+    );
+}
+
 // Why: a path in JSON that is not a valid path must be refused when parsing, rather than
 // produce an edit that can never apply.
 #[test]
@@ -326,6 +400,42 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
             wire::ValueInterpreter { value: 0 },
         ))))),
         "edits[0].set_property.value.interpreter_value.value",
+    );
+    for (kind, variant) in [
+        (
+            wire::ValueKind::ImagePlacement(wire::ValueImagePlacement { value: None }),
+            "image_placement_value",
+        ),
+        (
+            wire::ValueKind::PixelRange(wire::ValuePixelRange { value: None }),
+            "pixel_range_value",
+        ),
+        (
+            wire::ValueKind::ImagePlane(wire::ValueImagePlane { value: None }),
+            "image_plane_value",
+        ),
+        (
+            wire::ValueKind::OutOfRange(wire::ValueOutOfRange { value: None }),
+            "out_of_range_value",
+        ),
+    ] {
+        assert_missing(
+            decode_wire(wire_tx(wire_set(wire_value(kind)))),
+            &format!("edits[0].set_property.value.{variant}.value"),
+        );
+    }
+    // A pixel range in a value is decoded with the rules of the figure format, so a
+    // centre it lacks is refused with a path that leads into the value.
+    assert_missing(
+        decode_wire(wire_tx(wire_set(wire_value(wire::ValueKind::PixelRange(
+            wire::ValuePixelRange {
+                value: Some(wire::PixelRange {
+                    first: Some(0.0),
+                    last: None,
+                }),
+            },
+        ))))),
+        "edits[0].set_property.value.pixel_range_value.value.last",
     );
     assert_missing(
         decode_wire(wire_tx(wire::EditKind::Insert(wire::EditInsert {

@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{kitchen_sink_figure, single_line_figure};
+use common::{image_variants_figure, kitchen_sink_figure, single_line_figure};
 use ironlab_ir::*;
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -18,7 +18,7 @@ fn decay_figure() -> Figure {
     data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
     data.insert(DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135]));
     Figure {
-        schema_version: "0.2.0".to_owned(),
+        schema_version: "0.3.0".to_owned(),
         id: NodeId(1),
         title: Some(Text::new("Decay of $e^{-t}$")),
         size: FigureSize {
@@ -330,6 +330,238 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
     assert_eq!(contour["line"]["color"], json!({ "type": "colormapped" }));
     assert_eq!(value["links"][0]["dimension"], "z");
     assert_eq!(value["font_set"], "stix_two");
+}
+
+// Why: the three image kinds and their placement and policy values are new in the
+// schema, and web clients and hand-written files produce them from the documented form
+// rather than from serde's output, so the form of each (its tag, the names and nesting
+// of its fields, `null` for an absent name, range or offset, and the colour of a fixed
+// colour as a hex string) is a contract that a renamed field or a changed tagging would
+// break; and the written form must read back as the same figure.
+#[test]
+fn image_artists_are_written_in_the_documented_json_form() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].artists.extend([
+        Artist::Image(Image {
+            id: NodeId(5),
+            display_name: Some(Text::plain("photo")),
+            visible: false,
+            pixels: DataId(10),
+            placement: ImagePlacement {
+                plane: ImagePlane::Xz { y: Some(-2.0) },
+                columns: None,
+                rows: Some(PixelRange {
+                    first: 3.0,
+                    last: 0.0,
+                }),
+            },
+        }),
+        Artist::IndexedImage(IndexedImage {
+            id: NodeId(6),
+            display_name: None,
+            visible: true,
+            indices: DataId(11),
+            placement: ImagePlacement {
+                plane: ImagePlane::Yz { x: None },
+                columns: None,
+                rows: None,
+            },
+            below: OutOfRange::Strict,
+            above: OutOfRange::Strict,
+            non_finite: OutOfRange::Transparent,
+        }),
+        Artist::MappedImage(MappedImage {
+            id: NodeId(7),
+            display_name: None,
+            visible: true,
+            values: DataId(12),
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: None },
+                columns: Some(PixelRange {
+                    first: -1.5,
+                    last: 1.5,
+                }),
+                rows: None,
+            },
+            below: OutOfRange::Transparent,
+            above: OutOfRange::Clamp,
+            non_finite: OutOfRange::Rgba {
+                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+            },
+        }),
+    ]);
+    let text = fig.to_json();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    let artists = &value["axes"][0]["artists"];
+    assert_eq!(
+        artists[1],
+        json!({
+            "type": "image",
+            "id": 5,
+            "display_name": {"content": "photo", "interpreter": "none"},
+            "visible": false,
+            "pixels": 10,
+            "placement": {
+                "plane": {"type": "xz", "y": -2.0},
+                "columns": null,
+                "rows": {"first": 3.0, "last": 0.0}
+            }
+        })
+    );
+    assert_eq!(
+        artists[2],
+        json!({
+            "type": "indexed_image",
+            "id": 6,
+            "display_name": null,
+            "visible": true,
+            "indices": 11,
+            "placement": {
+                "plane": {"type": "yz", "x": null},
+                "columns": null,
+                "rows": null
+            },
+            "below": {"type": "strict"},
+            "above": {"type": "strict"},
+            "non_finite": {"type": "transparent"}
+        })
+    );
+    assert_eq!(
+        artists[3],
+        json!({
+            "type": "mapped_image",
+            "id": 7,
+            "display_name": null,
+            "visible": true,
+            "values": 12,
+            "placement": {
+                "plane": {"type": "xy", "z": null},
+                "columns": {"first": -1.5, "last": 1.5},
+                "rows": null
+            },
+            "below": {"type": "transparent"},
+            "above": {"type": "clamp"},
+            "non_finite": {"type": "rgba", "color": "#ff000080"}
+        })
+    );
+    assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
+}
+
+// Why: the defaults of the image kinds are what a figure holds when a program sets only
+// the pixels, so they are as much a contract of the format as the field names are: an
+// image is visible and unnamed, it lies on the floor with no offset and its pixel centres
+// at 0 to n − 1 (no ranges), and a mapped kind paints every pixel it cannot colour
+// transparent. A default that drifted (a strict policy, a wall, a hidden image) would
+// change every figure written without those fields.
+#[test]
+fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_policies() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].artists.extend([
+        Artist::Image(Image {
+            id: NodeId(5),
+            pixels: DataId(10),
+            ..Default::default()
+        }),
+        Artist::IndexedImage(IndexedImage {
+            id: NodeId(6),
+            indices: DataId(11),
+            ..Default::default()
+        }),
+        Artist::MappedImage(MappedImage {
+            id: NodeId(7),
+            values: DataId(12),
+            ..Default::default()
+        }),
+    ]);
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    let artists = &value["axes"][0]["artists"];
+    let placement = json!({
+        "plane": {"type": "xy", "z": null},
+        "columns": null,
+        "rows": null
+    });
+    let transparent = json!({"type": "transparent"});
+    assert_eq!(
+        artists[1],
+        json!({
+            "type": "image",
+            "id": 5,
+            "display_name": null,
+            "visible": true,
+            "pixels": 10,
+            "placement": placement
+        })
+    );
+    assert_eq!(
+        artists[2],
+        json!({
+            "type": "indexed_image",
+            "id": 6,
+            "display_name": null,
+            "visible": true,
+            "indices": 11,
+            "placement": placement,
+            "below": transparent,
+            "above": transparent,
+            "non_finite": transparent
+        })
+    );
+    assert_eq!(
+        artists[3],
+        json!({
+            "type": "mapped_image",
+            "id": 7,
+            "display_name": null,
+            "visible": true,
+            "values": 12,
+            "placement": placement,
+            "below": transparent,
+            "above": transparent,
+            "non_finite": transparent
+        })
+    );
+}
+
+// Why: the kitchen-sink figure places each image kind on some planes with some
+// policies, so a variant that serde mishandles elsewhere (an offset of either sign or
+// none on each plane, a mirrored or single-pixel range, a policy at a category where the
+// kitchen sink uses another) would pass its round trip; every variant at every position
+// must reload as itself, and saving the reloaded figure must change nothing.
+#[test]
+fn every_image_variant_survives_a_json_round_trip() {
+    let original = image_variants_figure();
+    let text = original.to_json();
+    let restored = Figure::from_json(&text).expect("own output parses");
+    assert_eq!(restored, original);
+    assert_eq!(restored.to_json(), text);
+}
+
+// Why: the image kinds are new variants of an artist, so this release raises the minor
+// schema version to 0.3.0, which the build must declare and the fixture must carry; a
+// `.fig.json` document of the previous release, 0.2.0, must be refused (a document of
+// this build that reached that release would be misread there, and the rules are the
+// same in both directions), and the refusal must name both versions, so that the user
+// knows which build to use.
+#[test]
+fn the_build_implements_schema_version_0_3_0_and_refuses_documents_of_0_2_0() {
+    assert_eq!(SCHEMA_VERSION, "0.3.0");
+    let loaded = Figure::from_json(DECAY_FIXTURE).expect("the fixture declares the version");
+    assert_eq!(loaded.schema_version, "0.3.0");
+    let error = Figure::from_json(&decay_fixture_with_version(json!("0.2.0")))
+        .expect_err("a document of the previous minor version is refused");
+    assert!(
+        matches!(
+            &error,
+            IrError::IncompatibleSchemaVersion { found, supported }
+                if found == "0.2.0" && *supported == "0.3.0"
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("0.2.0") && message.contains("0.3.0"),
+        "the message must name both versions: {message}"
+    );
 }
 
 // Why: files from an incompatible schema (different major or minor version) must be

@@ -13,12 +13,13 @@ use std::collections::BTreeMap;
 use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
-/// legend, display name or coordinate array), by full Protocol Buffers name.
+/// legend, display name, coordinate array, pixel range or plane offset), by full Protocol
+/// Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 15] = [
+pub const OPTIONAL_IN_IR: [&str; 23] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
@@ -34,6 +35,14 @@ pub const OPTIONAL_IN_IR: [&str; 15] = [
     "ironlab.ir.v0.Quiver.w",
     "ironlab.ir.v0.Surface.display_name",
     "ironlab.ir.v0.Surface.c",
+    "ironlab.ir.v0.Image.display_name",
+    "ironlab.ir.v0.IndexedImage.display_name",
+    "ironlab.ir.v0.MappedImage.display_name",
+    "ironlab.ir.v0.ImagePlacement.columns",
+    "ironlab.ir.v0.ImagePlacement.rows",
+    "ironlab.ir.v0.ImagePlaneXy.z",
+    "ironlab.ir.v0.ImagePlaneXz.y",
+    "ironlab.ir.v0.ImagePlaneYz.x",
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.
@@ -225,8 +234,10 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 }
 
 /// A valid figure that uses every artist variant and every variant of every enum in
-/// the schema, including NaN data, non-default styles, links on every dimension and a
-/// figure parameter of every kind.
+/// the schema, including NaN data, non-default styles, links on every dimension, a
+/// figure parameter of every kind, and images of every kind on the floor of a 2D axes
+/// and on the walls of a 3D axes, of floats and of bytes, with every plane, every
+/// out-of-range policy, and pixel ranges that are absent, ascending and mirrored.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -258,9 +269,26 @@ pub fn kitchen_sink_figure() -> Figure {
     let field = b.matrix(ny, nx, |j, i| (j * nx + i) as f64 + 0.5);
     let cx = b.matrix(ny, nx, |j, i| i as f64 + 0.1 * j as f64);
     let cy = b.matrix(ny, nx, |j, i| j as f64 - 0.1 * i as f64);
-    // An array of 8-bit values, which no artist of this figure can use, so that the
+    // An array of 8-bit values, the indices of a colour-indexed image, so that the
     // element type is exercised by every format and edit that covers the data table.
-    let _bytes = b.bytes(vec![2, 3], vec![0, 1, 2, 253, 254, 255]);
+    let bytes = b.bytes(vec![2, 3], vec![0, 1, 2, 253, 254, 255]);
+    // The pixels of true-colour images: 8-bit red, green and blue components of a 2 × 3
+    // image, and floating-point red, green, blue and alpha components of a 2 × 2 image.
+    let rgb_pixels = b.bytes(
+        vec![2, 3, 3],
+        vec![
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 0, 255, 255, 255, 0, 255,
+        ],
+    );
+    let rgba_pixels = b.data(
+        NdArray::from_shape(
+            vec![2, 2, 4],
+            vec![
+                1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 1.0, 0.25, 0.5, 0.5, 0.5, 0.0,
+            ],
+        )
+        .expect("the shape matches the values"),
+    );
 
     let shapes = [
         MarkerShape::None,
@@ -566,19 +594,152 @@ pub fn kitchen_sink_figure() -> Figure {
             edge_width_pt: 0.3,
         }),
     );
+    // Images on the walls of the 3D axes: a hidden true-colour image of floating-point
+    // RGBA pixels on the xz wall, a colour-indexed image of floating-point indices on
+    // the yz wall, and a colour-mapped image on the xz wall that is strict only for
+    // non-finite values, so that an edit of the axes' colour limits is not refused. With
+    // the 2D images, every policy occurs at some category.
+    let id = b.node();
+    b.push(
+        surfaces,
+        Artist::Image(Image {
+            id,
+            display_name: None,
+            visible: false,
+            pixels: rgba_pixels,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xz { y: Some(0.5) },
+                columns: Some(PixelRange {
+                    first: 0.0,
+                    last: 3.0,
+                }),
+                rows: None,
+            },
+        }),
+    );
+    let id = b.node();
+    b.push(
+        surfaces,
+        Artist::IndexedImage(IndexedImage {
+            id,
+            display_name: Some(Text::plain("classes")),
+            indices: cx,
+            placement: ImagePlacement {
+                plane: ImagePlane::Yz { x: None },
+                columns: None,
+                rows: Some(PixelRange {
+                    first: 3.0,
+                    last: 1.0,
+                }),
+            },
+            below: OutOfRange::Clamp,
+            above: OutOfRange::Rgba {
+                color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
+            },
+            non_finite: OutOfRange::Transparent,
+            ..IndexedImage::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        surfaces,
+        Artist::MappedImage(MappedImage {
+            id,
+            values: field,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xz { y: Some(-1.0) },
+                columns: Some(PixelRange {
+                    first: 0.0,
+                    last: 3.0,
+                }),
+                rows: Some(PixelRange {
+                    first: 0.0,
+                    last: 2.0,
+                }),
+            },
+            below: OutOfRange::Rgba {
+                color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
+            },
+            above: OutOfRange::Transparent,
+            non_finite: OutOfRange::Strict,
+            ..MappedImage::default()
+        }),
+    );
 
     // Axes 7 to 9: the remaining legend locations and colormaps, and a spanning cell.
+    // The east axes holds the 2D images of 8-bit data: a true-colour image in the default
+    // placement and a hidden colour-indexed image whose floor offset is ignored, whose
+    // columns are mirrored and whose every policy is strict (which 8-bit indices cannot
+    // violate). The west axes holds a colour-mapped image with both pixel ranges and a
+    // lenient policy of each kind.
     let east = b.axes2d(1, 2);
     b.axes(east).legend = Some(Legend {
         location: LegendLocation::East,
         boxed: true,
     });
     b.axes(east).colormap = ColormapName::Gray;
+    let id = b.node();
+    b.push(
+        east,
+        Artist::Image(Image {
+            id,
+            display_name: Some(Text::plain("photo")),
+            pixels: rgb_pixels,
+            ..Image::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        east,
+        Artist::IndexedImage(IndexedImage {
+            id,
+            visible: false,
+            indices: bytes,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: Some(-2.0) },
+                columns: Some(PixelRange {
+                    first: 2.0,
+                    last: 0.0,
+                }),
+                rows: None,
+            },
+            below: OutOfRange::Strict,
+            above: OutOfRange::Strict,
+            non_finite: OutOfRange::Strict,
+            ..IndexedImage::default()
+        }),
+    );
     let west = b.axes2d(1, 3);
     b.axes(west).legend = Some(Legend {
         location: LegendLocation::West,
         boxed: true,
     });
+    let id = b.node();
+    b.push(
+        west,
+        Artist::MappedImage(MappedImage {
+            id,
+            display_name: Some(Text::new("$T$ (K)")),
+            values: field,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: None },
+                columns: Some(PixelRange {
+                    first: -1.5,
+                    last: 1.5,
+                }),
+                rows: Some(PixelRange {
+                    first: 0.0,
+                    last: 1.0,
+                }),
+            },
+            below: OutOfRange::Transparent,
+            above: OutOfRange::Clamp,
+            non_finite: OutOfRange::Rgba {
+                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+            },
+            ..MappedImage::default()
+        }),
+    );
     let best = b.axes2d(2, 0);
     {
         let a = b.axes(best);
@@ -612,6 +773,154 @@ pub fn kitchen_sink_figure() -> Figure {
         },
     ];
 
+    b.build()
+}
+
+/// A valid figure that sets every variant of the placement and of the out-of-range
+/// policies of images, beyond what the kitchen-sink figure holds: in a 3D axes, an artist
+/// of each image kind on each plane, with and without an offset and with offsets of both
+/// signs, the two mapped kinds cycling through the policies so that every policy occurs
+/// at every category, and pixel ranges that are absent, ascending and mirrored; and in a
+/// 2D axes, a true-colour image whose floor offset is ignored and whose single row has
+/// coincident centres, a colour-indexed image of floating-point indices and a
+/// colour-mapped image of 8-bit values, both in the default placement.
+///
+/// The strict policies fall on 8-bit indices and on finite values under automatic colour
+/// limits, which cannot violate them, so the figure validates without issues.
+pub fn image_variants_figure() -> Figure {
+    let mut b = FigureBuilder::new();
+    b.fig.layout = TileLayout { rows: 1, cols: 2 };
+    let solid = b.axes3d(0, 0);
+    let flat = b.axes2d(0, 1);
+
+    // A 1 × 2 image of floating-point RGB pixels and a 2 × 1 image of 8-bit RGBA pixels
+    // (the kitchen-sink figure pairs the element types the other way round), and 2 × 2
+    // arrays of 8-bit indices, of floating-point indices and of values.
+    let rgb = b.data(
+        NdArray::from_shape(vec![1, 2, 3], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+            .expect("the shape matches the values"),
+    );
+    let rgba = b.bytes(vec![2, 1, 4], vec![255, 0, 0, 255, 0, 0, 255, 128]);
+    let byte_indices = b.bytes(vec![2, 2], vec![0, 1, 254, 255]);
+    let float_indices = b.matrix(2, 2, |j, i| (2 * j + i) as f64 * 85.0);
+    let values = b.matrix(2, 2, |j, i| (j as f64 - 0.5) * (i as f64 + 1.0));
+
+    let planes = [
+        ImagePlane::Xy { z: None },
+        ImagePlane::Xy { z: Some(-0.5) },
+        ImagePlane::Xz { y: None },
+        ImagePlane::Xz { y: Some(1.5) },
+        ImagePlane::Yz { x: None },
+        ImagePlane::Yz { x: Some(-2.0) },
+    ];
+    let policies = [
+        OutOfRange::Strict,
+        OutOfRange::Transparent,
+        OutOfRange::Clamp,
+        OutOfRange::Rgba {
+            color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+        },
+    ];
+    let ranges = [
+        None,
+        Some(PixelRange {
+            first: 0.0,
+            last: 1.0,
+        }),
+        Some(PixelRange {
+            first: 1.0,
+            last: -1.0,
+        }),
+    ];
+    for (k, plane) in planes.into_iter().enumerate() {
+        let id = b.node();
+        b.push(
+            solid,
+            Artist::Image(Image {
+                id,
+                pixels: if k % 2 == 0 { rgb } else { rgba },
+                placement: ImagePlacement {
+                    plane,
+                    columns: ranges[k % 3],
+                    rows: ranges[(k + 1) % 3],
+                },
+                ..Image::default()
+            }),
+        );
+        let id = b.node();
+        b.push(
+            solid,
+            Artist::IndexedImage(IndexedImage {
+                id,
+                indices: byte_indices,
+                placement: ImagePlacement {
+                    plane,
+                    columns: ranges[(k + 1) % 3],
+                    rows: ranges[(k + 2) % 3],
+                },
+                below: policies[k % 4],
+                above: policies[(k + 1) % 4],
+                non_finite: policies[(k + 2) % 4],
+                ..IndexedImage::default()
+            }),
+        );
+        let id = b.node();
+        b.push(
+            solid,
+            Artist::MappedImage(MappedImage {
+                id,
+                values,
+                placement: ImagePlacement {
+                    plane,
+                    columns: ranges[(k + 2) % 3],
+                    rows: ranges[k % 3],
+                },
+                below: policies[(k + 3) % 4],
+                above: policies[(k + 2) % 4],
+                non_finite: policies[(k + 1) % 4],
+                ..MappedImage::default()
+            }),
+        );
+    }
+
+    let id = b.node();
+    b.push(
+        flat,
+        Artist::Image(Image {
+            id,
+            pixels: rgb,
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: Some(5.0) },
+                columns: Some(PixelRange {
+                    first: 4.0,
+                    last: 2.0,
+                }),
+                rows: Some(PixelRange {
+                    first: 1.0,
+                    last: 1.0,
+                }),
+            },
+            ..Image::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        flat,
+        Artist::IndexedImage(IndexedImage {
+            id,
+            indices: float_indices,
+            ..IndexedImage::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        flat,
+        Artist::MappedImage(MappedImage {
+            id,
+            values: byte_indices,
+            ..MappedImage::default()
+        }),
+    );
     b.build()
 }
 
@@ -710,7 +1019,34 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 Artist::Surface(surface) => {
                     visit(at("edge_width_pt"), &mut surface.edge_width_pt);
                 }
+                Artist::Image(image) => visit_placement(visit, &at, &mut image.placement),
+                Artist::IndexedImage(image) => visit_placement(visit, &at, &mut image.placement),
+                Artist::MappedImage(image) => visit_placement(visit, &at, &mut image.placement),
             }
+        }
+    }
+}
+
+/// Calls `visit` with every `f64` of an image placement: the offset of the plane when it
+/// has one, and the centres of the first and last pixels of each present range.
+fn visit_placement(
+    visit: &mut dyn FnMut(String, &mut f64),
+    at: &dyn Fn(&str) -> String,
+    placement: &mut ImagePlacement,
+) {
+    match &mut placement.plane {
+        ImagePlane::Xy { z: Some(z) } => visit(at("placement.plane.z"), z),
+        ImagePlane::Xz { y: Some(y) } => visit(at("placement.plane.y"), y),
+        ImagePlane::Yz { x: Some(x) } => visit(at("placement.plane.x"), x),
+        ImagePlane::Xy { z: None } | ImagePlane::Xz { y: None } | ImagePlane::Yz { x: None } => {}
+    }
+    for (name, range) in [
+        ("columns", &mut placement.columns),
+        ("rows", &mut placement.rows),
+    ] {
+        if let Some(range) = range {
+            visit(at(&format!("placement.{name}.first")), &mut range.first);
+            visit(at(&format!("placement.{name}.last")), &mut range.last);
         }
     }
 }

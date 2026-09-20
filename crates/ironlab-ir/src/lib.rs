@@ -5,7 +5,8 @@
 //! their artists), each identified by a stable [`NodeId`], together with a table of
 //! numeric arrays ([`NdArray`]) referenced by [`DataId`]. An array holds either 64-bit
 //! floating-point values or 8-bit unsigned integers, which is its element type
-//! ([`NdArrayElement`]); every artist of this version requires floating-point values.
+//! ([`NdArrayElement`]); the three image artists accept either, and every other artist
+//! requires floating-point values.
 //!
 //! # Formats
 //!
@@ -40,6 +41,10 @@
 //!   automatic levels as colormapped, unfilled isolines in the bottom plane; a quiver
 //!   scales arrows automatically with heads of 0.3 of the arrow length; a surface has
 //!   colormapped faces and black edges 0.5 pt wide.
+//! - An image of any kind lies in the xy plane (the floor of a three-dimensional axes,
+//!   at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each axis
+//!   of the plane; a colour-indexed or colour-mapped image draws nothing for a pixel it
+//!   cannot colour, whether the pixel lies below or above its range or is not finite.
 //! - Artists are visible and have no display name.
 
 mod artist;
@@ -59,8 +64,9 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Contour, ContourPlacement, Grid, Levels, Line, Quiver, QuiverScale, Scatter,
-    ScatterColor, ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
+    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
+    ScatterSize, Surface,
 };
 pub use axes::{
     Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,

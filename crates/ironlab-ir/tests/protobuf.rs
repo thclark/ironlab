@@ -7,8 +7,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::{
-    SPECIAL_F64, float_bits, floats_mut, kitchen_sink_figure, single_line_figure,
-    special_values_figure,
+    SPECIAL_F64, float_bits, floats_mut, image_variants_figure, kitchen_sink_figure,
+    single_line_figure, special_values_figure,
 };
 use ironlab_ir::*;
 use proptest::prelude::*;
@@ -228,6 +228,71 @@ fn wire_quiver_scale(kind: wire::QuiverScaleKind) -> Option<wire::QuiverScale> {
     Some(wire::QuiverScale { kind: Some(kind) })
 }
 
+fn wire_range(first: f64, last: f64) -> Option<wire::PixelRange> {
+    Some(wire::PixelRange {
+        first: Some(first),
+        last: Some(last),
+    })
+}
+
+fn wire_plane(kind: wire::ImagePlaneKind) -> Option<wire::ImagePlane> {
+    Some(wire::ImagePlane { kind: Some(kind) })
+}
+
+fn wire_xy(z: Option<f64>) -> Option<wire::ImagePlane> {
+    wire_plane(wire::ImagePlaneKind::Xy(wire::ImagePlaneXy { z }))
+}
+
+fn wire_xz(y: Option<f64>) -> Option<wire::ImagePlane> {
+    wire_plane(wire::ImagePlaneKind::Xz(wire::ImagePlaneXz { y }))
+}
+
+fn wire_yz(x: Option<f64>) -> Option<wire::ImagePlane> {
+    wire_plane(wire::ImagePlaneKind::Yz(wire::ImagePlaneYz { x }))
+}
+
+fn wire_placement(
+    plane: Option<wire::ImagePlane>,
+    columns: Option<wire::PixelRange>,
+    rows: Option<wire::PixelRange>,
+) -> Option<wire::ImagePlacement> {
+    Some(wire::ImagePlacement {
+        plane,
+        columns,
+        rows,
+    })
+}
+
+fn wire_policy(kind: wire::OutOfRangeKind) -> Option<wire::OutOfRange> {
+    Some(wire::OutOfRange { kind: Some(kind) })
+}
+
+fn wire_strict() -> Option<wire::OutOfRange> {
+    wire_policy(wire::OutOfRangeKind::Strict(wire::OutOfRangeStrict {}))
+}
+
+fn wire_transparent() -> Option<wire::OutOfRange> {
+    wire_policy(wire::OutOfRangeKind::Transparent(
+        wire::OutOfRangeTransparent {},
+    ))
+}
+
+fn wire_clamp() -> Option<wire::OutOfRange> {
+    wire_policy(wire::OutOfRangeKind::Clamp(wire::OutOfRangeClamp {}))
+}
+
+fn wire_painted(r: f32, g: f32, b: f32, a: f32) -> Option<wire::OutOfRange> {
+    wire_policy(wire::OutOfRangeKind::Rgba(wire::OutOfRangeRgba {
+        color: Some(wire_color(r, g, b, a)),
+    }))
+}
+
+/// Returns the plane variant of a wire placement, if the placement and its plane are
+/// present and the plane's variant is set.
+fn plane_kind(placement: Option<&wire::ImagePlacement>) -> Option<&wire::ImagePlaneKind> {
+    placement?.plane.as_ref()?.kind.as_ref()
+}
+
 /// A wire array of floats, with its element written explicitly as the encoder writes it.
 fn wire_floats(shape: Vec<u64>, values: Vec<f64>) -> wire::NdArray {
     wire::NdArray {
@@ -422,6 +487,22 @@ fn the_encoder_writes_the_element_of_every_array_and_one_payload() {
     assert!(bytes.values.is_empty());
 }
 
+// Why: the kitchen-sink figure places each image kind on some planes with some
+// policies, so a variant that the encoder or the decoder mishandles elsewhere (a wall
+// without an offset, a negative offset, a mirrored or single-pixel range, a policy at a
+// category where the kitchen sink uses another) would pass its round trip; every
+// variant at every position must reload as itself, bit for bit, and re-encode to the
+// same bytes.
+#[test]
+fn every_image_variant_survives_a_protobuf_round_trip() {
+    let original = image_variants_figure();
+    let bytes = original.to_protobuf();
+    let restored = Figure::from_protobuf(&bytes).expect("own output decodes");
+    assert_eq!(restored, original);
+    assert_eq!(float_bits(&restored), float_bits(&original));
+    assert_eq!(restored.to_protobuf(), bytes);
+}
+
 // ---------------------------------------------------------------------------------
 // Agreement between the binary and JSON formats
 // ---------------------------------------------------------------------------------
@@ -457,8 +538,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
     const B: u64 = 10;
     const C: u64 = 12;
     const D: u64 = 15;
-    // An array of bytes, which no artist refers to, so that the byte payload is pinned to
-    // the domain's 8-bit values and the float payload to its floats.
+    // An array of bytes, which only the indexed image refers to, so that the byte payload
+    // is pinned to the domain's 8-bit values and the float payload to its floats.
     const E: u64 = 18;
 
     let wire_figure = wire::Figure {
@@ -697,6 +778,45 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         face: wire_no_color(),
                         edge: wire_colormapped(),
                         edge_width_pt: Some(0.875),
+                    })),
+                    wire_artist(wire::ArtistKind::Image(wire::Image {
+                        id: Some(40),
+                        display_name: wire_text("image", wire::Interpreter::Latex),
+                        visible: Some(false),
+                        pixels: Some(D),
+                        placement: wire_placement(
+                            wire_xz(Some(21.0)),
+                            wire_range(22.0, 23.0),
+                            wire_range(24.0, 25.0),
+                        ),
+                    })),
+                    wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                        id: Some(41),
+                        display_name: None,
+                        visible: Some(true),
+                        indices: Some(E),
+                        placement: wire_placement(
+                            wire_yz(Some(26.0)),
+                            None,
+                            wire_range(28.0, 27.0),
+                        ),
+                        below: wire_strict(),
+                        above: wire_clamp(),
+                        non_finite: wire_painted(0.5, 0.375, 0.25, 0.125),
+                    })),
+                    wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+                        id: Some(42),
+                        display_name: wire_text("mapped", wire::Interpreter::None),
+                        visible: Some(false),
+                        values: Some(B),
+                        placement: wire_placement(
+                            wire_xy(Some(29.0)),
+                            wire_range(30.0, 31.0),
+                            None,
+                        ),
+                        below: wire_painted(0.125, 0.25, 0.375, 0.5),
+                        above: wire_transparent(),
+                        non_finite: wire_clamp(),
                     })),
                 ],
             },
@@ -1055,6 +1175,61 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         edge: ColorSpec::Colormapped,
                         edge_width_pt: 0.875,
                     }),
+                    Artist::Image(Image {
+                        id: NodeId(40),
+                        display_name: text("image", Interpreter::Latex),
+                        visible: false,
+                        pixels: DataId(D),
+                        placement: ImagePlacement {
+                            plane: ImagePlane::Xz { y: Some(21.0) },
+                            columns: Some(PixelRange {
+                                first: 22.0,
+                                last: 23.0,
+                            }),
+                            rows: Some(PixelRange {
+                                first: 24.0,
+                                last: 25.0,
+                            }),
+                        },
+                    }),
+                    Artist::IndexedImage(IndexedImage {
+                        id: NodeId(41),
+                        display_name: None,
+                        visible: true,
+                        indices: DataId(E),
+                        placement: ImagePlacement {
+                            plane: ImagePlane::Yz { x: Some(26.0) },
+                            columns: None,
+                            rows: Some(PixelRange {
+                                first: 28.0,
+                                last: 27.0,
+                            }),
+                        },
+                        below: OutOfRange::Strict,
+                        above: OutOfRange::Clamp,
+                        non_finite: OutOfRange::Rgba {
+                            color: Color::rgba(0.5, 0.375, 0.25, 0.125),
+                        },
+                    }),
+                    Artist::MappedImage(MappedImage {
+                        id: NodeId(42),
+                        display_name: text("mapped", Interpreter::None),
+                        visible: false,
+                        values: DataId(B),
+                        placement: ImagePlacement {
+                            plane: ImagePlane::Xy { z: Some(29.0) },
+                            columns: Some(PixelRange {
+                                first: 30.0,
+                                last: 31.0,
+                            }),
+                            rows: None,
+                        },
+                        below: OutOfRange::Rgba {
+                            color: Color::rgba(0.125, 0.25, 0.375, 0.5),
+                        },
+                        above: OutOfRange::Transparent,
+                        non_finite: OutOfRange::Clamp,
+                    }),
                 ],
             },
             Axes {
@@ -1364,6 +1539,25 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     edge_width_pt: Some(0.0),
                     ..wire::Surface::default()
                 })),
+                // A floor offset and pixel centres of zero are values, not absences: an
+                // absent offset means the low end of the axis and absent ranges mean
+                // centres at 0 to n - 1.
+                wire_artist(wire::ArtistKind::Image(wire::Image {
+                    id: Some(8),
+                    pixels: Some(0),
+                    placement: wire_placement(
+                        wire_xy(Some(0.0)),
+                        wire_range(0.0, 0.0),
+                        wire_range(0.0, 0.0),
+                    ),
+                    ..wire::Image::default()
+                })),
+                wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                    id: Some(9),
+                    indices: Some(0),
+                    placement: wire_placement(wire_xz(Some(0.0)), None, None),
+                    ..wire::IndexedImage::default()
+                })),
             ],
             ..wire::Axes::default()
         }],
@@ -1443,6 +1637,29 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     edge: ColorSpec::None,
                     edge_width_pt: 0.0,
                     ..Surface::default()
+                }),
+                Artist::Image(Image {
+                    id: NodeId(8),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Xy { z: Some(0.0) },
+                        columns: Some(PixelRange {
+                            first: 0.0,
+                            last: 0.0,
+                        }),
+                        rows: Some(PixelRange {
+                            first: 0.0,
+                            last: 0.0,
+                        }),
+                    },
+                    ..Image::default()
+                }),
+                Artist::IndexedImage(IndexedImage {
+                    id: NodeId(9),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Xz { y: Some(0.0) },
+                        ..ImagePlacement::default()
+                    },
+                    ..IndexedImage::default()
                 }),
             ],
             ..Axes::default()
@@ -1577,6 +1794,35 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     edge: Some(wire::ColorSpec { kind: None }),
                     ..wire::Surface::default()
                 })),
+                // An absent placement, an unset plane, an unset policy, an absent policy,
+                // a fixed colour without a colour and a wall without an offset.
+                artist(wire::ArtistKind::Image(wire::Image {
+                    id: Some(10),
+                    pixels: Some(0),
+                    placement: None,
+                    ..wire::Image::default()
+                })),
+                artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                    id: Some(11),
+                    indices: Some(0),
+                    placement: Some(wire::ImagePlacement {
+                        plane: Some(wire::ImagePlane { kind: None }),
+                        columns: None,
+                        rows: None,
+                    }),
+                    below: Some(wire::OutOfRange { kind: None }),
+                    above: None,
+                    non_finite: wire_policy(wire::OutOfRangeKind::Rgba(wire::OutOfRangeRgba {
+                        color: None,
+                    })),
+                    ..wire::IndexedImage::default()
+                })),
+                artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+                    id: Some(12),
+                    values: Some(0),
+                    placement: wire_placement(wire_xz(None), None, None),
+                    ..wire::MappedImage::default()
+                })),
             ],
             ..wire::Axes::default()
         }],
@@ -1605,6 +1851,27 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                 Artist::Surface(Surface {
                     id: NodeId(9),
                     ..Surface::default()
+                }),
+                Artist::Image(Image {
+                    id: NodeId(10),
+                    ..Image::default()
+                }),
+                Artist::IndexedImage(IndexedImage {
+                    id: NodeId(11),
+                    // A fixed colour that is absent is black, as it is for a fixed colour
+                    // specification.
+                    non_finite: OutOfRange::Rgba {
+                        color: Color::BLACK,
+                    },
+                    ..IndexedImage::default()
+                }),
+                Artist::MappedImage(MappedImage {
+                    id: NodeId(12),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Xz { y: None },
+                        ..ImagePlacement::default()
+                    },
+                    ..MappedImage::default()
                 }),
             ],
             ..Axes::default()
@@ -1673,6 +1940,23 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                 z: Some(2),
                 ..wire::Surface::default()
             })),
+            wire_artist(wire::ArtistKind::Image(wire::Image {
+                id: Some(8),
+                pixels: Some(2),
+                placement: wire_placement(wire_xy(None), wire_range(0.0, 1.0), None),
+                ..wire::Image::default()
+            })),
+            wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                id: Some(9),
+                indices: Some(2),
+                ..wire::IndexedImage::default()
+            })),
+            wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+                id: Some(10),
+                values: Some(2),
+                placement: wire_placement(wire_yz(None), None, wire_range(0.0, 1.0)),
+                ..wire::MappedImage::default()
+            })),
         ];
         wire::Figure {
             axes: vec![wire::Axes {
@@ -1710,7 +1994,7 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         .expect("the complete figure decodes, so each case fails only for its removal");
 
     type Removal = fn(&mut wire::Figure);
-    let cases: [(&str, Removal); 21] = [
+    let cases: [(&str, Removal); 27] = [
         ("id", |f| f.id = None),
         ("axes[0].id", |f| f.axes[0].id = None),
         ("axes[0].artists[0].kind", |f| {
@@ -1782,6 +2066,40 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         ("axes[0].artists[4].surface.z", |f| {
             artist!(f, 4, Surface).z = None
         }),
+        ("axes[0].artists[5].image.id", |f| {
+            artist!(f, 5, Image).id = None
+        }),
+        ("axes[0].artists[5].image.pixels", |f| {
+            artist!(f, 5, Image).pixels = None
+        }),
+        // A pixel range that is present must hold both centres, as manual limits must
+        // hold both bounds: one centre alone places nothing.
+        ("axes[0].artists[5].image.placement.columns.first", |f| {
+            artist!(f, 5, Image).placement = wire_placement(
+                wire_xy(None),
+                Some(wire::PixelRange {
+                    first: None,
+                    last: Some(1.0),
+                }),
+                None,
+            );
+        }),
+        ("axes[0].artists[6].indexed_image.indices", |f| {
+            artist!(f, 6, IndexedImage).indices = None
+        }),
+        ("axes[0].artists[7].mapped_image.values", |f| {
+            artist!(f, 7, MappedImage).values = None
+        }),
+        ("axes[0].artists[7].mapped_image.placement.rows.last", |f| {
+            artist!(f, 7, MappedImage).placement = wire_placement(
+                wire_yz(None),
+                None,
+                Some(wire::PixelRange {
+                    first: Some(0.0),
+                    last: None,
+                }),
+            );
+        }),
         ("axes[0].clim.manual.min", |f| {
             f.axes[0].clim = Some(wire::Limits {
                 kind: Some(wire::LimitsKind::Manual(wire::LimitsManual {
@@ -1816,10 +2134,12 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
     }
 }
 
-// Why: the references that the IR itself makes optional (the z data of a line, scatter
-// or quiver, the w data of a quiver, the colour data of a surface and the height of a
-// contour plane) must not become errors or defaults when absent, because a figure
-// without them is complete.
+// Why: the references and values that the IR itself makes optional (the z data of a
+// line, scatter or quiver, the w data of a quiver, the colour data of a surface, the
+// height of a contour plane, and the pixel ranges and plane offset of an image) must not
+// become errors or defaults when absent, because a figure without them is complete; and
+// the encoder must write them as absent rather than as a zero, which would move the
+// image.
 #[test]
 fn absent_optional_references_decode_as_absent() {
     let (mut fig, axes, _) = single_line_figure();
@@ -1850,6 +2170,26 @@ fn absent_optional_references_decode_as_absent() {
         placement: ContourPlacement::Plane { z: None },
         ..Contour::default()
     }));
+    artists.push(Artist::Image(Image {
+        id: NodeId(64),
+        ..Image::default()
+    }));
+    artists.push(Artist::IndexedImage(IndexedImage {
+        id: NodeId(65),
+        placement: ImagePlacement {
+            plane: ImagePlane::Xz { y: None },
+            ..ImagePlacement::default()
+        },
+        ..IndexedImage::default()
+    }));
+    artists.push(Artist::MappedImage(MappedImage {
+        id: NodeId(66),
+        placement: ImagePlacement {
+            plane: ImagePlane::Yz { x: None },
+            ..ImagePlacement::default()
+        },
+        ..MappedImage::default()
+    }));
 
     let wire_figure = wire::Figure::from(&fig);
     for artist in &wire_figure.axes[0].artists {
@@ -1861,6 +2201,22 @@ fn absent_optional_references_decode_as_absent() {
             wire::ArtistKind::Contour(contour) => matches!(
                 contour.placement.as_ref().and_then(|p| p.kind.as_ref()),
                 Some(wire::ContourPlacementKind::Plane(plane)) if plane.z.is_none()
+            ),
+            wire::ArtistKind::Image(image) => {
+                let placement = image.placement.as_ref();
+                placement.is_some_and(|p| p.columns.is_none() && p.rows.is_none())
+                    && matches!(
+                        plane_kind(placement),
+                        Some(wire::ImagePlaneKind::Xy(xy)) if xy.z.is_none()
+                    )
+            }
+            wire::ArtistKind::IndexedImage(image) => matches!(
+                plane_kind(image.placement.as_ref()),
+                Some(wire::ImagePlaneKind::Xz(xz)) if xz.y.is_none()
+            ),
+            wire::ArtistKind::MappedImage(image) => matches!(
+                plane_kind(image.placement.as_ref()),
+                Some(wire::ImagePlaneKind::Yz(yz)) if yz.x.is_none()
             ),
         };
         assert!(absent, "the encoder wrote an absent reference: {artist:?}");
@@ -1971,9 +2327,11 @@ fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
 
 /// A figure encoded by hand, field by field, from the field numbers of the schema: a 3D
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
-/// with an RGBA colour and a marker, three data arrays (floats without an element as
-/// every writer wrote them before the element type existed, floats holding NaN with the
-/// element written, and bytes), a link, provenance and a parameter of every kind.
+/// with an RGBA colour and a marker, an image of each kind (on each plane, with and
+/// without an offset, with a pixel range or none, and with every out-of-range policy at
+/// some category), three data arrays (floats without an element as every writer wrote
+/// them before the element type existed, floats holding NaN with the element written,
+/// and bytes), a link, provenance and a parameter of every kind.
 ///
 /// The bytes are built without the wire types, so that renumbering a field in the
 /// `proto_file!` declarations changes what the decoder expects but not these bytes.
@@ -2053,6 +2411,76 @@ fn hand_encoded_bytes() -> Vec<u8> {
     ]
     .concat();
 
+    // A pixel range: the centres of the first (field 1) and last (field 2) pixels.
+    let pixel_range =
+        |first: f64, last: f64| [double_field(1, first), double_field(2, last)].concat();
+    // An image plane: its oneof variant (xy 1, xz 2, yz 3), holding the offset along the
+    // third axis in field 1 when there is one.
+    let plane = |variant: u64, offset: Option<f64>| {
+        length_delimited(variant, &offset.map_or(vec![], |o| double_field(1, o)))
+    };
+    // An out-of-range policy: its oneof variant (strict 1, transparent 2, clamp 3, rgba 4),
+    // holding the colour of a fixed colour in field 1.
+    let policy = |variant: u64, colour_bytes: Option<Vec<u8>>| {
+        length_delimited(
+            variant,
+            &colour_bytes.map_or(vec![], |c| length_delimited(1, &c)),
+        )
+    };
+
+    // A true-colour image (Artist variant 6): id, name, visible, pixels (data 8), and a
+    // placement (field 5) on the xy plane (field 1) at z = 1.5 with column centres
+    // (field 2) from 0 to 1 and no row range.
+    let image = [
+        varint_field(1, 4),
+        length_delimited(2, &text("pixels", 2)),
+        varint_field(3, 1),
+        varint_field(4, 8),
+        length_delimited(
+            5,
+            &[
+                length_delimited(1, &plane(1, Some(1.5))),
+                length_delimited(2, &pixel_range(0.0, 1.0)),
+            ]
+            .concat(),
+        ),
+    ]
+    .concat();
+    // A colour-indexed image (Artist variant 7): hidden, indices from data 8, on the xz
+    // wall without an offset with row centres (field 3) mirrored from 3 to 0, strict
+    // below (field 6), clamped above (field 7) and a half-transparent red for
+    // non-finite indices (field 8).
+    let indexed_image = [
+        varint_field(1, 5),
+        varint_field(3, 0),
+        varint_field(4, 8),
+        length_delimited(
+            5,
+            &[
+                length_delimited(1, &plane(2, None)),
+                length_delimited(3, &pixel_range(3.0, 0.0)),
+            ]
+            .concat(),
+        ),
+        length_delimited(6, &policy(1, None)),
+        length_delimited(7, &policy(3, None)),
+        length_delimited(8, &policy(4, Some(colour(1.0, 0.0, 0.0, 0.5)))),
+    ]
+    .concat();
+    // A colour-mapped image (Artist variant 8) of the values of data 7, on the yz wall
+    // at x = -2 with no pixel ranges, transparent below, opaque blue above and strict
+    // for non-finite values.
+    let mapped_image = [
+        varint_field(1, 6),
+        varint_field(3, 1),
+        varint_field(4, 7),
+        length_delimited(5, &length_delimited(1, &plane(3, Some(-2.0)))),
+        length_delimited(6, &policy(2, None)),
+        length_delimited(7, &policy(4, Some(colour(0.0, 0.0, 1.0, 1.0)))),
+        length_delimited(8, &policy(1, None)),
+    ]
+    .concat();
+
     let axes = [
         varint_field(1, 2),
         length_delimited(
@@ -2095,6 +2523,9 @@ fn hand_encoded_bytes() -> Vec<u8> {
         length_delimited(10, &limits_manual(-3.0, 4.0)),
         length_delimited(11, &[varint_field(1, 9), varint_field(2, 0)].concat()),
         length_delimited(12, &length_delimited(1, &line)),
+        length_delimited(12, &length_delimited(6, &image)),
+        length_delimited(12, &length_delimited(7, &indexed_image)),
+        length_delimited(12, &length_delimited(8, &mapped_image)),
     ]
     .concat();
 
@@ -2234,27 +2665,78 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 location: LegendLocation::Best,
                 boxed: false,
             }),
-            artists: vec![Artist::Line(Line {
-                id: NodeId(3),
-                display_name: Some(Text::plain("decay, $5")),
-                visible: true,
-                x: DataId(0),
-                y: DataId(7),
-                z: None,
-                line: LineStyle {
-                    color: ColorSpec::Rgba {
-                        color: Color::rgba(0.0, 0.5, 0.25, 0.75),
+            artists: vec![
+                Artist::Line(Line {
+                    id: NodeId(3),
+                    display_name: Some(Text::plain("decay, $5")),
+                    visible: true,
+                    x: DataId(0),
+                    y: DataId(7),
+                    z: None,
+                    line: LineStyle {
+                        color: ColorSpec::Rgba {
+                            color: Color::rgba(0.0, 0.5, 0.25, 0.75),
+                        },
+                        width_pt: 1.5,
+                        dash: DashStyle::DashDot,
                     },
-                    width_pt: 1.5,
-                    dash: DashStyle::DashDot,
-                },
-                marker: MarkerStyle {
-                    shape: MarkerShape::TriangleUp,
-                    size_pt: 6.0,
-                    face: ColorSpec::None,
-                    edge: ColorSpec::Colormapped,
-                },
-            })],
+                    marker: MarkerStyle {
+                        shape: MarkerShape::TriangleUp,
+                        size_pt: 6.0,
+                        face: ColorSpec::None,
+                        edge: ColorSpec::Colormapped,
+                    },
+                }),
+                Artist::Image(Image {
+                    id: NodeId(4),
+                    display_name: Some(Text::plain("pixels")),
+                    visible: true,
+                    pixels: DataId(8),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Xy { z: Some(1.5) },
+                        columns: Some(PixelRange {
+                            first: 0.0,
+                            last: 1.0,
+                        }),
+                        rows: None,
+                    },
+                }),
+                Artist::IndexedImage(IndexedImage {
+                    id: NodeId(5),
+                    display_name: None,
+                    visible: false,
+                    indices: DataId(8),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Xz { y: None },
+                        columns: None,
+                        rows: Some(PixelRange {
+                            first: 3.0,
+                            last: 0.0,
+                        }),
+                    },
+                    below: OutOfRange::Strict,
+                    above: OutOfRange::Clamp,
+                    non_finite: OutOfRange::Rgba {
+                        color: Color::rgba(1.0, 0.0, 0.0, 0.5),
+                    },
+                }),
+                Artist::MappedImage(MappedImage {
+                    id: NodeId(6),
+                    display_name: None,
+                    visible: true,
+                    values: DataId(7),
+                    placement: ImagePlacement {
+                        plane: ImagePlane::Yz { x: Some(-2.0) },
+                        columns: None,
+                        rows: None,
+                    },
+                    below: OutOfRange::Transparent,
+                    above: OutOfRange::Rgba {
+                        color: Color::rgba(0.0, 0.0, 1.0, 1.0),
+                    },
+                    non_finite: OutOfRange::Strict,
+                }),
+            ],
         }],
         links: vec![AxisLink {
             dimension: Dimension::Z,
@@ -2329,9 +2811,11 @@ fn supported_version() -> [u64; 3] {
         .expect("SCHEMA_VERSION has three components")
 }
 
-// Why: files from an incompatible schema (a different major or minor version) or with a
-// version that cannot be compared must be rejected with a version error rather than
-// misread.
+// Why: files from an incompatible schema (a different major or minor version, such as
+// the 0.2.0 of the release before the image kinds) or with a version that cannot be
+// compared must be rejected with a version error rather than misread, and the error
+// must name the file's version and the supported one, so that the user knows which
+// build to use.
 #[test]
 fn incompatible_or_malformed_schema_versions_are_rejected() {
     let [major, minor, patch] = supported_version();
@@ -2356,10 +2840,21 @@ fn incompatible_or_malformed_schema_versions_are_rejected() {
             schema_version: version.clone(),
             ..kitchen_sink_figure()
         };
-        let result = Figure::from_protobuf(&fig.to_protobuf());
+        let error = Figure::from_protobuf(&fig.to_protobuf())
+            .err()
+            .unwrap_or_else(|| panic!("version {version:?} was accepted"));
         assert!(
-            matches!(result, Err(IrError::IncompatibleSchemaVersion { ref found, .. }) if *found == version),
-            "version {version:?} gave {result:?}"
+            matches!(
+                &error,
+                IrError::IncompatibleSchemaVersion { found, supported }
+                    if *found == version && *supported == SCHEMA_VERSION
+            ),
+            "version {version:?} gave {error:?}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains(&version) && message.contains(SCHEMA_VERSION),
+            "the message must name both versions: {message}"
         );
     }
 }

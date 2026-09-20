@@ -2,6 +2,7 @@
 
 mod common;
 
+use common::FigureBuilder;
 use common::edits::{Streaming, applied, axes_node, rows, set, streaming_figure, tx};
 use ironlab_ir::selection::Selection;
 use ironlab_ir::*;
@@ -241,4 +242,105 @@ fn a_node_selected_as_a_whole_is_unaffected_by_its_data_edits() {
         array: NdArray::vector(vec![0.0; 5]),
     }]);
     assert_eq!(updated(&s, &selection, &replace), Some(selection));
+}
+
+/// A figure of one 2D axes holding one artist of each image kind, each on an array of
+/// three rows and two columns: floating-point RGBA pixels, 8-bit indices and values.
+/// Returns the figure, the artists and their arrays, in the order image, indexed image,
+/// mapped image.
+fn images_figure() -> (Figure, [NodeId; 3], [DataId; 3]) {
+    let mut b = FigureBuilder::new();
+    let axes = b.axes2d(0, 0);
+    let pixels = b.data(
+        NdArray::from_shape(vec![3, 2, 4], (0..24).map(|k| k as f64 / 24.0).collect())
+            .expect("the shape matches the values"),
+    );
+    let indices = b.bytes(vec![3, 2], (0..6).collect());
+    let values = b.matrix(3, 2, |j, i| (2 * j + i) as f64);
+    let image = b.node();
+    b.push(
+        axes,
+        Artist::Image(Image {
+            id: image,
+            pixels,
+            ..Image::default()
+        }),
+    );
+    let indexed = b.node();
+    b.push(
+        axes,
+        Artist::IndexedImage(IndexedImage {
+            id: indexed,
+            indices,
+            ..IndexedImage::default()
+        }),
+    );
+    let mapped = b.node();
+    b.push(
+        axes,
+        Artist::MappedImage(MappedImage {
+            id: mapped,
+            values,
+            ..MappedImage::default()
+        }),
+    );
+    (
+        b.build(),
+        [image, indexed, mapped],
+        [pixels, indices, values],
+    )
+}
+
+// Why: a user picks pixels of an image as they pick points of a line, by flat index into
+// the array the artist draws, so the primary array of each image kind must be its data
+// field: streaming rows to it with a window shifts the selected pixels down by whole rows
+// (of nx × 4 values for RGBA pixels and nx for indices and values), replacing it drops the
+// indices while the image stays selected, and replacing the array of another image
+// leaves the selection alone.
+#[test]
+fn the_primary_array_of_each_image_kind_is_its_data_field() {
+    let (fig, artists, arrays) = images_figure();
+    // One row of each array, and the number of values a row holds.
+    let one_row = [
+        NdArray::from_shape(vec![1, 2, 4], vec![0.5; 8]).expect("one row of pixels"),
+        NdArray::from_shape_u8(vec![1, 2], vec![7, 8]).expect("one row of indices"),
+        rows(1, 2, 100.0),
+    ];
+    let row_values = [8usize, 2, 2];
+    for k in 0..3 {
+        let selection = Selection::points(artists[k], [0, row_values[k] + 1, 2 * row_values[k]]);
+        // Append one row and keep three: the first row is discarded.
+        let appended = tx([Edit::AppendData {
+            id: arrays[k],
+            array: one_row[k].clone(),
+            retain: Some(3),
+        }]);
+        applied(&fig, &appended).expect("the appended figure is valid");
+        assert_eq!(
+            selection.updated(&fig, &appended),
+            Some(Selection::points(artists[k], [1, row_values[k]])),
+            "artist {k}"
+        );
+
+        let replaced = tx([Edit::PutData {
+            id: arrays[k],
+            array: fig.data[&arrays[k]].clone(),
+        }]);
+        assert_eq!(
+            selection.updated(&fig, &replaced),
+            Some(Selection::node(artists[k])),
+            "artist {k}"
+        );
+
+        let other = (k + 1) % 3;
+        let unrelated = tx([Edit::PutData {
+            id: arrays[other],
+            array: fig.data[&arrays[other]].clone(),
+        }]);
+        assert_eq!(
+            selection.updated(&fig, &unrelated),
+            Some(selection.clone()),
+            "artist {k}"
+        );
+    }
 }

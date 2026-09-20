@@ -17,8 +17,9 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Grid, Levels, Line, Quiver, QuiverScale, Scatter,
-    ScatterColor, ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
+    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
+    ScatterSize, Surface,
 };
 use crate::axes::{
     Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
@@ -505,6 +506,48 @@ ir_node! {
         plain "edge" => edge: ColorSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";
     }
+
+    Image {
+        hidden "id" => id: () = "";
+        optional "display_name" => display_name: Text =
+            "The name shown for the artist in the legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "pixels" => pixels: DataId =
+            "The pixels, a three-dimensional array of shape [ny, nx, 3] or [ny, nx, 4] holding the red, green, blue and optionally alpha components of every pixel: floating-point components from 0 to 1, or 8-bit components from 0 to 255.";
+        plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
+    }
+
+    IndexedImage {
+        hidden "id" => id: () = "";
+        optional "display_name" => display_name: Text =
+            "The name shown for the artist in the legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "indices" => indices: DataId =
+            "The indices into the axes colormap, a two-dimensional array of shape [ny, nx]: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the colormap.";
+        plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
+        plain "below" => below: OutOfRange =
+            "What is drawn for a pixel whose truncated index is less than 0.";
+        plain "above" => above: OutOfRange =
+            "What is drawn for a pixel whose truncated index is greater than 255.";
+        plain "non_finite" => non_finite: OutOfRange =
+            "What is drawn for a pixel whose index is not finite.";
+    }
+
+    MappedImage {
+        hidden "id" => id: () = "";
+        optional "display_name" => display_name: Text =
+            "The name shown for the artist in the legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "values" => values: DataId =
+            "The values, a two-dimensional array of shape [ny, nx], mapped through the axes colormap and colour limits.";
+        plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
+        plain "below" => below: OutOfRange =
+            "What is drawn for a pixel whose value is less than the lower colour limit.";
+        plain "above" => above: OutOfRange =
+            "What is drawn for a pixel whose value is greater than the upper colour limit.";
+        plain "non_finite" => non_finite: OutOfRange =
+            "What is drawn for a pixel whose value is not finite.";
+    }
 }
 
 ir_value! {
@@ -579,6 +622,21 @@ ir_value! {
             "The marker size in points, measured as the width of the marker.";
         plain "face" => face: ColorSpec = "The colour of the marker interior.";
         plain "edge" => edge: ColorSpec = "The colour of the marker outline.";
+    }
+
+    ImagePlacement as ImagePlacement {
+        plain "plane" => plane: ImagePlane =
+            "The plane of the axes in which the image lies, with its offset along the third axis.";
+        optional "columns" => columns: PixelRange =
+            "The coordinates of the centres of the first and last columns along the first axis of the plane, or absent for centres at 0 to nx − 1.";
+        optional "rows" => rows: PixelRange =
+            "The coordinates of the centres of the first and last rows along the second axis of the plane, or absent for centres at 0 to ny − 1.";
+    }
+
+    PixelRange as PixelRange {
+        plain "first" => first: f64 = "The coordinate of the centre of the first pixel.";
+        plain "last" => last: f64 =
+            "The coordinate of the centre of the last pixel; a last centre before the first mirrors the image.";
     }
 }
 
@@ -663,6 +721,30 @@ ir_tagged! {
         }
         Off {}
     }
+
+    ImagePlane as ImagePlane {
+        Xy {
+            optional "z" => z: f64 =
+                "The height of the plane in three-dimensional axes, or absent for the bottom of the z axis; ignored by two-dimensional axes.";
+        }
+        Xz {
+            optional "y" => y: f64 =
+                "The y coordinate of the plane, or absent for the low end of the y axis.";
+        }
+        Yz {
+            optional "x" => x: f64 =
+                "The x coordinate of the plane, or absent for the low end of the x axis.";
+        }
+    }
+
+    OutOfRange as OutOfRange {
+        Strict {}
+        Transparent {}
+        Clamp {}
+        Rgba {
+            plain "color" => color: Color = "The colour the pixels are drawn in.";
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -681,6 +763,9 @@ pub(crate) fn node_properties(kind: NodeKind) -> Vec<Property> {
         NodeKind::Contour => Contour::node_describe(&mut properties),
         NodeKind::Quiver => Quiver::node_describe(&mut properties),
         NodeKind::Surface => Surface::node_describe(&mut properties),
+        NodeKind::Image => Image::node_describe(&mut properties),
+        NodeKind::IndexedImage => IndexedImage::node_describe(&mut properties),
+        NodeKind::MappedImage => MappedImage::node_describe(&mut properties),
     }
     let mut seen = std::collections::BTreeSet::new();
     properties.retain(|property| seen.insert(property.path.clone()));
@@ -702,6 +787,9 @@ pub(crate) fn kind_of(figure: &Figure, node: NodeId) -> Option<NodeKind> {
         Artist::Contour(_) => NodeKind::Contour,
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
+        Artist::Image(_) => NodeKind::Image,
+        Artist::IndexedImage(_) => NodeKind::IndexedImage,
+        Artist::MappedImage(_) => NodeKind::MappedImage,
     })
 }
 
@@ -724,6 +812,9 @@ pub(crate) fn get_in(
         Artist::Contour(a) => a.node_get(path),
         Artist::Quiver(a) => a.node_get(path),
         Artist::Surface(a) => a.node_get(path),
+        Artist::Image(a) => a.node_get(path),
+        Artist::IndexedImage(a) => a.node_get(path),
+        Artist::MappedImage(a) => a.node_get(path),
     })
 }
 
@@ -748,5 +839,8 @@ pub(crate) fn set_in(
         Artist::Contour(a) => a.node_set(path, value),
         Artist::Quiver(a) => a.node_set(path, value),
         Artist::Surface(a) => a.node_set(path, value),
+        Artist::Image(a) => a.node_set(path, value),
+        Artist::IndexedImage(a) => a.node_set(path, value),
+        Artist::MappedImage(a) => a.node_set(path, value),
     })
 }

@@ -5,8 +5,9 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, DashStyle, DataId, Figure, Levels, Line, MarkerShape, NdArray, NodeId, Quiver,
-    QuiverScale, Scatter, ScatterColor, ScatterSize, Surface, Text,
+    Artist, Contour, DashStyle, DataId, Figure, Image, IndexedImage, Levels, Line, MappedImage,
+    MarkerShape, NdArray, NodeId, Quiver, QuiverScale, Scatter, ScatterColor, ScatterSize, Surface,
+    Text,
 };
 
 use crate::color::IntoColorSpec;
@@ -439,5 +440,8 @@ fn data_ids(artist: &Artist) -> Vec<DataId> {
         Artist::Surface(Surface { grid, z, c, .. }) => {
             grid_ids(grid).into_iter().chain([*z]).chain(*c).collect()
         }
+        Artist::Image(Image { pixels, .. }) => vec![*pixels],
+        Artist::IndexedImage(IndexedImage { indices, .. }) => vec![*indices],
+        Artist::MappedImage(MappedImage { values, .. }) => vec![*values],
     }
 }

@@ -82,7 +82,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.2.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.3.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
@@ -230,6 +230,70 @@ A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`).
 
 `surf` stores colormapped faces with black edges, and `mesh` stores faces in the background colour with colormapped edges.
 
+### `image`
+
+A true-colour image: a raster of pixels, each with its own colour (MATLAB's `image` with a true-colour array). An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is planar: it lies in one of the coordinate planes of its axes, as its [placement](#image-placement) says.
+
+| Property | Meaning |
+| --- | --- |
+| `pixels` | DataId of the pixels, an array of shape `[ny, nx, 3]` (the red, green and blue components of every pixel) or `[ny, nx, 4]` (with an alpha component). Floating-point components lie from 0 to 1 and 8-bit components from 0 to 255. A pixel with a non-finite component is transparent. |
+| `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
+
+### `indexed_image`
+
+A colour-indexed image, whose pixels name entries of the axes colormap directly (MATLAB's `image` with an indexed array).
+
+| Property | Meaning |
+| --- | --- |
+| `indices` | DataId of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap. The indices neither use nor change the colour limits of the axes. |
+| `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
+| `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose truncated index is less than 0. |
+| `above` | The policy for a pixel whose truncated index is greater than 255. |
+| `non_finite` | The policy for a pixel whose index is NaN or infinite. |
+
+### `mapped_image`
+
+A colour-mapped image, whose pixels are data values scaled through the colour limits of the axes into its colormap (MATLAB's `imagesc`).
+
+| Property | Meaning |
+| --- | --- |
+| `values` | DataId of the values, an array of shape `[ny, nx]` of floating-point or 8-bit values, mapped through the axes colormap and colour limits as the colour data of a surface is. The values contribute to automatic colour limits in the same way. |
+| `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
+| `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose value is less than the lower colour limit. |
+| `above` | The policy for a pixel whose value is greater than the upper colour limit. |
+| `non_finite` | The policy for a pixel whose value is NaN or infinite. |
+
+### Image placement
+
+An **ImagePlacement** says where the pixels of an image lie in its axes.
+
+| Property | Meaning |
+| --- | --- |
+| `plane` | The ImagePlane in which the image lies, with its offset along the third axis. |
+| `columns` | A PixelRange giving the coordinates of the centres of the first and last columns along the first axis of the plane, or `null` for centres at 0, 1, …, nx − 1. |
+| `rows` | A PixelRange giving the coordinates of the centres of the first and last rows along the second axis of the plane, or `null` for centres at 0, 1, …, ny − 1. Row 0 of the array lies at the first centre, whichever way the range runs. |
+
+A **PixelRange** has two properties, `first` and `last`: the coordinates of the centres of the first and last pixels along one axis of the plane. With `n` pixels along the axis, the pitch between centres is `(last − first) / (n − 1)`, and the image covers half a pitch beyond each centre, so an image of `nx` columns with a `null` column range covers −0.5 to nx − 0.5. A `last` less than `first` mirrors the image along the axis, which is how an image is flipped. An image with one pixel along an axis has a pitch of 1 whatever its range. Both centres must be finite, and they may coincide only when the image has one pixel along the axis, as [validation](#validation) checks.
+
+An **ImagePlane** takes one of three forms. The columns of the image run along the first axis of the plane and its rows along the second, and the offset is the coordinate of the plane along the third axis, or `null` for the low end of that axis.
+
+- `{"type": "xy", "z": number or null}` is the plane of the x and y axes: the floor of a three-dimensional axes, at height `z`, and the only plane a two-dimensional axes can show, where `z` is ignored. It is the default.
+- `{"type": "xz", "y": number or null}` is the plane of the x and z axes, a wall of a three-dimensional axes, at `y`. It is valid only in three-dimensional axes.
+- `{"type": "yz", "x": number or null}` is the plane of the y and z axes, the other wall, at `x`. It is valid only in three-dimensional axes.
+
+A raster of flat pixels cannot be placed on a logarithmic axis, so an image whose plane has a logarithmic axis is not drawn, and validation warns of it.
+
+### Out-of-range policies
+
+An **OutOfRange** policy says what is drawn for a pixel of a colour-indexed or colour-mapped image that the artist cannot colour. Such pixels fall in three categories, each of which holds a policy of its own: `below` (an index less than 0, or a value less than the lower colour limit), `above` (an index greater than 255, or a value greater than the upper colour limit) and `non_finite` (an index or value that is NaN or infinite). One policy per category lets a figure tolerate NaN while refusing values outside the range, or the reverse.
+
+- `{"type": "strict"}` makes such a pixel a validation error, so that the figure is refused until the data is corrected.
+- `{"type": "transparent"}`, the default of every category, draws nothing for the pixel, so that an image reaches the page whatever its data holds.
+- `{"type": "clamp"}` draws the pixel in the nearest end colour of the colormap: its first entry for a pixel below the range and its last entry for a pixel above it. A non-finite value has no nearest end, so a clamp at `non_finite` draws nothing; the property editor lists the choice there and shows it disabled with the reason, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+- `{"type": "rgba", "color": Color}` draws the pixel in a fixed colour.
+
+Validation checks a strict category against the data. For a colour-indexed image, `below` reports any index that is less than 0 after truncation toward zero, `above` any that is greater than 255, and `non_finite` any that is not finite; 8-bit indices can violate none of them. For a colour-mapped image, `non_finite` is checked likewise, and `below` and `above` are checked only against manual, valid colour limits, because automatic limits are the range of the data, which no value lies outside, and invalid limits are reported against the axes.
+
 ## Styles
 
 ### LineStyle
@@ -283,7 +347,7 @@ Artists refer to their numeric data by DataId rather than containing it, so that
 | `element` | The type of the values: `"f64"` (the default) for 64-bit floating-point values, or `"u8"` for 8-bit unsigned integers. |
 | `values` | The values in row-major order: the value in row `j` and column `i` of a two-dimensional array is `values[j * nx + i]`. |
 
-Every artist of this version requires floating-point values, so an artist that refers to an array of 8-bit values is an error, as [validation](#validation) describes. Arrays of 8-bit values exist to hold the pixels of images compactly, for the image artists that are still to come; until then, such an array may be stored in a figure without being referred to. A missing floating-point value is NaN; an 8-bit value has no missing value. The number of values must equal the product of the shape.
+The three image artists accept arrays of either element type: the pixels of an [`image`](#image), the indices of an [`indexed_image`](#indexed_image) and the values of a [`mapped_image`](#mapped_image) may be floating-point or 8-bit values, and 8-bit values hold pixels compactly. Every other artist requires floating-point values, so any other artist that refers to an array of 8-bit values is an error, as [validation](#validation) describes; an array that no artist refers to may be of either type. A missing floating-point value is NaN; an 8-bit value has no missing value. The number of values must equal the product of the shape.
 
 Protocol Buffers stores every floating-point value, including NaN and infinities, as an IEEE 754 double, and every 8-bit value as one byte, in the payload named by the element. JSON cannot represent non-finite numbers, so every non-finite floating-point value (NaN or an infinity) is written as `null` and read back as NaN; 8-bit values are written as integers under an `element` of `"u8"`, and floating-point values are written without an `element`, exactly as they were before the element existed.
 
@@ -348,7 +412,7 @@ The form is stated explicitly because JSON has a single number type: without it,
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist that refers to an array of 8-bit values (every artist requires floating-point values), arrays of one artist with inconsistent lengths or shapes, a three-dimensional artist or placement in a two-dimensional axes, a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, and a parameter with an empty name or a non-finite number. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn.
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), a three-dimensional artist or placement in a two-dimensional axes (an image on the xz or yz plane among them), a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn, and for an image whose plane has a logarithmic axis, which is not drawn either.
 
 ## A minimal JSON file
 
@@ -356,7 +420,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 
 ```json
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -409,7 +473,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.2.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.3.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
 
@@ -423,6 +487,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
 - **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
 - **0.1.0** was the first version.
 
@@ -430,7 +495,7 @@ The schema has had the following versions:
 
 The model is designed so that further MATLAB plot types are added without restructuring it. Before any new plot type or entity is implemented, its data structure and options are defined in `ironlab-ir` and reviewed, as the project rules require.
 
-- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, images (`image`, `imagesc`), pseudocolour plots (`pcolor`), patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. Image-like artists take their colours from the axes colormap and colour limits, as surfaces do.
+- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, pseudocolour plots (`pcolor`), patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour.
 - **New coordinate systems are new projections.** Polar and geographic axes become new variants of Projection, each with its own view properties, alongside `two_d` and `three_d`.
 - **New axes-level decorations are new axes properties.** A colorbar, for example, becomes an optional property of an axes that refers to the axes colormap and colour limits, so that it cannot disagree with them.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.

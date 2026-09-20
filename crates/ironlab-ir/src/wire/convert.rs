@@ -11,11 +11,11 @@ use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
     Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
-    DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Interpreter, Legend,
-    LegendLocation, Levels, Limits, Line, LineStyle, MarkerShape, MarkerStyle, NdArray,
-    NdArrayElement, Node, NodeId, Parameter, Projection, Provenance, Quiver, QuiverScale, Scale,
-    Scatter, ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values,
-    View3d,
+    DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
+    ImagePlane, IndexedImage, Interpreter, Legend, LegendLocation, Levels, Limits, Line, LineStyle,
+    MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
+    Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter,
+    ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -358,6 +358,44 @@ fn encode_quiver_scale(scale: QuiverScale) -> w::QuiverScale {
     w::QuiverScale { kind: Some(kind) }
 }
 
+fn encode_pixel_range(range: PixelRange) -> w::PixelRange {
+    w::PixelRange {
+        first: Some(range.first),
+        last: Some(range.last),
+    }
+}
+
+fn encode_image_plane(plane: ImagePlane) -> w::ImagePlane {
+    let kind = match plane {
+        ImagePlane::Xy { z } => w::ImagePlaneKind::Xy(w::ImagePlaneXy { z }),
+        ImagePlane::Xz { y } => w::ImagePlaneKind::Xz(w::ImagePlaneXz { y }),
+        ImagePlane::Yz { x } => w::ImagePlaneKind::Yz(w::ImagePlaneYz { x }),
+    };
+    w::ImagePlane { kind: Some(kind) }
+}
+
+/// Encodes the placement of an image, writing an absent pixel range as absent rather
+/// than as a range of zeros, which would move the image.
+fn encode_image_placement(placement: ImagePlacement) -> w::ImagePlacement {
+    w::ImagePlacement {
+        plane: Some(encode_image_plane(placement.plane)),
+        columns: placement.columns.map(encode_pixel_range),
+        rows: placement.rows.map(encode_pixel_range),
+    }
+}
+
+fn encode_out_of_range(policy: OutOfRange) -> w::OutOfRange {
+    let kind = match policy {
+        OutOfRange::Strict => w::OutOfRangeKind::Strict(w::OutOfRangeStrict {}),
+        OutOfRange::Transparent => w::OutOfRangeKind::Transparent(w::OutOfRangeTransparent {}),
+        OutOfRange::Clamp => w::OutOfRangeKind::Clamp(w::OutOfRangeClamp {}),
+        OutOfRange::Rgba { color } => w::OutOfRangeKind::Rgba(w::OutOfRangeRgba {
+            color: Some(encode_color(color)),
+        }),
+    };
+    w::OutOfRange { kind: Some(kind) }
+}
+
 fn encode_artist(artist: &Artist) -> w::Artist {
     let kind = match artist {
         Artist::Line(line) => w::ArtistKind::Line(w::Line {
@@ -416,6 +454,33 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             face: Some(encode_color_spec(surface.face)),
             edge: Some(encode_color_spec(surface.edge)),
             edge_width_pt: Some(surface.edge_width_pt),
+        }),
+        Artist::Image(image) => w::ArtistKind::Image(w::Image {
+            id: Some(image.id.0),
+            display_name: image.display_name.as_ref().map(encode_text),
+            visible: Some(image.visible),
+            pixels: Some(image.pixels.0),
+            placement: Some(encode_image_placement(image.placement)),
+        }),
+        Artist::IndexedImage(image) => w::ArtistKind::IndexedImage(w::IndexedImage {
+            id: Some(image.id.0),
+            display_name: image.display_name.as_ref().map(encode_text),
+            visible: Some(image.visible),
+            indices: Some(image.indices.0),
+            placement: Some(encode_image_placement(image.placement)),
+            below: Some(encode_out_of_range(image.below)),
+            above: Some(encode_out_of_range(image.above)),
+            non_finite: Some(encode_out_of_range(image.non_finite)),
+        }),
+        Artist::MappedImage(image) => w::ArtistKind::MappedImage(w::MappedImage {
+            id: Some(image.id.0),
+            display_name: image.display_name.as_ref().map(encode_text),
+            visible: Some(image.visible),
+            values: Some(image.values.0),
+            placement: Some(encode_image_placement(image.placement)),
+            below: Some(encode_out_of_range(image.below)),
+            above: Some(encode_out_of_range(image.above)),
+            non_finite: Some(encode_out_of_range(image.non_finite)),
         }),
     };
     w::Artist { kind: Some(kind) }
@@ -785,6 +850,13 @@ fn decode_artist(wire: w::Artist, at: &str) -> Result<Artist> {
         w::ArtistKind::Surface(surface) => {
             Artist::Surface(decode_surface(surface, &join(at, "surface"))?)
         }
+        w::ArtistKind::Image(image) => Artist::Image(decode_image(image, &join(at, "image"))?),
+        w::ArtistKind::IndexedImage(image) => {
+            Artist::IndexedImage(decode_indexed_image(image, &join(at, "indexed_image"))?)
+        }
+        w::ArtistKind::MappedImage(image) => {
+            Artist::MappedImage(decode_mapped_image(image, &join(at, "mapped_image"))?)
+        }
     })
 }
 
@@ -969,6 +1041,97 @@ fn decode_surface(wire: w::Surface, at: &str) -> Result<Surface> {
     })
 }
 
+/// Decodes the centres of the first and last pixels of an image along an axis, neither
+/// of which has a default, because one centre alone places nothing; `at` is the path of
+/// the range itself.
+fn decode_pixel_range(wire: w::PixelRange, at: &str) -> Result<PixelRange> {
+    Ok(PixelRange {
+        first: required(wire.first, at, "first")?,
+        last: required(wire.last, at, "last")?,
+    })
+}
+
+/// Decodes the plane of an image, taking an unset plane as the default and an absent
+/// offset as the low end of the third axis.
+fn decode_image_plane(wire: Option<w::ImagePlane>) -> ImagePlane {
+    match wire.and_then(|plane| plane.kind) {
+        None => ImagePlane::default(),
+        Some(w::ImagePlaneKind::Xy(xy)) => ImagePlane::Xy { z: xy.z },
+        Some(w::ImagePlaneKind::Xz(xz)) => ImagePlane::Xz { y: xz.y },
+        Some(w::ImagePlaneKind::Yz(yz)) => ImagePlane::Yz { x: yz.x },
+    }
+}
+
+/// Decodes the placement of an image, taking an absent placement as the default and an
+/// absent pixel range as absent; `at` is the path of the placement itself.
+fn decode_image_placement(wire: Option<w::ImagePlacement>, at: &str) -> Result<ImagePlacement> {
+    let wire = wire.unwrap_or_default();
+    Ok(ImagePlacement {
+        plane: decode_image_plane(wire.plane),
+        columns: wire
+            .columns
+            .map(|range| decode_pixel_range(range, &join(at, "columns")))
+            .transpose()?,
+        rows: wire
+            .rows
+            .map(|range| decode_pixel_range(range, &join(at, "rows")))
+            .transpose()?,
+    })
+}
+
+/// Decodes an out-of-range policy, taking an unset policy as the default and a fixed
+/// colour without a colour as black, as a fixed colour specification is taken.
+fn decode_out_of_range(wire: Option<w::OutOfRange>) -> OutOfRange {
+    match wire.and_then(|policy| policy.kind) {
+        None => OutOfRange::default(),
+        Some(w::OutOfRangeKind::Strict(_)) => OutOfRange::Strict,
+        Some(w::OutOfRangeKind::Transparent(_)) => OutOfRange::Transparent,
+        Some(w::OutOfRangeKind::Clamp(_)) => OutOfRange::Clamp,
+        Some(w::OutOfRangeKind::Rgba(rgba)) => OutOfRange::Rgba {
+            color: rgba.color.map(decode_color).unwrap_or_default(),
+        },
+    }
+}
+
+fn decode_image(wire: w::Image, at: &str) -> Result<Image> {
+    let default = Image::default();
+    Ok(Image {
+        id: node_id(wire.id, at)?,
+        display_name: decode_display_name(wire.display_name, at)?,
+        visible: wire.visible.unwrap_or(default.visible),
+        pixels: data_id(wire.pixels, at, "pixels")?,
+        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+    })
+}
+
+fn decode_indexed_image(wire: w::IndexedImage, at: &str) -> Result<IndexedImage> {
+    let default = IndexedImage::default();
+    Ok(IndexedImage {
+        id: node_id(wire.id, at)?,
+        display_name: decode_display_name(wire.display_name, at)?,
+        visible: wire.visible.unwrap_or(default.visible),
+        indices: data_id(wire.indices, at, "indices")?,
+        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+        below: decode_out_of_range(wire.below),
+        above: decode_out_of_range(wire.above),
+        non_finite: decode_out_of_range(wire.non_finite),
+    })
+}
+
+fn decode_mapped_image(wire: w::MappedImage, at: &str) -> Result<MappedImage> {
+    let default = MappedImage::default();
+    Ok(MappedImage {
+        id: node_id(wire.id, at)?,
+        display_name: decode_display_name(wire.display_name, at)?,
+        visible: wire.visible.unwrap_or(default.visible),
+        values: data_id(wire.values, at, "values")?,
+        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+        below: decode_out_of_range(wire.below),
+        above: decode_out_of_range(wire.above),
+        non_finite: decode_out_of_range(wire.non_finite),
+    })
+}
+
 // ---------------------------------------------------------------------------------
 // Transactions
 // ---------------------------------------------------------------------------------
@@ -1120,6 +1283,18 @@ fn encode_value(value: &Value) -> w::Value {
         }),
         Value::QuiverScale(v) => w::ValueKind::QuiverScale(w::ValueQuiverScale {
             value: Some(encode_quiver_scale(*v)),
+        }),
+        Value::ImagePlacement(v) => w::ValueKind::ImagePlacement(w::ValueImagePlacement {
+            value: Some(encode_image_placement(*v)),
+        }),
+        Value::PixelRange(v) => w::ValueKind::PixelRange(w::ValuePixelRange {
+            value: Some(encode_pixel_range(*v)),
+        }),
+        Value::ImagePlane(v) => w::ValueKind::ImagePlane(w::ValueImagePlane {
+            value: Some(encode_image_plane(*v)),
+        }),
+        Value::OutOfRange(v) => w::ValueKind::OutOfRange(w::ValueOutOfRange {
+            value: Some(encode_out_of_range(*v)),
         }),
     };
     w::Value { kind: Some(kind) }
@@ -1376,6 +1551,22 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         w::ValueKind::QuiverScale(v) => {
             let (scale, at) = value_message(v.value, at, "quiver_scale_value")?;
             Value::QuiverScale(decode_quiver_scale(Some(scale), &at)?)
+        }
+        w::ValueKind::ImagePlacement(v) => {
+            let (placement, at) = value_message(v.value, at, "image_placement_value")?;
+            Value::ImagePlacement(decode_image_placement(Some(placement), &at)?)
+        }
+        w::ValueKind::PixelRange(v) => {
+            let (range, at) = value_message(v.value, at, "pixel_range_value")?;
+            Value::PixelRange(decode_pixel_range(range, &at)?)
+        }
+        w::ValueKind::ImagePlane(v) => {
+            let (plane, _) = value_message(v.value, at, "image_plane_value")?;
+            Value::ImagePlane(decode_image_plane(Some(plane)))
+        }
+        w::ValueKind::OutOfRange(v) => {
+            let (policy, _) = value_message(v.value, at, "out_of_range_value")?;
+            Value::OutOfRange(decode_out_of_range(Some(policy)))
         }
     })
 }

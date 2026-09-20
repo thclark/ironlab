@@ -91,10 +91,11 @@
 //!   domain: the identifier of the figure, of each axes and of each artist, the x and y
 //!   data of a line, scatter or quiver, the u and v data of a quiver, the z data of a
 //!   contour or surface, the grid of a contour or surface (its kind and both of its
-//!   coordinate arrays), and the data of per-point scatter sizes and colours. Zero is a
-//!   valid identifier, so substituting it would silently attach an artist to the wrong
-//!   data;
-//! - the bounds of manual limits and the factor of a quiver scale;
+//!   coordinate arrays), the data of per-point scatter sizes and colours, and the
+//!   pixels, indices or values of an image. Zero is a valid identifier, so substituting
+//!   it would silently attach an artist to the wrong data;
+//! - the bounds of manual limits, the factor of a quiver scale, and both centres of a
+//!   pixel range of an image that is present (one centre alone places nothing);
 //! - in a transaction (`edit.proto`), the kind of an edit, of a node and of a value, the
 //!   identifiers that an edit names, the value of a set, the node of an insertion, the
 //!   array of a data edit, and the value held by a value message (an unspecified enum
@@ -104,9 +105,11 @@
 //!   [`ProtobufError::InvalidValue`](crate::ProtobufError::InvalidValue) like any other
 //!   path that is not valid.
 //!
-//! Optional references (the z data of a line, scatter or quiver, the w data of a
-//! quiver and the colour data of a surface) are absent in the domain when they are
-//! absent on the wire. An absent [`Provenance`](crate::Provenance) decodes as an empty
+//! Optional references and values (the z data of a line, scatter or quiver, the w data
+//! of a quiver, the colour data of a surface, and the pixel ranges and plane offset of
+//! an image) are absent in the domain when they are absent on the wire, and the encoder
+//! writes them as absent rather than as a zero, which would move an image. An absent
+//! [`Provenance`](crate::Provenance) decodes as an empty
 //! provenance (empty strings and no fonts) rather than as the provenance of this build,
 //! which did not write the file.
 //!
