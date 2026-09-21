@@ -4,10 +4,10 @@
 //! field would make the figures misrepresent the formula stated in the documentation, and a wrong gradient or normal
 //! would draw arrows that do not mean what their captions say.
 
-use ironlab::Matrix;
+use ironlab::{ByteMatrix, Color, Matrix};
 use ironlab_gallery::fields::{
-    DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, gradient, julia_field, julia_grid, sunflower,
-    surface_normals,
+    DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, gradient, hsl_to_rgb, julia_field, julia_grid,
+    julia_iterate, quantise, sunflower, surface_normals,
 };
 
 fn close(a: f64, b: f64, tolerance: f64) -> bool {
@@ -38,6 +38,151 @@ fn julia_field_matches_independently_computed_values() {
             "julia_field({x}, {y}) = {actual}, expected {expected}"
         );
     }
+}
+
+/// WHY: the domain colouring figure colours each pixel by the argument and the magnitude of z₃ itself, not of the
+/// field, so the iterate must be the complex number whose magnitude the field compresses. The expected parts were
+/// computed with the Python loop above, without the final `log1p(abs(z))`.
+#[test]
+fn julia_iterate_returns_the_parts_of_the_third_iterate() {
+    for (x, y, re, im) in [
+        (0.0, 0.0, -0.774_781_199_104_000_1, 0.190_507_699_2),
+        (0.5, -0.25, -0.685_444_196_939_937_5, -0.079_184_528_425),
+        (-1.0, 0.75, 4.047_473_107_435_064, -5.439_321_178_800_001),
+    ] {
+        let (actual_re, actual_im) = julia_iterate(x, y);
+        assert!(
+            close(actual_re, re, 1e-12) && close(actual_im, im, 1e-12),
+            "julia_iterate({x}, {y}) = ({actual_re}, {actual_im}), expected ({re}, {im})"
+        );
+    }
+    for (x, y) in [(0.3, 0.7), (-1.2, 0.4), (1.5, 1.5)] {
+        let (re, im) = julia_iterate(x, y);
+        assert!(
+            close(re.hypot(im).ln_1p(), julia_field(x, y), 1e-12),
+            "the field at ({x}, {y}) is not ln(1 + |z₃|) of the iterate"
+        );
+    }
+}
+
+/// WHY: the domain colouring maps the argument of z₃ to the hue and its magnitude to the lightness, so the
+/// conversion must place the primary hues where the argument lands them, wrap a hue outside one turn onto the
+/// wheel (the argument of a complex number spans one turn, but ends negative) and run from black through the pure
+/// hue to white as the lightness rises, or the picture would misrepresent the arguments and magnitudes it encodes.
+#[test]
+fn hsl_to_rgb_places_the_primaries_wraps_the_hue_and_spans_black_to_white() {
+    let rgb = |c: Color| (c.r, c.g, c.b);
+    assert_eq!(
+        rgb(hsl_to_rgb(0.0, 1.0, 0.5)),
+        (1.0, 0.0, 0.0),
+        "hue 0 is red"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(1.0 / 3.0, 1.0, 0.5)),
+        (0.0, 1.0, 0.0),
+        "one third of a turn is green"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(2.0 / 3.0, 1.0, 0.5)),
+        (0.0, 0.0, 1.0),
+        "two thirds of a turn is blue"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(1.0 / 6.0, 1.0, 0.5)),
+        (1.0, 1.0, 0.0),
+        "a sixth of a turn is yellow"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(-1.0 / 3.0, 1.0, 0.5)),
+        rgb(hsl_to_rgb(2.0 / 3.0, 1.0, 0.5)),
+        "a negative hue wraps onto the wheel"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(1.25, 1.0, 0.5)),
+        rgb(hsl_to_rgb(0.25, 1.0, 0.5)),
+        "a hue beyond one turn wraps onto the wheel"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(0.4, 1.0, 0.0)),
+        (0.0, 0.0, 0.0),
+        "lightness 0 is black"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(0.4, 1.0, 1.0)),
+        (1.0, 1.0, 1.0),
+        "lightness 1 is white"
+    );
+    assert_eq!(
+        rgb(hsl_to_rgb(0.4, 0.0, 0.25)),
+        (0.25, 0.25, 0.25),
+        "saturation 0 is a grey of the lightness"
+    );
+    let pale_red = hsl_to_rgb(0.0, 1.0, 0.75);
+    assert_eq!(pale_red.r, 1.0);
+    assert!(
+        close(f64::from(pale_red.g), 0.5, 1e-6) && close(f64::from(pale_red.b), 0.5, 1e-6),
+        "lightness above one half tints towards white: {pale_red:?}"
+    );
+    for hue in [0.0, 0.1, 0.5, 0.9] {
+        let c = hsl_to_rgb(hue, 1.0, 0.5);
+        assert_eq!(c.a, 1.0, "the colour is opaque");
+        assert!(
+            [c.r, c.g, c.b].iter().all(|v| (0.0..=1.0).contains(v)),
+            "components stay within 0 to 1: {c:?}"
+        );
+    }
+}
+
+/// WHY: the indexed image entry stores the classes of the field as bytes that index the colormap directly, so the
+/// quantiser must spread the classes over the whole table (class k of n at k · 255 / (n − 1)), keep them monotone in
+/// the value, and put the extremes of the field in the first and last classes; a quantiser that bunched the classes
+/// at one end would draw an almost uniform image.
+#[test]
+fn quantise_spreads_the_classes_over_the_colormap_in_order() {
+    let z = Matrix::from_fn(4, 4, |row, col| (row * 4 + col) as f64 / 15.0);
+    let classes = quantise(&z, 8);
+    assert_eq!((classes.rows(), classes.cols()), (4, 4));
+    let expected_indices = [0, 36, 72, 109, 145, 182, 218, 255];
+    for index in classes.values() {
+        assert!(
+            expected_indices.contains(index),
+            "{index} is not the index of one of eight classes"
+        );
+    }
+    assert_eq!(
+        classes[(0, 0)],
+        0,
+        "the smallest value is in the first class"
+    );
+    assert_eq!(
+        classes[(3, 3)],
+        255,
+        "the largest value is in the last class"
+    );
+    assert!(
+        classes.values().windows(2).all(|pair| pair[0] <= pair[1]),
+        "classes are monotone in the value: {:?}",
+        classes.values()
+    );
+    let distinct: std::collections::BTreeSet<u8> = classes.values().iter().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        8,
+        "sixteen evenly spaced values fill eight classes"
+    );
+
+    // Two classes are the two ends of the colormap; a single class is the first entry.
+    assert_eq!(
+        quantise(&z, 2).values(),
+        &[0; 8].into_iter().chain([255; 8]).collect::<Vec<u8>>()[..]
+    );
+    assert_eq!(quantise(&z, 1), ByteMatrix::zeros(4, 4));
+
+    // The gallery field is what is actually quantised, so its classes must reach both ends of the colormap.
+    let (_, _, field) = julia_grid(41);
+    let field_classes = quantise(&field, 8);
+    assert_eq!(field_classes.values().iter().min(), Some(&0));
+    assert_eq!(field_classes.values().iter().max(), Some(&255));
 }
 
 /// WHY: z ↦ z² + c maps z and −z to the same value, so the field has point symmetry about the origin. This checks

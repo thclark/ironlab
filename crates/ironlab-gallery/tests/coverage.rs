@@ -6,8 +6,8 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, Interpreter, MarkerShape, NodeId,
-    Projection, Scale,
+    Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, ImagePlacement, ImagePlane,
+    Interpreter, MarkerShape, NodeId, OutOfRange, Projection, Scale,
 };
 use ironlab_gallery::{all, find};
 
@@ -21,6 +21,25 @@ fn is_3d(axes: &Axes) -> bool {
     matches!(axes.projection, Projection::ThreeD { .. })
 }
 
+/// Returns the placement of an artist of any of the three image kinds.
+fn image_placement(artist: &Artist) -> Option<ImagePlacement> {
+    match artist {
+        Artist::Image(image) => Some(image.placement),
+        Artist::IndexedImage(image) => Some(image.placement),
+        Artist::MappedImage(image) => Some(image.placement),
+        _ => None,
+    }
+}
+
+/// Returns the below, above and non-finite policies of a colour-indexed or colour-mapped image.
+fn image_policies(artist: &Artist) -> Option<[OutOfRange; 3]> {
+    match artist {
+        Artist::IndexedImage(image) => Some([image.below, image.above, image.non_finite]),
+        Artist::MappedImage(image) => Some([image.below, image.above, image.non_finite]),
+        _ => None,
+    }
+}
+
 fn figures() -> Vec<(&'static str, Figure)> {
     all()
         .into_iter()
@@ -31,7 +50,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 15] = [
+    let requirements: [(&str, Predicate); 22] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
@@ -92,6 +111,46 @@ fn every_required_chart_type_is_present() {
                     .is_some_and(|l| l.interpreter == Interpreter::Latex && l.content.contains('$'))
             })
         }),
+        // WHY: the image entries are the fixtures of the raster paths of the exporter (an image XObject with a soft
+        // mask) and of the viewer (textured quads), and the three kinds are coloured by different rules, so each kind
+        // must be present. Explicit and mirrored pixel ranges, a wall plane and a policy other than the default are
+        // the placement and colouring branches that the defaults never reach, so each needs an entry that uses it.
+        ("image (true colour)", |_, _, artist| {
+            matches!(artist, Artist::Image(_))
+        }),
+        ("indexed_image", |_, _, artist| {
+            matches!(artist, Artist::IndexedImage(_))
+        }),
+        ("mapped_image", |_, _, artist| {
+            matches!(artist, Artist::MappedImage(_))
+        }),
+        ("image with explicit pixel ranges", |_, _, artist| {
+            image_placement(artist).is_some_and(|p| p.columns.is_some() || p.rows.is_some())
+        }),
+        ("image with a mirrored pixel range", |_, _, artist| {
+            image_placement(artist).is_some_and(|p| {
+                [p.columns, p.rows]
+                    .into_iter()
+                    .flatten()
+                    .any(|range| range.first > range.last)
+            })
+        }),
+        (
+            "image on a wall of a three-dimensional axes",
+            |_, axes, artist| {
+                is_3d(axes)
+                    && image_placement(artist).is_some_and(|p| {
+                        matches!(p.plane, ImagePlane::Xz { .. } | ImagePlane::Yz { .. })
+                    })
+            },
+        ),
+        (
+            "image with an out-of-range policy other than transparent",
+            |_, _, artist| {
+                image_policies(artist)
+                    .is_some_and(|policies| policies.iter().any(|p| *p != OutOfRange::Transparent))
+            },
+        ),
     ];
 
     let figures = figures();

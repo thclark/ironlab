@@ -3,7 +3,8 @@
 //! The gridded figures plot the same scalar field, derived from a few iterations of the quadratic map that defines
 //! a Julia set. The field is smooth near the origin and grows rapidly towards the corners of the domain, so it has
 //! enough structure to exercise contouring, colour mapping and three-dimensional views without being as familiar as
-//! MATLAB's `peaks`.
+//! MATLAB's `peaks`. The image figures use the complex iterate itself, a quantised form of the field and a colour
+//! conversion for domain colouring.
 
 use ironlab::prelude::*;
 
@@ -22,17 +23,26 @@ pub const DOMAIN_MIN: f64 = -1.5;
 /// The upper bound of both coordinates of the domain sampled by [`julia_grid`].
 pub const DOMAIN_MAX: f64 = 1.5;
 
-/// Returns `ln(1 + |z₃|)`, where `z₀ = x + iy` and `zₙ₊₁ = zₙ² + c` with `c = −0.8 + 0.156i`.
+/// Returns the real and imaginary parts of `z₃`, where `z₀ = x + iy` and `zₙ₊₁ = zₙ² + c` with `c = −0.8 + 0.156i`.
 ///
-/// The logarithm compresses the rapid growth of the iterates away from the origin, so that the field stays within
-/// a range that a colormap can show.
+/// The domain colouring figure maps the argument of `z₃` to the hue of a pixel and its magnitude to the lightness.
 #[must_use]
-pub fn julia_field(x: f64, y: f64) -> f64 {
+pub fn julia_iterate(x: f64, y: f64) -> (f64, f64) {
     let (mut re, mut im) = (x, y);
     for _ in 0..JULIA_ITERATIONS {
         // (re + i·im)² = re² − im² + 2i·re·im
         (re, im) = (re * re - im * im + JULIA_C_RE, 2.0 * re * im + JULIA_C_IM);
     }
+    (re, im)
+}
+
+/// Returns `ln(1 + |z₃|)`, the field of the magnitude of the iterate returned by [`julia_iterate`].
+///
+/// The logarithm compresses the rapid growth of the iterates away from the origin, so that the field stays within
+/// a range that a colormap can show.
+#[must_use]
+pub fn julia_field(x: f64, y: f64) -> f64 {
+    let (re, im) = julia_iterate(x, y);
     re.hypot(im).ln_1p()
 }
 
@@ -46,6 +56,30 @@ pub fn julia_grid(n: usize) -> (Vec<f64>, Vec<f64>, Matrix) {
     let y = linspace(DOMAIN_MIN, DOMAIN_MAX, n);
     let z = Matrix::from_fn(y.len(), x.len(), |row, col| julia_field(x[col], y[row]));
     (x, y, z)
+}
+
+/// Quantises a field into `count` classes of equal width between its smallest and largest finite values, and returns
+/// the class of every value as the index of a colormap entry.
+///
+/// Class `k` of `count` has the index `k · 255 / (count − 1)`, rounded down, so that the classes are spread over the
+/// whole of a 256-entry colormap rather than bunched at its start; the largest value belongs to the last class. A
+/// `count` of 0 or 1 puts every value in class 0, as does a field whose finite values are all equal, and a value that
+/// is not finite is in class 0.
+#[must_use]
+pub fn quantise(z: &Matrix, count: usize) -> ByteMatrix {
+    let finite = z.values().iter().copied().filter(|v| v.is_finite());
+    let (min, max) = finite.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+        (lo.min(v), hi.max(v))
+    });
+    let last = count.saturating_sub(1);
+    ByteMatrix::from_fn(z.rows(), z.cols(), |row, col| {
+        let value = z[(row, col)];
+        if last == 0 || !value.is_finite() || max <= min {
+            return 0;
+        }
+        let class = (((value - min) / (max - min) * count as f64).floor() as usize).min(last);
+        (class * 255 / last) as u8
+    })
 }
 
 /// Returns the partial derivatives `(∂z/∂x, ∂z/∂y)` of a field sampled on a rectilinear grid, as MATLAB's
@@ -100,6 +134,34 @@ pub fn sunflower(n: usize, radius: f64) -> (Vec<f64>, Vec<f64>) {
             (r * theta.cos(), r * theta.sin())
         })
         .unzip()
+}
+
+/// Returns the opaque colour with the given hue, saturation and lightness (HSL).
+///
+/// The hue is measured in turns, so that 0, ⅓ and ⅔ are red, green and blue, and a value outside one turn is wrapped
+/// onto the colour wheel, as the argument of a complex number divided by 2π needs. The saturation and the lightness
+/// run from 0 to 1: a lightness of 0 is black, ½ is the pure hue at full saturation and 1 is white.
+#[must_use]
+pub fn hsl_to_rgb(hue_turns: f64, saturation: f64, lightness: f64) -> Color {
+    // The chroma is the spread between the largest and smallest components; the hue picks which sextant of the
+    // wheel supplies the middle component, and the offset lifts every component to the requested lightness.
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let sextant = hue_turns.rem_euclid(1.0) * 6.0;
+    let middle = chroma * (1.0 - (sextant % 2.0 - 1.0).abs());
+    let (r, g, b) = match sextant as usize {
+        0 => (chroma, middle, 0.0),
+        1 => (middle, chroma, 0.0),
+        2 => (0.0, chroma, middle),
+        3 => (0.0, middle, chroma),
+        4 => (middle, 0.0, chroma),
+        _ => (chroma, 0.0, middle),
+    };
+    let offset = lightness - chroma / 2.0;
+    Color::rgb(
+        (r + offset) as f32,
+        (g + offset) as f32,
+        (b + offset) as f32,
+    )
 }
 
 /// The source text of this module, shown on the gallery's data helpers page.
