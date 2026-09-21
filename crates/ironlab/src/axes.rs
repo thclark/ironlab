@@ -1,14 +1,18 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, IrError,
-    Legend, LegendLocation, Limits, Line, NdArray, NodeId, Projection, Quiver, Scale, Scatter,
-    Surface, Text, View3d,
+    Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
+    IndexedImage, IrError, Legend, LegendLocation, Limits, Line, MappedImage, NdArray, NodeId,
+    Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
 };
 
-use crate::artists::{ContourMut, LineMut, QuiverMut, ScatterMut, SurfaceMut};
+use crate::artists::{
+    ContourMut, ImageMut, IndexedImageMut, LineMut, MappedImageMut, QuiverMut, ScatterMut,
+    SurfaceMut,
+};
 use crate::grid::{GridCoords, matrix_array, store_grid};
 use crate::matrix::Matrix;
+use crate::pixels::{ImageValues, Pixels};
 
 /// A handle to one axes of a figure, through which plots are added and axes
 /// properties are set.
@@ -24,7 +28,8 @@ use crate::matrix::Matrix;
 /// Every array is copied into the figure, so the caller's data may be dropped or
 /// changed afterwards. Plotting functions that need three dimensions (`plot3`,
 /// `scatter3`, `contour3`, `quiver3`, `surf` and `mesh`) convert a two-dimensional
-/// axes to three dimensions with the default view, as MATLAB does.
+/// axes to three dimensions with the default view, as MATLAB does; so does placing an
+/// image on a wall of the axes with [`plane`](ImageMut::plane).
 ///
 /// ```
 /// use ironlab::prelude::*;
@@ -273,6 +278,112 @@ impl AxesMut<'_> {
             color: self.fig.background,
         };
         self.add_surface(x.into(), y.into(), z, face, ColorSpec::Colormapped)
+    }
+
+    // Images.
+
+    /// Draws a true-colour image: a raster of pixels, each with its own colour (MATLAB's
+    /// `image` with a true-colour array).
+    ///
+    /// The image lies in the xy plane of the axes with the centres of its pixels at 0,
+    /// 1, …, n − 1 along each axis, so that an image of `nx` columns covers −0.5 to
+    /// nx − 0.5, and row 0 of the pixels lies at y = 0.
+    /// [`pixel_columns`](ImageMut::pixel_columns) and [`pixel_rows`](ImageMut::pixel_rows)
+    /// place the pixel centres over other coordinates, and [`plane`](ImageMut::plane)
+    /// puts the image on the floor or a wall of a three-dimensional axes. The axes is
+    /// left as it is: a two-dimensional axes stays two-dimensional.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let pixels = Pixels::rgb_from_fn(32, 32, |row, col| {
+    ///     Color::rgb(row as f32 / 31.0, col as f32 / 31.0, 0.5)
+    /// });
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0);
+    /// ```
+    pub fn image(&mut self, pixels: &Pixels) -> ImageMut<'_> {
+        let pixels = self.fig.add_data(pixels.to_array());
+        let id = self.push_artist(|id| {
+            Artist::Image(Image {
+                id,
+                pixels,
+                ..Image::default()
+            })
+        });
+        ImageMut::new(self.fig, id)
+    }
+
+    /// Draws a colour-indexed image: a raster of pixels whose values name entries of the
+    /// axes colormap directly (MATLAB's `image` with an indexed array).
+    ///
+    /// An index from 0 to 255 takes that entry of the colormap; a floating-point index
+    /// is truncated toward zero first. The indices neither use nor change the colour
+    /// limits of the axes. A pixel whose index lies outside the colormap, or is not
+    /// finite, is transparent unless the handle's [`below`](IndexedImageMut::below),
+    /// [`above`](IndexedImageMut::above) and [`non_finite`](IndexedImageMut::non_finite)
+    /// policies say otherwise. The indices are taken from a [`ByteMatrix`](crate::ByteMatrix), stored as
+    /// bytes, or a [`Matrix`], stored as floating-point values, by value or by
+    /// reference, and the image is placed as by [`image`](AxesMut::image).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let classes = ByteMatrix::from_fn(8, 8, |row, col| ((row + col) % 4 * 85) as u8);
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).indexed_image(&classes).above(OutOfRange::Clamp);
+    /// ```
+    pub fn indexed_image(&mut self, indices: impl Into<ImageValues>) -> IndexedImageMut<'_> {
+        let indices = self.fig.add_data(indices.into().into_array());
+        let id = self.push_artist(|id| {
+            Artist::IndexedImage(IndexedImage {
+                id,
+                indices,
+                ..IndexedImage::default()
+            })
+        });
+        IndexedImageMut::new(self.fig, id)
+    }
+
+    /// Draws a colour-mapped image: a raster of data values, each scaled through the
+    /// colour limits of the axes into its colormap (MATLAB's `imagesc`).
+    ///
+    /// The values are coloured as the colour data of a surface is, and contribute to
+    /// automatic colour limits in the same way; [`clim`](AxesMut::clim) fixes the
+    /// limits. A pixel whose value lies outside the colour limits, or is not finite, is
+    /// transparent unless the handle's [`below`](MappedImageMut::below),
+    /// [`above`](MappedImageMut::above) and [`non_finite`](MappedImageMut::non_finite)
+    /// policies say otherwise. The values are taken from a [`Matrix`] or a
+    /// [`ByteMatrix`](crate::ByteMatrix) as by [`indexed_image`](AxesMut::indexed_image), and the image is
+    /// placed as by [`image`](AxesMut::image).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(-2.0, 2.0, 81);
+    /// let y = linspace(-1.0, 1.0, 41);
+    /// let field = Matrix::from_fn(y.len(), x.len(), |row, col| (x[col] * y[row]).sin());
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .mapped_image(&field)
+    ///     .pixel_columns(-2.0, 2.0)
+    ///     .pixel_rows(-1.0, 1.0)
+    ///     .non_finite(Color::BLACK);
+    /// fig.axes(0, 0).colormap(Colormap::Magma).clim(-1.0, 1.0);
+    /// ```
+    pub fn mapped_image(&mut self, values: impl Into<ImageValues>) -> MappedImageMut<'_> {
+        let values = self.fig.add_data(values.into().into_array());
+        let id = self.push_artist(|id| {
+            Artist::MappedImage(MappedImage {
+                id,
+                values,
+                ..MappedImage::default()
+            })
+        });
+        MappedImageMut::new(self.fig, id)
     }
 
     // Axes properties.

@@ -5,11 +5,12 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, DashStyle, DataId, Figure, Image, IndexedImage, Levels, Line, MappedImage,
-    MarkerShape, NdArray, NodeId, Quiver, QuiverScale, Scatter, ScatterColor, ScatterSize, Surface,
-    Text,
+    Artist, Contour, DashStyle, DataId, Figure, Image, ImagePlane, IndexedImage, Levels, Line,
+    MappedImage, MarkerShape, NdArray, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale,
+    Scatter, ScatterColor, ScatterSize, Surface, Text,
 };
 
+use crate::axes::AxesMut;
 use crate::color::IntoColorSpec;
 use crate::grid::matrix_array;
 use crate::matrix::Matrix;
@@ -44,6 +45,68 @@ artist_handle!(ScatterMut, Scatter);
 artist_handle!(ContourMut, Contour);
 artist_handle!(QuiverMut, Quiver);
 artist_handle!(SurfaceMut, Surface);
+
+/// Defines the constructor and accessor of an image handle, and the setters that every
+/// kind of image has: its legend name, the placement of its pixel centres and its
+/// plane.
+macro_rules! image_handle {
+    ($handle:ident, $variant:ident) => {
+        artist_handle!($handle, $variant);
+
+        impl $handle<'_> {
+            /// Returns the node identifier of the image.
+            #[must_use]
+            pub fn id(&self) -> NodeId {
+                self.id
+            }
+
+            /// Sets the name shown for the image in the legend.
+            pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
+                self.artist().display_name = Some(name.into());
+                self
+            }
+
+            /// Places the centres of the first and last columns of the image at the
+            /// given coordinates along the first axis of its plane (MATLAB's `XData`).
+            ///
+            /// The pitch between centres follows from the number of columns, and the
+            /// image covers half a pitch beyond each centre; a `last` less than `first`
+            /// mirrors the image. Without a range the centres lie at 0, 1, …, n − 1.
+            /// The coordinates must be finite and may coincide only when the image has
+            /// one column, as [`Figure::validate`](crate::Figure::validate) checks.
+            pub fn pixel_columns(&mut self, first: f64, last: f64) -> &mut Self {
+                self.artist().placement.columns = Some(PixelRange { first, last });
+                self
+            }
+
+            /// Places the centres of the first and last rows of the image at the given
+            /// coordinates along the second axis of its plane (MATLAB's `YData`), as
+            /// [`pixel_columns`](Self::pixel_columns) places the columns.
+            ///
+            /// Row 0 of the pixels lies at `first`, so an image whose rows count down
+            /// from its top is placed the right way up by a `first` greater than `last`.
+            pub fn pixel_rows(&mut self, first: f64, last: f64) -> &mut Self {
+                self.artist().placement.rows = Some(PixelRange { first, last });
+                self
+            }
+
+            /// Sets the plane of the axes in which the image lies, with its offset along
+            /// the third axis.
+            ///
+            /// The xz and yz planes are the walls of a three-dimensional axes, so placing
+            /// the image in one of them converts a two-dimensional axes to three
+            /// dimensions with the default view, as [`surf`](crate::AxesMut::surf) does;
+            /// an axes that is already three-dimensional keeps its view. The xy plane
+            /// never changes the projection: it is the only plane of a two-dimensional
+            /// axes, which ignores its height, and the floor of a three-dimensional one.
+            pub fn plane(&mut self, plane: ImagePlane) -> &mut Self {
+                self.artist().placement.plane = plane;
+                make_3d_for_wall(self.fig, self.id, plane);
+                self
+            }
+        }
+    };
+}
 
 /// A handle to a line created by [`plot`](crate::AxesMut::plot) and its relatives.
 ///
@@ -386,6 +449,153 @@ impl SurfaceMut<'_> {
         }
         self
     }
+}
+
+/// A handle to a true-colour image created by [`image`](crate::AxesMut::image).
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let pixels = Pixels::rgb_from_fn(16, 16, |row, col| {
+///     Color::rgb(row as f32 / 15.0, col as f32 / 15.0, 0.0)
+/// });
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .image(&pixels)
+///     .pixel_columns(0.0, 1.0)
+///     .pixel_rows(1.0, 0.0)
+///     .display_name("gradient");
+/// ```
+#[derive(Debug)]
+pub struct ImageMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+}
+
+image_handle!(ImageMut, Image);
+
+/// A handle to a colour-indexed image created by
+/// [`indexed_image`](crate::AxesMut::indexed_image).
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let classes = ByteMatrix::from_fn(8, 8, |row, col| ((row + col) % 4 * 85) as u8);
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .indexed_image(&classes)
+///     .pixel_columns(0.5, 7.5)
+///     .above(OutOfRange::Clamp)
+///     .display_name("classes");
+/// ```
+#[derive(Debug)]
+pub struct IndexedImageMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+}
+
+image_handle!(IndexedImageMut, IndexedImage);
+
+impl IndexedImageMut<'_> {
+    /// Sets what is drawn for a pixel whose truncated index is less than 0.
+    ///
+    /// A [`Color`](crate::Color) gives the fixed-colour policy [`OutOfRange::Rgba`].
+    /// [`OutOfRange::Strict`] makes such a pixel a validation error,
+    /// [`OutOfRange::Transparent`], the default, draws nothing, and
+    /// [`OutOfRange::Clamp`] draws the first entry of the colormap.
+    pub fn below(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().below = policy.into();
+        self
+    }
+
+    /// Sets what is drawn for a pixel whose truncated index is greater than 255.
+    ///
+    /// The policies are as for [`below`](Self::below), except that a clamp draws the
+    /// last entry of the colormap.
+    pub fn above(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().above = policy.into();
+        self
+    }
+
+    /// Sets what is drawn for a pixel whose index is NaN or infinite, which only
+    /// floating-point indices can hold.
+    ///
+    /// The policies are as for [`below`](Self::below), except that a clamp draws
+    /// nothing, because a non-finite index has no nearest end of the colormap.
+    pub fn non_finite(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().non_finite = policy.into();
+        self
+    }
+}
+
+/// A handle to a colour-mapped image created by
+/// [`mapped_image`](crate::AxesMut::mapped_image).
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let field = Matrix::from_fn(20, 30, |row, col| (row as f64 - 10.0) * (col as f64 - 15.0));
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .mapped_image(&field)
+///     .plane(ImagePlane::Xz { y: Some(0.0) })
+///     .below(Color::BLACK)
+///     .above(Color::WHITE)
+///     .non_finite(OutOfRange::Strict);
+/// ```
+#[derive(Debug)]
+pub struct MappedImageMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+}
+
+image_handle!(MappedImageMut, MappedImage);
+
+impl MappedImageMut<'_> {
+    /// Sets what is drawn for a pixel whose value is less than the lower colour limit.
+    ///
+    /// A [`Color`](crate::Color) gives the fixed-colour policy [`OutOfRange::Rgba`].
+    /// [`OutOfRange::Strict`] makes such a pixel a validation error,
+    /// [`OutOfRange::Transparent`], the default, draws nothing, and
+    /// [`OutOfRange::Clamp`] draws the first entry of the colormap.
+    pub fn below(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().below = policy.into();
+        self
+    }
+
+    /// Sets what is drawn for a pixel whose value is greater than the upper colour
+    /// limit.
+    ///
+    /// The policies are as for [`below`](Self::below), except that a clamp draws the
+    /// last entry of the colormap.
+    pub fn above(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().above = policy.into();
+        self
+    }
+
+    /// Sets what is drawn for a pixel whose value is NaN or infinite.
+    ///
+    /// The policies are as for [`below`](Self::below), except that a clamp draws
+    /// nothing, because a non-finite value has no nearest end of the colormap.
+    pub fn non_finite(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
+        self.artist().non_finite = policy.into();
+        self
+    }
+}
+
+/// Converts the axes that holds an image to three dimensions when the image is placed
+/// on a wall of the axes (the xz or yz plane), through the path that `surf` uses, so
+/// that an axes that is already three-dimensional keeps its view. The xy plane leaves
+/// the axes as it is.
+fn make_3d_for_wall(fig: &mut Figure, id: NodeId, plane: ImagePlane) {
+    if matches!(plane, ImagePlane::Xy { .. }) {
+        return;
+    }
+    let axes_id = fig
+        .artist(id)
+        .map(|(axes, _)| axes.id)
+        .expect("an image handle always refers to an artist of its figure");
+    AxesMut::new(fig, axes_id).make_3d();
 }
 
 /// Removes an array that a setter has replaced from the figure's data table, unless

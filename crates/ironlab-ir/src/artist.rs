@@ -710,3 +710,10 @@ pub enum OutOfRange {
         color: Color,
     },
 }
+
+impl From<Color> for OutOfRange {
+    /// A colour is the fixed-colour policy: such a pixel is drawn in that colour.
+    fn from(color: Color) -> Self {
+        OutOfRange::Rgba { color }
+    }
+}
