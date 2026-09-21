@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.95"
 license = "AGPL-3.0-or-later"
@@ -12,12 +12,12 @@ homepage = "https://ironlab.org"
 authors = ["Tom Clark"]
 
 [workspace.dependencies]
-ironlab-ir = { path = "crates/ironlab-ir", version = "0.6.0" }
-ironlab-text = { path = "crates/ironlab-text", version = "0.6.0" }
-ironlab-scene = { path = "crates/ironlab-scene", version = "0.6.0" }
-ironlab-pdf = { path = "crates/ironlab-pdf", version = "0.6.0" }
-ironlab-viewer = { path = "crates/ironlab-viewer", version = "0.6.0" }
-ironlab = { path = "crates/ironlab", version = "0.6.0" }
+ironlab-ir = { path = "crates/ironlab-ir", version = "0.7.0" }
+ironlab-text = { path = "crates/ironlab-text", version = "0.7.0" }
+ironlab-scene = { path = "crates/ironlab-scene", version = "0.7.0" }
+ironlab-pdf = { path = "crates/ironlab-pdf", version = "0.7.0" }
+ironlab-viewer = { path = "crates/ironlab-viewer", version = "0.7.0" }
+ironlab = { path = "crates/ironlab", version = "0.7.0" }
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
