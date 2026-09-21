@@ -499,9 +499,9 @@ ir_node! {
         plain "visible" => visible: bool = "Whether the artist is drawn.";
         plain "grid" => grid: Grid = "The grid on which the surface is sampled.";
         plain "z" => z: DataId =
-            "The height of every node, a two-dimensional array of shape [ny, nx].";
+            "The field, a two-dimensional array of shape [ny, nx]: the height of every node in a three-dimensional axes, and the colour data of every node unless c is given.";
         optional "c" => c: DataId =
-            "The colour data of every node, with the same shape as the height; when absent the surface is coloured by its height.";
+            "The colour data of every node, with the same shape as the field; when absent the surface is coloured by its field.";
         plain "face" => face: ColorSpec = "The colour of the faces.";
         plain "edge" => edge: ColorSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";

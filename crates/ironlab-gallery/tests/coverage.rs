@@ -6,7 +6,7 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, ImagePlacement, ImagePlane,
+    Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane,
     Interpreter, Limits, MarkerShape, NodeId, OutOfRange, Projection, Scale,
 };
 use ironlab_gallery::{all, find};
@@ -50,7 +50,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 23] = [
+    let requirements: [(&str, Predicate); 24] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
@@ -101,6 +101,17 @@ fn every_required_chart_type_is_present() {
             is_3d(axes)
                 && matches!(artist, Artist::Surface(s) if s.edge == ColorSpec::Colormapped && s.face != ColorSpec::Colormapped)
         }),
+        // WHY: a surface in a 2D axes is the pseudocolour plot (MATLAB's `pcolor`), which the compiler draws from
+        // directly above with the field colouring the faces and positioning nothing. A curvilinear grid is what such
+        // a plot can show and an image cannot, so the entry must use one; otherwise the 2D path would be exercised
+        // only on a grid that a mapped image could have drawn.
+        (
+            "surface in a two-dimensional axes on a curvilinear grid",
+            |_, axes, artist| {
+                is_2d(axes)
+                    && matches!(artist, Artist::Surface(s) if s.face == ColorSpec::Colormapped && matches!(s.grid, Grid::Curvilinear { .. }))
+            },
+        ),
         ("legend with a named series", |_, axes, artist| {
             axes.legend.is_some() && artist.display_name().is_some()
         }),

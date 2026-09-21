@@ -39,7 +39,7 @@ Each of these returns an `AxesMut` handle. The handle borrows the figure mutably
 
 ## Plotting functions
 
-Plotting functions are methods of `AxesMut`. They follow MATLAB's names and argument order, copy their data into the figure, and return a handle whose setters change the new plot's properties and can be chained. Vectors are passed as anything that can be viewed as a slice of `f64`, such as `Vec<f64>`, `&[f64]` or an array.
+Plotting functions are methods of `AxesMut`. They follow MATLAB's names and argument order, copy their data into the figure, and return a handle whose setters change the new plot's properties and can be chained. The [equivalent functions](../reference/equivalent-functions.md) page maps the function names of MATLAB, matplotlib and Plotly to IronLAB's. Vectors are passed as anything that can be viewed as a slice of `f64`, such as `Vec<f64>`, `&[f64]` or an array.
 
 The helper functions `linspace(start, end, n)`, `logspace(start_exp, end_exp, n)` and `meshgrid(&x, &y)` create coordinates as in MATLAB. Gridded data is passed as a `Matrix`, which has one row per y coordinate and one column per x coordinate, so that the value in row `j` and column `i` belongs to the point `(x[i], y[j])`.
 
@@ -119,7 +119,7 @@ fig.axes(0, 0)
 
 ### Surfaces
 
-`surf(x, y, z)` draws a surface whose faces are coloured from the colormap by height and outlined by thin black edges. `mesh(x, y, z)` draws a wireframe whose faces are filled with the background colour, so that they hide the edges behind them, and whose edges are coloured from the colormap. Both convert the axes to three dimensions.
+`surf(x, y, z)` draws the surface of the heights `z` over a grid, whose faces are coloured from the colormap by height and outlined by thin black edges. `mesh(x, y, z)` draws a wireframe whose faces are filled with the background colour, so that they hide the edges behind them, and whose edges are coloured from the colormap. Both convert the axes to three dimensions.
 
 ```rust
 fig.axes3(0, 0)
@@ -133,6 +133,38 @@ fig.axes3(0, 0)
 Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, and a `ColorSpec` chooses the automatic colour (`ColorSpec::Auto`) or a colour taken from the colormap (`ColorSpec::Colormapped`).
 
 A surface of ten thousand faces or more is exported as an image rather than as one path per face; see [dense surfaces](#dense-surfaces).
+
+#### Surfaces in two-dimensional axes
+
+`surface(x, y, z)` draws the same surface as `surf`, with the same defaults, and leaves the axes as it is: a two-dimensional axes stays two-dimensional, and a three-dimensional axes keeps its view. A two-dimensional axes shows a surface from directly above, which makes it a pseudocolour plot: the equivalent of MATLAB's `pcolor`, of matplotlib's `pcolormesh` and `pcolor`, and of Plotly's `Heatmap`. The grid alone places the faces. The field `z` positions nothing, and colours the faces unless `color_data` is given.
+
+```rust
+let radius = logspace(0.0, 0.6, 17);                  // rings from r = 1 to r ≈ 4, crowded towards r = 1
+let angle = linspace(0.0, std::f64::consts::TAU, 73); // the first and last spokes coincide
+let (theta, r) = meshgrid(&angle, &radius);           // the angle and the radius of every node
+let x = Matrix::from_fn(r.rows(), r.cols(), |row, col| r[(row, col)] * theta[(row, col)].cos());
+let y = Matrix::from_fn(r.rows(), r.cols(), |row, col| r[(row, col)] * theta[(row, col)].sin());
+let field = Matrix::from_fn(r.rows(), r.cols(), |row, col| r[(row, col)].ln() * theta[(row, col)].sin());
+
+let mut ax = fig.axes(0, 0);
+ax.surface(x, y, &field)   // coordinate matrices make a curvilinear grid
+    .edge_color(None);     // no edges, as MATLAB's `shading flat`
+ax.colormap(Colormap::Viridis);
+```
+
+Out of the box, a surface in a two-dimensional axes and a [colour-mapped image](#images) differ in one respect only: the values of an image are pixels, and the values of a surface are vertices.
+
+| | `mapped_image` | `surface` in a two-dimensional axes |
+| --- | --- | --- |
+| A value belongs to | the centre of a pixel | a vertex of the grid |
+| A field of n rows and m columns draws | n × m pixels, each in the colour of its own value | (n − 1) × (m − 1) faces, each in the colour of the mean of its four corner values |
+| Placement | evenly spaced pixel centres, given by the first and last centre along each axis | any rectilinear grid (two coordinate vectors) or curvilinear grid (two coordinate matrices) |
+| Logarithmic axes | not drawn, with a validation warning | drawn, because every vertex is placed through the scale of its axis |
+| Drawn as | one flat raster at its own resolution | one quadrilateral per face, with optional edges |
+
+An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: it passes validation, and the surface is left out of the drawing with a warning. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
+
+A surface added with `surface` is an ordinary surface, so a later `surf` or `mesh` in the same axes converts that axes to three dimensions and the earlier surface is drawn there with `z` as its height. The [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry draws a field on a polar mesh in this way, and the [figure schema](../reference/figure-schema.md#surface) states how a surface is stored.
 
 ### Images
 
@@ -254,7 +286,7 @@ These link only the axes that exist when they are called, so they are called aft
 
 ## Three-dimensional axes
 
-A three-dimensional axes is drawn through an orthographic camera described by its azimuth (the rotation about the vertical axis) and its elevation (the angle of the view above the x–y plane). The default view is MATLAB's, with an azimuth of −37.5° and an elevation of 30°. An axes becomes three-dimensional when it is created with `axes3`, when `view` is called on it, when any of `plot3`, `scatter3`, `contour3`, `quiver3`, `surf` or `mesh` adds a plot to it, or when an [image](#images) is placed on one of its walls with `plane`.
+A three-dimensional axes is drawn through an orthographic camera described by its azimuth (the rotation about the vertical axis) and its elevation (the angle of the view above the x–y plane). The default view is MATLAB's, with an azimuth of −37.5° and an elevation of 30°. An axes becomes three-dimensional when it is created with `axes3`, when `view` is called on it, when any of `plot3`, `scatter3`, `contour3`, `quiver3`, `surf` or `mesh` adds a plot to it, or when an [image](#images) is placed on one of its walls with `plane`. `surface` and the image functions leave an axes as it is, so [`surface` in a two-dimensional axes](#surfaces-in-two-dimensional-axes) draws a pseudocolour plot.
 
 ```rust
 let mut ax = fig.axes3(0, 0);

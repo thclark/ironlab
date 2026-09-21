@@ -5,8 +5,8 @@ use ironlab_ir::{DataId, Grid, NdArray, Values};
 use crate::matrix::Matrix;
 
 /// The coordinates of a grid along one dimension, passed as the `x` or `y` argument of
-/// gridded plots such as [`contour`](crate::AxesMut::contour) and
-/// [`surf`](crate::AxesMut::surf).
+/// gridded plots such as [`contour`](crate::AxesMut::contour),
+/// [`surf`](crate::AxesMut::surf) and [`surface`](crate::AxesMut::surface).
 ///
 /// A vector gives one coordinate per column (for `x`) or per row (for `y`) and
 /// describes an axis-aligned (rectilinear) grid. A matrix gives the coordinate of

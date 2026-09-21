@@ -29,7 +29,8 @@ use crate::pixels::{ImageValues, Pixels};
 /// changed afterwards. Plotting functions that need three dimensions (`plot3`,
 /// `scatter3`, `contour3`, `quiver3`, `surf` and `mesh`) convert a two-dimensional
 /// axes to three dimensions with the default view, as MATLAB does; so does placing an
-/// image on a wall of the axes with [`plane`](ImageMut::plane).
+/// image on a wall of the axes with [`plane`](ImageMut::plane). [`surface`](AxesMut::surface)
+/// and the image functions leave the axes as it is.
 ///
 /// ```
 /// use ironlab::prelude::*;
@@ -252,13 +253,15 @@ impl AxesMut<'_> {
     /// axes to three dimensions.
     ///
     /// Faces are coloured from the colormap by height and outlined by thin black
-    /// edges.
+    /// edges. [`surface`](AxesMut::surface) adds the same surface without converting the
+    /// axes.
     pub fn surf(
         &mut self,
         x: impl Into<GridCoords>,
         y: impl Into<GridCoords>,
         z: &Matrix,
     ) -> SurfaceMut<'_> {
+        self.make_3d();
         let defaults = Surface::default();
         self.add_surface(x.into(), y.into(), z, defaults.face, defaults.edge)
     }
@@ -274,10 +277,62 @@ impl AxesMut<'_> {
         y: impl Into<GridCoords>,
         z: &Matrix,
     ) -> SurfaceMut<'_> {
+        self.make_3d();
         let face = ColorSpec::Rgba {
             color: self.fig.background,
         };
         self.add_surface(x.into(), y.into(), z, face, ColorSpec::Colormapped)
+    }
+
+    /// Draws the surface of the field `z` over a grid and leaves the axes as it is: a
+    /// two-dimensional axes stays two-dimensional, and a three-dimensional axes keeps
+    /// its view.
+    ///
+    /// In a two-dimensional axes the surface is seen from directly above, which makes
+    /// it a pseudocolour plot: the equivalent of MATLAB's `pcolor`, of matplotlib's
+    /// `pcolormesh` and `pcolor`, and of Plotly's `Heatmap` with vertex coordinates. The
+    /// grid alone places the faces, and `z` positions nothing but still colours the
+    /// faces unless [`color_data`](SurfaceMut::color_data) is given. In a
+    /// three-dimensional axes the surface is drawn exactly as [`surf`](AxesMut::surf)
+    /// draws it, with `z` as the height of every node.
+    ///
+    /// The values of `z` belong to the vertices of the grid, not to its faces. A field
+    /// of n rows and m columns therefore draws (n − 1) × (m − 1) faces, and a field with
+    /// a single row or a single column draws nothing. Each face takes the colour of the
+    /// mean of the values at its four corners. MATLAB's `pcolor` with its default flat
+    /// shading instead gives each face the value of its first corner and never shows
+    /// the last row and column of the field.
+    ///
+    /// The grid is given as for `surf`: two vectors make a rectilinear grid, and two
+    /// matrices of the shape of `z` make a curvilinear grid, on which every vertex has
+    /// its own position. Because a surface is made of vertices, it can be drawn on
+    /// logarithmic axes, which an image cannot. Faces are coloured from the colormap
+    /// and outlined by thin black edges, as for `surf`; `edge_color(None)` removes the
+    /// edges, which suits a fine grid (MATLAB's `shading flat`).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// // A field on a polar mesh, given as coordinate matrices.
+    /// let (rings, spokes) = (12, 48);
+    /// let radius = |row: usize| 1.0 + row as f64 / (rings - 1) as f64;
+    /// let angle = |col: usize| std::f64::consts::TAU * col as f64 / (spokes - 1) as f64;
+    /// let x = Matrix::from_fn(rings, spokes, |row, col| radius(row) * angle(col).cos());
+    /// let y = Matrix::from_fn(rings, spokes, |row, col| radius(row) * angle(col).sin());
+    /// let field = Matrix::from_fn(rings, spokes, |row, col| radius(row) * angle(col).sin());
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).surface(x, y, &field).edge_color(None);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn surface(
+        &mut self,
+        x: impl Into<GridCoords>,
+        y: impl Into<GridCoords>,
+        z: &Matrix,
+    ) -> SurfaceMut<'_> {
+        let defaults = Surface::default();
+        self.add_surface(x.into(), y.into(), z, defaults.face, defaults.edge)
     }
 
     // Images.
@@ -638,7 +693,7 @@ impl AxesMut<'_> {
         ContourMut::new(self.fig, id)
     }
 
-    /// Adds a surface over a gridded field, converting the axes to three dimensions.
+    /// Adds a surface over a gridded field, leaving the projection of the axes as it is.
     fn add_surface(
         &mut self,
         x: GridCoords,
@@ -647,7 +702,6 @@ impl AxesMut<'_> {
         face: ColorSpec,
         edge: ColorSpec,
     ) -> SurfaceMut<'_> {
-        self.make_3d();
         let grid = store_grid(self.fig, x, y, z);
         let z = self.fig.add_data(matrix_array(z));
         let id = self.push_artist(|id| {

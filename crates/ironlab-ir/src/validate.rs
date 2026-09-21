@@ -53,7 +53,9 @@ pub enum IssueKind {
     /// cannot plot an array of 8-bit values. The three image kinds accept either
     /// element type.
     ElementTypeMismatch,
-    /// A three-dimensional artist or placement is used in a two-dimensional axes.
+    /// An artist or placement that needs the z axis (z or w data, contours at their
+    /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
+    /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
     /// An axis link refers to an identifier that is not an axes of the figure.
     DanglingLink,
@@ -432,7 +434,7 @@ impl Validator<'_> {
                         Some(node),
                         IssueKind::ShapeMismatch,
                         format!(
-                            "the colour data has shape {:?}, but the heights have shape {:?}",
+                            "the colour data has shape {:?}, but the field has shape {:?}",
                             data[&c].shape, data[&surface.z].shape
                         ),
                     );
@@ -856,7 +858,9 @@ struct ArtistUsage {
     references: Vec<DataId>,
     /// The arrays whose values are plotted as positions along a dimension.
     positions: Vec<(Dimension, DataId)>,
-    /// Whether the artist can only be drawn in a three-dimensional axes.
+    /// Whether the artist can only be drawn in a three-dimensional axes, because it needs
+    /// the z axis to be placed. A surface does not: seen from directly above, it is the
+    /// pseudocolour plot of a two-dimensional axes.
     three_d: bool,
     /// Whether the artist can use arrays of 8-bit values, as the image kinds can.
     accepts_bytes: bool,
@@ -942,10 +946,13 @@ impl ArtistUsage {
                 positions.push((Dimension::Z, surface.z));
                 let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
                 references.extend(surface.c);
+                // A surface is valid in either projection. In a two-dimensional axes it is
+                // seen from directly above, so its field positions nothing there; the
+                // caller passes over positions along z in a two-dimensional axes.
                 Self {
                     references,
                     positions,
-                    three_d: true,
+                    three_d: false,
                     accepts_bytes: false,
                 }
             }

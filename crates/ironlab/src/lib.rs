@@ -4,7 +4,8 @@
 //! with functions named after their MATLAB equivalents: [`plot`](AxesMut::plot),
 //! [`scatter`](AxesMut::scatter), [`contour`](AxesMut::contour),
 //! [`quiver`](AxesMut::quiver), [`surf`](AxesMut::surf), [`image`](AxesMut::image)
-//! and their relatives (MATLAB's `imagesc` is [`mapped_image`](AxesMut::mapped_image)).
+//! and their relatives (MATLAB's `imagesc` is [`mapped_image`](AxesMut::mapped_image),
+//! and MATLAB's `pcolor` is [`surface`](AxesMut::surface) in a two-dimensional axes).
 //! Each plotting function returns a handle whose chained setters change the properties
 //! of the new plot, in the way that MATLAB name–value arguments do. The figure can then
 //! be shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported

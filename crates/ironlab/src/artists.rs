@@ -387,8 +387,8 @@ impl QuiverMut<'_> {
     }
 }
 
-/// A handle to a surface created by [`surf`](crate::AxesMut::surf) or
-/// [`mesh`](crate::AxesMut::mesh).
+/// A handle to a surface created by [`surf`](crate::AxesMut::surf),
+/// [`mesh`](crate::AxesMut::mesh) or [`surface`](crate::AxesMut::surface).
 ///
 /// ```
 /// use ironlab::prelude::*;
@@ -440,8 +440,8 @@ impl SurfaceMut<'_> {
         self
     }
 
-    /// Colours the surface by the given values instead of by height (MATLAB's
-    /// `surf(x, y, z, c)`); the matrix must have the same shape as the heights.
+    /// Colours the surface by the given values instead of by its field `z` (MATLAB's
+    /// `surf(x, y, z, c)`); the matrix must have the same shape as the field.
     pub fn color_data(&mut self, c: &Matrix) -> &mut Self {
         let data = self.fig.add_data(matrix_array(c));
         if let Some(previous) = self.artist().c.replace(data) {
