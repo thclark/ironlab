@@ -9,6 +9,8 @@ use ironlab_ir::{Dimension, NodeId};
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::HitMap;
+use ironlab_viewer::app::pixel_datatip_text;
+use ironlab_viewer::interaction::{PixelDatatip, PixelValue};
 use ironlab_viewer::{FigureState, Origin, Problem, Tool, ViewerApp, toolbar};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
@@ -672,5 +674,161 @@ fn hovering_over_a_dense_series_reads_the_point_under_the_pointer() {
     assert!(
         harness.query_by_label_contains("index ").is_none(),
         "nothing is read where the figure draws no data"
+    );
+}
+
+/// A figure of one axes holding a 4 × 4 colour-mapped image named "Temperature" that fills the axes, so that any
+/// position inside the plot rectangle lies over a pixel and no drawn point is anywhere near it.
+fn figure_with_named_image() -> ironlab_ir::Figure {
+    use ironlab_ir::{Artist, Text};
+
+    let mut figure = figure_with_mapped_image(4, 4);
+    match figure.artist_mut(NodeId(3)) {
+        Some(Artist::MappedImage(image)) => {
+            image.display_name = Some(Text::plain("Temperature"));
+        }
+        other => panic!("node 3 is the mapped image, not {other:?}"),
+    }
+    figure
+}
+
+// Why: the pixel datatip is tested in figure space, so the canvas glue for images — asking for a pixel where no
+// point is within reach, and showing what it says — is otherwise untested. Hovering over an image must name the
+// pixel and the image it belongs to, and hovering where the figure draws nothing must say nothing.
+#[test]
+fn hovering_over_an_image_reads_the_pixel_under_the_pointer() {
+    let mut harness = app_harness(vec![("image.fig".to_owned(), figure_with_named_image())]);
+    harness.run();
+
+    harness.hover_at(CANVAS_CENTRE);
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("column ").is_some(),
+        "the datatip names the pixel by its row and column"
+    );
+    assert!(
+        harness.query_by_label_contains("value = ").is_some(),
+        "the datatip shows the value of the pixel"
+    );
+    assert!(
+        harness.query_by_label_contains("Temperature").is_some(),
+        "the datatip names the image the pixel belongs to"
+    );
+
+    harness.hover_at(egui::pos2(10.0, 590.0));
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("column ").is_none(),
+        "nothing is read where the figure draws no data"
+    );
+}
+
+/// A pixel datatip for the pixel in row 1, column 2, centred on (12.5, −0.5), of an artist named `name`.
+fn pixel_tip(name: Option<&str>, value: PixelValue) -> PixelDatatip {
+    PixelDatatip {
+        axes: NodeId(2),
+        artist: NodeId(3),
+        name: name.map(str::to_owned),
+        row: 1,
+        column: 2,
+        x: 12.5,
+        y: -0.5,
+        position: Point::new(100.0, 50.0),
+        value,
+    }
+}
+
+/// The lines of a datatip's text.
+fn lines(text: &str) -> Vec<&str> {
+    text.lines().collect()
+}
+
+// Why: the text is all a reader gets from a hover, so it must name the artist when it has a name, the pixel by its
+// row and column (the indices the reader would use in their own array), its centre in data coordinates, and its
+// value in the words of its kind — a value, an index or the components — with every number formatted as the point
+// datatip formats it, so that the two callouts read as one. The components are listed red, green, blue and then
+// alpha, each formatted by that rule; what separates them is the implementer's choice and is not pinned.
+#[test]
+fn a_pixel_datatip_text_names_the_artist_the_pixel_its_centre_and_its_value_by_kind() {
+    let text = pixel_datatip_text(&pixel_tip(Some("Heat"), PixelValue::Value(0.5)));
+    let found = lines(&text);
+    assert_eq!(
+        found.first().copied(),
+        Some("Heat"),
+        "the name comes first, as it does for a point: {text:?}"
+    );
+    assert!(found.contains(&"row 1, column 2"), "{text:?}");
+    assert!(found.contains(&"x = 12.5"), "{text:?}");
+    assert!(found.contains(&"y = -0.5"), "{text:?}");
+    assert!(found.contains(&"value = 0.5"), "{text:?}");
+
+    let text = pixel_datatip_text(&pixel_tip(None, PixelValue::Index(2.9)));
+    let found = lines(&text);
+    assert!(found.contains(&"index = 2.9"), "{text:?}");
+    assert!(found.contains(&"row 1, column 2"), "{text:?}");
+    assert!(
+        !text.contains("None") && !found.iter().any(|line| line.trim().is_empty()),
+        "an image without a name gets no line for one: {text:?}"
+    );
+    assert!(
+        !text.contains("value ="),
+        "an index is not called a value: {text:?}"
+    );
+
+    let text = pixel_datatip_text(&pixel_tip(
+        None,
+        PixelValue::Components(vec![255.0, 7.0, 128.0]),
+    ));
+    for component in ["255", "7", "128"] {
+        assert!(
+            text.contains(component),
+            "the 8-bit component {component} reads as a byte: {text:?}"
+        );
+    }
+    assert!(
+        !text.contains("255.0"),
+        "a whole number is written without a fraction: {text:?}"
+    );
+    let text = pixel_datatip_text(&pixel_tip(
+        None,
+        PixelValue::Components(vec![0.375, 0.25, 0.125, 0.75]),
+    ));
+    let positions: Vec<usize> = ["0.375", "0.25", "0.125", "0.75"]
+        .iter()
+        .map(|component| {
+            text.find(component).unwrap_or_else(|| {
+                panic!("the floating-point component {component} reads as stored: {text:?}")
+            })
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "the components are listed red, green, blue, alpha: {text:?}"
+    );
+}
+
+// Why: a pixel's value is formatted by the same rule as a point's coordinates, and the rule has two branches the
+// reader would notice: a value that is not finite is written as such, and one far from unity is written in
+// exponent form rather than as a string of digits; both must reach the pixel text.
+#[test]
+fn a_pixel_datatip_text_formats_its_numbers_as_the_point_datatip_does() {
+    let text = pixel_datatip_text(&pixel_tip(None, PixelValue::Value(f64::NAN)));
+    assert!(
+        lines(&text).contains(&"value = NaN"),
+        "a NaN is written as NaN: {text:?}"
+    );
+
+    let text = pixel_datatip_text(&pixel_tip(None, PixelValue::Value(1.5e7)));
+    assert!(
+        lines(&text).contains(&"value = 1.5000e7"),
+        "a large value takes the exponent form of the point datatip: {text:?}"
+    );
+
+    let text = pixel_datatip_text(&pixel_tip(None, PixelValue::Index(3.0)));
+    assert!(
+        lines(&text).contains(&"index = 3"),
+        "a whole index is written without a fraction: {text:?}"
     );
 }

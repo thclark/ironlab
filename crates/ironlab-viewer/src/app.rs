@@ -25,10 +25,12 @@ use std::sync::Arc;
 
 use ironlab_ir::Figure;
 use ironlab_scene::Scene;
+use ironlab_scene::display::Point;
+use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
 use crate::canvas::{ScreenTransform, TextureCache, color32, tessellate_with};
-use crate::interaction::{Datatip, FigureState, Tool};
+use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
 
@@ -39,7 +41,8 @@ const WHEEL_ZOOM_RATE: f64 = 0.0036;
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
 const CANVAS_MARGIN: f32 = 12.0;
 
-/// The radius, in egui points, of the ring drawn around the data point under the pointer.
+/// The radius, in egui points, of the ring drawn around the data point under the pointer, and around the centre of
+/// a pixel too small on screen to outline.
 const DATATIP_RING_POINTS: f32 = 4.0;
 
 /// How long a notification stays on screen, in seconds.
@@ -84,6 +87,57 @@ fn datatip_text(tip: &Datatip) -> String {
     }
     lines.push(format!("index {}", tip.index));
     lines.join("\n")
+}
+
+/// The text of the tooltip that names the pixel under the pointer, one item per line: the name of the image when
+/// it has one, the row and column of the pixel in the artist's own array, the coordinates of the pixel's centre,
+/// and what the array holds there, every number formatted as the point datatip formats its coordinates, so that
+/// the two callouts read as one.
+///
+/// The last line takes the words of the image's kind: `value = …` for a colour-mapped image, `index = …` for a
+/// colour-indexed one, and for a true-colour image `rgb = …` or `rgba = …` listing the components in that order,
+/// separated by commas.
+#[must_use]
+pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
+    let mut lines = Vec::new();
+    if let Some(name) = &tip.name {
+        lines.push(name.clone());
+    }
+    lines.push(format!("row {}, column {}", tip.row, tip.column));
+    lines.push(format!("x = {}", datatip_value(tip.x)));
+    lines.push(format!("y = {}", datatip_value(tip.y)));
+    lines.push(match &tip.value {
+        PixelValue::Value(value) => format!("value = {}", datatip_value(*value)),
+        PixelValue::Index(index) => format!("index = {}", datatip_value(*index)),
+        PixelValue::Components(components) => {
+            let label = match components.len() {
+                3 => "rgb",
+                4 => "rgba",
+                _ => "components",
+            };
+            let listed: Vec<String> = components.iter().copied().map(datatip_value).collect();
+            format!("{label} = {}", listed.join(", "))
+        }
+    });
+    lines.join("\n")
+}
+
+/// The corners of the pixel in `row` and `column` of a drawn image, on screen and in the order they are joined, or
+/// `None` when the pixel is smaller on screen than the ring drawn around a point, so that it is ringed instead and
+/// the mark is never too small to see, or when its placement cannot be inverted.
+fn pixel_outline(
+    image: &ImageHit,
+    row: usize,
+    column: usize,
+    to_screen: ScreenTransform,
+) -> Option<[egui::Pos2; 4]> {
+    let to_figure = image.to_pixel.inverse()?;
+    let (c, r) = (column as f64, row as f64);
+    let corners = [(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)]
+        .map(|(x, y)| to_screen.apply(to_figure.apply(Point::new(x, y))));
+    let bounds = egui::Rect::from_points(&corners);
+    let diameter = 2.0 * DATATIP_RING_POINTS;
+    (bounds.width() >= diameter && bounds.height() >= diameter).then_some(corners)
 }
 
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
@@ -446,11 +500,8 @@ impl FigurePane {
 
         if let Some(band) = self.state.rubber_band() {
             let band = egui::Rect::from_min_max(
-                to_screen.apply(ironlab_scene::display::Point::new(band.x, band.y)),
-                to_screen.apply(ironlab_scene::display::Point::new(
-                    band.right(),
-                    band.bottom(),
-                )),
+                to_screen.apply(Point::new(band.x, band.y)),
+                to_screen.apply(Point::new(band.right(), band.bottom())),
             );
             let selection = ui.visuals().selection;
             painter.rect(
@@ -463,10 +514,14 @@ impl FigurePane {
         }
     }
 
-    /// Reads the data point under the pointer and shows it, ringed on the canvas and named in a tooltip.
+    /// Reads what lies under the pointer — a drawn data point or, where none is within reach, the pixel of an
+    /// image — and shows it, marked on the canvas and named in a tooltip.
     ///
-    /// The point comes from the hit map of the current compilation, so it names the index and the values of the
-    /// user's own data even where the series was thinned to fit the view.
+    /// Both come from the hit map of the current compilation, so a point names the index and the values of the
+    /// user's own data even where the series was thinned to fit the view, and a pixel names the row and column of
+    /// the user's own array. A point is ringed. A pixel is outlined, so that the reader sees the extent that was
+    /// read, or ringed at its centre when it is smaller on screen than the ring, so that the mark is never too
+    /// small to see.
     fn datatip(
         &mut self,
         ui: &egui::Ui,
@@ -483,12 +538,35 @@ impl FigurePane {
         };
         self.scene(text);
         let hit = &self.scene.as_ref().expect("compiled above").hit_map;
-        let Some(tip) = self.state.datatip(hit, to_screen.invert(pointer)) else {
+        let at = to_screen.invert(pointer);
+        let Some(tip) = self.state.tip_at(hit, at) else {
             return;
         };
         let stroke = ui.visuals().selection.stroke;
-        painter.circle_stroke(to_screen.apply(tip.position), DATATIP_RING_POINTS, stroke);
-        response.clone().on_hover_text(datatip_text(&tip));
+        match tip {
+            Tip::Point(tip) => {
+                painter.circle_stroke(to_screen.apply(tip.position), DATATIP_RING_POINTS, stroke);
+                response.clone().on_hover_text(datatip_text(&tip));
+            }
+            Tip::Pixel(tip) => {
+                let outline = hit
+                    .pixel_at(at)
+                    .and_then(|(image, row, column)| pixel_outline(image, row, column, to_screen));
+                match outline {
+                    Some(corners) => {
+                        painter.add(egui::Shape::closed_line(corners.to_vec(), stroke));
+                    }
+                    None => {
+                        painter.circle_stroke(
+                            to_screen.apply(tip.position),
+                            DATATIP_RING_POINTS,
+                            stroke,
+                        );
+                    }
+                }
+                response.clone().on_hover_text(pixel_datatip_text(&tip));
+            }
+        }
     }
 
     /// Converts this frame's pointer input on the canvas into edits of the figure, recompiling the scene after each
@@ -541,10 +619,10 @@ impl FigurePane {
             self.invalidate();
         }
         if response.drag_stopped_by(primary) {
-            let at = response.interact_pointer_pos().or(latest).map_or(
-                ironlab_scene::display::Point::new(f64::NAN, f64::NAN),
-                to_figure,
-            );
+            let at = response
+                .interact_pointer_pos()
+                .or(latest)
+                .map_or(Point::new(f64::NAN, f64::NAN), to_figure);
             if self.state.drag_end(at) {
                 self.invalidate();
             }

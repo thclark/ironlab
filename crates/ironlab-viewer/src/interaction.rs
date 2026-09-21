@@ -52,6 +52,9 @@
 //!   changes it.
 //! - **Reset view** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
 //!   about content rather than about the view.
+//! - **Datatips** change nothing: [`FigureState::tip_at`] names the drawn point nearest the pointer within
+//!   [`DATATIP_RADIUS_POINTS`] or, when there is none, the pixel of the image under it, each read from the user's
+//!   own arrays.
 //!
 //! Each gesture is one step of the undo history: a whole drag is one step, as is a wheel notch, a legend click, a
 //! double-click and a reset. A 2D gesture on an axes whose limits are [`Limits::Auto`] starts from the limits the
@@ -59,8 +62,8 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NodeId, Projection,
-    PropertyPath, Scale, Transaction, Value, View3d, command,
+    Artist, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NdArray, NodeId,
+    PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
@@ -97,6 +100,58 @@ pub struct Datatip {
     pub y: f64,
     /// The z value, for an artist that has one.
     pub z: Option<f64>,
+}
+
+/// The pixel of an image under the pointer, as the viewer reports it.
+///
+/// `row` and `column` index the artist's own array, so they name the pixel the user supplied whichever way the
+/// ranges of the placement run. `x` and `y` are the data coordinates of the centre of that pixel along the first
+/// and second axes of the image's plane, computed from the placement rather than read from the pointer, so that
+/// every position within one pixel reads as the one value the pixel holds; every image with a datatip lies in the
+/// xy plane of a two-dimensional axes, so they are its x and y. `value` is what the array stores for the pixel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PixelDatatip {
+    /// The axes the image was drawn in.
+    pub axes: NodeId,
+    /// The image the pixel belongs to.
+    pub artist: NodeId,
+    /// The display name of the image, when it has one.
+    pub name: Option<String>,
+    /// The row of the pixel in the artist's array.
+    pub row: usize,
+    /// The column of the pixel in the artist's array.
+    pub column: usize,
+    /// The data coordinate of the centre of the pixel along the first axis of the image's plane.
+    pub x: f64,
+    /// The data coordinate of the centre of the pixel along the second axis of the image's plane.
+    pub y: f64,
+    /// Where the centre of the pixel was drawn, in figure space, which is where a callout is anchored.
+    pub position: Point,
+    /// What the artist's array holds for the pixel.
+    pub value: PixelValue,
+}
+
+/// What the array of an image holds for one pixel, in the units it stores: an 8-bit value is widened to the number
+/// it denotes and a floating-point value is read as it is, whatever colour the pixel was painted.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PixelValue {
+    /// The red, green and blue components of a pixel of a true-colour image, and its alpha component when the
+    /// array has one: bytes from 0 to 255 or fractions from 0 to 1, as stored.
+    Components(Vec<f64>),
+    /// The index of a pixel of a colour-indexed image, as stored: a floating-point index is not truncated, because
+    /// 2.9 and 2 take the same entry of the colormap but are different data.
+    Index(f64),
+    /// The value of a pixel of a colour-mapped image.
+    Value(f64),
+}
+
+/// What lies under the pointer: a drawn data point, or, where none is within reach, a pixel of an image.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Tip {
+    /// A point of a line or a scatter.
+    Point(Datatip),
+    /// A pixel of an image.
+    Pixel(PixelDatatip),
 }
 
 /// The gesture that a primary-button drag performs.
@@ -644,6 +699,56 @@ impl FigureState {
         })
     }
 
+    /// Returns the pixel of the image drawn last under the pointer, or `None` where no image lies.
+    ///
+    /// The pixel comes from the hit map of the most recent compilation, which records the placement of every image
+    /// drawn in a two-dimensional axes and finds the row and column of the artist's own array under a point through
+    /// its inverse; an image on the floor or a wall of a three-dimensional axes has no entry, so it has no datatip.
+    /// The value is read from that array at that row and column, in the units the array stores it in and whatever
+    /// colour the pixel was painted: a pixel that a policy left transparent still reports what it holds. The
+    /// coordinates are those of the centre of the pixel as the placement puts it — the index along an axis without
+    /// a range, `first + i · pitch` along an axis with one, and `first` alone for a single pixel, whose `last`
+    /// places nothing — rather than the pointer's, so that every position within one pixel reads as the one value
+    /// the pixel holds; `position` is that centre in figure space.
+    #[must_use]
+    pub fn pixel_datatip(&self, hit: &HitMap, at: Point) -> Option<PixelDatatip> {
+        let (drawn, row, column) = hit.pixel_at(at)?;
+        let (_, artist) = self.composed.artist(drawn.artist)?;
+        let (data, placement, kind) = match artist {
+            Artist::Image(image) => (image.pixels, image.placement, PixelKind::Components),
+            Artist::IndexedImage(image) => (image.indices, image.placement, PixelKind::Index),
+            Artist::MappedImage(image) => (image.values, image.placement, PixelKind::Value),
+            _ => return None,
+        };
+        let value = pixel_value(self.composed.data.get(&data)?, kind, row, column)?;
+        let centre = Point::new(column as f64 + 0.5, row as f64 + 0.5);
+        Some(PixelDatatip {
+            axes: drawn.axes,
+            artist: drawn.artist,
+            name: artist.display_name().map(|text| text.content.clone()),
+            row,
+            column,
+            x: pixel_centre(placement.columns, drawn.columns, column),
+            y: pixel_centre(placement.rows, drawn.rows, row),
+            position: drawn.to_pixel.inverse()?.apply(centre),
+            value,
+        })
+    }
+
+    /// Returns what lies under the pointer: the drawn data point nearest it within [`DATATIP_RADIUS_POINTS`], as
+    /// [`FigureState::datatip`] finds it, or, when there is none, the pixel of the image under it, as
+    /// [`FigureState::pixel_datatip`] finds it.
+    ///
+    /// A point wins over the pixel beneath it because it is small, so that the pixel is read everywhere the pointer
+    /// is not within reach of a point, and because a line or a scatter drawn over an image is painted on top of it,
+    /// so that a pointer within reach of one of its points means the point rather than the pixel it covers.
+    #[must_use]
+    pub fn tip_at(&self, hit: &HitMap, at: Point) -> Option<Tip> {
+        self.datatip(hit, at)
+            .map(Tip::Point)
+            .or_else(|| self.pixel_datatip(hit, at).map(Tip::Pixel))
+    }
+
     /// Removes the view entries of every axes from the overlay, so that the figure shows the limits and
     /// three-dimensional views of the source again, and keeps the visibility of every artist.
     ///
@@ -835,6 +940,59 @@ fn refusal(transaction: &Transaction, error: &EditError) -> Problem {
 /// The property path of the given segments, which are the field names of the wire schema.
 fn path(segments: &[&str]) -> PropertyPath {
     PropertyPath::new(segments.iter().copied()).expect("the segments name a property")
+}
+
+/// The kind of image a pixel is read from, which decides the shape of its array and the form of its value.
+#[derive(Clone, Copy)]
+enum PixelKind {
+    /// A true-colour image, whose array has a third dimension of components.
+    Components,
+    /// A colour-indexed image, whose two-dimensional array holds indices.
+    Index,
+    /// A colour-mapped image, whose two-dimensional array holds values.
+    Value,
+}
+
+/// Reads what `array` stores for the pixel in `row` and `column` of an image of `kind`, or `None` when the array is
+/// not of the shape the kind requires or has no such pixel.
+///
+/// An 8-bit value is widened to the number it denotes and a floating-point value is read as it is, so the result is
+/// in the units the array stores.
+fn pixel_value(array: &NdArray, kind: PixelKind, row: usize, column: usize) -> Option<PixelValue> {
+    let (ny, nx, channels) = match (kind, array.shape.as_slice()) {
+        (PixelKind::Components, &[ny, nx, channels]) => (ny, nx, channels),
+        (PixelKind::Index | PixelKind::Value, &[ny, nx]) => (ny, nx, 1),
+        _ => return None,
+    };
+    if row >= ny || column >= nx {
+        return None;
+    }
+    let start = (row * nx + column) * channels;
+    Some(match kind {
+        PixelKind::Components => PixelValue::Components(
+            (start..start + channels)
+                .map(|k| array.get(k))
+                .collect::<Option<Vec<f64>>>()?,
+        ),
+        PixelKind::Index => PixelValue::Index(array.get(start)?),
+        PixelKind::Value => PixelValue::Value(array.get(start)?),
+    })
+}
+
+/// Returns the data coordinate of the centre of pixel `i` along one axis of an image of `n` pixels whose first and
+/// last centres `range` gives, or which lie at 0, 1, …, n − 1 when it is absent.
+///
+/// This is where the scene compiler puts the pixels: the pitch between centres is `(last − first) / (n − 1)`, so
+/// a range that runs backwards gives a negative pitch and pixel 0 stays at `first`; a single pixel has no pitch to
+/// derive, so it lies at `first` and its `last` is ignored.
+fn pixel_centre(range: Option<PixelRange>, n: usize, i: usize) -> f64 {
+    match range {
+        Some(PixelRange { first, last }) if n > 1 => {
+            first + i as f64 * ((last - first) / (n - 1) as f64)
+        }
+        Some(PixelRange { first, .. }) => first,
+        None => i as f64,
+    }
 }
 
 fn is_finite(p: Point) -> bool {
