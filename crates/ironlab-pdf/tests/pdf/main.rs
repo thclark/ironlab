@@ -12,6 +12,7 @@ mod common;
 mod dense;
 mod document;
 mod export;
+mod images;
 mod raster;
 mod robustness;
 mod text;

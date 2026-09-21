@@ -1,6 +1,6 @@
 //! Headless rendering of figures through the viewer's own mesh pipeline.
 //!
-//! [`render_offscreen`] compiles a figure, tessellates its display list with [`crate::canvas::tessellate`] at
+//! [`render_offscreen`] compiles a figure, tessellates its display list with [`crate::canvas::tessellate_with`] at
 //! `dpi / 72` pixels per point, and draws the meshes with [`egui_wgpu::Renderer`] into an offscreen texture. No
 //! window or surface is created, so it runs in CI on a software adapter (for example lavapipe).
 //!
@@ -15,24 +15,34 @@
 //!    share one process-wide renderer, created on first successful use, so that rendering a whole gallery creates
 //!    the device only once.
 //! 2. An [`egui_wgpu::Renderer`] is created for `Rgba8Unorm` (egui blends in gamma space and outputs gamma-encoded
-//!    colour into a non-sRGB target) with 4× multisampling (when the adapter supports it) and dithering disabled,
-//!    so that repeated renders of the same figure are identical.
-//! 3. The default egui texture (`TextureId::Managed(0)`) is uploaded as a 1×1 white image, because the meshes sample
-//!    it at [`egui::epaint::WHITE_UV`].
+//!    colour into a non-sRGB target) with 4× multisampling (when the adapter supports it), with dithering disabled,
+//!    so that repeated renders of the same figure are identical, and with egui's predictable texture filtering off.
+//!    That option makes egui's shader filter every texture bilinearly in its own code, whatever the texture's
+//!    sampler asks for, which would blur the pixel edges of every image; with it off the sampler of each texture is
+//!    honoured, and every texture made here asks for nearest filtering.
+//! 3. The default egui texture (`TextureId::Managed(0)`) is uploaded as a 1×1 white image, because the meshes of
+//!    paths and glyphs sample it at [`egui::epaint::WHITE_UV`].
 //! 4. The image size is checked against the device's maximum texture dimension before any texture is created, and
 //!    an invalid size is reported as [`RenderError::InvalidSize`].
-//! 5. The figure background is painted as a rectangle mesh beneath the meshes of the display list. The meshes are
+//! 5. The display list is tessellated with a texture provider that uploads each visible tile of each image item
+//!    through `Renderer::update_texture` as a user texture with nearest filtering, tiling by the device's maximum
+//!    texture dimension capped at [`MAX_TILE_SIDE`]. The ids are `TextureId::User(n)` with `n` counted from
+//!    [`TILE_TEXTURE_BASE`], far above the count the renderer numbers its own registered textures from, and are
+//!    recorded so that step 7 can free them.
+//! 6. The figure background is painted as a rectangle mesh beneath the meshes of the display list. The meshes are
 //!    wrapped in `egui::ClippedPrimitive`s whose clip rectangle is the whole image, and `Renderer::update_buffers`
 //!    and `Renderer::render` draw them with `ScreenDescriptor { size_in_pixels: [width, height], pixels_per_point:
 //!    1.0 }` into a multisampled colour texture that is cleared to transparent black and resolved into a
 //!    single-sample `COPY_SRC` texture. A transparent background therefore stays transparent.
-//! 6. The resolved texture is copied into a `MAP_READ` buffer with rows padded to
+//! 7. The resolved texture is copied into a `MAP_READ` buffer with rows padded to
 //!    `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`, the device is polled until the copy completes, and the padding is
-//!    stripped. The GPU output has premultiplied alpha, which is converted to straight alpha.
+//!    stripped. The textures of step 5 are then freed with `Renderer::free_texture`, whether or not the draw and
+//!    the readback succeeded, so that no render leaves textures on the device. The GPU output has premultiplied
+//!    alpha, which is converted to straight alpha.
 //!
 //! The pixel size of the image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)`.
 
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use egui_wgpu::wgpu;
@@ -40,7 +50,7 @@ use ironlab_ir::Figure;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{ScreenTransform, color32, tessellate};
+use crate::canvas::{MAX_TILE_SIDE, ScreenTransform, TextureProvider, color32, tessellate_with};
 
 /// An 8-bit RGBA image with straight alpha, stored row by row from the top-left pixel.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,6 +165,45 @@ const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// The number of samples per pixel used for anti-aliasing, when the adapter supports it.
 const MSAA_SAMPLES: u32 = 4;
 
+/// The first user texture id under which the tiles of images are uploaded. `egui_wgpu::Renderer` numbers the
+/// textures it registers itself from 0, so ids counted from here can never collide with them.
+const TILE_TEXTURE_BASE: u64 = 1 << 32;
+
+/// The texture provider of one offscreen render: it uploads every tile it is asked for as a user texture of the
+/// renderer and records the ids, so that the textures can be freed once the render is read back.
+struct TileUploader<'a> {
+    renderer: &'a mut egui_wgpu::Renderer,
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    /// The device's largest texture side, capped at [`MAX_TILE_SIDE`].
+    max_side: u32,
+    /// The ids of the textures uploaded so far, in order.
+    ids: Vec<egui::TextureId>,
+}
+
+impl TextureProvider for TileUploader<'_> {
+    fn max_side(&self) -> u32 {
+        self.max_side
+    }
+
+    fn texture(
+        &mut self,
+        _samples: &Arc<[u8]>,
+        _tile: u32,
+        render: &mut dyn FnMut() -> egui::ColorImage,
+    ) -> egui::TextureId {
+        let id = egui::TextureId::User(TILE_TEXTURE_BASE + self.ids.len() as u64);
+        self.renderer.update_texture(
+            self.device,
+            self.queue,
+            id,
+            &egui::epaint::ImageDelta::full(render(), egui::TextureOptions::NEAREST),
+        );
+        self.ids.push(id);
+        id
+    }
+}
+
 /// A headless renderer that owns a wgpu device and draws display lists into images.
 ///
 /// Creating the device is by far the most expensive step of an offscreen render, so a caller rendering many images
@@ -215,7 +264,7 @@ impl OffscreenRenderer {
                 msaa_samples: sample_count,
                 depth_stencil_format: None,
                 dithering: false,
-                predictable_texture_filtering: true,
+                predictable_texture_filtering: false,
             },
         );
         renderer.update_texture(
@@ -277,18 +326,31 @@ impl OffscreenRenderer {
         }
 
         let scale = (dpi / 72.0) as f32;
+        // The error scopes are opened before the tessellation so that they cover the texture uploads it makes as
+        // well as the draw; an upload the device refuses is then reported rather than raised as an uncaptured error.
+        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let mut meshes = Vec::new();
         if let Some(background) = background_mesh(list, scale) {
             meshes.push(background);
         }
-        meshes.extend(tessellate(
+        let mut uploader = TileUploader {
+            renderer: &mut self.renderer,
+            device: &self.device,
+            queue: &self.queue,
+            max_side: max.min(MAX_TILE_SIDE),
+            ids: Vec::new(),
+        };
+        meshes.extend(tessellate_with(
             list,
             text,
             ScreenTransform {
                 scale,
                 origin: egui::Pos2::ZERO,
             },
+            &mut uploader,
         ));
+        let tile_textures = uploader.ids;
         let screen_rect =
             egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width as f32, height as f32));
         let primitives: Vec<egui::ClippedPrimitive> = meshes
@@ -303,9 +365,10 @@ impl OffscreenRenderer {
             pixels_per_point: 1.0,
         };
 
-        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let rendered = self.draw(&primitives, &screen);
+        for id in &tile_textures {
+            self.renderer.free_texture(id);
+        }
         let oom = pollster::block_on(out_of_memory.pop());
         let invalid = pollster::block_on(validation.pop());
         if let Some(error) = oom.or(invalid) {

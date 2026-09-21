@@ -14,22 +14,46 @@
 //! - **Glyph runs** use [`TextEngine::glyph_outline`], which is em-normalised with y pointing down. Each outline is
 //!   scaled by the run's `size_pt`, translated to the glyph origin, transformed into screen space and filled with the
 //!   non-zero rule. Tessellated glyphs may be cached per `(font, glyph, size bucket)`.
+//! - **Images** are drawn as textured quads. A valid image item is cut into tiles of at most
+//!   [`TextureProvider::max_side`] pixels on a side, numbered in row-major order, because a graphics device has a
+//!   largest texture side and a data image can exceed it. The pixels of a tile are built from the item's samples
+//!   ([`egui::ColorImage::from_rgb`] for three channels and [`egui::ColorImage::from_rgba_unmultiplied`] for four,
+//!   so that straight alpha is premultiplied as egui expects) and handed to a [`TextureProvider`], which returns
+//!   the texture to sample. The tile is one quad: four white vertices at the corners of its sub-rectangle of the
+//!   item rectangle, mapped through the same transforms as every other leaf (a parallelogram where a 3D placement
+//!   shears), carrying the texture coordinates (0, 0), (1, 0), (0, 1) and (1, 1), so that the texture is drawn
+//!   unmodulated. Every tile edge is computed from its integer pixel coordinate through the same affine chain, so
+//!   abutting tiles share bit-equal screen edges and show no seam. A tile whose quad lies wholly outside the leaf's
+//!   clip is never requested from the provider. Textures are sampled with nearest filtering
+//!   ([`egui::TextureOptions::NEAREST`]), so that pixel edges are as hard on screen as they are in an exported PDF.
 //! - **Clips** are applied geometrically: the tessellated triangles of a clipped leaf are each clipped against the
 //!   clip rectangle (converted to screen space) with the Sutherland–Hodgman algorithm, and the resulting convex
-//!   polygon is re-triangulated as a fan. This keeps the output a plain list of meshes, independent of the painter's
-//!   clip rectangle, so that the same meshes can be drawn by the interactive canvas and by the offscreen renderer.
+//!   polygon is re-triangulated as a fan. A vertex made where an edge crosses the clip takes its texture coordinate
+//!   from the same interpolation parameter as its position, so a clipped image keeps exactly the part of its
+//!   texture that remains visible. This keeps the output a plain list of meshes, independent of the painter's clip
+//!   rectangle, so that the same meshes can be drawn by the interactive canvas and by the offscreen renderer.
 //! - **Colours** are straight alpha in the display list and are converted to premultiplied
 //!   [`egui::Color32`] with [`egui::Color32::from_rgba_unmultiplied`] after conversion from `[0, 1]` to `[0, 255]`.
 //!
-//! All vertices use [`egui::epaint::WHITE_UV`] and the default texture, so the meshes are drawn as solid colour. The
-//! meshes are not anti-aliased by egui; the viewer relies on 4× MSAA for smooth edges.
+//! The vertices of paths and glyphs use [`egui::epaint::WHITE_UV`] and the default texture, so those meshes are drawn
+//! as solid colour; the vertices of an image tile sample its texture. The meshes are not anti-aliased by egui; the
+//! viewer relies on 4× MSAA for smooth edges.
+//!
+//! # Texture providers
+//!
+//! [`tessellate`] draws no images, for callers that have no textures to draw them with; [`tessellate_with`] takes a
+//! [`TextureProvider`]. The interactive canvas provides a [`TextureCache`], which keeps a texture for every sample
+//! buffer and tile across frames, so that a gesture re-uploads nothing, and frees the textures that a rebuild of the
+//! meshes did not request. The offscreen renderer uploads the tiles of one render as user textures and frees them
+//! once the render is read back (see [`crate::offscreen`]).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use ironlab_scene::display::{
-    DisplayList, FillRule, GlyphsItem, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point,
-    Rect, Rgba, Stroke, Transform,
+    DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, PathItem,
+    PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::{FontId, TextEngine};
 use kurbo::PathEl;
@@ -82,17 +106,83 @@ const MITER_LIMIT: f32 = 4.0;
 /// density the dashes are indistinguishable from a solid line and would only cost memory.
 const MAX_DASHES_PER_SUBPATH: f64 = 100_000.0;
 
-/// Tessellates every item of `list` into screen-space meshes, in paint order.
+/// The largest side, in pixels, of an image tile that the providers of this crate hand out. Each caps the limit of
+/// its graphics device at this, so that one upload never stalls a frame and both backends tile an image alike.
+pub(crate) const MAX_TILE_SIDE: u32 = 8192;
+
+/// Supplies the textures that image items are drawn with.
+///
+/// [`tessellate_with`] cuts every valid image item into tiles of at most [`max_side`](Self::max_side) pixels on a
+/// side and asks for one texture per tile that is visible through the item's clip. What a provider does with the
+/// request is its own affair: the [`TextureCache`] of the interactive canvas keeps textures across frames, the
+/// offscreen renderer uploads each tile for one render, and a test can record what was asked for.
+pub trait TextureProvider {
+    /// The largest number of pixels a texture may have along either side, which is at least 1 for a provider that
+    /// can supply textures. A provider that reports 0 has none to give, and image items are then skipped.
+    fn max_side(&self) -> u32;
+
+    /// Returns the texture holding tile `tile` of the image whose samples are `samples`.
+    ///
+    /// Tiles are numbered in row-major order, `row · columns + column`, over the tiling that
+    /// [`max_side`](Self::max_side) implies. `render` builds the tile's pixels from the samples, and a provider that
+    /// already holds a texture for this buffer and tile need not call it. A provider may key what it holds by the
+    /// identity of the buffer, because a display list shares one buffer per image and never changes its contents.
+    fn texture(
+        &mut self,
+        samples: &Arc<[u8]>,
+        tile: u32,
+        render: &mut dyn FnMut() -> egui::ColorImage,
+    ) -> egui::TextureId;
+}
+
+/// The provider of [`tessellate`], which has no textures to give.
+struct NoTextures;
+
+impl TextureProvider for NoTextures {
+    fn max_side(&self) -> u32 {
+        0
+    }
+
+    fn texture(
+        &mut self,
+        _samples: &Arc<[u8]>,
+        _tile: u32,
+        _render: &mut dyn FnMut() -> egui::ColorImage,
+    ) -> egui::TextureId {
+        egui::TextureId::default()
+    }
+}
+
+/// Tessellates every item of `list` into screen-space meshes, in paint order, drawing no image items.
 ///
 /// The figure background is not included; callers paint it themselves (both the canvas and the offscreen renderer
 /// paint it as a filled rectangle beneath these meshes). Items that produce no geometry (for example glyphs without
 /// an outline, or paths entirely outside their clip) contribute no mesh. Invalid items, such as paths with
-/// non-finite coordinates or strokes with a negative width, are skipped.
+/// non-finite coordinates or strokes with a negative width, are skipped. Image items need textures to be drawn
+/// with and are skipped here; a caller that draws them supplies a [`TextureProvider`] to [`tessellate_with`].
 #[must_use]
 pub fn tessellate(
     list: &DisplayList,
     text: &TextEngine,
     to_screen: ScreenTransform,
+) -> Vec<egui::Mesh> {
+    tessellate_with(list, text, to_screen, &mut NoTextures)
+}
+
+/// Tessellates every item of `list` into screen-space meshes, in paint order, drawing image items with textures
+/// from `textures`.
+///
+/// Everything said of [`tessellate`] holds here too. An image item that is not [`ImageItem::is_valid`] is skipped
+/// without a texture being requested; a valid one yields one mesh per tile of it that is visible through its clip,
+/// each sampling the texture the provider returned for that tile, in the item's place in the paint order. Every
+/// other mesh samples egui's default texture at [`egui::epaint::WHITE_UV`]. Unlike [`tessellate`], a call has an
+/// effect beyond its result: the provider is asked for a texture for every visible tile, and may upload or record
+/// what it is asked for.
+pub fn tessellate_with(
+    list: &DisplayList,
+    text: &TextEngine,
+    to_screen: ScreenTransform,
+    textures: &mut dyn TextureProvider,
 ) -> Vec<egui::Mesh> {
     let mut meshes = Vec::new();
     if !(to_screen.scale.is_finite()
@@ -111,30 +201,30 @@ pub fn tessellate(
         f: f64::from(to_screen.origin.y),
     };
     let mut tessellators = Tessellators::default();
+    // The meshes of the leaf being visited: none or one for a path or a glyph run, one per visible tile for an image.
+    let mut leaf = Vec::new();
     list.visit_leaves(|item, transform, clip| {
         let Some(context) = LeafContext::new(transform, screen, clip) else {
             return;
         };
-        let mesh = match &item.kind {
-            ItemKind::Path(path) => tessellate_path(path, &context, &mut tessellators),
-            ItemKind::Glyphs(glyphs) => {
-                tessellate_glyphs(glyphs, text, &context, &mut tessellators)
+        match &item.kind {
+            ItemKind::Path(path) => {
+                leaf.extend(tessellate_path(path, &context, &mut tessellators));
             }
-            // The scene compiler emits one image item per image artist, but the canvas does not draw them yet: the
-            // next stage of the image work (issue #7) uploads their samples as egui textures and draws them as
-            // textured quads.
-            ItemKind::Image(_) => None,
+            ItemKind::Glyphs(glyphs) => {
+                leaf.extend(tessellate_glyphs(glyphs, text, &context, &mut tessellators));
+            }
+            ItemKind::Image(image) => tessellate_image(image, &context, textures, &mut leaf),
             // Groups, dense ones included, are descended into by `visit_leaves` and never reach this point.
-            ItemKind::Group { .. } | ItemKind::Dense { .. } => None,
-        };
-        let Some(mut mesh) = mesh else {
-            return;
-        };
-        if let Some(clip) = context.clip {
-            mesh = clip_mesh(&mesh, clip);
+            ItemKind::Group { .. } | ItemKind::Dense { .. } => {}
         }
-        if !mesh.indices.is_empty() {
-            meshes.push(mesh);
+        for mut mesh in leaf.drain(..) {
+            if let Some(clip) = context.clip {
+                mesh = clip_mesh(&mesh, clip);
+            }
+            if !mesh.indices.is_empty() {
+                meshes.push(mesh);
+            }
         }
     });
     meshes
@@ -612,8 +702,125 @@ fn tessellate_glyphs(
     Some(mesh)
 }
 
+/// Tessellates an image item into one textured quad per visible tile, appending the meshes to `out`.
+///
+/// The item is cut into tiles of at most the provider's largest side, numbered in row-major order. Each tile's quad
+/// has its four corners at the tile's sub-rectangle of the item rectangle mapped through the leaf context, so a
+/// sheared placement gives a parallelogram; the texture coordinates (0, 0), (1, 0), (0, 1) and (1, 1) sit at its
+/// top-left, top-right, bottom-left and bottom-right corners, and its vertices are white, so that the texture is
+/// drawn unmodulated. The boundary between two pixel columns or rows is computed from its integer index alone, so
+/// the tiles either side of it share bit-equal screen edges. A tile whose quad lies wholly outside the clip is
+/// neither requested from the provider nor drawn, and an item with more tiles than a `u32` can number, which no
+/// provider of this crate produces, is not drawn.
+fn tessellate_image(
+    item: &ImageItem,
+    context: &LeafContext,
+    textures: &mut dyn TextureProvider,
+    out: &mut Vec<egui::Mesh>,
+) {
+    let max_side = textures.max_side();
+    if max_side == 0 || !item.is_valid() {
+        return;
+    }
+    let columns = item.width.div_ceil(max_side);
+    let rows = item.height.div_ceil(max_side);
+    let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
+        return;
+    };
+    let rect = item.rect;
+    let x_at = |column: u32| rect.x + rect.width * (f64::from(column) / f64::from(item.width));
+    let y_at = |row: u32| rect.y + rect.height * (f64::from(row) / f64::from(item.height));
+    for tile in 0..tiles {
+        let (row, column) = (tile / columns, tile % columns);
+        let (c0, r0) = (column * max_side, row * max_side);
+        let c1 = c0.saturating_add(max_side).min(item.width);
+        let r1 = r0.saturating_add(max_side).min(item.height);
+        let (left, right, top, bottom) = (x_at(c0), x_at(c1), y_at(r0), y_at(r1));
+        let corners = [
+            (context.apply(left, top), egui::pos2(0.0, 0.0)),
+            (context.apply(right, top), egui::pos2(1.0, 0.0)),
+            (context.apply(left, bottom), egui::pos2(0.0, 1.0)),
+            (context.apply(right, bottom), egui::pos2(1.0, 1.0)),
+        ];
+        if !corners
+            .iter()
+            .all(|(pos, _)| pos.x.is_finite() && pos.y.is_finite())
+        {
+            continue;
+        }
+        if let Some(clip) = context.clip
+            && !quad_is_visible(&corners, clip)
+        {
+            continue;
+        }
+        let mut render = || tile_image(item, (c0, c1), (r0, r1));
+        let texture = textures.texture(&item.samples, tile, &mut render);
+        let mut mesh = egui::Mesh::with_texture(texture);
+        mesh.vertices
+            .extend(corners.iter().map(|&(pos, uv)| egui::epaint::Vertex {
+                pos,
+                uv,
+                color: egui::Color32::WHITE,
+            }));
+        mesh.indices.extend([0, 1, 2, 2, 1, 3]);
+        out.push(mesh);
+    }
+}
+
+/// The pixels of columns `c0..c1` and rows `r0..r1` of an image item as an egui image: opaque texels for three
+/// channels, and texels premultiplied from straight alpha for four.
+fn tile_image(item: &ImageItem, (c0, c1): (u32, u32), (r0, r1): (u32, u32)) -> egui::ColorImage {
+    let channels = usize::from(item.channels);
+    let width = item.width as usize;
+    let (c0, c1, r0, r1) = (c0 as usize, c1 as usize, r0 as usize, r1 as usize);
+    // The rows of a tile spanning every column are one contiguous run of the samples.
+    let bytes: Cow<'_, [u8]> = if c0 == 0 && c1 == width {
+        Cow::Borrowed(&item.samples[r0 * width * channels..r1 * width * channels])
+    } else {
+        Cow::Owned(
+            (r0..r1)
+                .flat_map(|row| {
+                    let start = (row * width + c0) * channels;
+                    item.samples[start..start + (c1 - c0) * channels]
+                        .iter()
+                        .copied()
+                })
+                .collect(),
+        )
+    };
+    let size = [c1 - c0, r1 - r0];
+    if item.channels == ImageItem::RGB {
+        egui::ColorImage::from_rgb(size, &bytes)
+    } else {
+        egui::ColorImage::from_rgba_unmultiplied(size, &bytes)
+    }
+}
+
+/// Reports whether a quad given by its top-left, top-right, bottom-left and bottom-right corners has a part of
+/// positive area inside `clip`.
+fn quad_is_visible(corners: &[TexturedPoint; 4], clip: egui::Rect) -> bool {
+    let polygon = clip_polygon(vec![corners[0], corners[1], corners[3], corners[2]], clip);
+    polygon.len() >= 3 && polygon_area(&polygon) > 0.0
+}
+
+/// The unsigned area of a polygon given by its vertices in perimeter order.
+fn polygon_area(polygon: &[TexturedPoint]) -> f32 {
+    let twice: f32 = polygon
+        .iter()
+        .zip(polygon.iter().cycle().skip(1))
+        .map(|((a, _), (b, _))| a.x * b.y - b.x * a.y)
+        .sum();
+    twice.abs() / 2.0
+}
+
+/// A screen position with the texture coordinate its vertex carries.
+type TexturedPoint = (egui::Pos2, egui::Pos2);
+
 /// Clips every triangle of `mesh` against `clip` with the Sutherland–Hodgman algorithm, re-triangulating clipped
-/// triangles as fans. Triangles entirely inside keep their vertices; triangles entirely outside are dropped.
+/// triangles as fans. Triangles entirely inside keep their vertices; triangles entirely outside are dropped. A
+/// vertex made on the clip boundary carries the texture coordinate interpolated with its position. The vertices of
+/// a triangle share one colour in every mesh this module builds, so a clipped triangle keeps the colour of its
+/// first vertex.
 fn clip_mesh(mesh: &egui::Mesh, clip: egui::Rect) -> egui::Mesh {
     let mut out = egui::Mesh {
         texture_id: mesh.texture_id,
@@ -651,18 +858,18 @@ fn clip_mesh(mesh: &egui::Mesh, clip: egui::Rect) -> egui::Mesh {
         {
             continue;
         }
-        let polygon = clip_polygon(vertices.iter().map(|v| v.pos).collect(), clip);
+        let polygon = clip_polygon(vertices.iter().map(|v| (v.pos, v.uv)).collect(), clip);
         if polygon.len() < 3 {
             continue;
         }
         let color = vertices[0].color;
         let base = out.vertices.len() as u32;
         out.vertices
-            .extend(polygon.iter().map(|&pos| egui::epaint::Vertex {
-                pos,
-                uv: egui::epaint::WHITE_UV,
-                color,
-            }));
+            .extend(
+                polygon
+                    .iter()
+                    .map(|&(pos, uv)| egui::epaint::Vertex { pos, uv, color }),
+            );
         for k in 1..polygon.len() as u32 - 1 {
             out.indices.extend([base, base + k, base + k + 1]);
         }
@@ -670,8 +877,9 @@ fn clip_mesh(mesh: &egui::Mesh, clip: egui::Rect) -> egui::Mesh {
     out
 }
 
-/// Clips a convex polygon against an axis-aligned rectangle.
-fn clip_polygon(mut polygon: Vec<egui::Pos2>, clip: egui::Rect) -> Vec<egui::Pos2> {
+/// Clips a convex polygon against an axis-aligned rectangle, interpolating the texture coordinate of every vertex
+/// made on the rectangle's boundary with its position.
+fn clip_polygon(mut polygon: Vec<TexturedPoint>, clip: egui::Rect) -> Vec<TexturedPoint> {
     // Each edge is described by a signed distance that is non-negative inside.
     let edges: [&dyn Fn(egui::Pos2) -> f32; 4] = [
         &|p| p.x - clip.min.x,
@@ -686,7 +894,7 @@ fn clip_polygon(mut polygon: Vec<egui::Pos2>, clip: egui::Rect) -> Vec<egui::Pos
         let input = std::mem::take(&mut polygon);
         for (i, &current) in input.iter().enumerate() {
             let previous = input[(i + input.len() - 1) % input.len()];
-            let (dc, dp) = (distance(current), distance(previous));
+            let (dc, dp) = (distance(current.0), distance(previous.0));
             if dc >= 0.0 {
                 if dp < 0.0 {
                     polygon.push(intersection(previous, current, dp, dc));
@@ -700,7 +908,90 @@ fn clip_polygon(mut polygon: Vec<egui::Pos2>, clip: egui::Rect) -> Vec<egui::Pos
     polygon
 }
 
-fn intersection(a: egui::Pos2, b: egui::Pos2, da: f32, db: f32) -> egui::Pos2 {
+/// The point on the segment from `a` to `b` at which the signed distance passes from `da` to `db` through zero,
+/// with its texture coordinate taken at the same parameter.
+fn intersection(a: TexturedPoint, b: TexturedPoint, da: f32, db: f32) -> TexturedPoint {
     let t = da / (da - db);
-    a + (b - a) * t
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
+
+/// One texture held by a [`TextureCache`].
+struct CachedTexture {
+    /// A clone of the sample buffer the texture was made from, held so that the allocator cannot give the buffer's
+    /// address to another buffer while the texture is cached: a figure whose image data is replaced by an array of
+    /// the same size could otherwise be drawn with the old pixels.
+    _samples: Arc<[u8]>,
+    /// The texture, which is freed from the context when the handle is dropped.
+    handle: egui::TextureHandle,
+    /// Whether the texture has been requested since the previous [`TextureCache::retain_requested`].
+    requested: bool,
+}
+
+/// The texture provider of the interactive canvas: a cache of the textures of the images on screen, keyed by the
+/// address of their sample buffer and their tile, that keeps a texture across frames for as long as the rebuilt
+/// meshes keep asking for it.
+///
+/// The samples of an image do not change between frames, only the view does, so the cache spares the graphics
+/// device an upload per gesture: a request for a buffer and tile it holds is answered without rendering the pixels
+/// again. A request it does not hold renders the tile and loads it into the context with
+/// [`egui::TextureOptions::NEAREST`], so that the pixel edges are hard on screen as they are offscreen and in a PDF.
+/// After every rebuild of the meshes, [`retain_requested`](Self::retain_requested) frees the textures the rebuild did
+/// not ask for, so that a figure edited to hold other data leaves no textures behind and a pan through a large
+/// figure does not let the device's memory grow without bound. Each entry holds a clone of its sample buffer for as
+/// long as it exists, so that the address the cache keys by cannot be reused by another buffer in the meantime.
+///
+/// The largest side of a tile is the limit the backend reports through the context's input, capped at
+/// [`MAX_TILE_SIDE`], and is read when it is asked for, so a limit set by a later pass is honoured.
+pub struct TextureCache {
+    ctx: egui::Context,
+    entries: HashMap<(usize, u32), CachedTexture>,
+}
+
+impl TextureCache {
+    /// Creates an empty cache that loads its textures into `ctx`.
+    #[must_use]
+    pub fn new(ctx: egui::Context) -> Self {
+        Self {
+            ctx,
+            entries: HashMap::new(),
+        }
+    }
+
+    /// Frees every texture that has not been requested since the previous call (or, for the first call, since the
+    /// cache was made), and starts a new round of requests. The interactive canvas calls this after each rebuild of
+    /// its meshes, so that the cache holds exactly the textures the meshes on screen sample.
+    pub fn retain_requested(&mut self) {
+        self.entries
+            .retain(|_, entry| std::mem::replace(&mut entry.requested, false));
+    }
+}
+
+impl TextureProvider for TextureCache {
+    fn max_side(&self) -> u32 {
+        let limit = self.ctx.input(|input| input.max_texture_side);
+        u32::try_from(limit).map_or(MAX_TILE_SIDE, |limit| limit.min(MAX_TILE_SIDE))
+    }
+
+    fn texture(
+        &mut self,
+        samples: &Arc<[u8]>,
+        tile: u32,
+        render: &mut dyn FnMut() -> egui::ColorImage,
+    ) -> egui::TextureId {
+        let address = Arc::as_ptr(samples).cast::<u8>().addr();
+        let entry = self
+            .entries
+            .entry((address, tile))
+            .or_insert_with(|| CachedTexture {
+                _samples: Arc::clone(samples),
+                handle: self.ctx.load_texture(
+                    format!("ironlab image {address:#x} tile {tile}"),
+                    render(),
+                    egui::TextureOptions::NEAREST,
+                ),
+                requested: false,
+            });
+        entry.requested = true;
+        entry.handle.id()
+    }
 }

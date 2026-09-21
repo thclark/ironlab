@@ -3,34 +3,26 @@
 //! These tests need a wgpu adapter. When none is available they print a message and pass, unless the environment
 //! variable `IRONLAB_REQUIRE_GPU` is set (as in CI, which installs a software Vulkan adapter), in which case a missing
 //! adapter fails the test.
+//!
+//! The image tests draw hand-built image items magnified so that every image pixel spans many device pixels, and
+//! sample device pixels at the centres of image pixels and one device pixel either side of their boundaries, so that
+//! what is asserted is the colour of the pixels and the hardness of their edges rather than the anti-aliasing of the
+//! quad that carries them.
 
 mod common;
 
-use common::TEXT;
+use std::sync::Arc;
+
+use common::{
+    TEXT, figure_with_mapped_image, find_image, gpu_required, image_sample, rendered_or_skip,
+    scale_then_translate,
+};
 use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
 use ironlab_scene::display::{
-    DisplayList, Fill, FillRule, Item, ItemKind, PathItem, PathSegment, Point, Rgba,
+    DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, PathItem, PathSegment, Point, Rect,
+    Rgba, Transform,
 };
 use ironlab_viewer::{RenderError, RenderedImage, render_display_list_offscreen, render_offscreen};
-
-fn gpu_required() -> bool {
-    std::env::var_os("IRONLAB_REQUIRE_GPU").is_some()
-}
-
-/// Unwraps a render result, or returns `None` (skipping the test) when no adapter is available and a GPU is not
-/// required.
-fn rendered_or_skip(result: Result<RenderedImage, RenderError>) -> Option<RenderedImage> {
-    match result {
-        Ok(image) => Some(image),
-        Err(RenderError::NoAdapter(message)) if !gpu_required() => {
-            eprintln!(
-                "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
-            );
-            None
-        }
-        Err(error) => panic!("offscreen rendering failed: {error}"),
-    }
-}
 
 fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
     let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
@@ -440,5 +432,384 @@ fn no_adapter_probe() {
             );
         }
         other => panic!("expected RenderError::NoAdapter, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Images
+// ---------------------------------------------------------------------------------------------------------------
+
+const RED_PX: [u8; 4] = [255, 0, 0, 255];
+const GREEN_PX: [u8; 4] = [0, 255, 0, 255];
+const BLUE_PX: [u8; 4] = [0, 0, 255, 255];
+const YELLOW_PX: [u8; 4] = [255, 255, 0, 255];
+const WHITE_PX: [u8; 4] = [255, 255, 255, 255];
+
+/// Four distinct opaque colours in row order: red and green on the top row, blue and yellow beneath.
+const QUAD_PIXELS: [[u8; 4]; 4] = [RED_PX, GREEN_PX, BLUE_PX, YELLOW_PX];
+
+/// `item` inside a group clipped to `clip`, as an axes clips every artist to its plot rectangle.
+fn clipped(clip: Rect, item: Item) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Group {
+            clip: Some(clip),
+            transform: None,
+            items: vec![item],
+        },
+    }
+}
+
+/// An image item of `width` by `height` pixels drawn into `rect`, beneath a group carrying `transform`, which is
+/// how the scene compiler emits an image artist.
+fn placed_image(
+    rect: Rect,
+    width: u32,
+    height: u32,
+    channels: u8,
+    samples: Vec<u8>,
+    transform: Transform,
+) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Group {
+            clip: None,
+            transform: Some(transform),
+            items: vec![Item {
+                source: None,
+                kind: ItemKind::Image(ImageItem {
+                    rect,
+                    width,
+                    height,
+                    channels,
+                    samples: Arc::from(samples),
+                }),
+            }],
+        },
+    }
+}
+
+/// A page of `width_pt` by `height_pt` points with `background`, holding `items`.
+fn page(width_pt: f64, height_pt: f64, background: Rgba, items: Vec<Item>) -> DisplayList {
+    DisplayList {
+        width_pt,
+        height_pt,
+        background,
+        items,
+    }
+}
+
+/// Asserts that the pixel at `(x, y)` is within `tolerance` of `expected` in every channel.
+#[track_caller]
+fn assert_pixel(
+    image: &RenderedImage,
+    x: u32,
+    y: u32,
+    expected: [u8; 4],
+    tolerance: u8,
+    what: &str,
+) {
+    let actual = image.pixel(x, y);
+    assert!(
+        close_to(actual, expected, tolerance),
+        "{what} at ({x}, {y}): expected {expected:?}, got {actual:?}"
+    );
+}
+
+// Why: an image is data, and a reader measures colours off it, so every pixel must be drawn in exactly its sample
+// colour and the boundary between two pixels must be a hard step. egui's renderer filters textures bilinearly in its
+// own shader when it is asked for predictable filtering, whatever the texture's sampler says, which would smear a
+// 2 × 2 image into a gradient; the renderer must leave that off and the texture must ask for nearest sampling. Each
+// image pixel is magnified to 20 device pixels, so a bilinear blend would be visible over most of the pixel, and the
+// samples one device pixel either side of a boundary would differ from the pure colours by half their contrast.
+#[test]
+fn a_two_by_two_image_renders_its_pixel_colours_exactly_with_hard_edges() {
+    let list = page(
+        40.0,
+        40.0,
+        Rgba::WHITE,
+        vec![placed_image(
+            Rect::new(0.0, 0.0, 2.0, 2.0),
+            2,
+            2,
+            ImageItem::RGBA,
+            QUAD_PIXELS.concat(),
+            scale_then_translate(20.0, 20.0, 0.0, 0.0),
+        )],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+
+    assert_eq!((image.width, image.height), (40, 40));
+    let [red, green, blue, yellow] = QUAD_PIXELS;
+    for (x, y, expected, what) in [
+        (10, 10, red, "the centre of the top-left pixel"),
+        (30, 10, green, "the centre of the top-right pixel"),
+        (10, 30, blue, "the centre of the bottom-left pixel"),
+        (30, 30, yellow, "the centre of the bottom-right pixel"),
+        (
+            19,
+            10,
+            red,
+            "one device pixel left of the vertical boundary",
+        ),
+        (
+            20,
+            10,
+            green,
+            "one device pixel right of the vertical boundary",
+        ),
+        (
+            10,
+            19,
+            red,
+            "one device pixel above the horizontal boundary",
+        ),
+        (
+            10,
+            20,
+            blue,
+            "one device pixel below the horizontal boundary",
+        ),
+        (
+            19,
+            19,
+            red,
+            "the top-left pixel at the corner shared by all four",
+        ),
+        (20, 20, yellow, "the bottom-right pixel at that corner"),
+        (0, 0, red, "the first device pixel of the image"),
+        (39, 39, yellow, "the last device pixel of the image"),
+    ] {
+        assert_pixel(&image, x, y, expected, 1, what);
+    }
+}
+
+// Why: an image with alpha (a NaN region left transparent, a fade at the edge of a disc) is composited over whatever
+// lies beneath it, exactly as the PDF composites its soft mask: a transparent pixel shows the background untouched
+// and a half-transparent one is a straight-alpha blend with it. A renderer that uploaded straight alpha where egui
+// expects premultiplied would draw the translucent pixel too bright, and one that ignored alpha would paint the
+// transparent pixel opaque.
+#[test]
+fn transparent_and_translucent_image_pixels_composite_over_the_background() {
+    let list = page(
+        40.0,
+        20.0,
+        Rgba::new(0.0, 0.0, 1.0, 1.0),
+        vec![placed_image(
+            Rect::new(0.0, 0.0, 2.0, 1.0),
+            2,
+            1,
+            ImageItem::RGBA,
+            vec![255, 0, 0, 0, 255, 0, 0, 128],
+            scale_then_translate(20.0, 20.0, 0.0, 0.0),
+        )],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+
+    assert_pixel(
+        &image,
+        10,
+        10,
+        BLUE_PX,
+        1,
+        "a transparent pixel shows the blue background",
+    );
+    // Half red over blue, as a PDF viewer composites it: (128, 0, 127).
+    assert_pixel(
+        &image,
+        30,
+        10,
+        [128, 0, 127, 255],
+        2,
+        "a half-transparent red pixel blends with the blue background",
+    );
+}
+
+// Why: a pixel range running backwards, and a wall of a three-dimensional axes seen from behind, place an image with
+// a transform of negative determinant; the quad's triangles then wind the other way, and a pipeline that culled back
+// faces would drop the image entirely. The columns (or rows) must come out mirrored, not merely present.
+#[test]
+fn a_negative_scale_mirrors_the_image() {
+    let list = page(
+        100.0,
+        40.0,
+        Rgba::WHITE,
+        vec![
+            // Mirrored in x: pixel space u ∈ [0, 2] maps to x = 40 − 20u, so column 0 lands on the right.
+            placed_image(
+                Rect::new(0.0, 0.0, 2.0, 2.0),
+                2,
+                2,
+                ImageItem::RGBA,
+                QUAD_PIXELS.concat(),
+                scale_then_translate(-20.0, 20.0, 40.0, 0.0),
+            ),
+            // Mirrored in y: v ∈ [0, 2] maps to y = 40 − 20v, so row 0 lands at the bottom, 60 points to the right.
+            placed_image(
+                Rect::new(0.0, 0.0, 2.0, 2.0),
+                2,
+                2,
+                ImageItem::RGBA,
+                QUAD_PIXELS.concat(),
+                scale_then_translate(20.0, -20.0, 60.0, 40.0),
+            ),
+        ],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+
+    let [red, green, blue, yellow] = QUAD_PIXELS;
+    for (x, y, expected, what) in [
+        (10, 10, green, "column 1 at the left when mirrored in x"),
+        (30, 10, red, "column 0 at the right when mirrored in x"),
+        (10, 30, yellow, "column 1 of row 1 at the left"),
+        (30, 30, blue, "column 0 of row 1 at the right"),
+        (70, 10, blue, "row 1 at the top when mirrored in y"),
+        (90, 10, yellow, "column 1 of row 1 at the top"),
+        (70, 30, red, "row 0 at the bottom when mirrored in y"),
+        (90, 30, green, "column 1 of row 0 at the bottom"),
+    ] {
+        assert_pixel(&image, x, y, expected, 1, what);
+    }
+}
+
+// Why: a GPU texture has a largest side, and a data image can exceed it, so the renderer cuts the raster into tiles,
+// each a texture and a quad of its own, and where the tiles meet must be invisible. Whatever tiling the renderer
+// applies to 8193 columns, the image drawn whole must show both colours split where the data splits them, and with
+// the seam magnified the tiles must meet with no gap and no background between them and the last column must be
+// present, because a tile a pixel short leaves a hairline of background through the data on screen and in every
+// exported PNG. The image sits in a clipped group, as it does beneath an axes, so that tile quads reaching far off
+// the page are trimmed by the clipper before they reach the GPU. The side at which the renderer tiles is not pinned
+// here.
+#[test]
+fn an_image_wider_than_one_texture_renders_whole_and_without_a_gap_at_the_tile_seam() {
+    const WIDTH: u32 = 8193;
+    const SPLIT: u32 = WIDTH / 2;
+    let samples: Vec<u8> = (0..WIDTH)
+        .flat_map(|i| {
+            if i < SPLIT {
+                [255u8, 0, 0]
+            } else {
+                [0, 0, 255]
+            }
+        })
+        .collect();
+    let item = |transform| {
+        placed_image(
+            Rect::new(0.0, 0.0, f64::from(WIDTH), 1.0),
+            WIDTH,
+            1,
+            ImageItem::RGB,
+            samples.clone(),
+            transform,
+        )
+    };
+
+    // The whole image squeezed into 400 points: 20.48 columns per device pixel at 72 dpi, so the split at column
+    // 4096 falls at x ≈ 200.
+    let whole = page(
+        400.0,
+        20.0,
+        Rgba::WHITE,
+        vec![clipped(
+            Rect::new(0.0, 0.0, 400.0, 20.0),
+            item(scale_then_translate(
+                400.0 / f64::from(WIDTH),
+                20.0,
+                0.0,
+                0.0,
+            )),
+        )],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&whole, &TEXT, 72.0)) else {
+        return;
+    };
+    for (x, expected, what) in [
+        (100, RED_PX, "the left half"),
+        (198, RED_PX, "just left of the split"),
+        (201, BLUE_PX, "just right of the split"),
+        (300, BLUE_PX, "the right half"),
+        (399, BLUE_PX, "the last device pixel"),
+    ] {
+        assert_pixel(&image, x, 10, expected, 1, what);
+    }
+
+    // The seam magnified: every column is 10 points wide and the last column, a tile of its own when the renderer
+    // tiles at 8192, lies at x ∈ [150, 160]; the raster ends there and the page beyond it is background.
+    let seam = page(
+        200.0,
+        20.0,
+        Rgba::WHITE,
+        vec![clipped(
+            Rect::new(0.0, 0.0, 200.0, 20.0),
+            item(scale_then_translate(
+                10.0,
+                20.0,
+                150.0 - 10.0 * f64::from(WIDTH - 1),
+                0.0,
+            )),
+        )],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&seam, &TEXT, 72.0)) else {
+        return;
+    };
+    for x in 0..160 {
+        assert_pixel(
+            &image,
+            x,
+            10,
+            BLUE_PX,
+            1,
+            "no gap or background at the tile seam: every device pixel up to the end of the last column",
+        );
+    }
+    assert_pixel(
+        &image,
+        165,
+        10,
+        WHITE_PX,
+        1,
+        "the page beyond the last column is background",
+    );
+}
+
+// Why: `render_offscreen` is what the gallery and the PDF exporter's raster path see, so an image artist must reach
+// the pixels through the compiled display list: the compiler resolves a mapped image into samples beneath a placing
+// transform, and the renderer must draw those samples where the axes put them, with row 0 at the bottom of the plot
+// because y increases upwards in data space. Every pixel centre of a 3 × 3 image that fills its axes is sampled
+// against the colour the compiler resolved for it, so an image drawn transposed, flipped or shifted against its own
+// axes fails on the pixels it moves.
+#[test]
+fn a_compiled_figure_draws_a_mapped_image_over_its_axes_with_the_compilers_colours() {
+    let figure = figure_with_mapped_image(3, 3);
+    let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
+        return;
+    };
+
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let item = find_image(&scene.display_list.items)
+        .expect("the compiler emits an image item for the mapped image");
+    assert_eq!((item.width, item.height), (3, 3));
+    // At 72 dpi one point is one pixel, and by the default placement the image covers the plot rectangle exactly.
+    let plot = scene.hit_map.axes[0].plot_rect;
+    for row in 0..3 {
+        for column in 0..3 {
+            let x = plot.x + (f64::from(column) + 0.5) / 3.0 * plot.width;
+            let y = plot.bottom() - (f64::from(row) + 0.5) / 3.0 * plot.height;
+            assert_pixel(
+                &image,
+                x as u32,
+                y as u32,
+                image_sample(item, row, column),
+                1,
+                &format!("pixel ({row}, {column}) of the image, at ({x:.1}, {y:.1}) pt"),
+            );
+        }
     }
 }

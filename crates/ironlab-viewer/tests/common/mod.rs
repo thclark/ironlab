@@ -11,13 +11,46 @@ use ironlab_ir::{
     Axes, Axis, AxisLink, Dimension, Edit, Figure, Limits, NodeId, Projection, PropertyPath,
     Transaction, Value, View3d, command,
 };
-use ironlab_scene::display::Rect;
+use ironlab_scene::display::{ImageItem, Item, ItemKind, Rect, Transform};
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::TextEngine;
-use ironlab_viewer::FigureState;
+use ironlab_viewer::{FigureState, RenderError, RenderedImage};
 
 /// One text engine for the whole test binary; building it parses the bundled fonts.
 pub static TEXT: LazyLock<Arc<TextEngine>> = LazyLock::new(|| Arc::new(TextEngine::new()));
+
+/// Reports whether a missing graphics adapter fails a test rather than skipping it, which the environment variable
+/// `IRONLAB_REQUIRE_GPU` asks for, as CI does.
+pub fn gpu_required() -> bool {
+    std::env::var_os("IRONLAB_REQUIRE_GPU").is_some()
+}
+
+/// Unwraps an offscreen render, or returns `None` (skipping the test) when no adapter is available and a GPU is not
+/// required.
+pub fn rendered_or_skip(result: Result<RenderedImage, RenderError>) -> Option<RenderedImage> {
+    match result {
+        Ok(image) => Some(image),
+        Err(RenderError::NoAdapter(message)) if !gpu_required() => {
+            eprintln!(
+                "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
+            );
+            None
+        }
+        Err(error) => panic!("offscreen rendering failed: {error}"),
+    }
+}
+
+/// A scaling by `sx` and `sy` followed by a translation to `(x, y)`.
+pub fn scale_then_translate(sx: f64, sy: f64, x: f64, y: f64) -> Transform {
+    Transform {
+        a: sx,
+        b: 0.0,
+        c: 0.0,
+        d: sy,
+        e: x,
+        f: y,
+    }
+}
 
 pub const EPS: f64 = 1e-9;
 
@@ -468,4 +501,50 @@ pub fn figure_with_many_axes() -> Figure {
         axes: all,
         ..Figure::new()
     }
+}
+
+/// A figure of one two-dimensional axes (node 2) holding a colour-mapped image (node 3) of
+/// `ny` rows and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, placed by
+/// default, so that the image fills the axes and neighbouring pixels differ in colour along
+/// both axes: by one step of the colormap along a row and by `nx` steps down a column.
+pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
+    use ironlab_ir::{Artist, DataId, MappedImage, NdArray};
+
+    let values: Vec<f64> = (0..ny * nx).map(|k| k as f64).collect();
+    let data = std::collections::BTreeMap::from([(
+        DataId(0),
+        NdArray::from_shape(vec![ny, nx], values).expect("the shape matches the values"),
+    )]);
+    Figure {
+        id: NodeId(1),
+        data,
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::MappedImage(MappedImage {
+                id: NodeId(3),
+                values: DataId(0),
+                ..MappedImage::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+/// The first image item among `items`, at any depth of grouping, in paint order.
+pub fn find_image(items: &[Item]) -> Option<&ImageItem> {
+    items.iter().find_map(|item| match &item.kind {
+        ItemKind::Image(image) => Some(image),
+        ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => find_image(items),
+        ItemKind::Path(_) | ItemKind::Glyphs(_) => None,
+    })
+}
+
+/// The colour of the pixel in row `row` and column `column` of an image item, with an alpha
+/// of 255 for a three-channel image.
+pub fn image_sample(image: &ImageItem, row: u32, column: u32) -> [u8; 4] {
+    let channels = usize::from(image.channels);
+    let start = (row as usize * image.width as usize + column as usize) * channels;
+    let s = &image.samples[start..start + channels];
+    [s[0], s[1], s[2], if channels == 4 { s[3] } else { 255 }]
 }

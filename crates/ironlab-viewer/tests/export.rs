@@ -5,6 +5,10 @@
 //! tessellation and its headless GPU device, into an embedded image, and they check the only property that matters
 //! about that pipeline — that the picture does not change when the exporter switches from vector paths to pixels.
 //!
+//! The image test makes the same claim for an image artist: the pixels the exporter embeds are the data's own and
+//! land where the viewer draws them, so the raster of the exported PDF is compared with the viewer's own rendering of
+//! the same display list.
+//!
 //! They need a wgpu adapter, and a rasterised page needs poppler to inspect. A missing adapter fails the test only
 //! when `IRONLAB_REQUIRE_GPU` is set, and a missing tool only when `IRONLAB_REQUIRE_PDF_TOOLS` is set, as both are in
 //! CI.
@@ -14,22 +18,19 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::TEXT;
-use image::RgbImage;
+use common::{TEXT, figure_with_mapped_image, find_image, gpu_required, rendered_or_skip};
+use image::{Rgb, RgbImage};
 use ironlab_ir::{
     Artist, Axes, Axis, Cell, ColorSpec, DataId, Figure, Grid, Limits, NdArray, NodeId, Projection,
     Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{PdfOptions, RasterOptions, RasterPolicy};
-use ironlab_viewer::{ExportError, RenderError};
+use ironlab_scene::display::Rect;
+use ironlab_viewer::{ExportError, RenderError, RenderedImage, render_display_list_offscreen};
 
 /// The side of the grid of the dense surface. It has 139 × 139 = 19 321 faces, comfortably above the default
 /// threshold, so the default settings rasterise it without being told to.
 const DENSE_SIDE: usize = 140;
-
-fn gpu_required() -> bool {
-    std::env::var_os("IRONLAB_REQUIRE_GPU").is_some()
-}
 
 fn tools_required() -> bool {
     std::env::var_os("IRONLAB_REQUIRE_PDF_TOOLS").is_some()
@@ -451,4 +452,90 @@ fn a_figure_with_nothing_dense_exports_without_a_renderer() {
         bytes.starts_with(b"%PDF"),
         "the exported bytes are a PDF document"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Images
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The pixels of an offscreen render as an RGB image, which is what a raster of a PDF page is; the page is opaque.
+fn rgb_of(rendered: &RenderedImage) -> RgbImage {
+    RgbImage::from_fn(rendered.width, rendered.height, |x, y| {
+        let [r, g, b, _] = rendered.pixel(x, y);
+        Rgb([r, g, b])
+    })
+}
+
+/// The inset, in points, by which the plot rectangle is shrunk before its interior is compared: enough to leave out
+/// the box of the axes and the tick marks that point into the plot, which are at most half the font size long.
+const PLOT_INSET_PT: f64 = 8.0;
+
+/// The part of a raster of the page, taken at `dpi`, that lies inside the plot rectangle `plot` (in points) inset by
+/// [`PLOT_INSET_PT`] on every side.
+fn plot_interior(raster: &RgbImage, plot: Rect, dpi: f64) -> RgbImage {
+    let px = |pt: f64| (pt * dpi / 72.0).round() as u32;
+    let (x0, y0) = (px(plot.x + PLOT_INSET_PT), px(plot.y + PLOT_INSET_PT));
+    let (x1, y1) = (
+        px(plot.right() - PLOT_INSET_PT),
+        px(plot.bottom() - PLOT_INSET_PT),
+    );
+    image::imageops::crop_imm(raster, x0, y0, x1 - x0, y1 - y0).to_image()
+}
+
+// WHY: an image artist reaches the PDF as an image XObject of the data's own pixels, one sample each, beneath the
+// transform that places it in the axes, and reaches the screen as a textured quad from the same display list; the
+// two must be the same picture. An exporter that resampled the image to the page resolution, placed it in PDF's y-up
+// space, flipped its rows or scaled it to the wrong rectangle would pass the compiler's tests and still print
+// something other than what the viewer shows. The comparison is confined to the plot interior, which holds nothing
+// but the image, because the tick labels around it are drawn by two different text rasterisers whose glyphs need not
+// agree pixel for pixel.
+#[test]
+fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_draws_it() {
+    if !tools_available(&["pdfimages", "pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("mapped-image");
+    let (ny, nx) = (4usize, 6usize);
+    let figure = figure_with_mapped_image(ny, nx);
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let item = find_image(&scene.display_list.items)
+        .expect("the compiler emits an image item for the mapped image");
+    assert_eq!((item.width, item.height), (nx as u32, ny as u32));
+    // Twice the resolution the surface tests compare at, so that an image pixel spans well over a hundred device
+    // pixels and a boundary placed a device pixel apart by the two rasterisers is a small part of every block.
+    let dpi = 288.0;
+    // An image is never dense, so the export needs no renderer; only the comparison does.
+    let Some(bytes) = exported_or_skip(ironlab_viewer::export::render_display_list(
+        &scene.display_list,
+        &TEXT,
+        &PdfOptions::for_figure(&figure),
+    )) else {
+        return;
+    };
+    let pdf = ws.write("figure", &bytes);
+    assert_eq!(
+        embedded_images(&pdf),
+        vec![(nx as u32, ny as u32)],
+        "the PDF holds one image, of the data's own pixel dimensions"
+    );
+
+    let Some(rendered) = rendered_or_skip(render_display_list_offscreen(
+        &scene.display_list,
+        &TEXT,
+        dpi,
+    )) else {
+        return;
+    };
+    let plot = scene.hit_map.axes[0].plot_rect;
+    let printed = plot_interior(&rasterise(&pdf, dpi), plot, dpi);
+    let drawn = plot_interior(&rgb_of(&rendered), plot, dpi);
+    let (width, height) = drawn.dimensions();
+    assert!(
+        drawn.get_pixel(0, 0) != drawn.get_pixel(width - 1, height - 1)
+            && drawn.get_pixel(0, 0).0 != [255, 255, 255],
+        "the viewer draws the ramp of the image across the plot interior"
+    );
+    assert_registered(&printed, &drawn, dpi, 2.0);
+    assert_same_picture(&printed, &drawn, dpi);
 }

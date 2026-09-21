@@ -5,7 +5,8 @@
 //! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
 //! is split into nine modules:
 //!
-//! - [`canvas`] converts a display list into `egui` triangle meshes with lyon.
+//! - [`canvas`] converts a display list into `egui` triangle meshes with lyon, and draws images as textured quads
+//!   through a texture provider.
 //! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits, keeps the
 //!   source figure and the user's overlay apart, and composes the figure that is displayed.
 //! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation

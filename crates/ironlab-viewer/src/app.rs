@@ -4,9 +4,11 @@
 //! figure at its physical aspect ratio, scaled to fit and centred in the area below the toolbar on a neutral
 //! surround. The canvas compiles the scene when the figure is first shown and recompiles it after every change to
 //! the figure, so that each gesture is hit-tested against the geometry that is on screen. It converts pointer input
-//! into figure-space calls on [`FigureState`], and draws the meshes from [`crate::canvas::tessellate`] with
+//! into figure-space calls on [`FigureState`], and draws the meshes from [`crate::canvas::tessellate_with`] with
 //! `egui::Shape::mesh`, relying on 4× MSAA for anti-aliasing; the meshes are rebuilt only when the scene, the scale
-//! or the position of the figure changes.
+//! or the position of the figure changes. The textures of the figure's images live in a
+//! [`crate::canvas::TextureCache`] that outlives the meshes, so that a rebuild re-uploads nothing it already holds,
+//! and that is pruned after every rebuild to the textures the new meshes sample.
 //!
 //! A tab also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar opens
 //! into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
@@ -25,7 +27,7 @@ use ironlab_ir::Figure;
 use ironlab_scene::Scene;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{ScreenTransform, color32, tessellate};
+use crate::canvas::{ScreenTransform, TextureCache, color32, tessellate_with};
 use crate::interaction::{Datatip, FigureState, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
@@ -256,6 +258,9 @@ struct FigurePane {
     scene: Option<Scene>,
     /// The meshes of `scene`, or `None` when they must be rebuilt.
     meshes: Option<MeshCache>,
+    /// The textures of the images of `scene`, made with the egui context when the canvas is first drawn and pruned
+    /// after each rebuild of the meshes to the textures they sample.
+    textures: Option<TextureCache>,
 }
 
 impl FigurePane {
@@ -266,6 +271,7 @@ impl FigurePane {
             panel: PropertyPanel::default(),
             scene: None,
             meshes: None,
+            textures: None,
         }
     }
 
@@ -419,11 +425,15 @@ impl FigurePane {
             .as_ref()
             .is_none_or(|cache| cache.to_screen != to_screen)
         {
-            let scene = self.scene(text);
-            let meshes = tessellate(&scene.display_list, text, to_screen)
+            let scene = self.scene.as_ref().expect("compiled above");
+            let textures = self
+                .textures
+                .get_or_insert_with(|| TextureCache::new(ui.ctx().clone()));
+            let meshes = tessellate_with(&scene.display_list, text, to_screen, textures)
                 .into_iter()
                 .map(Arc::new)
                 .collect();
+            textures.retain_requested();
             self.meshes = Some(MeshCache { to_screen, meshes });
         }
         if let Some(cache) = &self.meshes {
