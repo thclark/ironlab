@@ -4,8 +4,11 @@
 //! a Julia set. The field is smooth near the origin and grows rapidly towards the corners of the domain, so it has
 //! enough structure to exercise contouring, colour mapping and three-dimensional views without being as familiar as
 //! MATLAB's `peaks`. The image figures use the complex iterate itself, a quantised form of the field and a colour
-//! conversion for domain colouring, and the image planes figure samples a Gaussian blob, a field of three variables,
-//! on planes of the unit cube.
+//! conversion for domain colouring, and the correlation peak figure samples a synthetic cross-correlation volume, a
+//! field of three variables with one dominant peak at the centre of the unit cube and weaker peaks around it, on
+//! planes of the cube.
+
+use std::ops::Range;
 
 use ironlab::prelude::*;
 
@@ -24,12 +27,34 @@ pub const DOMAIN_MIN: f64 = -1.5;
 /// The upper bound of both coordinates of the domain sampled by [`julia_grid`].
 pub const DOMAIN_MAX: f64 = 1.5;
 
-/// The coordinate of the centre of the blob returned by [`blob`] along each axis, which puts it at the centre of the
-/// unit cube.
-pub const BLOB_CENTRE: f64 = 0.5;
+/// The dominant peak of the field returned by [`correlation_field`]: a Gaussian of unit peak at the centre of the
+/// unit cube with standard deviation 0.1, so that it falls to 0.61 a tenth of a unit from the centre and to 0.04 a
+/// quarter of a unit away, the closest that a noise peak may lie.
+pub const CENTRAL_PEAK: Peak = Peak {
+    centre: [0.5, 0.5, 0.5],
+    sigma: 0.1,
+    amplitude: 1.0,
+};
 
-/// The standard deviation of the blob returned by [`blob`].
-pub const BLOB_SIGMA: f64 = 0.25;
+/// The number of noise peaks returned by [`noise_peaks`].
+pub const NOISE_PEAK_COUNT: usize = 16;
+
+/// The seed of the generator that draws the noise peaks. Any seed gives a valid field; this one was chosen by
+/// looking at the figure, so that the floor shows several bright peaks spread across it.
+pub const NOISE_SEED: u64 = 170;
+
+/// The range from which the standard deviation of a noise peak is drawn.
+pub const NOISE_SIGMA: Range<f64> = 0.04..0.12;
+
+/// The range from which the amplitude of a noise peak is drawn: from 0.6 to 1.4 times a quarter of the amplitude of
+/// [`CENTRAL_PEAK`].
+pub const NOISE_AMPLITUDE: Range<f64> = 0.15..0.35;
+
+/// The least distance of the centre of a noise peak from the centre of [`CENTRAL_PEAK`].
+pub const NOISE_CLEARANCE: f64 = 0.25;
+
+/// The range of heights above the floor of the cube from which the `z` of every third noise peak is drawn.
+pub const FLOOR_PEAK_HEIGHT: Range<f64> = 0.0..0.08;
 
 /// Returns the real and imaginary parts of `z₃`, where `z₀ = x + iy` and `zₙ₊₁ = zₙ² + c` with `c = −0.8 + 0.156i`.
 ///
@@ -66,19 +91,125 @@ pub fn julia_grid(n: usize) -> (Vec<f64>, Vec<f64>, Matrix) {
     (x, y, z)
 }
 
-/// Returns `exp(−r² / (2σ²))`, a Gaussian blob of unit peak centred at `(½, ½, ½)` with standard deviation `σ = ¼`,
-/// where `r` is the distance of the point `(x, y, z)` from the centre.
+/// One Gaussian peak of the field returned by [`correlation_field`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Peak {
+    /// The point at which the peak takes its amplitude.
+    pub centre: [f64; 3],
+    /// The standard deviation `σ` of the peak, which sets its width.
+    pub sigma: f64,
+    /// The value of the peak at its centre.
+    pub amplitude: f64,
+}
+
+impl Peak {
+    /// Returns `amplitude · exp(−r² / (2σ²))`, the value of the peak at the point `(x, y, z)`, where `r` is the
+    /// distance of the point from the centre of the peak.
+    #[must_use]
+    pub fn at(&self, x: f64, y: f64, z: f64) -> f64 {
+        let r = distance([x, y, z], self.centre);
+        self.amplitude * (-r * r / (2.0 * self.sigma * self.sigma)).exp()
+    }
+}
+
+/// Returns the distance between the points `a` and `b`.
+fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a.iter()
+        .zip(&b)
+        .map(|(p, q)| (p - q).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
+/// SplitMix64, the pseudo-random generator that draws the noise peaks.
 ///
-/// The blob is about 0.61 at a quarter of a unit from the centre, about 0.14 at the centre of each face of the unit
-/// cube, half a unit away, and about 0.0025 at the corners of the cube, so a cross-section through the centre shows a
-/// bright disc and one on a face of the cube a faint one.
+/// Each step adds an odd constant to the state, which therefore takes every value once before repeating, and mixes
+/// a copy of the state with two rounds of a shift, an exclusive or and a multiplication, which spread a change in
+/// any bit of the state over every bit of the output. The generator is used because its outputs are well spread
+/// and its whole definition is these few lines, so a reader can reproduce the peaks from the seed alone.
+struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    /// Returns the next output of the generator.
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Returns a number drawn uniformly from `[0, 1)`: the top 53 bits of the next output, which are as many as the
+    /// mantissa of an `f64` holds, divided by 2⁵³.
+    fn unit(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Returns a number drawn uniformly from `range`.
+    fn draw(&mut self, range: Range<f64>) -> f64 {
+        range.start + (range.end - range.start) * self.unit()
+    }
+}
+
+/// Returns the noise peaks of [`correlation_field`]: [`NOISE_PEAK_COUNT`] Gaussians, weaker and mostly narrower than
+/// [`CENTRAL_PEAK`], drawn by [`noise_peaks_from`] with the seed [`NOISE_SEED`], so that they are the same on every
+/// run.
 #[must_use]
-pub fn blob(x: f64, y: f64, z: f64) -> f64 {
-    let r_squared = [x, y, z]
-        .iter()
-        .map(|coordinate| (coordinate - BLOB_CENTRE).powi(2))
-        .sum::<f64>();
-    (-r_squared / (2.0 * BLOB_SIGMA * BLOB_SIGMA)).exp()
+pub fn noise_peaks() -> Vec<Peak> {
+    noise_peaks_from(NOISE_SEED)
+}
+
+/// Returns the [`NOISE_PEAK_COUNT`] noise peaks that the SplitMix64 generator above draws from the given seed.
+///
+/// For each peak the generator draws, in this order, the three coordinates of the centre uniformly over the unit
+/// cube, then the standard deviation uniformly from [`NOISE_SIGMA`], then the amplitude uniformly from
+/// [`NOISE_AMPLITUDE`]. Every third peak, counting from the first, has its `z` drawn from [`FLOOR_PEAK_HEIGHT`]
+/// instead, so that the floor of the cube shows several peaks. A centre within [`NOISE_CLEARANCE`] of the dominant
+/// peak is discarded and all three coordinates are drawn again, so that the dominant peak stays clean.
+#[must_use]
+pub fn noise_peaks_from(seed: u64) -> Vec<Peak> {
+    let mut generator = SplitMix64 { state: seed };
+    (0..NOISE_PEAK_COUNT)
+        .map(|index| {
+            let centre = loop {
+                let x = generator.unit();
+                let y = generator.unit();
+                let z = if index % 3 == 0 {
+                    generator.draw(FLOOR_PEAK_HEIGHT)
+                } else {
+                    generator.unit()
+                };
+                if distance([x, y, z], CENTRAL_PEAK.centre) >= NOISE_CLEARANCE {
+                    break [x, y, z];
+                }
+            };
+            let sigma = generator.draw(NOISE_SIGMA);
+            let amplitude = generator.draw(NOISE_AMPLITUDE);
+            Peak {
+                centre,
+                sigma,
+                amplitude,
+            }
+        })
+        .collect()
+}
+
+/// Returns the value at `(x, y, z)` of a synthetic cross-correlation volume: the sum of [`CENTRAL_PEAK`] and the
+/// [`noise_peaks`].
+///
+/// A cross-correlation volume from three-dimensional particle image velocimetry has one dominant peak, at the
+/// displacement of the particles between two exposures, among weaker peaks from chance alignments of other
+/// particles. Every peak is positive, so the field is never negative, and at the centre of a peak it is at least
+/// that peak's amplitude.
+#[must_use]
+pub fn correlation_field(x: f64, y: f64, z: f64) -> f64 {
+    CENTRAL_PEAK.at(x, y, z)
+        + noise_peaks()
+            .iter()
+            .map(|peak| peak.at(x, y, z))
+            .sum::<f64>()
 }
 
 /// Quantises a field into `count` classes of equal width between its smallest and largest finite values, and returns

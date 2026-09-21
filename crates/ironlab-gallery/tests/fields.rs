@@ -6,8 +6,9 @@
 
 use ironlab::{ByteMatrix, Color, Matrix};
 use ironlab_gallery::fields::{
-    DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, blob, gradient, hsl_to_rgb, julia_field, julia_grid,
-    julia_iterate, quantise, sunflower, surface_normals,
+    CENTRAL_PEAK, DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, Peak, correlation_field, gradient,
+    hsl_to_rgb, julia_field, julia_grid, julia_iterate, noise_peaks, noise_peaks_from, quantise,
+    sunflower, surface_normals,
 };
 
 fn close(a: f64, b: f64, tolerance: f64) -> bool {
@@ -226,55 +227,199 @@ fn julia_grid_spans_the_domain_with_rows_along_y() {
     assert!(close(z[(22, 5)], julia_field(x[5], y[22]), 0.0));
 }
 
-/// WHY: the image planes entry draws cross-sections of this blob, and its page states the formula, so the blob must
-/// be the Gaussian exp(−r² / (2σ²)) of unit peak at the centre of the unit cube with σ = ¼: its peak is 1 at the
-/// centre; it depends on the distance from the centre alone, so it is unchanged by reflecting any coordinate about
-/// the centre and by permuting the coordinates; and at a known distance it takes the documented value, exp(−½) a
-/// quarter of a unit away, exp(−2) half a unit away at the centre of a face and exp(−6) at a corner of the cube.
+/// WHY: the correlation peak entry draws cross-sections of this field, and its page states what the field is, so
+/// the dominant peak must be the Gaussian of unit peak at the centre of the unit cube with σ = 0.1 that the page
+/// describes. The noise peaks lie at least a quarter of a unit from the centre, so they add little there and the
+/// field at the centre stays close to 1; and every peak is positive, so the field is never negative, as the
+/// correlation of two non-negative images cannot be.
 #[test]
-fn blob_is_a_unit_gaussian_centred_in_the_unit_cube() {
-    assert_eq!(blob(0.5, 0.5, 0.5), 1.0, "the peak is 1 at the centre");
-
-    let quarter = (-0.5_f64).exp();
-    for (x, y, z) in [(0.75, 0.5, 0.5), (0.5, 0.25, 0.5), (0.5, 0.5, 0.75)] {
-        let actual = blob(x, y, z);
+fn correlation_field_is_a_unit_peak_at_the_centre_and_never_negative() {
+    let centre = correlation_field(0.5, 0.5, 0.5);
+    assert!(
+        (1.0..=1.1).contains(&centre),
+        "the field at the centre is {centre}, expected 1 plus a little noise"
+    );
+    assert_eq!(
+        CENTRAL_PEAK.at(0.5, 0.5, 0.5),
+        1.0,
+        "the dominant peak is 1 at its centre"
+    );
+    let tenth = (-0.5_f64).exp();
+    for (x, y, z) in [(0.6, 0.5, 0.5), (0.5, 0.4, 0.5), (0.5, 0.5, 0.6)] {
+        let actual = CENTRAL_PEAK.at(x, y, z);
         assert!(
-            close(actual, quarter, 1e-12),
-            "blob({x}, {y}, {z}) = {actual}, expected {quarter} a quarter of a unit from the centre"
+            close(actual, tenth, 1e-12),
+            "the dominant peak at ({x}, {y}, {z}) is {actual}, expected exp(−½) a tenth of a unit from its centre"
         );
     }
-    let step = 0.25 / 3.0_f64.sqrt();
-    let diagonal = blob(0.5 + step, 0.5 - step, 0.5 + step);
-    assert!(
-        close(diagonal, quarter, 1e-12),
-        "a quarter of a unit along a diagonal gives {diagonal}, expected {quarter}"
-    );
-    let half = (-2.0_f64).exp();
-    for (x, y, z) in [(0.5, 0.5, 0.0), (1.0, 0.5, 0.5), (0.5, 0.0, 0.5)] {
-        let actual = blob(x, y, z);
-        assert!(
-            close(actual, half, 1e-12),
-            "blob({x}, {y}, {z}) = {actual}, expected {half} at the centre of a face"
-        );
-    }
-    let corner = blob(0.0, 1.0, 0.0);
-    assert!(
-        close(corner, (-6.0_f64).exp(), 1e-12),
-        "a corner of the cube gives {corner}, expected exp(−6)"
-    );
-
-    for (x, y, z) in [(0.1, 0.7, 0.4), (0.9, 0.2, 0.55)] {
-        let value = blob(x, y, z);
-        for (rx, ry, rz) in [(1.0 - x, y, z), (x, 1.0 - y, z), (x, y, 1.0 - z)] {
-            assert!(
-                close(blob(rx, ry, rz), value, 1e-12),
-                "reflecting ({x}, {y}, {z}) about the centre to ({rx}, {ry}, {rz}) changes the blob"
-            );
+    let coarse: Vec<f64> = (0..=20).map(|i| f64::from(i) / 20.0).collect();
+    for &x in &coarse {
+        for &y in &coarse {
+            for &z in &coarse {
+                let value = correlation_field(x, y, z);
+                assert!(
+                    value.is_finite() && value >= 0.0,
+                    "the field at ({x}, {y}, {z}) is {value}"
+                );
+            }
         }
-        for (px, py, pz) in [(y, z, x), (z, x, y), (y, x, z)] {
+    }
+}
+
+/// WHY: the noise peaks are drawn by a seeded generator so that the figure is reproducible: the page shows one
+/// rendering, and a reader who runs the source must get the same one. The rules stated on the data helpers page
+/// must hold for every peak: sixteen peaks, none within a quarter of a unit of the dominant peak, amplitudes from
+/// 0.15 to 0.35, standard deviations from 0.04 to 0.12, centres inside the cube, and several near the floor so that
+/// the floor image shows them. The field is a sum of positive peaks, so at the centre of a noise peak it is at
+/// least that peak's amplitude.
+#[test]
+fn noise_peaks_are_reproducible_weak_clear_of_the_centre_and_partly_near_the_floor() {
+    let peaks = noise_peaks();
+    assert_eq!(peaks, noise_peaks(), "two generations of the peaks differ");
+    assert_eq!(peaks.len(), 16);
+    let near_floor = peaks.iter().filter(|peak| peak.centre[2] < 0.1).count();
+    assert!(
+        near_floor >= 4,
+        "only {near_floor} peaks lie within a tenth of a unit of the floor"
+    );
+    for (index, peak) in peaks.iter().enumerate() {
+        let [x, y, z] = peak.centre;
+        assert!(
+            peak.centre.iter().all(|c| (0.0..1.0).contains(c)),
+            "peak {index} at ({x}, {y}, {z}) lies outside the unit cube"
+        );
+        let distance = ((x - 0.5).powi(2) + (y - 0.5).powi(2) + (z - 0.5).powi(2)).sqrt();
+        assert!(
+            distance >= 0.25,
+            "peak {index} at ({x}, {y}, {z}) is only {distance} from the dominant peak"
+        );
+        assert!(
+            (0.15..=0.35).contains(&peak.amplitude),
+            "peak {index} has the amplitude {}",
+            peak.amplitude
+        );
+        assert!(
+            (0.04..=0.12).contains(&peak.sigma),
+            "peak {index} has the standard deviation {}",
+            peak.sigma
+        );
+        let value = correlation_field(x, y, z);
+        assert!(
+            value >= peak.amplitude,
+            "the field at the centre of peak {index} is {value}, below its amplitude {}",
+            peak.amplitude
+        );
+    }
+}
+
+/// WHY: the data helpers page states the generator (SplitMix64) and the order of the draws so that a reader can
+/// reproduce the peaks; an implementation that drew in another order or scaled the outputs differently would give
+/// a valid but different figure from the one described. The expected values were computed independently in Python:
+///
+/// ```python
+/// MASK = (1 << 64) - 1
+/// def next_u64():
+///     global state
+///     state = (state + 0x9E3779B97F4A7C15) & MASK
+///     z = state
+///     z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & MASK
+///     z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & MASK
+///     return z ^ (z >> 31)
+/// unit = lambda: (next_u64() >> 11) / 2**53
+/// draw = lambda lo, hi: lo + (hi - lo) * unit()
+/// ```
+///
+/// with `state` set to the seed, followed, for each peak in turn, by `unit()` for x and y, `draw(0, 0.08)` for z on
+/// every third peak and `unit()` otherwise, all three drawn again while the centre lies within 0.25 of
+/// (0.5, 0.5, 0.5), then `draw(0.04, 0.12)` for the standard deviation and `draw(0.15, 0.35)` for the amplitude.
+/// The cases are the first, second and last peaks of the figure's seed, 170, none of whose draws is redrawn, and
+/// the third and fourth peaks of the seed 2, whose first centre drawn for the third peak, (0.339, 0.438, 0.556),
+/// lies 0.18 from the dominant peak and is discarded, so these two peaks check the redraw rule.
+#[test]
+fn noise_peaks_match_the_documented_generator_and_draw_order() {
+    assert_eq!(
+        noise_peaks(),
+        noise_peaks_from(170),
+        "the peaks of the figure are drawn from the seed 170"
+    );
+    for (seed, index, expected) in [
+        (
+            170,
+            0,
+            Peak {
+                centre: [
+                    0.309_514_234_593_841,
+                    0.617_323_395_994_489_5,
+                    0.065_292_177_171_743_39,
+                ],
+                sigma: 0.060_016_850_848_554_42,
+                amplitude: 0.329_994_123_488_773_16,
+            },
+        ),
+        (
+            170,
+            1,
+            Peak {
+                centre: [
+                    0.559_534_022_887_808_7,
+                    0.914_070_075_870_468_3,
+                    0.141_585_961_809_081_9,
+                ],
+                sigma: 0.071_294_270_320_227_56,
+                amplitude: 0.245_060_623_247_635_9,
+            },
+        ),
+        (
+            170,
+            15,
+            Peak {
+                centre: [
+                    0.369_110_075_355_612_35,
+                    0.921_662_527_772_285_7,
+                    0.048_109_827_991_302_104,
+                ],
+                sigma: 0.114_262_279_826_149_53,
+                amplitude: 0.317_699_493_004_411_86,
+            },
+        ),
+        (
+            2,
+            2,
+            Peak {
+                centre: [
+                    0.373_803_380_579_189_8,
+                    0.932_001_063_411_591_5,
+                    0.203_390_980_167_434_73,
+                ],
+                sigma: 0.056_010_765_444_778_73,
+                amplitude: 0.222_846_316_391_484_53,
+            },
+        ),
+        (
+            2,
+            3,
+            Peak {
+                centre: [
+                    0.377_825_568_060_513_26,
+                    0.210_188_726_616_318_04,
+                    0.003_855_960_560_976_079_7,
+                ],
+                sigma: 0.082_192_962_654_149_08,
+                amplitude: 0.226_201_389_848_857_65,
+            },
+        ),
+    ] {
+        let actual = noise_peaks_from(seed)[index];
+        for (name, a, e) in [
+            ("x", actual.centre[0], expected.centre[0]),
+            ("y", actual.centre[1], expected.centre[1]),
+            ("z", actual.centre[2], expected.centre[2]),
+            ("sigma", actual.sigma, expected.sigma),
+            ("amplitude", actual.amplitude, expected.amplitude),
+        ] {
             assert!(
-                close(blob(px, py, pz), value, 1e-12),
-                "permuting ({x}, {y}, {z}) to ({px}, {py}, {pz}) changes the blob"
+                close(a, e, 1e-15),
+                "seed {seed}, peak {index}: {name} is {a}, expected {e}"
             );
         }
     }

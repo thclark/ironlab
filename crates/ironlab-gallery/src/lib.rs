@@ -106,7 +106,7 @@ gallery!(
     contour3,
     quiver3,
     mapped_image_and_surface,
-    image_planes,
+    correlation_peak,
     subplots_unlinked,
     subplots_linked,
     subplots_all_x,
