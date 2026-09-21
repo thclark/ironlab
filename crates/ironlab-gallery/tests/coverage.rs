@@ -7,7 +7,7 @@
 
 use ironlab::ir::{
     Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, ImagePlacement, ImagePlane,
-    Interpreter, MarkerShape, NodeId, OutOfRange, Projection, Scale,
+    Interpreter, Limits, MarkerShape, NodeId, OutOfRange, Projection, Scale,
 };
 use ironlab_gallery::{all, find};
 
@@ -50,7 +50,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 22] = [
+    let requirements: [(&str, Predicate); 23] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
@@ -149,6 +149,25 @@ fn every_required_chart_type_is_present() {
             |_, _, artist| {
                 image_policies(artist)
                     .is_some_and(|policies| policies.iter().any(|p| *p != OutOfRange::Transparent))
+            },
+        ),
+        // WHY: an image whose offset lies strictly inside the limits of its third axis is placed inside the box and
+        // sorted by its depth, whereas one on a face of the box is painted before or after everything else, so the
+        // interior placement is a branch of the compiler that the face entries never reach.
+        (
+            "image at an interior offset of a three-dimensional axes",
+            |_, axes, artist| {
+                is_3d(axes)
+                    && image_placement(artist).is_some_and(|p| {
+                        let third = match p.plane {
+                            ImagePlane::Xy { .. } => &axes.z,
+                            ImagePlane::Xz { .. } => &axes.y,
+                            ImagePlane::Yz { .. } => &axes.x,
+                        };
+                        p.plane.offset().is_some_and(|offset| {
+                            matches!(third.limits, Limits::Manual { min, max } if min < offset && offset < max)
+                        })
+                    })
             },
         ),
     ];

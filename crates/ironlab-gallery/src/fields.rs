@@ -4,7 +4,8 @@
 //! a Julia set. The field is smooth near the origin and grows rapidly towards the corners of the domain, so it has
 //! enough structure to exercise contouring, colour mapping and three-dimensional views without being as familiar as
 //! MATLAB's `peaks`. The image figures use the complex iterate itself, a quantised form of the field and a colour
-//! conversion for domain colouring.
+//! conversion for domain colouring, and the image planes figure samples a Gaussian blob, a field of three variables,
+//! on planes of the unit cube.
 
 use ironlab::prelude::*;
 
@@ -22,6 +23,13 @@ pub const DOMAIN_MIN: f64 = -1.5;
 
 /// The upper bound of both coordinates of the domain sampled by [`julia_grid`].
 pub const DOMAIN_MAX: f64 = 1.5;
+
+/// The coordinate of the centre of the blob returned by [`blob`] along each axis, which puts it at the centre of the
+/// unit cube.
+pub const BLOB_CENTRE: f64 = 0.5;
+
+/// The standard deviation of the blob returned by [`blob`].
+pub const BLOB_SIGMA: f64 = 0.25;
 
 /// Returns the real and imaginary parts of `z₃`, where `z₀ = x + iy` and `zₙ₊₁ = zₙ² + c` with `c = −0.8 + 0.156i`.
 ///
@@ -56,6 +64,21 @@ pub fn julia_grid(n: usize) -> (Vec<f64>, Vec<f64>, Matrix) {
     let y = linspace(DOMAIN_MIN, DOMAIN_MAX, n);
     let z = Matrix::from_fn(y.len(), x.len(), |row, col| julia_field(x[col], y[row]));
     (x, y, z)
+}
+
+/// Returns `exp(−r² / (2σ²))`, a Gaussian blob of unit peak centred at `(½, ½, ½)` with standard deviation `σ = ¼`,
+/// where `r` is the distance of the point `(x, y, z)` from the centre.
+///
+/// The blob is about 0.61 at a quarter of a unit from the centre, about 0.14 at the centre of each face of the unit
+/// cube, half a unit away, and about 0.0025 at the corners of the cube, so a cross-section through the centre shows a
+/// bright disc and one on a face of the cube a faint one.
+#[must_use]
+pub fn blob(x: f64, y: f64, z: f64) -> f64 {
+    let r_squared = [x, y, z]
+        .iter()
+        .map(|coordinate| (coordinate - BLOB_CENTRE).powi(2))
+        .sum::<f64>();
+    (-r_squared / (2.0 * BLOB_SIGMA * BLOB_SIGMA)).exp()
 }
 
 /// Quantises a field into `count` classes of equal width between its smallest and largest finite values, and returns

@@ -6,7 +6,7 @@
 
 use ironlab::{ByteMatrix, Color, Matrix};
 use ironlab_gallery::fields::{
-    DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, gradient, hsl_to_rgb, julia_field, julia_grid,
+    DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, blob, gradient, hsl_to_rgb, julia_field, julia_grid,
     julia_iterate, quantise, sunflower, surface_normals,
 };
 
@@ -224,6 +224,60 @@ fn julia_grid_spans_the_domain_with_rows_along_y() {
     );
     assert!(close(z[(3, 17)], julia_field(x[17], y[3]), 0.0));
     assert!(close(z[(22, 5)], julia_field(x[5], y[22]), 0.0));
+}
+
+/// WHY: the image planes entry draws cross-sections of this blob, and its page states the formula, so the blob must
+/// be the Gaussian exp(−r² / (2σ²)) of unit peak at the centre of the unit cube with σ = ¼: its peak is 1 at the
+/// centre; it depends on the distance from the centre alone, so it is unchanged by reflecting any coordinate about
+/// the centre and by permuting the coordinates; and at a known distance it takes the documented value, exp(−½) a
+/// quarter of a unit away, exp(−2) half a unit away at the centre of a face and exp(−6) at a corner of the cube.
+#[test]
+fn blob_is_a_unit_gaussian_centred_in_the_unit_cube() {
+    assert_eq!(blob(0.5, 0.5, 0.5), 1.0, "the peak is 1 at the centre");
+
+    let quarter = (-0.5_f64).exp();
+    for (x, y, z) in [(0.75, 0.5, 0.5), (0.5, 0.25, 0.5), (0.5, 0.5, 0.75)] {
+        let actual = blob(x, y, z);
+        assert!(
+            close(actual, quarter, 1e-12),
+            "blob({x}, {y}, {z}) = {actual}, expected {quarter} a quarter of a unit from the centre"
+        );
+    }
+    let step = 0.25 / 3.0_f64.sqrt();
+    let diagonal = blob(0.5 + step, 0.5 - step, 0.5 + step);
+    assert!(
+        close(diagonal, quarter, 1e-12),
+        "a quarter of a unit along a diagonal gives {diagonal}, expected {quarter}"
+    );
+    let half = (-2.0_f64).exp();
+    for (x, y, z) in [(0.5, 0.5, 0.0), (1.0, 0.5, 0.5), (0.5, 0.0, 0.5)] {
+        let actual = blob(x, y, z);
+        assert!(
+            close(actual, half, 1e-12),
+            "blob({x}, {y}, {z}) = {actual}, expected {half} at the centre of a face"
+        );
+    }
+    let corner = blob(0.0, 1.0, 0.0);
+    assert!(
+        close(corner, (-6.0_f64).exp(), 1e-12),
+        "a corner of the cube gives {corner}, expected exp(−6)"
+    );
+
+    for (x, y, z) in [(0.1, 0.7, 0.4), (0.9, 0.2, 0.55)] {
+        let value = blob(x, y, z);
+        for (rx, ry, rz) in [(1.0 - x, y, z), (x, 1.0 - y, z), (x, y, 1.0 - z)] {
+            assert!(
+                close(blob(rx, ry, rz), value, 1e-12),
+                "reflecting ({x}, {y}, {z}) about the centre to ({rx}, {ry}, {rz}) changes the blob"
+            );
+        }
+        for (px, py, pz) in [(y, z, x), (z, x, y), (y, x, z)] {
+            assert!(
+                close(blob(px, py, pz), value, 1e-12),
+                "permuting ({x}, {y}, {z}) to ({px}, {py}, {pz}) changes the blob"
+            );
+        }
+    }
 }
 
 /// WHY: the quiver entry draws this gradient. For a quadratic field, central differences are exact in the interior

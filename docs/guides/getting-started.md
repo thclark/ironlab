@@ -174,7 +174,7 @@ The pixels of an image are flat, so an image cannot be placed on a logarithmic a
 
 An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
-In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md), [Indexed image](../gallery/indexed_image.md) and [Images in three dimensions](../gallery/image_planes.md) show each kind and the planes, and the decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show each kind, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Image planes](../gallery/image_planes.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
 
 ## Titles, labels and LaTeX
 
