@@ -113,7 +113,7 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 | `x`, `y`, `z` | Axis | The coordinate axes. In a two-dimensional axes, `z` is ignored, and the property editor hides it until the axes is made three-dimensional. |
 | `box` | boolean | Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels. The default is `true`. |
 | `colormap` | string | The colormap used by colormapped colours: `viridis` (the default), `cividis`, `magma`, `inferno`, `plasma`, `coolwarm` or `gray`. |
-| `clim` | Limits | The data values mapped to the first and last colours of the colormap. Automatic colour limits are the exact range of the axes' colour data. |
+| `clim` | Limits | The data values mapped to the first and last colours of the colormap. Automatic colour limits are the exact range of the axes' colour data, the values of its colour-mapped images included. |
 | `legend` | Legend or `null` | The legend, or `null` when no legend is shown. |
 | `artists` | array of Artist | The plots drawn in the axes, in drawing order: a later artist covers an earlier one. |
 
@@ -143,7 +143,7 @@ A View3d has five properties:
 
 ### Limits
 
-- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree. Along x and y, an end of the range reached only by the grid of a contour or surface is the exact end of that grid rather than a tick value. Automatic colour limits are the exact range of the colour data.
+- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree. Along x and y, an end of the range reached only by the grid of a contour or surface, or by the pixel edges of an image, is the exact end of that grid or those edges rather than a tick value. Automatic colour limits are the exact range of the colour data.
 - `{"type": "manual", "min": number, "max": number}` fixes the range. The bounds must be finite, `min` must be less than `max`, and both must be positive on a logarithmic axis.
 
 ### Legend
@@ -232,7 +232,7 @@ A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`).
 
 ### `image`
 
-A true-colour image: a raster of pixels, each with its own colour (MATLAB's `image` with a true-colour array). An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is planar: it lies in one of the coordinate planes of its axes, as its [placement](#image-placement) says.
+A true-colour image: a raster of pixels, each with its own colour (MATLAB's `image` with a true-colour array). An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is planar: it lies in one of the coordinate planes of its axes, as its [placement](#image-placement) says. An image of any kind with no rows or no columns is valid and draws nothing. The decisions behind the three image kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
 
 | Property | Meaning |
 | --- | --- |
@@ -245,7 +245,7 @@ A colour-indexed image, whose pixels name entries of the axes colormap directly 
 
 | Property | Meaning |
 | --- | --- |
-| `indices` | DataId of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap. The indices neither use nor change the colour limits of the axes. |
+| `indices` | DataId of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap, so every index greater than −1 and less than 256 names an entry. The indices neither use nor change the colour limits of the axes. |
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
 | `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose truncated index is less than 0. |
 | `above` | The policy for a pixel whose truncated index is greater than 255. |
@@ -273,7 +273,7 @@ An **ImagePlacement** says where the pixels of an image lie in its axes.
 | `columns` | A PixelRange giving the coordinates of the centres of the first and last columns along the first axis of the plane, or `null` for centres at 0, 1, …, nx − 1. |
 | `rows` | A PixelRange giving the coordinates of the centres of the first and last rows along the second axis of the plane, or `null` for centres at 0, 1, …, ny − 1. Row 0 of the array lies at the first centre, whichever way the range runs. |
 
-A **PixelRange** has two properties, `first` and `last`: the coordinates of the centres of the first and last pixels along one axis of the plane. With `n` pixels along the axis, the pitch between centres is `(last − first) / (n − 1)`, and the image covers half a pitch beyond each centre, so an image of `nx` columns with a `null` column range covers −0.5 to nx − 0.5. A `last` less than `first` mirrors the image along the axis, which is how an image is flipped. An image with one pixel along an axis has a pitch of 1 whatever its range. Both centres must be finite, and they may coincide only when the image has one pixel along the axis, as [validation](#validation) checks.
+A **PixelRange** has two properties, `first` and `last`: the coordinates of the centres of the first and last pixels along one axis of the plane. With `n` pixels along the axis, the pitch between centres is `(last − first) / (n − 1)`, and the image covers half a pitch beyond each centre, so an image of `nx` columns with a `null` column range covers −0.5 to nx − 0.5. A `last` less than `first` mirrors the image along the axis, which is how an image is flipped. An image with one pixel along an axis has a pitch of 1 whatever its range. Both centres must be finite, and they may coincide only when the image has one pixel along the axis, as [validation](#validation) checks. The range that the property editor gives an absent range runs from 0 to 1, which places an image of any number of pixels validly.
 
 An **ImagePlane** takes one of three forms. The columns of the image run along the first axis of the plane and its rows along the second, and the offset is the coordinate of the plane along the third axis, or `null` for the low end of that axis.
 
@@ -281,7 +281,9 @@ An **ImagePlane** takes one of three forms. The columns of the image run along t
 - `{"type": "xz", "y": number or null}` is the plane of the x and z axes, a wall of a three-dimensional axes, at `y`. It is valid only in three-dimensional axes.
 - `{"type": "yz", "x": number or null}` is the plane of the y and z axes, the other wall, at `x`. It is valid only in three-dimensional axes.
 
-A raster of flat pixels cannot be placed on a logarithmic axis, so an image whose plane has a logarithmic axis is not drawn, and validation warns of it.
+In a three-dimensional axes an image whose plane lies on a face of the axes box, because its offset is `null` or equals a limit of the third axis, is painted behind every other artist of the axes when that face is at the back of the current view and in front of every other artist when it is at the front; an image at an interior offset is sorted among the other artists by its depth.
+
+A raster of flat pixels cannot be placed on a logarithmic axis, so an image whose plane has a logarithmic axis is not drawn, and validation warns of it. The third axis of the plane may be logarithmic; an explicit offset along it must then be positive, or the image cannot be placed and is not drawn, of which validation also warns.
 
 ### Out-of-range policies
 

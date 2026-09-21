@@ -6,7 +6,7 @@ IronLAB is a Rust library and application for building scientific figures, explo
 - **An interactive viewer.** A desktop window shows one or more figures as tabs, in which axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a [property editor](guides/viewer.md#the-property-editor). Every interaction sets a property of the figure model, and can be undone or discarded, so the view on screen is always a figure that can be saved or exported.
 - **Publication-quality PDF export.** A figure is exported as a single-page PDF whose page is exactly the size of the figure, with fonts embedded and text that can be selected and searched. Labels may contain LaTeX mathematics, which IronLAB typesets itself: no TeX installation is needed to build, view or export a figure.
 
-The API is modelled on MATLAB. Plotting functions carry MATLAB's names and argument order (`plot`, `scatter`, `contour`, `quiver`, `surf` and their relatives), and their defaults follow MATLAB where MATLAB has an equivalent.
+The API is modelled on MATLAB. Plotting functions carry MATLAB's names and argument order (`plot`, `scatter`, `contour`, `quiver`, `surf`, `image` and their relatives; MATLAB's `imagesc` is `mapped_image`), and their defaults follow MATLAB where MATLAB has an equivalent.
 
 ## A minimal example
 

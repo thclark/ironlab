@@ -134,6 +134,48 @@ Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, 
 
 A surface of ten thousand faces or more is exported as an image rather than as one path per face; see [dense surfaces](#dense-surfaces).
 
+### Images
+
+An image is a raster of pixels, each with one flat colour, placed by the coordinates of its pixel centres. Three functions draw the three kinds of image, which differ in where the colour of a pixel comes from.
+
+- `image(&pixels)` draws a true-colour image (MATLAB's `image` with a true-colour array). Its argument is a `Pixels`: the red, green and blue components of every pixel, with an optional alpha component, one byte each. Pixels are built from the bytes of a decoded image with `Pixels::from_rgb8` or `Pixels::from_rgba8`, from a function of the row and column with `Pixels::rgb_from_fn` or `Pixels::rgba_from_fn`, or from one `Matrix` per component with `Pixels::from_planes`, to which `with_alpha` attaches a plane of opacities.
+- `indexed_image(&indices)` draws a colour-indexed image, whose pixels name entries of the axes colormap directly (MATLAB's `image` with an indexed array). An index from 0 to 255 takes that entry of the 256-entry colormap, a floating-point index is truncated toward zero first, and the colour limits play no part.
+- `mapped_image(&values)` draws a colour-mapped image, whose pixels are data values scaled through the colour limits of the axes into its colormap, exactly as the colour data of a surface is (MATLAB's `imagesc`).
+
+The indices and values of the two mapped kinds come from a `Matrix`, stored as floating-point values, or from a `ByteMatrix`, its 8-bit counterpart, which stores bytes exactly and at a quarter of the size.
+
+```rust
+let x = linspace(-2.0, 2.0, 81);
+let y = linspace(-1.0, 1.0, 41);
+let field = Matrix::from_fn(y.len(), x.len(), |row, col| (x[col] * y[row]).sin());
+let classes = ByteMatrix::from_fn(y.len(), x.len(), |row, col| ((row + col) % 4 * 85) as u8);
+let pixels = Pixels::rgb_from_fn(64, 64, |row, col| Color::rgb(row as f32 / 63.0, col as f32 / 63.0, 0.5));
+
+let mut fig = Figure::new().tiles(1, 3);
+let mut ax = fig.axes(0, 0);
+ax.mapped_image(&field)
+    .pixel_columns(-2.0, 2.0)  // the centres of the first and last columns
+    .pixel_rows(-1.0, 1.0)     // the centres of the first and last rows
+    .above(OutOfRange::Clamp)  // a value above the colour limits takes the last colour
+    .non_finite(Color::BLACK)  // a NaN is drawn in black instead of being left transparent
+    .display_name(r"$\sin xy$");
+ax.colormap(Colormap::Magma).clim(-1.0, 1.0);
+fig.axes(0, 1).indexed_image(&classes).pixel_columns(-2.0, 2.0).pixel_rows(-1.0, 1.0);
+fig.axes(0, 2).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0); // rows count down from the top
+```
+
+An image is placed by the centres of its first and last pixels along each axis of its plane: `pixel_columns(first, last)` places its columns and `pixel_rows(first, last)` its rows. The pitch between centres follows from the number of pixels, and the image extends half a pitch beyond each centre, so the mapped image above, with 81 columns centred from −2 to 2, has a pitch of 0.05 and covers −2.025 to 2.025. Without a range the centres lie at 0, 1, …, n − 1, so an image of n columns covers −0.5 to n − 0.5. Row 0 of the array always lies at the first row centre and column 0 at the first column centre, so a range whose `last` is less than its `first` mirrors the image along that axis: the rows of a decoded photograph count down from its top, so it is placed the right way up by a row range that runs from the top of the image to its bottom, as the `image` call above does. How an image is stretched, shifted or flipped is therefore written in its placement, rather than depending on the direction of an axis. The x and y limits of an axes that holds only images are the exact edges of their pixels, as they are for the grid of a contour or surface.
+
+A pixel of a colour-indexed or colour-mapped image that the colormap cannot colour falls in one of three categories, and each category has a policy of its own: `below` (an index less than 0, or a value below the lower colour limit), `above` (an index greater than 255, or a value above the upper colour limit) and `non_finite` (an index or value that is NaN or infinite). A policy is `OutOfRange::Transparent`, the default, which draws nothing for the pixel; `OutOfRange::Clamp`, which draws the nearest end colour of the colormap, its first entry below the range and its last above it, and nothing for a non-finite value, which has no nearest end; a `Color`, which draws the pixel in that fixed colour; or `OutOfRange::Strict`, which makes such a pixel a validation error. The policies are lenient by default so that a figure reaches the page whatever its data holds, and strict on any combination of the three categories when the data must be good: leaving `non_finite` transparent while making `below` and `above` strict tolerates missing values but refuses a value outside the range, and the reverse refuses missing values while tolerating those outside the range.
+
+In a three-dimensional axes an image lies in one of the three coordinate planes, chosen with `plane`. `ImagePlane::Xy { z }` is the floor, `ImagePlane::Xz { y }` and `ImagePlane::Yz { x }` are the walls, and the offset is the coordinate of the plane along the third axis, or `None` for the low end of that axis, so `plane(ImagePlane::Xz { y: Some(0.0) })` stands the image on the wall at y = 0. The columns of the image run along the first axis of its plane and the rows along the second. Placing an image on a wall converts a two-dimensional axes to three dimensions, as `surf` does, whereas the xy plane leaves the axes as it is, because it is the only plane a two-dimensional axes can show. An image on a face of the axes box, as an image without an offset is, is painted behind everything else in the axes when its face is at the back of the current view and in front of everything else when it is at the front; an image at an interior offset is sorted among the faces, lines and markers by its depth.
+
+The pixels of an image are flat, so an image cannot be placed on a logarithmic axis: an image whose plane has a logarithmic axis is not drawn, and validation warns about it.
+
+An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
+
+In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md), [Indexed image](../gallery/indexed_image.md) and [Images in three dimensions](../gallery/image_planes.md) show each kind and the planes, and the decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+
 ## Titles, labels and LaTeX
 
 Axes titles and labels are set on the axes handle, and each setter returns the handle so that they can be chained.
@@ -164,10 +206,10 @@ The remaining axes properties are also set on the axes handle.
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
 | `colormap(name)` | Sets the colormap: `Viridis` (the default), `Cividis`, `Magma`, `Inferno`, `Plasma`, `Coolwarm` or `Gray`. |
-| `clim(min, max)` | Fixes the data values mapped to the ends of the colormap. |
+| `clim(min, max)` | Fixes the data values mapped to the ends of the colormap. Limits that are not set are the range of the colour data of the axes, to which a mapped image contributes its values; an indexed image, whose indices name colours directly, contributes nothing. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
-Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour and surface plots are the exact extent of their grid instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
+Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour, surface and image plots are the exact extent of their grid or of their pixel edges instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
 
 ## Legends
 
@@ -212,7 +254,7 @@ These link only the axes that exist when they are called, so they are called aft
 
 ## Three-dimensional axes
 
-A three-dimensional axes is drawn through an orthographic camera described by its azimuth (the rotation about the vertical axis) and its elevation (the angle of the view above the x–y plane). The default view is MATLAB's, with an azimuth of −37.5° and an elevation of 30°. An axes becomes three-dimensional when it is created with `axes3`, when `view` is called on it, or when any of `plot3`, `scatter3`, `contour3`, `quiver3`, `surf` or `mesh` adds a plot to it.
+A three-dimensional axes is drawn through an orthographic camera described by its azimuth (the rotation about the vertical axis) and its elevation (the angle of the view above the x–y plane). The default view is MATLAB's, with an azimuth of −37.5° and an elevation of 30°. An axes becomes three-dimensional when it is created with `axes3`, when `view` is called on it, when any of `plot3`, `scatter3`, `contour3`, `quiver3`, `surf` or `mesh` adds a plot to it, or when an [image](#images) is placed on one of its walls with `plane`.
 
 ```rust
 let mut ax = fig.axes3(0, 0);
@@ -220,7 +262,7 @@ ax.surf(&x, &y, &z);
 ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
-A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines and markers are drawn from back to front for the current view, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md).
+A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines, markers and images are drawn from back to front for the current view, except that an image on a face of the axes box is painted behind or in front of all of them, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md), and those for images in [ADR 0011](../adrs/0011-image-artists.md).
 
 ## Parameters
 
