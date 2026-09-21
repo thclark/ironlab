@@ -1416,6 +1416,53 @@ fn coincident_pixel_centres_are_invalid_unless_the_image_has_one_pixel_along_tha
     }
 }
 
+// WHY: the scene compiler places a plane by the coordinate of its offset along the third
+// axis, and a logarithmic axis has no place for zero or a negative coordinate, so such an
+// image is not drawn; without this warning the figure would validate cleanly and the
+// image would vanish silently. A positive offset, an absent offset (the low end of the
+// axis, which is positive on a logarithmic axis) and a two-dimensional axes, which
+// ignores the offset, must not warn.
+#[test]
+fn a_non_positive_offset_along_a_logarithmic_third_axis_is_a_warning() {
+    // Whether the axes is 3D, the plane, the dimension made logarithmic, and whether a
+    // warning is expected.
+    let cases = [
+        (true, ImagePlane::Xy { z: Some(0.0) }, Dimension::Z, true),
+        (true, ImagePlane::Xy { z: Some(-1.0) }, Dimension::Z, true),
+        (true, ImagePlane::Xz { y: Some(0.0) }, Dimension::Y, true),
+        (true, ImagePlane::Yz { x: Some(-2.0) }, Dimension::X, true),
+        (true, ImagePlane::Xy { z: Some(1.0) }, Dimension::Z, false),
+        (true, ImagePlane::Xy { z: None }, Dimension::Z, false),
+        (false, ImagePlane::Xy { z: Some(-1.0) }, Dimension::Z, false),
+    ];
+    for (three_d, plane, dimension, warns) in cases {
+        for (name, make, data) in image_kinds() {
+            let mut fx = grid_fixture(three_d, |id, d| make(id, data(d), on(plane)));
+            let axes = &mut fx.fig.axes[0];
+            let axis = match dimension {
+                Dimension::X => &mut axes.x,
+                Dimension::Y => &mut axes.y,
+                Dimension::Z => &mut axes.z,
+            };
+            axis.scale = Scale::Log;
+            let report = fx.fig.validate();
+            let at = format!("{name} on {plane:?} with a logarithmic {dimension:?} axis");
+            assert_eq!(report.errors, vec![], "{at}: {report:?}");
+            let kinds: Vec<IssueKind> = report.warnings.iter().map(|issue| issue.kind).collect();
+            if warns {
+                assert_eq!(kinds, vec![IssueKind::ImageOnLogAxis], "{at}");
+                assert!(
+                    report.warnings[0].message.contains("logarithmic"),
+                    "{at}: {}",
+                    report.warnings[0].message
+                );
+            } else {
+                assert_eq!(kinds, vec![], "{at}");
+            }
+        }
+    }
+}
+
 // Why: an image is drawn as one rectangle mapped affinely through the two axes of its
 // plane, which a logarithmic axis cannot do, so such an image is not drawn and the user
 // must be told; the figure is still drawable, so it is a warning, given for a

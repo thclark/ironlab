@@ -84,7 +84,9 @@ pub enum IssueKind {
     /// manual colour limits, or an index or value that is not finite.
     PixelOutOfRange,
     /// An image lies in a plane of which an axis is logarithmic, on which a raster of
-    /// flat pixels cannot be placed, so the image is not drawn.
+    /// flat pixels cannot be placed, or its plane is offset to a non-positive
+    /// coordinate along a logarithmic third axis, where the plane cannot be placed, so
+    /// the image is not drawn.
     ImageOnLogAxis,
 }
 
@@ -534,8 +536,9 @@ impl Validator<'_> {
     }
 
     /// Warns of an image whose plane has a logarithmic axis, on which a raster of flat
-    /// pixels cannot be placed, so that the image is not drawn; the z axis of a 2D axes
-    /// is ignored, as it is when drawing.
+    /// pixels cannot be placed, or whose plane is offset to a non-positive coordinate
+    /// along a logarithmic third axis, where the plane cannot be placed, so that the
+    /// image is not drawn; the z axis of a 2D axes is ignored, as it is when drawing.
     fn check_image_plane_scales(
         &mut self,
         axes: &Axes,
@@ -543,14 +546,33 @@ impl Validator<'_> {
         node: NodeId,
         plane: ImagePlane,
     ) {
-        let logarithmic: Vec<&str> = plane
-            .axes()
+        let [columns, rows] = plane.axes();
+        let logarithmic: Vec<&str> = [columns, rows]
             .into_iter()
             .filter(|&dimension| three_d || dimension != Dimension::Z)
             .filter(|&dimension| axis_of(axes, dimension).scale == Scale::Log)
             .map(dimension_name)
             .collect();
         if logarithmic.is_empty() {
+            let third = [Dimension::X, Dimension::Y, Dimension::Z]
+                .into_iter()
+                .find(|&dimension| dimension != columns && dimension != rows)
+                .expect("a plane leaves one dimension of three");
+            if let Some(offset) = plane.offset()
+                && three_d
+                && offset <= 0.0
+                && axis_of(axes, third).scale == Scale::Log
+            {
+                self.warning(
+                    Some(node),
+                    IssueKind::ImageOnLogAxis,
+                    format!(
+                        "the plane of the image is offset to {offset} along the logarithmic {} \
+                         axis, where it cannot be placed, so the image is not drawn",
+                        dimension_name(third)
+                    ),
+                );
+            }
             return;
         }
         let (noun, verb) = if logarithmic.len() == 1 {
