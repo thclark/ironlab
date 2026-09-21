@@ -382,8 +382,10 @@ pub fn fields_markdown() -> String {
          The gallery figures that plot gridded data sample a scalar field derived from the quadratic map \
          z ↦ z² + c that defines a Julia set. Starting from z₀ = x + iy, the map is applied three times with \
          c = −0.8 + 0.156i, and the field is ln(1 + |z₃|) on the square [−1.5, 1.5]². The module below also \
-         provides the gradient and surface normal estimates used by the vector field figures, and a deterministic \
-         spiral of scattered points.\n\n\
+         provides the gradient and surface normal estimates used by the vector field figures, a deterministic \
+         spiral of scattered points, and the pieces the image figures need: the real and imaginary parts of z₃, a \
+         quantiser that turns the field into colormap indices, and a conversion from hue, saturation and lightness \
+         to a colour.\n\n\
          {fence}rust\n{FIELDS_SOURCE}{newline}{fence}\n\n\
          [Back to the gallery](index.md)\n",
         newline = if FIELDS_SOURCE.ends_with('\n') {
