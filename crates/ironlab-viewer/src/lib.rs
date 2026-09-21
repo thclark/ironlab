@@ -38,7 +38,8 @@ pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use canvas::{ScreenTransform, tessellate};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
 pub use interaction::{
-    DATATIP_RADIUS_POINTS, Datatip, FigureState, ROTATE_DEGREES_PER_POINT, Tool,
+    DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,
+    ROTATE_DEGREES_PER_POINT, Tip, Tool,
 };
 pub use offscreen::{
     OffscreenRenderer, RenderError, RenderedImage, render_display_list_offscreen, render_offscreen,
