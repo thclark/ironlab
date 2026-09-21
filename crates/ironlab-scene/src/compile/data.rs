@@ -1,20 +1,23 @@
 //! Resolution and checking of artist data.
 //!
 //! Every artist's data identifiers are looked up once, and the element types and shapes of its arrays are checked,
-//! before limits are computed or anything is drawn. Every artist resolved here requires floating-point values, so
-//! an array of 8-bit values cannot be used. An artist whose data cannot be used is reported with a warning naming
-//! it and is then ignored by every later stage. The three image kinds, which accept 8-bit values, are not resolved
-//! yet: they are carried through without data, so that nothing is drawn for them and nothing is reported.
+//! before limits are computed or anything is drawn. Every artist but the three image kinds requires floating-point
+//! values, so an array of 8-bit values cannot be used for it; an image accepts either element type. An image is
+//! also checked here for a placement that can be drawn and a plane that its axes can show. An artist whose data
+//! cannot be used is reported with a warning naming it and is then ignored by every later stage, as is an image
+//! without pixels, which is not reported.
 
 use ironlab_ir::{
-    Artist, Axes, ContourPlacement, DataId, Figure, Grid, NdArray, Projection, QuiverScale, Scale,
-    ScatterColor, ScatterSize,
+    Artist, Axes, ContourPlacement, DataId, Dimension, Figure, Grid, ImagePlacement, ImagePlane,
+    NdArray, OutOfRange, PixelRange, QuiverScale, Scale, ScatterColor, ScatterSize,
 };
 
 use crate::maths::contour::{Coords, GridRef};
 use crate::maths::quiver;
 
 use super::Ctx;
+use super::image;
+use super::limits::{axes_axis, is_3d};
 
 /// An artist together with its resolved data, or `None` when the data is unusable.
 pub(crate) struct Prepared<'a> {
@@ -41,6 +44,54 @@ impl Points<'_> {
     }
 }
 
+/// The out-of-range policies of a colour-indexed or colour-mapped image, one per category of pixel it cannot
+/// colour on its own.
+#[derive(Clone, Copy)]
+pub(crate) struct Policies {
+    pub below: OutOfRange,
+    pub above: OutOfRange,
+    pub non_finite: OutOfRange,
+}
+
+/// The kind of an image artist, which decides how its pixels are coloured.
+#[derive(Clone, Copy)]
+pub(crate) enum ImageKind {
+    /// Each pixel carries its own colour components.
+    TrueColour,
+    /// Each pixel names an entry of the colormap directly.
+    Indexed(Policies),
+    /// Each pixel is a value mapped through the colour limits.
+    Mapped(Policies),
+}
+
+/// The resolved raster of an image artist of any kind, which has at least one row and one column of pixels.
+#[derive(Clone, Copy)]
+pub(crate) struct ImageData<'a> {
+    pub kind: ImageKind,
+    /// The array of the artist, of either element type, whose shape suits the kind.
+    pub array: &'a NdArray,
+    /// The number of columns of pixels.
+    pub nx: usize,
+    /// The number of rows of pixels.
+    pub ny: usize,
+    /// The number of values per pixel: 3 or 4 for a true-colour image, 1 for the other kinds.
+    pub components: usize,
+    pub placement: ImagePlacement,
+}
+
+impl ImageData<'_> {
+    /// Returns the indices of the dimensions along which the columns and the rows of the image lie, in that order.
+    pub fn plane_dims(&self) -> [usize; 2] {
+        self.placement.plane.axes().map(dimension_index)
+    }
+
+    /// Returns the index of the dimension along which the plane of the image is offset.
+    pub fn offset_dim(&self) -> usize {
+        let [columns, rows] = self.plane_dims();
+        3 - columns - rows
+    }
+}
+
 /// The resolved arrays of an artist.
 #[derive(Clone, Copy)]
 pub(crate) enum ArtistData<'a> {
@@ -61,6 +112,8 @@ pub(crate) enum ArtistData<'a> {
         grid: GridRef<'a>,
         colours: Option<&'a [f64]>,
     },
+    /// An image of any kind.
+    Image(ImageData<'a>),
 }
 
 /// Resolves and checks the data of every artist of an axes.
@@ -69,7 +122,7 @@ pub(super) fn prepare_axes<'a>(ctx: &mut Ctx<'a>, axes: &'a Axes) -> Vec<Prepare
     axes.artists
         .iter()
         .map(|artist| {
-            let data = match resolve(figure, artist) {
+            let data = match resolve(figure, axes, artist) {
                 Ok(Some(data)) => {
                     warn_log_drops(ctx, axes, artist, &data);
                     Some(data)
@@ -175,8 +228,17 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, S
     Ok(grid)
 }
 
-/// Resolves the data of one artist, or `None` for an artist that this stage of the compiler does not draw.
-fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<Option<ArtistData<'a>>, String> {
+/// Resolves the data of one artist, or `None` for an artist that has nothing to draw and nothing wrong with it.
+fn resolve<'a>(
+    figure: &'a Figure,
+    axes: &Axes,
+    artist: &Artist,
+) -> Result<Option<ArtistData<'a>>, String> {
+    let policies = |below, above, non_finite| Policies {
+        below,
+        above,
+        non_finite,
+    };
     Ok(Some(match artist {
         Artist::Line(line) => ArtistData::Line(points(figure, line.x, line.y, line.z)?),
         Artist::Scatter(scatter) => {
@@ -235,11 +297,153 @@ fn resolve<'a>(figure: &'a Figure, artist: &Artist) -> Result<Option<ArtistData<
                 .transpose()?;
             ArtistData::Surface { grid, colours }
         }
-        // The image kinds are resolved and drawn by the next stage of the image work (issue #7). Until then they
-        // are carried through the compiler without data, so that nothing is drawn for them and no warning is
-        // raised.
-        Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => return Ok(None),
+        Artist::Image(i) => {
+            return image_data(figure, axes, i.pixels, ImageKind::TrueColour, i.placement);
+        }
+        Artist::IndexedImage(i) => {
+            let kind = ImageKind::Indexed(policies(i.below, i.above, i.non_finite));
+            return image_data(figure, axes, i.indices, kind, i.placement);
+        }
+        Artist::MappedImage(i) => {
+            let kind = ImageKind::Mapped(policies(i.below, i.above, i.non_finite));
+            return image_data(figure, axes, i.values, kind, i.placement);
+        }
     }))
+}
+
+/// Resolves the array of an image artist of any kind, checks that its shape suits the kind, that the placement of
+/// the image can be drawn and that the axes can show its plane, and returns `Ok(None)` for an image with no rows
+/// or no columns, which has nothing to draw and nothing wrong with it.
+fn image_data<'a>(
+    figure: &'a Figure,
+    axes: &Axes,
+    id: DataId,
+    kind: ImageKind,
+    placement: ImagePlacement,
+) -> Result<Option<ArtistData<'a>>, String> {
+    let array = array(figure, id)?;
+    let (ny, nx, components) = match (kind, array.shape.as_slice()) {
+        (ImageKind::TrueColour, &[ny, nx, components @ (3 | 4)]) => (ny, nx, components),
+        (ImageKind::TrueColour, shape) => {
+            return Err(format!(
+                "its pixels {id} have shape {shape:?}, but they must be a three-dimensional array whose last \
+                 dimension holds the 3 or 4 colour components of a pixel"
+            ));
+        }
+        (ImageKind::Indexed(_) | ImageKind::Mapped(_), &[ny, nx]) => (ny, nx, 1),
+        (ImageKind::Indexed(_), shape) => {
+            return Err(format!(
+                "its indices {id} have shape {shape:?}, but they must be two-dimensional"
+            ));
+        }
+        (ImageKind::Mapped(_), shape) => {
+            return Err(format!(
+                "its values {id} have shape {shape:?}, but they must be two-dimensional"
+            ));
+        }
+    };
+    check_placement(placement, nx, ny)?;
+    check_plane(axes, placement.plane)?;
+    if nx == 0 || ny == 0 {
+        return Ok(None);
+    }
+    if u32::try_from(nx).is_err() || u32::try_from(ny).is_err() {
+        return Err(format!(
+            "it has {ny} rows and {nx} columns of pixels, and an image can have at most {} of each",
+            u32::MAX
+        ));
+    }
+    Ok(Some(ArtistData::Image(ImageData {
+        kind,
+        array,
+        nx,
+        ny,
+        components,
+        placement,
+    })))
+}
+
+/// Checks that an image of `nx` columns and `ny` rows can be placed: its pixel centres and plane offset must be
+/// finite, and the centres of its first and last pixels along an axis may coincide only when it has one pixel
+/// along that axis, which validation reports in the same terms.
+fn check_placement(placement: ImagePlacement, nx: usize, ny: usize) -> Result<(), String> {
+    if let Some(offset) = placement.plane.offset()
+        && !offset.is_finite()
+    {
+        return Err(format!("the offset {offset} of its plane is not finite"));
+    }
+    let ranges = [
+        ("columns", placement.columns, nx),
+        ("rows", placement.rows, ny),
+    ];
+    for (what, range, count) in ranges {
+        let Some(PixelRange { first, last }) = range else {
+            continue;
+        };
+        if !(first.is_finite() && last.is_finite()) {
+            return Err(format!(
+                "the centres of its first and last {what} [{first}, {last}] are not finite"
+            ));
+        }
+        if first == last && count > 1 {
+            return Err(format!(
+                "the centres of its first and last {what} coincide at {first}, but it has {count} {what}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Returns the name of the plane of an image.
+fn plane_name(plane: ImagePlane) -> &'static str {
+    match plane {
+        ImagePlane::Xy { .. } => "xy",
+        ImagePlane::Xz { .. } => "xz",
+        ImagePlane::Yz { .. } => "yz",
+    }
+}
+
+/// Checks that an axes can show the plane of an image: a two-dimensional axes shows only the xy plane, and a raster
+/// of flat pixels, whose pitch is one distance everywhere, cannot be placed along a logarithmic axis of its plane.
+/// The third axis, along which the plane is only offset, may be logarithmic, but then the offset must be positive
+/// to be placed on it; a two-dimensional axes ignores the offset.
+fn check_plane(axes: &Axes, plane: ImagePlane) -> Result<(), String> {
+    let three_d = is_3d(axes);
+    let name = plane_name(plane);
+    if !three_d && !matches!(plane, ImagePlane::Xy { .. }) {
+        return Err(format!(
+            "it lies in the {name} plane, which only a three-dimensional axes has"
+        ));
+    }
+    let logarithmic: Vec<&str> = plane
+        .axes()
+        .into_iter()
+        .filter(|&dimension| axes_axis(axes, dimension_index(dimension)).scale == Scale::Log)
+        .map(|dimension| DIMENSION_NAMES[dimension_index(dimension)])
+        .collect();
+    if !logarithmic.is_empty() {
+        let (noun, verb) = if logarithmic.len() == 1 {
+            ("axis", "is")
+        } else {
+            ("axes", "are")
+        };
+        return Err(format!(
+            "it lies in the {name} plane, whose {} {noun} {verb} logarithmic, and a raster of flat pixels \
+             cannot be placed along a logarithmic axis",
+            logarithmic.join(" and ")
+        ));
+    }
+    if three_d && let Some(offset) = plane.offset() {
+        let [columns, rows] = plane.axes().map(dimension_index);
+        let third = 3 - columns - rows;
+        if axes_axis(axes, third).scale == Scale::Log && offset <= 0.0 {
+            return Err(format!(
+                "its plane is offset to {offset} along the logarithmic {} axis, where it cannot be placed",
+                DIMENSION_NAMES[third]
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Computes the factor applied to quiver vectors, counting only arrows whose base and vector are finite.
@@ -259,12 +463,22 @@ fn quiver_scale(scale: QuiverScale, points: Points, vectors: Points) -> f64 {
     }
 }
 
+/// Returns the index of a dimension in a data point: 0, 1 or 2 for x, y or z.
+pub(super) fn dimension_index(dimension: Dimension) -> usize {
+    match dimension {
+        Dimension::X => 0,
+        Dimension::Y => 1,
+        Dimension::Z => 2,
+    }
+}
+
 /// Returns the coordinate values an artist places along dimension `dim` (0, 1 or 2 for x, y or z).
 ///
 /// For a 2D axes, nothing is placed along z. For a line, scatter or quiver in a 3D axes without z data, the value
 /// 0 is placed along z. The quiver values include the arrow tips. Contour values along z depend on the placement:
 /// a plane at an explicit height places that height, the bottom plane places nothing, and contours at their levels
-/// place the field values.
+/// place the field values. An image places the two edges of its pixels along each axis of its plane and, along the
+/// third axis, the offset of its plane when it has one.
 pub(crate) fn values_along(
     artist: &Artist,
     data: &ArtistData,
@@ -316,6 +530,27 @@ pub(crate) fn values_along(
                 },
             }
         }
+        ArtistData::Image(image) => {
+            let [columns, rows] = image.plane_dims();
+            let edges = if dim == columns {
+                Some(image::edges(image.placement.columns, image.nx))
+            } else if dim == rows {
+                Some(image::edges(image.placement.rows, image.ny))
+            } else {
+                None
+            };
+            match edges {
+                Some((lo, hi)) => {
+                    visit(lo);
+                    visit(hi);
+                }
+                None => {
+                    if let Some(offset) = image.placement.plane.offset() {
+                        visit(offset);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -323,7 +558,7 @@ const DIMENSION_NAMES: [&str; 3] = ["x", "y", "z"];
 
 /// Warns when an artist places non-positive values along a logarithmic axis, where they cannot be drawn.
 fn warn_log_drops(ctx: &mut Ctx, axes: &Axes, artist: &Artist, data: &ArtistData) {
-    let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+    let three_d = is_3d(axes);
     for (dim, axis) in [&axes.x, &axes.y, &axes.z].into_iter().enumerate() {
         if axis.scale != Scale::Log {
             continue;

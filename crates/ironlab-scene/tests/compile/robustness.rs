@@ -3,7 +3,7 @@
 use ironlab_ir::{Legend, Levels, NodeId, View3d};
 use ironlab_scene::Scene;
 
-use crate::common::{Fx, compile_figure, linspace, text};
+use crate::common::{Fx, compile_figure, linspace, range, text, xy};
 use crate::probe::{axis_maps, from_source, leaves};
 
 /// Asserts that an artist is not drawn and that exactly one warning names it, saying that
@@ -145,7 +145,8 @@ fn empty_axes_compile_with_unit_limits() {
 }
 
 // Why: the viewer recompiles on every change and the PDF must match the screen, so compiling the same
-// figure twice must give identical scenes (no hash-map ordering or other hidden state).
+// figure twice must give identical scenes (no hash-map ordering or other hidden state), the resolved
+// samples of images included.
 #[test]
 fn compilation_is_deterministic() {
     let mut fx = Fx::new();
@@ -167,6 +168,27 @@ fn compilation_is_deterministic() {
             c.fill = true;
             c.levels = Levels::Auto { count: 6 };
         },
+    );
+    fx.mapped_image(
+        right,
+        vec![2, 3],
+        vec![0.0, 1.0, f64::NAN, 3.0, 4.0, 5.0],
+        xy(range(-1.0, 1.0), range(-1.0, 1.0)),
+        |_| {},
+    );
+    fx.indexed_image(
+        right,
+        vec![2, 2],
+        vec![0u8, 1, 2, 3],
+        xy(None, None),
+        |_| {},
+    );
+    fx.image(
+        right,
+        vec![1, 2, 3],
+        vec![255u8, 0, 0, 0, 0, 255],
+        xy(None, None),
+        |i| i.display_name = text("Pixels"),
     );
     let figure = fx.build();
     assert_eq!(compile_figure(&figure), compile_figure(&figure));

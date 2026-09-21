@@ -1,12 +1,12 @@
 //! Axis limits, tick targets and colour limits.
 
-use ironlab_ir::{Artist, Axes, Axis, ColorSpec, Limits, Projection, Scale, ScatterColor};
+use ironlab_ir::{Artist, Axes, Axis, ColorSpec, Limits, Projection, Scale, ScatterColor, Values};
 
 use crate::display::Rect;
 use crate::maths::ticks;
 
 use super::Ctx;
-use super::data::{ArtistData, Prepared, values_along};
+use super::data::{ArtistData, ImageKind, Prepared, values_along};
 use super::style::{ColourScale, lut};
 
 /// The limits of one data axis.
@@ -89,7 +89,8 @@ pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
 /// The finite extents of the values that artists place along one axis.
 #[derive(Clone, Copy, Debug, Default)]
 struct Extents {
-    /// The extent of gridded data (contours and surfaces) along x or y, which takes tight limits.
+    /// The extent of gridded data (contours, surfaces and the pixel edges of images) along x or y, which takes
+    /// tight limits.
     tight: Option<(f64, f64)>,
     /// The extent of all other data, which is rounded outward to major ticks.
     loose: Option<(f64, f64)>,
@@ -113,9 +114,15 @@ impl Extents {
     }
 }
 
-/// Returns whether an artist's data along `dim` takes tight limits: the x and y values of contours and surfaces.
+/// Returns whether an artist's data along `dim` takes tight limits: the x and y values of contours and surfaces,
+/// and the pixel edges of an image along the x or y axis of its plane (never its offset along the third axis).
 fn is_tight(data: &ArtistData, dim: usize) -> bool {
-    dim < 2 && matches!(data, ArtistData::Contour(_) | ArtistData::Surface { .. })
+    dim < 2
+        && match data {
+            ArtistData::Contour(_) | ArtistData::Surface { .. } => true,
+            ArtistData::Image(image) => image.plane_dims().contains(&dim),
+            _ => false,
+        }
 }
 
 /// Returns the finite extents of the values an axes' artists place along `dim`, dropping non-positive values when
@@ -192,8 +199,9 @@ pub(super) fn axis_ranges(
 /// Computes automatic limits for one axis over its link group.
 ///
 /// The data of the group is rounded outward to major ticks. When the group holds gridded data along the axis (the x
-/// or y values of a contour or surface), each end of the range that no other data reaches beyond the grid is the
-/// exact end of the grid instead, unless the grid has no extent along the axis.
+/// or y values of a contour or surface, or the pixel edges of an image along an axis of its plane), each end of the
+/// range that no other data reaches beyond the grid is the exact end of the grid instead, unless the grid has no
+/// extent along the axis.
 fn auto_range(
     figure: &ironlab_ir::Figure,
     axes: &Axes,
@@ -265,22 +273,35 @@ fn auto_range(
     }
 }
 
-/// Returns whether an artist is coloured through the colormap and so contributes to automatic colour limits.
-fn colour_values<'a>(artist: &Artist, data: &ArtistData<'a>) -> Option<&'a [f64]> {
+/// Visits the values through which an artist is coloured by the colormap, which contribute to automatic colour
+/// limits: the colour data of a scatter, the field of a colormapped contour or surface (its colour array when it
+/// has one), and every value of a colour-mapped image, widened from 8 bits where its array holds bytes. The indices
+/// of a colour-indexed image and the components of a true-colour image are not colour data and are not visited.
+fn colour_values(artist: &Artist, data: &ArtistData, visit: &mut dyn FnMut(f64)) {
     let mapped = |spec: ColorSpec| matches!(spec, ColorSpec::Auto | ColorSpec::Colormapped);
-    match (artist, data) {
-        (Artist::Scatter(s), ArtistData::Scatter { colours, .. }) => match s.color {
-            ScatterColor::Data { .. } => *colours,
-            ScatterColor::Spec { .. } => None,
+    let values: &[f64] = match (artist, data) {
+        (Artist::Scatter(s), ArtistData::Scatter { colours, .. }) => match (s.color, colours) {
+            (ScatterColor::Data { .. }, Some(colours)) => colours,
+            _ => return,
         },
-        (Artist::Contour(c), ArtistData::Contour(grid)) => {
-            (c.fill || mapped(c.line.color)).then_some(grid.z)
+        (Artist::Contour(c), ArtistData::Contour(grid)) if c.fill || mapped(c.line.color) => grid.z,
+        (Artist::Surface(s), ArtistData::Surface { grid, colours })
+            if mapped(s.face) || mapped(s.edge) =>
+        {
+            colours.unwrap_or(grid.z)
         }
-        (Artist::Surface(s), ArtistData::Surface { grid, colours }) => {
-            (mapped(s.face) || mapped(s.edge)).then_some(colours.unwrap_or(grid.z))
+        (_, ArtistData::Image(image)) if matches!(image.kind, ImageKind::Mapped(_)) => {
+            match &image.array.values {
+                Values::F64(values) => values,
+                Values::U8(values) => {
+                    values.iter().for_each(|&v| visit(f64::from(v)));
+                    return;
+                }
+            }
         }
-        _ => None,
-    }
+        _ => return,
+    };
+    values.iter().for_each(|&v| visit(v));
 }
 
 /// Computes the colour scale of an axes: its colormap and its manual or automatic colour limits.
@@ -299,12 +320,12 @@ pub(super) fn colour_scale(ctx: &mut Ctx, axes: &Axes, prepared: &[Prepared]) ->
     let mut hi = f64::NEG_INFINITY;
     for p in prepared {
         let Some(data) = &p.data else { continue };
-        for v in colour_values(p.artist, data).unwrap_or(&[]) {
+        colour_values(p.artist, data, &mut |v| {
             if v.is_finite() {
-                lo = lo.min(*v);
-                hi = hi.max(*v);
+                lo = lo.min(v);
+                hi = hi.max(v);
             }
-        }
+        });
     }
     if lo > hi {
         (lo, hi) = (0.0, 1.0);

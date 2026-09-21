@@ -8,7 +8,9 @@ use crate::maths::quiver;
 
 use super::Ctx;
 use super::artists::AxesInput;
+use super::data::ArtistData;
 use super::decor::TICK_SCALE;
+use super::image;
 use super::paths::{self, PathBuilder};
 use super::style::{self, ColourScale, INK, Paint};
 use super::text::{TextBlock, measure};
@@ -19,6 +21,8 @@ const HIDDEN_ALPHA: f32 = 0.35;
 /// One measured legend entry.
 struct Entry<'a> {
     artist: &'a Artist,
+    /// The resolved data of the artist, from which the sample of an image is coloured.
+    data: ArtistData<'a>,
     primary: Paint,
     label: TextBlock,
 }
@@ -63,11 +67,12 @@ pub(super) fn draw(
         .prepared
         .iter()
         .zip(primaries)
-        .filter(|(p, _)| p.data.is_some())
         .filter_map(|(p, primary)| {
+            let data = p.data?;
             let name = p.artist.display_name()?;
             Some(Entry {
                 artist: p.artist,
+                data,
                 primary: *primary,
                 label: measure(ctx, name, TICK_SCALE * fs, p.artist.id()),
             })
@@ -280,9 +285,16 @@ fn draw_sample(
             let paint = |spec| style::resolve(spec, Paint::Colormapped).single(scale);
             patch(paint(s.face), paint(s.edge), out);
         }
-        // An image has no legend sample yet: the sample of each image kind is drawn by the next stage of the image
-        // work (issue #7), so its entry carries its name alone.
-        Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => {}
+        // The mean colour of the raster, so that the patch resembles it; an image with no pixel to average, every
+        // pixel being transparent, has no patch.
+        Artist::Image(_) => {
+            if let ArtistData::Image(image) = &entry.data {
+                patch(image::mean_colour(image), None, out);
+            }
+        }
+        // The middle colour of the colormap, as for other colormapped artists without a single value: a stopgap
+        // for the colormap redesign, until a colourbar (issue #8) shows the scale itself.
+        Artist::IndexedImage(_) | Artist::MappedImage(_) => patch(Some(scale.middle()), None, out),
     }
 }
 

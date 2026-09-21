@@ -70,6 +70,7 @@ fn panned_2d_state() -> FigureState {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
         artists: vec![],
+        images: vec![],
     };
     state.drag_start(&hit, Point::new(100.0, 50.0));
     state.drag_update(Point::new(160.0, 90.0));

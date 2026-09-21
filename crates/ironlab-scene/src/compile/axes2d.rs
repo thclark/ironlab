@@ -109,9 +109,11 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     draw_grid(input, &x, &y, out);
 
     let primaries = style::primaries(axes);
-    let drawn = draw_artists(input, &primaries, &space);
+    let drawn = draw_artists(ctx, input, &primaries, &space);
     hits.artists.extend(drawn.hits);
+    hits.images.extend(drawn.images);
     let data: Vec<Item> = drawn.prims.into_iter().map(|(_, item)| item).collect();
+    // The vertices of the drawn data, the corners of images included, which the `best` legend location avoids.
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
     let data = group_dense(data, &drawn.dense);

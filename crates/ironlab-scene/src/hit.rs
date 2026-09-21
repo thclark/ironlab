@@ -2,7 +2,7 @@
 
 use ironlab_ir::NodeId;
 
-use crate::display::{Point, Rect};
+use crate::display::{Point, Rect, Transform};
 use crate::maths::decimate::Sample;
 
 /// Maps one data axis onto a coordinate range in figure space.
@@ -84,6 +84,26 @@ pub struct ArtistHit {
     pub samples: Vec<Sample>,
 }
 
+/// The placement of one image drawn in a two-dimensional axes, from which the pixel under a pointer is found.
+///
+/// Only images drawn in two-dimensional axes have an entry: there the placement of an image is an affine map of
+/// pixel space into figure space, so a pointer position maps back into pixel space by its inverse. A hidden image,
+/// an image the compiler skipped, and an image drawn on the floor or a wall of a three-dimensional axes, which has
+/// no such inverse, have none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageHit {
+    pub axes: NodeId,
+    pub artist: NodeId,
+    /// Maps figure space into the pixel space of the image, in which the pixel in row `j` and column `i` of the
+    /// artist's array covers `[i, i + 1] × [j, j + 1]`; it is the inverse of the transform of the group that holds
+    /// the image item.
+    pub to_pixel: Transform,
+    /// The number of columns of pixels.
+    pub columns: usize,
+    /// The number of rows of pixels.
+    pub rows: usize,
+}
+
 /// All interactive geometry of a compiled figure.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HitMap {
@@ -91,6 +111,8 @@ pub struct HitMap {
     pub legend_entries: Vec<LegendHit>,
     /// The drawn points of every line and scatter, in the order their axes were compiled.
     pub artists: Vec<ArtistHit>,
+    /// The placement of every image drawn in a two-dimensional axes, in paint order.
+    pub images: Vec<ImageHit>,
 }
 
 impl HitMap {
@@ -125,5 +147,21 @@ impl HitMap {
             }
         }
         best.map(|(artist, sample, _)| (artist, sample))
+    }
+
+    /// Returns the image drawn last under `p`, with the row and column of its pixel there.
+    ///
+    /// The pixel coordinates are floored, so the image is the half-open extent `[0, columns) × [0, rows)` of its
+    /// pixel space and a boundary shared by two pixels belongs to the one with the higher index. Where images
+    /// overlap, the one painted last is the one the reader sees on top, so it is the one returned.
+    pub fn pixel_at(&self, p: Point) -> Option<(&ImageHit, usize, usize)> {
+        self.images.iter().rev().find_map(|hit| {
+            let q = hit.to_pixel.apply(p);
+            let (column, row) = (q.x.floor(), q.y.floor());
+            let inside =
+                column >= 0.0 && row >= 0.0 && column < hit.columns as f64 && row < hit.rows as f64;
+            // Inside the bounds the casts are exact; outside them (NaN included) they saturate and are discarded.
+            inside.then_some((hit, row as usize, column as usize))
+        })
     }
 }

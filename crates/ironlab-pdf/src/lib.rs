@@ -562,8 +562,9 @@ fn convert_path(segments: &[PathSegment]) -> Option<KrillaPath> {
 /// exactly `/Interpolate false`: the raster is drawn with hard pixel edges, which is what a figure needs, because
 /// smoothing would blur the boundaries between faces that the vector version draws sharply.
 ///
-/// This is the only path by which an image reaches the PDF, so the image artists of
-/// [issue #7](https://github.com/thclark/ironlab/issues/7) will use it unchanged.
+/// This is the only path by which an image reaches the PDF: the image items that the scene compiler emits for the
+/// image artists of [issue #7](https://github.com/thclark/ironlab/issues/7) take it too, beneath the transforms of
+/// the groups that place them.
 fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
     if !item.is_valid() {
         return;

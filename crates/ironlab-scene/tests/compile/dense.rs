@@ -246,3 +246,51 @@ fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
         "the runs between them still hold every face exactly once"
     );
 }
+
+/// Returns whether an item of `id` lies inside a dense group.
+fn inside_dense(items: &[Item], id: NodeId, dense: bool) -> bool {
+    items.iter().any(|item| match &item.kind {
+        ItemKind::Dense { items, .. } => inside_dense(items, id, true),
+        ItemKind::Group { items, .. } => inside_dense(items, id, dense),
+        _ => dense && item.source == Some(id),
+    })
+}
+
+// WHY: an image is already a raster, so marking it dense would have the PDF exporter rasterise a raster and resample
+// the pixels the user supplied; the marking exists for vector geometry too dense to keep as paths, and it must not
+// spread to an image drawn beside such geometry in the same axes.
+#[test]
+fn an_image_is_never_marked_dense_even_beside_a_surface() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let surface = fx.surface(
+        ax,
+        &linspace(0.0, 1.0, 4),
+        &linspace(0.0, 1.0, 4),
+        |x, y| x + y,
+        |_| {},
+    );
+    let image = fx.mapped_image(
+        ax,
+        vec![3, 3],
+        (0..9).map(|v| v as f64).collect::<Vec<_>>(),
+        xy(range(0.2, 0.8), range(0.2, 0.8)),
+        |_| {},
+    );
+    let scene = compile_figure(&fx.build());
+
+    assert_eq!(
+        dense_groups(&scene),
+        vec![(Some(surface), 9, 9)],
+        "only the surface is marked dense"
+    );
+    assert!(
+        !inside_dense(&scene.display_list.items, image, false),
+        "the image item lies outside every dense group"
+    );
+    assert_eq!(
+        crate::probe::from_source(&crate::probe::leaves(&scene), image).len(),
+        1,
+        "the image is drawn as one leaf"
+    );
+}
