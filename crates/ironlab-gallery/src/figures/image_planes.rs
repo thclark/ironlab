@@ -2,56 +2,51 @@ use ironlab::prelude::*;
 
 use crate::fields::*;
 
-pub const TITLE: &str = "Images in three dimensions";
-pub const DESCRIPTION: &str = "The Julia field as a colour-mapped image on the floor of a three-dimensional axes, \
-     beneath a surface of the same field, and the magnitude of the field's x derivative as a colour-mapped image on \
-     the wall behind the surface. An image is planar rather than two-dimensional: it lies in one of the three planes \
-     of the axes, at a chosen offset along the third axis, and its pixels are placed along the two axes of that \
-     plane.";
+pub const TITLE: &str = "Image planes";
+pub const DESCRIPTION: &str = "Cross-sections of a Gaussian blob centred in a unit cube, drawn as colour-mapped \
+     images: one over the whole floor, and three quarter-size planes through the centre of the blob, one in each \
+     coordinate plane and each offset along its third axis by an explicit coordinate. An image lies in a plane of \
+     its axes at any offset, not only on the faces of the box. The three planes cross at the centre of the blob; \
+     where images cross, the one drawn last covers the others until the viewer draws with a depth buffer.";
+
+/// The number of pixels along each axis of every image.
+const N: usize = 101;
+
+/// Draws the blob on one plane of the axes as a colour-mapped image of `N` by `N` pixels whose edges span exactly
+/// `lo` to `hi` along both axes of the plane, sampling the blob at the centre of every pixel with `at`, which takes
+/// the coordinates along the first and second axes of the plane.
+///
+/// An image extends half a pitch beyond the centres of its first and last pixels, so for `N` pixels over `lo` to `hi`
+/// the pitch is `(hi − lo) / N` and the centres run from half a pitch above `lo` to half a pitch below `hi`.
+fn section(ax: &mut AxesMut<'_>, plane: ImagePlane, lo: f64, hi: f64, at: impl Fn(f64, f64) -> f64) {
+    let pitch = (hi - lo) / N as f64;
+    let centres = linspace(lo + pitch / 2.0, hi - pitch / 2.0, N);
+    let values = Matrix::from_fn(N, N, |row, col| at(centres[col], centres[row]));
+    ax.mapped_image(&values)
+        .plane(plane)
+        .pixel_columns(centres[0], centres[N - 1])
+        .pixel_rows(centres[0], centres[N - 1]);
+}
 
 pub fn figure() -> Figure {
-    let (x, y, z) = julia_grid(81);
-    let (dzdx, _) = gradient(&x, &y, &z);
-    let (first_x, last_x) = (x[0], x[x.len() - 1]);
-    let (first_y, last_y) = (y[0], y[y.len() - 1]);
-    let (z_min, z_max) = z
-        .values()
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
-            (lo.min(*v), hi.max(*v))
-        });
-    // The columns of an image in the yz plane run along y and its rows along z, so the slope is transposed, and the
-    // x coordinate of each of its values is laid along the height of the wall.
-    let slope = Matrix::from_fn(x.len(), y.len(), |row, col| dzdx[(col, row)].abs());
-    // Pixels extend half a pitch beyond their centres, so the centres of the first and last rows are placed half a
-    // pitch inside the range of heights of the surface: the edges of the wall image then span exactly that range,
-    // and the automatic z limits are those the surface alone would take.
-    let pitch = (z_max - z_min) / slope.rows() as f64;
-
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"$\ln(1 + |z_3|)$ on the floor, $|\partial_x \ln(1 + |z_3|)|$ on the wall");
+        .title("Cross-sections of a Gaussian blob");
     let mut ax = fig.axes3(0, 0);
-    ax.mapped_image(&z)
-        .pixel_columns(first_x, last_x)
-        .pixel_rows(first_y, last_y);
-    ax.surf(&x, &y, &z).edge_color(None);
-    // A plane without an offset lies at the low end of its third axis, so the floor image is at the bottom of the z
-    // axis and the wall image at the left end of the x axis. One pair of colour limits serves every artist of the
-    // axes, so the limits are fixed to the range of the field and the few slopes steeper than its largest value take
-    // the last colour of the colormap.
-    ax.mapped_image(&slope)
-        .plane(ImagePlane::Yz { x: None })
-        .pixel_columns(first_y, last_y)
-        .pixel_rows(z_min + pitch / 2.0, z_max - pitch / 2.0)
-        .above(OutOfRange::Clamp);
-    // An image on a face of the box is painted behind everything inside the box when the view puts that face at the
-    // back, so the view is taken from an azimuth of 37.5°, which turns the x = min wall away from the viewer; from
-    // the default azimuth of −37.5° that wall faces the viewer, and the wall image would cover the surface.
-    ax.clim(0.0, z_max)
-        .view(37.5, 30.0)
+    // The floor lies on a face of the box, so it is painted behind everything else. The three planes through the
+    // centre of the blob cross there, and each image is painted as one primitive in the order of the mean depth of
+    // its corners, so until the viewer draws with a depth buffer (issue #4), where images cross the one drawn last
+    // covers the others; the three means coincide, so the rounding of their depths decides which plane that is.
+    section(&mut ax, ImagePlane::Xy { z: Some(0.0) }, 0.0, 1.0, |x, y| blob(x, y, 0.0));
+    section(&mut ax, ImagePlane::Xy { z: Some(0.5) }, 0.25, 0.75, |x, y| blob(x, y, 0.5));
+    section(&mut ax, ImagePlane::Xz { y: Some(0.5) }, 0.25, 0.75, |x, z| blob(x, 0.5, z));
+    section(&mut ax, ImagePlane::Yz { x: Some(0.5) }, 0.25, 0.75, |y, z| blob(0.5, y, z));
+    ax.xlim(0.0, 1.0)
+        .ylim(0.0, 1.0)
+        .zlim(0.0, 1.0)
+        .colormap(Colormap::Magma)
         .xlabel("$x$")
         .ylabel("$y$")
-        .zlabel(r"$\ln(1 + |z_3|)$");
+        .zlabel("$z$");
     fig
 }

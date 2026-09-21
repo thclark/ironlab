@@ -105,6 +105,7 @@ gallery!(
     scatter3,
     contour3,
     quiver3,
+    mapped_image_and_surface,
     image_planes,
     subplots_unlinked,
     subplots_linked,
