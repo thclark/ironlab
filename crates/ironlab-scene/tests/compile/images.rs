@@ -13,7 +13,7 @@ use ironlab_ir::{
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
 use ironlab_scene::hit::ImageHit;
-use ironlab_scene::maths::camera::{Camera, fit_to_rect, normalise_box};
+use ironlab_scene::maths::camera::{Camera, Plane, back_planes, fit_to_rect, normalise_box};
 use ironlab_scene::maths::colormap::{Lut, MAGMA, VIRIDIS, normalise, sample};
 
 use crate::common::{Fx, compile_figure, linspace, placement, range, rgb8, text, xy};
@@ -229,6 +229,142 @@ fn projection(scene: &Scene, ax: NodeId, lo: [f64; 3], hi: [f64; 3]) -> impl Fn(
             .screen;
         Point::new(centre.x + scale * screen[0], centre.y - scale * screen[1])
     }
+}
+
+/// The depth at `camera` of a data point of a box with limits [`LO`] to [`HI`], larger nearer the viewer.
+fn depth_at(camera: Camera, p: [f64; 3]) -> f64 {
+    camera.project(normalise_box(p, LO, HI, [false; 3])).depth
+}
+
+/// The mean depth at `camera` of the four corners of an image in `plane` at `third` along its third axis whose
+/// pixel edges span `columns` along the first axis of the plane and `rows` along the second: the key at which a sort
+/// by mean depth would place the image.
+fn image_mean_depth(
+    camera: Camera,
+    plane: ImagePlane,
+    third: f64,
+    columns: (f64, f64),
+    rows: (f64, f64),
+) -> f64 {
+    let [column_axis, row_axis] = plane.axes().map(dim);
+    let offset_axis = 3 - column_axis - row_axis;
+    let corners = [
+        (columns.0, rows.0),
+        (columns.1, rows.0),
+        (columns.0, rows.1),
+        (columns.1, rows.1),
+    ];
+    corners
+        .iter()
+        .map(|(u, v)| {
+            let mut p = [0.0; 3];
+            p[column_axis] = *u;
+            p[row_axis] = *v;
+            p[offset_axis] = third;
+            depth_at(camera, p)
+        })
+        .sum::<f64>()
+        / 4.0
+}
+
+/// The grid of the flat surface of [`image_and_surface`]: its sixteen faces are centred at ±0.1125 and ±0.3375 of
+/// the box along x and y, so at the default view and at its mirror image about the x axis their depths reach about
+/// ±0.41 of the box, on both sides of the centre of every face of the box (whose depth is at most 0.35).
+fn straddling_grid() -> Vec<f64> {
+    linspace(-0.9, 0.9, 5)
+}
+
+/// The depth at `camera` of every face of a flat surface at height `z` over the grid `grid × grid`, as the mean of
+/// the depths of its four corners, which is the key at which a 3D axes sorts the face.
+fn flat_face_depths(camera: Camera, grid: &[f64], z: f64) -> Vec<f64> {
+    let mut depths = Vec::new();
+    for xs in grid.windows(2) {
+        for ys in grid.windows(2) {
+            let corners = [
+                (xs[0], ys[0]),
+                (xs[1], ys[0]),
+                (xs[1], ys[1]),
+                (xs[0], ys[1]),
+            ];
+            depths.push(
+                corners
+                    .iter()
+                    .map(|(x, y)| depth_at(camera, [*x, *y, z]))
+                    .sum::<f64>()
+                    / 4.0,
+            );
+        }
+    }
+    depths
+}
+
+/// Asserts that the faces of the flat surface at height `z` over [`straddling_grid`] lie on both sides of `depth`
+/// at `camera`: a sort by depth alone would then paint some of them before, and some after, an image keyed at
+/// `depth`, so a test built on the surface can tell the face rule from the mean-depth rule.
+#[track_caller]
+fn assert_faces_straddle(camera: Camera, z: f64, depth: f64) {
+    let depths = flat_face_depths(camera, &straddling_grid(), z);
+    assert!(
+        depths.iter().any(|d| *d < depth) && depths.iter().any(|d| *d > depth),
+        "the faces lie on both sides of the depth {depth}: {depths:?}"
+    );
+}
+
+/// Compiles a 3D axes with manual limits of [−1, 1] on every axis at `view`, holding an image of 2 by 4 pixels
+/// whose edges span [−1, 1] along both axes of `plane`, so that an image on a face of the box covers the whole face,
+/// followed by a flat surface at height `z` over [`straddling_grid`]. Returns the scene, the image and the surface.
+fn image_and_surface(view: View3d, plane: ImagePlane, z: f64) -> (Scene, NodeId, NodeId) {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, view);
+    let image = fx.mapped_image(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(plane, range(-0.75, 0.75), range(-0.5, 0.5)),
+        |_| {},
+    );
+    let grid = straddling_grid();
+    let surface = fx.surface(ax, &grid, &grid, |_, _| z, |_| {});
+    manual_unit_limits(&mut fx, ax);
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{plane:?}: {:?}", scene.warnings);
+    (scene, image, surface)
+}
+
+/// Returns the position of every leaf of `id` in the paint order of the scene.
+fn paint_positions(leaves: &[Leaf], id: NodeId) -> Vec<usize> {
+    (0..leaves.len())
+        .filter(|k| leaves[*k].source == Some(id))
+        .collect()
+}
+
+/// Asserts that the one leaf of `image` is painted before every one of the sixteen faces of `surface` when `before`
+/// is true, and after every one of them otherwise.
+#[track_caller]
+fn assert_image_painted(scene: &Scene, image: NodeId, surface: NodeId, before: bool, what: &str) {
+    let leaves = leaves(scene);
+    let image_at = paint_positions(&leaves, image);
+    assert_eq!(
+        image_at.len(),
+        1,
+        "{what}: the image is one primitive, not split by the depth sort"
+    );
+    let faces = paint_positions(&leaves, surface);
+    assert_eq!(
+        faces.len(),
+        16,
+        "{what}: one face per cell of the 5 by 5 grid"
+    );
+    let (side, ordered) = if before {
+        ("before", faces.iter().all(|k| *k > image_at[0]))
+    } else {
+        ("after", faces.iter().all(|k| *k < image_at[0]))
+    };
+    assert!(
+        ordered,
+        "{what}: the image at {} is painted {side} every face of the surface: {faces:?}",
+        image_at[0]
+    );
 }
 
 /// Returns the endpoints of every straight segment an axes drew, among which are the corners of its box.
@@ -734,56 +870,72 @@ fn in_three_dimensions_an_image_lies_on_its_plane_with_columns_along_its_first_a
     }
 }
 
-// WHY: a 3D axes paints back to front, and an image is one primitive whose key is the mean depth of its four
-// corners, as a face's key is the mean of its corners; the depth sort does not split it. So a surface just above the
-// floor near the centre of the box, whose faces are all nearer than that mean, is painted after a floor image, while
-// faces farther than the mean, though nearer than the image's farthest corner, are painted before it. An image keyed
-// on its nearest or its farthest corner would order one of these the other way round, and one split into pieces
-// would no longer be the single raster the backends draw.
+// WHY: a 3D axes paints back to front, and an image inside the box is one primitive whose key is the mean depth of
+// its four corners, as a face's key is the mean of its corners; the depth sort does not split it. So a surface just
+// above an image at mid-height near the centre of the box, whose faces are all nearer than that mean, is painted
+// after the image, while faces farther than the mean, though nearer than the image's farthest corner, are painted
+// before it. An image keyed on its nearest or its farthest corner would order one of these the other way round, and
+// one split into pieces would no longer be the single raster the backends draw.
 #[test]
-fn a_floor_image_is_one_primitive_sorted_by_the_mean_depth_of_its_corners() {
+fn an_image_at_an_interior_offset_is_one_primitive_sorted_by_the_mean_depth_of_its_corners() {
+    let camera = Camera::default();
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
-    // The whole floor: at the default view its corners lie at depths from about −0.86 to 0.36 in the normalised
-    // box, with a mean of −0.25.
-    let floor = fx.mapped_image(
+    // The whole xy plane at mid-height, strictly inside the z limits of [−1, 1]: at the default view its corners
+    // lie at depths from about −0.61 to 0.61 in the normalised box, with a mean of 0.
+    let plane = ImagePlane::Xy { z: Some(0.0) };
+    let image = fx.mapped_image(
         ax,
         vec![2, 2],
         ramp(4),
-        xy(range(-0.5, 0.5), range(-0.5, 0.5)),
+        placement(plane, range(-0.5, 0.5), range(-0.5, 0.5)),
         |_| {},
     );
-    // Centred and just above the floor: every face lies between the mean and the nearest corner in depth.
-    let centred = fx.surface(
-        ax,
-        &linspace(-0.2, 0.2, 3),
-        &linspace(-0.2, 0.2, 3),
-        |_, _| 0.2,
-        |_| {},
-    );
-    // In the far corner and low: every face lies between the farthest corner and the mean in depth.
-    let far = fx.surface(
-        ax,
-        &linspace(0.6, 1.0, 3),
-        &linspace(0.6, 1.0, 3),
-        |_, _| -0.8,
-        |_| {},
-    );
+    // Centred and just above the image: every face lies between the mean and the nearest corner in depth.
+    let centred_grid = linspace(-0.2, 0.2, 3);
+    let centred = fx.surface(ax, &centred_grid, &centred_grid, |_, _| 0.4, |_| {});
+    // Towards the far corner and below the image: every face lies between the farthest corner and the mean in depth.
+    let far_grid = linspace(0.4, 0.8, 3);
+    let far = fx.surface(ax, &far_grid, &far_grid, |_, _| -0.4, |_| {});
     manual_unit_limits(&mut fx, ax);
+
+    let corner_depths: Vec<f64> = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)]
+        .iter()
+        .map(|(x, y)| depth_at(camera, [*x, *y, 0.0]))
+        .collect();
+    let (nearest, farthest) = (
+        corner_depths
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max),
+        corner_depths.iter().copied().fold(f64::INFINITY, f64::min),
+    );
+    let mean = image_mean_depth(camera, plane, 0.0, (-1.0, 1.0), (-1.0, 1.0));
+    assert!(
+        flat_face_depths(camera, &centred_grid, 0.4)
+            .iter()
+            .all(|d| mean < *d && *d < nearest),
+        "the centred faces lie between the mean depth {mean} and the nearest corner {nearest}"
+    );
+    assert!(
+        flat_face_depths(camera, &far_grid, -0.4)
+            .iter()
+            .all(|d| farthest < *d && *d < mean),
+        "the far faces lie between the farthest corner {farthest} and the mean depth {mean}"
+    );
+
     let scene = compile_figure(&fx.build());
     let leaves = leaves(&scene);
-    let indices = |id: NodeId| -> Vec<usize> {
-        (0..leaves.len())
-            .filter(|k| leaves[*k].source == Some(id))
-            .collect()
-    };
-    let image = indices(floor);
+    let image = paint_positions(&leaves, image);
     assert_eq!(
         image.len(),
         1,
         "the image is one primitive, not split by the depth sort"
     );
-    let (centred_faces, far_faces) = (indices(centred), indices(far));
+    let (centred_faces, far_faces) = (
+        paint_positions(&leaves, centred),
+        paint_positions(&leaves, far),
+    );
     assert_eq!(
         (centred_faces.len(), far_faces.len()),
         (4, 4),
@@ -798,6 +950,196 @@ fn a_floor_image_is_one_primitive_sorted_by_the_mean_depth_of_its_corners() {
         centred_faces.iter().all(|k| *k > image[0]),
         "faces nearer than the mean depth of the image are painted after it: {centred_faces:?} after {}",
         image[0]
+    );
+}
+
+// WHY: a floor image lies on the z = min face of the box, which is a back plane of the default view, so the whole of
+// a surface above it is nearer the viewer than the floor; but the mean depth of the floor lies in the middle of the
+// box, so a sort by mean depth would paint the floor over the faces of the surface that are farther than the centre
+// of the floor, cutting the back of the surface away. An image on a back face of the box must be painted before
+// every other primitive of the axes, whatever the depths of its corners.
+#[test]
+fn a_floor_image_is_painted_before_every_face_of_a_surface_above_it() {
+    let camera = Camera::default();
+    assert_eq!(
+        back_planes(&camera)[2],
+        Plane::ZMin,
+        "the floor is a back plane of the default view"
+    );
+    let plane = ImagePlane::Xy { z: None };
+    assert_faces_straddle(
+        camera,
+        0.0,
+        image_mean_depth(camera, plane, -1.0, (-1.0, 1.0), (-1.0, 1.0)),
+    );
+    let (scene, image, surface) = image_and_surface(View3d::default(), plane, 0.0);
+    assert_image_painted(&scene, image, surface, true, "floor");
+}
+
+// WHY: whether an image on a wall is behind or in front of the data depends on the view alone. The x = min wall
+// faces the viewer at the default view, so an image on it must be painted after every face of a surface, which it
+// then covers; turning the camera to an azimuth of 37.5° puts the same wall at the back, where the image must be
+// painted before every face. A key taken from the depths of the corners of the wall would interleave the faces with
+// the image either way.
+#[test]
+fn an_image_on_a_front_wall_is_painted_after_every_face_and_on_a_back_wall_before_them() {
+    let plane = ImagePlane::Yz { x: None };
+    for (azimuth_deg, back_plane, before) in
+        [(-37.5, Plane::XMax, false), (37.5, Plane::XMin, true)]
+    {
+        let camera = Camera {
+            azimuth_deg,
+            elevation_deg: 30.0,
+        };
+        assert_eq!(
+            back_planes(&camera)[0],
+            back_plane,
+            "the back plane of the x axis at an azimuth of {azimuth_deg}°"
+        );
+        assert_faces_straddle(
+            camera,
+            0.0,
+            image_mean_depth(camera, plane, -1.0, (-1.0, 1.0), (-1.0, 1.0)),
+        );
+        let view = View3d {
+            azimuth_deg,
+            ..View3d::default()
+        };
+        let (scene, image, surface) = image_and_surface(view, plane, 0.0);
+        assert_image_painted(
+            &scene,
+            image,
+            surface,
+            before,
+            &format!("azimuth {azimuth_deg}°"),
+        );
+    }
+}
+
+// WHY: an image whose explicit offset is a limit of its third axis lies on a face of the box exactly as an image
+// without an offset does, whether the limit is the lower or the upper one, and the face is at the back or the front
+// of the view as `back_planes` says; only an explicit offset can reach the ceiling and the two far walls. Treating
+// only an absent offset as a face would leave those images sorted by mean depth, painted over the faces behind their
+// centres or under the faces in front of them.
+#[test]
+fn an_image_whose_offset_is_a_limit_of_its_axis_lies_on_that_face_of_the_box() {
+    let camera = Camera::default();
+    let back = back_planes(&camera);
+    let cases = [
+        (ImagePlane::Xy { z: Some(-1.0) }, Plane::ZMin),
+        (ImagePlane::Xy { z: Some(1.0) }, Plane::ZMax),
+        (ImagePlane::Xz { y: Some(-1.0) }, Plane::YMin),
+        (ImagePlane::Xz { y: Some(1.0) }, Plane::YMax),
+        (ImagePlane::Yz { x: Some(-1.0) }, Plane::XMin),
+        (ImagePlane::Yz { x: Some(1.0) }, Plane::XMax),
+    ];
+    assert_eq!(
+        cases.iter().filter(|(_, face)| back.contains(face)).count(),
+        3,
+        "three of the faces are back planes and three are front faces"
+    );
+    for (plane, face) in cases {
+        let third = plane.offset().expect("every case has an explicit offset");
+        assert_faces_straddle(
+            camera,
+            0.0,
+            image_mean_depth(camera, plane, third, (-1.0, 1.0), (-1.0, 1.0)),
+        );
+        let (scene, image, surface) = image_and_surface(View3d::default(), plane, 0.0);
+        assert_image_painted(
+            &scene,
+            image,
+            surface,
+            back.contains(&face),
+            &format!("{plane:?}"),
+        );
+    }
+}
+
+// WHY: images on the same face of the box are coplanar, so no depth can order them, and the reader expects the later
+// artist to cover the earlier one as in a 2D axes. The depth sort is stable, so images keyed alike keep their artist
+// order, on a back face and on a front face alike, even where a sort by mean depth would reverse them; a key that
+// varied from image to image would let the covering image change with the view.
+#[test]
+fn images_on_the_same_face_of_the_box_keep_artist_order() {
+    let camera = Camera::default();
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, View3d::default());
+    let floor = ImagePlane::Xy { z: None };
+    let wall = ImagePlane::Yz { x: None };
+    // The whole floor, then the far half of it, whose mean depth is smaller.
+    let first_floor = fx.mapped_image(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(floor, range(-0.75, 0.75), range(-0.5, 0.5)),
+        |_| {},
+    );
+    let second_floor = fx.mapped_image(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(floor, range(0.125, 0.875), range(-0.5, 0.5)),
+        |_| {},
+    );
+    let grid = straddling_grid();
+    let surface = fx.surface(ax, &grid, &grid, |_, _| 0.0, |_| {});
+    // The whole x = min wall, then its lower far quarter, whose mean depth is smaller.
+    let first_wall = fx.mapped_image(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(wall, range(-0.75, 0.75), range(-0.5, 0.5)),
+        |_| {},
+    );
+    let second_wall = fx.mapped_image(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(wall, range(0.125, 0.875), range(-0.75, -0.25)),
+        |_| {},
+    );
+    manual_unit_limits(&mut fx, ax);
+    assert_eq!(
+        back_planes(&camera),
+        [Plane::XMax, Plane::YMax, Plane::ZMin]
+    );
+    assert!(
+        image_mean_depth(camera, floor, -1.0, (0.0, 1.0), (-1.0, 1.0))
+            < image_mean_depth(camera, floor, -1.0, (-1.0, 1.0), (-1.0, 1.0)),
+        "a sort by mean depth would paint the second floor image first"
+    );
+    assert!(
+        image_mean_depth(camera, wall, -1.0, (0.0, 1.0), (-1.0, 0.0))
+            < image_mean_depth(camera, wall, -1.0, (-1.0, 1.0), (-1.0, 1.0)),
+        "a sort by mean depth would paint the second wall image first"
+    );
+
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let leaves = leaves(&scene);
+    let at = |id: NodeId| -> usize {
+        let positions = paint_positions(&leaves, id);
+        assert_eq!(positions.len(), 1, "image {id} is one primitive");
+        positions[0]
+    };
+    let faces = paint_positions(&leaves, surface);
+    assert_eq!(faces.len(), 16, "one face per cell of the 5 by 5 grid");
+    assert!(
+        at(first_floor) < at(second_floor),
+        "the floor images keep artist order on the back face"
+    );
+    assert!(
+        faces.iter().all(|k| *k > at(second_floor)),
+        "both floor images are painted before the surface"
+    );
+    assert!(
+        faces.iter().all(|k| *k < at(first_wall)),
+        "both wall images are painted after the surface"
+    );
+    assert!(
+        at(first_wall) < at(second_wall),
+        "the wall images keep artist order on the front face"
     );
 }
 
