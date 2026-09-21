@@ -18,3 +18,9 @@ cargo run --release -p ironlab-gallery -- docs docs/gallery
 ./scripts/build-docs.sh
 uvx --from zensical==0.0.62 zensical serve
 ```
+
+To open the gallery figures in the interactive viewer, one tab per figure, either every figure or only the figures whose slugs are given:
+```
+cargo run -p ironlab-gallery -- view
+cargo run -p ironlab-gallery -- view image mapped_image indexed_image image_planes
+```
