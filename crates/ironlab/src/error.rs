@@ -37,6 +37,39 @@ pub enum Error {
     /// The figure has validation errors, so it cannot be exported or shown.
     #[error("the figure is invalid: {}", summarise(.0))]
     Invalid(ValidationReport),
+
+    /// A plane of components does not have the shape of the pixels it would form or
+    /// join, so [`Pixels::from_planes`](crate::Pixels::from_planes) or
+    /// [`Pixels::with_alpha`](crate::Pixels::with_alpha) cannot build the pixels.
+    #[error(
+        "a plane of {} rows and {} columns does not match pixels of {} rows and {} columns",
+        .found[0], .found[1], .expected[0], .expected[1]
+    )]
+    PlaneShapeMismatch {
+        /// The rows and columns that every plane must have: those of the red plane given
+        /// to `from_planes`, or of the pixels that `with_alpha` extends.
+        expected: [usize; 2],
+        /// The rows and columns of the first plane that differs.
+        found: [usize; 2],
+    },
+
+    /// A component of a pixel is NaN or infinite, so it has no byte value;
+    /// [`Pixels::from_planes`](crate::Pixels::from_planes) and
+    /// [`Pixels::with_alpha`](crate::Pixels::with_alpha) refuse such a component rather
+    /// than hide a failed computation.
+    #[error(
+        "the pixel in row {row} and column {col} has a non-finite {}",
+        describe_channel(*.channel)
+    )]
+    NonFiniteComponent {
+        /// The row of the pixel.
+        row: usize,
+        /// The column of the pixel.
+        col: usize,
+        /// The channel of the component: 0 for red, 1 for green, 2 for blue and 3 for
+        /// alpha.
+        channel: usize,
+    },
 }
 
 /// Joins the messages of the errors in a validation report into one line.
@@ -47,4 +80,15 @@ fn summarise(report: &ValidationReport) -> String {
         .map(|issue| issue.message.as_str())
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// Names the channel of a pixel component in an error message.
+fn describe_channel(channel: usize) -> String {
+    match channel {
+        0 => "red component".to_owned(),
+        1 => "green component".to_owned(),
+        2 => "blue component".to_owned(),
+        3 => "alpha".to_owned(),
+        other => format!("component in channel {other}"),
+    }
 }

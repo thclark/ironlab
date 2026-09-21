@@ -1,7 +1,10 @@
 //! Saving, loading and exporting figures.
 
+mod common;
+
 use std::path::PathBuf;
 
+use common::image_figure;
 use ironlab::ir::IssueKind;
 use ironlab::prelude::*;
 
@@ -57,6 +60,25 @@ fn save_then_load_round_trips_a_fig_file() {
 fn save_then_load_round_trips_json_files() {
     let fig = sample_figure();
     for name in ["round_trip.fig.json", "round_trip.json"] {
+        let path = fresh(name);
+        fig.save(&path).unwrap();
+        let loaded = Figure::load(&path).unwrap();
+        assert_eq!(loaded, fig, "{name}");
+    }
+}
+
+// WHY: images add the 8-bit element type, three-dimensional arrays, a NaN in mapped
+// values, pixel ranges, wall planes with offsets and out-of-range policies to what a
+// file must carry; a figure built through the facade with all of them must come back
+// equal from both formats, or an image figure saved today could not be reopened or
+// viewed. The fixture is a valid figure, so what is round-tripped is a figure a user
+// would actually save.
+#[test]
+fn save_then_load_round_trips_a_figure_with_every_image_kind_in_both_formats() {
+    let fig = image_figure();
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    for name in ["images.fig", "images.fig.json"] {
         let path = fresh(name);
         fig.save(&path).unwrap();
         let loaded = Figure::load(&path).unwrap();

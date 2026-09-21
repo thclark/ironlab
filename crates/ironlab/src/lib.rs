@@ -3,10 +3,12 @@
 //! A [`Figure`] is built by placing axes in a grid of tiles and adding plots to them
 //! with functions named after their MATLAB equivalents: [`plot`](AxesMut::plot),
 //! [`scatter`](AxesMut::scatter), [`contour`](AxesMut::contour),
-//! [`quiver`](AxesMut::quiver), [`surf`](AxesMut::surf) and their relatives. Each
-//! plotting function returns a handle whose chained setters change the properties of
-//! the new plot, in the way that MATLAB name–value arguments do. The figure can then be
-//! shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported to PDF.
+//! [`quiver`](AxesMut::quiver), [`surf`](AxesMut::surf), [`image`](AxesMut::image)
+//! and their relatives (MATLAB's `imagesc` is [`mapped_image`](AxesMut::mapped_image)).
+//! Each plotting function returns a handle whose chained setters change the properties
+//! of the new plot, in the way that MATLAB name–value arguments do. The figure can then
+//! be shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported
+//! to PDF.
 //!
 //! Every call writes directly to the retained figure IR of the [`ir`] crate, which is
 //! the single source of truth for what is drawn. Builder calls never panic because of
@@ -57,16 +59,21 @@ mod error;
 mod figure;
 mod grid;
 mod matrix;
+mod pixels;
 
 pub use ironlab_ir as ir;
 
-pub use artists::{ContourMut, LineMut, QuiverMut, ScatterMut, SurfaceMut};
+pub use artists::{
+    ContourMut, ImageMut, IndexedImageMut, LineMut, MappedImageMut, QuiverMut, ScatterMut,
+    SurfaceMut,
+};
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
 pub use error::Error;
 pub use figure::Figure;
 pub use grid::GridCoords;
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
+pub use pixels::{ByteMatrix, ImageValues, Pixels};
 
 /// The coordinate dimension of an axes, used to link axes and set limits.
 pub use ironlab_ir::Dimension as Dim;
@@ -79,6 +86,12 @@ pub use ironlab_ir::DashStyle as Dash;
 
 /// The name of a colormap.
 pub use ironlab_ir::ColormapName as Colormap;
+
+/// The plane of an axes in which an image lies, with its offset along the third axis.
+pub use ironlab_ir::ImagePlane;
+
+/// What a colour-indexed or colour-mapped image draws for a pixel it cannot colour.
+pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
     Color, ColorSpec, Interpreter, LegendLocation, NodeId, Parameter, Scale, Text, ValidationReport,
@@ -96,8 +109,9 @@ pub use ironlab_pdf::{RasterOptions, RasterPolicy};
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
-        IntoColorSpec, LegendLocation, LineMut, Marker, Matrix, NodeId, Parameter, QuiverMut,
+        ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
+        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendLocation, LineMut,
+        MappedImageMut, Marker, Matrix, NodeId, OutOfRange, Parameter, Pixels, QuiverMut,
         RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, linspace, logspace,
         meshgrid,
     };
