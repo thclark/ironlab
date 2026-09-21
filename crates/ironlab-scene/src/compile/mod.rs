@@ -162,7 +162,8 @@ impl Ctx<'_> {
 ///   one pixel has a pitch of 1 whatever its range, and an absent range centres the pixels on 0 to n − 1. The
 ///   columns run along the first axis of the plane and the rows along the second; the coordinate along the third
 ///   axis is the offset of the plane, or the low end of that axis when it has none, and a 2D axes ignores it. In a
-///   3D axes the image is one primitive sorted at the mean depth of its four corners. The pixels are resolved to
+///   3D axes the image is one primitive sorted at the mean depth of its four corners, unless its plane lies on a
+///   face of the box, when it is painted before or after every other primitive (see **3D**). The pixels are resolved to
 ///   eight-bit sRGB by kind. A true-colour image clamps floating-point components into `[0, 1]` and quantises them
 ///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A
 ///   colour-mapped image normalises each value by the colour limits and takes the colormap sample of the result, as
@@ -191,7 +192,14 @@ impl Ctx<'_> {
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped
 ///   data, for a placement or plane that cannot be drawn, for a pixel a strict policy refuses and for its display
 ///   name, the axes for its title and axis labels, and the figure for its title.
-/// - **3D.** Faces, segments, markers and images are painted back to front for the current view. A line, scatter
+/// - **3D.** Faces, segments, markers and images are painted back to front for the current view, each sorted at a
+///   depth of its own, and primitives at equal depth keep artist order. An image whose plane lies on a face of the
+///   box — its coordinate along the third axis of its plane, the offset or the lower limit of that axis when it has
+///   none, is the lower or the upper limit of that axis, to within one part in 10⁹ of the extent of the axis — is
+///   painted before every other primitive of the axes when that face is a back plane of the view (see
+///   [`crate::maths::camera::back_planes`]) and after every other primitive when it is a front face, because
+///   everything inside the box is in front of a back face and behind a front face; several images on faces keep
+///   artist order among themselves. A line, scatter
 ///   or quiver without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
 ///   grid line on each of the two back planes (see [`crate::maths::camera::back_planes`]) that contain that axis's
 ///   direction, except where the grid line would coincide with an edge of the box. The edge that carries an axis's

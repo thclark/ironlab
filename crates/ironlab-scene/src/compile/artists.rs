@@ -13,7 +13,9 @@ use ironlab_ir::{
 
 use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
 use crate::hit::{ArtistHit, AxisMap, ImageHit};
-use crate::maths::camera::{Camera, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth};
+use crate::maths::camera::{
+    Camera, Plane, back_planes, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth,
+};
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
 use crate::maths::quiver;
@@ -776,13 +778,49 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
     }
 }
 
+/// The largest distance, as a fraction of the extent of an axis, at which the plane of an image still counts as
+/// lying on a face of the box of a 3D axes.
+const FACE_TOLERANCE: f64 = 1e-9;
+
+/// Returns the depth at which a 3D axes sorts an image whose plane lies on a face of its box, or `None` when the
+/// plane lies inside or beyond the box and the image is sorted at the mean depth of its corners.
+///
+/// Everything inside the box is in front of a back plane of the view and behind a front face, so an image on a back
+/// plane is keyed at `−∞`, before every other primitive of the axes, and one on a front face at `+∞`, after every
+/// other primitive; every other depth is finite. The depth sort is stable, so several images on faces keep their
+/// artist order among themselves. The plane lies on a face when its coordinate along the third axis, normalised
+/// into the box, is within [`FACE_TOLERANCE`] of −0.5 or 0.5: an absent offset is the lower limit itself and an
+/// explicit offset equal to a manual limit matches exactly, while an explicit offset to which automatic limits were
+/// rounded can differ from the limit by floating-point noise, because the rounding computes the limit as a
+/// multiple of the tick step, and the tolerance admits it.
+fn face_depth(projector: &Projector, third: usize, offset: f64) -> Option<f64> {
+    let mut p = projector.lo;
+    p[third] = offset;
+    let u = projector.normalise(p)[third];
+    let on_min = (u + 0.5).abs() <= FACE_TOLERANCE;
+    let on_max = (u - 0.5).abs() <= FACE_TOLERANCE;
+    if !(on_min || on_max) {
+        return None;
+    }
+    let back_is_min = matches!(
+        back_planes(&projector.camera)[third],
+        Plane::XMin | Plane::YMin | Plane::ZMin
+    );
+    Some(if on_min == back_is_min {
+        f64::NEG_INFINITY
+    } else {
+        f64::INFINITY
+    })
+}
+
 /// Computes the transform of the pixel space `[0, nx] × [0, ny]` of an image into figure space, and the depth at
 /// which the image is sorted in 3D.
 ///
 /// The columns run along the first axis of the plane and the rows along the second, between the pixel edges of the
 /// placement; the coordinate along the third axis is the offset of the plane, or the lower limit of that axis when
 /// it has none, and a 2D axes ignores it. The four corners are mapped through the axes, which is affine on the
-/// linear axes of the plane, so the transform follows from three of them and the depth is the mean of all four.
+/// linear axes of the plane, so the transform follows from three of them and the depth is the mean of all four,
+/// unless the plane lies on a face of the box of a 3D axes, when the depth is the sentinel of [`face_depth`].
 /// Returns `None` when a corner cannot be placed.
 fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64)> {
     let [columns, rows] = image.plane_dims();
@@ -810,11 +848,16 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64)> {
         e: origin.x,
         f: origin.y,
     };
-    Some((transform, (d0 + d1 + d2 + d3) / 4.0))
+    let mean = (d0 + d1 + d2 + d3) / 4.0;
+    let depth = match draw.space {
+        Space::ThreeD(projector) => face_depth(projector, third, offset).unwrap_or(mean),
+        Space::TwoD { .. } => mean,
+    };
+    Some((transform, depth))
 }
 
 /// Draws an image of any kind as one image item in pixel space beneath one group whose transform places it in the
-/// axes, pushed as one primitive at the mean depth of its corners, and records the placement in the hit map when
+/// axes, pushed as one primitive at the depth [`place_image`] gives, and records the placement in the hit map when
 /// the axes is two-dimensional.
 ///
 /// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
