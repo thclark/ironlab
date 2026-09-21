@@ -24,7 +24,8 @@ pub struct GalleryEntry {
     pub slug: &'static str,
     /// The title of the entry's documentation page.
     pub title: &'static str,
-    /// One or two sentences describing what the figure demonstrates.
+    /// A few sentences describing what the figure demonstrates. The text is Markdown, so it may contain links, such
+    /// as the credit of a third-party asset; HTML in it is shown as text.
     pub description: &'static str,
     /// The complete text of the entry's source file.
     pub source: &'static str,
@@ -100,6 +101,7 @@ gallery!(
     image,
     mapped_image,
     indexed_image,
+    image_orientation,
     cylinder_flow,
     surf,
     mesh,

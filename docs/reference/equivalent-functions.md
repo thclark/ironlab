@@ -37,6 +37,16 @@ Every IronLAB function in the table is a method of `AxesMut` and is described in
 
 [Images](../guides/getting-started.md#images) describes the three kinds and how each is placed.
 
+The options that orient and place an image in MATLAB and matplotlib have one IronLAB equivalent, the explicit pixel ranges of the image.
+
+| Purpose | MATLAB | matplotlib | IronLAB |
+| --- | --- | --- | --- |
+| Draw row 0 of an n-row array at the top | `axis ij`, which `image`, `imagesc` and `imshow` apply | `origin="upper"`, the default of `imshow` | `pixel_rows(n − 1, 0)`, or any row range whose `first` is greater than its `last` |
+| Draw row 0 at the bottom | `axis xy` | `origin="lower"` | the default placement, or any row range whose `first` is less than its `last` |
+| Place the image in data coordinates | `XData` and `YData`, which give the centres of the outermost pixels | `extent`, which gives the outer edges of the image | `pixel_columns(first, last)` and `pixel_rows(first, last)`, which give the centres of the outermost pixels |
+
+IronLAB has no axis-direction or image-origin property, for the reason given in [Image orientation](../guides/getting-started.md#image-orientation).
+
 ## Vector fields
 
 | Plot | MATLAB | matplotlib | Plotly | IronLAB |

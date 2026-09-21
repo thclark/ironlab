@@ -12,7 +12,7 @@ How branches are named and based, how commit messages are written, how the versi
 
 ## Licensing of contributions
 
-IronLAB is released under the GNU Affero General Public License, either version 3 or (at your option) any later version.
+IronLAB is released under the GNU Affero General Public License, either version 3 or (at your option) any later version. The third-party files in `crates/ironlab-gallery/assets` are the one exception: each keeps the licence of its author, as [the notice in that directory](crates/ironlab-gallery/assets/LICENSE.md) records.
 
 By opening a pull request against this repository, you confirm that you wrote the contribution yourself or otherwise hold the right to submit it, and you agree to both of the following.
 
