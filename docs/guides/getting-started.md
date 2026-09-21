@@ -196,7 +196,7 @@ fig.axes(0, 1).indexed_image(&classes).pixel_columns(-2.0, 2.0).pixel_rows(-1.0,
 fig.axes(0, 2).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0); // rows count down from the top
 ```
 
-An image is placed by the centres of its first and last pixels along each axis of its plane: `pixel_columns(first, last)` places its columns and `pixel_rows(first, last)` its rows. The pitch between centres follows from the number of pixels, and the image extends half a pitch beyond each centre, so the mapped image above, with 81 columns centred from −2 to 2, has a pitch of 0.05 and covers −2.025 to 2.025. Without a range the centres lie at 0, 1, …, n − 1, so an image of n columns covers −0.5 to n − 0.5. Row 0 of the array always lies at the first row centre and column 0 at the first column centre, so a range whose `last` is less than its `first` mirrors the image along that axis: the rows of a decoded photograph count down from its top, so it is placed the right way up by a row range that runs from the top of the image to its bottom, as the `image` call above does. How an image is stretched, shifted or flipped is therefore written in its placement, rather than depending on the direction of an axis. The x and y limits of an axes that holds only images are the exact edges of their pixels, as they are for the grid of a contour or surface.
+An image is placed by the centres of its first and last pixels along each axis of its plane: `pixel_columns(first, last)` places its columns and `pixel_rows(first, last)` its rows. The pitch between centres follows from the number of pixels, and the image extends half a pitch beyond each centre, so the mapped image above, with 81 columns centred from −2 to 2, has a pitch of 0.05 and covers −2.025 to 2.025. Without a range the centres lie at 0, 1, …, n − 1, so an image of n columns covers −0.5 to n − 0.5. Row 0 of the array always lies at the first row centre and column 0 at the first column centre, so a range whose `last` is less than its `first` mirrors the image along that axis, as the row range of the `image` call above does. [Image orientation](#image-orientation) shows how the two ranges turn, stretch and shift an image. The x and y limits of an axes that holds only images are the exact edges of their pixels, as they are for the grid of a contour or surface.
 
 A pixel of a colour-indexed or colour-mapped image that the colormap cannot colour falls in one of three categories, and each category has a policy of its own: `below` (an index less than 0, or a value below the lower colour limit), `above` (an index greater than 255, or a value above the upper colour limit) and `non_finite` (an index or value that is NaN or infinite). A policy is `OutOfRange::Transparent`, the default, which draws nothing for the pixel; `OutOfRange::Clamp`, which draws the nearest end colour of the colormap, its first entry below the range and its last above it, and nothing for a non-finite value, which has no nearest end; a `Color`, which draws the pixel in that fixed colour; or `OutOfRange::Strict`, which makes such a pixel a validation error. The policies are lenient by default so that a figure reaches the page whatever its data holds, and strict on any combination of the three categories when the data must be good: leaving `non_finite` transparent while making `below` and `above` strict tolerates missing values but refuses a value outside the range, and the reverse refuses missing values while tolerating those outside the range.
 
@@ -206,7 +206,35 @@ The pixels of an image are flat, so an image cannot be placed on a logarithmic a
 
 An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
-In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show each kind, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show each kind, [Image orientation](../gallery/image_orientation.md) shows one photograph with three placements, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+
+#### Image orientation
+
+Row 0 of the array lies at the first row centre, and the default placement puts that centre at y = 0, at the bottom of an axes whose y coordinate increases upwards. Row 0 of a decoded photograph is its top row, and row 0 of a matrix is the row that is printed first, so with the default placement a photograph appears upside down and a matrix appears with its first row at the bottom. The row range turns the image the right way up, and the same two ranges express every other axis-aligned transform. The three recipes below draw the same 256 × 256 `pixels`.
+
+```rust
+// Default placement: the pixel in row r and column c is centred on (c, r), so row 0 lies at the bottom.
+ax.image(&pixels);
+
+// Flip in y: the default row centres written from the last to the first. Row 0 lies at the top, and the image
+// covers the same region as before. For n rows the range runs from n − 1 to 0.
+ax.image(&pixels).pixel_rows(255.0, 0.0);
+
+// Flip, stretch and shift in both directions. Both ranges descend, so the image is upright and mirrored in x. The
+// column pitch is (50 − 458) / 255 = −1.6 and the row pitch is (200 − 404) / 255 = −0.8, so the image is 1.6 times
+// as wide and 0.8 times as high as before. The first and last centres say where it lies.
+ax.image(&pixels)
+    .pixel_columns(458.0, 50.0)
+    .pixel_rows(404.0, 200.0);
+```
+
+The second recipe gives an image of n rows the matrix orientation that MATLAB's `axis ij` and matplotlib's `origin="upper"` give: row 0 is at the top, and the rows count downwards. In IronLAB the y axis still increases upwards, so the pixel in row r is centred on y = n − 1 − r, and a line or marker drawn over the image uses that coordinate. A range in the units of the data, such as `pixel_rows(y_max, y_min)` for an image whose top row was sampled at `y_max`, serves the same purpose as matplotlib's `extent` and MATLAB's `XData` and `YData`, with the difference that the range names the centres of the outermost pixels rather than their outer edges.
+
+!!! note "Why IronLAB has no axis-direction or image-origin property"
+
+    IronLAB deliberately has no property that reverses an axis for an image or that moves the origin of an image to its top, such as MATLAB's `axis ij` or matplotlib's `origin`. Such a property applies a transform that is not written where the data is placed, and a reader of the plotting code must know the state of the axes to tell which way up the data lies. Out of the box, the only difference between an image and a [surface in a two-dimensional axes](#surfaces-in-two-dimensional-axes) is that an image holds pixels and a surface holds vertices, as the comparison table in that section sets out. Both follow the same convention: the first row and the first column lie at the first coordinate given, and the y coordinate increases upwards. From that consistent representation, every flip, stretch and shift is written explicitly in the placement of the image, which makes it easier to understand what happens to the data. The benefit is greatest when the data is volumetric and images and surfaces share an axes, because every artist in that axes is then placed in the same coordinates by the same rule.
+
+The [Image orientation](../gallery/image_orientation.md) gallery entry draws the three recipes side by side in axes with the same limits, and the [figure schema](../reference/figure-schema.md#image-placement) states how a placement is stored.
 
 ## Titles, labels and LaTeX
 

@@ -17,6 +17,7 @@ use common::{
 use ironlab::Figure;
 use ironlab_gallery::docs::{
     DEFAULT_PNG_DPI, DEFAULT_THUMBNAIL_DPI, GALLERY_CSS, GALLERY_CSS_PATH, KEEP_FILE,
+    entry_markdown, index_markdown,
 };
 use ironlab_gallery::fields::FIELDS_SOURCE;
 use ironlab_gallery::{DocsOptions, GalleryEntry, GalleryError, all, generate_docs};
@@ -158,6 +159,51 @@ fn html_in_descriptions_is_shown_as_text() {
             "{page} does not show the description"
         );
     }
+}
+
+/// WHY: a description is Markdown, and an entry that shows the work of another author credits it with links to the
+/// source and to the licence. The links must reach the reader on the entry page and on the index card. HTML does not
+/// allow a link inside another link, so on the card the description must stay a paragraph of its own, outside the
+/// links that the thumbnail and the title make to the entry page; a generator that wrapped the whole card in one link
+/// would silently break the credit.
+#[test]
+fn links_in_a_description_are_kept_and_never_nested_in_a_card_link() {
+    const LINK: &str = "[the source](https://example.com/photo.jpg)";
+    let entry = GalleryEntry {
+        slug: "credited",
+        title: "Credited entry",
+        description: "A synthetic entry that credits [the source](https://example.com/photo.jpg) of its data.",
+        source: "pub fn figure() -> Figure {\n    Figure::new()\n}\n",
+        build: first,
+    };
+
+    let page = without_fences(&entry_markdown(&entry));
+    assert!(
+        page.contains(LINK),
+        "the entry page does not keep the link of the description"
+    );
+
+    let index = index_markdown(&[entry]);
+    let cards = cards(&index);
+    assert_eq!(cards.len(), 1);
+    let paragraphs: Vec<&str> = cards[0]
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect();
+    assert_eq!(
+        paragraphs.len(),
+        3,
+        "a card is the thumbnail, the title and the description, each a paragraph of its own: {paragraphs:?}"
+    );
+    assert_eq!(
+        paragraphs[2], entry.description,
+        "the description must be a paragraph of its own, with its link unchanged and outside every other link"
+    );
+    assert!(
+        !paragraphs[..2].iter().any(|p| p.contains("example.com")),
+        "the link of the description appears inside the thumbnail or title link"
+    );
 }
 
 /// WHY: the documentation promises that the code shown is exactly the code that produced the figure, including
