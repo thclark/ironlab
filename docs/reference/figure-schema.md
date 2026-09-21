@@ -217,18 +217,20 @@ Arrows representing a vector field (MATLAB's `quiver` and `quiver3`).
 
 ### `surface`
 
-A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`).
+A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`, and, in a two-dimensional axes, MATLAB's `pcolor`).
+
+A surface is valid in either projection. In a three-dimensional axes `z` is the height of every node. In a two-dimensional axes the surface is seen from directly above, as a pseudocolour plot: the grid alone places the faces, and `z` positions nothing, reaches no axis limit and is not subject to the scale of the z axis, but still colours the faces unless `c` is given. The values belong to the nodes of the grid, so a grid of `ny` by `nx` nodes draws `(ny − 1) × (nx − 1)` faces, and a surface with a single row or a single column of nodes is valid but draws nothing; the scene compiler leaves it out with a warning. The guide compares a surface in a two-dimensional axes with a colour-mapped image in [surfaces](../guides/getting-started.md#surfaces-in-two-dimensional-axes).
 
 | Property | Meaning |
 | --- | --- |
 | `grid` | The [grid](#grids) on which the surface is sampled. |
-| `z` | DataId of the height of every node, an array of shape `[ny, nx]`. |
+| `z` | DataId of the field, an array of shape `[ny, nx]`: the height of every node in a three-dimensional axes, and the colour data of every node unless `c` is given. |
 | `c` | DataId of colour data with the same shape as `z`, or `null` to colour by `z`. |
 | `face` | The ColorSpec of the faces. A colormapped face takes the colour of the mean of its four corner values; a face with a missing corner is not drawn. |
 | `edge` | The ColorSpec of the face edges. |
 | `edge_width_pt` | The width of the edges. The default is 0.5 pt. |
 
-`surf` stores colormapped faces with black edges, and `mesh` stores faces in the background colour with colormapped edges.
+`surf` and `surface` store colormapped faces with black edges, and `mesh` stores faces in the background colour with colormapped edges. `surf` and `mesh` convert the axes to three dimensions, and `surface` leaves the projection of the axes as it is.
 
 ### `image`
 
@@ -326,7 +328,7 @@ A **ColorSpec** says how a colour is chosen:
 - `{"type": "none"}` draws nothing.
 - `{"type": "colormapped"}` takes the colour from the axes colormap, indexed by the data value scaled into the axes colour limits.
 
-A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its height or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap; a marker takes the resolved colour of the artist it belongs to, so a colormapped marker face or edge is drawn exactly as an automatic one. The property editor lists the choice everywhere and shows it disabled, with the reason, where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its field or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap; a marker takes the resolved colour of the artist it belongs to, so a colormapped marker face or edge is drawn exactly as an automatic one. The property editor lists the choice everywhere and shows it disabled, with the reason, where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
 
 ## Text
 
@@ -414,7 +416,7 @@ The form is stated explicitly because JSON has a single number type: without it,
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), a three-dimensional artist or placement in a two-dimensional axes (an image on the xz or yz plane among them), a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn, and for an image whose plane has a logarithmic axis, which is not drawn either.
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for finite non-positive data plotted along a logarithmic axis, which is not drawn, and for an image whose plane has a logarithmic axis, which is not drawn either.
 
 ## A minimal JSON file
 
@@ -497,7 +499,7 @@ The schema has had the following versions:
 
 The model is designed so that further MATLAB plot types are added without restructuring it. Before any new plot type or entity is implemented, its data structure and options are defined in `ironlab-ir` and reviewed, as the project rules require.
 
-- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, pseudocolour plots (`pcolor`), patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour.
+- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour. A pseudocolour plot (`pcolor`) needed no new variant, because it is a [surface](#surface) in a two-dimensional axes.
 - **New coordinate systems are new projections.** Polar and geographic axes become new variants of Projection, each with its own view properties, alongside `two_d` and `three_d`.
 - **New axes-level decorations are new axes properties.** A colorbar, for example, becomes an optional property of an axes that refers to the axes colormap and colour limits, so that it cannot disagree with them.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.

@@ -23,7 +23,8 @@ pub enum Artist {
     Contour(Contour),
     /// Arrows at data points (quiver, quiver3).
     Quiver(Quiver),
-    /// A gridded surface of faces (surf, mesh).
+    /// A gridded surface of faces (surf, mesh, and surface, which in 2D axes is a
+    /// pseudocolour plot).
     Surface(Surface),
     /// A raster of true-colour pixels (image with a true-colour array).
     Image(Image),
@@ -411,7 +412,13 @@ pub enum QuiverScale {
     Off,
 }
 
-/// A surface of quadrilateral faces over a grid (surf, mesh).
+/// A surface of quadrilateral faces over a grid (surf, mesh, surface).
+///
+/// A surface is valid in either projection. In a three-dimensional axes `z` is the height
+/// of every node. In a two-dimensional axes the surface is seen from directly above, so
+/// that `z` positions nothing and the surface is a pseudocolour plot of its colour data.
+/// A field of `ny` by `nx` nodes draws `(ny - 1)` by `(nx - 1)` faces, so a field with a
+/// single row or a single column draws nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Surface {
     /// The node identifier of the artist, unique within the figure.
@@ -422,7 +429,8 @@ pub struct Surface {
     pub visible: bool,
     /// The grid on which the surface is sampled.
     pub grid: Grid,
-    /// The height of every node, a two-dimensional array of shape `[ny, nx]`.
+    /// The field, a two-dimensional array of shape `[ny, nx]`: the height of every node in
+    /// a three-dimensional axes, and the colour data of every node unless `c` is given.
     pub z: DataId,
     /// The colour data of every node, with the same shape as `z`; when absent the
     /// surface is coloured by `z`.

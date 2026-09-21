@@ -266,7 +266,8 @@ proto_file! {
     /// Arrows are drawn with the vectors' lengths in data units.
     message QuiverScaleOff {}
 
-    /// A surface of quadrilateral faces over a grid.
+    /// A surface of quadrilateral faces over a grid, valid in either projection; in a
+    /// two-dimensional axes it is seen from directly above.
     message Surface {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
@@ -276,10 +277,11 @@ proto_file! {
         optional bool visible = 3;
         /// The grid on which the surface is sampled.
         message Grid grid = 4;
-        /// The data identifier of the height of every node, of shape `[ny, nx]`.
+        /// The data identifier of the field, of shape `[ny, nx]`: the height of every node
+        /// in a three-dimensional axes, and the colour data unless `c` is given.
         optional uint64 z = 5;
         /// The data identifier of the colour data of every node; absent when the
-        /// surface is coloured by its height.
+        /// surface is coloured by its field.
         optional uint64 c = 6;
         /// The colour of the faces.
         message ColorSpec face = 7;

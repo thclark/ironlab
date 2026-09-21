@@ -6,9 +6,9 @@
 
 use ironlab::{ByteMatrix, Color, Matrix};
 use ironlab_gallery::fields::{
-    CENTRAL_PEAK, DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, Peak, correlation_field, gradient,
-    hsl_to_rgb, julia_field, julia_grid, julia_iterate, noise_peaks, noise_peaks_from, quantise,
-    sunflower, surface_normals,
+    CENTRAL_PEAK, DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, Peak, correlation_field,
+    cylinder_flow_mesh, cylinder_flow_speed, gradient, hsl_to_rgb, julia_field, julia_grid,
+    julia_iterate, noise_peaks, noise_peaks_from, quantise, sunflower, surface_normals,
 };
 
 fn close(a: f64, b: f64, tolerance: f64) -> bool {
@@ -500,6 +500,70 @@ fn sunflower_fills_a_disc() {
         radii.iter().any(|&r| r < 0.1),
         "the spiral does not reach the centre of the disc"
     );
+}
+
+/// WHY: the cylinder flow entry states that it shows the speed of the potential flow past a cylinder, whose
+/// landmarks a reader can check by eye: the two stagnation points on the axis of the stream, twice the free-stream
+/// speed at the top and bottom of the cylinder, and the free stream far away. The intermediate value is computed
+/// from the velocity components rather than from the formula for the speed: at r = 2 and θ = π/3,
+/// u_r = (1 − 1/r²) cos θ = 0.375 and u_θ = −(1 + 1/r²) sin θ = −1.25 sin(π/3), whose magnitude is 1.145 643 923 7.
+/// A point inside the cylinder holds no fluid and must not be given a speed.
+#[test]
+fn cylinder_flow_speed_has_the_landmarks_of_the_potential_flow() {
+    use std::f64::consts::PI;
+    for (r, theta, expected) in [
+        (1.0, 0.0, 0.0),
+        (1.0, PI, 0.0),
+        (1.0, PI / 2.0, 2.0),
+        (1.0, -PI / 2.0, 2.0),
+        (2.0, PI / 3.0, 1.145_643_923_738_96),
+        (1e6, 1.0, 1.0),
+    ] {
+        let actual = cylinder_flow_speed(r, theta);
+        assert!(
+            close(actual, expected, 1e-7),
+            "cylinder_flow_speed({r}, {theta}) = {actual}, expected {expected}"
+        );
+    }
+    assert!(cylinder_flow_speed(0.5, 1.0).is_nan());
+}
+
+/// WHY: the cylinder flow entry is drawn on this mesh, and its page says what the mesh is: rings from the cylinder
+/// to the outer radius whose spacing grows with their radius, and spokes that close round the cylinder. Rows must be
+/// rings and columns spokes, every node must carry the speed at its own position, and no node may be NaN, because a
+/// NaN node on the cylinder would remove the innermost ring of faces from the figure.
+#[test]
+fn cylinder_flow_mesh_is_a_closed_stretched_polar_mesh_carrying_the_speed() {
+    let (rings, spokes, outer) = (9, 25, 4.0);
+    let (x, y, speed) = cylinder_flow_mesh(rings, spokes, outer);
+    for m in [&x, &y, &speed] {
+        assert_eq!((m.rows(), m.cols()), (rings, spokes));
+    }
+    let radius = |row: usize, col: usize| x[(row, col)].hypot(y[(row, col)]);
+    for col in 0..spokes {
+        assert!(close(radius(0, col), 1.0, 1e-12));
+        assert!(close(radius(rings - 1, col), outer, 1e-12));
+        // The spacing of the rings grows in a constant ratio, so the ratio of successive radii is constant.
+        for row in 1..rings {
+            let ratio = radius(row, col) / radius(row - 1, col);
+            assert!(close(ratio, outer.powf(1.0 / (rings - 1) as f64), 1e-12));
+        }
+    }
+    for row in 0..rings {
+        assert!(close(x[(row, 0)], x[(row, spokes - 1)], 1e-12));
+        assert!(close(y[(row, 0)], y[(row, spokes - 1)], 1e-12));
+        for col in 0..spokes {
+            let (px, py) = (x[(row, col)], y[(row, col)]);
+            let expected = cylinder_flow_speed(px.hypot(py).max(1.0), py.atan2(px));
+            assert!(speed[(row, col)].is_finite());
+            assert!(
+                close(speed[(row, col)], expected, 1e-7),
+                "node ({row}, {col})"
+            );
+        }
+    }
+    // The quarter-way spoke is the top of the cylinder, where the speed is greatest.
+    assert!(close(speed[(0, (spokes - 1) / 4)], 2.0, 1e-12));
 }
 
 /// WHY: the data helpers page shows this constant, so it must be the module's actual source.

@@ -152,6 +152,12 @@ impl Ctx<'_> {
 ///   them; the indices of colour-indexed images and the components of true-colour images are not colour values.
 /// - **Surface colour.** A colormapped face takes the colormap sample of the mean of its four corner colour values
 ///   (`c` when present, otherwise `z`), normalised by the colour limits. A face with a NaN corner is not drawn.
+/// - **Surfaces in 2D axes.** A surface is drawn in either projection. A 2D axes shows it from directly above, as a
+///   pseudocolour plot: the grid alone places the faces through the x and y axis maps, so that the field `z` positions
+///   nothing, reaches no axis limit and is not subject to the scale of the z axis, while it still colours the faces
+///   unless `c` is given. The faces are painted where the surface stands in the artist order and are clipped to the
+///   plot rectangle. A grid of `ny × nx` nodes draws `(ny − 1) × (nx − 1)` faces, so a surface with a single row or
+///   a single column of nodes has no face and is skipped with a warning.
 /// - **Images.** An image artist of any kind is drawn as one image item in pixel space, `[0, nx] × [0, ny]` for
 ///   `nx` columns and `ny` rows with the pixel in row `j` and column `i` covering `[i, i + 1] × [j, j + 1]`, beneath
 ///   one group whose transform maps pixel space into figure space; the group has no clip of its own and lies inside

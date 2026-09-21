@@ -4,9 +4,9 @@
 //! a Julia set. The field is smooth near the origin and grows rapidly towards the corners of the domain, so it has
 //! enough structure to exercise contouring, colour mapping and three-dimensional views without being as familiar as
 //! MATLAB's `peaks`. The image figures use the complex iterate itself, a quantised form of the field and a colour
-//! conversion for domain colouring, and the correlation peak figure samples a synthetic cross-correlation volume, a
-//! field of three variables with one dominant peak at the centre of the unit cube and weaker peaks around it, on
-//! planes of the cube.
+//! conversion for domain colouring, the cylinder flow figure plots the speed of a potential flow on a polar mesh, and
+//! the correlation peak figure samples a synthetic cross-correlation volume, a field of three variables with one
+//! dominant peak at the centre of the unit cube and weaker peaks around it, on planes of the cube.
 
 use std::ops::Range;
 
@@ -273,6 +273,48 @@ pub fn surface_normals(x: &[f64], y: &[f64], z: &Matrix) -> (Matrix, Matrix, Mat
     let ny = dzdy.zip_map(&length, |q, l| -q / l);
     let nz = length.map(|l| 1.0 / l);
     (nx, ny, nz)
+}
+
+/// Returns the speed, at the radius `r` and the angle `theta` in radians, of the potential flow of an ideal fluid
+/// past a circular cylinder of unit radius centred on the origin, as a multiple of the speed of the free stream.
+///
+/// The free stream flows along x, from which `theta` is measured. The speed `q` satisfies
+/// `q² = 1 − 2 cos(2θ) / r² + 1 / r⁴`. It is zero at the two stagnation points, where the x axis meets the cylinder,
+/// twice the free-stream speed at the top and bottom of the cylinder, and tends to the free-stream speed far from
+/// the cylinder. A point inside the cylinder holds no fluid, so its speed is NaN.
+#[must_use]
+pub fn cylinder_flow_speed(r: f64, theta: f64) -> f64 {
+    if r < 1.0 {
+        return f64::NAN;
+    }
+    let r2 = r * r;
+    // Rounding can leave the square of the speed at a stagnation point negative by a few parts in 10¹⁶.
+    (1.0 - 2.0 * (2.0 * theta).cos() / r2 + 1.0 / (r2 * r2))
+        .max(0.0)
+        .sqrt()
+}
+
+/// Returns a polar mesh around the unit cylinder, as the matrices of the x and y coordinates of its nodes, with the
+/// [`cylinder_flow_speed`] at every node.
+///
+/// Row `j` of each matrix is the ring of radius `outer_radius^(j / (rings − 1))`, so the rings run from the surface
+/// of the cylinder to `outer_radius` and their spacing grows in proportion to their radius, which keeps the cells
+/// nearly square and makes them smallest where the speed changes fastest. Column `i` is the spoke at the angle
+/// `2π i / (spokes − 1)`, so the first and last spokes coincide and the mesh closes round the cylinder.
+#[must_use]
+pub fn cylinder_flow_mesh(
+    rings: usize,
+    spokes: usize,
+    outer_radius: f64,
+) -> (Matrix, Matrix, Matrix) {
+    let radius = |row: usize| outer_radius.powf(row as f64 / (rings - 1).max(1) as f64);
+    let angle = |col: usize| std::f64::consts::TAU * col as f64 / (spokes - 1).max(1) as f64;
+    let x = Matrix::from_fn(rings, spokes, |row, col| radius(row) * angle(col).cos());
+    let y = Matrix::from_fn(rings, spokes, |row, col| radius(row) * angle(col).sin());
+    let speed = Matrix::from_fn(rings, spokes, |row, col| {
+        cylinder_flow_speed(radius(row), angle(col))
+    });
+    (x, y, speed)
 }
 
 /// Returns the points of a sunflower (Vogel) spiral of `n` points filling a disc of the given radius.

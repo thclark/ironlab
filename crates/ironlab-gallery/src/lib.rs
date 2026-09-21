@@ -100,6 +100,7 @@ gallery!(
     image,
     mapped_image,
     indexed_image,
+    cylinder_flow,
     surf,
     mesh,
     scatter3,

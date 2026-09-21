@@ -452,9 +452,10 @@ fn quiver_components_must_match_the_positions() {
     );
 }
 
-// Why: 2D axes have no z axis, so a 3D artist placed in them would be drawn wrongly;
-// every 3D form (z data, w data, surfaces, contours at level, images on a wall) must be
-// caught.
+// Why: 2D axes have no z axis, so an artist that needs one to be placed would be drawn
+// wrongly; every such form (z data, w data, contours at level, images on a wall) must be
+// caught. A surface is not among them: seen from directly above it is the pseudocolour
+// plot of a 2D axes (see `surface_in_two_dimensional_axes_is_valid`).
 #[test]
 fn three_dimensional_artists_in_two_dimensional_axes_are_errors() {
     let cases: Vec<(&str, MakeArtist)> = vec![
@@ -494,17 +495,6 @@ fn three_dimensional_artists_in_two_dimensional_axes_are_errors() {
                     v: d.q,
                     w: Some(d.r),
                     ..Quiver::default()
-                })
-            }),
-        ),
-        (
-            "surface",
-            Box::new(|id, d: &GridData| {
-                Artist::Surface(Surface {
-                    id,
-                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
-                    z: d.field,
-                    ..Surface::default()
                 })
             }),
         ),
@@ -561,6 +551,131 @@ fn planar_contour_in_two_dimensional_axes_is_not_an_error() {
         })
     });
     assert_eq!(fx.fig.validate().errors, vec![]);
+}
+
+// Why: a surface in a 2D axes is how a pseudocolour plot (MATLAB's `pcolor`) is made: the
+// grid is seen from directly above and the field colours the faces. It must validate on
+// both kinds of grid, with and without separate colour data, because reporting it as a 3D
+// artist would leave users with no pseudocolour plot at all.
+#[test]
+fn surface_in_two_dimensional_axes_is_valid() {
+    let cases: Vec<(&str, MakeArtist)> = vec![
+        (
+            "rectilinear grid coloured by its field",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    ..Surface::default()
+                })
+            }),
+        ),
+        (
+            "curvilinear grid with separate colour data",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Curvilinear { x: d.cx, y: d.cy },
+                    z: d.field,
+                    c: Some(d.cy),
+                    ..Surface::default()
+                })
+            }),
+        ),
+    ];
+    for (name, make) in cases {
+        let report = grid_fixture(false, make).fig.validate();
+        assert_eq!(report.errors, vec![], "{name}");
+        assert_eq!(report.warnings, vec![], "{name}");
+    }
+}
+
+// Why: allowing a surface in a 2D axes must not switch off its other checks, as it would
+// if a surface in a 2D axes were simply passed over. The grid and the colour data are
+// combined with the field node by node whatever the projection, and they are checked
+// separately, so one mistake of each kind must still be reported in a 2D axes, and as the
+// mismatch it is rather than as a misplaced 3D artist. The remaining ways of getting a
+// grid wrong are covered, whatever the projection, by the grid tests above.
+#[test]
+fn surface_shape_checks_still_apply_in_two_dimensional_axes() {
+    let cases: Vec<(&str, MakeArtist)> = vec![
+        (
+            "transposed rectilinear grid",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gy, y: d.gx },
+                    z: d.field,
+                    ..Surface::default()
+                })
+            }),
+        ),
+        (
+            "colour data of another shape",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    c: Some(d.p),
+                    ..Surface::default()
+                })
+            }),
+        ),
+    ];
+    for (name, make) in cases {
+        let fx = grid_fixture(false, make);
+        let report = fx.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::ShapeMismatch],
+            "{name}: {report:?}"
+        );
+        assert_eq!(report.errors[0].node, Some(fx.artist), "{name}");
+    }
+}
+
+// Why: in a 2D axes the field of a surface colours the faces and positions nothing, so a
+// logarithmic z scale left on the axes (a 2D axes keeps a z axis it never shows) must not
+// warn about non-positive field values, which are ordinary for a pseudocolour plot. The
+// grid is still plotted along x, so the same surface must warn about a non-positive x
+// coordinate on a logarithmic x axis; otherwise the first half would pass with the
+// log-axis check simply missing for surfaces.
+#[test]
+fn surface_field_in_two_dimensional_axes_is_not_a_position_on_a_log_axis() {
+    let mut fx = grid_fixture(false, |id, d| {
+        Artist::Surface(Surface {
+            id,
+            grid: Grid::Curvilinear { x: d.cx, y: d.cy },
+            z: d.field,
+            ..Surface::default()
+        })
+    });
+    let (field, cx) = match &fx.fig.axes[0].artists[0] {
+        Artist::Surface(Surface {
+            z,
+            grid: Grid::Curvilinear { x, .. },
+            ..
+        }) => (*z, *x),
+        _ => unreachable!(),
+    };
+    fx.fig.axes[0].z.scale = Scale::Log;
+    floats_mut(fx.fig.data.get_mut(&field).unwrap())[5] = -2.0;
+    let report = fx.fig.validate();
+    assert_eq!(report.errors, vec![]);
+    assert_eq!(report.warnings, vec![]);
+
+    // The x coordinate of the first node of the fixture is zero.
+    fx.fig.axes[0].x.scale = Scale::Log;
+    assert_eq!(floats_mut(fx.fig.data.get_mut(&cx).unwrap())[0], 0.0);
+    let report = fx.fig.validate();
+    assert_eq!(report.errors, vec![]);
+    assert!(
+        has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(fx.artist)),
+        "{report:?}"
+    );
+    assert_eq!(report.warnings.len(), 1, "{report:?}");
 }
 
 // Why: a link to an identifier that is not an axes (missing, or naming an artist) cannot

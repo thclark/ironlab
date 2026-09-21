@@ -15,5 +15,6 @@ mod layout;
 mod legend;
 mod robustness;
 mod scales;
+mod surfaces_2d;
 mod three_d;
 mod validity;
