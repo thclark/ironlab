@@ -1,13 +1,16 @@
 //! The validity guarantees of the display list, checked on a figure that exercises every artist.
 
-use ironlab_ir::{ColorSpec, DashStyle, Legend, Levels, MarkerShape, Scale, ScatterColor, View3d};
+use ironlab_ir::{
+    ColorSpec, DashStyle, ImagePlane, Legend, Levels, MarkerShape, Scale, ScatterColor, View3d,
+};
 use ironlab_scene::display::Item;
 use ironlab_scene::display::{ItemKind, PathSegment, Point, Rect, Rgba, Transform};
 
-use crate::common::{Fx, compile_figure, linspace, text};
+use crate::common::{Fx, compile_figure, linspace, placement, range, text, xy};
 
 /// A 2×3 figure resembling the gallery: every artist type, log axes, legends, LaTeX text, NaN
-/// data, dashes, markers, and a 3D surface.
+/// data, dashes, markers, a 3D surface, and the three image kinds, one of them on a wall of the
+/// 3D axes.
 fn gallery_like() -> ironlab_ir::Figure {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
@@ -44,6 +47,49 @@ fn gallery_like() -> ironlab_ir::Figure {
         c.levels = Levels::Auto { count: 8 };
     });
     fx.contour(filled, &g, &g, field, |_| {});
+    // A mapped image with a missing value left transparent, an indexed image of bytes, and a
+    // true-colour image with an alpha channel and a pixel with a non-finite component.
+    let values: Vec<f64> = (0..12)
+        .map(|v| if v == 5 { f64::NAN } else { v as f64 })
+        .collect();
+    fx.mapped_image(
+        filled,
+        vec![3, 4],
+        values,
+        xy(range(-1.4, -0.6), range(0.6, 1.4)),
+        |_| {},
+    );
+    fx.indexed_image(
+        filled,
+        vec![2, 2],
+        vec![0u8, 85, 170, 255],
+        xy(range(0.6, 1.4), range(-1.4, -0.6)),
+        |_| {},
+    );
+    fx.image(
+        filled,
+        vec![2, 2, 4],
+        vec![
+            1.0,
+            0.0,
+            0.0,
+            0.5,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.25,
+            f64::NAN,
+            1.0,
+            1.0,
+            1.0,
+        ],
+        xy(range(0.6, 1.4), range(0.6, 1.4)),
+        |_| {},
+    );
 
     let arrows = fx.axes2d(0, 2);
     let q = linspace(0.0, 1.0, 4);
@@ -65,6 +111,17 @@ fn gallery_like() -> ironlab_ir::Figure {
 
     let surf = fx.axes3d(1, 1, View3d::default());
     fx.surface(surf, &g, &g, field, |_| {});
+    fx.mapped_image(
+        surf,
+        vec![3, 3],
+        (0..9).map(|v| v as f64).collect::<Vec<_>>(),
+        placement(
+            ImagePlane::Xz { y: None },
+            range(-1.0, 1.0),
+            range(-0.5, 0.5),
+        ),
+        |_| {},
+    );
     fx.ax(surf).z.label = text("$z$");
 
     let mesh = fx.axes3d(

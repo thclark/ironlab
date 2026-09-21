@@ -118,8 +118,10 @@ pub(super) fn emit(
     ));
 
     let primaries = style::primaries(axes);
-    let drawn = draw_artists(input, &primaries, &Space::ThreeD(&projector));
+    let drawn = draw_artists(ctx, input, &primaries, &Space::ThreeD(&projector));
     hits.artists.extend(drawn.hits);
+    // Images drawn in a 3D axes record no placement, so there is nothing of theirs to add to the hit map.
+    hits.images.extend(drawn.images);
     let mut prims = drawn.prims;
     depth_order(&mut prims);
     let sorted: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();

@@ -11,15 +11,17 @@ use ironlab_ir::{
     NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
 };
 
-use crate::display::{Item, ItemKind, Point, Rect, Rgba};
-use crate::hit::{ArtistHit, AxisMap};
+use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
+use crate::hit::{ArtistHit, AxisMap, ImageHit};
 use crate::maths::camera::{Camera, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth};
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
 use crate::maths::quiver;
 
-use super::data::{ArtistData, Points, Prepared};
+use super::Ctx;
+use super::data::{ArtistData, ImageData, Points, Prepared};
 use super::decor::Decor;
+use super::image;
 use super::limits::Range;
 use super::paths::{self, PathBuilder};
 use super::style::{self, ColourScale, Paint};
@@ -139,6 +141,8 @@ pub(crate) struct Drawn {
     pub prims: Vec<Prim>,
     /// The points each line and scatter drew, for picking and datatips.
     pub hits: Vec<ArtistHit>,
+    /// The placement of each image drawn in a 2D axes, for finding the pixel under a pointer.
+    pub images: Vec<ImageHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
     ///
     /// The count is of the cells the artist actually drew, not of the cells its data holds. A backend thresholds on
@@ -149,11 +153,14 @@ pub(crate) struct Drawn {
 }
 
 /// State shared while drawing the artists of one axes.
-struct Draw<'a> {
+struct Draw<'a, 'f> {
+    /// The compilation, to which an artist skipped while it is drawn is reported.
+    ctx: &'a mut Ctx<'f>,
     space: &'a Space<'a>,
     scale: ColourScale,
-    /// The lower z limit, at which planar contours without an explicit height are drawn.
-    z_bottom: f64,
+    /// The lower limit of each axis: planar contours without an explicit height are drawn at the lower z limit,
+    /// and an image whose plane has no offset lies at the lower limit of the third axis of its plane.
+    low: [f64; 3],
     /// The axes being drawn, named by the hit-map entry of each artist.
     axes: ironlab_ir::NodeId,
     /// The number of points a series is decimated to for this plot rectangle.
@@ -163,11 +170,13 @@ struct Draw<'a> {
     out: Vec<Prim>,
     /// The points each artist drew, for picking and datatips.
     hits: Vec<ArtistHit>,
+    /// The placement of each image drawn in a 2D axes, for finding the pixel under a pointer.
+    images: Vec<ImageHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
     dense: BTreeMap<NodeId, u64>,
 }
 
-impl Draw<'_> {
+impl Draw<'_, '_> {
     /// Emits an item at a depth, and reports whether there was one to emit.
     fn push(&mut self, depth: f64, item: Option<Item>) -> bool {
         match item {
@@ -196,12 +205,20 @@ impl Draw<'_> {
 /// Draws every visible artist of an axes in artist order.
 ///
 /// Returns the items tagged with their depths, the drawn points of every line and scatter, each carrying the index
-/// it has in the artist's data arrays, and the cell count of every artist a backend may rasterise.
-pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space) -> Drawn {
+/// it has in the artist's data arrays, the placement of every image drawn in a 2D axes, and the cell count of every
+/// artist a backend may rasterise. An artist that cannot be drawn after all (an image with a pixel its strict policy
+/// refuses, or whose corners cannot be placed) is reported to `ctx` with a warning naming it.
+pub(super) fn draw_artists(
+    ctx: &mut Ctx<'_>,
+    input: &AxesInput,
+    primaries: &[Paint],
+    space: &Space,
+) -> Drawn {
     let mut draw = Draw {
+        ctx,
         space,
         scale: input.colours,
-        z_bottom: input.ranges[2].min,
+        low: input.ranges.map(|r| r.min),
         axes: input.axes.id,
         target: decimate::target_points(input.plot.width),
         clip: if space.is_3d() {
@@ -211,6 +228,7 @@ pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space
         },
         out: Vec::new(),
         hits: Vec::new(),
+        images: Vec::new(),
         dense: BTreeMap::new(),
     };
     for (prepared, primary) in input.prepared.iter().zip(primaries) {
@@ -242,12 +260,17 @@ pub(super) fn draw_artists(input: &AxesInput, primaries: &[Paint], space: &Space
             (Artist::Surface(s), ArtistData::Surface { grid, colours }) => {
                 draw_surface(&mut draw, s, &grid, colours)
             }
+            (
+                Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_),
+                ArtistData::Image(image),
+            ) => draw_image(&mut draw, prepared.artist.id(), &image),
             _ => {}
         }
     }
     Drawn {
         prims: draw.out,
         hits: draw.hits,
+        images: draw.images,
         dense: draw.dense,
     }
 }
@@ -568,7 +591,7 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     let levels = contour_levels(&c.levels, zmin, zmax);
     let plane = match c.placement {
         ContourPlacement::Plane { z: Some(z) } => z,
-        _ => draw.z_bottom,
+        _ => draw.low[2],
     };
     if c.fill {
         for (lo, hi) in contour::band_edges(&levels, zmin, zmax) {
@@ -750,5 +773,101 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
     }
     if faces > 0 {
         *draw.dense.entry(s.id).or_default() += faces;
+    }
+}
+
+/// Computes the transform of the pixel space `[0, nx] × [0, ny]` of an image into figure space, and the depth at
+/// which the image is sorted in 3D.
+///
+/// The columns run along the first axis of the plane and the rows along the second, between the pixel edges of the
+/// placement; the coordinate along the third axis is the offset of the plane, or the lower limit of that axis when
+/// it has none, and a 2D axes ignores it. The four corners are mapped through the axes, which is affine on the
+/// linear axes of the plane, so the transform follows from three of them and the depth is the mean of all four.
+/// Returns `None` when a corner cannot be placed.
+fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64)> {
+    let [columns, rows] = image.plane_dims();
+    let third = image.offset_dim();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let offset = image.placement.plane.offset().unwrap_or(draw.low[third]);
+    let corner = |x: f64, y: f64| {
+        let mut p = [0.0; 3];
+        p[columns] = x;
+        p[rows] = y;
+        p[third] = offset;
+        draw.space.map(p)
+    };
+    let (origin, d0) = corner(x0, y0)?;
+    let (along_columns, d1) = corner(x1, y0)?;
+    let (along_rows, d2) = corner(x0, y1)?;
+    let (_, d3) = corner(x1, y1)?;
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    let transform = Transform {
+        a: (along_columns.x - origin.x) / nx,
+        b: (along_columns.y - origin.y) / nx,
+        c: (along_rows.x - origin.x) / ny,
+        d: (along_rows.y - origin.y) / ny,
+        e: origin.x,
+        f: origin.y,
+    };
+    Some((transform, (d0 + d1 + d2 + d3) / 4.0))
+}
+
+/// Draws an image of any kind as one image item in pixel space beneath one group whose transform places it in the
+/// axes, pushed as one primitive at the mean depth of its corners, and records the placement in the hit map when
+/// the axes is two-dimensional.
+///
+/// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
+/// through the transform alone, so the row and column that a hit resolves to index the artist's array. The image is
+/// never wrapped in a dense group, since it is already a raster. An image whose corners cannot be placed, or that
+/// holds a pixel a strict policy refuses, is skipped with a warning naming it.
+fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
+    let Some((transform, depth)) = place_image(draw, image) else {
+        draw.ctx.warn(
+            Some(id),
+            "The artist is not drawn because the corners of the image cannot be placed in the axes.",
+        );
+        return;
+    };
+    let raster = match image::resolve(image, &draw.scale) {
+        Ok(raster) => raster,
+        Err(refused) => {
+            draw.ctx.warn(Some(id), refused.message());
+            return;
+        }
+    };
+    let (nx, ny) = (image.nx, image.ny);
+    let item = Item {
+        source: Some(id),
+        kind: ItemKind::Image(ImageItem {
+            rect: Rect::new(0.0, 0.0, nx as f64, ny as f64),
+            // The data stage refuses an image with more pixels along an axis than fit in 32 bits.
+            width: nx as u32,
+            height: ny as u32,
+            channels: raster.channels,
+            samples: raster.samples,
+        }),
+    };
+    draw.out.push((
+        depth,
+        Item {
+            source: Some(id),
+            kind: ItemKind::Group {
+                clip: None,
+                transform: Some(transform),
+                items: vec![item],
+            },
+        },
+    ));
+    if !draw.space.is_3d()
+        && let Some(to_pixel) = transform.inverse()
+    {
+        draw.images.push(ImageHit {
+            axes: draw.axes,
+            artist: id,
+            to_pixel,
+            columns: nx,
+            rows: ny,
+        });
     }
 }

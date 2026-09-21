@@ -2,7 +2,7 @@
 
 Layout, scales and scene compilation from the figure model to a display list, for [IronLAB](https://ironlab.org), an interactive plotting tool for scientific computing in Rust.
 
-The crate's `compile` function takes a figure and a text engine and returns a scene: a backend-neutral display list of paths, glyph runs, images and groups measured in points, a hit map that relates a pointer position back to the figure, and any warnings raised along the way. It is the only place in IronLAB where geometry is decided. Laying out tiles, axes, titles, labels and legends, generating ticks, choosing automatic limits, applying colormaps, extracting contours, scaling quivers, projecting three-dimensional axes and sorting their faces by depth all happen here, once.
+The crate's `compile` function takes a figure and a text engine and returns a scene: a backend-neutral display list of paths, glyph runs, images and groups measured in points, a hit map that relates a pointer position back to the figure, and any warnings raised along the way. It is the only place in IronLAB where geometry is decided. Laying out tiles, axes, titles, labels and legends, generating ticks, choosing automatic limits, applying colormaps, extracting contours, scaling quivers, placing and colouring the pixels of images, projecting three-dimensional axes and sorting their faces by depth all happen here, once.
 
 Compilation never fails. An artist whose data cannot be drawn is skipped and text that cannot be typeset is drawn as its source, each becoming a warning in the scene rather than an error. Large series are thinned to what the current view can resolve before their geometry reaches the display list, so that every backend draws the same thinned picture.
 

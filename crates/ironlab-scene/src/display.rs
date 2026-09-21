@@ -157,6 +157,29 @@ impl Transform {
             self.b * p.x + self.d * p.y + self.f,
         )
     }
+
+    /// Returns the transform that undoes this one, or `None` when this one is singular or not finite, so that no
+    /// point has a unique preimage.
+    pub fn inverse(&self) -> Option<Transform> {
+        let det = self.a * self.d - self.b * self.c;
+        if !det.is_finite() || det == 0.0 {
+            return None;
+        }
+        let inverse = Transform {
+            a: self.d / det,
+            b: -self.b / det,
+            c: -self.c / det,
+            d: self.a / det,
+            e: (self.c * self.f - self.d * self.e) / det,
+            f: (self.b * self.e - self.a * self.f) / det,
+        };
+        [
+            inverse.a, inverse.b, inverse.c, inverse.d, inverse.e, inverse.f,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+        .then_some(inverse)
+    }
 }
 
 /// One segment of a path outline.
@@ -229,10 +252,10 @@ pub struct PathItem {
 /// blue and straight (non-premultiplied) alpha. The values are sRGB, as everywhere else in the display list.
 ///
 /// The samples are resolved true colour rather than data values with a colour mapping, so that a backend draws them
-/// without consulting anything else. Whether the display list should also be able to carry unmapped samples with
-/// their colour mapping, so that changing the colour limits of an image artist is a uniform update rather than a
-/// re-mapping of every pixel, is an open question for the image artists of
-/// [issue #7](https://github.com/thclark/ironlab/issues/7); a second variant can be added beside this one without
+/// without consulting anything else. The scene compiler resolves the pixels of every image artist into this form,
+/// so changing the colour limits of an axes re-maps every pixel of its colour-mapped images. A second variant that
+/// carries unmapped samples with their colour mapping, so that such a change is a uniform update instead, waits for
+/// the colormap redesign, which must define the mapping it would carry; it can be added beside this one without
 /// disturbing it.
 ///
 /// The samples are shared behind an [`Arc`] so that cloning a display list does not copy them.
@@ -321,9 +344,9 @@ pub struct Item {
 pub enum ItemKind {
     Path(PathItem),
     Glyphs(GlyphsItem),
-    /// A raster image. The scene compiler does not emit image items yet; the PDF exporter builds them when it
-    /// replaces dense vector content with a raster, and the image artists of
-    /// [issue #7](https://github.com/thclark/ironlab/issues/7) will emit them directly.
+    /// A raster image. The scene compiler emits one for every image artist it draws, in pixel space beneath a group
+    /// whose transform places it in the axes (see [`crate::compile::compile`]), and the PDF exporter builds them
+    /// when it replaces dense vector content with a raster.
     Image(ImageItem),
     /// A group of items. `clip` is expressed in the parent coordinate space and applied before `transform`; the
     /// items are expressed in the group's local space, which `transform` maps into the parent space.
@@ -340,8 +363,9 @@ pub enum ItemKind {
     /// produces exactly the same picture as one that honours it. The interactive canvas ignores it; the PDF
     /// exporter uses it to replace the items with an image XObject (see [`crate::display`] consumers).
     ///
-    /// `cells` is the number of data cells (surface faces, and in future image pixels) that the artist draws over
-    /// the whole display list, which is what a backend thresholds on. It is deliberately not the number of items in
+    /// `cells` is the number of data cells (surface faces) that the artist draws over the whole display list, which
+    /// is what a backend thresholds on. An image artist is already a raster and is never marked dense, so that no
+    /// backend resamples the pixels the user supplied. It is deliberately not the number of items in
     /// this group, because depth sorting in a 3D axes can split one artist's geometry into several dense groups
     /// separated by the geometry of other artists; every one of them records the same total.
     Dense {

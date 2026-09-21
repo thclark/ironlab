@@ -4,7 +4,7 @@
 use ironlab_ir::NodeId;
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
-    GlyphsItem, ItemKind, PathItem, PathSegment, Point, Rect, Rgba, Transform,
+    GlyphsItem, ImageItem, ItemKind, PathItem, PathSegment, Point, Rect, Rgba, Transform,
 };
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::FontId;
@@ -57,6 +57,13 @@ impl Leaf {
     pub fn glyphs(&self) -> Option<&GlyphsItem> {
         match &self.kind {
             ItemKind::Glyphs(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    pub fn image(&self) -> Option<&ImageItem> {
+        match &self.kind {
+            ItemKind::Image(i) => Some(i),
             _ => None,
         }
     }
@@ -140,7 +147,9 @@ impl Leaf {
     ///
     /// For paths this is the box of all control points, which contains the curve. For glyph runs it
     /// is the union of the glyph outline boxes (from the text engine), or of the glyph origins for
-    /// glyphs without outlines, so it follows the ink rather than a nominal line height.
+    /// glyphs without outlines, so it follows the ink rather than a nominal line height. For an image
+    /// it is the box of the four corners of its rectangle, which the transform of a 3D axes may turn
+    /// into a parallelogram.
     pub fn bbox(&self) -> Option<Rect> {
         match &self.kind {
             ItemKind::Path(path) => {
@@ -169,12 +178,16 @@ impl Leaf {
                 }
                 bbox_of(corners)
             }
-            ItemKind::Image(image) => Some(Rect::new(
-                image.rect.x,
-                image.rect.y,
-                image.rect.width,
-                image.rect.height,
-            )),
+            ItemKind::Image(image) => {
+                let r = image.rect;
+                let corners = [
+                    Point::new(r.x, r.y),
+                    Point::new(r.right(), r.y),
+                    Point::new(r.x, r.bottom()),
+                    Point::new(r.right(), r.bottom()),
+                ];
+                bbox_of(corners.map(|p| self.to_figure(p)))
+            }
             // Groups, dense ones included, are descended into by `visit_leaves` and never become leaves.
             ItemKind::Group { .. } | ItemKind::Dense { .. } => None,
         }
@@ -372,4 +385,23 @@ pub fn assert_close(actual: f64, expected: f64, tol: f64) {
         (actual - expected).abs() <= tol,
         "expected {expected} ± {tol}, got {actual}"
     );
+}
+
+/// Returns the red, green, blue and alpha of the pixel in row `row` and column `column` of an image,
+/// reading the alpha as 255 from an image without an alpha channel.
+///
+/// The samples of an image run row by row from row 0, so the pixel starts at index
+/// `(row · width + column) · channels`.
+#[track_caller]
+pub fn pixel(image: &ImageItem, row: usize, column: usize) -> [u8; 4] {
+    assert!(
+        row < image.height as usize && column < image.width as usize,
+        "pixel ({row}, {column}) lies inside an image of {} rows and {} columns",
+        image.height,
+        image.width
+    );
+    let channels = usize::from(image.channels);
+    let start = (row * image.width as usize + column) * channels;
+    let s = &image.samples[start..start + channels];
+    [s[0], s[1], s[2], if channels == 4 { s[3] } else { 255 }]
 }

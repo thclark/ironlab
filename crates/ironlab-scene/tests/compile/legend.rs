@@ -1,12 +1,12 @@
 //! Legends: entry selection and order, placement, LaTeX names and hidden artists.
 
-use ironlab_ir::{Legend, LegendLocation, Limits, NodeId};
+use ironlab_ir::{Artist, Legend, LegendLocation, Limits, NodeId};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::LegendHit;
 use ironlab_text::FontId;
 
-use crate::common::{COLOUR_ORDER, Fx, compile_figure, rgb8, rgb8_close, text};
+use crate::common::{COLOUR_ORDER, Fx, compile_figure, linspace, rgb8, rgb8_close, text, xy};
 use crate::probe::{Leaf, axes_hit, from_source, inside, leaves};
 
 /// An axes with a NorthEast legend over three lines, of which the second has no display name.
@@ -211,4 +211,83 @@ fn hidden_artist_is_not_drawn_but_keeps_a_greyed_legend_entry() {
         normal.iter().flat_map(|l| l.colors()).any(|c| c.a == 1.0),
         "a visible artist's entry is drawn at full opacity"
     );
+}
+
+// WHY: the legend names every kind of artist that has a display name, in artist order, and gives each a sample and
+// a label, so that a legend over a figure mixing lines with images still matches entries to artists; a kind that
+// dropped out of the legend, or whose sample was left blank, would leave its name unexplained.
+#[test]
+fn legend_lists_named_artists_of_every_kind_in_artist_order() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let g = linspace(0.0, 1.0, 4);
+    let mut ids = vec![
+        fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
+            l.display_name = text("Line")
+        }),
+        fx.scatter(ax, &[0.2, 0.8], &[0.5, 0.5], None, |s, _| {
+            s.display_name = text("Scatter")
+        }),
+        fx.contour(
+            ax,
+            &g,
+            &g,
+            |x, y| x + y,
+            |c| c.display_name = text("Contour"),
+        ),
+    ];
+    let quiver = fx.quiver(ax, &[0.5], &[0.5], None, &[0.1], &[0.1], None);
+    if let Some(Artist::Quiver(q)) = fx.ax(ax).artists.last_mut() {
+        q.display_name = text("Quiver");
+    }
+    ids.push(quiver);
+    ids.extend([
+        fx.surface(
+            ax,
+            &g,
+            &g,
+            |x, y| x - y,
+            |s| s.display_name = text("Surface"),
+        ),
+        fx.image(
+            ax,
+            vec![1, 2, 3],
+            vec![255u8, 0, 0, 0, 0, 255],
+            xy(None, None),
+            |i| i.display_name = text("Image"),
+        ),
+        fx.indexed_image(ax, vec![1, 2], vec![0u8, 255], xy(None, None), |i| {
+            i.display_name = text("Indexed")
+        }),
+        fx.mapped_image(ax, vec![1, 2], vec![0.0, 1.0], xy(None, None), |m| {
+            m.display_name = text("Mapped")
+        }),
+    ]);
+    fx.ax(ax).legend = Some(Legend::default());
+    let scene = compile_figure(&fx.build());
+    let e = entries(&scene, ax);
+    assert_eq!(
+        e.iter().map(|e| e.artist).collect::<Vec<_>>(),
+        ids,
+        "one entry per named artist of every kind, in artist order"
+    );
+    let leaves = leaves(&scene);
+    for entry in &e {
+        let in_entry = leaves_in(&leaves, entry.rect);
+        assert!(
+            in_entry.iter().any(|l| l.glyphs().is_some()),
+            "the entry of {} holds a label",
+            entry.artist
+        );
+        assert!(
+            in_entry.iter().any(|l| l.path().is_some()),
+            "the entry of {} holds a sample",
+            entry.artist
+        );
+        assert!(
+            in_entry.iter().all(|l| l.source == Some(ax)),
+            "the entry of {} names the axes as its source",
+            entry.artist
+        );
+    }
 }

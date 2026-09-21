@@ -4,7 +4,7 @@ use ironlab_ir::NodeId;
 
 use crate::display::{
     Fill, FillRule, Item, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect, Rgba,
-    Stroke,
+    Stroke, Transform,
 };
 
 /// The distance of the Bézier control points from the ends of a quarter circle of unit radius.
@@ -145,28 +145,49 @@ pub(super) fn finite(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite()
 }
 
-/// Visits the end point of every segment of the path items among `items`, including those inside groups.
+/// Visits the end point of every segment of the path items among `items` and the four corners of every image item,
+/// including those inside groups, in the coordinate space of `items`: a vertex beneath a group that carries a
+/// transform is mapped through it.
 pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
-    for item in items {
-        match &item.kind {
-            ItemKind::Path(path) => {
-                for seg in &path.segments {
-                    match *seg {
-                        PathSegment::MoveTo(p)
-                        | PathSegment::LineTo(p)
-                        | PathSegment::CubicTo(_, _, p) => visit(p),
-                        PathSegment::Close => {}
+    fn walk(items: &[Item], transform: Transform, visit: &mut dyn FnMut(Point)) {
+        for item in items {
+            match &item.kind {
+                ItemKind::Path(path) => {
+                    for seg in &path.segments {
+                        match *seg {
+                            PathSegment::MoveTo(p)
+                            | PathSegment::LineTo(p)
+                            | PathSegment::CubicTo(_, _, p) => visit(transform.apply(p)),
+                            PathSegment::Close => {}
+                        }
                     }
                 }
+                ItemKind::Group {
+                    transform: inner,
+                    items,
+                    ..
+                } => {
+                    let transform = match inner {
+                        Some(inner) => inner.then(transform),
+                        None => transform,
+                    };
+                    walk(items, transform, visit);
+                }
+                ItemKind::Dense { items, .. } => walk(items, transform, visit),
+                ItemKind::Image(image) => {
+                    let r = image.rect;
+                    for corner in [
+                        Point::new(r.x, r.y),
+                        Point::new(r.right(), r.y),
+                        Point::new(r.x, r.bottom()),
+                        Point::new(r.right(), r.bottom()),
+                    ] {
+                        visit(transform.apply(corner));
+                    }
+                }
+                ItemKind::Glyphs(_) => {}
             }
-            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => {
-                for_each_vertex(items, visit)
-            }
-            ItemKind::Image(image) => {
-                visit(Point::new(image.rect.x, image.rect.y));
-                visit(Point::new(image.rect.right(), image.rect.bottom()));
-            }
-            ItemKind::Glyphs(_) => {}
         }
     }
+    walk(items, Transform::IDENTITY, visit);
 }

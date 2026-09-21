@@ -10,6 +10,7 @@ mod probe;
 mod artists;
 mod decimation;
 mod dense;
+mod images;
 mod layout;
 mod legend;
 mod robustness;

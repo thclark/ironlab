@@ -6,8 +6,9 @@
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Artist, Axes, Cell, Contour, DataId, Figure, Grid, Line, NdArray, NodeId, Projection, Quiver,
-    Scatter, Surface, Text, View3d,
+    Artist, Axes, Cell, Contour, DataId, Figure, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Line, MappedImage, NdArray, NodeId, PixelRange, Projection, Quiver, Scatter,
+    Surface, Text, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::Lut;
@@ -74,6 +75,48 @@ pub fn nearest_lut_index(lut: &Lut, color: Rgba) -> usize {
                 .sum::<i32>()
         })
         .expect("colormaps are not empty")
+}
+
+/// The values of an image array, of either element type the IR stores.
+pub enum Samples {
+    F64(Vec<f64>),
+    U8(Vec<u8>),
+}
+
+impl From<Vec<f64>> for Samples {
+    fn from(values: Vec<f64>) -> Self {
+        Samples::F64(values)
+    }
+}
+
+impl From<Vec<u8>> for Samples {
+    fn from(values: Vec<u8>) -> Self {
+        Samples::U8(values)
+    }
+}
+
+/// The centres of the first and last pixels of an image along one axis of its plane.
+pub fn range(first: f64, last: f64) -> Option<PixelRange> {
+    Some(PixelRange { first, last })
+}
+
+/// A placement of an image in `plane` with the given centre ranges, where `None` leaves the default
+/// centres 0, 1, …, n − 1.
+pub fn placement(
+    plane: ImagePlane,
+    columns: Option<PixelRange>,
+    rows: Option<PixelRange>,
+) -> ImagePlacement {
+    ImagePlacement {
+        plane,
+        columns,
+        rows,
+    }
+}
+
+/// A placement of an image in the xy plane with the given centre ranges.
+pub fn xy(columns: Option<PixelRange>, rows: Option<PixelRange>) -> ImagePlacement {
+    placement(ImagePlane::Xy { z: None }, columns, rows)
 }
 
 /// A figure under construction with explicit identifier allocation.
@@ -304,6 +347,81 @@ impl Fx {
             ..Quiver::default()
         };
         self.push(axes, Artist::Quiver(quiver));
+        id
+    }
+
+    /// Stores an array of either element type with the given shape and returns its identifier.
+    pub fn samples(&mut self, shape: Vec<usize>, values: impl Into<Samples>) -> DataId {
+        let array = match values.into() {
+            Samples::F64(values) => NdArray::from_shape(shape, values),
+            Samples::U8(values) => NdArray::from_shape_u8(shape, values),
+        };
+        self.store(array.expect("image array shape"))
+    }
+
+    /// Adds a true-colour image of `pixels` with the given shape (`[ny, nx, 3]` or `[ny, nx, 4]` when
+    /// it is valid), placed by `placement` and customised by `edit`.
+    pub fn image(
+        &mut self,
+        axes: NodeId,
+        shape: Vec<usize>,
+        pixels: impl Into<Samples>,
+        placement: ImagePlacement,
+        edit: impl FnOnce(&mut Image),
+    ) -> NodeId {
+        let id = self.node();
+        let mut image = Image {
+            id,
+            pixels: self.samples(shape, pixels),
+            placement,
+            ..Image::default()
+        };
+        edit(&mut image);
+        self.push(axes, Artist::Image(image));
+        id
+    }
+
+    /// Adds a colour-indexed image of `indices` with the given shape (`[ny, nx]` when it is valid),
+    /// placed by `placement` and customised by `edit`.
+    pub fn indexed_image(
+        &mut self,
+        axes: NodeId,
+        shape: Vec<usize>,
+        indices: impl Into<Samples>,
+        placement: ImagePlacement,
+        edit: impl FnOnce(&mut IndexedImage),
+    ) -> NodeId {
+        let id = self.node();
+        let mut image = IndexedImage {
+            id,
+            indices: self.samples(shape, indices),
+            placement,
+            ..IndexedImage::default()
+        };
+        edit(&mut image);
+        self.push(axes, Artist::IndexedImage(image));
+        id
+    }
+
+    /// Adds a colour-mapped image of `values` with the given shape (`[ny, nx]` when it is valid),
+    /// placed by `placement` and customised by `edit`.
+    pub fn mapped_image(
+        &mut self,
+        axes: NodeId,
+        shape: Vec<usize>,
+        values: impl Into<Samples>,
+        placement: ImagePlacement,
+        edit: impl FnOnce(&mut MappedImage),
+    ) -> NodeId {
+        let id = self.node();
+        let mut image = MappedImage {
+            id,
+            values: self.samples(shape, values),
+            placement,
+            ..MappedImage::default()
+        };
+        edit(&mut image);
+        self.push(axes, Artist::MappedImage(image));
         id
     }
 

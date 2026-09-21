@@ -5,6 +5,8 @@
 //!
 //! - [`ticks`] chooses tick positions, axis limits and tick label strings.
 //! - [`colormap`] holds the 256-entry colour lookup tables and maps values into them.
+//! - [`image`] resolves the pixels of images: it classifies mapped values and indices against the colormap and
+//!   quantises true-colour components.
 //! - [`contour`] extracts isolines and filled isobands from gridded scalar fields.
 //! - [`quiver`] scales vector fields and builds arrow geometry.
 //! - [`camera`] projects the normalised 3D data box onto the screen and orders geometry by depth.
@@ -15,5 +17,6 @@ pub mod colormap;
 mod colormap_data;
 pub mod contour;
 pub mod decimate;
+pub mod image;
 pub mod quiver;
 pub mod ticks;

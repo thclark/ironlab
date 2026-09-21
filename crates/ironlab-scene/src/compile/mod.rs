@@ -8,13 +8,15 @@
 //! 4. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle.
 //! 5. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for the legend.
 //!
-//! `text`, `style` and `paths` hold shared helpers for text placement, colours and path geometry.
+//! `text`, `style`, `paths` and `image` hold shared helpers for text placement, colours, path geometry and the
+//! pixels of images.
 
 mod artists;
 mod axes2d;
 mod axes3d;
 mod data;
 mod decor;
+mod image;
 mod layout;
 mod legend;
 mod limits;
@@ -101,7 +103,8 @@ impl Ctx<'_> {
 ///   series is decimated, one per stretch of such a run that reaches the axes. Each marker is
 ///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
 ///   is one path item that carries its face fill and, when edges are drawn, its edge stroke. Each filled-contour
-///   band is one path item filled with the nonzero rule. A contour isoline path never mixes levels.
+///   band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
+///   artist is one image item beneath one group that carries its placement (see **Images**).
 /// - **Decimation.** A line or scatter with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
 ///   largest-triangle-three-buckets rule, applied to each run of placeable points separately so that a break in the
@@ -110,7 +113,11 @@ impl Ctx<'_> {
 ///   changes, and the display list the PDF exporter draws is the one the screen shows.
 /// - **Picking.** The hit map records the points every line and scatter drew, each naming the index it has in the
 ///   artist's own data arrays, so a front end reports the index and the values of the user's data whether or not the
-///   series was decimated.
+///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the inverse
+///   of the image's placement with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
+///   and column of the artist's array under a pointer, the pixel coordinates being floored so that the image is the
+///   half-open extent `[0, nx) × [0, ny)` and a boundary shared by two pixels belongs to the higher index. A hidden
+///   image, a skipped image and an image drawn in a 3D axes record nothing.
 /// - **Dense content.** The faces of a surface are wrapped in [`crate::display::ItemKind::Dense`] groups that record
 ///   how many faces the artist drew, so that a backend can replace them with a raster image instead of drawing one
 ///   vector path per face. The count is of the faces actually drawn, not of the cells the grid holds: a face dropped
@@ -118,7 +125,9 @@ impl Ctx<'_> {
 ///   rasterising the rest. Each group holds one maximal run of consecutive faces of one artist in paint order, so a
 ///   surface whose faces the 3D depth sort interleaves with the geometry of other artists — including a line thinned
 ///   by the decimation above — yields several groups, each recording the artist's total face count. A dense group has
-///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture.
+///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture. An
+///   image artist is already a raster and is never wrapped in a dense group, so that no backend resamples the pixels
+///   the user supplied.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
 ///   Within each axes, every line, scatter and quiver artist whose primary colour is `ColorSpec::Auto` (the
@@ -132,19 +141,58 @@ impl Ctx<'_> {
 ///   explicit colour, because colormapped isolines would coincide with the band colours.
 /// - **Limits.** Automatic axis limits round the data range outward to major ticks, are computed over the data of
 ///   every axes in the same link group, and are `[0, 1]` for an axes without data. Gridded data is the exception, as
-///   in MATLAB's `contour`, `contourf`, `contour3`, `surf` and `mesh`: along x and y, an end of the range that only
-///   the grids of contour and surface artists reach is the exact end of those grids, while an end that other data
-///   reaches beyond the grids is rounded outward as usual. The z limits of a 3D axes are always rounded outward. Data that cannot be placed on a
+///   in MATLAB's `contour`, `contourf`, `contour3`, `surf`, `mesh` and `image`: along x and y, an end of the range
+///   that only the grids of contour and surface artists and the pixel edges of images reach is the exact end of
+///   those grids and edges, while an end that other data reaches beyond them is rounded outward as usual. The z
+///   limits of a 3D axes are always rounded outward, the edges of an image on a wall of the axes included. An image
+///   whose plane has an explicit offset places that offset along the third axis of its plane, where it is rounded
+///   like other data; a plane without an offset places nothing along that axis. Data that cannot be placed on a
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
-///   range of the finite colour values of the axes' colormapped artists.
+///   range of the finite colour values of the axes' colormapped artists, the values of colour-mapped images among
+///   them; the indices of colour-indexed images and the components of true-colour images are not colour values.
 /// - **Surface colour.** A colormapped face takes the colormap sample of the mean of its four corner colour values
 ///   (`c` when present, otherwise `z`), normalised by the colour limits. A face with a NaN corner is not drawn.
+/// - **Images.** An image artist of any kind is drawn as one image item in pixel space, `[0, nx] × [0, ny]` for
+///   `nx` columns and `ny` rows with the pixel in row `j` and column `i` covering `[i, i + 1] × [j, j + 1]`, beneath
+///   one group whose transform maps pixel space into figure space; the group has no clip of its own and lies inside
+///   the clipped group of the axes like every other artist geometry. The samples run in row order from row 0 and are
+///   never reordered: a range whose `last` centre lies before its `first` mirrors the image through the transform
+///   alone. Along each axis of its plane the pixels are placed by the centres of the first and last pixels, with a
+///   pitch of `(last − first) / (n − 1)` between centres and half a pitch of raster beyond each of the two centres;
+///   one pixel has a pitch of 1 whatever its range, and an absent range centres the pixels on 0 to n − 1. The
+///   columns run along the first axis of the plane and the rows along the second; the coordinate along the third
+///   axis is the offset of the plane, or the low end of that axis when it has none, and a 2D axes ignores it. In a
+///   3D axes the image is one primitive sorted at the mean depth of its four corners. The pixels are resolved to
+///   eight-bit sRGB by kind. A true-colour image clamps floating-point components into `[0, 1]` and quantises them
+///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A
+///   colour-mapped image normalises each value by the colour limits and takes the colormap sample of the result, as
+///   a surface does; a value that normalises below 0, one that normalises above 1 and a non-finite value fall in
+///   the `below`, `above` and `non_finite` categories. A colour-indexed image takes entry `i` of the colormap for an
+///   8-bit index `i`, and for a floating-point index truncated toward zero into 0 to 255; a truncated index below 0,
+///   one above 255 and a non-finite index fall in the same three categories, and the colour limits play no part. A
+///   pixel in a category takes what the artist's policy for that category says: `transparent` draws nothing,
+///   `clamp` takes the first colormap entry below and the last above and draws nothing for a non-finite value,
+///   `rgba` takes the colour quantised with its alpha, and `strict` skips the artist with one warning naming it,
+///   the first offending pixel and the category. The samples have three channels when every pixel is opaque and
+///   four otherwise. An image is skipped with one warning naming it when its array is missing or has the wrong
+///   shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels, `[ny, nx]` for indices and values), when a pixel centre or
+///   the plane offset is not finite or the centres of the first and last pixels coincide along an axis of more
+///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when an axis of its plane is logarithmic (the
+///   third axis may be, but then the offset must be positive), or when a corner cannot be placed; an image with no
+///   rows or no columns is skipped silently. A skipped image contributes nothing to the axis or colour limits,
+///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
+///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
 /// - **Legend.** Only artists with a display name have legend entries, listed in artist order. The hit rectangle of
-///   an entry encloses both its sample and its label.
+///   an entry encloses both its sample and its label. The sample of an image is a filled patch: the middle colour
+///   of the colormap for a colour-indexed or colour-mapped image, and for a true-colour image the mean of the
+///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
+///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
+///   keeps clear of.
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped
-///   data and for its display name, the axes for its title and axis labels, and the figure for its title.
-/// - **3D.** Faces, segments and markers are painted back to front for the current view. A line, scatter or quiver
-///   without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
+///   data, for a placement or plane that cannot be drawn, for a pixel a strict policy refuses and for its display
+///   name, the axes for its title and axis labels, and the figure for its title.
+/// - **3D.** Faces, segments, markers and images are painted back to front for the current view. A line, scatter
+///   or quiver without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
 ///   grid line on each of the two back planes (see [`crate::maths::camera::back_planes`]) that contain that axis's
 ///   direction, except where the grid line would coincide with an edge of the box. The edge that carries an axis's
 ///   tick labels has a short tick mark at each major tick, pointing away from the box towards the label. Any two tick
