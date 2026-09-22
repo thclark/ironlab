@@ -1910,6 +1910,7 @@ dependencies = [
 name = "ironlab-viewer"
 version = "0.7.0"
 dependencies = [
+ "bytemuck",
  "eframe",
  "egui",
  "egui-wgpu",

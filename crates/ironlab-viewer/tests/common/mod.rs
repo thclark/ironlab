@@ -550,3 +550,49 @@ pub fn image_sample(image: &ImageItem, row: u32, column: u32) -> [u8; 4] {
     let s = &image.samples[start..start + channels];
     [s[0], s[1], s[2], if channels == 4 { s[3] } else { 255 }]
 }
+
+/// A depth group holding `items`, as the scene compiler emits the artists of one three-dimensional axes: a backend
+/// with a depth buffer clears the buffer at the group and tests every item inside against it.
+pub fn depth_group(items: Vec<Item>) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Depth { items },
+    }
+}
+
+/// A figure of one three-dimensional axes (node 2) holding one surface (node 3) over a 3 × 3 rectilinear grid whose
+/// points all lie strictly inside the limits of [`axes_3d`], so that every face is drawn whole. With `visible` false
+/// the surface is hidden, which leaves the axes without a depth group; the difference between the two renders is
+/// therefore the surface alone.
+pub fn figure_with_surface(visible: bool) -> Figure {
+    use ironlab_ir::{Artist, DataId, Grid, NdArray, Surface};
+
+    let (gx, gy, field) = (DataId(0), DataId(1), DataId(2));
+    let data = std::collections::BTreeMap::from([
+        (gx, NdArray::vector(vec![-0.5, 0.0, 0.5])),
+        (gy, NdArray::vector(vec![-1.0, 0.0, 1.0])),
+        (
+            field,
+            NdArray::from_shape(
+                vec![3, 3],
+                vec![0.5, 1.0, 1.5, 1.0, 1.5, 2.0, 1.5, 2.0, 2.5],
+            )
+            .expect("the shape matches the values"),
+        ),
+    ]);
+    Figure {
+        id: NodeId(1),
+        data,
+        axes: vec![Axes {
+            artists: vec![Artist::Surface(Surface {
+                id: NodeId(3),
+                visible,
+                grid: Grid::Rectilinear { x: gx, y: gy },
+                z: field,
+                ..Surface::default()
+            })],
+            ..axes_3d(2)
+        }],
+        ..Figure::new()
+    }
+}

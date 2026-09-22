@@ -9,16 +9,19 @@
 mod common;
 
 use std::cell::Cell;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use common::{TEXT, assert_close, scale_then_translate};
+use common::{TEXT, assert_close, depth_group, figure_with_surface, scale_then_translate};
 use egui::{Color32, Mesh, Pos2, TextureId};
+use ironlab_ir::NodeId;
 use ironlab_scene::display::{
-    DisplayList, Fill, FillRule, GlyphsItem, ImageItem, Item, ItemKind, LineCap, LineJoin,
-    PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageItem, Item, ItemKind, LineCap,
+    LineJoin, PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::TextItem;
-use ironlab_viewer::canvas::{TextureCache, TextureProvider, tessellate_with};
+use ironlab_viewer::canvas::{TextureCache, TextureProvider, drawables_with, tessellate_with};
+use ironlab_viewer::gpu::{Draw, DrawList, Drawable, TileKey, Vertex};
 use ironlab_viewer::{ScreenTransform, tessellate};
 
 const SCALE: f32 = 2.0;
@@ -438,11 +441,9 @@ fn a_group_rotation_rotates_its_items_before_translating_them() {
     );
 }
 
-// Why: text is drawn from font outlines; an outline that is not scaled by the run size, not placed at the glyph
-// origin, or left in the font's y-up space would render labels at the wrong size, place or upside down.
-#[test]
-fn a_glyph_is_drawn_at_its_size_above_its_baseline_origin() {
-    let size = 20.0;
+/// A run of the one glyph "H" of `size` points in `color` with its pen origin at `origin`, laid out by the text
+/// engine so that the glyph id and font are real.
+fn glyph_h(origin: Point, size: f64, color: Rgba) -> Item {
     let layout = TEXT.layout("H", false, size);
     let run = layout
         .items
@@ -452,13 +453,12 @@ fn a_glyph_is_drawn_at_its_size_above_its_baseline_origin() {
             TextItem::Rule { .. } => None,
         })
         .expect("\"H\" lays out as a glyph run");
-    let origin = Point::new(10.0, 50.0);
-    let item = Item {
+    Item {
         source: None,
         kind: ItemKind::Glyphs(GlyphsItem {
             font: run.font,
             size_pt: run.size_pt,
-            color: Rgba::new(0.0, 0.0, 1.0, 1.0),
+            color,
             text: "H".to_owned(),
             glyphs: vec![PlacedGlyph {
                 id: run.glyphs[0].id,
@@ -467,7 +467,16 @@ fn a_glyph_is_drawn_at_its_size_above_its_baseline_origin() {
                 text_range: 0..1,
             }],
         }),
-    };
+    }
+}
+
+// Why: text is drawn from font outlines; an outline that is not scaled by the run size, not placed at the glyph
+// origin, or left in the font's y-up space would render labels at the wrong size, place or upside down.
+#[test]
+fn a_glyph_is_drawn_at_its_size_above_its_baseline_origin() {
+    let size = 20.0;
+    let origin = Point::new(10.0, 50.0);
+    let item = glyph_h(origin, size, Rgba::new(0.0, 0.0, 1.0, 1.0));
 
     let meshes = tessellate(&list(vec![item]), &TEXT, to_screen());
     assert!(area(&meshes) > 0.0, "the glyph produces ink");
@@ -1587,5 +1596,1044 @@ fn the_texture_cache_tiles_by_the_contexts_limit_capped_at_8192() {
         max_side_with(4096),
         4096,
         "a limit below the cap is the limit"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Depth groups and depth-carrying leaves, which `drawables_with` hands to the GPU as draw lists instead of meshes.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// One screen unit per figure point with the origin at the top-left corner, so that a vertex position is the
+/// figure-space position and a test can reason about positions directly.
+fn unit_screen() -> ScreenTransform {
+    ScreenTransform {
+        scale: 1.0,
+        origin: Pos2::ZERO,
+    }
+}
+
+/// `item`, a path, given `depth`.
+fn with_depth(mut item: Item, depth: Depth) -> Item {
+    match &mut item.kind {
+        ItemKind::Path(path) => path.depth = Some(depth),
+        _ => panic!("only a path item carries a `Depth`"),
+    }
+    item
+}
+
+/// `item` attributed to the IR node `id`.
+fn sourced(mut item: Item, id: u64) -> Item {
+    item.source = Some(NodeId(id));
+    item
+}
+
+/// A filled square of side `size` with its top-left corner at `(x, y)`, lying at `plane`.
+fn square_at(x: f64, y: f64, size: f64, color: Rgba, plane: DepthPlane) -> Item {
+    with_depth(
+        filled(rect_segments(x, y, size, size), color, FillRule::NonZero),
+        Depth::Plane(plane),
+    )
+}
+
+/// Two unit squares at the constant depths 0 and 1, side by side from `(x, y)`, which pin the depth range of the
+/// draw list they lie in to [0, 1], so that the z of every other vertex of the list is `1 − depth` whatever
+/// vertices the tessellation happens to emit.
+fn range_pins(x: f64, y: f64) -> [Item; 2] {
+    [
+        square_at(x, y, 1.0, Rgba::BLACK, DepthPlane::constant(0.0)),
+        square_at(x + 2.0, y, 1.0, Rgba::BLACK, DepthPlane::constant(1.0)),
+    ]
+}
+
+/// The drawables of `list`, with a provider that can supply any tile.
+fn drawables_of(list: &DisplayList, to_screen: ScreenTransform) -> Vec<Drawable> {
+    drawables_with(list, &TEXT, to_screen, &mut Recorder::new(8192))
+}
+
+/// The kind of every drawable in order, for order checks and failure messages.
+fn kinds(drawables: &[Drawable]) -> Vec<&'static str> {
+    drawables
+        .iter()
+        .map(|drawable| match drawable {
+            Drawable::Mesh(_) => "mesh",
+            Drawable::Gpu(_) => "gpu",
+        })
+        .collect()
+}
+
+/// The meshes among `drawables`, in order.
+fn meshes_of(drawables: &[Drawable]) -> Vec<&Mesh> {
+    drawables
+        .iter()
+        .filter_map(|drawable| match drawable {
+            Drawable::Mesh(mesh) => Some(mesh),
+            Drawable::Gpu(_) => None,
+        })
+        .collect()
+}
+
+/// The GPU draw lists among `drawables`, in order.
+fn gpu_lists(drawables: &[Drawable]) -> Vec<&Arc<DrawList>> {
+    drawables
+        .iter()
+        .filter_map(|drawable| match drawable {
+            Drawable::Gpu(list) => Some(list),
+            Drawable::Mesh(_) => None,
+        })
+        .collect()
+}
+
+/// The one GPU draw list among `drawables`.
+#[track_caller]
+fn the_gpu_list(drawables: &[Drawable]) -> Arc<DrawList> {
+    let lists = gpu_lists(drawables);
+    assert_eq!(
+        lists.len(),
+        1,
+        "exactly one GPU draw list among the drawables {:?}",
+        kinds(drawables)
+    );
+    Arc::clone(lists[0])
+}
+
+/// The number of indices a draw uses.
+fn index_count(draw: &Draw) -> u32 {
+    draw.indices.end - draw.indices.start
+}
+
+/// The vertices a draw refers to, one per index in index order.
+fn vertices_of_draw<'a>(list: &'a DrawList, draw: &Draw) -> Vec<&'a Vertex> {
+    list.indices[draw.indices.start as usize..draw.indices.end as usize]
+        .iter()
+        .map(|&i| &list.vertices[i as usize])
+        .collect()
+}
+
+/// The draw of `list` attributed to node `id`.
+#[track_caller]
+fn draw_of(list: &DrawList, id: u64) -> &Draw {
+    list.draws
+        .iter()
+        .find(|draw| draw.source == Some(NodeId(id)))
+        .unwrap_or_else(|| panic!("a draw is attributed to node {id}: {:?}", list.draws))
+}
+
+/// Whether every one of `vertices` lies within 1e-6 of `z`.
+fn all_at_z(vertices: &[&Vertex], z: f32) -> bool {
+    vertices.iter().all(|v| (v.z - z).abs() <= 1e-6)
+}
+
+/// The smallest and largest value of `pick` over `vertices`.
+fn span(vertices: &[&Vertex], pick: impl Fn(&Vertex) -> f32) -> (f32, f32) {
+    vertices
+        .iter()
+        .map(|&v| pick(v))
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        })
+}
+
+#[track_caller]
+fn assert_span(actual: (f32, f32), expected: (f32, f32), what: &str) {
+    assert!(
+        (actual.0 - expected.0).abs() <= 1e-3 && (actual.1 - expected.1).abs() <= 1e-3,
+        "{what}: expected the span {expected:?}, got {actual:?}"
+    );
+}
+
+/// Asserts what every draw list must satisfy: the index range of every draw lies within the index buffer, the
+/// ranges do not overlap and follow the paint order, every index names a vertex, every draw is whole triangles, and
+/// every z lies in [0, 1].
+#[track_caller]
+fn assert_well_formed(list: &DrawList) {
+    let mut end = 0;
+    for (k, draw) in list.draws.iter().enumerate() {
+        assert!(
+            draw.indices.start >= end && draw.indices.end >= draw.indices.start,
+            "draw {k} follows the draws before it without overlap: {:?}",
+            list.draws
+        );
+        assert!(
+            draw.indices.end as usize <= list.indices.len(),
+            "draw {k} lies within the {} indices: {draw:?}",
+            list.indices.len()
+        );
+        assert_eq!(
+            index_count(draw) % 3,
+            0,
+            "draw {k} is whole triangles: {draw:?}"
+        );
+        end = draw.indices.end;
+    }
+    assert!(
+        list.indices
+            .iter()
+            .all(|&i| (i as usize) < list.vertices.len()),
+        "every index names one of the {} vertices",
+        list.vertices.len()
+    );
+    assert!(
+        list.vertices.iter().all(|v| (0.0..=1.0).contains(&v.z)),
+        "every z lies in [0, 1]: {:?}",
+        list.vertices.iter().map(|v| v.z).collect::<Vec<_>>()
+    );
+}
+
+// Why: everything outside a depth group is still drawn by the egui path, and the canvas and the exporter obtain
+// their meshes from `drawables_with` from now on; its meshes must be exactly those of `tessellate_with`, requested
+// from the provider tile for tile as before, or a figure without depth would change with a change meant to leave
+// it alone, and the texture cache would keep or free the wrong textures.
+#[test]
+fn a_list_without_depth_yields_only_the_meshes_that_tessellate_with_produces() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let fixture = list(vec![
+        filled(rect_segments(0.0, 0.0, 50.0, 50.0), red, FillRule::NonZero),
+        image(
+            Rect::new(10.0, 10.0, 20.0, 10.0),
+            2,
+            1,
+            ImageItem::RGB,
+            tagged_rgb(2, 1),
+        ),
+        group(
+            Some(Rect::new(0.0, 0.0, 30.0, 30.0)),
+            Some(scale_then_translate(2.0, 2.0, 5.0, 5.0)),
+            vec![filled(
+                rect_segments(0.0, 0.0, 20.0, 20.0),
+                Rgba::BLACK,
+                FillRule::EvenOdd,
+            )],
+        ),
+    ]);
+    let mut for_meshes = Recorder::new(8192);
+    let meshes = tessellate_with(&fixture, &TEXT, to_screen(), &mut for_meshes);
+    let mut for_drawables = Recorder::new(8192);
+    let drawables = drawables_with(&fixture, &TEXT, to_screen(), &mut for_drawables);
+
+    assert_eq!(
+        meshes.len(),
+        3,
+        "the fixture draws a path, an image tile and a clipped path"
+    );
+    assert_eq!(
+        kinds(&drawables),
+        vec!["mesh"; meshes.len()],
+        "without depth there is nothing for the GPU path"
+    );
+    assert_eq!(
+        meshes_of(&drawables),
+        meshes.iter().collect::<Vec<_>>(),
+        "the meshes are those of tessellate_with, in the same order"
+    );
+    let requested = |recorder: &Recorder| -> Vec<(u32, [usize; 2])> {
+        recorder
+            .tiles
+            .iter()
+            .map(|(tile, pixels)| (*tile, pixels.size))
+            .collect()
+    };
+    assert_eq!(
+        requested(&for_drawables),
+        requested(&for_meshes),
+        "the provider is asked for the same tiles"
+    );
+    assert_eq!(
+        requested(&for_drawables).len(),
+        1,
+        "the one image is one tile"
+    );
+}
+
+// Why: the leaves of one depth group must reach the GPU as one depth-tested drawing, a draw per leaf in the
+// painter's order and attributed to the leaf's node, with z normalised over the group so that the nearest depth is
+// 0 and the farthest 1. A drawable per leaf would clear the depth buffer between them, a draw without the test
+// would give the painter's picture, and an inverted z the back-to-front one.
+#[test]
+fn a_depth_group_becomes_one_depth_tested_gpu_drawable_with_a_draw_per_leaf_in_paint_order() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    let near = sourced(square_at(0.0, 0.0, 1.0, red, DepthPlane::constant(1.0)), 1);
+    let far = sourced(square_at(2.0, 0.0, 1.0, blue, DepthPlane::constant(0.0)), 2);
+    let drawables = drawables_of(&list(vec![depth_group(vec![near, far])]), unit_screen());
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu"],
+        "the group is one GPU drawable and nothing else"
+    );
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    assert_eq!(
+        gpu.draws.len(),
+        2,
+        "one draw per path leaf: {:?}",
+        gpu.draws
+    );
+    for (draw, id) in gpu.draws.iter().zip([1, 2]) {
+        assert_eq!(
+            draw.source,
+            Some(NodeId(id)),
+            "the draws follow the paint order and name their node: {:?}",
+            gpu.draws
+        );
+        assert!(
+            draw.depth_test,
+            "every draw of a depth group is depth tested: {draw:?}"
+        );
+        assert_eq!(
+            draw.texture, None,
+            "solid geometry samples no texture: {draw:?}"
+        );
+        assert_eq!(draw.clip, None, "no group clips these leaves: {draw:?}");
+        assert!(
+            index_count(draw) >= 6,
+            "a square is at least two triangles: {draw:?}"
+        );
+    }
+
+    let near_vertices = vertices_of_draw(&gpu, &gpu.draws[0]);
+    assert!(
+        all_at_z(&near_vertices, 0.0),
+        "the nearer square lies at z = 0: {near_vertices:?}"
+    );
+    assert!(
+        near_vertices.iter().all(|v| v.color == [255, 0, 0, 255]),
+        "colours are premultiplied sRGB bytes as in egui: {near_vertices:?}"
+    );
+    assert_span(
+        span(&near_vertices, |v| v.pos[0]),
+        (0.0, 1.0),
+        "positions are screen units, so the near square spans x = 0..1",
+    );
+    let far_vertices = vertices_of_draw(&gpu, &gpu.draws[1]);
+    assert!(
+        all_at_z(&far_vertices, 1.0),
+        "the farther square lies at z = 1: {far_vertices:?}"
+    );
+    assert_span(
+        span(&far_vertices, |v| v.pos[0]),
+        (2.0, 3.0),
+        "the far square spans x = 2..3",
+    );
+}
+
+// Why: the exporter renders the content of a 3D axes through the same pipeline but must get the painter's picture,
+// so a depth-carrying leaf outside every depth group is drawn by the GPU without a depth test; and a list whose
+// depths are all equal has no range to normalise over, so its z must land in the middle rather than at an end or
+// outside [0, 1].
+#[test]
+fn a_depth_carrying_path_outside_any_group_is_drawn_by_the_gpu_without_a_depth_test() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![square_at(
+            0.0,
+            0.0,
+            10.0,
+            red,
+            DepthPlane::constant(7.0),
+        )]),
+        unit_screen(),
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu"],
+        "a depth-carrying leaf outside every group is drawn by the GPU, not as a mesh"
+    );
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    assert_eq!(
+        gpu.draws.len(),
+        1,
+        "the one leaf is one draw: {:?}",
+        gpu.draws
+    );
+    assert!(
+        !gpu.draws[0].depth_test,
+        "outside a depth group the draw is not depth tested: {:?}",
+        gpu.draws[0]
+    );
+    assert!(
+        gpu.vertices.iter().all(|v| (v.z - 0.5).abs() <= 1e-6),
+        "equal depths normalise to the middle of the range: {:?}",
+        gpu.vertices
+    );
+}
+
+// Why: a run of depth-carrying leaves outside every depth group is what the exporter hands over for one axes; it
+// must be one upload rather than one per leaf, and the run must end where a depthless leaf begins, or that leaf's
+// mesh would lose its place in the paint order.
+#[test]
+fn consecutive_depth_carrying_leaves_share_one_gpu_drawable_and_a_depthless_leaf_ends_the_run() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![
+            sourced(square_at(0.0, 0.0, 1.0, red, DepthPlane::constant(1.0)), 1),
+            sourced(square_at(2.0, 0.0, 1.0, blue, DepthPlane::constant(0.0)), 2),
+            filled(rect_segments(4.0, 0.0, 1.0, 1.0), red, FillRule::NonZero),
+            sourced(square_at(6.0, 0.0, 1.0, blue, DepthPlane::constant(0.0)), 3),
+        ]),
+        unit_screen(),
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu", "mesh", "gpu"],
+        "the run, then the mesh, then a new run"
+    );
+    let Drawable::Gpu(first) = &drawables[0] else {
+        unreachable!()
+    };
+    let Drawable::Gpu(last) = &drawables[2] else {
+        unreachable!()
+    };
+    assert_well_formed(first);
+    assert_well_formed(last);
+    assert_eq!(
+        first.draws.iter().map(|d| d.source).collect::<Vec<_>>(),
+        [Some(NodeId(1)), Some(NodeId(2))],
+        "the first run holds the two leaves before the mesh"
+    );
+    assert!(
+        first.draws.iter().all(|d| !d.depth_test),
+        "outside a depth group no draw is depth tested: {:?}",
+        first.draws
+    );
+    assert!(
+        all_at_z(&vertices_of_draw(first, &first.draws[0]), 0.0),
+        "the run normalises its own depths, the nearer square at z = 0"
+    );
+    assert!(
+        all_at_z(&vertices_of_draw(first, &first.draws[1]), 1.0),
+        "and the farther at z = 1"
+    );
+    assert_eq!(
+        last.draws.iter().map(|d| d.source).collect::<Vec<_>>(),
+        [Some(NodeId(3))],
+        "the leaf after the mesh starts a run of its own"
+    );
+    assert!(
+        last.vertices.iter().all(|v| (v.z - 0.5).abs() <= 1e-6),
+        "the second run has one depth and normalises it to the middle: {:?}",
+        last.vertices
+    );
+}
+
+// Why: a figure with two three-dimensional axes puts two depth groups side by side in the paint order; each must
+// become a drawable of its own, so that the painter clears the depth buffer between them and each axes' depths are
+// normalised over that axes alone, rather than the two being merged into one list in which the nearer axes would
+// hide the other.
+#[test]
+fn two_adjacent_depth_groups_become_two_depth_tested_drawables() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![
+            depth_group(vec![sourced(
+                square_at(0.0, 0.0, 1.0, red, DepthPlane::constant(0.0)),
+                1,
+            )]),
+            depth_group(vec![sourced(
+                square_at(2.0, 0.0, 1.0, blue, DepthPlane::constant(5.0)),
+                2,
+            )]),
+        ]),
+        unit_screen(),
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu", "gpu"],
+        "one drawable per depth group"
+    );
+    for (gpu, id) in gpu_lists(&drawables).into_iter().zip([1, 2]) {
+        assert_well_formed(gpu);
+        assert_eq!(
+            gpu.draws.iter().map(|d| d.source).collect::<Vec<_>>(),
+            [Some(NodeId(id))],
+            "each list holds the leaf of its own group"
+        );
+        assert!(
+            gpu.draws.iter().all(|d| d.depth_test),
+            "both groups are depth tested: {:?}",
+            gpu.draws
+        );
+        assert!(
+            gpu.vertices.iter().all(|v| (v.z - 0.5).abs() <= 1e-6),
+            "each group normalises its one depth to the middle on its own, not over both groups: {:?}",
+            gpu.vertices
+        );
+    }
+}
+
+// Why: a list is drawn with one clear of the depth buffer and one normalisation, and its draws are tested or not
+// as the list was started; a depth-carrying leaf straight after a depth group must therefore start a list of its
+// own, drawn without the test, rather than join the group's, where it would be tested against the group's depths.
+#[test]
+fn a_depth_group_followed_by_a_loose_depth_carrying_leaf_gives_two_lists_differing_in_the_depth_test()
+ {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![
+            depth_group(vec![sourced(
+                square_at(0.0, 0.0, 1.0, red, DepthPlane::constant(0.0)),
+                1,
+            )]),
+            sourced(square_at(2.0, 0.0, 1.0, blue, DepthPlane::constant(0.0)), 2),
+        ]),
+        unit_screen(),
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu", "gpu"],
+        "the group and the loose leaf are two drawables"
+    );
+    let lists = gpu_lists(&drawables);
+    let sources = |gpu: &DrawList| gpu.draws.iter().map(|d| d.source).collect::<Vec<_>>();
+    assert_eq!(
+        sources(lists[0]),
+        [Some(NodeId(1))],
+        "the first list is the group's"
+    );
+    assert_eq!(
+        sources(lists[1]),
+        [Some(NodeId(2))],
+        "the second list is the loose leaf's"
+    );
+    assert!(
+        lists[0].draws[0].depth_test,
+        "the group's draw is depth tested: {:?}",
+        lists[0].draws
+    );
+    assert!(
+        !lists[1].draws[0].depth_test,
+        "the loose leaf's draw is not depth tested: {:?}",
+        lists[1].draws
+    );
+}
+
+// Why: a face's depth varies across it and the depth test compares depths point by point, so z must be the plane
+// at each vertex; larger depth is nearer, so the vertices at the greatest depth take z = 0 and those at the least
+// z = 1. One z per item, or a plane read with the wrong sign, would let a tilted face cut wrongly through its
+// neighbours.
+#[test]
+fn a_tilted_plane_gives_z_zero_where_the_depth_is_greatest_and_one_where_it_is_least() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![depth_group(vec![square_at(
+            0.0,
+            0.0,
+            10.0,
+            red,
+            DepthPlane {
+                a: 0.1,
+                b: 0.0,
+                c: 0.0,
+            },
+        )])]),
+        unit_screen(),
+    );
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let vertices = vertices_of_draw(&gpu, &gpu.draws[0]);
+    assert_span(
+        span(&vertices, |v| v.pos[0]),
+        (0.0, 10.0),
+        "the square spans x = 0..10",
+    );
+    for v in &vertices {
+        let expected = 1.0 - v.pos[0] / 10.0;
+        assert!(
+            (v.z - expected).abs() <= 1e-5,
+            "z at x = {} is {expected}, the plane's depth 0.1·x normalised with the nearest at 0: got {}",
+            v.pos[0],
+            v.z
+        );
+    }
+}
+
+// Why: the polylines of plot3, contour3 and quiver3 carry one depth per point; the stroke's outline vertices and
+// every dash piece must take the depth of the point of the line they lie beside, or a line would fight the surface
+// it crosses wherever a dash or the stroke's width fell at the wrong depth.
+#[test]
+fn per_vertex_depths_interpolate_along_a_dashed_stroke() {
+    let line = sourced(
+        with_depth(
+            stroked_line(vec![10.0, 10.0], 0.0, LineCap::Butt),
+            Depth::Vertices(vec![0.0, 1.0]),
+        ),
+        1,
+    );
+    let [pin0, pin1] = range_pins(0.0, 80.0);
+    let drawables = drawables_of(
+        &list(vec![depth_group(vec![pin0, pin1, line])]),
+        unit_screen(),
+    );
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let vertices = vertices_of_draw(&gpu, draw_of(&gpu, 1));
+    assert!(
+        vertices.len() >= 5 * 6,
+        "five dashes of at least two triangles each: {} indices",
+        vertices.len()
+    );
+    assert_span(
+        span(&vertices, |v| v.pos[0]),
+        (0.0, 90.0),
+        "the line is still dashed: the pieces run from x = 0 to the end of the last dash at x = 90",
+    );
+    for v in &vertices {
+        let expected = 1.0 - v.pos[0] / 100.0;
+        assert!(
+            (v.z - expected).abs() <= 1e-4,
+            "z at ({}, {}) is {expected}, the depth interpolated along the line from 0 at x = 0 to 1 at x = 100 \
+             with the range pinned to [0, 1]: got {}",
+            v.pos[0],
+            v.pos[1],
+            v.z
+        );
+    }
+}
+
+// Why: a filled polygon with one depth per vertex (a filled contour band of contour3, a patch of fill3) must give
+// each corner its own depth and every other vertex the depth interpolated between the corners, so that the fill
+// lies on the plane of its outline; a fill that took its first vertex's depth throughout, or lost the per-vertex
+// depths in the tessellation, would lie flat at one depth and cut wrongly through what it meets.
+#[test]
+fn a_filled_triangle_takes_its_three_vertex_depths_at_its_corners() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let corners: [(f32, f32, f64); 3] = [(0.0, 0.0, 0.2), (10.0, 0.0, 0.9), (0.0, 10.0, 0.4)];
+    let triangle = sourced(
+        with_depth(
+            filled(
+                vec![
+                    PathSegment::MoveTo(Point::new(0.0, 0.0)),
+                    PathSegment::LineTo(Point::new(10.0, 0.0)),
+                    PathSegment::LineTo(Point::new(0.0, 10.0)),
+                    PathSegment::Close,
+                ],
+                red,
+                FillRule::NonZero,
+            ),
+            Depth::Vertices(corners.iter().map(|&(_, _, depth)| depth).collect()),
+        ),
+        1,
+    );
+    let [pin0, pin1] = range_pins(40.0, 40.0);
+    let drawables = drawables_of(
+        &list(vec![depth_group(vec![pin0, pin1, triangle])]),
+        unit_screen(),
+    );
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let vertices = vertices_of_draw(&gpu, draw_of(&gpu, 1));
+    assert!(
+        vertices.len() >= 3,
+        "the triangle is at least one triangle: {vertices:?}"
+    );
+    for (x, y, depth) in corners {
+        let vertex = vertices
+            .iter()
+            .find(|v| (v.pos[0] - x).abs() <= 1e-3 && (v.pos[1] - y).abs() <= 1e-3)
+            .unwrap_or_else(|| panic!("a vertex lies at the corner ({x}, {y}): {vertices:?}"));
+        let expected = 1.0 - depth;
+        assert!(
+            (f64::from(vertex.z) - expected).abs() <= 1e-5,
+            "the corner ({x}, {y}) of depth {depth} lies at z = {expected}, with the range pinned to [0, 1]: \
+             {vertex:?}"
+        );
+    }
+    for v in &vertices {
+        // The depth is affine over the triangle: 0.2 at the origin, rising by 0.07 per unit of x and by 0.02 per
+        // unit of y, which reaches 0.9 and 0.4 at the other two corners.
+        let depth = 0.2 + 0.07 * f64::from(v.pos[0]) + 0.02 * f64::from(v.pos[1]);
+        let expected = 1.0 - depth;
+        assert!(
+            (f64::from(v.z) - expected).abs() <= 1e-5,
+            "z at ({}, {}) is {expected}, the depth interpolated between the corners: got {}",
+            v.pos[0],
+            v.pos[1],
+            v.z
+        );
+    }
+}
+
+// Why: the stroke of a line lying on a plane (the edge of a face, a grid line on the floor of the box) has width,
+// and its outline vertices lie half the width either side of the path; each must take the plane at its own
+// position rather than at the point of the path it belongs to, or on a steep plane the stroke would leave the
+// plane by the tilt times half its width and cut into the face it outlines.
+#[test]
+fn the_outline_vertices_of_a_stroke_take_the_plane_at_their_own_position() {
+    // The line runs along y = 50 from x = 0 to x = 100 and is 4 wide; the plane rises by 0.01 per unit of y.
+    let line = sourced(
+        with_depth(
+            stroked_line(vec![], 0.0, LineCap::Butt),
+            Depth::Plane(DepthPlane {
+                a: 0.0,
+                b: 0.01,
+                c: 0.0,
+            }),
+        ),
+        1,
+    );
+    let [pin0, pin1] = range_pins(0.0, 80.0);
+    let drawables = drawables_of(
+        &list(vec![depth_group(vec![pin0, pin1, line])]),
+        unit_screen(),
+    );
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let vertices = vertices_of_draw(&gpu, draw_of(&gpu, 1));
+    assert_span(
+        span(&vertices, |v| v.pos[1]),
+        (48.0, 52.0),
+        "the outline lies half the width either side of the line",
+    );
+    let centreline = 1.0 - 0.01 * 50.0;
+    for v in &vertices {
+        let expected = 1.0 - 0.01 * f64::from(v.pos[1]);
+        assert!(
+            (f64::from(v.z) - expected).abs() <= 1e-5,
+            "z at ({}, {}) is {expected}, the plane 0.01·y read at the vertex itself, {:+} from the centreline's \
+             {centreline} (the tilt times half the width): got {}",
+            v.pos[0],
+            v.pos[1],
+            expected - centreline,
+            v.z
+        );
+    }
+}
+
+// Why: the compiler places the items of a 3D axes beneath a group transform but fits their planes in item space;
+// a plane evaluated at the transformed position would tilt every face wrongly, which the pins expose because they
+// fix the depth range the square's z is normalised over. A group's clip must reach the GPU in screen units, or the
+// scissor would cut the wrong region.
+#[test]
+fn a_plane_is_read_in_item_space_beneath_a_group_transform_and_the_clip_is_recorded_in_screen_units()
+ {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let transform = scale_then_translate(2.0, 2.0, 100.0, 200.0);
+    // In the parent (figure) space, around the square, which the transform places at (100..120, 200..220).
+    let clip = Rect::new(90.0, 190.0, 40.0, 40.0);
+    // In item space, at figure (92..94, 192..194) and (96..98, 192..194): inside the clip.
+    let [pin0, pin1] = range_pins(-4.0, -4.0);
+    let square = sourced(
+        square_at(
+            0.0,
+            0.0,
+            10.0,
+            red,
+            DepthPlane {
+                a: 0.1,
+                b: 0.0,
+                c: 0.0,
+            },
+        ),
+        5,
+    );
+    let drawables = drawables_of(
+        &list(vec![group(
+            Some(clip),
+            Some(transform),
+            vec![depth_group(vec![pin0, pin1, square])],
+        )]),
+        to_screen(),
+    );
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let expected_clip = egui::Rect::from_min_max(
+        to_screen().apply(Point::new(90.0, 190.0)),
+        to_screen().apply(Point::new(130.0, 230.0)),
+    );
+    for draw in &gpu.draws {
+        let clip = draw
+            .clip
+            .unwrap_or_else(|| panic!("the group's clip is recorded on the draw: {draw:?}"));
+        assert_rect_close(clip, expected_clip, 1e-3);
+    }
+    let vertices = vertices_of_draw(&gpu, draw_of(&gpu, 5));
+    assert_span(
+        span(&vertices, |v| v.pos[0]),
+        (210.0, 250.0),
+        "the square's corners land where the group and screen transforms put them",
+    );
+    assert_span(
+        span(&vertices, |v| v.pos[1]),
+        (420.0, 460.0),
+        "the square's corners land where the group and screen transforms put them",
+    );
+    for v in &vertices {
+        let item_x = ((f64::from(v.pos[0]) - 10.0) / 2.0 - 100.0) / 2.0;
+        let expected = 1.0 - item_x / 10.0;
+        assert!(
+            (f64::from(v.z) - expected).abs() <= 1e-4,
+            "z at item x = {item_x} (screen x = {}) is {expected}, the plane read in item space: got {}",
+            v.pos[0],
+            v.z
+        );
+    }
+}
+
+// Why: an image inside the box of a 3D axes is a floor or a wall that faces cut through; it must reach the GPU as a
+// textured tile keyed by its own samples, with the depth of every corner read from its plane over pixel space,
+// where the compiler fitted it, and without a texture from the provider, whose textures belong to the egui meshes.
+// The pins fix the range to [0, 1], so a plane read over item space would put the corners at the wrong z.
+#[test]
+fn an_image_in_a_depth_group_is_one_textured_tile_whose_corners_take_the_plane_over_pixel_space() {
+    let rect = Rect::new(3.0, 4.0, 20.0, 10.0);
+    let samples: Arc<[u8]> = Arc::from(tagged_rgb(2, 1));
+    let floor = Item {
+        source: Some(NodeId(9)),
+        kind: ItemKind::Image(ImageItem {
+            rect,
+            width: 2,
+            height: 1,
+            channels: ImageItem::RGB,
+            samples: Arc::clone(&samples),
+            depth: Some(DepthPlane {
+                a: 0.5,
+                b: 0.0,
+                c: 0.0,
+            }),
+        }),
+    };
+    let [pin0, pin1] = range_pins(40.0, 40.0);
+    let mut textures = Recorder::new(8192);
+    let drawables = drawables_with(
+        &list(vec![depth_group(vec![pin0, pin1, floor])]),
+        &TEXT,
+        unit_screen(),
+        &mut textures,
+    );
+
+    assert!(
+        textures.tiles.is_empty(),
+        "the provider is never asked for a tile of an image in a depth group"
+    );
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    let draw = draw_of(&gpu, 9);
+    assert!(draw.depth_test, "the tile is depth tested: {draw:?}");
+    let key = draw
+        .texture
+        .as_ref()
+        .unwrap_or_else(|| panic!("the draw samples a tile: {draw:?}"));
+    assert_eq!(
+        *key,
+        TileKey {
+            samples: Arc::clone(&samples),
+            width: 2,
+            channels: ImageItem::RGB,
+            columns: 0..2,
+            rows: 0..1,
+        },
+        "the tile is the whole two-by-one image"
+    );
+    assert!(
+        Arc::ptr_eq(&key.samples, &samples),
+        "the key shares the item's sample buffer rather than copying it, because the painter's tile cache keys by \
+         the buffer's address"
+    );
+    let indices = &gpu.indices[draw.indices.start as usize..draw.indices.end as usize];
+    assert_eq!(indices.len(), 6, "the tile is two triangles: {indices:?}");
+    let distinct: BTreeSet<u32> = indices.iter().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        4,
+        "the two triangles share four vertices, one per corner: {indices:?}"
+    );
+    // One vertex per index, so a corner found here is a corner the triangles refer to.
+    let vertices = vertices_of_draw(&gpu, draw);
+    // A corner of the tile: its screen position, its texture coordinate, its z and its name.
+    type Corner = ((f32, f32), (f32, f32), f32, &'static str);
+    let corners: [Corner; 4] = [
+        ((3.0, 4.0), (0.0, 0.0), 1.0, "top-left"),
+        ((23.0, 4.0), (1.0, 0.0), 0.0, "top-right"),
+        ((3.0, 14.0), (0.0, 1.0), 1.0, "bottom-left"),
+        ((23.0, 14.0), (1.0, 1.0), 0.0, "bottom-right"),
+    ];
+    for ((x, y), (u, v), z, corner) in corners {
+        let vertex = vertices
+            .iter()
+            .find(|vertex| (vertex.pos[0] - x).abs() <= 1e-3 && (vertex.pos[1] - y).abs() <= 1e-3)
+            .unwrap_or_else(|| {
+                panic!("the triangles refer to a vertex at the {corner} corner ({x}, {y}): {vertices:?}")
+            });
+        assert!(
+            (vertex.uv[0] - u).abs() <= 1e-6 && (vertex.uv[1] - v).abs() <= 1e-6,
+            "the {corner} corner carries the texture coordinate ({u}, {v}): {vertex:?}"
+        );
+        assert!(
+            (vertex.z - z).abs() <= 1e-6,
+            "the {corner} corner lies at z = {z}, the plane 0.5·x over the pixel columns 0..2 normalised with \
+             the nearest at 0: {vertex:?}"
+        );
+        assert_eq!(
+            vertex.color,
+            [255, 255, 255, 255],
+            "the texture is drawn unmodulated: {vertex:?}"
+        );
+    }
+}
+
+// Why: the display-list contract has a backend skip what it cannot draw rather than panic; a path whose per-vertex
+// depths do not match its endpoints or whose plane is not finite has no depth to give its vertices, a path or an
+// image in a depth group without a depth has nothing to test, and a glyph run has no depth at all, so each must
+// vanish, without a texture being requested and without a mesh of its own, while its neighbours still draw.
+#[test]
+fn leaves_with_an_invalid_or_missing_depth_and_glyph_runs_are_skipped_inside_a_depth_group() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let short = sourced(
+        with_depth(
+            stroked_line(vec![], 0.0, LineCap::Butt),
+            Depth::Vertices(vec![0.0]),
+        ),
+        2,
+    );
+    let unbounded = sourced(
+        square_at(
+            20.0,
+            20.0,
+            5.0,
+            red,
+            DepthPlane {
+                a: f64::NAN,
+                b: 0.0,
+                c: 0.0,
+            },
+        ),
+        3,
+    );
+    let depthless = sourced(
+        image(
+            Rect::new(30.0, 30.0, 4.0, 2.0),
+            2,
+            1,
+            ImageItem::RGB,
+            tagged_rgb(2, 1),
+        ),
+        4,
+    );
+    let depthless_path = sourced(
+        filled(rect_segments(40.0, 40.0, 5.0, 5.0), red, FillRule::NonZero),
+        6,
+    );
+    let glyphs = sourced(glyph_h(Point::new(60.0, 60.0), 20.0, red), 7);
+    let mut textures = Recorder::new(8192);
+    let drawables = drawables_with(
+        &list(vec![depth_group(vec![
+            sourced(square_at(0.0, 0.0, 5.0, red, DepthPlane::constant(0.0)), 1),
+            short,
+            unbounded,
+            depthless,
+            depthless_path,
+            glyphs,
+            sourced(square_at(10.0, 0.0, 5.0, red, DepthPlane::constant(1.0)), 5),
+        ])]),
+        &TEXT,
+        unit_screen(),
+        &mut textures,
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["gpu"],
+        "the skipped leaves yield no mesh of their own beside the group's list"
+    );
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    assert_eq!(
+        gpu.draws.iter().map(|d| d.source).collect::<Vec<_>>(),
+        [Some(NodeId(1)), Some(NodeId(5))],
+        "only the leaves with a usable depth are drawn"
+    );
+    assert!(
+        textures.tiles.is_empty(),
+        "no tile is requested for the image without a depth"
+    );
+}
+
+// Why: the canvas paints drawables in sequence, so a depth group must sit between the meshes of the items before
+// and after it: the compiler draws the back of the box before the artists and the box's front edges after them.
+#[test]
+fn drawables_keep_the_paint_order_of_meshes_around_a_depth_group() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let drawables = drawables_of(
+        &list(vec![
+            filled(rect_segments(0.0, 0.0, 5.0, 5.0), red, FillRule::NonZero),
+            depth_group(vec![square_at(
+                10.0,
+                0.0,
+                5.0,
+                red,
+                DepthPlane::constant(0.0),
+            )]),
+            filled(rect_segments(20.0, 0.0, 5.0, 5.0), red, FillRule::NonZero),
+        ]),
+        unit_screen(),
+    );
+
+    assert_eq!(
+        kinds(&drawables),
+        ["mesh", "gpu", "mesh"],
+        "the depth group sits between the meshes of the items before and after it"
+    );
+    let meshes = meshes_of(&drawables);
+    assert_rect_close(
+        bbox(std::slice::from_ref(meshes[0])),
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(5.0, 5.0)),
+        1e-3,
+    );
+    assert_rect_close(
+        bbox(std::slice::from_ref(meshes[1])),
+        egui::Rect::from_min_max(egui::pos2(20.0, 0.0), egui::pos2(25.0, 5.0)),
+        1e-3,
+    );
+}
+
+// Why: what the tests above build by hand, the compiler emits for a three-dimensional axes; the faces of a surface
+// must arrive as one depth-tested GPU drawable attributed to the surface, and everything else (the box, the ticks
+// and the labels) as the very meshes `tessellate` produces, or a real figure would be drawn through the wrong path.
+#[test]
+fn a_compiled_three_dimensional_figure_yields_one_depth_tested_gpu_drawable_beside_its_meshes() {
+    let scene = ironlab_scene::compile(&figure_with_surface(true), &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let drawables = drawables_of(&scene.display_list, unit_screen());
+
+    let gpu = the_gpu_list(&drawables);
+    assert_well_formed(&gpu);
+    assert!(!gpu.draws.is_empty(), "the surface's faces are drawn");
+    assert!(
+        gpu.draws.iter().all(|d| d.depth_test),
+        "every draw of the axes is depth tested: {:?}",
+        gpu.draws
+    );
+    assert!(
+        gpu.draws.iter().all(|d| d.source == Some(NodeId(3))),
+        "every draw is the surface's: {:?}",
+        gpu.draws
+    );
+    let zs: Vec<f32> = gpu.vertices.iter().map(|v| v.z).collect();
+    assert!(
+        zs.iter().any(|z| z.abs() <= 1e-6) && zs.iter().any(|z| (z - 1.0).abs() <= 1e-6),
+        "the nearest vertex lies at z = 0 and the farthest at z = 1: {zs:?}"
+    );
+    let meshes = tessellate(&scene.display_list, &TEXT, unit_screen());
+    assert!(
+        !meshes.is_empty(),
+        "the box, the ticks and the labels are meshes"
+    );
+    assert_eq!(
+        meshes_of(&drawables),
+        meshes.iter().collect::<Vec<_>>(),
+        "the meshes are those of tessellate, which draws nothing for the depth group"
     );
 }
