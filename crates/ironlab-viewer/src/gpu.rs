@@ -1,39 +1,34 @@
-//! IronLAB's own wgpu pipelines: geometry with a depth, drawn with a depth test.
+//! IronLAB's own wgpu pipelines: every item of a figure, drawn from one list.
 //!
-//! The artists of a three-dimensional axes reach the canvas as one [`DrawList`] per depth group (see
-//! [`crate::canvas::drawables_with`]): triangles in screen units, each vertex with a depth `z` in `[0, 1]` (0 the
-//! nearest) and a premultiplied colour, cut into [`Draw`]s that each name a texture, a clip rectangle and whether
-//! the depth test applies. A [`GpuPainter`] draws such lists with pipelines of its own, inside egui's render pass in
-//! the interactive canvas (through [`GpuCallback`], an [`egui_wgpu::CallbackTrait`]) and inside the offscreen
-//! renderer's pass for the gallery and the PDF exporter, so that every route to pixels shares the shaders in
-//! `gpu.wgsl`, and nothing here needs a window.
+//! A figure reaches the device as one [`DrawList`] (see [`crate::canvas::tessellate`]): triangles in figure points,
+//! each vertex with a depth `z` in `[0, 1]` (0 the nearest) and a premultiplied colour, cut into [`Draw`]s that
+//! each name a texture, a clip rectangle, a depth group and the node they draw. A [`GpuPainter`] draws such lists
+//! with pipelines of its own, inside egui's render pass in the interactive window (through [`GpuCallback`], an
+//! [`egui_wgpu::CallbackTrait`]) and inside the offscreen renderer's own pass for the gallery and the PDF exporter,
+//! so that every route to pixels shares the shaders in `gpu.wgsl`, and nothing here needs a window.
 //!
 //! # Drawing
 //!
-//! The vertex shader maps screen points to clip space exactly as egui's does, from the target's size in points, so
-//! that a vertex lands on the same pixel as an egui mesh vertex at the same position. The fragment shader multiplies
-//! the vertex colour by a nearest-sampled texture: a 1 × 1 white texture for solid geometry, or a tile of an image,
-//! held as premultiplied gamma-space bytes exactly as the display list gives them. The blend state is egui's
-//! premultiplied one, so that a translucent face composites as an egui mesh would. Two pipelines differ only in the
-//! depth test (`LessEqual` with writes, or `Always` without), and a third clears the depth buffer over the whole
-//! target with a triangle at the far plane that writes no colour, drawn before each list, so that the depth groups of
-//! one frame never occlude one another. Every draw is clipped by the scissor rectangle of its clip, rounded to whole
-//! pixels as egui rounds its own.
+//! The vertex shader maps figure points to screen points through a [`Viewport`]'s mapping, held in a uniform
+//! per list, and screen points to clip space from the target's size in points, exactly as egui maps its own
+//! meshes, so that the interface and the figure land on the same pixel grid. The fragment shader multiplies the
+//! vertex colour by a nearest-sampled texture: a 1 × 1 white texture for solid geometry, or a tile of an image,
+//! held as premultiplied gamma-space bytes. The blend state is egui's premultiplied one, so that the figure
+//! composites over the interface as egui's own shapes do. Two pipelines differ only in the depth test
+//! (`LessEqual` with writes for the draws of a depth group, `Always` without for every other draw), and a third
+//! clears the depth buffer over the whole target with a triangle at the far plane that writes no colour, drawn
+//! before the first draw of each depth group, so that the depth groups of one frame never occlude one another.
+//! Every draw is clipped by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own.
 //!
-//! # Caches
+//! # Caches and uploads
 //!
 //! A list's vertex and index buffers are uploaded once and kept for as long as the list is drawn, keyed by the
-//! address of its `Arc`, which the painter holds so that the address cannot be reused; the tiles of images are kept
-//! likewise, keyed by their sample buffer and tile. [`GpuPainter::retain_used`] drops what the frames since the
-//! previous call did not draw, and [`GpuPainter::clear`] drops everything, which the offscreen renderer does after
-//! each render.
-//!
-//! # The follow-on
-//!
-//! The change that follows this one draws every display item through these pipelines and deletes the egui-mesh
-//! path of the canvas: the egui-mesh conversion, the texture provider and its two implementations, the geometric
-//! clipping of meshes, the background mesh and the default white texture of the offscreen renderer, and egui's own
-//! renderer in the offscreen path. Nothing here depends on any of them.
+//! address of its `Arc`, which the painter holds so that the address cannot be reused; the list's mapping uniform
+//! is rewritten only when the list lands somewhere else on the target; and the tiles of images are kept likewise,
+//! keyed by their sample buffer and tile. A frame that draws the same lists at the same places therefore uploads
+//! nothing, and a resize rewrites the mappings alone. [`GpuPainter::uploads`] counts what has been uploaded, so
+//! that this can be tested. [`GpuPainter::retain_used`] drops what the frames since the previous call did not
+//! draw, and [`GpuPainter::clear`] drops everything, which the offscreen renderer does after each render.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -42,15 +37,18 @@ use std::sync::Arc;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
 use ironlab_ir::NodeId;
+use ironlab_scene::display::{Point, Rect};
+
+use crate::canvas::ScreenTransform;
 
 /// The format of the depth attachment every pass drawing these pipelines carries.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// One vertex of a [`DrawList`].
 ///
-/// `pos` is in screen units (egui points in the interactive canvas, pixels offscreen), the units of egui's meshes;
-/// `z` is the depth in `[0, 1]` with 0 the nearest, normalised over the list; `uv` is the texture coordinate; and
-/// `color` is premultiplied sRGB, as [`egui::Color32`] is.
+/// `pos` is in figure points; `z` is the depth in `[0, 1]` with 0 the nearest, normalised over the vertex's depth
+/// group and 0 outside any group; `uv` is the texture coordinate; and `color` is premultiplied sRGB, as
+/// [`egui::Color32`] is.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -129,18 +127,22 @@ impl TileKey {
     }
 }
 
-/// One drawing of a [`DrawList`]: a range of its index buffer, drawn with a texture or as solid geometry, with or
-/// without the depth test, clipped to `clip` in screen units, for the node `source`.
+/// One drawing of a [`DrawList`]: a range of its index buffer, drawn with a texture or as solid geometry, inside a
+/// depth group or outside every one, clipped to `clip` in figure points, for the node `source`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Draw {
     pub indices: Range<u32>,
     pub texture: Option<TileKey>,
-    pub depth_test: bool,
-    pub clip: Option<egui::Rect>,
+    /// The depth group of the draw, numbered from 0 in paint order within the list, or `None` for a draw outside
+    /// every depth group. The draws of a group are depth-tested against one another, and the depth buffer is
+    /// cleared before the first of them; every other draw is drawn without the depth test.
+    pub depth_group: Option<u32>,
+    /// The clip rectangle of the draw in figure points, applied as a scissor, or `None` for an unclipped draw.
+    pub clip: Option<Rect>,
     pub source: Option<NodeId>,
 }
 
-/// The geometry of one depth group, or of one run of depth-carrying items outside any group, ready to upload.
+/// The geometry of one figure, ready to upload: every item in paint order, in figure points.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DrawList {
     pub vertices: Vec<Vertex>,
@@ -156,13 +158,6 @@ impl DrawList {
     }
 }
 
-/// What the canvas produces for one stretch of the paint order: an egui mesh, or a list for these pipelines.
-#[derive(Clone, Debug)]
-pub enum Drawable {
-    Mesh(egui::Mesh),
-    Gpu(Arc<DrawList>),
-}
-
 /// The render target the pipelines are built for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GpuConfig {
@@ -171,11 +166,82 @@ pub struct GpuConfig {
     pub depth_format: wgpu::TextureFormat,
 }
 
-/// An egui paint callback that draws one list through the [`GpuPainter`] kept in the renderer's callback
-/// resources, creating the painter on first use.
+/// Where a list is drawn: the render target, the mapping from figure points to screen points, and the rectangle
+/// that bounds every draw.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Viewport {
+    /// The size of the render target in pixels.
+    pub size_px: [u32; 2],
+    /// Pixels per screen point: the window's scale factor on screen, 1 offscreen.
+    pub pixels_per_point: f32,
+    /// Figure points to screen points.
+    pub to_screen: ScreenTransform,
+    /// The rectangle in screen points that bounds every draw: the canvas on screen, the whole image offscreen.
+    pub clip: egui::Rect,
+}
+
+impl Viewport {
+    /// A viewport whose clip is the whole target.
+    #[must_use]
+    pub fn whole(size_px: [u32; 2], pixels_per_point: f32, to_screen: ScreenTransform) -> Self {
+        let [width, height] = size_px;
+        Self {
+            size_px,
+            pixels_per_point,
+            to_screen,
+            clip: egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(
+                    width as f32 / pixels_per_point,
+                    height as f32 / pixels_per_point,
+                ),
+            ),
+        }
+    }
+
+    /// The viewport of an egui paint callback: the whole target, clipped to the painter's clip rectangle.
+    #[must_use]
+    pub fn from_callback(info: &egui::PaintCallbackInfo, to_screen: ScreenTransform) -> Self {
+        Self {
+            size_px: info.screen_size_px,
+            pixels_per_point: info.pixels_per_point,
+            to_screen,
+            clip: info.clip_rect,
+        }
+    }
+
+    /// The size of the target in screen points.
+    fn size_in_points(&self) -> [f32; 2] {
+        [
+            self.size_px[0] as f32 / self.pixels_per_point,
+            self.size_px[1] as f32 / self.pixels_per_point,
+        ]
+    }
+
+    /// What fixes the clip-space position of every vertex: the target's size and the mapping.
+    fn placement(&self) -> Placement {
+        Placement {
+            size_px: self.size_px,
+            pixels_per_point: self.pixels_per_point,
+            to_screen: self.to_screen,
+        }
+    }
+}
+
+/// The part of a [`Viewport`] the mapping uniform holds.
+#[derive(Clone, Copy, PartialEq)]
+struct Placement {
+    size_px: [u32; 2],
+    pixels_per_point: f32,
+    to_screen: ScreenTransform,
+}
+
+/// An egui paint callback that draws one list at one place through the [`GpuPainter`] kept in the renderer's
+/// callback resources, creating the painter on first use.
 pub struct GpuCallback {
     pub list: Arc<DrawList>,
     pub config: GpuConfig,
+    pub to_screen: ScreenTransform,
 }
 
 impl egui_wgpu::CallbackTrait for GpuCallback {
@@ -190,7 +256,12 @@ impl egui_wgpu::CallbackTrait for GpuCallback {
         let painter = resources
             .entry::<GpuPainter>()
             .or_insert_with(GpuPainter::default);
-        painter.prepare(device, queue, screen, self.config, &self.list);
+        let viewport = Viewport::whole(
+            screen.size_in_pixels,
+            screen.pixels_per_point,
+            self.to_screen,
+        );
+        painter.prepare(device, queue, self.config, &self.list, &viewport);
         Vec::new()
     }
 
@@ -201,7 +272,8 @@ impl egui_wgpu::CallbackTrait for GpuCallback {
         resources: &egui_wgpu::CallbackResources,
     ) {
         if let Some(painter) = resources.get::<GpuPainter>() {
-            painter.paint(pass, &info, self.config, &self.list);
+            let viewport = Viewport::from_callback(&info, self.to_screen);
+            painter.paint(pass, &viewport, self.config, &self.list);
         }
     }
 }
@@ -230,17 +302,19 @@ struct Pipelines {
     white: wgpu::BindGroup,
 }
 
-/// The uniform holding the target's size in points, and its bind group.
-struct Screen {
-    buffer: wgpu::Buffer,
-    layout: wgpu::BindGroupLayout,
-    bind_group: wgpu::BindGroup,
-}
+/// The size in bytes of the mapping uniform: the target's size in points and the mapping's origin and scale, each
+/// padded to a `vec4`.
+const MAPPING_SIZE: u64 = 32;
 
 /// The buffers of one list, kept while the list is drawn.
 struct ListBuffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
+    /// The mapping uniform of the list and its bind group.
+    mapping: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    /// The placement the mapping uniform holds, or `None` before its first write.
+    placement: Option<Placement>,
     /// Held so that the address the list is keyed by cannot be reused by another list.
     _list: Arc<DrawList>,
     used: bool,
@@ -254,60 +328,74 @@ struct Tile {
     used: bool,
 }
 
+/// Counts of what a [`GpuPainter`] has uploaded since it was made.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Uploads {
+    /// Lists whose vertex and index buffers were uploaded.
+    pub lists: u64,
+    /// Writes of a list's mapping uniform.
+    pub mappings: u64,
+    /// Image tiles uploaded as textures.
+    pub tiles: u64,
+}
+
 /// Draws [`DrawList`]s through the pipelines, keeping their buffers and textures across frames.
 #[derive(Default)]
 pub struct GpuPainter {
-    screen: Option<Screen>,
+    mapping_layout: Option<wgpu::BindGroupLayout>,
     pipelines: HashMap<GpuConfig, Pipelines>,
     lists: HashMap<usize, ListBuffers>,
     tiles: HashMap<(usize, u32, u32), Tile>,
+    uploads: Uploads,
 }
 
 impl GpuPainter {
-    /// Uploads what drawing `list` needs: the screen uniform, the pipelines for `config`, the list's buffers and
-    /// the textures of its tiles, each once.
+    /// Uploads what drawing `list` in `viewport` needs, each once: the pipelines for `config`, the list's buffers,
+    /// its mapping (rewritten only when the list lands elsewhere than it last did) and the textures of its tiles.
+    /// Preparing an unchanged list at an unchanged place uploads nothing.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        screen: &egui_wgpu::ScreenDescriptor,
         config: GpuConfig,
         list: &Arc<DrawList>,
+        viewport: &Viewport,
     ) {
-        let uniform = self.screen.get_or_insert_with(|| Screen::new(device));
-        let [width, height] = screen.size_in_pixels;
-        let size = [
-            width as f32 / screen.pixels_per_point,
-            height as f32 / screen.pixels_per_point,
-            0.0,
-            0.0,
-        ];
-        queue.write_buffer(&uniform.buffer, 0, bytemuck::cast_slice(&size));
-        let layout = &uniform.layout;
+        let mapping_layout = self
+            .mapping_layout
+            .get_or_insert_with(|| mapping_layout(device));
         let pipelines = self
             .pipelines
             .entry(config)
-            .or_insert_with(|| Pipelines::new(device, queue, config, layout));
-
+            .or_insert_with(|| Pipelines::new(device, queue, config, mapping_layout));
         if list.is_empty() || list.vertices.is_empty() || list.indices.is_empty() {
             return;
         }
+        let uploads = &mut self.uploads;
         let key = Arc::as_ptr(list).addr();
-        let buffers = self.lists.entry(key).or_insert_with(|| ListBuffers {
-            vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ironlab depth vertices"),
-                contents: bytemuck::cast_slice(&list.vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ironlab depth indices"),
-                contents: bytemuck::cast_slice(&list.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
-            _list: Arc::clone(list),
-            used: false,
+        let buffers = self.lists.entry(key).or_insert_with(|| {
+            uploads.lists += 1;
+            ListBuffers::new(device, mapping_layout, list)
         });
         buffers.used = true;
+        let placement = viewport.placement();
+        if buffers.placement != Some(placement) {
+            let [width, height] = viewport.size_in_points();
+            let origin = viewport.to_screen.origin;
+            let contents: [f32; 8] = [
+                width,
+                height,
+                0.0,
+                0.0,
+                origin.x,
+                origin.y,
+                viewport.to_screen.scale,
+                0.0,
+            ];
+            queue.write_buffer(&buffers.mapping, 0, bytemuck::cast_slice(&contents));
+            buffers.placement = Some(placement);
+            uploads.mappings += 1;
+        }
         for tile in list.draws.iter().filter_map(|draw| draw.texture.as_ref()) {
             let Some(pixels) = tile.pixels() else {
                 continue;
@@ -317,6 +405,7 @@ impl GpuPainter {
                 continue;
             }
             let entry = self.tiles.entry(tile.id()).or_insert_with(|| {
+                uploads.tiles += 1;
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("ironlab image tile"),
                     size: wgpu::Extent3d {
@@ -356,42 +445,46 @@ impl GpuPainter {
         }
     }
 
-    /// Draws `list` into the pass, clearing the depth buffer first. The pass must carry a colour attachment of
-    /// `config.target_format` with `config.samples` samples and a depth attachment of `config.depth_format`.
+    /// Draws `list` into the pass at `viewport`. The pass must carry a colour attachment of `config.target_format`
+    /// with `config.samples` samples and a depth attachment of `config.depth_format`; the list must have been
+    /// prepared for `config` since the painter was last cleared.
     pub fn paint(
         &self,
         pass: &mut wgpu::RenderPass<'static>,
-        info: &egui::PaintCallbackInfo,
+        viewport: &Viewport,
         config: GpuConfig,
         list: &Arc<DrawList>,
     ) {
-        let (Some(screen), Some(pipelines)) = (&self.screen, self.pipelines.get(&config)) else {
+        let Some(pipelines) = self.pipelines.get(&config) else {
             return;
         };
-        let [width, height] = info.screen_size_px;
+        let [width, height] = viewport.size_px;
         if width == 0 || height == 0 {
             return;
         }
-        pass.set_bind_group(0, &screen.bind_group, &[]);
-        // The clearing pipeline shares the layout of the others, so it needs a texture bound even though it never
-        // samples it.
-        pass.set_bind_group(1, &pipelines.white, &[]);
-        pass.set_scissor_rect(0, 0, width, height);
-        pass.set_pipeline(&pipelines.clear);
-        pass.draw(0..3, 0..1);
-
         let Some(buffers) = self.lists.get(&Arc::as_ptr(list).addr()) else {
             return;
         };
+        pass.set_bind_group(0, &buffers.bind_group, &[]);
         pass.set_vertex_buffer(0, buffers.vertices.slice(..));
         pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
-        let outer = info.clip_rect;
+        let mut group = None;
         for draw in &list.draws {
+            if draw.depth_group.is_some() && draw.depth_group != group {
+                group = draw.depth_group;
+                // The clearing pipeline shares the layout of the others, so it needs a texture bound even though
+                // it never samples it.
+                pass.set_bind_group(1, &pipelines.white, &[]);
+                pass.set_scissor_rect(0, 0, width, height);
+                pass.set_pipeline(&pipelines.clear);
+                pass.draw(0..3, 0..1);
+            }
             let clip = match draw.clip {
-                Some(clip) => clip.intersect(outer),
-                None => outer,
+                Some(clip) => to_points(clip, viewport.to_screen).intersect(viewport.clip),
+                None => viewport.clip,
             };
-            let Some((x, y, w, h)) = scissor(clip, info.pixels_per_point, [width, height]) else {
+            let Some((x, y, w, h)) = scissor(clip, viewport.pixels_per_point, [width, height])
+            else {
                 continue;
             };
             if draw.indices.is_empty() || draw.indices.end as usize > list.indices.len() {
@@ -405,7 +498,7 @@ impl GpuPainter {
                 None => &pipelines.white,
             };
             pass.set_scissor_rect(x, y, w, h);
-            pass.set_pipeline(if draw.depth_test {
+            pass.set_pipeline(if draw.depth_group.is_some() {
                 &pipelines.tested
             } else {
                 &pipelines.untested
@@ -415,7 +508,7 @@ impl GpuPainter {
         }
     }
 
-    /// Drops the buffers and textures that have not been drawn since the previous call, and starts a new round.
+    /// Drops the buffers and textures that have not been prepared since the previous call, and starts a new round.
     pub fn retain_used(&mut self) {
         self.lists
             .retain(|_, entry| std::mem::replace(&mut entry.used, false));
@@ -428,6 +521,20 @@ impl GpuPainter {
         self.lists.clear();
         self.tiles.clear();
     }
+
+    /// What the painter has uploaded since it was made.
+    #[must_use]
+    pub fn uploads(&self) -> Uploads {
+        self.uploads
+    }
+}
+
+/// A rectangle in figure points mapped to screen points.
+fn to_points(rect: Rect, to_screen: ScreenTransform) -> egui::Rect {
+    egui::Rect::from_min_max(
+        to_screen.apply(Point::new(rect.x, rect.y)),
+        to_screen.apply(Point::new(rect.right(), rect.bottom())),
+    )
 }
 
 /// The scissor rectangle, in pixels within a target of `size`, of a clip in points, rounded as egui rounds its own;
@@ -443,39 +550,59 @@ fn scissor(
     (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
 }
 
-impl Screen {
-    fn new(device: &wgpu::Device) -> Self {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ironlab screen uniform"),
-            size: 16,
+/// The layout of the mapping uniform's bind group.
+fn mapping_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ironlab mapping layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    })
+}
+
+impl ListBuffers {
+    fn new(
+        device: &wgpu::Device,
+        mapping_layout: &wgpu::BindGroupLayout,
+        list: &Arc<DrawList>,
+    ) -> Self {
+        let mapping = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ironlab mapping"),
+            size: MAPPING_SIZE,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ironlab screen uniform layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ironlab screen uniform"),
-            layout: &layout,
+            label: Some("ironlab mapping"),
+            layout: mapping_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: buffer.as_entire_binding(),
+                resource: mapping.as_entire_binding(),
             }],
         });
         Self {
-            buffer,
-            layout,
+            vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ironlab vertices"),
+                contents: bytemuck::cast_slice(&list.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ironlab indices"),
+                contents: bytemuck::cast_slice(&list.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            mapping,
             bind_group,
+            placement: None,
+            _list: Arc::clone(list),
+            used: false,
         }
     }
 }
@@ -485,7 +612,7 @@ impl Pipelines {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         config: GpuConfig,
-        screen_layout: &wgpu::BindGroupLayout,
+        mapping_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ironlab gpu shader"),
@@ -514,7 +641,7 @@ impl Pipelines {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ironlab gpu pipeline layout"),
-            bind_group_layouts: &[Some(screen_layout), Some(&texture_layout)],
+            bind_group_layouts: &[Some(mapping_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
         let multisample = wgpu::MultisampleState {

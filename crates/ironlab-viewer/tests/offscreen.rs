@@ -1,8 +1,10 @@
-//! Headless rendering through the viewer's own mesh pipeline.
+//! Headless rendering through the viewer's own wgpu pipelines.
 //!
 //! These tests need a wgpu adapter. When none is available they print a message and pass, unless the environment
 //! variable `IRONLAB_REQUIRE_GPU` is set (as in CI, which installs a software Vulkan adapter), in which case a missing
-//! adapter fails the test.
+//! adapter fails the test. Most of them render a display list through the offscreen renderer and read the pixels
+//! back; the tests of the painter's caches drive a `GpuPainter` directly on a device made as the renderer makes its
+//! own, and count what it uploads.
 //!
 //! The image tests draw hand-built image items magnified so that every image pixel spans many device pixels, and
 //! sample device pixels at the centres of image pixels and one device pixel either side of their boundaries, so that
@@ -11,19 +13,26 @@
 
 mod common;
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use common::{
-    TEXT, depth_group, figure_with_mapped_image, figure_with_surface, find_image, gpu_required,
-    image_sample, rendered_or_skip, scale_then_translate,
+    TEXT, depth_group, figure_with_mapped_image, figure_with_surface, find_image, glyph_h,
+    gpu_or_skip, gpu_required, image_sample, rendered_or_skip, scale_then_translate,
 };
+use egui_wgpu::wgpu;
 use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
     PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
-use ironlab_viewer::{RenderError, RenderedImage, render_display_list_offscreen, render_offscreen};
+use ironlab_viewer::offscreen::create_device;
+use ironlab_viewer::{
+    DEPTH_FORMAT, Draw, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
+    RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
+    render_display_list_offscreen, render_offscreen,
+};
 
 fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
     let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
@@ -129,12 +138,13 @@ fn the_pixel_size_is_the_rounded_point_size_scaled_by_dpi() {
     assert_eq!((image.width, image.height), (69, 21));
 }
 
-// Why: egui does not anti-alias custom meshes, so the renderer uses 4× MSAA; without it every edge in the gallery
-// images would be a hard staircase. Without multisampling an opaque black fill on white produces only pure black and
-// pure white pixels, so the presence of intermediate shades along an edge proves that coverage was sampled more than
-// once per pixel. The edge has an irrational-looking slope and fractional end points so that it crosses pixels at
-// every sub-pixel offset; the assertion only asks for intermediate shades in a quarter of the columns, which holds for
-// any 4× sample pattern rather than counting pixels produced by one particular rasteriser.
+// Why: the painter's pipelines draw triangles with no anti-aliasing of their own, so the renderer uses 4× MSAA;
+// without it every edge in the gallery images would be a hard staircase. Without multisampling an opaque black fill
+// on white produces only pure black and pure white pixels, so the presence of intermediate shades along an edge
+// proves that coverage was sampled more than once per pixel. The edge has an irrational-looking slope and fractional
+// end points so that it crosses pixels at every sub-pixel offset; the assertion only asks for intermediate shades in
+// a quarter of the columns, which holds for any 4× sample pattern rather than counting pixels produced by one
+// particular rasteriser.
 #[test]
 fn edges_are_anti_aliased() {
     let (y_left, y_right) = (8.3, 29.7);
@@ -178,7 +188,7 @@ fn edges_are_anti_aliased() {
 }
 
 // Why: the viewer must be WYSIWYG with the PDF export, which draws items in order, clips groups and composites
-// translucent colours over what lies beneath. A renderer that reordered meshes (for example batching by colour),
+// translucent colours over what lies beneath. A renderer that reordered draws (for example batching by colour),
 // ignored clips, or blended straight rather than premultiplied alpha would show a different picture from the PDF.
 #[test]
 fn rendering_preserves_paint_order_group_clips_and_translucency() {
@@ -520,11 +530,11 @@ fn assert_pixel(
 }
 
 // Why: an image is data, and a reader measures colours off it, so every pixel must be drawn in exactly its sample
-// colour and the boundary between two pixels must be a hard step. egui's renderer filters textures bilinearly in its
-// own shader when it is asked for predictable filtering, whatever the texture's sampler says, which would smear a
-// 2 × 2 image into a gradient; the renderer must leave that off and the texture must ask for nearest sampling. Each
-// image pixel is magnified to 20 device pixels, so a bilinear blend would be visible over most of the pixel, and the
-// samples one device pixel either side of a boundary would differ from the pure colours by half their contrast.
+// colour and the boundary between two pixels must be a hard step. The painter must sample every tile with a nearest
+// sampler and filter nothing in its shader; a linear sampler, or a shader that filters in its own code as egui's does
+// when asked for predictable filtering, would smear a 2 × 2 image into a gradient. Each image pixel is magnified to
+// 20 device pixels, so a bilinear blend would be visible over most of the pixel, and the samples one device pixel
+// either side of a boundary would differ from the pure colours by half their contrast.
 #[test]
 fn a_two_by_two_image_renders_its_pixel_colours_exactly_with_hard_edges() {
     let list = page(
@@ -591,9 +601,9 @@ fn a_two_by_two_image_renders_its_pixel_colours_exactly_with_hard_edges() {
 
 // Why: an image with alpha (a NaN region left transparent, a fade at the edge of a disc) is composited over whatever
 // lies beneath it, exactly as the PDF composites its soft mask: a transparent pixel shows the background untouched
-// and a half-transparent one is a straight-alpha blend with it. A renderer that uploaded straight alpha where egui
-// expects premultiplied would draw the translucent pixel too bright, and one that ignored alpha would paint the
-// transparent pixel opaque.
+// and a half-transparent one is a straight-alpha blend with it. A renderer that uploaded straight alpha where the
+// blend state expects premultiplied would draw the translucent pixel too bright, and one that ignored alpha would
+// paint the transparent pixel opaque.
 #[test]
 fn transparent_and_translucent_image_pixels_composite_over_the_background() {
     let list = page(
@@ -686,9 +696,8 @@ fn a_negative_scale_mirrors_the_image() {
 // applies to 8193 columns, the image drawn whole must show both colours split where the data splits them, and with
 // the seam magnified the tiles must meet with no gap and no background between them and the last column must be
 // present, because a tile a pixel short leaves a hairline of background through the data on screen and in every
-// exported PNG. The image sits in a clipped group, as it does beneath an axes, so that tile quads reaching far off
-// the page are trimmed by the clipper before they reach the GPU. The side at which the renderer tiles is not pinned
-// here.
+// exported PNG. The image sits in a clipped group, as it does beneath an axes, so that the tiles lying wholly off
+// the page are left undrawn rather than reaching the GPU. The side at which the renderer tiles is not pinned here.
 #[test]
 fn an_image_wider_than_one_texture_renders_whole_and_without_a_gap_at_the_tile_seam() {
     const WIDTH: u32 = 8193;
@@ -890,8 +899,8 @@ fn translucent_floor(rect: Rect, rgba: [u8; 4], plane: DepthPlane) -> Item {
     }
 }
 
-/// `items` with the depth removed from every path and image, at any depth of grouping, so that the mesh path draws
-/// what the GPU path drew with the depths in place.
+/// `items` with the depth removed from every path and image, at any depth of grouping, so that a render with the
+/// depths in place can be compared against one without them.
 fn without_depths(items: Vec<Item>) -> Vec<Item> {
     items
         .into_iter()
@@ -936,44 +945,43 @@ fn render_page(background: Rgba, items: Vec<Item>) -> Option<RenderedImage> {
 // buffer each must show where it is the nearer. The same items in a plain group must still give the painter's
 // picture, which is what the exporter draws, so the depth test must be switched by the depth group and not be on
 // for every item that carries a depth.
+/// Two opaque faces that both cover (10, 10) to (90, 90) and cross at x = 50: the red face is nearer on the right
+/// and the blue one, listed second, on the left.
+fn crossing_faces() -> Vec<Item> {
+    vec![
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane {
+                a: 0.01,
+                b: 0.0,
+                c: 0.0,
+            },
+        ),
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            DepthPlane {
+                a: -0.01,
+                b: 0.0,
+                c: 1.0,
+            },
+        ),
+    ]
+}
+
 #[test]
 fn crossing_faces_in_a_depth_group_show_the_nearer_one_and_in_a_plain_group_the_later_one() {
-    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
-    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
-    // Both cover (10, 10) to (90, 90); the red face is nearer on the right and the blue one on the left, and they
-    // cross at x = 50.
-    let faces = || {
-        vec![
-            face(
-                10.0,
-                10.0,
-                90.0,
-                90.0,
-                red,
-                DepthPlane {
-                    a: 0.01,
-                    b: 0.0,
-                    c: 0.0,
-                },
-            ),
-            face(
-                10.0,
-                10.0,
-                90.0,
-                90.0,
-                blue,
-                DepthPlane {
-                    a: -0.01,
-                    b: 0.0,
-                    c: 1.0,
-                },
-            ),
-        ]
-    };
-    let Some(tested) = render_page(Rgba::WHITE, vec![depth_group(faces())]) else {
+    let Some(tested) = render_page(Rgba::WHITE, vec![depth_group(crossing_faces())]) else {
         return;
     };
-    let Some(painted) = render_page(Rgba::WHITE, vec![plain_group(faces())]) else {
+    let Some(painted) = render_page(Rgba::WHITE, vec![plain_group(crossing_faces())]) else {
         return;
     };
 
@@ -1266,8 +1274,8 @@ fn the_depth_buffer_is_cleared_between_consecutive_depth_groups() {
 }
 
 // Why: a translucent face nearer than an opaque one must blend over it as egui blends, with premultiplied alpha in
-// gamma space, so that the GPU path and the mesh path composite alike; a pipeline without blending, or one blending
-// straight alpha, would paint the near face opaque or too bright.
+// gamma space, so that a face in a depth group composites as a translucent fill outside one does; a pipeline
+// without blending, or one blending straight alpha, would paint the near face opaque or too bright.
 #[test]
 fn a_translucent_nearer_face_blends_over_the_opaque_face_behind_it() {
     let items = vec![
@@ -1292,8 +1300,8 @@ fn a_translucent_nearer_face_blends_over_the_opaque_face_behind_it() {
         return;
     };
 
-    // Half-transparent red over blue composites to (128, 0, 128), as the mesh path composites half-transparent red
-    // over white to (255, 128, 128).
+    // Half-transparent red over blue composites to (128, 0, 128), as half-transparent red over white composites to
+    // (255, 128, 128) outside a depth group.
     assert_pixel(
         &image,
         50,
@@ -1439,15 +1447,10 @@ fn a_clip_around_a_depth_group_or_a_depth_carrying_leaf_cuts_the_face_at_its_edg
     }
 }
 
-// Why: outside a depth group a depth-carrying leaf is drawn by the GPU path without the depth test and a depthless
-// one by the mesh path, and the exporter and the interactive canvas each use both for one figure; the two paths
-// must agree pixel for pixel in their mapping, anti-aliasing, blending and texture sampling, or the box of an axes
-// would not meet the surface inside it. The squares have fractional edges so that the anti-aliasing is compared
-// too. The image is left unclipped: a fractional clip edge is where the paths differ, the mesh path clipping a quad
-// geometrically and the GPU path scissoring to whole pixels.
-#[test]
-fn the_untested_gpu_path_draws_the_same_bytes_as_the_mesh_path() {
-    let items = vec![
+/// Three loose leaves that carry depths outside any depth group: an opaque square, a translucent square over it and
+/// an image beside them, with fractional edges so that the anti-aliasing is part of the picture.
+fn loose_items_with_depths() -> Vec<Item> {
+    vec![
         face(
             10.5,
             10.5,
@@ -1475,43 +1478,125 @@ fn the_untested_gpu_path_draws_the_same_bytes_as_the_mesh_path() {
                 depth: Some(DepthPlane::constant(2.0)),
             }),
         },
-    ];
-    let Some(gpu) = render_page(Rgba::WHITE, items.clone()) else {
+    ]
+}
+
+/// The first eight pixels at which two images of one size differ, as `(x, y, first, second)`.
+fn first_differences(
+    first: &RenderedImage,
+    second: &RenderedImage,
+) -> Vec<(u32, u32, [u8; 4], [u8; 4])> {
+    (0..first.height)
+        .flat_map(|y| (0..first.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| first.pixel(x, y) != second.pixel(x, y))
+        .map(|(x, y)| (x, y, first.pixel(x, y), second.pixel(x, y)))
+        .take(8)
+        .collect()
+}
+
+// Why: the docs gallery is regenerated on every build and compared against what is checked in, so a pixel that
+// differs from one render to the next would fail the build or hide a real change. Nothing in a render is left to
+// chance: the colour and depth attachments are fresh textures cleared for every render, the draws go in list order,
+// and the painter is cleared after each render so that no buffer or texture survives into the next. A depth buffer
+// left uncleared, or a list drawn from another render's buffers, would show in the crossing faces of a depth group,
+// where the nearer face wins only against a cleared buffer; the loose leaves drawn over them add anti-aliased edges,
+// translucency and a texture to the comparison.
+#[test]
+fn two_renders_of_one_list_are_byte_identical() {
+    let items = || {
+        let mut items = vec![depth_group(crossing_faces())];
+        items.extend(loose_items_with_depths());
+        items
+    };
+    let Some(first) = render_page(Rgba::WHITE, items()) else {
         return;
     };
-    let Some(mesh) = render_page(Rgba::WHITE, without_depths(items)) else {
+    let Some(second) = render_page(Rgba::WHITE, items()) else {
         return;
     };
 
-    assert_pixel(&gpu, 20, 20, RED_PX, 2, "the opaque square");
+    assert_eq!(
+        (first.width, first.height),
+        (second.width, second.height),
+        "the two renders have one size"
+    );
+    assert_pixel(
+        &first,
+        75,
+        25,
+        RED_PX,
+        2,
+        "the red face where it is nearer, beside the loose leaves",
+    );
+    assert_pixel(
+        &first,
+        25,
+        75,
+        BLUE_PX,
+        2,
+        "the blue face where it is nearer, beneath the loose leaves",
+    );
+    let differing = first_differences(&first, &second);
+    assert!(
+        first.rgba == second.rgba,
+        "two renders of one list draw identical bytes; the first pixels that differ, as (x, y, first, second): \
+         {differing:?}"
+    );
+}
+
+// Why: a depth means something only within a depth group, where it is normalised over the group and tested; a leaf
+// that carries one outside any group is drawn without the depth test and with its depth discarded, so its picture
+// must not depend on a field that means nothing there, or two lists that differ only in it would render
+// differently. With the depths and without them, the same bytes; and the picture is the painter's, with the later
+// translucent square over the earlier opaque one and the image on top of both.
+#[test]
+fn a_depth_outside_a_depth_group_is_ignored() {
+    let items = loose_items_with_depths();
+    let Some(with_depths) = render_page(Rgba::WHITE, items.clone()) else {
+        return;
+    };
+    let Some(without) = render_page(Rgba::WHITE, without_depths(items)) else {
+        return;
+    };
+
+    assert_pixel(&with_depths, 20, 20, RED_PX, 2, "the opaque square");
     // Half-transparent blue over red composites to about (128, 0, 128).
     assert_pixel(
-        &gpu,
+        &with_depths,
         40,
         40,
         [128, 0, 128, 255],
         2,
         "the translucent square over the opaque one",
     );
-    assert_pixel(&gpu, 60, 60, RED_PX, 1, "the image's top-left pixel");
-    assert_pixel(&gpu, 80, 80, YELLOW_PX, 1, "the image's bottom-right pixel");
-    let differing: Vec<(u32, u32, [u8; 4], [u8; 4])> = (0..gpu.height)
-        .flat_map(|y| (0..gpu.width).map(move |x| (x, y)))
-        .filter(|&(x, y)| gpu.pixel(x, y) != mesh.pixel(x, y))
-        .map(|(x, y)| (x, y, gpu.pixel(x, y), mesh.pixel(x, y)))
-        .take(8)
-        .collect();
+    assert_pixel(
+        &with_depths,
+        60,
+        60,
+        RED_PX,
+        1,
+        "the image's top-left pixel",
+    );
+    assert_pixel(
+        &with_depths,
+        80,
+        80,
+        YELLOW_PX,
+        1,
+        "the image's bottom-right pixel",
+    );
+    let differing = first_differences(&with_depths, &without);
     assert!(
-        gpu.rgba == mesh.rgba,
-        "the GPU path and the mesh path draw identical bytes; the first pixels that differ, as (x, y, GPU, mesh): \
+        with_depths.rgba == without.rgba,
+        "depths outside a group change nothing; the first pixels that differ, as (x, y, with, without): \
          {differing:?}"
     );
 }
 
 // Why: an image with alpha (a NaN region left transparent, a fade at the edge of a disc) inside a 3D axes goes
-// through the depth pipeline's own texture upload, which must premultiply the straight alpha of a four-channel tile
-// as the mesh path's upload does; a tile uploaded straight would blend too bright, and one that ignored the fourth
-// channel would paint the transparent pixels opaque over the face beneath.
+// through the painter's texture upload, which must premultiply the straight alpha of a four-channel tile as the
+// blend state expects; a tile uploaded straight would blend too bright, and one that ignored the fourth channel
+// would paint the transparent pixels opaque over the face beneath.
 #[test]
 fn a_four_channel_tile_in_a_depth_group_composites_its_alpha_over_the_face_beneath() {
     let blue_face = || {
@@ -1541,7 +1626,7 @@ fn a_four_channel_tile_in_a_depth_group_composites_its_alpha_over_the_face_benea
         return;
     };
 
-    // Half-transparent red over blue composites to about (128, 0, 128), as the mesh path composites it.
+    // Half-transparent red over blue composites to about (128, 0, 128), as a translucent fill composites.
     assert_pixel(
         &translucent,
         50,
@@ -1601,7 +1686,7 @@ fn of_two_coplanar_faces_the_later_one_wins() {
 // group, so a compiled surface must leave ink in the rendered pixels. Hiding the surface leaves the axes without a
 // depth group, so the pixels that differ between the two renders are the surface's, and some of them must lie
 // inside its axes. Which pipeline drew that ink the pixels cannot tell; that the surface reaches the depth-tested
-// pipelines is checked on the drawables in `canvas.rs`.
+// pipelines is checked on the draw list in `canvas.rs`.
 #[test]
 fn a_compiled_surface_leaves_ink_inside_its_axes_that_hiding_it_removes() {
     let Some(shown) = rendered_or_skip(render_offscreen(&figure_with_surface(true), &TEXT, 72.0))
@@ -1636,4 +1721,858 @@ fn a_compiled_surface_leaves_ink_inside_its_axes_that_hiding_it_removes() {
         differing > 0,
         "the surface leaves ink inside its axes at {plot:?}, which hiding it removes"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The draws of every kind through the painter: the background, the scissor of a clip, glyph runs and the mapping
+// uniform. The pages are 100 by 100 points rendered at 72 dpi unless a test says otherwise.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The pixels of `image` that are not the white background, as `(x, y)`.
+fn inked_pixels(image: &RenderedImage) -> Vec<(u32, u32)> {
+    (0..image.height)
+        .flat_map(|y| (0..image.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| !close_to(image.pixel(x, y), WHITE_PX, 1))
+        .collect()
+}
+
+// Why: the figure background is the colour the renderer clears its target to, not a draw of the list, so that a
+// page whose pixel size rounds up (30 points at 50 dpi is 20.8, so 21, pixels tall) is background to its last row
+// rather than showing transparent black through a quad that ends a fraction of a pixel short. Every pixel of an
+// empty page must be the background colour, whether its pixel size is whole or rounded up, and at any dpi.
+#[test]
+fn the_background_covers_every_pixel_of_the_image() {
+    for (width_pt, height_pt, dpi, size, background, expected) in [
+        (
+            100.0,
+            100.0,
+            72.0,
+            (100, 100),
+            Rgba::new(0.2, 0.4, 0.6, 1.0),
+            [51, 102, 153, 255],
+        ),
+        (
+            72.0,
+            36.0,
+            144.0,
+            (144, 72),
+            Rgba::new(1.0, 0.5, 0.0, 1.0),
+            [255, 128, 0, 255],
+        ),
+        (30.0, 50.0, 300.0, (125, 208), Rgba::BLACK, [0, 0, 0, 255]),
+        (
+            100.0,
+            30.0,
+            50.0,
+            (69, 21),
+            Rgba::new(0.0, 0.5, 0.0, 1.0),
+            [0, 128, 0, 255],
+        ),
+    ] {
+        let list = page(width_pt, height_pt, background, vec![]);
+        let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, dpi)) else {
+            return;
+        };
+        assert_eq!(
+            (image.width, image.height),
+            size,
+            "the pixel size of {width_pt}×{height_pt} pt at {dpi} dpi"
+        );
+        let wrong = (0..image.height)
+            .flat_map(|y| (0..image.width).map(move |x| (x, y)))
+            .find(|&(x, y)| !close_to(image.pixel(x, y), expected, 1))
+            .map(|(x, y)| (x, y, image.pixel(x, y)));
+        assert_eq!(
+            wrong, None,
+            "every pixel of the {}×{} image at {dpi} dpi is the background {expected:?}; the first that is not, as \
+             (x, y, pixel)",
+            image.width, image.height
+        );
+    }
+}
+
+// Why: an axes clips its artists to its plot rectangle, and the clip reaches the painter as a scissor rectangle
+// rather than as clipped geometry, so that every draw is cut alike, in whole pixels, as egui cuts its own clip
+// rectangles. An edge of the clip at a fraction of a pixel must be rounded to the nearest pixel boundary: the pixel
+// inside the rounded edge is painted whole and the one outside is untouched. A geometric clip would blend the pixel
+// the edge crosses, a scissor that truncated would move the edge by up to a pixel from where egui puts it, and one
+// that took the clip in figure points for pixels would put it in the wrong place at every dpi but 72.
+#[test]
+fn a_clip_with_fractional_edges_is_cut_at_the_nearest_whole_pixels() {
+    let clip = Rect::new(20.3, 30.6, 40.4, 29.8);
+    let wide_face = || {
+        filled_polygon(
+            &[(5.0, 5.0), (95.0, 5.0), (95.0, 95.0), (5.0, 95.0)],
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+        )
+    };
+    // The clip spans x ∈ [20.3, 60.7] and y ∈ [30.6, 60.4] in points; at each dpi, the first and the last column
+    // and row inside the scissor once every edge is rounded to the nearest pixel.
+    for (dpi, (first_column, last_column), (first_row, last_row)) in [
+        (72.0, (20_u32, 60_u32), (31_u32, 59_u32)),
+        (144.0, (41, 120), (61, 120)),
+    ] {
+        let list = page(100.0, 100.0, Rgba::WHITE, vec![clipped(clip, wide_face())]);
+        let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, dpi)) else {
+            return;
+        };
+        let middle_column = (first_column + last_column) / 2;
+        let middle_row = (first_row + last_row) / 2;
+        for (x, y, expected, what) in [
+            (
+                first_column,
+                middle_row,
+                RED_PX,
+                "the first column inside the clip is painted whole",
+            ),
+            (
+                first_column - 1,
+                middle_row,
+                WHITE_PX,
+                "the column before it is untouched",
+            ),
+            (
+                last_column,
+                middle_row,
+                RED_PX,
+                "the last column inside the clip is painted whole",
+            ),
+            (
+                last_column + 1,
+                middle_row,
+                WHITE_PX,
+                "the column after it is untouched",
+            ),
+            (
+                middle_column,
+                first_row,
+                RED_PX,
+                "the first row inside the clip is painted whole",
+            ),
+            (
+                middle_column,
+                first_row - 1,
+                WHITE_PX,
+                "the row before it is untouched",
+            ),
+            (
+                middle_column,
+                last_row,
+                RED_PX,
+                "the last row inside the clip is painted whole",
+            ),
+            (
+                middle_column,
+                last_row + 1,
+                WHITE_PX,
+                "the row after it is untouched",
+            ),
+        ] {
+            assert_pixel(&image, x, y, expected, 1, &format!("{what} at {dpi} dpi"));
+        }
+    }
+}
+
+// Why: every label and tick of a figure is a glyph run, and the vertex tests in `canvas.rs` pin where its outline
+// goes; what only the pixels can tell is that the outline is filled and drawn in the run's colour, and that nothing
+// of it lands outside the em box above the pen origin once rasterised. A run drawn as an outline, in the wrong
+// colour, or flipped into the font's y-up space would fail here and nowhere else.
+#[test]
+fn a_glyph_run_renders_solid_ink_in_its_colour_inside_the_em_box_above_its_pen_origin() {
+    for (origin, size, color, expected) in [
+        (
+            Point::new(30.0, 70.0),
+            40.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            BLUE_PX,
+        ),
+        (
+            Point::new(55.0, 40.0),
+            32.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            RED_PX,
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![glyph_h(origin, size, color)]) else {
+            return;
+        };
+        let inked = inked_pixels(&image);
+        // The em box above the pen origin, widened by a pixel on the left and the top for the anti-aliasing of the
+        // outline; a capital H sits on the baseline, so no row below the origin may carry ink.
+        let outside: Vec<(u32, u32)> = inked
+            .iter()
+            .copied()
+            .filter(|&(x, y)| {
+                let (x, y) = (f64::from(x), f64::from(y));
+                x < origin.x - 1.0
+                    || x > origin.x + size
+                    || y < origin.y - size - 1.0
+                    || y > origin.y
+            })
+            .collect();
+        assert!(
+            outside.is_empty(),
+            "the glyph of {size} pt at {origin:?} leaves ink outside the em box above its pen origin, at \
+             {outside:?}"
+        );
+        assert!(
+            inked
+                .iter()
+                .any(|&(x, y)| close_to(image.pixel(x, y), expected, 1)),
+            "the glyph of {size} pt at {origin:?} has a pixel filled solid in the run colour {expected:?}"
+        );
+    }
+}
+
+// Why: the geometry of a list is in figure points at every dpi and reaches the pixels through the mapping uniform
+// alone; a mapping applied to the wrong axis, in the wrong order with the origin, or not at all would draw a 144-dpi
+// image with its content at the 72-dpi size in a corner, and the same fault would misplace every figure on screen.
+// One list rendered at 72 and at 144 dpi must give an image of twice the size in which every solid interior lies at
+// twice the coordinates, for a draw of every kind: a path, a clipped path, an image tile and a glyph run.
+#[test]
+fn the_same_list_at_twice_the_dpi_is_the_same_picture_at_twice_the_size() {
+    let list = page(
+        100.0,
+        100.0,
+        Rgba::WHITE,
+        vec![
+            filled_polygon(
+                &[(5.0, 5.0), (45.0, 5.0), (45.0, 45.0), (5.0, 45.0)],
+                Rgba::new(1.0, 0.0, 0.0, 1.0),
+            ),
+            clipped(
+                Rect::new(50.0, 5.0, 45.0, 40.0),
+                filled_polygon(
+                    &[(30.0, 0.0), (100.0, 0.0), (100.0, 60.0), (30.0, 60.0)],
+                    Rgba::new(0.0, 0.0, 1.0, 1.0),
+                ),
+            ),
+            placed_image(
+                Rect::new(0.0, 0.0, 2.0, 2.0),
+                2,
+                2,
+                ImageItem::RGBA,
+                QUAD_PIXELS.concat(),
+                scale_then_translate(20.0, 20.0, 55.0, 55.0),
+            ),
+            // At 64 pt the stems of the H are about 6 pixels wide, so that a 3 × 3 block of solid black exists
+            // below; stems under 3 pixels would leave no solid interior for the comparison to find.
+            glyph_h(Point::new(5.0, 97.0), 64.0, Rgba::BLACK),
+        ],
+    );
+    let Some(small) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+    let Some(large) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 144.0)) else {
+        return;
+    };
+    assert_eq!(
+        (large.width, large.height),
+        (2 * small.width, 2 * small.height),
+        "twice the dpi gives twice the pixels"
+    );
+
+    // A pixel of the small image is solid when its 3 × 3 neighbourhood is one colour; the 2 × 2 block of the large
+    // image at twice its coordinates then lies a whole point inside the same region, clear of any anti-aliased edge.
+    let mut solid: Vec<(u32, u32, [u8; 4])> = Vec::new();
+    for y in 1..small.height - 1 {
+        for x in 1..small.width - 1 {
+            let colour = small.pixel(x, y);
+            if (y - 1..=y + 1).all(|ny| (x - 1..=x + 1).all(|nx| small.pixel(nx, ny) == colour)) {
+                solid.push((x, y, colour));
+            }
+        }
+    }
+    for expected in [
+        RED_PX,
+        BLUE_PX,
+        GREEN_PX,
+        YELLOW_PX,
+        WHITE_PX,
+        [0, 0, 0, 255],
+    ] {
+        assert!(
+            solid
+                .iter()
+                .any(|&(_, _, colour)| close_to(colour, expected, 1)),
+            "the 72-dpi image has a solid interior of {expected:?}"
+        );
+    }
+    let wrong = solid.iter().find_map(|&(x, y, colour)| {
+        [
+            (2 * x, 2 * y),
+            (2 * x + 1, 2 * y),
+            (2 * x, 2 * y + 1),
+            (2 * x + 1, 2 * y + 1),
+        ]
+        .into_iter()
+        .find(|&(lx, ly)| !close_to(large.pixel(lx, ly), colour, 1))
+        .map(|(lx, ly)| (x, y, colour, lx, ly, large.pixel(lx, ly)))
+    });
+    assert_eq!(
+        wrong, None,
+        "every solid pixel of the 72-dpi image is the colour of the 2 × 2 block at twice its coordinates in the \
+         144-dpi image; the first that is not, as (x, y, colour, X, Y, pixel)"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The painter's caches, driven directly on a device: what `prepare` uploads, and what `retain_used` and `clear` drop.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The device and queue the offscreen renderer would use, or `None` (skipping the test) when no adapter is
+/// available and a GPU is not required.
+fn device_or_skip() -> Option<(wgpu::Device, wgpu::Queue)> {
+    gpu_or_skip(create_device()).map(|(device, queue, _sample_count)| (device, queue))
+}
+
+/// An offscreen renderer of this test's own, or `None` (skipping the test) when no adapter is available and a GPU
+/// is not required.
+fn renderer_or_skip() -> Option<OffscreenRenderer> {
+    gpu_or_skip(OffscreenRenderer::new())
+}
+
+/// The render target the painter tests prepare pipelines for: the offscreen renderer's format, without
+/// multisampling, since nothing is drawn.
+const PAINTER_CONFIG: GpuConfig = GpuConfig {
+    target_format: wgpu::TextureFormat::Rgba8Unorm,
+    samples: 1,
+    depth_format: DEPTH_FORMAT,
+};
+
+/// The mapping of figure points onto pixels one to one, from the top-left corner.
+const ONE_TO_ONE: ScreenTransform = ScreenTransform {
+    scale: 1.0,
+    origin: egui::Pos2::ZERO,
+};
+
+/// A viewport of a 100 by 100 pixel target at one pixel per point, drawn whole and mapped by `to_screen`.
+fn viewport(to_screen: ScreenTransform) -> Viewport {
+    Viewport::whole([100, 100], 1.0, to_screen)
+}
+
+/// A list of one quad from `(0, 0)` to `(10, 10)` in figure points in the premultiplied `color`, textured with
+/// `texture` when one is given, as the tessellator emits a filled rectangle or, in white, one tile of an image.
+fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
+    let vertex = |x: f32, y: f32, u: f32, v: f32| Vertex {
+        pos: [x, y],
+        z: 0.0,
+        uv: [u, v],
+        color,
+    };
+    Arc::new(DrawList {
+        vertices: vec![
+            vertex(0.0, 0.0, 0.0, 0.0),
+            vertex(10.0, 0.0, 1.0, 0.0),
+            vertex(0.0, 10.0, 0.0, 1.0),
+            vertex(10.0, 10.0, 1.0, 1.0),
+        ],
+        indices: vec![0, 1, 2, 2, 1, 3],
+        draws: vec![Draw {
+            indices: 0..6,
+            texture,
+            depth_group: None,
+            clip: None,
+            source: None,
+        }],
+    })
+}
+
+/// A two-by-one opaque RGB image, red then blue, whose tiles the painter uploads as textures.
+fn two_pixel_samples() -> Arc<[u8]> {
+    Arc::from(vec![255, 0, 0, 0, 0, 255])
+}
+
+/// The tile of `columns` of the image of [`two_pixel_samples`] held in `samples`.
+fn tile_of(samples: &Arc<[u8]>, columns: Range<u32>) -> TileKey {
+    TileKey {
+        samples: Arc::clone(samples),
+        width: 2,
+        channels: 3,
+        columns,
+        rows: 0..1,
+    }
+}
+
+// Why: the interactive canvas prepares the same list every frame, and the geometry of a figure of a million points
+// must not cross the bus every frame; the painter must recognise a list and a mapping it has already uploaded and
+// upload nothing for them.
+#[test]
+fn preparing_an_unchanged_list_with_an_unchanged_mapping_uploads_nothing_the_second_time() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let list = quad_list(WHITE_PX, None);
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    let first = painter.uploads();
+    assert_eq!(
+        first,
+        Uploads {
+            lists: 1,
+            mappings: 1,
+            tiles: 0,
+        },
+        "the first preparation uploads the list's buffers and its mapping, and no tile for a list without textures"
+    );
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        first,
+        "the second preparation of the same list with the same mapping uploads nothing"
+    );
+}
+
+// Why: a resize or a pan of the window, or a move to a screen of another density, changes only where the figure
+// lands on the target, and re-uploading the geometry for that would make every resize as costly as a rebuild; a
+// changed mapping, target size or scale factor must rewrite the mapping uniform of the list and nothing else, while
+// a changed clip, which is a scissor at paint time, and a viewport equal to the last one uploaded for the list must
+// write nothing.
+#[test]
+fn a_changed_mapping_rewrites_the_mapping_uniform_and_nothing_else() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let samples = two_pixel_samples();
+    let list = quad_list(WHITE_PX, Some(tile_of(&samples, 0..2)));
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    let mut expected = painter.uploads();
+    assert_eq!(
+        expected,
+        Uploads {
+            lists: 1,
+            mappings: 1,
+            tiles: 1,
+        },
+        "the first preparation uploads the list, its mapping and its tile"
+    );
+
+    let scaled = ScreenTransform {
+        scale: 2.0,
+        origin: egui::Pos2::ZERO,
+    };
+    let moved = ScreenTransform {
+        scale: 2.0,
+        origin: egui::pos2(3.5, -7.25),
+    };
+    for (what, target, writes) in [
+        ("a different scale", viewport(scaled), 1),
+        ("the same viewport again", viewport(scaled), 0),
+        ("a different origin", viewport(moved), 1),
+        (
+            "a different target size",
+            Viewport::whole([200, 150], 1.0, moved),
+            1,
+        ),
+        (
+            "a different number of pixels per point",
+            Viewport::whole([200, 150], 2.0, moved),
+            1,
+        ),
+        (
+            "a different clip and nothing else",
+            Viewport {
+                clip: egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(20.0, 20.0)),
+                ..Viewport::whole([200, 150], 2.0, moved)
+            },
+            0,
+        ),
+        ("the first viewport again", viewport(ONE_TO_ONE), 1),
+    ] {
+        painter.prepare(&device, &queue, PAINTER_CONFIG, &list, &target);
+        expected.mappings += writes;
+        assert_eq!(
+            painter.uploads(),
+            expected,
+            "{what} writes the mapping {writes} time(s) and uploads neither the list nor its tile"
+        );
+    }
+}
+
+// Why: the viewer shows one list per figure tab and the painter keys lists by their address; a second list must get
+// buffers of its own rather than being drawn from the first list's, and a mapping of its own, which has never been
+// uploaded and so is written once. Both lists are then kept, so preparing either again uploads nothing.
+#[test]
+fn a_second_list_uploads_its_own_buffers_and_mapping() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let first = quad_list(WHITE_PX, None);
+    let second = quad_list(WHITE_PX, None);
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &first,
+        &viewport(ONE_TO_ONE),
+    );
+    let after_first = painter.uploads();
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &second,
+        &viewport(ONE_TO_ONE),
+    );
+    let after_second = painter.uploads();
+    assert_eq!(
+        after_second,
+        Uploads {
+            lists: after_first.lists + 1,
+            mappings: after_first.mappings + 1,
+            tiles: after_first.tiles,
+        },
+        "the second list uploads its own buffers and mapping, and no tile"
+    );
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &first,
+        &viewport(ONE_TO_ONE),
+    );
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &second,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        after_second,
+        "both lists are kept, so preparing either again uploads nothing"
+    );
+}
+
+// Why: the painter frees what the frames since the previous call did not draw, so that a closed tab's geometry
+// leaves the device; a list prepared before a call must survive the call, or every frame would re-upload everything,
+// and one not prepared between two calls must go, with its tiles, and be uploaded afresh when it is next drawn.
+#[test]
+fn retain_used_keeps_a_list_prepared_since_the_previous_call_and_drops_one_that_was_not() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let samples = two_pixel_samples();
+    let list = quad_list(WHITE_PX, Some(tile_of(&samples, 0..2)));
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    painter.retain_used();
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        Uploads {
+            lists: 1,
+            mappings: 1,
+            tiles: 1,
+        },
+        "a list and a tile prepared before the call are kept through it and not uploaded again"
+    );
+
+    painter.retain_used();
+    painter.retain_used();
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &list,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        Uploads {
+            lists: 2,
+            mappings: 2,
+            tiles: 2,
+        },
+        "a list and a tile not prepared between two calls are dropped and uploaded again"
+    );
+}
+
+// Why: the offscreen renderer clears the painter after every render so that no render leaves buffers or textures on
+// the device; every list and tile prepared before `clear` must be uploaded again after it, which is how the test
+// tells that they were dropped rather than kept.
+#[test]
+fn clear_drops_every_list_and_tile() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let samples = two_pixel_samples();
+    let textured = quad_list(WHITE_PX, Some(tile_of(&samples, 0..2)));
+    let plain = quad_list(WHITE_PX, None);
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &textured,
+        &viewport(ONE_TO_ONE),
+    );
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &plain,
+        &viewport(ONE_TO_ONE),
+    );
+    let before = painter.uploads();
+
+    painter.clear();
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &textured,
+        &viewport(ONE_TO_ONE),
+    );
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &plain,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        Uploads {
+            lists: before.lists + 2,
+            mappings: before.mappings + 2,
+            tiles: before.tiles + 1,
+        },
+        "after `clear` both lists, their mappings and the tile are uploaded again"
+    );
+}
+
+// Why: a figure rebuilt at a new scale gives a new list whose image tiles are the tiles of the old one, the same
+// samples cut at the same pixels, and the old list is drawn until the new one is ready; an image of a hundred
+// megapixels must not cross the bus again for a zoom. The painter keys a tile by its sample buffer and its position,
+// so a tile shared by two lists is uploaded once, while a different tile of the same buffer is a texture of its own.
+#[test]
+fn a_tile_shared_by_two_lists_is_uploaded_once_and_a_different_tile_of_the_buffer_again() {
+    let Some((device, queue)) = device_or_skip() else {
+        return;
+    };
+    let mut painter = GpuPainter::default();
+    let samples = two_pixel_samples();
+    let first = quad_list(WHITE_PX, Some(tile_of(&samples, 0..1)));
+    let second = quad_list(WHITE_PX, Some(tile_of(&samples, 0..1)));
+    let other = quad_list(WHITE_PX, Some(tile_of(&samples, 1..2)));
+
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &first,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads().tiles,
+        1,
+        "the first list uploads its tile"
+    );
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &second,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        Uploads {
+            lists: 2,
+            mappings: 2,
+            tiles: 1,
+        },
+        "the second list shares the first list's tile and uploads only its own buffers and mapping"
+    );
+    painter.prepare(
+        &device,
+        &queue,
+        PAINTER_CONFIG,
+        &other,
+        &viewport(ONE_TO_ONE),
+    );
+    assert_eq!(
+        painter.uploads(),
+        Uploads {
+            lists: 3,
+            mappings: 3,
+            tiles: 2,
+        },
+        "a tile of other columns of the same buffer is a texture of its own"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Placement through the viewport, drawn through the renderer's real pass with `render_list`.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// One pixel to check after a render: its column, its row, the colour expected there, the tolerance and what the
+/// pixel is.
+type PixelCheck = (u32, u32, [u8; 4], u8, &'static str);
+
+// Why: the interactive canvas places a figure anywhere on a window of any scale factor and clips it to the canvas,
+// and each of those reaches the pixels through the viewport alone: the mapping uniform carries the origin, the
+// scale and the target's size in points, and the scissor carries the clip. An origin ignored or rounded would shift
+// the figure by up to a pixel from where egui put the canvas, a scale factor ignored would draw a figure at half
+// size on a high-density screen, a clip ignored would paint over the neighbouring panels, and a clip lying wholly
+// off the target must draw nothing rather than ask the device for an empty scissor, which it refuses.
+#[test]
+fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
+    let Some(mut renderer) = renderer_or_skip() else {
+        return;
+    };
+    let list = quad_list(RED_PX, None);
+    let at = |x: f32, y: f32| ScreenTransform {
+        scale: 1.0,
+        origin: egui::pos2(x, y),
+    };
+    let clipped_to = |x: f32, y: f32, width: f32, height: f32| Viewport {
+        clip: egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height)),
+        ..viewport(ONE_TO_ONE)
+    };
+    // Half of the four samples of a pixel lie either side of an edge at its middle, so a half-covered pixel is
+    // the mean of red and white.
+    let half_red = [255, 128, 128, 255];
+    let cases: [(&str, Viewport, &[PixelCheck]); 6] = [
+        (
+            "the whole target, unmoved",
+            viewport(ONE_TO_ONE),
+            &[
+                (0, 0, RED_PX, 1, "the first pixel of the square"),
+                (9, 9, RED_PX, 1, "the last pixel of the square"),
+                (10, 5, WHITE_PX, 1, "the column beyond the square"),
+                (5, 10, WHITE_PX, 1, "the row beneath the square"),
+            ],
+        ),
+        (
+            "an origin half a pixel to the right",
+            viewport(at(0.5, 0.0)),
+            &[
+                (0, 5, half_red, 4, "column 0, half covered"),
+                (1, 5, RED_PX, 1, "column 1, the first solid column"),
+                (9, 5, RED_PX, 1, "column 9, the last solid column"),
+                (10, 5, half_red, 4, "column 10, half covered"),
+                (11, 5, WHITE_PX, 1, "column 11, untouched"),
+                (5, 9, RED_PX, 1, "row 9, unmoved"),
+                (5, 10, WHITE_PX, 1, "row 10, untouched"),
+            ],
+        ),
+        (
+            "two pixels per point",
+            Viewport::whole([200, 200], 2.0, ONE_TO_ONE),
+            &[
+                (0, 0, RED_PX, 1, "the first pixel of the square"),
+                (
+                    19,
+                    19,
+                    RED_PX,
+                    1,
+                    "the last pixel of the square, twenty pixels across",
+                ),
+                (20, 10, WHITE_PX, 1, "the column beyond the square"),
+                (10, 20, WHITE_PX, 1, "the row beneath the square"),
+            ],
+        ),
+        (
+            "a clip at fractional points",
+            clipped_to(2.3, 1.6, 5.0, 6.0),
+            &[
+                (1, 4, WHITE_PX, 1, "the column before the clip"),
+                (
+                    2,
+                    4,
+                    RED_PX,
+                    1,
+                    "the first column inside the clip, painted whole",
+                ),
+                (6, 4, RED_PX, 1, "the last column inside the clip"),
+                (7, 4, WHITE_PX, 1, "the column after the clip"),
+                (4, 1, WHITE_PX, 1, "the row above the clip"),
+                (
+                    4,
+                    2,
+                    RED_PX,
+                    1,
+                    "the first row inside the clip, painted whole",
+                ),
+                (4, 7, RED_PX, 1, "the last row inside the clip"),
+                (4, 8, WHITE_PX, 1, "the row beneath the clip"),
+            ],
+        ),
+        (
+            "a clip above and left of the target",
+            clipped_to(-50.0, -50.0, 40.0, 40.0),
+            &[
+                (0, 0, WHITE_PX, 1, "the first pixel, undrawn"),
+                (5, 5, WHITE_PX, 1, "the middle of the square, undrawn"),
+            ],
+        ),
+        (
+            "a clip beyond the right edge of the target",
+            clipped_to(150.0, 0.0, 40.0, 40.0),
+            &[
+                (5, 5, WHITE_PX, 1, "the middle of the square, undrawn"),
+                (99, 5, WHITE_PX, 1, "the last column, undrawn"),
+            ],
+        ),
+    ];
+    for (what, target, pixels) in cases {
+        let image = renderer
+            .render_list(&list, &target, WHITE_PX)
+            .unwrap_or_else(|error| panic!("{what}: {error}"));
+        assert_eq!(
+            [image.width, image.height],
+            target.size_px,
+            "{what}: the image has the target's size"
+        );
+        for &(x, y, expected, tolerance, which) in pixels {
+            assert_pixel(
+                &image,
+                x,
+                y,
+                expected,
+                tolerance,
+                &format!("{which} with {what}"),
+            );
+        }
+    }
 }

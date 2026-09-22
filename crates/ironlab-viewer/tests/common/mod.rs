@@ -11,9 +11,11 @@ use ironlab_ir::{
     Axes, Axis, AxisLink, Dimension, Edit, Figure, Limits, NodeId, Projection, PropertyPath,
     Transaction, Value, View3d, command,
 };
-use ironlab_scene::display::{ImageItem, Item, ItemKind, Rect, Transform};
+use ironlab_scene::display::{
+    GlyphsItem, ImageItem, Item, ItemKind, PlacedGlyph, Point, Rect, Rgba, Transform,
+};
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
-use ironlab_text::TextEngine;
+use ironlab_text::{TextEngine, TextItem};
 use ironlab_viewer::{FigureState, RenderError, RenderedImage};
 
 /// One text engine for the whole test binary; building it parses the bundled fonts.
@@ -25,11 +27,11 @@ pub fn gpu_required() -> bool {
     std::env::var_os("IRONLAB_REQUIRE_GPU").is_some()
 }
 
-/// Unwraps an offscreen render, or returns `None` (skipping the test) when no adapter is available and a GPU is not
-/// required.
-pub fn rendered_or_skip(result: Result<RenderedImage, RenderError>) -> Option<RenderedImage> {
+/// Unwraps what an offscreen render produces or needs (an image, a renderer, a device): `None` (skipping the test)
+/// when no adapter is available and a GPU is not required, and a panic on any other error.
+pub fn gpu_or_skip<T>(result: Result<T, RenderError>) -> Option<T> {
     match result {
-        Ok(image) => Some(image),
+        Ok(value) => Some(value),
         Err(RenderError::NoAdapter(message)) if !gpu_required() => {
             eprintln!(
                 "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
@@ -37,6 +39,41 @@ pub fn rendered_or_skip(result: Result<RenderedImage, RenderError>) -> Option<Re
             None
         }
         Err(error) => panic!("offscreen rendering failed: {error}"),
+    }
+}
+
+/// Unwraps an offscreen render, or returns `None` (skipping the test) when no adapter is available and a GPU is not
+/// required.
+pub fn rendered_or_skip(result: Result<RenderedImage, RenderError>) -> Option<RenderedImage> {
+    gpu_or_skip(result)
+}
+
+/// A run of the one glyph "H" of `size` points in `color` with its pen origin at `origin`, laid out by the text
+/// engine so that the glyph id and font are real.
+pub fn glyph_h(origin: Point, size: f64, color: Rgba) -> Item {
+    let layout = TEXT.layout("H", false, size);
+    let run = layout
+        .items
+        .iter()
+        .find_map(|item| match item {
+            TextItem::Glyphs(run) => Some(run),
+            TextItem::Rule { .. } => None,
+        })
+        .expect("\"H\" lays out as a glyph run");
+    Item {
+        source: None,
+        kind: ItemKind::Glyphs(GlyphsItem {
+            font: run.font,
+            size_pt: run.size_pt,
+            color,
+            text: "H".to_owned(),
+            glyphs: vec![PlacedGlyph {
+                id: run.glyphs[0].id,
+                x: origin.x,
+                y: origin.y,
+                text_range: 0..1,
+            }],
+        }),
     }
 }
 
