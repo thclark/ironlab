@@ -29,7 +29,6 @@ latex-rust = { version = "=1.0.2", default-features = false }
 kurbo = "0.13.1"
 krilla = { version = "0.8.2", default-features = false }
 lyon = "1.0.19"
-lyon_algorithms = "1.0.21"
 egui = "0.36.2"
 eframe = "0.36.2"
 egui_tiles = "0.17.1"
