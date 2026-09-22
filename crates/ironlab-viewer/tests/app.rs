@@ -2,6 +2,8 @@
 
 mod common;
 
+use std::sync::Arc;
+
 use common::*;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -830,5 +832,66 @@ fn a_pixel_datatip_text_formats_its_numbers_as_the_point_datatip_does() {
     assert!(
         lines(&text).contains(&"index = 3"),
         "a whole index is written without a fraction: {text:?}"
+    );
+}
+
+// Why: the canvas keeps one draw list per figure and hands the painter the same `Arc` frame after frame, which is
+// what lets the painter upload a figure once and draw it from its buffers thereafter; a list rebuilt every frame, or
+// on a resize too small to change what the geometry is prepared for, would upload the figure every frame and make
+// the window stutter under every resize. The geometry is flattened and the glyphs tessellated for the scale it was
+// built at, so a window half again as large would show curves as polygons and text as lumps if the list were kept,
+// and an edit changes the scene the list was built from; both must yield a new list, or the user would look at a
+// stale figure. The headless harness has no graphics device, so nothing is drawn, but the list is built all the
+// same.
+#[test]
+fn the_draw_list_is_kept_through_idle_frames_and_small_resizes_but_not_large_ones_or_edits() {
+    let mut harness = app_harness(vec![(
+        "flat.fig".to_owned(),
+        figure_with(vec![axes_2d(2)], vec![]),
+    )]);
+    harness.run();
+    let initial = harness.ctx.viewport_rect().size();
+    let mut previous = harness
+        .state()
+        .draw_list(0)
+        .expect("the first frame builds the draw list of the figure");
+
+    // Each step follows the ones before it; a resize is a factor of the window's initial size.
+    for (what, resize, kept) in [
+        ("an idle frame", None, true),
+        ("a resize of the window by 10 %", Some(1.1_f32), true),
+        ("a resize of the window by 50 %", Some(1.5), false),
+    ] {
+        if let Some(factor) = resize {
+            harness.set_size(initial * factor);
+        }
+        harness.run();
+        let current = harness
+            .state()
+            .draw_list(0)
+            .expect("the figure has a draw list after every frame");
+        assert_eq!(
+            Arc::ptr_eq(&previous, &current),
+            kept,
+            "after {what} the list is {}",
+            if kept { "kept" } else { "rebuilt" }
+        );
+        previous = current;
+    }
+
+    record_limits(
+        harness.state_mut().figure_state_mut(0).expect("one figure"),
+        2,
+        Dimension::X,
+        manual(3.0, 4.0),
+    );
+    harness.run();
+    let edited = harness
+        .state()
+        .draw_list(0)
+        .expect("the figure has a draw list after the edit");
+    assert!(
+        !Arc::ptr_eq(&previous, &edited),
+        "after an edit through figure_state_mut the list is rebuilt from the new scene"
     );
 }

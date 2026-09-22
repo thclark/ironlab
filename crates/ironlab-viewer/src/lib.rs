@@ -5,13 +5,13 @@
 //! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
 //! is split into nine modules:
 //!
-//! - [`canvas`] converts a display list into `egui` triangle meshes with lyon, draws images as textured quads
-//!   through a texture provider, and makes the depth groups of three-dimensional axes into draw lists for [`gpu`].
-//! - [`gpu`] holds the viewer's own wgpu pipelines, which draw those lists with a depth test inside egui's render
-//!   pass on screen and inside the offscreen renderer's pass headless.
+//! - [`canvas`] converts a display list into one draw list of triangles in figure points with lyon, image tiles as
+//!   textured quads, and the depth of every vertex of a three-dimensional axes.
+//! - [`gpu`] holds the viewer's own wgpu pipelines, which draw those lists inside egui's render pass on screen and
+//!   inside the offscreen renderer's pass headless, depth-testing the artists of three-dimensional axes.
 //! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits, keeps the
 //!   source figure and the user's overlay apart, and composes the figure that is displayed.
-//! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation
+//! - [`offscreen`] renders a figure through the same pipelines into an image without a window, for the documentation
 //!   gallery and for tests.
 //! - [`inspector`] builds what the property editor shows (the object tree, the properties of a node and the
 //!   parameters of a figure) and turns a change made in it into a transaction; it, too, is pure logic.
@@ -38,10 +38,11 @@ pub mod problems;
 pub mod style;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
-pub use canvas::{ScreenTransform, drawables_with, tessellate, tessellate_with};
+pub use canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, tessellate};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
 pub use gpu::{
-    DEPTH_FORMAT, Draw, DrawList, Drawable, GpuCallback, GpuConfig, GpuPainter, TileKey, Vertex,
+    DEPTH_FORMAT, Draw, DrawList, GpuCallback, GpuConfig, GpuPainter, TileKey, Uploads, Vertex,
+    Viewport,
 };
 pub use interaction::{
     DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,

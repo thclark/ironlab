@@ -1,8 +1,9 @@
-//! Headless rendering of figures through the viewer's own mesh pipeline.
+//! Headless rendering of figures through the viewer's own pipelines.
 //!
-//! [`render_offscreen`] compiles a figure, tessellates its display list with [`crate::canvas::tessellate_with`] at
-//! `dpi / 72` pixels per point, and draws the meshes with [`egui_wgpu::Renderer`] into an offscreen texture. No
-//! window or surface is created, so it runs in CI on a software adapter (for example lavapipe).
+//! [`render_offscreen`] compiles a figure, tessellates its display list with [`crate::canvas::tessellate`] for
+//! `dpi / 72` pixels per point, and draws the list with a [`GpuPainter`] into an offscreen texture. No window or
+//! surface is created, so it runs in CI on a software adapter (for example lavapipe), and the pipelines, buffers
+//! and textures are the ones the interactive window draws with.
 //!
 //! # Pipeline
 //!
@@ -14,38 +15,26 @@
 //!    the device and can render any number of images; [`render_offscreen`] and [`render_display_list_offscreen`]
 //!    share one process-wide renderer, created on first successful use, so that rendering a whole gallery creates
 //!    the device only once.
-//! 2. An [`egui_wgpu::Renderer`] is created for `Rgba8Unorm` (egui blends in gamma space and outputs gamma-encoded
-//!    colour into a non-sRGB target) with 4× multisampling (when the adapter supports it), a depth attachment of
-//!    [`DEPTH_FORMAT`] for the depth groups of three-dimensional axes, with dithering disabled,
-//!    so that repeated renders of the same figure are identical, and with egui's predictable texture filtering off.
-//!    That option makes egui's shader filter every texture bilinearly in its own code, whatever the texture's
-//!    sampler asks for, which would blur the pixel edges of every image; with it off the sampler of each texture is
-//!    honoured, and every texture made here asks for nearest filtering.
-//! 3. The default egui texture (`TextureId::Managed(0)`) is uploaded as a 1×1 white image, because the meshes of
-//!    paths and glyphs sample it at [`egui::epaint::WHITE_UV`].
-//! 4. The image size is checked against the device's maximum texture dimension before any texture is created, and
+//! 2. The image size is checked against the device's maximum texture dimension before any texture is created, and
 //!    an invalid size is reported as [`RenderError::InvalidSize`].
-//! 5. The display list is tessellated with a texture provider that uploads each visible tile of each image item
-//!    through `Renderer::update_texture` as a user texture with nearest filtering, tiling by the device's maximum
-//!    texture dimension capped at [`MAX_TILE_SIDE`]. The ids are `TextureId::User(n)` with `n` counted from
-//!    [`TILE_TEXTURE_BASE`], far above the count the renderer numbers its own registered textures from, and are
-//!    recorded so that step 7 can free them. The depth groups of three-dimensional axes become draw lists for the
-//!    pipelines of [`crate::gpu`] instead, drawn by paint callbacks in their place in the paint order through the
-//!    [`GpuPainter`] kept in the renderer's callback resources, which uploads their buffers and image tiles itself
-//!    and is emptied after every render.
-//! 6. The figure background is painted as a rectangle mesh beneath the meshes of the display list. The meshes are
-//!    wrapped in `egui::ClippedPrimitive`s whose clip rectangle is the whole image, and `Renderer::update_buffers`
-//!    and `Renderer::render` draw them with `ScreenDescriptor { size_in_pixels: [width, height], pixels_per_point:
-//!    1.0 }` into a multisampled colour texture that is cleared to transparent black and resolved into a
-//!    single-sample `COPY_SRC` texture, with a depth attachment cleared to the far plane. A transparent background
-//!    therefore stays transparent.
-//! 7. The resolved texture is copied into a `MAP_READ` buffer with rows padded to
+//! 3. The display list is tessellated into one draw list in figure points, with image tiles no larger than the
+//!    device's maximum texture dimension capped at [`MAX_TILE_SIDE`], and the painter uploads its buffers, its
+//!    mapping and its tiles.
+//! 4. The list is drawn in one render pass, for `Rgba8Unorm` (the pipelines blend in gamma space and output
+//!    gamma-encoded colour into a non-sRGB target) with 4× multisampling when the adapter supports it, into a
+//!    multisampled colour texture that is cleared to the list's background colour, premultiplied, and resolved
+//!    into a single-sample `COPY_SRC` texture, with a depth attachment of [`DEPTH_FORMAT`] cleared to the far
+//!    plane. Clearing rather than drawing the background covers every pixel, including the last row or column of
+//!    an image whose size rounds up from the page's, and a transparent background stays transparent. The mapping
+//!    is `dpi / 72` pixels per figure point from the top-left corner, and the clip is the whole image.
+//! 5. The resolved texture is copied into a `MAP_READ` buffer with rows padded to
 //!    `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`, the device is polled until the copy completes, and the padding is
-//!    stripped. The textures of step 5 are then freed with `Renderer::free_texture`, whether or not the draw and
-//!    the readback succeeded, so that no render leaves textures on the device. The GPU output has premultiplied
-//!    alpha, which is converted to straight alpha.
+//!    stripped. The painter is then emptied, whether or not the draw and the readback succeeded, so that no render
+//!    leaves buffers or textures on the device. The GPU output has premultiplied alpha, which is converted to
+//!    straight alpha.
 //!
-//! The pixel size of the image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)`.
+//! The pixel size of the image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)`. Two renders of
+//! one list are identical.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -55,8 +44,8 @@ use ironlab_ir::Figure;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{MAX_TILE_SIDE, ScreenTransform, TextureProvider, color32, drawables_with};
-use crate::gpu::{DEPTH_FORMAT, Drawable, GpuCallback, GpuConfig, GpuPainter};
+use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
+use crate::gpu::{DEPTH_FORMAT, DrawList, GpuConfig, GpuPainter, Viewport};
 
 /// An 8-bit RGBA image with straight alpha, stored row by row from the top-left pixel.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,50 +157,11 @@ pub fn with_shared_renderer<T>(
 /// The longest time to wait for the GPU to finish a render and its readback.
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// The texture format rendered into. egui outputs gamma-encoded colour into a non-sRGB target.
+/// The texture format rendered into. The pipelines output gamma-encoded colour into a non-sRGB target.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The number of samples per pixel used for anti-aliasing, when the adapter supports it.
 const MSAA_SAMPLES: u32 = 4;
-
-/// The first user texture id under which the tiles of images are uploaded. `egui_wgpu::Renderer` numbers the
-/// textures it registers itself from 0, so ids counted from here can never collide with them.
-const TILE_TEXTURE_BASE: u64 = 1 << 32;
-
-/// The texture provider of one offscreen render: it uploads every tile it is asked for as a user texture of the
-/// renderer and records the ids, so that the textures can be freed once the render is read back.
-struct TileUploader<'a> {
-    renderer: &'a mut egui_wgpu::Renderer,
-    device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
-    /// The device's largest texture side, capped at [`MAX_TILE_SIDE`].
-    max_side: u32,
-    /// The ids of the textures uploaded so far, in order.
-    ids: Vec<egui::TextureId>,
-}
-
-impl TextureProvider for TileUploader<'_> {
-    fn max_side(&self) -> u32 {
-        self.max_side
-    }
-
-    fn texture(
-        &mut self,
-        _samples: &Arc<[u8]>,
-        _tile: u32,
-        render: &mut dyn FnMut() -> egui::ColorImage,
-    ) -> egui::TextureId {
-        let id = egui::TextureId::User(TILE_TEXTURE_BASE + self.ids.len() as u64);
-        self.renderer.update_texture(
-            self.device,
-            self.queue,
-            id,
-            &egui::epaint::ImageDelta::full(render(), egui::TextureOptions::NEAREST),
-        );
-        self.ids.push(id);
-        id
-    }
-}
 
 /// A headless renderer that owns a wgpu device and draws display lists into images.
 ///
@@ -220,75 +170,23 @@ impl TextureProvider for TileUploader<'_> {
 pub struct OffscreenRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: egui_wgpu::Renderer,
+    painter: GpuPainter,
     sample_count: u32,
 }
 
 impl OffscreenRenderer {
-    /// Creates a device on the first available adapter and prepares an egui renderer on it.
+    /// Creates a device on the first available adapter.
     ///
     /// # Errors
     ///
     /// Returns [`RenderError::NoAdapter`] when no adapter is available and [`RenderError::Device`] when the adapter
     /// cannot create a device.
     pub fn new() -> Result<Self, RenderError> {
-        let setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-        let instance =
-            pollster::block_on(egui_wgpu::WgpuSetup::CreateNew(setup.clone()).new_instance());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: setup.power_preference,
-            ..Default::default()
-        }))
-        .map_err(|error| {
-            RenderError::NoAdapter(format!(
-                "{error} (backends {:?})",
-                setup.instance_descriptor.backends
-            ))
-        })?;
-        let adapter_limits = adapter.limits();
-        let (device, queue) =
-            pollster::block_on(
-                adapter.request_device(&wgpu::DeviceDescriptor {
-                    label: Some("ironlab offscreen device"),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter_limits.clone()),
-                    ..Default::default()
-                }),
-            )
-            .map_err(|error| RenderError::Device(error.to_string()))?;
-
-        let sample_count = if adapter
-            .get_texture_format_features(FORMAT)
-            .flags
-            .sample_count_supported(MSAA_SAMPLES)
-        {
-            MSAA_SAMPLES
-        } else {
-            1
-        };
-        let mut renderer = egui_wgpu::Renderer::new(
-            &device,
-            FORMAT,
-            egui_wgpu::RendererOptions {
-                msaa_samples: sample_count,
-                depth_stencil_format: Some(DEPTH_FORMAT),
-                dithering: false,
-                predictable_texture_filtering: false,
-            },
-        );
-        renderer.update_texture(
-            &device,
-            &queue,
-            egui::TextureId::Managed(0),
-            &egui::epaint::ImageDelta::full(
-                egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE]),
-                egui::TextureOptions::NEAREST,
-            ),
-        );
+        let (device, queue, sample_count) = create_device()?;
         Ok(Self {
             device,
             queue,
-            renderer,
+            painter: GpuPainter::default(),
             sample_count,
         })
     }
@@ -335,69 +233,59 @@ impl OffscreenRenderer {
         }
 
         let scale = (dpi / 72.0) as f32;
-        // The error scopes are opened before the tessellation so that they cover the texture uploads it makes as
-        // well as the draw; an upload the device refuses is then reported rather than raised as an uncaptured error.
-        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let mut meshes = Vec::new();
-        if let Some(background) = background_mesh(list, scale) {
-            meshes.push(background);
-        }
-        let mut uploader = TileUploader {
-            renderer: &mut self.renderer,
-            device: &self.device,
-            queue: &self.queue,
-            max_side: max.min(MAX_TILE_SIDE),
-            ids: Vec::new(),
-        };
-        let drawables = drawables_with(
+        let background = premultiplied(list.background).unwrap_or([0, 0, 0, 0]);
+        let list = Arc::new(tessellate(
             list,
             text,
+            Resolution {
+                scale,
+                max_tile_side: max.min(MAX_TILE_SIDE),
+            },
+        ));
+        let viewport = Viewport::whole(
+            [width, height],
+            1.0,
             ScreenTransform {
                 scale,
                 origin: egui::Pos2::ZERO,
             },
-            &mut uploader,
         );
-        let tile_textures = uploader.ids;
-        let screen_rect =
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width as f32, height as f32));
+        self.render_list(&list, &viewport, background)
+    }
+
+    /// Draws a list at `viewport` over `background` (premultiplied sRGB bytes) into an image of the viewport's
+    /// size and reads it back. This is the pass every render takes; [`render_display_list`](Self::render_display_list)
+    /// builds the list and the viewport for a resolution, and a caller with a list of its own places it anywhere
+    /// on the target.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RenderError::InvalidSize`] when the viewport's size is invalid for the device and
+    /// [`RenderError::Readback`] when rendering or readback fails.
+    pub fn render_list(
+        &mut self,
+        list: &Arc<DrawList>,
+        viewport: &Viewport,
+        background: [u8; 4],
+    ) -> Result<RenderedImage, RenderError> {
+        let max = self.device.limits().max_texture_dimension_2d;
+        let [width, height] = viewport.size_px;
+        if width == 0 || height == 0 || width > max || height > max {
+            return Err(RenderError::InvalidSize { width, height, max });
+        }
         let config = GpuConfig {
             target_format: FORMAT,
             samples: self.sample_count,
             depth_format: DEPTH_FORMAT,
         };
-        let primitives: Vec<egui::ClippedPrimitive> = meshes
-            .into_iter()
-            .map(Drawable::Mesh)
-            .chain(drawables)
-            .map(|drawable| egui::ClippedPrimitive {
-                clip_rect: screen_rect,
-                primitive: match drawable {
-                    Drawable::Mesh(mesh) => egui::epaint::Primitive::Mesh(mesh),
-                    // The callback covers the whole image, so that its vertex mapping is the whole target's; every
-                    // draw of the list clips itself.
-                    Drawable::Gpu(list) => {
-                        egui::epaint::Primitive::Callback(egui_wgpu::Callback::new_paint_callback(
-                            screen_rect,
-                            GpuCallback { list, config },
-                        ))
-                    }
-                },
-            })
-            .collect();
-        let screen = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [width, height],
-            pixels_per_point: 1.0,
-        };
-
-        let rendered = self.draw(&primitives, &screen);
-        for id in &tile_textures {
-            self.renderer.free_texture(id);
-        }
-        if let Some(painter) = self.renderer.callback_resources.get_mut::<GpuPainter>() {
-            painter.clear();
-        }
+        // The error scopes cover the uploads as well as the draw; an upload the device refuses is then reported
+        // rather than raised as an uncaptured error.
+        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let out_of_memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        self.painter
+            .prepare(&self.device, &self.queue, config, list, viewport);
+        let rendered = self.draw(list, viewport, config, background);
+        self.painter.clear();
         let oom = pollster::block_on(out_of_memory.pop());
         let invalid = pollster::block_on(validation.pop());
         if let Some(error) = oom.or(invalid) {
@@ -412,13 +300,16 @@ impl OffscreenRenderer {
         })
     }
 
-    /// Draws the primitives into a new texture and reads the result back as premultiplied RGBA bytes.
+    /// Draws a prepared list over `background` into a new texture and reads the result back as premultiplied RGBA
+    /// bytes.
     fn draw(
         &mut self,
-        primitives: &[egui::ClippedPrimitive],
-        screen: &egui_wgpu::ScreenDescriptor,
+        list: &Arc<DrawList>,
+        viewport: &Viewport,
+        config: GpuConfig,
+        background: [u8; 4],
     ) -> Result<Vec<u8>, RenderError> {
-        let [width, height] = screen.size_in_pixels;
+        let [width, height] = viewport.size_px;
         let size = wgpu::Extent3d {
             width,
             height,
@@ -473,13 +364,6 @@ impl OffscreenRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ironlab offscreen encoder"),
             });
-        let user_buffers = self.renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            primitives,
-            screen,
-        );
         {
             let mut pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -488,7 +372,12 @@ impl OffscreenRenderer {
                         view,
                         resolve_target,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: f64::from(background[0]) / 255.0,
+                                g: f64::from(background[1]) / 255.0,
+                                b: f64::from(background[2]) / 255.0,
+                                a: f64::from(background[3]) / 255.0,
+                            }),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None,
@@ -504,7 +393,7 @@ impl OffscreenRenderer {
                     ..Default::default()
                 })
                 .forget_lifetime();
-            self.renderer.render(&mut pass, primitives, screen);
+            self.painter.paint(&mut pass, viewport, config, list);
         }
 
         let unpadded_bytes_per_row = width as usize * 4;
@@ -528,11 +417,7 @@ impl OffscreenRenderer {
             },
             size,
         );
-        let submission = self.queue.submit(
-            user_buffers
-                .into_iter()
-                .chain(std::iter::once(encoder.finish())),
-        );
+        let submission = self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = buffer.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -562,17 +447,45 @@ impl OffscreenRenderer {
     }
 }
 
-/// A rectangle covering the page in the display list's background colour, in pixels, or `None` when the background
-/// is fully transparent or invalid.
-fn background_mesh(list: &DisplayList, scale: f32) -> Option<egui::Mesh> {
-    let color = color32(list.background)?;
-    if color.a() == 0 {
-        return None;
-    }
-    let size = egui::vec2(list.width_pt as f32 * scale, list.height_pt as f32 * scale);
-    let mut mesh = egui::Mesh::default();
-    mesh.add_colored_rect(egui::Rect::from_min_size(egui::Pos2::ZERO, size), color);
-    Some(mesh)
+/// Creates a device and queue on the first available adapter, with the sample count the adapter supports for
+/// [`FORMAT`].
+///
+/// # Errors
+///
+/// Returns [`RenderError::NoAdapter`] when no adapter is available and [`RenderError::Device`] when the adapter
+/// cannot create a device.
+pub fn create_device() -> Result<(wgpu::Device, wgpu::Queue, u32), RenderError> {
+    let setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+    let instance =
+        pollster::block_on(egui_wgpu::WgpuSetup::CreateNew(setup.clone()).new_instance());
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: setup.power_preference,
+        ..Default::default()
+    }))
+    .map_err(|error| {
+        RenderError::NoAdapter(format!(
+            "{error} (backends {:?})",
+            setup.instance_descriptor.backends
+        ))
+    })?;
+    let adapter_limits = adapter.limits();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("ironlab offscreen device"),
+        required_limits:
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter_limits.clone()),
+        ..Default::default()
+    }))
+    .map_err(|error| RenderError::Device(error.to_string()))?;
+    let sample_count = if adapter
+        .get_texture_format_features(FORMAT)
+        .flags
+        .sample_count_supported(MSAA_SAMPLES)
+    {
+        MSAA_SAMPLES
+    } else {
+        1
+    };
+    Ok((device, queue, sample_count))
 }
 
 /// Converts premultiplied RGBA bytes to straight alpha in place. Fully transparent pixels become transparent black.

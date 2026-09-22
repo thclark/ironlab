@@ -1,64 +1,47 @@
-//! Conversion of a display list into `egui` triangle meshes.
+//! Conversion of a display list into one [`DrawList`] for the pipelines of [`crate::gpu`].
 //!
 //! # Approach
 //!
-//! Every leaf of the display list is visited with [`DisplayList::visit_leaves`], which supplies the accumulated
-//! group transform and the effective clip rectangle in figure space.
+//! Every leaf of the display list is visited with [`DisplayList::visit_leaves_grouped`], which supplies the
+//! accumulated group transform, the effective clip rectangle in figure space and the enclosing depth group. Each
+//! leaf becomes triangles in figure points, with the group transform applied and nothing else: the mapping from
+//! figure points to the screen is a uniform of the painter, so that a list built once serves every placement of
+//! the figure on the target.
 //!
-//! - **Paths** are converted to a lyon path in screen coordinates (group transform applied first, then the
-//!   [`ScreenTransform`]). Fills are tessellated with lyon's `FillTessellator`, honouring the display list's
-//!   [`FillRule`]. Strokes are tessellated with lyon's `StrokeTessellator`, with the
-//!   width scaled by [`ScreenTransform::scale`] and caps and joins mapped one to one. Lyon has no dashing, so a dashed
-//!   stroke is first split into its "on" intervals with `lyon_algorithms::measure::PathMeasurements::split_range`
-//!   (dash lengths and offset scaled to screen units), and each interval is stroked as an open sub-path.
+//! - **Paths** are converted to a lyon path in item space. Fills are tessellated with lyon's `FillTessellator`,
+//!   honouring the display list's [`FillRule`]. Strokes are tessellated with lyon's `StrokeTessellator`, with caps
+//!   and joins mapped one to one. Lyon has no dashing, so a dashed stroke is first split into its "on" intervals
+//!   with `lyon_algorithms::measure::PathMeasurements::split_range`, and each interval is stroked as an open
+//!   sub-path. Curves are flattened to within [`SCREEN_TOLERANCE`] screen units at the [`Resolution`] the list is
+//!   built for, and a zero-width stroke is one screen unit wide at it.
 //! - **Glyph runs** use [`TextEngine::glyph_outline`], which is em-normalised with y pointing down. Each outline is
-//!   scaled by the run's `size_pt`, translated to the glyph origin, transformed into screen space and filled with the
-//!   non-zero rule. Tessellated glyphs may be cached per `(font, glyph, size bucket)`.
+//!   tessellated once per `(font, glyph, size bucket)` and cached, scaled by the run's `size_pt` and translated to
+//!   the glyph origin.
 //! - **Images** are drawn as textured quads. A valid image item is cut into tiles of at most
-//!   [`TextureProvider::max_side`] pixels on a side, numbered in row-major order, because a graphics device has a
-//!   largest texture side and a data image can exceed it. The pixels of a tile are built from the item's samples
-//!   ([`egui::ColorImage::from_rgb`] for three channels and [`egui::ColorImage::from_rgba_unmultiplied`] for four,
-//!   so that straight alpha is premultiplied as egui expects) and handed to a [`TextureProvider`], which returns
-//!   the texture to sample. The tile is one quad: four white vertices at the corners of its sub-rectangle of the
-//!   item rectangle, mapped through the same transforms as every other leaf (a parallelogram where a 3D placement
-//!   shears), carrying the texture coordinates (0, 0), (1, 0), (0, 1) and (1, 1), so that the texture is drawn
-//!   unmodulated. Every tile edge is computed from its integer pixel coordinate through the same affine chain, so
-//!   abutting tiles share bit-equal screen edges and show no seam. A tile whose quad lies wholly outside the leaf's
-//!   clip is never requested from the provider. Textures are sampled with nearest filtering
-//!   ([`egui::TextureOptions::NEAREST`]), so that pixel edges are as hard on screen as they are in an exported PDF.
-//! - **Clips** are applied geometrically: the tessellated triangles of a clipped leaf are each clipped against the
-//!   clip rectangle (converted to screen space) with the Sutherland–Hodgman algorithm, and the resulting convex
-//!   polygon is re-triangulated as a fan. A vertex made where an edge crosses the clip takes its texture coordinate
-//!   from the same interpolation parameter as its position, so a clipped image keeps exactly the part of its
-//!   texture that remains visible. This keeps the output a plain list of meshes, independent of the painter's clip
-//!   rectangle, so that the same meshes can be drawn by the interactive canvas and by the offscreen renderer.
-//! - **Colours** are straight alpha in the display list and are converted to premultiplied
-//!   [`egui::Color32`] with [`egui::Color32::from_rgba_unmultiplied`] after conversion from `[0, 1]` to `[0, 255]`.
-//!
-//! The vertices of paths and glyphs use [`egui::epaint::WHITE_UV`] and the default texture, so those meshes are drawn
-//! as solid colour; the vertices of an image tile sample its texture. The meshes are not anti-aliased by egui; the
-//! viewer relies on 4× MSAA for smooth edges.
+//!   [`Resolution::max_tile_side`] pixels on a side, numbered in row-major order, because a graphics device has a
+//!   largest texture side and a data image can exceed it. Each tile is one quad: four white vertices at the corners
+//!   of its sub-rectangle of the item rectangle, mapped through the same transforms as every other leaf (a
+//!   parallelogram where a 3D placement shears), carrying the texture coordinates (0, 0), (1, 0), (0, 1) and (1, 1),
+//!   so that the texture is drawn unmodulated, and a [`TileKey`] naming the pixels the painter uploads. Every tile
+//!   edge is computed from its integer pixel coordinate through the same affine chain, so abutting tiles share
+//!   bit-equal edges and show no seam. A tile whose bounding box lies wholly outside the leaf's clip is not drawn.
+//! - **Clips** are recorded, not applied: every draw of a clipped leaf carries the leaf's clip in figure points, and
+//!   the painter cuts the draw at the scissor rectangle of it. Nothing is clipped geometrically.
+//! - **Colours** are straight alpha in the display list and are converted to premultiplied sRGB bytes as
+//!   [`egui::Color32::from_rgba_unmultiplied`] converts them.
+//! - **The background** of the list is not in the draw list: it is the colour of the page beneath every item, so
+//!   the interactive canvas fills the figure's rectangle with it and the offscreen renderer clears its target to
+//!   it, which covers every pixel of an image whose size rounds up from the page's.
 //!
 //! # Depth groups
 //!
-//! [`drawables_with`] is the whole of the above with one addition: the leaves of an [`ItemKind::Depth`] group are
-//! not made into meshes but into one [`DrawList`] for the depth-tested pipelines of [`crate::gpu`], in the group's
-//! place in the paint order, and so is every run of consecutive leaves outside any group that carry a depth, drawn
-//! without the depth test. The triangles are the same lyon output, in screen units, with the depth of every vertex:
+//! The leaves of an [`ItemKind::Depth`] group carry the group's number in paint order and the depth of every vertex:
 //! a [`Depth::Plane`] evaluated at the vertex's item-space position, or a [`Depth::Vertices`] carried through lyon
-//! as a custom attribute and so interpolated along fills, strokes and dash pieces alike; an image tile's corners take
-//! its plane at their pixel-space positions. Depths are normalised to `[0, 1]` over the list, 0 the nearest.
-//! [`tessellate_with`] and [`tessellate`] are the meshes alone, for callers with no depth pipelines.
-//!
-//! # Texture providers
-//!
-//! [`tessellate`] draws no images, for callers that have no textures to draw them with; [`tessellate_with`] takes a
-//! [`TextureProvider`]. The interactive canvas provides a [`TextureCache`], which keeps a texture for every sample
-//! buffer and tile across frames, so that a gesture re-uploads nothing, and frees the textures that a rebuild of the
-//! meshes did not request. The offscreen renderer uploads the tiles of one render as user textures and frees them
-//! once the render is read back (see [`crate::offscreen`]).
+//! as a custom attribute and so interpolated along fills, strokes and dash pieces alike; an image tile's corners
+//! take its plane at their pixel-space positions. Depths are normalised to `[0, 1]` over the group, 0 the nearest.
+//! A path in a group without a usable depth, an image in a group without a plane, and a glyph run in a group are
+//! skipped. Outside every group the depth of an item is ignored and its vertices lie at `z = 0`.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
@@ -75,7 +58,7 @@ use lyon::tessellation::{
 };
 use lyon_algorithms::measure::{PathMeasurements, SampleType};
 
-use crate::gpu::{Draw, DrawList, Drawable, TileKey, Vertex};
+use crate::gpu::{Draw, DrawList, TileKey, Vertex};
 
 /// The mapping from figure space (points, y down) to screen space (egui points or pixels, y down).
 ///
@@ -92,7 +75,7 @@ pub struct ScreenTransform {
 impl ScreenTransform {
     /// Maps a figure-space point to screen space.
     #[must_use]
-    pub fn apply(&self, p: ironlab_scene::display::Point) -> egui::Pos2 {
+    pub fn apply(&self, p: Point) -> egui::Pos2 {
         egui::pos2(
             self.origin.x + self.scale * p.x as f32,
             self.origin.y + self.scale * p.y as f32,
@@ -101,16 +84,37 @@ impl ScreenTransform {
 
     /// Maps a screen-space position back to figure space.
     #[must_use]
-    pub fn invert(&self, p: egui::Pos2) -> ironlab_scene::display::Point {
-        ironlab_scene::display::Point::new(
+    pub fn invert(&self, p: egui::Pos2) -> Point {
+        Point::new(
             f64::from((p.x - self.origin.x) / self.scale),
             f64::from((p.y - self.origin.y) / self.scale),
         )
     }
 }
 
+/// The resolution a draw list is built for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Resolution {
+    /// Screen units per figure point: curves are flattened to within [`SCREEN_TOLERANCE`] screen units at this
+    /// scale, glyphs take the cached tessellation of their size at it, and a zero-width stroke is one screen unit
+    /// wide at it. A list built at one scale serves nearby scales; the canvas rebuilds when the scale has changed
+    /// enough for the difference to show. A scale that is not finite and positive gives an empty list.
+    pub scale: f32,
+    /// The largest side of an image tile, in pixels, capped at [`MAX_TILE_SIDE`]; 0 draws no images.
+    pub max_tile_side: u32,
+}
+
+impl Default for Resolution {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            max_tile_side: MAX_TILE_SIDE,
+        }
+    }
+}
+
 /// The largest distance, in screen units, between a curve and the polyline that approximates it.
-const SCREEN_TOLERANCE: f64 = 0.05;
+pub const SCREEN_TOLERANCE: f64 = 0.05;
 
 /// The miter limit of the display list's miter joins.
 const MITER_LIMIT: f32 = 4.0;
@@ -119,220 +123,115 @@ const MITER_LIMIT: f32 = 4.0;
 /// density the dashes are indistinguishable from a solid line and would only cost memory.
 const MAX_DASHES_PER_SUBPATH: f64 = 100_000.0;
 
-/// The largest side, in pixels, of an image tile that the providers of this crate hand out. Each caps the limit of
-/// its graphics device at this, so that one upload never stalls a frame and both backends tile an image alike.
-pub(crate) const MAX_TILE_SIDE: u32 = 8192;
+/// The largest side, in pixels, of an image tile, so that one upload never stalls a frame and every backend tiles
+/// an image alike.
+pub const MAX_TILE_SIDE: u32 = 8192;
 
-/// Supplies the textures that image items are drawn with.
+/// Tessellates every item of `list` into one draw list in figure points, in paint order, for `resolution`.
 ///
-/// [`tessellate_with`] cuts every valid image item into tiles of at most [`max_side`](Self::max_side) pixels on a
-/// side and asks for one texture per tile that is visible through the item's clip. What a provider does with the
-/// request is its own affair: the [`TextureCache`] of the interactive canvas keeps textures across frames, the
-/// offscreen renderer uploads each tile for one render, and a test can record what was asked for.
-pub trait TextureProvider {
-    /// The largest number of pixels a texture may have along either side, which is at least 1 for a provider that
-    /// can supply textures. A provider that reports 0 has none to give, and image items are then skipped.
-    fn max_side(&self) -> u32;
-
-    /// Returns the texture holding tile `tile` of the image whose samples are `samples`.
-    ///
-    /// Tiles are numbered in row-major order, `row · columns + column`, over the tiling that
-    /// [`max_side`](Self::max_side) implies. `render` builds the tile's pixels from the samples, and a provider that
-    /// already holds a texture for this buffer and tile need not call it. A provider may key what it holds by the
-    /// identity of the buffer, because a display list shares one buffer per image and never changes its contents.
-    fn texture(
-        &mut self,
-        samples: &Arc<[u8]>,
-        tile: u32,
-        render: &mut dyn FnMut() -> egui::ColorImage,
-    ) -> egui::TextureId;
-}
-
-/// The provider of [`tessellate`], which has no textures to give.
-struct NoTextures;
-
-impl TextureProvider for NoTextures {
-    fn max_side(&self) -> u32 {
-        0
-    }
-
-    fn texture(
-        &mut self,
-        _samples: &Arc<[u8]>,
-        _tile: u32,
-        _render: &mut dyn FnMut() -> egui::ColorImage,
-    ) -> egui::TextureId {
-        egui::TextureId::default()
-    }
-}
-
-/// Tessellates every item of `list` into screen-space meshes, in paint order, drawing no image items.
-///
-/// The figure background is not included; callers paint it themselves (both the canvas and the offscreen renderer
-/// paint it as a filled rectangle beneath these meshes). Items that produce no geometry (for example glyphs without
-/// an outline, or paths entirely outside their clip) contribute no mesh. Invalid items, such as paths with
-/// non-finite coordinates or strokes with a negative width, are skipped. Image items need textures to be drawn
-/// with and are skipped here; a caller that draws them supplies a [`TextureProvider`] to [`tessellate_with`].
+/// The background of the list is not included; the caller paints it beneath the list (see the module
+/// documentation). Items that produce no geometry (for example glyphs without an outline) contribute no draw, and
+/// invalid items, such as paths with non-finite coordinates or strokes with a negative width, are skipped while the
+/// rest still draw.
 #[must_use]
-pub fn tessellate(
-    list: &DisplayList,
-    text: &TextEngine,
-    to_screen: ScreenTransform,
-) -> Vec<egui::Mesh> {
-    tessellate_with(list, text, to_screen, &mut NoTextures)
-}
-
-/// Tessellates every item of `list` into screen-space meshes, in paint order, drawing image items with textures
-/// from `textures`.
-///
-/// Everything said of [`tessellate`] holds here too. An image item that is not [`ImageItem::is_valid`] is skipped
-/// without a texture being requested; a valid one yields one mesh per tile of it that is visible through its clip,
-/// each sampling the texture the provider returned for that tile, in the item's place in the paint order. Every
-/// other mesh samples egui's default texture at [`egui::epaint::WHITE_UV`]. Unlike [`tessellate`], a call has an
-/// effect beyond its result: the provider is asked for a texture for every visible tile, and may upload or record
-/// what it is asked for. The leaves of depth groups, and leaves that carry a depth, contribute nothing: they are
-/// drawn only through [`drawables_with`].
-pub fn tessellate_with(
-    list: &DisplayList,
-    text: &TextEngine,
-    to_screen: ScreenTransform,
-    textures: &mut dyn TextureProvider,
-) -> Vec<egui::Mesh> {
-    drawables_with(list, text, to_screen, textures)
-        .into_iter()
-        .filter_map(|drawable| match drawable {
-            Drawable::Mesh(mesh) => Some(mesh),
-            Drawable::Gpu(_) => None,
-        })
-        .collect()
-}
-
-/// Tessellates every item of `list` in paint order: egui meshes for the leaves outside depth groups that carry no
-/// depth, exactly as [`tessellate_with`] makes them, and one [`DrawList`] for the depth-tested pipelines per depth
-/// group, in its place, holding every leaf of the group with its depth. A run of consecutive leaves outside any
-/// group that carry a depth becomes one list drawn without the depth test. A path whose depth is not usable
-/// ([`PathItem::is_valid_depth`]), a path or an image inside a depth group without a depth, and a glyph run inside
-/// one are skipped. The provider is never asked for the tiles of an image drawn through a list.
-pub fn drawables_with(
-    list: &DisplayList,
-    text: &TextEngine,
-    to_screen: ScreenTransform,
-    textures: &mut dyn TextureProvider,
-) -> Vec<Drawable> {
-    let mut out = Vec::new();
-    if !(to_screen.scale.is_finite()
-        && to_screen.scale > 0.0
-        && to_screen.origin.x.is_finite()
-        && to_screen.origin.y.is_finite())
-    {
-        return out;
+pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution) -> DrawList {
+    let mut builder = ListBuilder::default();
+    let scale = f64::from(resolution.scale);
+    if !(scale.is_finite() && scale > 0.0) {
+        return builder.finish();
     }
-    let screen = Transform {
-        a: f64::from(to_screen.scale),
-        b: 0.0,
-        c: 0.0,
-        d: f64::from(to_screen.scale),
-        e: f64::from(to_screen.origin.x),
-        f: f64::from(to_screen.origin.y),
-    };
+    let max_tile_side = resolution.max_tile_side.min(MAX_TILE_SIDE);
     let mut tessellators = Tessellators::default();
-    // The meshes of the leaf being visited: none or one for a path or a glyph run, one per visible tile for an image.
-    let mut leaf = Vec::new();
-    // The list being built for the current depth group (`Some(index)`), or for the current run of depth-carrying
-    // leaves outside any group (`None`).
-    let mut current: Option<(Option<usize>, ListBuilder)> = None;
-    let flush = |current: &mut Option<(Option<usize>, ListBuilder)>, out: &mut Vec<Drawable>| {
-        if let Some((_, builder)) = current.take()
-            && let Some(list) = builder.finish()
-        {
-            out.push(Drawable::Gpu(list));
-        }
-    };
     list.visit_leaves_grouped(|item, transform, clip, group| {
-        let Some(context) = LeafContext::new(transform, screen, clip) else {
+        builder.enter(group);
+        let Some(context) = LeafContext::new(transform, scale, clip) else {
             return;
         };
-        let carries_depth = match &item.kind {
-            ItemKind::Path(path) => path.depth.is_some(),
-            ItemKind::Image(image) => image.depth.is_some(),
-            _ => false,
-        };
-        let key = if group.is_some() {
-            Some(group)
-        } else if carries_depth {
-            Some(None)
-        } else {
-            None
-        };
-        let Some(key) = key else {
-            flush(&mut current, &mut out);
-            match &item.kind {
-                ItemKind::Path(path) => {
-                    leaf.extend(tessellate_path(path, &context, &mut tessellators));
-                }
-                ItemKind::Glyphs(glyphs) => {
-                    leaf.extend(tessellate_glyphs(glyphs, text, &context, &mut tessellators));
-                }
-                ItemKind::Image(image) => tessellate_image(image, &context, textures, &mut leaf),
-                // Groups, dense and depth ones included, are descended into by the traversal and never reach this
-                // point.
-                ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => {}
-            }
-            for mut mesh in leaf.drain(..) {
-                if let Some(clip) = context.clip {
-                    mesh = clip_mesh(&mesh, clip);
-                }
-                if !mesh.indices.is_empty() {
-                    out.push(Drawable::Mesh(mesh));
-                }
-            }
-            return;
-        };
-        if current.as_ref().is_none_or(|(k, _)| *k != key) {
-            flush(&mut current, &mut out);
-            current = Some((key, ListBuilder::new(key.is_some())));
-        }
-        let builder = &mut current.as_mut().expect("a list was just started").1;
         match &item.kind {
             ItemKind::Path(path) => {
-                tessellate_path_depth(path, &context, &mut tessellators, builder, item.source);
+                tessellate_path(path, &context, &mut tessellators, &mut builder, item.source);
             }
-            ItemKind::Image(image) => tessellate_image_depth(image, &context, builder, item.source),
-            _ => {}
+            ItemKind::Glyphs(glyphs) if group.is_none() => {
+                tessellate_glyphs(
+                    glyphs,
+                    text,
+                    &context,
+                    &mut tessellators,
+                    &mut builder,
+                    item.source,
+                );
+            }
+            ItemKind::Image(image) => {
+                tessellate_image(image, &context, max_tile_side, &mut builder, item.source);
+            }
+            // A glyph run inside a depth group has no depth to draw at. Groups, dense and depth ones included, are
+            // descended into by the traversal and never reach this point.
+            ItemKind::Glyphs(_)
+            | ItemKind::Group { .. }
+            | ItemKind::Dense { .. }
+            | ItemKind::Depth { .. } => {}
         }
     });
-    flush(&mut current, &mut out);
-    out
+    builder.finish()
 }
 
 /// A [`DrawList`] under construction, with the depth of every vertex before normalisation.
+#[derive(Default)]
 struct ListBuilder {
-    depth_test: bool,
     vertices: Vec<Vertex>,
     depths: Vec<f64>,
     indices: Vec<u32>,
     draws: Vec<Draw>,
+    /// The depth group being built and the index of its first vertex, or `None` outside every group.
+    group: Option<(u32, usize)>,
 }
 
 impl ListBuilder {
-    fn new(depth_test: bool) -> Self {
-        Self {
-            depth_test,
-            vertices: Vec::new(),
-            depths: Vec::new(),
-            indices: Vec::new(),
-            draws: Vec::new(),
+    /// Moves to depth group `group`, closing the group being built when it is another.
+    fn enter(&mut self, group: Option<usize>) {
+        let group = group.map(|g| g as u32);
+        if self.group.map(|(g, _)| g) == group {
+            return;
+        }
+        self.close_group();
+        if let Some(g) = group {
+            self.group = Some((g, self.vertices.len()));
         }
     }
 
+    /// Normalises the depths of the group being built into `z`, 0 the nearest, and leaves the group.
+    fn close_group(&mut self) {
+        let Some((_, start)) = self.group.take() else {
+            return;
+        };
+        let depths = &self.depths[start..];
+        let (min, max) = depths
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
+                (lo.min(*d), hi.max(*d))
+            });
+        for (vertex, depth) in self.vertices[start..].iter_mut().zip(depths) {
+            vertex.z = if max > min {
+                ((max - depth) / (max - min)).clamp(0.0, 1.0) as f32
+            } else {
+                0.5
+            };
+        }
+    }
+
+    /// Whether a leaf is being built inside a depth group.
+    fn in_group(&self) -> bool {
+        self.group.is_some()
+    }
+
     /// Adds one draw of `vertices` (each with its depth) and `indices` relative to them, unless a vertex is not
-    /// finite.
+    /// finite or the indices do not address the vertices.
     fn push(
         &mut self,
         vertices: impl IntoIterator<Item = (Vertex, f64)>,
         indices: impl IntoIterator<Item = u32>,
         texture: Option<TileKey>,
-        clip: Option<egui::Rect>,
+        clip: Option<Rect>,
         source: Option<ironlab_ir::NodeId>,
     ) {
         let base = self.vertices.len() as u32;
@@ -367,35 +266,19 @@ impl ListBuilder {
         self.draws.push(Draw {
             indices: first_index..first_index + count,
             texture,
-            depth_test: self.depth_test,
+            depth_group: self.group.map(|(g, _)| g),
             clip,
             source,
         });
     }
 
-    /// Normalises the depths into `z` and returns the list, or `None` when nothing was added.
-    fn finish(mut self) -> Option<Arc<DrawList>> {
-        if self.draws.is_empty() {
-            return None;
-        }
-        let (min, max) = self
-            .depths
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
-                (lo.min(*d), hi.max(*d))
-            });
-        for (vertex, depth) in self.vertices.iter_mut().zip(&self.depths) {
-            vertex.z = if max > min {
-                ((max - depth) / (max - min)).clamp(0.0, 1.0) as f32
-            } else {
-                0.5
-            };
-        }
-        Some(Arc::new(DrawList {
+    fn finish(mut self) -> DrawList {
+        self.close_group();
+        DrawList {
             vertices: self.vertices,
             indices: self.indices,
             draws: self.draws,
-        }))
+        }
     }
 }
 
@@ -406,23 +289,25 @@ struct Tessellators {
     stroke: StrokeTessellator,
 }
 
-/// The mapping of one leaf item into screen space.
+/// The mapping of one leaf item into figure space, and the resolution it is drawn at.
 struct LeafContext {
-    /// The composite transform from item space to screen space.
-    to_screen: Transform,
-    /// The largest factor by which `to_screen` stretches a length.
+    /// The transform from item space to figure space.
+    to_figure: Transform,
+    /// The largest factor by which `to_figure` stretches a length.
     max_stretch: f64,
-    /// The geometric mean of the stretch of `to_screen` (the square root of its absolute determinant).
+    /// The geometric mean of the stretch of `to_figure` (the square root of its absolute determinant).
     mean_stretch: f64,
-    /// The clip rectangle in screen space.
-    clip: Option<egui::Rect>,
+    /// Screen units per figure point.
+    scale: f64,
+    /// The clip rectangle in figure space.
+    clip: Option<Rect>,
 }
 
 impl LeafContext {
     /// Returns `None` when the transform or clip is not finite, when the transform is degenerate, or when the clip is
     /// empty, in all of which cases the item draws nothing.
-    fn new(transform: Transform, screen: Transform, clip: Option<Rect>) -> Option<Self> {
-        let t = transform.then(screen);
+    fn new(transform: Transform, scale: f64, clip: Option<Rect>) -> Option<Self> {
+        let t = transform;
         if ![t.a, t.b, t.c, t.d, t.e, t.f].iter().all(|v| v.is_finite()) {
             return None;
         }
@@ -432,45 +317,64 @@ impl LeafContext {
         if !(det.is_finite() && det > 0.0 && max_stretch.is_finite() && max_stretch > 0.0) {
             return None;
         }
-        let clip = match clip {
-            None => None,
-            Some(c) => {
-                if ![c.x, c.y, c.width, c.height].iter().all(|v| v.is_finite())
-                    || c.width <= 0.0
-                    || c.height <= 0.0
-                {
-                    return None;
-                }
-                let min = screen.apply(Point::new(c.x, c.y));
-                let max = screen.apply(Point::new(c.right(), c.bottom()));
-                Some(egui::Rect::from_min_max(
-                    egui::pos2(min.x as f32, min.y as f32),
-                    egui::pos2(max.x as f32, max.y as f32),
-                ))
-            }
-        };
+        if let Some(c) = clip
+            && (![c.x, c.y, c.width, c.height].iter().all(|v| v.is_finite())
+                || c.width <= 0.0
+                || c.height <= 0.0)
+        {
+            return None;
+        }
         Some(Self {
-            to_screen: t,
+            to_figure: t,
             max_stretch,
             mean_stretch: det.sqrt(),
+            scale,
             clip,
         })
     }
 
     /// The flattening tolerance in item space that gives [`SCREEN_TOLERANCE`] on screen.
     fn local_tolerance(&self) -> f32 {
-        ((SCREEN_TOLERANCE / self.max_stretch) as f32).max(1e-6)
+        ((SCREEN_TOLERANCE / (self.max_stretch * self.scale)) as f32).max(1e-6)
     }
 
-    fn apply(&self, x: f64, y: f64) -> egui::Pos2 {
-        let p = self.to_screen.apply(Point::new(x, y));
-        egui::pos2(p.x as f32, p.y as f32)
+    /// The width in item space of the thinnest line the screen can draw.
+    fn hairline(&self) -> f32 {
+        (1.0 / (self.mean_stretch * self.scale)) as f32
+    }
+
+    /// The figure-space position of an item-space point.
+    fn apply(&self, x: f64, y: f64) -> [f32; 2] {
+        let p = self.to_figure.apply(Point::new(x, y));
+        [p.x as f32, p.y as f32]
+    }
+
+    /// Whether a quad with the given figure-space corners can show through the clip: its bounding box overlaps the
+    /// clip rectangle. Conservative for a sheared quad, which is drawn and cut by the scissor.
+    fn may_show(&self, corners: &[[f32; 2]; 4]) -> bool {
+        let Some(clip) = self.clip else {
+            return true;
+        };
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for corner in corners {
+            let (x, y) = (f64::from(corner[0]), f64::from(corner[1]));
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        max_x > clip.x && min_x < clip.right() && max_y > clip.y && min_y < clip.bottom()
     }
 }
 
-/// Converts a straight-alpha display-list colour to a premultiplied egui colour, or `None` when a channel is not a
+/// Converts a straight-alpha display-list colour to premultiplied sRGB bytes, or `None` when a channel is not a
 /// number.
-pub(crate) fn color32(color: Rgba) -> Option<egui::Color32> {
+pub(crate) fn premultiplied(color: Rgba) -> Option<[u8; 4]> {
     let channel = |c: f32| {
         if c.is_nan() {
             None
@@ -478,38 +382,15 @@ pub(crate) fn color32(color: Rgba) -> Option<egui::Color32> {
             Some((c.clamp(0.0, 1.0) * 255.0).round() as u8)
         }
     };
-    Some(egui::Color32::from_rgba_unmultiplied(
-        channel(color.r)?,
-        channel(color.g)?,
-        channel(color.b)?,
-        channel(color.a)?,
-    ))
-}
-
-/// Appends lyon output (in item space) to `mesh`, mapped to screen space with a uniform colour, `position` giving
-/// each vertex's item-space position. Returns `false` when a vertex does not map to a finite screen position.
-fn append<V: Copy>(
-    mesh: &mut egui::Mesh,
-    buffers: &VertexBuffers<V, u32>,
-    position: impl Fn(V) -> lyon::math::Point,
-    color: egui::Color32,
-    map: impl Fn(lyon::math::Point) -> egui::Pos2,
-) -> bool {
-    let base = mesh.vertices.len() as u32;
-    for &v in &buffers.vertices {
-        let pos = map(position(v));
-        if !(pos.x.is_finite() && pos.y.is_finite()) {
-            return false;
-        }
-        mesh.vertices.push(egui::epaint::Vertex {
-            pos,
-            uv: egui::epaint::WHITE_UV,
-            color,
-        });
-    }
-    mesh.indices
-        .extend(buffers.indices.iter().map(|&i| base + i));
-    true
+    Some(
+        egui::Color32::from_rgba_unmultiplied(
+            channel(color.r)?,
+            channel(color.g)?,
+            channel(color.b)?,
+            channel(color.a)?,
+        )
+        .to_array(),
+    )
 }
 
 fn is_finite_point(p: Point) -> bool {
@@ -679,8 +560,8 @@ struct DepthVertex {
 
 /// The triangles of a path's fill and of its stroke, in item space, each with its colour.
 struct Geometry {
-    fill: Option<(egui::Color32, VertexBuffers<DepthVertex, u32>)>,
-    stroke: Option<(egui::Color32, VertexBuffers<DepthVertex, u32>)>,
+    fill: Option<([u8; 4], VertexBuffers<DepthVertex, u32>)>,
+    stroke: Option<([u8; 4], VertexBuffers<DepthVertex, u32>)>,
 }
 
 /// Tessellates a path in item space. Returns `None` when the path is invalid, and a geometry without a fill or a
@@ -700,7 +581,7 @@ fn path_geometry(
 
     let mut fill = None;
     if let Some(f) = &item.fill
-        && let Some(color) = color32(f.color)
+        && let Some(color) = premultiplied(f.color)
     {
         let path = lyon_path(&subpaths, false);
         let rule = match f.rule {
@@ -723,12 +604,12 @@ fn path_geometry(
 
     let mut stroke = None;
     if let Some(s) = &item.stroke
-        && let Some(color) = color32(s.color)
+        && let Some(color) = premultiplied(s.color)
         && let Some(path) = stroke_path(&subpaths, s, tolerance)
     {
         let width = if s.width == 0.0 {
             // A zero width is the thinnest line the device can draw, as in PDF.
-            (1.0 / context.mean_stretch) as f32
+            context.hairline()
         } else {
             s.width as f32
         };
@@ -762,54 +643,45 @@ fn path_geometry(
     Some(Geometry { fill, stroke })
 }
 
+/// Adds a path to the list as one draw, its fill before its stroke. Inside a depth group a path without a usable
+/// depth adds nothing; outside one its depth is ignored.
 fn tessellate_path(
-    item: &PathItem,
-    context: &LeafContext,
-    tessellators: &mut Tessellators,
-) -> Option<egui::Mesh> {
-    let geometry = path_geometry(item, context, tessellators)?;
-    let map = |v: lyon::math::Point| context.apply(f64::from(v.x), f64::from(v.y));
-    let mut mesh = egui::Mesh::default();
-    for (color, buffers) in [geometry.fill, geometry.stroke].into_iter().flatten() {
-        if !append(&mut mesh, &buffers, |v: DepthVertex| v.pos, color, map) {
-            return None;
-        }
-    }
-    Some(mesh)
-}
-
-/// Adds a path with a depth to a list as one draw, its fill before its stroke. A path without a usable depth adds
-/// nothing.
-fn tessellate_path_depth(
     item: &PathItem,
     context: &LeafContext,
     tessellators: &mut Tessellators,
     builder: &mut ListBuilder,
     source: Option<ironlab_ir::NodeId>,
 ) {
-    let Some(depth) = &item.depth else { return };
-    if !item.is_valid_depth() {
-        return;
-    }
+    let depth = if builder.in_group() {
+        if !item.is_valid_depth() {
+            return;
+        }
+        match &item.depth {
+            Some(depth) => Some(depth),
+            None => return,
+        }
+    } else {
+        None
+    };
     let Some(geometry) = path_geometry(item, context, tessellators) else {
         return;
     };
     let depth_of = |v: DepthVertex| match depth {
-        Depth::Plane(plane) => plane.at(Point::new(f64::from(v.pos.x), f64::from(v.pos.y))),
-        Depth::Vertices(_) => f64::from(v.depth),
+        Some(Depth::Plane(plane)) => plane.at(Point::new(f64::from(v.pos.x), f64::from(v.pos.y))),
+        Some(Depth::Vertices(_)) => f64::from(v.depth),
+        None => 0.0,
     };
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for (color, buffers) in [geometry.fill, geometry.stroke].into_iter().flatten() {
         let base = vertices.len() as u32;
         for &v in &buffers.vertices {
-            let pos = context.apply(f64::from(v.pos.x), f64::from(v.pos.y));
             vertices.push((
                 Vertex {
-                    pos: [pos.x, pos.y],
+                    pos: context.apply(f64::from(v.pos.x), f64::from(v.pos.y)),
                     z: 0.0,
                     uv: [0.0, 0.0],
-                    color: color.to_array(),
+                    color,
                 },
                 depth_of(v),
             ));
@@ -978,23 +850,29 @@ fn glyph_tessellation(
     Some(buffers)
 }
 
+/// Adds a glyph run to the list as one draw of every glyph's triangles.
 fn tessellate_glyphs(
     item: &GlyphsItem,
     text: &TextEngine,
     context: &LeafContext,
     tessellators: &mut Tessellators,
-) -> Option<egui::Mesh> {
+    builder: &mut ListBuilder,
+    source: Option<ironlab_ir::NodeId>,
+) {
     if !(item.size_pt.is_finite() && item.size_pt > 0.0) {
-        return None;
+        return;
     }
-    let color = color32(item.color)?;
-    let em = item.size_pt * context.max_stretch;
+    let Some(color) = premultiplied(item.color) else {
+        return;
+    };
+    let em = item.size_pt * context.max_stretch * context.scale;
     if !em.is_finite() {
-        return None;
+        return;
     }
     let bucket = size_bucket(em);
     let size = item.size_pt;
-    let mut mesh = egui::Mesh::default();
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
     for glyph in &item.glyphs {
         if !(glyph.x.is_finite() && glyph.y.is_finite()) {
             continue;
@@ -1003,97 +881,56 @@ fn tessellate_glyphs(
         else {
             continue;
         };
-        let (x, y) = (glyph.x, glyph.y);
-        let map = |v: lyon::math::Point| {
-            context.apply(x + size * f64::from(v.x), y + size * f64::from(v.y))
-        };
-        if !append(&mut mesh, &buffers, |p| p, color, map) {
-            return None;
+        let base = vertices.len() as u32;
+        for v in &buffers.vertices {
+            vertices.push((
+                Vertex {
+                    pos: context.apply(
+                        glyph.x + size * f64::from(v.x),
+                        glyph.y + size * f64::from(v.y),
+                    ),
+                    z: 0.0,
+                    uv: [0.0, 0.0],
+                    color,
+                },
+                0.0,
+            ));
         }
+        indices.extend(buffers.indices.iter().map(|&i| base + i));
     }
-    Some(mesh)
+    builder.push(vertices, indices, None, context.clip, source);
 }
 
-/// Tessellates an image item into one textured quad per visible tile, appending the meshes to `out`.
+/// Adds an image to the list as one draw per tile that may show through the clip.
 ///
-/// The item is cut into tiles of at most the provider's largest side, numbered in row-major order. Each tile's quad
-/// has its four corners at the tile's sub-rectangle of the item rectangle mapped through the leaf context, so a
+/// The item is cut into tiles of at most `max_tile_side` pixels on a side, numbered in row-major order. Each tile's
+/// quad has its four corners at the tile's sub-rectangle of the item rectangle mapped through the leaf context, so a
 /// sheared placement gives a parallelogram; the texture coordinates (0, 0), (1, 0), (0, 1) and (1, 1) sit at its
 /// top-left, top-right, bottom-left and bottom-right corners, and its vertices are white, so that the texture is
 /// drawn unmodulated. The boundary between two pixel columns or rows is computed from its integer index alone, so
-/// the tiles either side of it share bit-equal screen edges. A tile whose quad lies wholly outside the clip is
-/// neither requested from the provider nor drawn, and an item with more tiles than a `u32` can number, which no
-/// provider of this crate produces, is not drawn.
+/// the tiles either side of it share bit-equal edges. Inside a depth group the corners take the item's plane at
+/// their pixel-space positions, and an image without a plane adds nothing; outside one the plane is ignored. An
+/// item with more tiles than a `u32` can number, which no tile side of this crate produces, is not drawn.
 fn tessellate_image(
     item: &ImageItem,
     context: &LeafContext,
-    textures: &mut dyn TextureProvider,
-    out: &mut Vec<egui::Mesh>,
-) {
-    let max_side = textures.max_side();
-    if max_side == 0 || !item.is_valid() {
-        return;
-    }
-    let columns = item.width.div_ceil(max_side);
-    let rows = item.height.div_ceil(max_side);
-    let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
-        return;
-    };
-    let rect = item.rect;
-    let x_at = |column: u32| rect.x + rect.width * (f64::from(column) / f64::from(item.width));
-    let y_at = |row: u32| rect.y + rect.height * (f64::from(row) / f64::from(item.height));
-    for tile in 0..tiles {
-        let (row, column) = (tile / columns, tile % columns);
-        let (c0, r0) = (column * max_side, row * max_side);
-        let c1 = c0.saturating_add(max_side).min(item.width);
-        let r1 = r0.saturating_add(max_side).min(item.height);
-        let (left, right, top, bottom) = (x_at(c0), x_at(c1), y_at(r0), y_at(r1));
-        let corners = [
-            (context.apply(left, top), egui::pos2(0.0, 0.0)),
-            (context.apply(right, top), egui::pos2(1.0, 0.0)),
-            (context.apply(left, bottom), egui::pos2(0.0, 1.0)),
-            (context.apply(right, bottom), egui::pos2(1.0, 1.0)),
-        ];
-        if !corners
-            .iter()
-            .all(|(pos, _)| pos.x.is_finite() && pos.y.is_finite())
-        {
-            continue;
-        }
-        if let Some(clip) = context.clip
-            && !quad_is_visible(&corners, clip)
-        {
-            continue;
-        }
-        let mut render = || tile_image(item, (c0, c1), (r0, r1));
-        let texture = textures.texture(&item.samples, tile, &mut render);
-        let mut mesh = egui::Mesh::with_texture(texture);
-        mesh.vertices
-            .extend(corners.iter().map(|&(pos, uv)| egui::epaint::Vertex {
-                pos,
-                uv,
-                color: egui::Color32::WHITE,
-            }));
-        mesh.indices.extend([0, 1, 2, 2, 1, 3]);
-        out.push(mesh);
-    }
-}
-
-/// Adds an image with a depth plane to a list as one draw per visible tile, the tiles cut at [`MAX_TILE_SIDE`] and
-/// numbered as [`tessellate_image`] numbers them, each a white textured quad whose four corners take the plane at
-/// their pixel-space positions. An image without a depth, or an invalid one, adds nothing.
-fn tessellate_image_depth(
-    item: &ImageItem,
-    context: &LeafContext,
+    max_tile_side: u32,
     builder: &mut ListBuilder,
     source: Option<ironlab_ir::NodeId>,
 ) {
-    let Some(plane) = item.depth else { return };
-    if !item.is_valid() {
+    if max_tile_side == 0 || !item.is_valid() {
         return;
     }
-    let columns = item.width.div_ceil(MAX_TILE_SIDE);
-    let rows = item.height.div_ceil(MAX_TILE_SIDE);
+    let plane = if builder.in_group() {
+        match item.depth {
+            Some(plane) => Some(plane),
+            None => return,
+        }
+    } else {
+        None
+    };
+    let columns = item.width.div_ceil(max_tile_side);
+    let rows = item.height.div_ceil(max_tile_side);
     let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
         return;
     };
@@ -1102,24 +939,20 @@ fn tessellate_image_depth(
     let y_at = |row: u32| rect.y + rect.height * (f64::from(row) / f64::from(item.height));
     for tile in 0..tiles {
         let (row, column) = (tile / columns, tile % columns);
-        let (c0, r0) = (column * MAX_TILE_SIDE, row * MAX_TILE_SIDE);
-        let c1 = c0.saturating_add(MAX_TILE_SIDE).min(item.width);
-        let r1 = r0.saturating_add(MAX_TILE_SIDE).min(item.height);
+        let (c0, r0) = (column * max_tile_side, row * max_tile_side);
+        let c1 = c0.saturating_add(max_tile_side).min(item.width);
+        let r1 = r0.saturating_add(max_tile_side).min(item.height);
         let (left, right, top, bottom) = (x_at(c0), x_at(c1), y_at(r0), y_at(r1));
         let corners = [
-            (context.apply(left, top), egui::pos2(0.0, 0.0)),
-            (context.apply(right, top), egui::pos2(1.0, 0.0)),
-            (context.apply(left, bottom), egui::pos2(0.0, 1.0)),
-            (context.apply(right, bottom), egui::pos2(1.0, 1.0)),
+            context.apply(left, top),
+            context.apply(right, top),
+            context.apply(left, bottom),
+            context.apply(right, bottom),
         ];
         if !corners
             .iter()
-            .all(|(pos, _)| pos.x.is_finite() && pos.y.is_finite())
-        {
-            continue;
-        }
-        if let Some(clip) = context.clip
-            && !quad_is_visible(&corners, clip)
+            .all(|pos| pos[0].is_finite() && pos[1].is_finite())
+            || !context.may_show(&corners)
         {
             continue;
         }
@@ -1129,18 +962,20 @@ fn tessellate_image_depth(
             Point::new(f64::from(c0), f64::from(r1)),
             Point::new(f64::from(c1), f64::from(r1)),
         ];
+        let uvs = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let vertices = corners
             .iter()
+            .zip(uvs)
             .zip(pixel_corners)
-            .map(|(&(pos, uv), pixel)| {
+            .map(|((&pos, uv), pixel)| {
                 (
                     Vertex {
-                        pos: [pos.x, pos.y],
+                        pos,
                         z: 0.0,
-                        uv: [uv.x, uv.y],
+                        uv,
                         color: [255, 255, 255, 255],
                     },
-                    plane.at(pixel),
+                    plane.map_or(0.0, |plane| plane.at(pixel)),
                 )
             });
         let key = TileKey {
@@ -1157,234 +992,5 @@ fn tessellate_image_depth(
             context.clip,
             source,
         );
-    }
-}
-
-/// The pixels of columns `c0..c1` and rows `r0..r1` of an image item as an egui image: opaque texels for three
-/// channels, and texels premultiplied from straight alpha for four.
-fn tile_image(item: &ImageItem, (c0, c1): (u32, u32), (r0, r1): (u32, u32)) -> egui::ColorImage {
-    let channels = usize::from(item.channels);
-    let width = item.width as usize;
-    let (c0, c1, r0, r1) = (c0 as usize, c1 as usize, r0 as usize, r1 as usize);
-    // The rows of a tile spanning every column are one contiguous run of the samples.
-    let bytes: Cow<'_, [u8]> = if c0 == 0 && c1 == width {
-        Cow::Borrowed(&item.samples[r0 * width * channels..r1 * width * channels])
-    } else {
-        Cow::Owned(
-            (r0..r1)
-                .flat_map(|row| {
-                    let start = (row * width + c0) * channels;
-                    item.samples[start..start + (c1 - c0) * channels]
-                        .iter()
-                        .copied()
-                })
-                .collect(),
-        )
-    };
-    let size = [c1 - c0, r1 - r0];
-    if item.channels == ImageItem::RGB {
-        egui::ColorImage::from_rgb(size, &bytes)
-    } else {
-        egui::ColorImage::from_rgba_unmultiplied(size, &bytes)
-    }
-}
-
-/// Reports whether a quad given by its top-left, top-right, bottom-left and bottom-right corners has a part of
-/// positive area inside `clip`.
-fn quad_is_visible(corners: &[TexturedPoint; 4], clip: egui::Rect) -> bool {
-    let polygon = clip_polygon(vec![corners[0], corners[1], corners[3], corners[2]], clip);
-    polygon.len() >= 3 && polygon_area(&polygon) > 0.0
-}
-
-/// The unsigned area of a polygon given by its vertices in perimeter order.
-fn polygon_area(polygon: &[TexturedPoint]) -> f32 {
-    let twice: f32 = polygon
-        .iter()
-        .zip(polygon.iter().cycle().skip(1))
-        .map(|((a, _), (b, _))| a.x * b.y - b.x * a.y)
-        .sum();
-    twice.abs() / 2.0
-}
-
-/// A screen position with the texture coordinate its vertex carries.
-type TexturedPoint = (egui::Pos2, egui::Pos2);
-
-/// Clips every triangle of `mesh` against `clip` with the Sutherland–Hodgman algorithm, re-triangulating clipped
-/// triangles as fans. Triangles entirely inside keep their vertices; triangles entirely outside are dropped. A
-/// vertex made on the clip boundary carries the texture coordinate interpolated with its position. The vertices of
-/// a triangle share one colour in every mesh this module builds, so a clipped triangle keeps the colour of its
-/// first vertex.
-fn clip_mesh(mesh: &egui::Mesh, clip: egui::Rect) -> egui::Mesh {
-    let mut out = egui::Mesh {
-        texture_id: mesh.texture_id,
-        ..Default::default()
-    };
-    // Maps an input vertex index to its output index, for vertices of triangles kept whole.
-    let mut remap: Vec<u32> = vec![u32::MAX; mesh.vertices.len()];
-    let inside = |p: egui::Pos2| {
-        p.x >= clip.min.x && p.x <= clip.max.x && p.y >= clip.min.y && p.y <= clip.max.y
-    };
-    for triangle in mesh.indices.as_chunks::<3>().0 {
-        let vertices = [
-            mesh.vertices[triangle[0] as usize],
-            mesh.vertices[triangle[1] as usize],
-            mesh.vertices[triangle[2] as usize],
-        ];
-        if vertices.iter().all(|v| inside(v.pos)) {
-            for &i in triangle {
-                if remap[i as usize] == u32::MAX {
-                    remap[i as usize] = out.vertices.len() as u32;
-                    out.vertices.push(mesh.vertices[i as usize]);
-                }
-                out.indices.push(remap[i as usize]);
-            }
-            continue;
-        }
-        let xs = vertices.map(|v| v.pos.x);
-        let ys = vertices.map(|v| v.pos.y);
-        let below = |values: [f32; 3], limit: f32| values.iter().all(|&v| v < limit);
-        let above = |values: [f32; 3], limit: f32| values.iter().all(|&v| v > limit);
-        if below(xs, clip.min.x)
-            || above(xs, clip.max.x)
-            || below(ys, clip.min.y)
-            || above(ys, clip.max.y)
-        {
-            continue;
-        }
-        let polygon = clip_polygon(vertices.iter().map(|v| (v.pos, v.uv)).collect(), clip);
-        if polygon.len() < 3 {
-            continue;
-        }
-        let color = vertices[0].color;
-        let base = out.vertices.len() as u32;
-        out.vertices
-            .extend(
-                polygon
-                    .iter()
-                    .map(|&(pos, uv)| egui::epaint::Vertex { pos, uv, color }),
-            );
-        for k in 1..polygon.len() as u32 - 1 {
-            out.indices.extend([base, base + k, base + k + 1]);
-        }
-    }
-    out
-}
-
-/// Clips a convex polygon against an axis-aligned rectangle, interpolating the texture coordinate of every vertex
-/// made on the rectangle's boundary with its position.
-fn clip_polygon(mut polygon: Vec<TexturedPoint>, clip: egui::Rect) -> Vec<TexturedPoint> {
-    // Each edge is described by a signed distance that is non-negative inside.
-    let edges: [&dyn Fn(egui::Pos2) -> f32; 4] = [
-        &|p| p.x - clip.min.x,
-        &|p| clip.max.x - p.x,
-        &|p| p.y - clip.min.y,
-        &|p| clip.max.y - p.y,
-    ];
-    for distance in edges {
-        if polygon.is_empty() {
-            break;
-        }
-        let input = std::mem::take(&mut polygon);
-        for (i, &current) in input.iter().enumerate() {
-            let previous = input[(i + input.len() - 1) % input.len()];
-            let (dc, dp) = (distance(current.0), distance(previous.0));
-            if dc >= 0.0 {
-                if dp < 0.0 {
-                    polygon.push(intersection(previous, current, dp, dc));
-                }
-                polygon.push(current);
-            } else if dp >= 0.0 {
-                polygon.push(intersection(previous, current, dp, dc));
-            }
-        }
-    }
-    polygon
-}
-
-/// The point on the segment from `a` to `b` at which the signed distance passes from `da` to `db` through zero,
-/// with its texture coordinate taken at the same parameter.
-fn intersection(a: TexturedPoint, b: TexturedPoint, da: f32, db: f32) -> TexturedPoint {
-    let t = da / (da - db);
-    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
-}
-
-/// One texture held by a [`TextureCache`].
-struct CachedTexture {
-    /// A clone of the sample buffer the texture was made from, held so that the allocator cannot give the buffer's
-    /// address to another buffer while the texture is cached: a figure whose image data is replaced by an array of
-    /// the same size could otherwise be drawn with the old pixels.
-    _samples: Arc<[u8]>,
-    /// The texture, which is freed from the context when the handle is dropped.
-    handle: egui::TextureHandle,
-    /// Whether the texture has been requested since the previous [`TextureCache::retain_requested`].
-    requested: bool,
-}
-
-/// The texture provider of the interactive canvas: a cache of the textures of the images on screen, keyed by the
-/// address of their sample buffer and their tile, that keeps a texture across frames for as long as the rebuilt
-/// meshes keep asking for it.
-///
-/// The samples of an image do not change between frames, only the view does, so the cache spares the graphics
-/// device an upload per gesture: a request for a buffer and tile it holds is answered without rendering the pixels
-/// again. A request it does not hold renders the tile and loads it into the context with
-/// [`egui::TextureOptions::NEAREST`], so that the pixel edges are hard on screen as they are offscreen and in a PDF.
-/// After every rebuild of the meshes, [`retain_requested`](Self::retain_requested) frees the textures the rebuild did
-/// not ask for, so that a figure edited to hold other data leaves no textures behind and a pan through a large
-/// figure does not let the device's memory grow without bound. Each entry holds a clone of its sample buffer for as
-/// long as it exists, so that the address the cache keys by cannot be reused by another buffer in the meantime.
-///
-/// The largest side of a tile is the limit the backend reports through the context's input, capped at
-/// [`MAX_TILE_SIDE`], and is read when it is asked for, so a limit set by a later pass is honoured.
-pub struct TextureCache {
-    ctx: egui::Context,
-    entries: HashMap<(usize, u32), CachedTexture>,
-}
-
-impl TextureCache {
-    /// Creates an empty cache that loads its textures into `ctx`.
-    #[must_use]
-    pub fn new(ctx: egui::Context) -> Self {
-        Self {
-            ctx,
-            entries: HashMap::new(),
-        }
-    }
-
-    /// Frees every texture that has not been requested since the previous call (or, for the first call, since the
-    /// cache was made), and starts a new round of requests. The interactive canvas calls this after each rebuild of
-    /// its meshes, so that the cache holds exactly the textures the meshes on screen sample.
-    pub fn retain_requested(&mut self) {
-        self.entries
-            .retain(|_, entry| std::mem::replace(&mut entry.requested, false));
-    }
-}
-
-impl TextureProvider for TextureCache {
-    fn max_side(&self) -> u32 {
-        let limit = self.ctx.input(|input| input.max_texture_side);
-        u32::try_from(limit).map_or(MAX_TILE_SIDE, |limit| limit.min(MAX_TILE_SIDE))
-    }
-
-    fn texture(
-        &mut self,
-        samples: &Arc<[u8]>,
-        tile: u32,
-        render: &mut dyn FnMut() -> egui::ColorImage,
-    ) -> egui::TextureId {
-        let address = Arc::as_ptr(samples).cast::<u8>().addr();
-        let entry = self
-            .entries
-            .entry((address, tile))
-            .or_insert_with(|| CachedTexture {
-                _samples: Arc::clone(samples),
-                handle: self.ctx.load_texture(
-                    format!("ironlab image {address:#x} tile {tile}"),
-                    render(),
-                    egui::TextureOptions::NEAREST,
-                ),
-                requested: false,
-            });
-        entry.requested = true;
-        entry.handle.id()
     }
 }
