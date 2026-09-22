@@ -14,6 +14,19 @@
 //! inspected on screen, at print resolution, rather than the output of a second rasteriser that would drift from it.
 //! Without a rasteriser, dense content is drawn as vector geometry whatever the policy says.
 //!
+//! # Three-dimensional axes
+//!
+//! The viewer draws the artists of a three-dimensional axes, which the scene compiler wraps in
+//! [`ItemKind::Depth`], with a depth buffer, and a PDF has none. Under [`DepthPolicy::Auto`] the exporter therefore
+//! asks the rasteriser for the axes twice, with and without the depth test, and writes the artists as vector paths in
+//! painter's order only when the two renders are identical, which proves that the order shows the same picture at
+//! the export resolution; otherwise it embeds the depth-tested render as an image, exactly as it embeds dense
+//! content. [`DepthPolicy::Raster`] always embeds the render and [`DepthPolicy::Vector`] never asks. Every such
+//! decision, and every dense group drawn as an image, is reported in the warnings of the rendered page. Two renders
+//! show the same picture when they agree within [`SAME_PICTURE_TOLERANCE`] over every patch of
+//! [`SAME_PICTURE_PATCH_PT`], which admits the slivers that anti-aliasing leaves along the shared edges of faces
+//! and refuses any misdrawn face, marker or stretch of line.
+//!
 //! # Placement
 //!
 //! The image occupies the smallest rectangle that contains the dense geometry, intersected with the clips that
@@ -27,6 +40,34 @@ use std::sync::Arc;
 use ironlab_scene::display::{
     DisplayList, ImageItem, Item, ItemKind, PathSegment, Point, Rect, Rgba, Transform,
 };
+
+/// How the exporter draws a three-dimensional axes, whose artists the viewer draws with a depth buffer that a PDF
+/// cannot have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DepthPolicy {
+    /// Render the axes twice through the rasteriser, with and without the depth test, and write its artists as
+    /// vector paths in painter's order when the two renders are identical, which proves that the order shows the
+    /// same picture at the export resolution; otherwise embed the depth-tested render as an image.
+    #[default]
+    Auto,
+    /// Write the artists as vector paths in painter's order without checking, with a warning.
+    Vector,
+    /// Embed the depth-tested render as an image, whatever the painter's order would show.
+    Raster,
+}
+
+/// Whether an export needs a rasteriser at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Need {
+    /// Nothing is rasterised and nothing verified, so no rasteriser is needed.
+    No,
+    /// Three-dimensional axes are verified under [`DepthPolicy::Auto`] and nothing must be drawn as an image; an
+    /// export without a rasteriser succeeds, drawing the axes back to front with a warning.
+    ToVerify,
+    /// Dense content the policy rasterises, or a three-dimensional axes under [`DepthPolicy::Raster`], must be drawn
+    /// as an image, which fails without a rasteriser.
+    ToDraw,
+}
 
 /// The number of data cells at which [`RasterPolicy::Auto`] switches a dense artist from vector to raster output.
 ///
@@ -80,14 +121,16 @@ impl RasterPolicy {
     }
 }
 
-/// The settings controlling the raster fallback for dense content.
+/// The settings controlling the raster fallback for dense content and the drawing of three-dimensional axes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RasterOptions {
-    /// The choice between vector and raster output.
+    /// The choice between vector and raster output for dense content.
     pub policy: RasterPolicy,
     /// The resolution, in dots per inch, at which rasterised content is rendered. A figure is exported at its
     /// physical size, so this is the resolution the raster has on the printed page.
     pub dpi: f64,
+    /// How three-dimensional axes are drawn.
+    pub depth: DepthPolicy,
 }
 
 impl Default for RasterOptions {
@@ -95,6 +138,7 @@ impl Default for RasterOptions {
         Self {
             policy: RasterPolicy::default(),
             dpi: DEFAULT_RASTER_DPI,
+            depth: DepthPolicy::default(),
         }
     }
 }
@@ -113,6 +157,66 @@ pub struct RasterImage {
     pub height: u32,
     /// `width · height · 4` bytes.
     pub rgba: Vec<u8>,
+}
+
+/// The side, in points, of the patches over which two renders of a three-dimensional axes are compared: about the
+/// size of a character, so that a misdrawn marker or a hidden stretch of a line fills a noticeable part of a patch
+/// while the slivers that anti-aliasing leaves along the shared edges of faces do not.
+pub const SAME_PICTURE_PATCH_PT: f64 = 6.0;
+
+/// The largest mean difference over a patch, in levels of 255 per channel, at which two renders still show the same
+/// picture. A patch of the export resolution differs by this much when about a fortieth of it changes from one
+/// colour to a contrasting one, which is a 0.15 pt sliver along a 6 pt edge, or a dot a third of a point across.
+pub const SAME_PICTURE_TOLERANCE: f64 = 4.0;
+
+/// Reports whether two renders of the same size show the same picture: no patch of [`SAME_PICTURE_PATCH_PT`] at
+/// `dpi` differs by more than [`SAME_PICTURE_TOLERANCE`] on average over its pixels and channels. Renders of
+/// different sizes never do.
+///
+/// The patches tile the image from its top-left corner, and the last patch of a row or column that the tiling does
+/// not divide exactly is pulled back to the edge so that it is a whole patch overlapping its neighbour: every patch
+/// covers the same area, so a sliver along the right or bottom edge is judged by the same rule as one in the
+/// middle. An image smaller than a patch is one patch.
+#[must_use]
+pub fn same_picture(a: &RasterImage, b: &RasterImage, dpi: f64) -> bool {
+    if a.width != b.width || a.height != b.height || a.rgba.len() != b.rgba.len() {
+        return false;
+    }
+    let (width, height) = (a.width as usize, a.height as usize);
+    if width == 0 || height == 0 || a.rgba.len() != width * height * 4 {
+        return a.rgba == b.rgba;
+    }
+    let patch = if dpi.is_finite() && dpi > 0.0 {
+        ((SAME_PICTURE_PATCH_PT * dpi / 72.0).round() as usize).max(1)
+    } else {
+        1
+    };
+    let starts = |extent: usize| {
+        (0..extent)
+            .step_by(patch)
+            .map(move |start| start.min(extent.saturating_sub(patch)))
+    };
+    let limit = SAME_PICTURE_TOLERANCE * 4.0;
+    for y0 in starts(height) {
+        for x0 in starts(width) {
+            let (y1, x1) = ((y0 + patch).min(height), (x0 + patch).min(width));
+            let mut sum: u64 = 0;
+            for y in y0..y1 {
+                let start = (y * width + x0) * 4;
+                let end = (y * width + x1) * 4;
+                sum += a.rgba[start..end]
+                    .iter()
+                    .zip(&b.rgba[start..end])
+                    .map(|(p, q)| u64::from(p.abs_diff(*q)))
+                    .sum::<u64>();
+            }
+            let pixels = ((y1 - y0) * (x1 - x0)) as f64;
+            if sum as f64 > limit * pixels {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// A renderer that draws a display list into an image.
@@ -135,10 +239,7 @@ impl<T: Rasteriser + ?Sized> Rasteriser for &mut T {
     }
 }
 
-/// Reports whether any content of `list` would be drawn as a raster image under `options`.
-///
-/// A caller uses this to decide whether an export needs a rasteriser at all, so that exporting a figure with nothing
-/// dense in it never requires a graphics adapter.
+/// Reports whether any dense content of `list` would be drawn as a raster image under `options`.
 #[must_use]
 pub fn rasterises_any(list: &DisplayList, options: &RasterOptions) -> bool {
     fn walk(items: &[Item], options: &RasterOptions) -> bool {
@@ -151,6 +252,33 @@ pub fn rasterises_any(list: &DisplayList, options: &RasterOptions) -> bool {
         })
     }
     options.pixels_per_point().is_some() && walk(&list.items, options)
+}
+
+/// Reports whether an export of `list` under `options` needs a rasteriser: to draw an image, only to verify the
+/// painter's order of three-dimensional axes, or not at all.
+///
+/// A caller uses this to decide whether to look for a graphics adapter, and what a missing one means: nothing when
+/// the answer is [`Need::No`], a warning when it is [`Need::ToVerify`], and an error when it is [`Need::ToDraw`].
+#[must_use]
+pub fn needs_rasteriser(list: &DisplayList, options: &RasterOptions) -> Need {
+    fn depth_groups(items: &[Item]) -> bool {
+        items.iter().any(|item| match &item.kind {
+            ItemKind::Depth { .. } => true,
+            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => depth_groups(items),
+            _ => false,
+        })
+    }
+    if options.pixels_per_point().is_none() {
+        return Need::No;
+    }
+    let depth = depth_groups(&list.items);
+    if rasterises_any(list, options) || (depth && options.depth == DepthPolicy::Raster) {
+        Need::ToDraw
+    } else if depth && options.depth == DepthPolicy::Auto {
+        Need::ToVerify
+    } else {
+        Need::No
+    }
 }
 
 /// A dense group prepared for drawing as an image: where it goes and what is rendered into it.
@@ -210,28 +338,35 @@ impl Plan {
     }
 }
 
-/// Plans the image for a dense group, or returns `None` when it should be drawn as vector geometry.
+/// Plans the image for a group of items, or returns `None` when they should be drawn as vector geometry.
 ///
 /// `to_figure` maps the group's coordinates into figure space and `clip` is the intersection of the clips enclosing
 /// it, both as accumulated by the painter. `page` bounds the rectangle so that geometry running far outside the
-/// figure cannot demand an enormous image.
+/// figure cannot demand an enormous image. With `depth_tested` the rendered list holds the items in a depth group,
+/// so that the rasteriser draws them with its depth buffer; without it they are drawn in order.
 pub(crate) fn plan(
     items: &[Item],
     to_figure: Transform,
     clip: Option<Rect>,
     page: Rect,
     options: &RasterOptions,
+    depth_tested: bool,
 ) -> Option<Plan> {
     let scale = options.pixels_per_point()?;
-    let bounds = bounds(items, to_figure)?;
-    let mut rect = intersect(bounds, page);
-    if let Some(clip) = clip {
-        rect = intersect(rect, clip);
-    }
-    let rect = snap_out(rect, scale)?;
+    let rect = snap_out(extent(items, to_figure, clip, page)?, scale)?;
 
     // The clip is expressed in the parent space of the group, which for the rendered list is the image's own space.
     let local_clip = clip.map(|c| Rect::new(c.x - rect.x, c.y - rect.y, c.width, c.height));
+    let items = if depth_tested {
+        vec![Item {
+            source: None,
+            kind: ItemKind::Depth {
+                items: items.to_vec(),
+            },
+        }]
+    } else {
+        items.to_vec()
+    };
     Some(Plan {
         rect,
         scale,
@@ -244,11 +379,27 @@ pub(crate) fn plan(
                 kind: ItemKind::Group {
                     clip: local_clip,
                     transform: Some(to_figure.then(Transform::translate(-rect.x, -rect.y))),
-                    items: items.to_vec(),
+                    items,
                 },
             }],
         },
     })
+}
+
+/// The rectangle of figure space in which a group of items can show: the bounds of the items mapped through
+/// `to_figure`, within the page and the enclosing `clip`. `None` when the items enclose no finite geometry or when
+/// nothing of them lies within the clip and the page, so that there is nothing to draw, to verify or to rasterise.
+pub(crate) fn extent(
+    items: &[Item],
+    to_figure: Transform,
+    clip: Option<Rect>,
+    page: Rect,
+) -> Option<Rect> {
+    let mut rect = intersect(bounds(items, to_figure)?, page);
+    if let Some(clip) = clip {
+        rect = intersect(rect, clip);
+    }
+    (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
 }
 
 /// Grows a rectangle outwards to whole pixels of a resolution of `scale` pixels per point, or returns `None` when it

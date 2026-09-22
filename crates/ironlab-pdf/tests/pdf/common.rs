@@ -2,13 +2,19 @@
 
 #![allow(dead_code)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use image::{RgbImage, RgbaImage};
-use ironlab_pdf::{PdfOptions, render_display_list};
+use ironlab_ir::NodeId;
+use ironlab_pdf::{
+    ExportWarning, ExportWarningKind, PdfOptions, RasterImage, Rasteriser, Rendered,
+    render_display_list,
+};
 use ironlab_scene::display::{
     DisplayList, Fill, FillRule, GlyphsItem, Item, ItemKind, LineCap, LineJoin, PathItem,
     PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
@@ -109,9 +115,11 @@ pub fn engine() -> TextEngine {
     TextEngine::new()
 }
 
-/// Renders a display list with default options.
+/// Renders a display list with default options and returns the bytes of the page.
 pub fn render(list: &DisplayList, text: &TextEngine) -> Vec<u8> {
-    render_display_list(list, text, &PdfOptions::default(), None).expect("render display list")
+    render_display_list(list, text, &PdfOptions::default(), None)
+        .expect("render display list")
+        .bytes
 }
 
 /// An empty display list on a white page.
@@ -717,5 +725,148 @@ pub fn assert_engines_agree(poppler: &RgbImage, ghostscript: &RgbImage) {
          {WORST_BLOCK_PX}x{WORST_BLOCK_PX} px block difference {:.2} (tolerance {WORST_BLOCK_TOLERANCE}), of 255",
         difference.mean,
         difference.worst_block
+    );
+}
+
+/// The identifier of a dense artist, which the exporter's report names when it rasterises it.
+pub const SURFACE: NodeId = NodeId(3);
+
+/// A dense group of `cells` cells drawn for the artist `SURFACE`.
+pub fn dense(cells: u64, items: Vec<Item>) -> Item {
+    Item {
+        source: Some(SURFACE),
+        kind: ItemKind::Dense { cells, items },
+    }
+}
+
+/// What a rasteriser was asked to render, and at what resolution, in order.
+pub type Calls = Rc<RefCell<Vec<(DisplayList, f64)>>>;
+
+/// A rasteriser that paints every pixel one colour and records the lists and resolutions it was asked for.
+///
+/// It paints `tested` when the list it is given holds a depth group anywhere, standing for a depth-tested picture,
+/// and `painted` otherwise, standing for a painter's-order one, which is how the two renders the exporter compares
+/// under `DepthPolicy::Auto` are made to differ or agree at will. A test of dense content, which never renders a
+/// depth group, gives it one colour through [`Stub::flat`].
+pub struct Stub {
+    tested: [u8; 4],
+    painted: [u8; 4],
+    calls: Calls,
+}
+
+impl Stub {
+    pub fn new(tested: [u8; 4], painted: [u8; 4]) -> (Self, Calls) {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        (
+            Self {
+                tested,
+                painted,
+                calls: Rc::clone(&calls),
+            },
+            calls,
+        )
+    }
+
+    /// A stub that paints `color` whether or not the list holds a depth group.
+    pub fn flat(color: [u8; 4]) -> (Self, Calls) {
+        Self::new(color, color)
+    }
+}
+
+impl Rasteriser for Stub {
+    fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
+        self.calls.borrow_mut().push((list.clone(), dpi));
+        let color = if holds_depth(list) {
+            self.tested
+        } else {
+            self.painted
+        };
+        let scale = dpi / 72.0;
+        let width = (list.width_pt * scale).round() as u32;
+        let height = (list.height_pt * scale).round() as u32;
+        Ok(RasterImage {
+            width,
+            height,
+            rgba: color
+                .iter()
+                .copied()
+                .cycle()
+                .take(width as usize * height as usize * 4)
+                .collect(),
+        })
+    }
+}
+
+/// A rasteriser that always fails, so that a failure cannot be mistaken for a decision not to rasterise.
+pub struct Failing;
+
+impl Rasteriser for Failing {
+    fn rasterise(&mut self, _list: &DisplayList, _dpi: f64) -> Result<RasterImage, String> {
+        Err("no adapter".to_owned())
+    }
+}
+
+/// Reports whether a list holds a depth group anywhere: at its root or beneath any group, however deep.
+pub fn holds_depth(list: &DisplayList) -> bool {
+    fn walk(items: &[Item]) -> bool {
+        items.iter().any(|item| match &item.kind {
+            ItemKind::Depth { .. } => true,
+            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => walk(items),
+            _ => false,
+        })
+    }
+    walk(&list.items)
+}
+
+/// Renders a list with the given options and rasteriser, panicking on failure, and returns the page with the
+/// exporter's warnings.
+pub fn render_reporting(
+    list: &DisplayList,
+    options: &PdfOptions,
+    raster: Option<&mut dyn Rasteriser>,
+) -> Rendered {
+    let text = engine();
+    render_display_list(list, &text, options, raster).expect("render display list")
+}
+
+/// The node and kind of every export warning, which is what the tests compare; the messages are prose.
+pub fn reported(warnings: &[ExportWarning]) -> Vec<(Option<NodeId>, ExportWarningKind)> {
+    warnings
+        .iter()
+        .map(|warning| (warning.node, warning.kind.clone()))
+        .collect()
+}
+
+/// Asserts that the exporter's warnings are exactly `expected`, in order, each naming its node and carrying a
+/// message.
+pub fn assert_warnings(
+    actual: &[ExportWarning],
+    expected: &[(NodeId, ExportWarningKind)],
+    what: &str,
+) {
+    let want: Vec<(Option<NodeId>, ExportWarningKind)> = expected
+        .iter()
+        .map(|(node, kind)| (Some(*node), kind.clone()))
+        .collect();
+    assert_eq!(
+        reported(actual),
+        want,
+        "{what}: the warnings name their nodes: {actual:?}"
+    );
+    for warning in actual {
+        assert!(
+            !warning.message.trim().is_empty(),
+            "{what}: a warning carries a message: {warning:?}"
+        );
+    }
+}
+
+/// Asserts that a warning's message names `option`, the export option that caused what the exporter did or that
+/// would undo it, which is what makes the report something a reader can act on.
+pub fn assert_message_names(warning: &ExportWarning, option: &str, what: &str) {
+    assert!(
+        warning.message.contains(option),
+        "{what}: the message names {option}: {:?}",
+        warning.message
     );
 }

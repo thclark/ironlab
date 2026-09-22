@@ -99,24 +99,31 @@ pub use ironlab_ir::{
     ValidationIssue, ValidationReport,
 };
 
-/// How a dense artist is drawn when the figure is exported, and at what resolution it is
-/// rasterised. See [`Figure::export_pdf_with`].
-pub use ironlab_pdf::{RasterOptions, RasterPolicy};
+/// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
+/// and at what resolution they are rasterised. See [`Figure::export_pdf_with`].
+pub use ironlab_pdf::{DepthPolicy, RasterOptions, RasterPolicy};
+
+/// What the exporter did that the page does not show by itself: content drawn as pixels
+/// rather than vectors, or a three-dimensional axes drawn without being verified, each
+/// naming the node and the reason. See [`ExportReport`].
+pub use ironlab_pdf::{ExportWarning, ExportWarningKind, UnverifiedCause};
 
 /// A problem the scene compiler found while drawing a figure that did not prevent the
 /// figure from being drawn, naming the node it concerns. See [`ExportReport`].
 pub use ironlab_scene::SceneWarning;
 
-/// What an export left off the page, returned by [`Figure::export_pdf`] and
-/// [`Figure::export_pdf_with`].
+/// What an export left off the page, and what reached it other than as vectors, returned
+/// by [`Figure::export_pdf`] and [`Figure::export_pdf_with`].
 ///
 /// A warning never refuses a figure, so the page is written whatever the report holds;
-/// the report tells a program what the page does not show. Both lists are empty for a
-/// figure from which nothing was left out. The two lists overlap where the compiler
-/// leaves out an artist that validation warned of, such as a surface whose field has a
-/// single row, and differ where the compiler finds a reason that validation cannot see,
-/// such as a piece of LaTeX the typesetter does not support. A program that wants one
-/// reason per artist reads `validation`; one that wants every reason reads both.
+/// the report tells a program what the page does not show. All three lists are empty for
+/// a figure from which nothing was left out and whose every artist is on the page as
+/// vectors. The first two overlap where the compiler leaves out an artist that validation
+/// warned of, such as a surface whose field has a single row, and differ where the
+/// compiler finds a reason that validation cannot see, such as a piece of LaTeX the
+/// typesetter does not support. A program that wants one reason per artist reads
+/// `validation`; one that wants every reason reads both. The third says what the exporter
+/// drew as an image, and why, and which three-dimensional axes it could not verify.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExportReport {
     /// The warnings of the figure's validation, as [`Figure::validate`] returns them: an
@@ -126,6 +133,10 @@ pub struct ExportReport {
     /// The warnings the scene compiler raised while drawing the figure, each naming the
     /// node it concerns.
     pub scene: Vec<SceneWarning>,
+    /// The warnings of the exporter: content drawn as an image because of the depth of
+    /// its artists, its size or the options, and three-dimensional axes drawn back to
+    /// front without being verified. Each names the node it concerns and the reason.
+    pub export: Vec<ExportWarning>,
 }
 
 /// The types and functions needed to build figures, for glob import.

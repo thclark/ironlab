@@ -17,6 +17,15 @@
 //! supplies, which is the viewer's own headless GPU renderer, so the exported pixels are the ones the user saw on
 //! screen. See [`raster`] for the placement rules and for what happens when no rasteriser is given.
 //!
+//! # Three-dimensional axes and warnings
+//!
+//! The artists of a three-dimensional axes come in an [`ItemKind::Depth`] group, which the viewer draws with a depth
+//! buffer; [`RasterOptions::depth`] decides whether the exporter proves the painter's order equivalent through two
+//! renders and writes vectors, or embeds the depth-tested render (see [`raster`]). Whenever the exporter replaces
+//! vector geometry with pixels, for depth, for size or because the options ask, and whenever it draws a
+//! three-dimensional axes without being able to verify it, the page comes with an [`ExportWarning`] naming the node
+//! and the reason, so that nothing about the page changes silently.
+//!
 //! # Invalid items
 //!
 //! The scene compiler guarantees that the items it emits are valid (see the `Validity` section of
@@ -62,8 +71,73 @@ use krilla::surface::Surface;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 
 pub use raster::{
-    DEFAULT_RASTER_CELLS, DEFAULT_RASTER_DPI, RasterImage, RasterOptions, RasterPolicy, Rasteriser,
+    DEFAULT_RASTER_CELLS, DEFAULT_RASTER_DPI, DepthPolicy, Need, RasterImage, RasterOptions,
+    RasterPolicy, Rasteriser, SAME_PICTURE_PATCH_PT, SAME_PICTURE_TOLERANCE, same_picture,
 };
+
+/// Why a three-dimensional axes was drawn back to front without being verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnverifiedCause {
+    /// No rasteriser was supplied to the exporter.
+    NoRasteriser,
+    /// No graphics adapter was available to render with.
+    NoAdapter,
+    /// The export options asked for vector output ([`DepthPolicy::Vector`]).
+    PolicyVector,
+}
+
+/// What the exporter did that the page does not show by itself.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExportWarningKind {
+    /// A three-dimensional axes was drawn as an image, because its artists overlap in an order that no
+    /// back-to-front painting can draw.
+    RasterisedForDepth,
+    /// A dense artist was drawn as an image, because it drew `cells` data cells, at or beyond the threshold of the
+    /// raster policy.
+    RasterisedForSize { cells: u64 },
+    /// Content was drawn as an image because the export options asked for it ([`RasterPolicy::Always`] or
+    /// [`DepthPolicy::Raster`]).
+    RasterisedByRequest,
+    /// A three-dimensional axes was drawn back to front without a depth test, which may differ from the viewer
+    /// where its artists intersect, and the exporter could not verify that it does not.
+    Unverified { cause: UnverifiedCause },
+}
+
+/// A warning of the exporter: what it did, to which node, and why, in words a reader can act on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportWarning {
+    pub node: Option<ironlab_ir::NodeId>,
+    pub kind: ExportWarningKind,
+    pub message: String,
+}
+
+impl ExportWarning {
+    /// A warning that a three-dimensional axes was drawn back to front without being verified, for `cause`, with
+    /// `because` completing the sentence "…, because …".
+    #[must_use]
+    pub fn unverified(
+        node: Option<ironlab_ir::NodeId>,
+        cause: UnverifiedCause,
+        because: &str,
+    ) -> Self {
+        Self {
+            node,
+            kind: ExportWarningKind::Unverified { cause },
+            message: format!(
+                "The three-dimensional axes is drawn back to front without a depth test, which may differ from \
+                 the viewer where its artists intersect, because {because}."
+            ),
+        }
+    }
+}
+
+/// A page rendered from a display list: the bytes of the document and the exporter's warnings, in the order they
+/// arose.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rendered {
+    pub bytes: Vec<u8>,
+    pub warnings: Vec<ExportWarning>,
+}
 
 /// The miter limit fixed by the display list contract; krilla's default is 10.
 const MITER_LIMIT: f32 = 4.0;
@@ -125,11 +199,9 @@ pub enum PdfError {
     /// The bytes of a bundled font could not be loaded by krilla.
     #[error("failed to load font {0:?}")]
     Font(FontId),
-    /// The rasteriser could not render dense content.
-    #[error(
-        "failed to rasterise dense content: {0}; set the export's raster policy to `Never` to draw it as vector \
-         geometry instead"
-    )]
+    /// The rasteriser could not render content the options rasterise; the message names the option that avoids
+    /// the rasteriser.
+    #[error("failed to rasterise content: {0}")]
     Raster(String),
     /// The PDF could not be written to its destination.
     #[error("failed to write PDF: {0}")]
@@ -143,20 +215,22 @@ pub enum PdfError {
 /// resulting PDF is always valid.
 ///
 /// Dense content is drawn as an image when `raster` is `Some` and [`RasterOptions::policy`] says so, and as vector
-/// geometry otherwise. Passing `None` therefore guarantees a wholly vector page whatever the policy, which is what a
-/// caller without access to a renderer wants.
+/// geometry otherwise; a three-dimensional axes is verified or drawn as an image as [`RasterOptions::depth`] says
+/// when `raster` is `Some`, and drawn back to front with a warning otherwise. Passing `None` therefore guarantees a
+/// wholly vector page whatever the policies, which is what a caller without access to a renderer wants. The
+/// exporter's warnings come back with the bytes.
 ///
 /// # Errors
 ///
 /// Returns [`PdfError::Krilla`] when the page size is not finite and positive or krilla fails to serialise the
 /// document, [`PdfError::Font`] when a bundled font cannot be loaded, and [`PdfError::Raster`] when the rasteriser
-/// fails on content the policy says to rasterise.
+/// fails on content it is asked to render.
 pub fn render_display_list(
     list: &DisplayList,
     text: &TextEngine,
     options: &PdfOptions,
     raster: Option<&mut dyn Rasteriser>,
-) -> Result<Vec<u8>, PdfError> {
+) -> Result<Rendered, PdfError> {
     let (width, height) = (list.width_pt as f32, list.height_pt as f32);
     if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
         return Err(PdfError::Krilla(format!(
@@ -185,7 +259,7 @@ pub fn render_display_list(
     }
     document.set_metadata(metadata);
 
-    {
+    let warnings = {
         let mut page = document.start_page_with(settings);
         let mut surface = page.surface();
         let mut painter = Painter {
@@ -196,26 +270,32 @@ pub fn render_display_list(
             page: display::Rect::new(0.0, 0.0, list.width_pt, list.height_pt),
             to_figure: display::Transform::IDENTITY,
             clip: None,
+            warnings: Vec::new(),
         };
         let result = painter.draw_page(&mut surface, list, width, height);
         surface.finish();
         page.finish();
         result?;
-    }
+        painter.warnings
+    };
 
-    document
+    let bytes = document
         .finish()
-        .map_err(|error| PdfError::Krilla(error.to_string()))
+        .map_err(|error| PdfError::Krilla(error.to_string()))?;
+    Ok(Rendered { bytes, warnings })
 }
 
-/// A figure exported as a PDF: the bytes of the document, and the warnings the scene compiler raised while drawing
-/// the figure, each naming the node it concerns, so that a caller learns what was left off the page.
+/// A figure exported as a PDF: the bytes of the document, the warnings the scene compiler raised while drawing the
+/// figure, each naming the node it concerns, so that a caller learns what was left off the page, and the warnings of
+/// the exporter, which say what reached the page as pixels rather than vectors, or unverified, and why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exported {
     /// The PDF document.
     pub bytes: Vec<u8>,
     /// The warnings of the compiled scene, in the order the compiler raised them.
     pub warnings: Vec<SceneWarning>,
+    /// The warnings of the exporter, in the order they arose.
+    pub export: Vec<ExportWarning>,
 }
 
 /// Compiles and exports a figure, with the document metadata given by [`PdfOptions::for_figure`].
@@ -234,15 +314,16 @@ pub fn export_pdf(
     raster: Option<&mut dyn Rasteriser>,
 ) -> Result<Exported, PdfError> {
     let scene = ironlab_scene::compile(figure, text);
-    let bytes = render_display_list(
+    let rendered = render_display_list(
         &scene.display_list,
         text,
         &PdfOptions::for_figure(figure),
         raster,
     )?;
     Ok(Exported {
-        bytes,
+        bytes: rendered.bytes,
         warnings: scene.warnings,
+        export: rendered.warnings,
     })
 }
 
@@ -276,6 +357,15 @@ struct LoadedFont {
 /// neither the accumulated clip nor an inverse of its transform, and both are needed to place a raster image: the
 /// image's rectangle is computed in figure space, and the image is drawn beneath the inverse of the current
 /// transform so that it lands there whatever groups enclose it.
+/// What a warning of the exporter is about, which chooses its wording and the option it names.
+#[derive(Clone, Copy)]
+enum Subject {
+    /// A dense artist, rasterised under [`RasterPolicy`].
+    Artist,
+    /// A three-dimensional axes, rasterised or left unverified under [`DepthPolicy`].
+    Axes,
+}
+
 struct Painter<'t, 'r> {
     text: &'t TextEngine,
     fonts: HashMap<FontId, LoadedFont>,
@@ -288,6 +378,8 @@ struct Painter<'t, 'r> {
     to_figure: display::Transform,
     /// The intersection of the clips enclosing the current items, in figure space.
     clip: Option<display::Rect>,
+    /// What the exporter did that the page does not show, in order.
+    warnings: Vec<ExportWarning>,
 }
 
 impl Painter<'_, '_> {
@@ -320,8 +412,10 @@ impl Painter<'_, '_> {
                     transform,
                     items,
                 } => self.draw_group(surface, *clip, *transform, items)?,
-                ItemKind::Dense { cells, items } => self.draw_dense(surface, *cells, items)?,
-                ItemKind::Depth { items } => self.draw_items(surface, items)?,
+                ItemKind::Dense { cells, items } => {
+                    self.draw_dense(surface, item.source, *cells, items)?;
+                }
+                ItemKind::Depth { items } => self.draw_depth(surface, item.source, items)?,
             }
         }
         Ok(())
@@ -380,15 +474,69 @@ impl Painter<'_, '_> {
         result
     }
 
+    /// Records a warning of the exporter about `node`, the `subject` of the warning.
+    fn warn(
+        &mut self,
+        node: Option<ironlab_ir::NodeId>,
+        kind: ExportWarningKind,
+        subject: Subject,
+    ) {
+        let dpi = self.options.dpi;
+        let (subject, request) = match subject {
+            Subject::Artist => ("artist", "`RasterPolicy::Always`"),
+            Subject::Axes => ("three-dimensional axes", "`DepthPolicy::Raster`"),
+        };
+        let message = match &kind {
+            ExportWarningKind::RasterisedForDepth => format!(
+                "The {subject} is drawn as an image at {dpi} dots per inch, because its artists overlap in an \
+                 order that no back-to-front painting can draw; `DepthPolicy::Vector` writes it back to front as \
+                 vectors instead."
+            ),
+            ExportWarningKind::RasterisedForSize { cells } => {
+                let threshold = match self.options.policy {
+                    RasterPolicy::Auto { cells } => cells,
+                    RasterPolicy::Never | RasterPolicy::Always => *cells,
+                };
+                format!(
+                    "The {subject} is drawn as an image at {dpi} dots per inch, because it drew {cells} data \
+                     cells, at or beyond the threshold of {threshold}; `RasterPolicy::Never` keeps it vector."
+                )
+            }
+            ExportWarningKind::RasterisedByRequest => format!(
+                "The {subject} is drawn as an image at {dpi} dots per inch, because the export options ask for a \
+                 raster ({request})."
+            ),
+            ExportWarningKind::Unverified { cause } => {
+                let because = match cause {
+                    UnverifiedCause::NoRasteriser => "no rasteriser was supplied to verify it",
+                    UnverifiedCause::NoAdapter => "no graphics adapter is available to verify it",
+                    UnverifiedCause::PolicyVector => {
+                        "the export options ask for vector output (`DepthPolicy::Vector`)"
+                    }
+                };
+                return self
+                    .warnings
+                    .push(ExportWarning::unverified(node, *cause, because));
+            }
+        };
+        self.warnings.push(ExportWarning {
+            node,
+            kind,
+            message,
+        });
+    }
+
     /// Draws content the scene compiler marked as dense, either as a raster image or as vector geometry.
     ///
     /// The items are drawn as vector geometry whenever there is no rasteriser, the policy keeps them vector, the
     /// content has no finite extent within its clips, or the current transform cannot be inverted (which would leave
     /// nowhere to put the image). Only a rasteriser that is asked to render and fails is an error, because at that
-    /// point the caller has asked for something that cannot be delivered silently.
+    /// point the caller has asked for something that cannot be delivered silently. An image is reported with a
+    /// warning naming the artist and the reason.
     fn draw_dense(
         &mut self,
         surface: &mut Surface<'_>,
+        source: Option<ironlab_ir::NodeId>,
         cells: u64,
         items: &[Item],
     ) -> Result<(), PdfError> {
@@ -398,8 +546,14 @@ impl Painter<'_, '_> {
         let Some(inverse) = invert(self.to_figure) else {
             return self.draw_items(surface, items);
         };
-        let Some(plan) = raster::plan(items, self.to_figure, self.clip, self.page, &self.options)
-        else {
+        let Some(plan) = raster::plan(
+            items,
+            self.to_figure,
+            self.clip,
+            self.page,
+            &self.options,
+            false,
+        ) else {
             return self.draw_items(surface, items);
         };
         let rasteriser = self
@@ -408,13 +562,124 @@ impl Painter<'_, '_> {
             .expect("the rasteriser was just checked to be present");
         let rendered = rasteriser
             .rasterise(&plan.list, self.options.dpi)
-            .map_err(PdfError::Raster)?;
+            .map_err(|message| {
+                PdfError::Raster(format!(
+                    "{message}; set the export's raster policy to `RasterPolicy::Never` to draw the content \
+                     as vector geometry instead"
+                ))
+            })?;
         let Some(image) = plan.image(&rendered) else {
             return self.draw_items(surface, items);
         };
+        let kind = match self.options.policy {
+            RasterPolicy::Always => ExportWarningKind::RasterisedByRequest,
+            RasterPolicy::Auto { .. } | RasterPolicy::Never => {
+                ExportWarningKind::RasterisedForSize { cells }
+            }
+        };
+        self.warn(source, kind, Subject::Artist);
 
         // The image rectangle is in figure space, so the enclosing transforms are undone before it is drawn. The
         // enclosing clips stay in force, which re-clips the raster to the plot box exactly as the vector geometry is.
+        surface.push_transform(&inverse);
+        draw_image(surface, &image);
+        surface.pop();
+        Ok(())
+    }
+
+    /// Draws the artists of a three-dimensional axes, as vector paths in painter's order or as the depth-tested
+    /// render of the rasteriser, as [`RasterOptions::depth`] says.
+    ///
+    /// Without a rasteriser, or under [`DepthPolicy::Vector`], the items are drawn in order with a warning that they
+    /// were not verified. Under [`DepthPolicy::Auto`] the rasteriser renders the group with and without the depth
+    /// test; renders that show the same picture ([`raster::same_picture`]) prove that the order shows it at the
+    /// export resolution, and the items are drawn in order without a warning, while renders that differ embed the
+    /// depth-tested one with a warning.
+    /// [`DepthPolicy::Raster`] embeds it without comparing. A group that shows nothing, because it is empty or
+    /// because nothing of it lies within its clips and the page, is drawn in order without a warning under every
+    /// policy, since there is nothing to verify; one beneath a transform that cannot be inverted, which the scene
+    /// compiler never emits, is drawn in order too, as dense content is, because there is nowhere to put an image.
+    fn draw_depth(
+        &mut self,
+        surface: &mut Surface<'_>,
+        source: Option<ironlab_ir::NodeId>,
+        items: &[Item],
+    ) -> Result<(), PdfError> {
+        if raster::extent(items, self.to_figure, self.clip, self.page).is_none() {
+            return self.draw_items(surface, items);
+        }
+        let policy = self.options.depth;
+        if self.raster.is_none() || policy == DepthPolicy::Vector {
+            // The options come first: a caller who asked for vectors is told so whether or not it could verify.
+            let cause = if policy == DepthPolicy::Vector {
+                UnverifiedCause::PolicyVector
+            } else {
+                UnverifiedCause::NoRasteriser
+            };
+            self.warn(
+                source,
+                ExportWarningKind::Unverified { cause },
+                Subject::Axes,
+            );
+            return self.draw_items(surface, items);
+        }
+        let Some(inverse) = invert(self.to_figure) else {
+            return self.draw_items(surface, items);
+        };
+        let (Some(tested), Some(painted)) = (
+            raster::plan(
+                items,
+                self.to_figure,
+                self.clip,
+                self.page,
+                &self.options,
+                true,
+            ),
+            raster::plan(
+                items,
+                self.to_figure,
+                self.clip,
+                self.page,
+                &self.options,
+                false,
+            ),
+        ) else {
+            return self.draw_items(surface, items);
+        };
+        let dpi = self.options.dpi;
+        let failure = |message: String| {
+            PdfError::Raster(format!(
+                "{message}; set the export's depth policy to `DepthPolicy::Vector` to draw the axes back to \
+                 front instead"
+            ))
+        };
+        let (rendered, identical) = {
+            let rasteriser = self
+                .raster
+                .as_mut()
+                .expect("the rasteriser was just checked to be present");
+            let rendered = rasteriser.rasterise(&tested.list, dpi).map_err(failure)?;
+            let identical = match policy {
+                DepthPolicy::Auto => {
+                    let painted = rasteriser.rasterise(&painted.list, dpi).map_err(failure)?;
+                    raster::same_picture(&rendered, &painted, dpi)
+                }
+                DepthPolicy::Raster | DepthPolicy::Vector => false,
+            };
+            (rendered, identical)
+        };
+        if identical {
+            return self.draw_items(surface, items);
+        }
+        let Some(image) = tested.image(&rendered) else {
+            return self.draw_items(surface, items);
+        };
+        let kind = match policy {
+            DepthPolicy::Raster => ExportWarningKind::RasterisedByRequest,
+            DepthPolicy::Auto | DepthPolicy::Vector => ExportWarningKind::RasterisedForDepth,
+        };
+        self.warn(source, kind, Subject::Axes);
+
         surface.push_transform(&inverse);
         draw_image(surface, &image);
         surface.pop();
