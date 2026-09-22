@@ -14,14 +14,15 @@ mod common;
 use std::sync::Arc;
 
 use common::{
-    TEXT, figure_with_mapped_image, find_image, gpu_required, image_sample, rendered_or_skip,
-    scale_then_translate,
+    TEXT, depth_group, figure_with_mapped_image, figure_with_surface, find_image, gpu_required,
+    image_sample, rendered_or_skip, scale_then_translate,
 };
 use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
 use ironlab_scene::display::{
-    DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, PathItem, PathSegment, Point, Rect,
-    Rgba, Transform,
+    Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
+    PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
+use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 use ironlab_viewer::{RenderError, RenderedImage, render_display_list_offscreen, render_offscreen};
 
 fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
@@ -814,4 +815,825 @@ fn a_compiled_figure_draws_a_mapped_image_over_its_axes_with_the_compilers_colou
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Depth groups, drawn through the depth-tested pipelines. The pages are 100 by 100 points rendered at 72 dpi, so
+// that one point is one pixel and the sampled pixels lie well inside the shapes, away from anti-aliased edges.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// A filled square from `(x0, y0)` to `(x1, y1)` lying at `plane`, as the compiler emits the fill of a face.
+fn face(x0: f64, y0: f64, x1: f64, y1: f64, color: Rgba, plane: DepthPlane) -> Item {
+    let mut item = filled_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], color);
+    if let ItemKind::Path(path) = &mut item.kind {
+        path.depth = Some(Depth::Plane(plane));
+    }
+    item
+}
+
+/// The outline of the square from `(x0, y0)` to `(x1, y1)`, stroked `width` wide in `color` and lying at `plane`,
+/// as the compiler emits the edge of a face.
+fn edge(x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: Rgba, plane: DepthPlane) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Path(PathItem {
+            segments: vec![
+                PathSegment::MoveTo(Point::new(x0, y0)),
+                PathSegment::LineTo(Point::new(x1, y0)),
+                PathSegment::LineTo(Point::new(x1, y1)),
+                PathSegment::LineTo(Point::new(x0, y1)),
+                PathSegment::Close,
+            ],
+            fill: None,
+            stroke: Some(Stroke {
+                color,
+                width,
+                dash: Vec::new(),
+                dash_offset: 0.0,
+                cap: LineCap::Butt,
+                join: LineJoin::Miter,
+            }),
+            depth: Some(Depth::Plane(plane)),
+        }),
+    }
+}
+
+/// A two-by-two opaque image of one colour drawn into `rect` and lying at `plane` over its pixel space, as the
+/// compiler emits an image inside the box of a 3D axes.
+fn floor(rect: Rect, rgb: [u8; 3], plane: DepthPlane) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Image(ImageItem {
+            rect,
+            width: 2,
+            height: 2,
+            channels: ImageItem::RGB,
+            samples: Arc::from(rgb.repeat(4)),
+            depth: Some(plane),
+        }),
+    }
+}
+
+/// A two-by-two image of one straight-alpha colour `rgba` drawn into `rect` and lying at `plane` over its pixel
+/// space, as the compiler emits an image with transparent or translucent pixels inside the box of a 3D axes.
+fn translucent_floor(rect: Rect, rgba: [u8; 4], plane: DepthPlane) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Image(ImageItem {
+            rect,
+            width: 2,
+            height: 2,
+            channels: ImageItem::RGBA,
+            samples: Arc::from(rgba.repeat(4)),
+            depth: Some(plane),
+        }),
+    }
+}
+
+/// `items` with the depth removed from every path and image, at any depth of grouping, so that the mesh path draws
+/// what the GPU path drew with the depths in place.
+fn without_depths(items: Vec<Item>) -> Vec<Item> {
+    items
+        .into_iter()
+        .map(|mut item| {
+            match &mut item.kind {
+                ItemKind::Path(path) => path.depth = None,
+                ItemKind::Image(image) => image.depth = None,
+                ItemKind::Group { items, .. }
+                | ItemKind::Dense { items, .. }
+                | ItemKind::Depth { items } => {
+                    *items = without_depths(std::mem::take(items));
+                }
+                ItemKind::Glyphs(_) => {}
+            }
+            item
+        })
+        .collect()
+}
+
+/// A group without clip or transform, whose items a backend draws in the painter's order.
+fn plain_group(items: Vec<Item>) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Group {
+            clip: None,
+            transform: None,
+            items,
+        },
+    }
+}
+
+/// Renders `items` on a 100 by 100 point page with `background` at 72 dpi, so that one point is one pixel.
+fn render_page(background: Rgba, items: Vec<Item>) -> Option<RenderedImage> {
+    rendered_or_skip(render_display_list_offscreen(
+        &page(100.0, 100.0, background, items),
+        &TEXT,
+        72.0,
+    ))
+}
+
+// Why: two faces can cross in projection, and the painter's order can put only one of them in front; with a depth
+// buffer each must show where it is the nearer. The same items in a plain group must still give the painter's
+// picture, which is what the exporter draws, so the depth test must be switched by the depth group and not be on
+// for every item that carries a depth.
+#[test]
+fn crossing_faces_in_a_depth_group_show_the_nearer_one_and_in_a_plain_group_the_later_one() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    // Both cover (10, 10) to (90, 90); the red face is nearer on the right and the blue one on the left, and they
+    // cross at x = 50.
+    let faces = || {
+        vec![
+            face(
+                10.0,
+                10.0,
+                90.0,
+                90.0,
+                red,
+                DepthPlane {
+                    a: 0.01,
+                    b: 0.0,
+                    c: 0.0,
+                },
+            ),
+            face(
+                10.0,
+                10.0,
+                90.0,
+                90.0,
+                blue,
+                DepthPlane {
+                    a: -0.01,
+                    b: 0.0,
+                    c: 1.0,
+                },
+            ),
+        ]
+    };
+    let Some(tested) = render_page(Rgba::WHITE, vec![depth_group(faces())]) else {
+        return;
+    };
+    let Some(painted) = render_page(Rgba::WHITE, vec![plain_group(faces())]) else {
+        return;
+    };
+
+    let red = [255, 0, 0, 255];
+    let blue = [0, 0, 255, 255];
+    assert_pixel(
+        &tested,
+        25,
+        50,
+        blue,
+        2,
+        "in the depth group, the blue face where it is nearer",
+    );
+    assert_pixel(
+        &tested,
+        75,
+        50,
+        red,
+        2,
+        "in the depth group, the red face where it is nearer",
+    );
+    assert_pixel(
+        &tested,
+        5,
+        5,
+        [255, 255, 255, 255],
+        2,
+        "the background beside the faces",
+    );
+    assert_pixel(
+        &painted,
+        25,
+        50,
+        blue,
+        2,
+        "in a plain group, the later blue face",
+    );
+    assert_pixel(
+        &painted,
+        75,
+        50,
+        blue,
+        2,
+        "in a plain group, the later blue face even where the red one is nearer",
+    );
+}
+
+// Why: a marker lying on a face coincides with it in depth, and a depth test cannot separate what coincides; the
+// compiler pushes the fill of a face back by `FACE_DEPTH_BIAS` so that the marker wins whichever is drawn first.
+// The renderer must keep that distance through its normalisation and its depth format: the far pin in the corner
+// gives the group the depth range of a real box, so that the bias is a thousandth of the range as it is in one
+// rather than the whole of it, and a normalisation or a depth format too coarse for a thousandth would let the face
+// break through the marker, which would then flicker or vanish.
+#[test]
+fn a_marker_on_a_face_is_visible_whichever_is_drawn_first_because_the_face_is_pushed_back() {
+    let far_pin = || {
+        face(
+            2.0,
+            2.0,
+            6.0,
+            6.0,
+            Rgba::new(0.0, 1.0, 0.0, 1.0),
+            DepthPlane::constant(-1.0),
+        )
+    };
+    let surface = || {
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.0).pushed_back(FACE_DEPTH_BIAS),
+        )
+    };
+    let marker = || {
+        face(
+            45.0,
+            45.0,
+            55.0,
+            55.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            DepthPlane::constant(0.0),
+        )
+    };
+    for (order, items) in [
+        (
+            "the marker after the face",
+            vec![far_pin(), surface(), marker()],
+        ),
+        (
+            "the marker before the face",
+            vec![far_pin(), marker(), surface()],
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+            return;
+        };
+        assert_pixel(
+            &image,
+            50,
+            50,
+            [0, 0, 255, 255],
+            2,
+            &format!("the marker's centre with {order}"),
+        );
+        assert_pixel(
+            &image,
+            25,
+            50,
+            [255, 0, 0, 255],
+            2,
+            &format!("the face beside the marker with {order}"),
+        );
+        assert_pixel(
+            &image,
+            4,
+            4,
+            GREEN_PX,
+            2,
+            &format!("the far pin in the corner, which fixes the depth range, with {order}"),
+        );
+    }
+}
+
+// Why: a face's edge shares the face's plane and the fill is pushed back by `FACE_DEPTH_BIAS`; on a steep plane the
+// depth changes across the stroke's width by far more than the bias, so the edge stays in front only when every
+// stroke vertex takes the plane at its own position. A depth read at the path's points, one depth per item, or a
+// depth format too coarse for the bias would let the fill break through the edge, and the order must not matter.
+#[test]
+fn the_edge_of_a_steep_face_is_drawn_over_its_fill_whichever_is_drawn_first() {
+    let plane = DepthPlane {
+        a: 0.05,
+        b: 0.0,
+        c: 0.0,
+    };
+    let fill = || {
+        face(
+            20.0,
+            20.0,
+            80.0,
+            80.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            plane.pushed_back(FACE_DEPTH_BIAS),
+        )
+    };
+    let outline = || edge(20.0, 20.0, 80.0, 80.0, 2.0, Rgba::BLACK, plane);
+    for (order, items) in [
+        ("the edge after the fill", vec![fill(), outline()]),
+        ("the edge before the fill", vec![outline(), fill()]),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+            return;
+        };
+        // Eight pixels along each edge, away from the corners; the stroke covers the sampled pixels whole.
+        for k in 0..8 {
+            let along = 24 + 7 * k;
+            assert_pixel(
+                &image,
+                along,
+                20,
+                [0, 0, 0, 255],
+                2,
+                &format!("the top edge with {order}"),
+            );
+            assert_pixel(
+                &image,
+                20,
+                along,
+                [0, 0, 0, 255],
+                2,
+                &format!("the left edge with {order}"),
+            );
+        }
+        assert_pixel(
+            &image,
+            50,
+            50,
+            [255, 0, 0, 255],
+            2,
+            &format!("the fill inside the edge with {order}"),
+        );
+    }
+}
+
+// Why: an image inside the box of a 3D axes is a floor that faces stand on; it must be drawn through the depth
+// pipeline with its own texture and be hidden exactly where a nearer face covers it, even though it is listed after
+// the face, or floors would either vanish or paint over everything standing on them.
+#[test]
+fn a_floor_image_is_hidden_beneath_a_nearer_face_and_shows_beside_it() {
+    let items = vec![
+        face(
+            10.0,
+            10.0,
+            50.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.5),
+        ),
+        floor(
+            Rect::new(10.0, 10.0, 80.0, 80.0),
+            [0, 255, 0],
+            DepthPlane::constant(0.0),
+        ),
+    ];
+    let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+        return;
+    };
+
+    assert_pixel(
+        &image,
+        30,
+        50,
+        [255, 0, 0, 255],
+        2,
+        "the face over the left half of the floor",
+    );
+    assert_pixel(
+        &image,
+        70,
+        50,
+        [0, 255, 0, 255],
+        2,
+        "the floor beside the face",
+    );
+    assert_pixel(
+        &image,
+        5,
+        50,
+        [255, 255, 255, 255],
+        2,
+        "the background beside the floor",
+    );
+}
+
+// Why: every depth group starts with a cleared depth buffer, so a face of the second group is drawn over the first
+// group's content however near that was. The second group holds a near marker, so that its blue face normalises to
+// the far end of the range: a buffer left uncleared would then reject the blue face under any comparison, and the
+// red one would show through.
+#[test]
+fn the_depth_buffer_is_cleared_between_consecutive_depth_groups() {
+    let items = vec![
+        depth_group(vec![face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(1.0),
+        )]),
+        depth_group(vec![
+            face(
+                10.0,
+                10.0,
+                90.0,
+                90.0,
+                Rgba::new(0.0, 0.0, 1.0, 1.0),
+                DepthPlane::constant(0.0),
+            ),
+            face(
+                10.0,
+                10.0,
+                20.0,
+                20.0,
+                Rgba::new(0.0, 1.0, 0.0, 1.0),
+                DepthPlane::constant(1.0),
+            ),
+        ]),
+    ];
+    let Some(image) = render_page(Rgba::WHITE, items) else {
+        return;
+    };
+
+    assert_pixel(
+        &image,
+        50,
+        50,
+        [0, 0, 255, 255],
+        2,
+        "the second group's face over the first group's",
+    );
+    assert_pixel(
+        &image,
+        15,
+        15,
+        [0, 255, 0, 255],
+        2,
+        "the second group's near marker",
+    );
+}
+
+// Why: a translucent face nearer than an opaque one must blend over it as egui blends, with premultiplied alpha in
+// gamma space, so that the GPU path and the mesh path composite alike; a pipeline without blending, or one blending
+// straight alpha, would paint the near face opaque or too bright.
+#[test]
+fn a_translucent_nearer_face_blends_over_the_opaque_face_behind_it() {
+    let items = vec![
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            DepthPlane::constant(0.0),
+        ),
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            DepthPlane::constant(1.0),
+        ),
+    ];
+    let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+        return;
+    };
+
+    // Half-transparent red over blue composites to (128, 0, 128), as the mesh path composites half-transparent red
+    // over white to (255, 128, 128).
+    assert_pixel(
+        &image,
+        50,
+        50,
+        [128, 0, 128, 255],
+        4,
+        "translucent red over opaque blue",
+    );
+}
+
+// Why: the painter keys a list's buffers by the address of its `Arc`, and the offscreen renderer clears the painter
+// after every render; a list allocated at the address the previous list was freed from would otherwise be drawn
+// with the previous list's buffers, so a render of a different list after the first must show its own content.
+// The allocator is not bound to hand out the same address again, so the test catches a stale cache when it does,
+// which two lists of the same shape make likely.
+#[test]
+fn a_different_list_rendered_after_the_first_shows_its_own_content() {
+    let square = |color| {
+        vec![depth_group(vec![face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            color,
+            DepthPlane::constant(0.0),
+        )])]
+    };
+    let Some(first) = render_page(Rgba::WHITE, square(Rgba::new(1.0, 0.0, 0.0, 1.0))) else {
+        return;
+    };
+    let Some(second) = render_page(Rgba::WHITE, square(Rgba::new(0.0, 0.0, 1.0, 1.0))) else {
+        return;
+    };
+
+    assert_pixel(
+        &first,
+        50,
+        50,
+        RED_PX,
+        2,
+        "the first render shows its red face",
+    );
+    assert_pixel(
+        &second,
+        50,
+        50,
+        BLUE_PX,
+        2,
+        "the second render shows its own blue face, not the first list's red one",
+    );
+}
+
+// Why: a figure with a transparent background is exported as a PNG for the docs; the depth pipeline draws into the
+// same cleared target and its output is converted to straight alpha, so a pixel beside a depth group must stay
+// fully transparent and one inside it fully opaque.
+#[test]
+fn a_transparent_background_stays_transparent_beside_a_depth_group() {
+    let Some(image) = render_page(
+        Rgba::new(1.0, 1.0, 1.0, 0.0),
+        vec![depth_group(vec![face(
+            10.0,
+            10.0,
+            50.0,
+            50.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.0),
+        )])],
+    ) else {
+        return;
+    };
+
+    assert_eq!(
+        image.pixel(75, 75)[3],
+        0,
+        "the background beside the face is transparent: {:?}",
+        image.pixel(75, 75)
+    );
+    assert_pixel(&image, 30, 30, [255, 0, 0, 255], 2, "the opaque face");
+}
+
+// Why: an axes clips its artists to its plot rectangle, and the clip reaches the depth pipelines as a scissor
+// rectangle rather than as clipped geometry; a depth group inside a clipped group, and a depth-carrying leaf inside
+// one, must both be cut at the clip's edges, or a surface panned half out of its box would paint over the
+// neighbouring axes. The same face is drawn both ways, so that the untested path is checked as the tested one is.
+#[test]
+fn a_clip_around_a_depth_group_or_a_depth_carrying_leaf_cuts_the_face_at_its_edges() {
+    let clip = Rect::new(20.0, 20.0, 40.0, 40.0);
+    let wide_face = || {
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.0),
+        )
+    };
+    for (how, item) in [
+        (
+            "a depth group inside the clipped group",
+            clipped(clip, depth_group(vec![wide_face()])),
+        ),
+        (
+            "a depth-carrying leaf inside the clipped group",
+            clipped(clip, wide_face()),
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![item]) else {
+            return;
+        };
+        assert_pixel(
+            &image,
+            15,
+            50,
+            WHITE_PX,
+            2,
+            &format!("the background left of the clip with {how}"),
+        );
+        assert_pixel(
+            &image,
+            30,
+            50,
+            RED_PX,
+            2,
+            &format!("the face inside the clip with {how}"),
+        );
+        assert_pixel(
+            &image,
+            59,
+            50,
+            RED_PX,
+            2,
+            &format!("the face at the last column inside the clip with {how}"),
+        );
+        assert_pixel(
+            &image,
+            60,
+            50,
+            WHITE_PX,
+            2,
+            &format!("the background at the first column beyond the clip with {how}"),
+        );
+    }
+}
+
+// Why: outside a depth group a depth-carrying leaf is drawn by the GPU path without the depth test and a depthless
+// one by the mesh path, and the exporter and the interactive canvas each use both for one figure; the two paths
+// must agree pixel for pixel in their mapping, anti-aliasing, blending and texture sampling, or the box of an axes
+// would not meet the surface inside it. The squares have fractional edges so that the anti-aliasing is compared
+// too. The image is left unclipped: a fractional clip edge is where the paths differ, the mesh path clipping a quad
+// geometrically and the GPU path scissoring to whole pixels.
+#[test]
+fn the_untested_gpu_path_draws_the_same_bytes_as_the_mesh_path() {
+    let items = vec![
+        face(
+            10.5,
+            10.5,
+            50.5,
+            50.5,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.0),
+        ),
+        face(
+            30.5,
+            30.5,
+            70.5,
+            70.5,
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            DepthPlane::constant(1.0),
+        ),
+        Item {
+            source: None,
+            kind: ItemKind::Image(ImageItem {
+                rect: Rect::new(55.0, 55.0, 30.0, 30.0),
+                width: 2,
+                height: 2,
+                channels: ImageItem::RGB,
+                samples: Arc::from(vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]),
+                depth: Some(DepthPlane::constant(2.0)),
+            }),
+        },
+    ];
+    let Some(gpu) = render_page(Rgba::WHITE, items.clone()) else {
+        return;
+    };
+    let Some(mesh) = render_page(Rgba::WHITE, without_depths(items)) else {
+        return;
+    };
+
+    assert_pixel(&gpu, 20, 20, RED_PX, 2, "the opaque square");
+    // Half-transparent blue over red composites to about (128, 0, 128).
+    assert_pixel(
+        &gpu,
+        40,
+        40,
+        [128, 0, 128, 255],
+        2,
+        "the translucent square over the opaque one",
+    );
+    assert_pixel(&gpu, 60, 60, RED_PX, 1, "the image's top-left pixel");
+    assert_pixel(&gpu, 80, 80, YELLOW_PX, 1, "the image's bottom-right pixel");
+    let differing: Vec<(u32, u32, [u8; 4], [u8; 4])> = (0..gpu.height)
+        .flat_map(|y| (0..gpu.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| gpu.pixel(x, y) != mesh.pixel(x, y))
+        .map(|(x, y)| (x, y, gpu.pixel(x, y), mesh.pixel(x, y)))
+        .take(8)
+        .collect();
+    assert!(
+        gpu.rgba == mesh.rgba,
+        "the GPU path and the mesh path draw identical bytes; the first pixels that differ, as (x, y, GPU, mesh): \
+         {differing:?}"
+    );
+}
+
+// Why: an image with alpha (a NaN region left transparent, a fade at the edge of a disc) inside a 3D axes goes
+// through the depth pipeline's own texture upload, which must premultiply the straight alpha of a four-channel tile
+// as the mesh path's upload does; a tile uploaded straight would blend too bright, and one that ignored the fourth
+// channel would paint the transparent pixels opaque over the face beneath.
+#[test]
+fn a_four_channel_tile_in_a_depth_group_composites_its_alpha_over_the_face_beneath() {
+    let blue_face = || {
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            DepthPlane::constant(0.0),
+        )
+    };
+    let tile = |alpha| {
+        translucent_floor(
+            Rect::new(30.0, 30.0, 40.0, 40.0),
+            [255, 0, 0, alpha],
+            DepthPlane::constant(1.0),
+        )
+    };
+    let Some(translucent) =
+        render_page(Rgba::WHITE, vec![depth_group(vec![blue_face(), tile(128)])])
+    else {
+        return;
+    };
+    let Some(transparent) = render_page(Rgba::WHITE, vec![depth_group(vec![blue_face(), tile(0)])])
+    else {
+        return;
+    };
+
+    // Half-transparent red over blue composites to about (128, 0, 128), as the mesh path composites it.
+    assert_pixel(
+        &translucent,
+        50,
+        50,
+        [128, 0, 128, 255],
+        2,
+        "a half-transparent red tile over the opaque blue face",
+    );
+    assert_pixel(&translucent, 20, 50, BLUE_PX, 2, "the face beside the tile");
+    assert_pixel(
+        &transparent,
+        50,
+        50,
+        BLUE_PX,
+        2,
+        "a transparent tile leaves the blue face as it was",
+    );
+}
+
+// Why: two faces can lie on one plane (the faces of two surfaces that meet, or a marker the compiler places on a
+// face) with interpolated depths equal to the bit; the depth test must pass equal depths, so that the later of two
+// coplanar faces wins as it does in the painter's order, rather than the earlier one, and rather than both being
+// rejected where they coincide.
+#[test]
+fn of_two_coplanar_faces_the_later_one_wins() {
+    let plane = DepthPlane {
+        a: 0.01,
+        b: 0.005,
+        c: 0.0,
+    };
+    let red = || face(10.0, 10.0, 90.0, 90.0, Rgba::new(1.0, 0.0, 0.0, 1.0), plane);
+    let blue = || face(10.0, 10.0, 90.0, 90.0, Rgba::new(0.0, 0.0, 1.0, 1.0), plane);
+    for (order, items, expected, what) in [
+        (
+            "red then blue",
+            vec![red(), blue()],
+            BLUE_PX,
+            "the later blue face",
+        ),
+        (
+            "blue then red",
+            vec![blue(), red()],
+            RED_PX,
+            "the later red face",
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+            return;
+        };
+        for (x, y) in [(50, 50), (15, 15), (85, 85)] {
+            assert_pixel(&image, x, y, expected, 2, &format!("{what} with {order}"));
+        }
+    }
+}
+
+// Why: `render_offscreen` is what the gallery and the exporter see, and the compiler places a surface in a depth
+// group, so a compiled surface must leave ink in the rendered pixels. Hiding the surface leaves the axes without a
+// depth group, so the pixels that differ between the two renders are the surface's, and some of them must lie
+// inside its axes. Which pipeline drew that ink the pixels cannot tell; that the surface reaches the depth-tested
+// pipelines is checked on the drawables in `canvas.rs`.
+#[test]
+fn a_compiled_surface_leaves_ink_inside_its_axes_that_hiding_it_removes() {
+    let Some(shown) = rendered_or_skip(render_offscreen(&figure_with_surface(true), &TEXT, 72.0))
+    else {
+        return;
+    };
+    let Some(hidden) = rendered_or_skip(render_offscreen(&figure_with_surface(false), &TEXT, 72.0))
+    else {
+        return;
+    };
+    assert_eq!(
+        (shown.width, shown.height),
+        (hidden.width, hidden.height),
+        "the two renders have the figure's size"
+    );
+
+    let scene = ironlab_scene::compile(&figure_with_surface(true), &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let plot = scene.hit_map.axes[0].plot_rect;
+    let mut differing = 0;
+    for y in 0..shown.height {
+        for x in 0..shown.width {
+            let (cx, cy) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let inside =
+                (plot.x..=plot.right()).contains(&cx) && (plot.y..=plot.bottom()).contains(&cy);
+            if inside && shown.pixel(x, y) != hidden.pixel(x, y) {
+                differing += 1;
+            }
+        }
+    }
+    assert!(
+        differing > 0,
+        "the surface leaves ink inside its axes at {plot:?}, which hiding it removes"
+    );
 }

@@ -29,6 +29,8 @@ eframe.workspace = true
 # egui-wgpu re-exports the matching wgpu (30.x) as `egui_wgpu::wgpu`; the offscreen renderer uses that re-export so
 # that the wgpu version can never drift from the one egui-wgpu was built against.
 egui-wgpu = "0.36.2"
+# The vertex layout of the viewer's own pipelines is cast to bytes with bytemuck, as egui's is.
+bytemuck = { version = "1.25.2", features = ["derive"] }
 egui_tiles.workspace = true
 kurbo.workspace = true
 lyon.workspace = true
