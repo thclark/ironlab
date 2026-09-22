@@ -395,7 +395,7 @@ fig.export_pdf("pressure.pdf")?;
 
 The page of the PDF is exactly the size of the figure, with no margins, and all text is embedded as real, selectable text in subsets of the bundled fonts. A plot hidden through its visibility flag (for example from the viewer's legend) is left out of the PDF.
 
-`export_pdf` returns an `ExportReport` of what was left off the page: the validation warnings of the figure (see [validating a figure](#validating-a-figure)) and the warnings the scene compiler raised while drawing it, such as a piece of LaTeX the typesetter does not support. Each names the node it concerns. Both lists are empty for a figure from which nothing was left out, so a program can test the report to decide whether the figure is finished, and nothing is printed or logged:
+`export_pdf` returns an `ExportReport` of what was left off the page and of what reached it other than as vectors: the validation warnings of the figure (see [validating a figure](#validating-a-figure)), the warnings the scene compiler raised while drawing it, such as a piece of LaTeX the typesetter does not support, and the warnings of the exporter itself. Each names the node it concerns. All three lists are empty for a figure from which nothing was left out and whose every artist is on the page as vectors, so a program can test the report to decide whether the figure is finished, and nothing is printed or logged:
 
 ```rust
 let report = fig.export_pdf("pressure.pdf")?;
@@ -405,9 +405,12 @@ for issue in &report.validation {
 for warning in &report.scene {
     eprintln!("{:?}: {}", warning.node, warning.message);
 }
+for warning in &report.export {
+    eprintln!("{:?}: {}", warning.node, warning.message);
+}
 ```
 
-The two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
+The first two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. The third list, `export`, says what the exporter drew as an image and why (`RasterisedForSize`, `RasterisedForDepth` or `RasterisedByRequest`, see the two sections below) and which three-dimensional axes it could not verify (`Unverified`, with its cause). Every raster on the page is explained there, so a page that a program expects to be wholly vector can be checked by testing that the list is empty. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
 
 ### Dense surfaces
 
@@ -430,6 +433,7 @@ fig.export_pdf_with("pressure.pdf", RasterOptions {
 fig.export_pdf_with("pressure.pdf", RasterOptions {
     policy: RasterPolicy::Always,
     dpi: 1200.0,
+    ..RasterOptions::default()
 })?;
 
 // Rasterise from five thousand faces upwards, at the default resolution.
@@ -439,7 +443,33 @@ fig.export_pdf_with("pressure.pdf", RasterOptions {
 })?;
 ```
 
-Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else.
+Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else. A dense artist drawn as an image is reported in the `export` list of the report as `RasterisedForSize`, with its cell count.
+
+### Three-dimensional axes
+
+The viewer draws the artists of a three-dimensional axes with a depth buffer, so that surfaces, lines, markers and images which cross one another are shown correctly wherever they cross. A PDF has no depth buffer: it can only paint one thing over another in a fixed order. `export_pdf` therefore proves, for each three-dimensional axes, whether painting its artists back to front shows the same picture as the depth buffer, by rendering the axes both ways through the viewer's own renderer at the export resolution. Where the two agree, the axes is written as vector paths, as a single `surf` or `contour3` is. Where they differ, as for two surfaces that intersect, arrows standing on a surface, a line lying along one, or a sharply folded wireframe whose edges show through its folds by the width of the depth bias, the depth-tested render is embedded as an image, exactly as a dense surface is, and the report says so as `RasterisedForDepth`. Two renders agree when no patch of six points differs by more than four levels of 255 on average, which admits the slivers that anti-aliasing leaves along the shared edges of faces and refuses any misdrawn face, marker or stretch of line.
+
+`export_pdf_with` overrides the decision through `RasterOptions::depth`:
+
+```rust
+use ironlab::{DepthPolicy, RasterOptions};
+
+// Write the axes as vectors back to front whatever they show, for a figure that will be edited by hand; the report
+// carries an `Unverified` warning for each three-dimensional axes.
+fig.export_pdf_with("field.pdf", RasterOptions {
+    depth: DepthPolicy::Vector,
+    ..RasterOptions::default()
+})?;
+
+// Embed the depth-tested render of every three-dimensional axes without checking, which needs a graphics adapter
+// and is reported as `RasterisedByRequest`.
+fig.export_pdf_with("field.pdf", RasterOptions {
+    depth: DepthPolicy::Raster,
+    ..RasterOptions::default()
+})?;
+```
+
+Verifying an axes uses a graphics adapter. Without one the default policy still writes the page, back to front, and reports each three-dimensional axes as `Unverified` with the cause `NoAdapter`; see [running without a graphics device](#running-without-a-graphics-device).
 
 ### Including a figure in a LaTeX document
 
@@ -456,6 +486,29 @@ Set the size of the figure to the size it should have on the printed page, for e
 ```
 
 Including the figure unscaled keeps text at the font size set in IronLAB, so a 9 pt label is 9 pt on the page. Passing `width=` or `scale=` to `\includegraphics` rescales the text and line widths with the rest of the figure. The PDF works with pdfLaTeX, XeLaTeX and LuaLaTeX, none of which need the `--shell-escape` option to include it.
+
+## Running without a graphics device
+
+Nothing in IronLAB needs a window: exporting a figure, rendering the documentation gallery and running the tests all draw through the same headless renderer, so they run on a server, in a container and in continuous integration. What they need, for some figures, is a graphics adapter for wgpu to draw with.
+
+- Verifying a three-dimensional axes for [export](#three-dimensional-axes), and drawing one as an image, needs an adapter.
+- Drawing a [dense surface](#dense-surfaces) as an image needs an adapter.
+- Everything else, including every two-dimensional figure and a three-dimensional figure exported with `DepthPolicy::Vector`, needs none.
+
+A machine without a graphics device uses a software adapter, which wgpu finds like any other:
+
+| Platform | Software adapter |
+| --- | --- |
+| Debian and Ubuntu, including containers and GitHub's Linux runners | lavapipe, Mesa's Vulkan rasteriser: `apt-get install mesa-vulkan-drivers` |
+| Fedora | `dnf install mesa-vulkan-drivers` |
+| Arch | `pacman -S vulkan-swrast` |
+| Windows | WARP, the Direct3D 12 software adapter, which is part of the operating system |
+| macOS | Metal, which is always present |
+| Anywhere Mesa cannot be installed | [SwiftShader](https://github.com/google/swiftshader), a portable Vulkan driver, pointed to by the `VK_ICD_FILENAMES` environment variable |
+
+The `WGPU_BACKEND` environment variable selects a backend (`vulkan`, `metal`, `dx12` or `gl`) and admits no fallback when it is set, so leave it unset unless one backend must be forced.
+
+With no adapter at all, an export that only needs to verify a three-dimensional axes still succeeds: the axes is written back to front and the report carries an `Unverified` warning whose message names the missing adapter and the remedy. An export that must draw an image, because the options force one or a dense surface needs one, fails with the same message rather than writing something else.
 
 ## Opening the viewer
 
