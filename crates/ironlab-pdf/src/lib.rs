@@ -321,6 +321,7 @@ impl Painter<'_, '_> {
                     items,
                 } => self.draw_group(surface, *clip, *transform, items)?,
                 ItemKind::Dense { cells, items } => self.draw_dense(surface, *cells, items)?,
+                ItemKind::Depth { items } => self.draw_items(surface, items)?,
             }
         }
         Ok(())

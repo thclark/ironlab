@@ -28,6 +28,7 @@ fn image(rect: Rect, width: u32, height: u32, channels: u8, samples: Vec<u8>) ->
         height,
         channels,
         samples: Arc::from(samples),
+        depth: None,
     }))
 }
 

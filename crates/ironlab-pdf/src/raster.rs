@@ -146,7 +146,7 @@ pub fn rasterises_any(list: &DisplayList, options: &RasterOptions) -> bool {
             ItemKind::Dense { cells, items } => {
                 options.policy.rasterises(*cells) || walk(items, options)
             }
-            ItemKind::Group { items, .. } => walk(items, options),
+            ItemKind::Group { items, .. } | ItemKind::Depth { items } => walk(items, options),
             _ => false,
         })
     }
@@ -204,6 +204,7 @@ impl Plan {
             height: rendered.height,
             channels,
             samples,
+            depth: None,
         };
         item.is_valid().then_some(item)
     }
@@ -374,7 +375,9 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
                 let inner = group.map_or(transform, |t| t.then(transform));
                 accumulate(items, inner, box_);
             }
-            ItemKind::Dense { items, .. } => accumulate(items, transform, box_),
+            ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
+                accumulate(items, transform, box_);
+            }
             ItemKind::Image(image) => {
                 box_.add(transform.apply(Point::new(image.rect.x, image.rect.y)), 0.0);
                 box_.add(

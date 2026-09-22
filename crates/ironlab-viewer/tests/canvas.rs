@@ -56,6 +56,7 @@ fn filled(segments: Vec<PathSegment>, color: Rgba, rule: FillRule) -> Item {
             segments,
             fill: Some(Fill { color, rule }),
             stroke: None,
+            depth: None,
         }),
     }
 }
@@ -211,6 +212,7 @@ fn stroked_line(dash: Vec<f64>, dash_offset: f64, cap: LineCap) -> Item {
                 cap,
                 join: LineJoin::Miter,
             }),
+            depth: None,
         }),
     }
 }
@@ -587,6 +589,7 @@ fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
                 cap: LineCap::Butt,
                 join: LineJoin::Miter,
             }),
+            depth: None,
         }),
     };
     let nan = f64::NAN;
@@ -696,6 +699,7 @@ fn image(rect: Rect, width: u32, height: u32, channels: u8, samples: Vec<u8>) ->
             height,
             channels,
             samples: Arc::from(samples),
+            depth: None,
         }),
     }
 }
