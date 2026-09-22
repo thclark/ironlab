@@ -547,3 +547,31 @@ fn link_parser_finds_every_form_of_link_outside_code() {
     );
     assert!(is_external("https://example.com") && is_external("#top") && !is_external("page.md"));
 }
+
+/// WHY: the exporter says when an entry's PDF holds an image instead of vectors, or a three-dimensional axes it
+/// could not verify, and the person building the documentation is the one who must hear it, because the published
+/// PDF is what readers download. The generator therefore reports the exporter's warnings under the entry's slug,
+/// beside the validation warnings, rather than discarding them with the bytes.
+#[test]
+fn the_exporters_warnings_are_reported_under_the_entrys_slug() {
+    let out = temp_dir("docs-export-warnings");
+    let message = "The three-dimensional axes is drawn as an image at 600 dots per inch.";
+    let renderer = FakeRenderer {
+        export_warnings: vec![message.to_owned()],
+        ..FakeRenderer::default()
+    };
+    let options = DocsOptions {
+        entries: synthetic_entries(),
+        ..DocsOptions::new(&renderer)
+    };
+    let report = generate_docs(&out, &options).expect("docs are generated");
+
+    assert_eq!(
+        report.warnings,
+        vec![
+            ("first".to_owned(), message.to_owned()),
+            ("second".to_owned(), message.to_owned()),
+        ],
+        "each entry's export warnings are reported under its slug, in the order of the entries"
+    );
+}

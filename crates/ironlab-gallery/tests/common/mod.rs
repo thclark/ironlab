@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ironlab_gallery::{GalleryError, Renderer};
+use ironlab_gallery::{ExportedPdf, GalleryError, Renderer};
 
 /// Creates a new, empty directory under the system temporary directory, unique to this call.
 pub fn temp_dir(name: &str) -> PathBuf {
@@ -32,10 +32,12 @@ pub fn temp_dir(name: &str) -> PathBuf {
 
 /// A renderer that needs no graphics adapter: it returns placeholder bytes that identify the figure (by a fingerprint
 /// of its JSON) and the requested resolution, and remembers every call. Tests can therefore check that each generated
-/// file was rendered from the right figure at the right resolution, even when two figures share a title.
+/// file was rendered from the right figure at the right resolution, even when two figures share a title. A PDF export
+/// carries `export_warnings` for every figure, empty by default.
 #[derive(Default)]
 pub struct FakeRenderer {
     pub calls: RefCell<Vec<String>>,
+    pub export_warnings: Vec<String>,
 }
 
 impl FakeRenderer {
@@ -72,11 +74,14 @@ impl Renderer for FakeRenderer {
         Ok(Self::png_bytes(figure, dpi))
     }
 
-    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<Vec<u8>, GalleryError> {
+    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<ExportedPdf, GalleryError> {
         self.calls
             .borrow_mut()
             .push(format!("pdf {}", title_of(figure)));
-        Ok(Self::pdf_bytes(figure))
+        Ok(ExportedPdf {
+            bytes: Self::pdf_bytes(figure),
+            warnings: self.export_warnings.clone(),
+        })
     }
 }
 

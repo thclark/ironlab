@@ -26,7 +26,7 @@ pub fn export_entries(
         let (figure, _warnings) = entry.build_validated()?;
         let ir = figure.ir();
         let files = [
-            (format!("{}.pdf", entry.slug), renderer.pdf(ir)?),
+            (format!("{}.pdf", entry.slug), renderer.pdf(ir)?.bytes),
             (format!("{}.fig", entry.slug), ir.to_protobuf()),
             (
                 format!("{}.fig.json", entry.slug),

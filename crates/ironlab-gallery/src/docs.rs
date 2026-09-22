@@ -132,12 +132,23 @@ pub trait Renderer {
     /// Returns [`GalleryError::Render`] when the figure cannot be drawn or encoded.
     fn png(&self, figure: &ironlab::ir::Figure, dpi: f64) -> Result<Vec<u8>, GalleryError>;
 
-    /// Exports a figure as a PDF document.
+    /// Exports a figure as a PDF document, with the exporter's warnings about what reached the page other than as
+    /// vector geometry.
     ///
     /// # Errors
     ///
     /// Returns [`GalleryError::Pdf`] when the figure cannot be exported.
-    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<Vec<u8>, GalleryError>;
+    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<ExportedPdf, GalleryError>;
+}
+
+/// A figure exported as a PDF document.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExportedPdf {
+    /// The bytes of the document.
+    pub bytes: Vec<u8>,
+    /// The exporter's warnings, in words a reader can act on: what it drew as an image and why, and which
+    /// three-dimensional axes it could not verify. Empty when every artist is on the page as vectors.
+    pub warnings: Vec<String>,
 }
 
 /// The renderer used for the published documentation: IronLAB's own offscreen viewer pipeline for images, and its
@@ -162,11 +173,18 @@ impl Renderer for IronlabRenderer {
         encode_png(&image)
     }
 
-    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<Vec<u8>, GalleryError> {
+    fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<ExportedPdf, GalleryError> {
         let options = ironlab_pdf::PdfOptions::for_figure(figure);
-        ironlab_viewer::export_pdf(figure, &self.text, &options)
-            .map(|exported| exported.bytes)
-            .map_err(|error| GalleryError::Pdf(error.to_string()))
+        let exported = ironlab_viewer::export_pdf(figure, &self.text, &options)
+            .map_err(|error| GalleryError::Pdf(error.to_string()))?;
+        Ok(ExportedPdf {
+            bytes: exported.bytes,
+            warnings: exported
+                .export
+                .into_iter()
+                .map(|warning| warning.message)
+                .collect(),
+        })
     }
 }
 
@@ -233,7 +251,9 @@ pub struct DocsReport {
     pub assets: Vec<PathBuf>,
     /// The stylesheet of the cards.
     pub stylesheet: PathBuf,
-    /// Validation warnings of the figures, as `(slug, message)` pairs. Warnings do not stop generation.
+    /// Validation warnings of the figures and warnings of the PDF exporter, as `(slug, message)` pairs, in the
+    /// order of the entries with each entry's validation warnings before its export warnings. Warnings do not stop
+    /// generation.
     pub warnings: Vec<(String, String)>,
 }
 
@@ -271,6 +291,12 @@ pub fn generate_docs(
         );
 
         let ir = figure.ir();
+        let pdf = options.renderer.pdf(ir)?;
+        report.warnings.extend(
+            pdf.warnings
+                .into_iter()
+                .map(|message| (entry.slug.to_owned(), message)),
+        );
         let assets = [
             (
                 format!("{}.png", entry.slug),
@@ -280,7 +306,7 @@ pub fn generate_docs(
                 format!("{}-thumb.png", entry.slug),
                 options.renderer.png(ir, options.thumbnail_dpi)?,
             ),
-            (format!("{}.pdf", entry.slug), options.renderer.pdf(ir)?),
+            (format!("{}.pdf", entry.slug), pdf.bytes),
         ];
         for (name, bytes) in assets {
             report.assets.push(write_file(&out_dir.join(name), bytes)?);
