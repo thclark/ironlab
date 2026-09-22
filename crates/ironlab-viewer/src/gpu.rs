@@ -1,34 +1,47 @@
 //! IronLAB's own wgpu pipelines: every item of a figure, drawn from one list.
 //!
-//! A figure reaches the device as one [`DrawList`] (see [`crate::canvas::tessellate`]): triangles in figure points,
-//! each vertex with a depth `z` in `[0, 1]` (0 the nearest) and a premultiplied colour, cut into [`Draw`]s that
-//! each name a texture, a clip rectangle, a depth group and the node they draw. A [`GpuPainter`] draws such lists
-//! with pipelines of its own, inside egui's render pass in the interactive window (through [`GpuCallback`], an
+//! A figure reaches the device as one [`DrawList`] (see [`crate::canvas::tessellate`]): triangles in figure points
+//! for fills, glyphs and image tiles, and stroked polylines as [`Segment`]s in the item space of their paths, each
+//! vertex or segment end with a depth `z` in `[0, 1]` (0 the nearest), cut into [`Draw`]s that each name a
+//! texture, a clip rectangle, a depth group and the node they draw. A [`GpuPainter`] draws such lists with
+//! pipelines of its own, inside egui's render pass in the interactive window (through [`GpuCallback`], an
 //! [`egui_wgpu::CallbackTrait`]) and inside the offscreen renderer's own pass for the gallery and the PDF exporter,
 //! so that every route to pixels shares the shaders in `gpu.wgsl`, and nothing here needs a window.
 //!
 //! # Drawing
 //!
-//! The vertex shader maps figure points to screen points through a [`Viewport`]'s mapping, held in a uniform
-//! per list, and screen points to clip space from the target's size in points, exactly as egui maps its own
-//! meshes, so that the interface and the figure land on the same pixel grid. The fragment shader multiplies the
+//! The vertex shaders map figure points to screen points through a [`Viewport`]'s mapping, held in a uniform per
+//! list, and screen points to clip space from the target's size in points, exactly as egui maps its own meshes, so
+//! that the interface and the figure land on the same pixel grid. The fragment shader of triangles multiplies the
 //! vertex colour by a nearest-sampled texture: a 1 × 1 white texture for solid geometry, or a tile of an image,
 //! held as premultiplied gamma-space bytes. The blend state is egui's premultiplied one, so that the figure
-//! composites over the interface as egui's own shapes do. Two pipelines differ only in the depth test
-//! (`LessEqual` with writes for the draws of a depth group, `Always` without for every other draw), and a third
-//! clears the depth buffer over the whole target with a triangle at the far plane that writes no colour, drawn
-//! before the first draw of each depth group, so that the depth groups of one frame never occlude one another.
-//! Every draw is clipped by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own.
+//! composites over the interface as egui's own shapes do.
+//!
+//! A stroke is expanded on the device: the stroke vertex shader turns each segment instance into its body quad,
+//! the join at its start (miter within the PDF limit of four, else bevel; or round) and the caps at its free ends
+//! (butt, round or square), in item space, and maps the result through the draw's item-to-figure transform held
+//! with the stroke's width, colour and dash pattern in a [`StrokeParams`] slot of a uniform buffer bound with a
+//! dynamic offset per draw. The stroke fragment shader dashes by arc length, giving each dash the caps of the
+//! stroke and anti-aliasing its ends over a pixel.
+//!
+//! Two depth states serve everything: the draws of a depth group are depth-tested against one another
+//! (`LessEqual` with writes; strokes there take `z` from their segments), after the depth buffer is cleared for the
+//! group; every other triangle draw is drawn without the depth test (`Always`, no writes). A stroke outside every
+//! group is depth-tested with `Less` and writes the `z` of its own params: the k-th such stroke since the last
+//! clear lies at `1 - (k + 1) · 2⁻²⁰`, so later strokes pass over earlier ones while the parts of one stroke that
+//! overlap, on the inner side of a turn or under a round join, take its colour exactly once, as a stroke does in
+//! PDF. The depth buffer is cleared at the start of every list and whenever the depth group changes. Every draw is
+//! clipped by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own.
 //!
 //! # Caches and uploads
 //!
-//! A list's vertex and index buffers are uploaded once and kept for as long as the list is drawn, keyed by the
-//! address of its `Arc`, which the painter holds so that the address cannot be reused; the list's mapping uniform
-//! is rewritten only when the list lands somewhere else on the target; and the tiles of images are kept likewise,
-//! keyed by their sample buffer and tile. A frame that draws the same lists at the same places therefore uploads
-//! nothing, and a resize rewrites the mappings alone. [`GpuPainter::uploads`] counts what has been uploaded, so
-//! that this can be tested. [`GpuPainter::retain_used`] drops what the frames since the previous call did not
-//! draw, and [`GpuPainter::clear`] drops everything, which the offscreen renderer does after each render.
+//! A list's buffers are uploaded once and kept for as long as the list is drawn, keyed by the address of its
+//! `Arc`, which the painter holds so that the address cannot be reused; the list's mapping uniform is rewritten
+//! only when the list lands somewhere else on the target; and the tiles of images are kept likewise, keyed by their
+//! sample buffer and tile. A frame that draws the same lists at the same places therefore uploads nothing, and a
+//! resize rewrites the mappings alone. [`GpuPainter::uploads`] counts what has been uploaded, so that this can be
+//! tested. [`GpuPainter::retain_used`] drops what the frames since the previous call did not draw, and
+//! [`GpuPainter::clear`] drops everything, which the offscreen renderer does after each render.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -65,6 +78,89 @@ impl Vertex {
         attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32, 2 => Float32x2, 3 => Unorm8x4],
     };
 }
+
+/// A join is drawn at the start of the segment: `prev` is a real vertex of the polyline.
+pub const JOIN_AT_START: u32 = 1;
+/// A join is drawn at the end of the segment: `next` is a real vertex of the polyline.
+pub const JOIN_AT_END: u32 = 2;
+
+/// One segment of a stroked polyline, in the item space of its path, which the stroke pipeline expands.
+///
+/// Without [`JOIN_AT_START`] the stroke's cap is drawn at `p0`; without [`JOIN_AT_END`] it is drawn at `p1`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Segment {
+    /// The vertex before `p0`, or `p0` itself when the segment starts an open subpath.
+    pub prev: [f32; 2],
+    pub p0: [f32; 2],
+    pub p1: [f32; 2],
+    /// The vertex after `p1`, or `p1` itself when the segment ends an open subpath.
+    pub next: [f32; 2],
+    /// The depth at `p0` and at `p1`: normalised over the depth group (0 the nearest), 0 outside every group.
+    pub z: [f32; 2],
+    /// The distance along the subpath from its start, in item units, at `p0` and at `p1`.
+    pub arc: [f32; 2],
+    /// The change of `z` per item unit of x and of y, so that a vertex offset from the polyline for the stroke's
+    /// width takes the depth of its own position on a `Depth::Plane`; zero for other depths and outside groups.
+    pub grad: [f32; 2],
+    /// [`JOIN_AT_START`] and [`JOIN_AT_END`].
+    pub flags: u32,
+    /// The arc length at `p0` as the segment before it measures it: `arc[0]`, except for the first segment of a
+    /// closed subpath, where the segment before it is the closing one and the joint lies at the subpath's length.
+    pub prev_arc: f32,
+}
+
+impl Segment {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<Segment>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2, 5 => Float32x2,
+            6 => Float32x2, 7 => Uint32, 8 => Float32
+        ],
+    };
+}
+
+/// The number of vertices the stroke vertex shader emits per segment: six for the body and eight triangles for
+/// each of the features at its ends (a join or a cap at the start, a cap at the end).
+const STROKE_VERTICES: u32 = 6 + 3 * 8 + 3 * 8;
+
+/// The largest number of dash entries a stroke draw carries; a longer pattern is drawn solid.
+pub const MAX_DASH_ENTRIES: usize = 16;
+
+/// The constants of one stroke draw, held in a slot of the list's uniform buffer.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct StrokeParams {
+    /// The item-to-figure transform: its linear part `[a, b, c, d]` (display-list `Transform` fields).
+    pub linear: [f32; 4],
+    /// The translation `[e, f]` of the transform, padded.
+    pub offset: [f32; 4],
+    /// The premultiplied sRGB colour as fractions.
+    pub color: [f32; 4],
+    /// The width in item units; 0 means one screen point.
+    pub width: f32,
+    /// 0 butt, 1 round, 2 square.
+    pub cap: u32,
+    /// 0 miter (within a limit of four), 1 round, 2 bevel.
+    pub join: u32,
+    /// The number of entries of `dashes` in use: 0 for a solid stroke, else even and at most
+    /// [`MAX_DASH_ENTRIES`].
+    pub dash_count: u32,
+    /// The dash phase, in item units.
+    pub dash_offset: f32,
+    /// The sum of the dash entries, in item units.
+    pub period: f32,
+    /// The depth written by a stroke outside every depth group; unused when `vertex_z` is set.
+    pub z: f32,
+    /// 1 when the depth comes from the segments (inside a depth group), 0 when it is `z`.
+    pub vertex_z: u32,
+    /// The dash pattern: on, off, on, off, …, in item units.
+    pub dashes: [f32; MAX_DASH_ENTRIES],
+}
+
+/// The stride of a [`StrokeParams`] slot in the uniform buffer, which every device accepts as a dynamic offset.
+const PARAMS_STRIDE: u64 = 256;
 
 /// One tile of an image: the pixels of `columns` × `rows` of an image whose rows hold `width` pixels of `channels`
 /// bytes each, three for opaque RGB and four for RGB with straight alpha. No texture exists until a painter uploads
@@ -127,11 +223,22 @@ impl TileKey {
     }
 }
 
-/// One drawing of a [`DrawList`]: a range of its index buffer, drawn with a texture or as solid geometry, inside a
-/// depth group or outside every one, clipped to `clip` in figure points, for the node `source`.
+/// What a [`Draw`] draws.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DrawKind {
+    /// A range of the list's index buffer, drawn as triangles of its vertices.
+    Triangles(Range<u32>),
+    /// A range of the list's segments, expanded into a stroke with the parameters at index `params` of
+    /// [`DrawList::stroke_params`].
+    Stroke { segments: Range<u32>, params: u32 },
+}
+
+/// One drawing of a [`DrawList`]: triangles drawn with a texture or as solid geometry, or a stroke, inside a depth
+/// group or outside every one, clipped to `clip` in figure points, for the node `source`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Draw {
-    pub indices: Range<u32>,
+    pub kind: DrawKind,
+    /// The tile a triangle draw samples; `None` for solid geometry and for strokes.
     pub texture: Option<TileKey>,
     /// The depth group of the draw, numbered from 0 in paint order within the list, or `None` for a draw outside
     /// every depth group. The draws of a group are depth-tested against one another, and the depth buffer is
@@ -142,11 +249,13 @@ pub struct Draw {
     pub source: Option<NodeId>,
 }
 
-/// The geometry of one figure, ready to upload: every item in paint order, in figure points.
+/// The geometry of one figure, ready to upload: every item in paint order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DrawList {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    pub segments: Vec<Segment>,
+    pub stroke_params: Vec<StrokeParams>,
     pub draws: Vec<Draw>,
 }
 
@@ -294,12 +403,24 @@ const BLEND: wgpu::BlendState = wgpu::BlendState {
 
 /// The pipelines for one [`GpuConfig`].
 struct Pipelines {
+    /// Triangles inside a depth group.
     tested: wgpu::RenderPipeline,
+    /// Triangles outside every depth group.
     untested: wgpu::RenderPipeline,
+    /// Strokes inside a depth group, with the depth of their segments.
+    stroke_tested: wgpu::RenderPipeline,
+    /// Strokes outside every depth group, at the depth of their params.
+    stroke_flat: wgpu::RenderPipeline,
     clear: wgpu::RenderPipeline,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     white: wgpu::BindGroup,
+}
+
+/// The bind group layouts shared by the pipelines of every configuration.
+struct Layouts {
+    mapping: wgpu::BindGroupLayout,
+    params: wgpu::BindGroupLayout,
 }
 
 /// The size in bytes of the mapping uniform: the target's size in points and the mapping's origin and scale, each
@@ -308,8 +429,11 @@ const MAPPING_SIZE: u64 = 32;
 
 /// The buffers of one list, kept while the list is drawn.
 struct ListBuffers {
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
+    vertices: Option<wgpu::Buffer>,
+    indices: Option<wgpu::Buffer>,
+    segments: Option<wgpu::Buffer>,
+    /// The stroke params, one [`PARAMS_STRIDE`] slot each, and their bind group.
+    params: Option<wgpu::BindGroup>,
     /// The mapping uniform of the list and its bind group.
     mapping: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -331,7 +455,7 @@ struct Tile {
 /// Counts of what a [`GpuPainter`] has uploaded since it was made.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Uploads {
-    /// Lists whose vertex and index buffers were uploaded.
+    /// Lists whose buffers were uploaded.
     pub lists: u64,
     /// Writes of a list's mapping uniform.
     pub mappings: u64,
@@ -342,7 +466,7 @@ pub struct Uploads {
 /// Draws [`DrawList`]s through the pipelines, keeping their buffers and textures across frames.
 #[derive(Default)]
 pub struct GpuPainter {
-    mapping_layout: Option<wgpu::BindGroupLayout>,
+    layouts: Option<Layouts>,
     pipelines: HashMap<GpuConfig, Pipelines>,
     lists: HashMap<usize, ListBuffers>,
     tiles: HashMap<(usize, u32, u32), Tile>,
@@ -361,21 +485,19 @@ impl GpuPainter {
         list: &Arc<DrawList>,
         viewport: &Viewport,
     ) {
-        let mapping_layout = self
-            .mapping_layout
-            .get_or_insert_with(|| mapping_layout(device));
+        let layouts = self.layouts.get_or_insert_with(|| Layouts::new(device));
         let pipelines = self
             .pipelines
             .entry(config)
-            .or_insert_with(|| Pipelines::new(device, queue, config, mapping_layout));
-        if list.is_empty() || list.vertices.is_empty() || list.indices.is_empty() {
+            .or_insert_with(|| Pipelines::new(device, queue, config, layouts));
+        if list.is_empty() {
             return;
         }
         let uploads = &mut self.uploads;
         let key = Arc::as_ptr(list).addr();
         let buffers = self.lists.entry(key).or_insert_with(|| {
             uploads.lists += 1;
-            ListBuffers::new(device, mapping_layout, list)
+            ListBuffers::new(device, layouts, list)
         });
         buffers.used = true;
         let placement = viewport.placement();
@@ -466,18 +588,20 @@ impl GpuPainter {
             return;
         };
         pass.set_bind_group(0, &buffers.bind_group, &[]);
-        pass.set_vertex_buffer(0, buffers.vertices.slice(..));
-        pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
+        let clear_depth = |pass: &mut wgpu::RenderPass<'static>| {
+            // The clearing pipeline shares the layout of the triangle pipelines, so it needs a texture bound even
+            // though it never samples it.
+            pass.set_bind_group(1, &pipelines.white, &[]);
+            pass.set_scissor_rect(0, 0, width, height);
+            pass.set_pipeline(&pipelines.clear);
+            pass.draw(0..3, 0..1);
+        };
+        clear_depth(pass);
         let mut group = None;
         for draw in &list.draws {
-            if draw.depth_group.is_some() && draw.depth_group != group {
+            if draw.depth_group != group {
                 group = draw.depth_group;
-                // The clearing pipeline shares the layout of the others, so it needs a texture bound even though
-                // it never samples it.
-                pass.set_bind_group(1, &pipelines.white, &[]);
-                pass.set_scissor_rect(0, 0, width, height);
-                pass.set_pipeline(&pipelines.clear);
-                pass.draw(0..3, 0..1);
+                clear_depth(pass);
             }
             let clip = match draw.clip {
                 Some(clip) => to_points(clip, viewport.to_screen).intersect(viewport.clip),
@@ -487,24 +611,61 @@ impl GpuPainter {
             else {
                 continue;
             };
-            if draw.indices.is_empty() || draw.indices.end as usize > list.indices.len() {
-                continue;
+            match &draw.kind {
+                DrawKind::Triangles(indices) => {
+                    if indices.is_empty() || indices.end as usize > list.indices.len() {
+                        continue;
+                    }
+                    let (Some(vertices), Some(index_buffer)) =
+                        (&buffers.vertices, &buffers.indices)
+                    else {
+                        continue;
+                    };
+                    let texture = match &draw.texture {
+                        Some(tile) => match self.tiles.get(&tile.id()) {
+                            Some(tile) => &tile.bind_group,
+                            None => continue,
+                        },
+                        None => &pipelines.white,
+                    };
+                    pass.set_scissor_rect(x, y, w, h);
+                    pass.set_pipeline(if draw.depth_group.is_some() {
+                        &pipelines.tested
+                    } else {
+                        &pipelines.untested
+                    });
+                    pass.set_bind_group(1, texture, &[]);
+                    pass.set_vertex_buffer(0, vertices.slice(..));
+                    pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(indices.clone(), 0, 0..1);
+                }
+                DrawKind::Stroke { segments, params } => {
+                    if segments.is_empty()
+                        || segments.end as usize > list.segments.len()
+                        || *params as usize >= list.stroke_params.len()
+                    {
+                        continue;
+                    }
+                    let (Some(segment_buffer), Some(params_group)) =
+                        (&buffers.segments, &buffers.params)
+                    else {
+                        continue;
+                    };
+                    pass.set_scissor_rect(x, y, w, h);
+                    pass.set_pipeline(if draw.depth_group.is_some() {
+                        &pipelines.stroke_tested
+                    } else {
+                        &pipelines.stroke_flat
+                    });
+                    pass.set_bind_group(
+                        1,
+                        params_group,
+                        &[u32::try_from(u64::from(*params) * PARAMS_STRIDE).unwrap_or(u32::MAX)],
+                    );
+                    pass.set_vertex_buffer(0, segment_buffer.slice(..));
+                    pass.draw(0..STROKE_VERTICES, segments.clone());
+                }
             }
-            let texture = match &draw.texture {
-                Some(tile) => match self.tiles.get(&tile.id()) {
-                    Some(tile) => &tile.bind_group,
-                    None => continue,
-                },
-                None => &pipelines.white,
-            };
-            pass.set_scissor_rect(x, y, w, h);
-            pass.set_pipeline(if draw.depth_group.is_some() {
-                &pipelines.tested
-            } else {
-                &pipelines.untested
-            });
-            pass.set_bind_group(1, texture, &[]);
-            pass.draw_indexed(draw.indices.clone(), 0, 0..1);
         }
     }
 
@@ -550,29 +711,36 @@ fn scissor(
     (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
 }
 
-/// The layout of the mapping uniform's bind group.
-fn mapping_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("ironlab mapping layout"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-    })
+impl Layouts {
+    fn new(device: &wgpu::Device) -> Self {
+        let uniform = |label, dynamic: bool, size: u64| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some(label),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: dynamic,
+                        min_binding_size: wgpu::BufferSize::new(size),
+                    },
+                    count: None,
+                }],
+            })
+        };
+        Self {
+            mapping: uniform("ironlab mapping layout", false, MAPPING_SIZE),
+            params: uniform(
+                "ironlab stroke params layout",
+                true,
+                std::mem::size_of::<StrokeParams>() as u64,
+            ),
+        }
+    }
 }
 
 impl ListBuffers {
-    fn new(
-        device: &wgpu::Device,
-        mapping_layout: &wgpu::BindGroupLayout,
-        list: &Arc<DrawList>,
-    ) -> Self {
+    fn new(device: &wgpu::Device, layouts: &Layouts, list: &Arc<DrawList>) -> Self {
         let mapping = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ironlab mapping"),
             size: MAPPING_SIZE,
@@ -581,23 +749,64 @@ impl ListBuffers {
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ironlab mapping"),
-            layout: mapping_layout,
+            layout: &layouts.mapping,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: mapping.as_entire_binding(),
             }],
         });
+        let buffer = |label, contents: &[u8], usage| {
+            (!contents.is_empty()).then(|| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(label),
+                    contents,
+                    usage,
+                })
+            })
+        };
+        let params = (!list.stroke_params.is_empty()).then(|| {
+            // One slot per stroke draw, each padded to the stride a dynamic offset must be a multiple of.
+            let mut contents = vec![0u8; list.stroke_params.len() * PARAMS_STRIDE as usize];
+            for (slot, params) in list.stroke_params.iter().enumerate() {
+                let bytes = bytemuck::bytes_of(params);
+                let start = slot * PARAMS_STRIDE as usize;
+                contents[start..start + bytes.len()].copy_from_slice(bytes);
+            }
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ironlab stroke params"),
+                contents: &contents,
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ironlab stroke params"),
+                layout: &layouts.params,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<StrokeParams>() as u64),
+                    }),
+                }],
+            })
+        });
         Self {
-            vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ironlab vertices"),
-                contents: bytemuck::cast_slice(&list.vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ironlab indices"),
-                contents: bytemuck::cast_slice(&list.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
+            vertices: buffer(
+                "ironlab vertices",
+                bytemuck::cast_slice(&list.vertices),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            indices: buffer(
+                "ironlab indices",
+                bytemuck::cast_slice(&list.indices),
+                wgpu::BufferUsages::INDEX,
+            ),
+            segments: buffer(
+                "ironlab segments",
+                bytemuck::cast_slice(&list.segments),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            params,
             mapping,
             bind_group,
             placement: None,
@@ -612,7 +821,7 @@ impl Pipelines {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         config: GpuConfig,
-        mapping_layout: &wgpu::BindGroupLayout,
+        layouts: &Layouts,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ironlab gpu shader"),
@@ -639,9 +848,14 @@ impl Pipelines {
                 },
             ],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ironlab gpu pipeline layout"),
-            bind_group_layouts: &[Some(mapping_layout), Some(&texture_layout)],
+        let triangle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ironlab triangle pipeline layout"),
+            bind_group_layouts: &[Some(&layouts.mapping), Some(&texture_layout)],
+            immediate_size: 0,
+        });
+        let stroke_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ironlab stroke pipeline layout"),
+            bind_group_layouts: &[Some(&layouts.mapping), Some(&layouts.params)],
             immediate_size: 0,
         });
         let multisample = wgpu::MultisampleState {
@@ -656,19 +870,22 @@ impl Pipelines {
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         };
-        let pipeline = |label, vertex: &str, fragment: &str, depth_state, write_mask, blend| {
+        let pipeline = |label,
+                        layout: &wgpu::PipelineLayout,
+                        vertex: &str,
+                        buffers: &[wgpu::VertexBufferLayout<'_>],
+                        fragment: &str,
+                        depth_state,
+                        write_mask,
+                        blend| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
-                layout: Some(&layout),
+                layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(vertex),
                     compilation_options: Default::default(),
-                    buffers: if vertex == "vs_main" {
-                        &[Some(Vertex::LAYOUT)]
-                    } else {
-                        &[]
-                    },
+                    buffers: &buffers.iter().cloned().map(Some).collect::<Vec<_>>(),
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -693,7 +910,9 @@ impl Pipelines {
         };
         let tested = pipeline(
             "ironlab depth-tested",
+            &triangle_layout,
             "vs_main",
+            &[Vertex::LAYOUT],
             "fs_main",
             depth(true, wgpu::CompareFunction::LessEqual),
             wgpu::ColorWrites::ALL,
@@ -701,15 +920,39 @@ impl Pipelines {
         );
         let untested = pipeline(
             "ironlab untested",
+            &triangle_layout,
             "vs_main",
+            &[Vertex::LAYOUT],
             "fs_main",
             depth(false, wgpu::CompareFunction::Always),
             wgpu::ColorWrites::ALL,
             Some(BLEND),
         );
+        let stroke_tested = pipeline(
+            "ironlab stroke depth-tested",
+            &stroke_layout,
+            "vs_stroke",
+            &[Segment::LAYOUT],
+            "fs_stroke",
+            depth(true, wgpu::CompareFunction::LessEqual),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
+        let stroke_flat = pipeline(
+            "ironlab stroke flat",
+            &stroke_layout,
+            "vs_stroke",
+            &[Segment::LAYOUT],
+            "fs_stroke",
+            depth(true, wgpu::CompareFunction::Less),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
         let clear = pipeline(
             "ironlab depth clear",
+            &triangle_layout,
             "vs_clear",
+            &[],
             "fs_clear",
             depth(true, wgpu::CompareFunction::Always),
             wgpu::ColorWrites::empty(),
@@ -746,6 +989,8 @@ impl Pipelines {
         Self {
             tested,
             untested,
+            stroke_tested,
+            stroke_flat,
             clear,
             texture_layout,
             sampler,
