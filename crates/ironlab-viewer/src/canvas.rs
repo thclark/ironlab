@@ -215,8 +215,9 @@ pub fn tessellate_with(
                 leaf.extend(tessellate_glyphs(glyphs, text, &context, &mut tessellators));
             }
             ItemKind::Image(image) => tessellate_image(image, &context, textures, &mut leaf),
-            // Groups, dense ones included, are descended into by `visit_leaves` and never reach this point.
-            ItemKind::Group { .. } | ItemKind::Dense { .. } => {}
+            // Groups, dense and depth ones included, are descended into by `visit_leaves` and never reach this
+            // point.
+            ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => {}
         }
         for mut mesh in leaf.drain(..) {
             if let Some(clip) = context.clip {

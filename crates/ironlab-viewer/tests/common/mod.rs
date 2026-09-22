@@ -535,7 +535,9 @@ pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
 pub fn find_image(items: &[Item]) -> Option<&ImageItem> {
     items.iter().find_map(|item| match &item.kind {
         ItemKind::Image(image) => Some(image),
-        ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => find_image(items),
+        ItemKind::Group { items, .. }
+        | ItemKind::Dense { items, .. }
+        | ItemKind::Depth { items } => find_image(items),
         ItemKind::Path(_) | ItemKind::Glyphs(_) => None,
     })
 }

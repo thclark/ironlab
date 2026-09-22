@@ -159,8 +159,9 @@ fn finite_rect(r: &Rect) -> bool {
     [r.x, r.y, r.width, r.height].iter().all(|v| v.is_finite()) && r.width >= 0.0 && r.height >= 0.0
 }
 
-/// Checks every item recursively; `rotated` is whether an enclosing group rotates or skews.
-fn check(items: &[Item], rotated: bool, problems: &mut Vec<String>) {
+/// Checks every item recursively; `rotated` is whether an enclosing group rotates or skews, and `in_depth` whether
+/// a depth group encloses the items.
+fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<String>) {
     for item in items {
         let at = format!("item from {:?}", item.source);
         match &item.kind {
@@ -202,8 +203,20 @@ fn check(items: &[Item], rotated: bool, problems: &mut Vec<String>) {
                         problems.push(format!("{at}: dash array {:?}", stroke.dash));
                     }
                 }
+                if !path.is_valid_depth() {
+                    problems.push(format!(
+                        "{at}: depth {:?} does not fit the path",
+                        path.depth
+                    ));
+                }
+                if in_depth && path.depth.is_none() {
+                    problems.push(format!("{at}: path without a depth inside a depth group"));
+                }
             }
             ItemKind::Glyphs(run) => {
+                if in_depth {
+                    problems.push(format!("{at}: glyph run inside a depth group"));
+                }
                 if !valid_colour(run.color) {
                     problems.push(format!("{at}: glyph colour {:?}", run.color));
                 }
@@ -244,7 +257,7 @@ fn check(items: &[Item], rotated: bool, problems: &mut Vec<String>) {
                     }
                     rotates |= t.b != 0.0 || t.c != 0.0;
                 }
-                check(items, rotates, problems);
+                check(items, rotates, in_depth, problems);
             }
             ItemKind::Dense { cells, items } => {
                 if *cells == 0 {
@@ -253,11 +266,23 @@ fn check(items: &[Item], rotated: bool, problems: &mut Vec<String>) {
                 if items.is_empty() {
                     problems.push(format!("{at}: dense group with no items"));
                 }
-                check(items, rotated, problems);
+                check(items, rotated, in_depth, problems);
+            }
+            ItemKind::Depth { items } => {
+                if in_depth {
+                    problems.push(format!("{at}: depth group inside a depth group"));
+                }
+                if items.is_empty() {
+                    problems.push(format!("{at}: depth group with no items"));
+                }
+                check(items, rotated, true, problems);
             }
             ItemKind::Image(image) => {
                 if !image.is_valid() {
                     problems.push(format!("{at}: invalid image {image:?}"));
+                }
+                if in_depth && image.depth.is_none() {
+                    problems.push(format!("{at}: image without a depth inside a depth group"));
                 }
             }
         }
@@ -276,7 +301,7 @@ fn compiled_display_list_satisfies_the_validity_contract() {
     assert!(valid_colour(dl.background));
     assert!(!dl.items.is_empty());
     let mut problems = Vec::new();
-    check(&dl.items, false, &mut problems);
+    check(&dl.items, false, false, &mut problems);
     assert!(
         problems.is_empty(),
         "{} problems:\n{}",

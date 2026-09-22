@@ -136,6 +136,7 @@ pub(super) fn item(
             segments,
             fill,
             stroke,
+            depth: None,
         }),
     })
 }
@@ -173,7 +174,9 @@ pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
                     };
                     walk(items, transform, visit);
                 }
-                ItemKind::Dense { items, .. } => walk(items, transform, visit),
+                ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
+                    walk(items, transform, visit);
+                }
                 ItemKind::Image(image) => {
                     let r = image.rect;
                     for corner in [

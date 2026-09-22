@@ -83,6 +83,7 @@ fn quad_with_vertex(third: Point) -> Item {
         ],
         fill: black_fill(),
         stroke: None,
+        depth: None,
     }))
 }
 
@@ -124,6 +125,7 @@ fn path_with_a_non_finite_control_point_is_skipped() {
         ],
         fill: black_fill(),
         stroke: None,
+        depth: None,
     }));
     assert_survives("infinite-control-point", bad, Expect::Skipped);
 }
@@ -139,6 +141,7 @@ fn path_that_does_not_start_with_a_move_is_not_written_as_invalid_operators() {
         ],
         fill: black_fill(),
         stroke: None,
+        depth: None,
     }));
     assert_survives("line-without-move", bad, Expect::SkippedOrCorrected);
 }

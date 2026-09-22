@@ -41,6 +41,7 @@ fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
                 rule: FillRule::NonZero,
             }),
             stroke: None,
+            depth: None,
         }),
     }
 }
@@ -483,6 +484,7 @@ fn placed_image(
                     height,
                     channels,
                     samples: Arc::from(samples),
+                    depth: None,
                 }),
             }],
         },

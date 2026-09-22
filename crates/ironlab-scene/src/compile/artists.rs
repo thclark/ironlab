@@ -889,6 +889,7 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
             height: ny as u32,
             channels: raster.channels,
             samples: raster.samples,
+            depth: None,
         }),
     };
     draw.out.push((

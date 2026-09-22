@@ -182,6 +182,11 @@ fn enclosure(
                     return Some(found);
                 }
             }
+            ItemKind::Depth { items } => {
+                if let Some(found) = enclosure(items, id, None, dense) {
+                    return Some(found);
+                }
+            }
             ItemKind::Dense { items, .. } => {
                 if let Some(found) = enclosure(items, id, None, true) {
                     return Some(found);
