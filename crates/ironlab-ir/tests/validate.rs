@@ -636,6 +636,419 @@ fn surface_shape_checks_still_apply_in_two_dimensional_axes() {
     }
 }
 
+// ---------------------------------------------------------------------------------
+// Nothing to draw (ADR 0012)
+// ---------------------------------------------------------------------------------
+
+/// Asserts that a report has no errors and exactly one warning, of kind `NothingToDraw`,
+/// against `artist`, whose message states `shape`, the shape of the artist's array as
+/// stored (written as every validation message writes a shape, in the form `[ny, nx]`);
+/// `at` names the case in the failure message.
+#[track_caller]
+fn assert_nothing_to_draw(report: &ValidationReport, artist: NodeId, shape: &[usize], at: &str) {
+    assert_eq!(report.errors, vec![], "{at}: {report:?}");
+    assert!(
+        report.is_valid(),
+        "{at}: a warning must not make the figure invalid"
+    );
+    assert_eq!(report.warnings.len(), 1, "{at}: {report:?}");
+    let warning = &report.warnings[0];
+    assert_eq!(warning.kind, IssueKind::NothingToDraw, "{at}: {warning:?}");
+    assert_eq!(
+        warning.node,
+        Some(artist),
+        "{at}: the warning must name the artist"
+    );
+    let shape = format!("{shape:?}");
+    assert!(
+        warning.message.contains(&shape),
+        "{at}: the message must state the shape {shape}: {}",
+        warning.message
+    );
+}
+
+/// Asserts that a report has no errors and no warnings; `at` names the case.
+#[track_caller]
+fn assert_no_issues(report: &ValidationReport, at: &str) {
+    assert_eq!(report.errors, vec![], "{at}: {report:?}");
+    assert_eq!(report.warnings, vec![], "{at}: {report:?}");
+}
+
+// Why: a contour and a surface draw the cells between the nodes of their grid, so a field
+// with no rows, no columns, a single row or a single column gives the artist nothing to
+// draw, and the compiler leaves it out. A user who plots a single row of values expects a
+// strip of cells, as a mapped image would give, and a user whose computation returned no
+// data expects to be told; the report they read is `validate()`, so it must name the
+// artist, say that it draws nothing and state the shape, as ADR 0012 decides. It must do
+// so as a warning, not an error, because a field streamed into a figure has no rows and
+// then one row before it has a cell, and the stream must not be refused at either step.
+// The rule must hold for both artists, both projections and both kinds of grid, and must
+// not fire for the smallest grid that has a cell.
+#[test]
+fn a_field_with_no_cells_is_a_warning_that_the_artist_draws_nothing() {
+    type Make = fn(NodeId, Grid, DataId) -> Artist;
+    let contour: Make = |id, grid, z| {
+        Artist::Contour(Contour {
+            id,
+            grid,
+            z,
+            ..Contour::default()
+        })
+    };
+    let surface: Make = |id, grid, z| {
+        Artist::Surface(Surface {
+            id,
+            grid,
+            z,
+            ..Surface::default()
+        })
+    };
+    // (name, rows, columns, whether the field gives the artist nothing to draw)
+    let shapes = [
+        ("a single row", 1, 4, true),
+        ("a single column", 3, 1, true),
+        ("a single node", 1, 1, true),
+        ("no rows", 0, 4, true),
+        ("no columns", 3, 0, true),
+        ("no rows and no columns", 0, 0, true),
+        ("the smallest grid with a cell", 2, 2, false),
+    ];
+    for (artist_name, make) in [("contour", contour), ("surface", surface)] {
+        for three_d in [false, true] {
+            for (shape_name, ny, nx, nothing) in shapes {
+                for curvilinear in [false, true] {
+                    let mut b = FigureBuilder::new();
+                    let axes = if three_d {
+                        b.axes3d(0, 0)
+                    } else {
+                        b.axes2d(0, 0)
+                    };
+                    let field = b.matrix(ny, nx, |j, i| (j + i) as f64);
+                    let grid = if curvilinear {
+                        Grid::Curvilinear {
+                            x: b.matrix(ny, nx, |_, i| i as f64),
+                            y: b.matrix(ny, nx, |j, _| j as f64),
+                        }
+                    } else {
+                        Grid::Rectilinear {
+                            x: b.vector(&(0..nx).map(|i| i as f64).collect::<Vec<_>>()),
+                            y: b.vector(&(0..ny).map(|j| j as f64).collect::<Vec<_>>()),
+                        }
+                    };
+                    let id = b.node();
+                    b.push(axes, make(id, grid, field));
+                    let report = b.build().validate();
+                    let at = format!(
+                        "a {artist_name} on {shape_name} of a {} grid in a {} axes",
+                        if curvilinear {
+                            "curvilinear"
+                        } else {
+                            "rectilinear"
+                        },
+                        if three_d { "3D" } else { "2D" }
+                    );
+                    if nothing {
+                        assert_nothing_to_draw(&report, id, &[ny, nx], &at);
+                    } else {
+                        assert_no_issues(&report, &at);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Why: a line, a scatter and a quiver draw at their points, so an artist of no points, which
+// a filter that matched nothing or a figure built before its data arrives produces, draws
+// nothing and must be reported as such against the artist, once, in both projections; a
+// figure holding several such artists must name each, so that the reader of the report
+// need not guess which is missing. The figure stays valid, so that a stream may grow a
+// series from nothing. ADR 0012 draws the line at no points, not at one: a single point is
+// something to draw (a scatter puts a marker on it, a quiver an arrow, a line its marker
+// if it has one), and the rule is made from the shape of the arrays alone, so the first
+// sample of a stream must not be reported.
+#[test]
+fn a_line_scatter_or_quiver_of_no_points_is_a_warning_that_names_each_artist() {
+    for three_d in [false, true] {
+        let mut b = FigureBuilder::new();
+        let axes = if three_d {
+            b.axes3d(0, 0)
+        } else {
+            b.axes2d(0, 0)
+        };
+        let e = || NdArray::vector(vec![]);
+        let (x, y) = (b.data(e()), b.data(e()));
+        let z = three_d.then(|| b.data(e()));
+        let line = b.node();
+        b.push(
+            axes,
+            Artist::Line(Line {
+                id: line,
+                x,
+                y,
+                z,
+                ..Line::default()
+            }),
+        );
+        let scatter = b.node();
+        b.push(
+            axes,
+            Artist::Scatter(Scatter {
+                id: scatter,
+                x,
+                y,
+                z,
+                ..Scatter::default()
+            }),
+        );
+        let (u, v) = (b.data(e()), b.data(e()));
+        let quiver = b.node();
+        b.push(
+            axes,
+            Artist::Quiver(Quiver {
+                id: quiver,
+                x,
+                y,
+                z,
+                u,
+                v,
+                w: z,
+                ..Quiver::default()
+            }),
+        );
+        let report = b.build().validate();
+        let at = format!("three_d = {three_d}");
+        assert_eq!(report.errors, vec![], "{at}: {report:?}");
+        assert!(report.is_valid(), "{at}");
+        let mut named: Vec<Option<NodeId>> = report.warnings.iter().map(|w| w.node).collect();
+        named.sort();
+        assert_eq!(
+            named,
+            vec![Some(line), Some(scatter), Some(quiver)],
+            "{at}: one warning names each empty artist: {report:?}"
+        );
+        for warning in &report.warnings {
+            assert_eq!(warning.kind, IssueKind::NothingToDraw, "{at}: {warning:?}");
+        }
+
+        // A single point is drawn, so it is not reported.
+        let mut b = FigureBuilder::new();
+        let axes = if three_d {
+            b.axes3d(0, 0)
+        } else {
+            b.axes2d(0, 0)
+        };
+        let one = || NdArray::vector(vec![1.0]);
+        let (x, y) = (b.data(one()), b.data(one()));
+        let z = three_d.then(|| b.data(one()));
+        let (u, v) = (b.data(one()), b.data(one()));
+        let ids = [b.node(), b.node(), b.node()];
+        b.push(
+            axes,
+            Artist::Line(Line {
+                id: ids[0],
+                x,
+                y,
+                z,
+                ..Line::default()
+            }),
+        );
+        b.push(
+            axes,
+            Artist::Scatter(Scatter {
+                id: ids[1],
+                x,
+                y,
+                z,
+                ..Scatter::default()
+            }),
+        );
+        b.push(
+            axes,
+            Artist::Quiver(Quiver {
+                id: ids[2],
+                x,
+                y,
+                z,
+                u,
+                v,
+                w: z,
+                ..Quiver::default()
+            }),
+        );
+        assert_no_issues(&b.build().validate(), &format!("{at}, one point"));
+    }
+}
+
+// Why: an image with no rows or no columns holds no pixels, so it draws nothing, and the
+// user must learn why the image is missing from the report rather than from an empty
+// axes; every image kind, of bytes and of floats alike, in both projections, must be
+// reported the same way, with the shape of its array, and the figure stays valid because
+// such an image is what a computation that returned no data produces. An image of a single
+// pixel draws that pixel, so it must not be reported: unlike a field, an image needs no
+// second row or column to have something to show.
+#[test]
+fn an_image_with_no_rows_or_no_columns_is_a_warning_that_the_image_draws_nothing() {
+    let kinds: [(&str, MakeImage, bool); 3] = [
+        ("an image", image_at, true),
+        ("an indexed image", indexed_at, false),
+        ("a mapped image", mapped_at, false),
+    ];
+    let shape = |components: bool, ny: usize, nx: usize| {
+        if components {
+            vec![ny, nx, 3]
+        } else {
+            vec![ny, nx]
+        }
+    };
+    for (name, make, components) in kinds {
+        for three_d in [false, true] {
+            let projection = if three_d { "3D" } else { "2D" };
+            for bytes in [false, true] {
+                for (what, ny, nx) in [("no rows", 0, 4), ("no columns", 3, 0), ("no pixels", 0, 0)]
+                {
+                    let shape = shape(components, ny, nx);
+                    let fx = image_fixture(three_d, shape.clone(), bytes, |id, data| {
+                        make(id, data, ImagePlacement::default())
+                    });
+                    let at = format!("{name} with {what} (bytes: {bytes}) in a {projection} axes");
+                    assert_nothing_to_draw(&fx.fig.validate(), fx.artist, &shape, &at);
+                }
+                let fx = image_fixture(three_d, shape(components, 1, 1), bytes, |id, data| {
+                    make(id, data, ImagePlacement::default())
+                });
+                assert_no_issues(
+                    &fx.fig.validate(),
+                    &format!("{name} of one pixel (bytes: {bytes}) in a {projection} axes"),
+                );
+            }
+        }
+    }
+}
+
+// Why: the warning describes an artist whose data is sound but gives it nothing to draw.
+// An artist whose arrays are missing, hold bytes where floats are needed or disagree in
+// shape is already reported for that error, which is what the user must fix; a second
+// report against the same artist would send them after a problem that the first repair
+// removes. Each such error must therefore stand alone, in every artist family, even when
+// the data that can be seen is empty or has no cell.
+#[test]
+fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawing_nothing() {
+    /// A deferred constructor of an artist that stores its own arrays in the builder.
+    type MakeWith = Box<dyn FnOnce(&mut FigureBuilder, NodeId) -> Artist>;
+    /// Stores an empty vector and returns its identifier.
+    fn empty(b: &mut FigureBuilder) -> DataId {
+        b.data(NdArray::vector(vec![]))
+    }
+    let cases: Vec<(&str, IssueKind, MakeWith)> = vec![
+        (
+            "an empty line whose y is unknown",
+            IssueKind::UnknownData,
+            Box::new(|b, id| {
+                Artist::Line(Line {
+                    id,
+                    x: empty(b),
+                    y: DataId(999),
+                    ..Line::default()
+                })
+            }),
+        ),
+        (
+            "an empty scatter whose x holds bytes",
+            IssueKind::ElementTypeMismatch,
+            Box::new(|b, id| {
+                Artist::Scatter(Scatter {
+                    id,
+                    x: b.bytes(vec![0], vec![]),
+                    y: empty(b),
+                    ..Scatter::default()
+                })
+            }),
+        ),
+        (
+            "a quiver of no positions with one component",
+            IssueKind::ShapeMismatch,
+            Box::new(|b, id| {
+                Artist::Quiver(Quiver {
+                    id,
+                    x: empty(b),
+                    y: empty(b),
+                    u: b.vector(&[1.0]),
+                    v: empty(b),
+                    ..Quiver::default()
+                })
+            }),
+        ),
+        (
+            "a contour of a single row on a transposed grid",
+            IssueKind::ShapeMismatch,
+            Box::new(|b, id| {
+                Artist::Contour(Contour {
+                    id,
+                    grid: Grid::Rectilinear {
+                        x: b.vector(&[0.0]),
+                        y: b.vector(&[0.0, 1.0, 2.0, 3.0]),
+                    },
+                    z: b.matrix(1, 4, |_, i| i as f64),
+                    ..Contour::default()
+                })
+            }),
+        ),
+        (
+            "a surface of no rows whose field is unknown",
+            IssueKind::UnknownData,
+            Box::new(|b, id| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear {
+                        x: b.vector(&[0.0, 1.0]),
+                        y: empty(b),
+                    },
+                    z: DataId(999),
+                    ..Surface::default()
+                })
+            }),
+        ),
+        (
+            "an image of no rows with two components per pixel",
+            IssueKind::ShapeMismatch,
+            Box::new(|b, id| {
+                image_at(
+                    id,
+                    b.bytes(vec![0, 4, 2], vec![]),
+                    ImagePlacement::default(),
+                )
+            }),
+        ),
+        (
+            "a mapped image of no columns that is not a matrix",
+            IssueKind::ShapeMismatch,
+            Box::new(|b, id| {
+                mapped_at(
+                    id,
+                    b.bytes(vec![3, 0, 1], vec![]),
+                    ImagePlacement::default(),
+                )
+            }),
+        ),
+    ];
+    for (name, kind, make) in cases {
+        let mut b = FigureBuilder::new();
+        let axes = b.axes2d(0, 0);
+        let id = b.node();
+        let artist = make(&mut b, id);
+        b.push(axes, artist);
+        let report = b.build().validate();
+        assert_eq!(error_kinds(&report), vec![kind], "{name}: {report:?}");
+        assert_eq!(report.errors[0].node, Some(id), "{name}");
+        assert_eq!(
+            report.warnings,
+            vec![],
+            "{name}: the error must stand alone: {report:?}"
+        );
+    }
+}
+
 // Why: in a 2D axes the field of a surface colours the faces and positions nothing, so a
 // logarithmic z scale left on the axes (a 2D axes keeps a z axis it never shows) must not
 // warn about non-positive field values, which are ordinary for a pseudocolour plot. The
@@ -1266,7 +1679,9 @@ fn image_data(fx: &GridFixture) -> DataId {
 // mismatch (and as nothing else, so that the user is not sent after a second problem)
 // and accept exactly the two shapes the scene compiler draws, of floats and of bytes
 // alike, because an image is the one artist that reads bytes. An image with no pixels
-// along a dimension has the right shape and nothing to draw, so it is accepted too.
+// along a dimension has the right shape and is accepted too; that it is then reported
+// as having nothing to draw is pinned in
+// `an_image_with_no_rows_or_no_columns_is_a_warning_that_the_image_draws_nothing`.
 #[test]
 fn image_pixels_must_be_three_dimensional_with_three_or_four_components() {
     for shape in [
@@ -1293,14 +1708,7 @@ fn image_pixels_must_be_three_dimensional_with_three_or_four_components() {
             );
         }
     }
-    for shape in [
-        vec![3, 4, 3],
-        vec![3, 4, 4],
-        vec![1, 1, 3],
-        vec![2, 1, 4],
-        vec![0, 4, 3],
-        vec![0, 0, 4],
-    ] {
+    for shape in [vec![3, 4, 3], vec![3, 4, 4], vec![1, 1, 3], vec![2, 1, 4]] {
         for bytes in [false, true] {
             let fx = image_fixture(false, shape.clone(), bytes, |id, pixels| {
                 image_at(id, pixels, ImagePlacement::default())
@@ -1314,6 +1722,18 @@ fn image_pixels_must_be_three_dimensional_with_three_or_four_components() {
             assert_eq!(report.warnings, vec![]);
         }
     }
+    for shape in [vec![0, 4, 3], vec![0, 0, 4]] {
+        for bytes in [false, true] {
+            let fx = image_fixture(false, shape.clone(), bytes, |id, pixels| {
+                image_at(id, pixels, ImagePlacement::default())
+            });
+            assert_eq!(
+                fx.fig.validate().errors,
+                vec![],
+                "pixels of shape {shape:?} (bytes: {bytes})"
+            );
+        }
+    }
 }
 
 // Why: the two mapped image kinds read one index or value per pixel of a matrix, so a
@@ -1321,7 +1741,9 @@ fn image_pixels_must_be_three_dimensional_with_three_or_four_components() {
 // them as shape mismatches only, and accept a matrix of floats or of bytes, because
 // 8-bit indices are the natural form of a colour-indexed image and 8-bit values map
 // through the colormap like any others. A matrix with no pixels along a dimension has
-// the right shape and nothing to draw, so it is accepted too.
+// the right shape and is accepted too; that it is then reported as having nothing to
+// draw is pinned in
+// `an_image_with_no_rows_or_no_columns_is_a_warning_that_the_image_draws_nothing`.
 #[test]
 fn indices_and_values_of_the_mapped_image_kinds_must_be_two_dimensional() {
     let kinds: [(&str, MakeImage); 2] = [
@@ -1346,7 +1768,7 @@ fn indices_and_values_of_the_mapped_image_kinds_must_be_two_dimensional() {
                 );
             }
         }
-        for shape in [vec![3, 4], vec![1, 1], vec![1, 4], vec![3, 0]] {
+        for shape in [vec![3, 4], vec![1, 1], vec![1, 4]] {
             for bytes in [false, true] {
                 let fx = image_fixture(false, shape.clone(), bytes, |id, data| {
                     make(id, data, ImagePlacement::default())
@@ -1359,6 +1781,16 @@ fn indices_and_values_of_the_mapped_image_kinds_must_be_two_dimensional() {
                 );
                 assert_eq!(report.warnings, vec![]);
             }
+        }
+        for bytes in [false, true] {
+            let fx = image_fixture(false, vec![3, 0], bytes, |id, data| {
+                make(id, data, ImagePlacement::default())
+            });
+            assert_eq!(
+                fx.fig.validate().errors,
+                vec![],
+                "{name} of shape [3, 0] (bytes: {bytes})"
+            );
         }
     }
 }

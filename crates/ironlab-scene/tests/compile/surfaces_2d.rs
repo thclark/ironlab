@@ -346,6 +346,59 @@ fn a_single_row_of_nodes_has_no_cells_and_is_skipped_with_a_warning() {
     );
 }
 
+// Why: ADR 0012 decides that the compiler warns of every artist it leaves out, so that the viewer's problems
+// indicator and `validate()` agree about which artists are absent and why. A field with no rows is left out exactly
+// as a field with a single row is, so it must be reported the same way: one warning naming each empty artist, the
+// surface and the contour alike, while the rest of the axes is still drawn. A field with no columns is the other
+// way of being empty and must be reported too.
+#[test]
+fn an_empty_field_is_left_out_with_a_warning_naming_each_artist() {
+    for (what, ny, nx) in [("no rows", 0, 4), ("no columns", 3, 0)] {
+        let mut fx = Fx::new();
+        let ax = fx.axes2d(0, 0);
+        let z = fx.matrix(ny, nx, vec![]);
+        let x = fx.vector(&X[..nx]);
+        let y = fx.vector(&Y[..ny]);
+        let surface = fx.node();
+        fx.ax(ax).artists.push(Artist::Surface(Surface {
+            id: surface,
+            grid: Grid::Rectilinear { x, y },
+            z,
+            ..Surface::default()
+        }));
+        let contour = fx.node();
+        fx.ax(ax).artists.push(Artist::Contour(ironlab_ir::Contour {
+            id: contour,
+            grid: Grid::Rectilinear { x, y },
+            z,
+            ..ironlab_ir::Contour::default()
+        }));
+        let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
+        let scene = compile_figure(&fx.build());
+        let leaves = leaves(&scene);
+        assert!(from_source(&leaves, surface).is_empty(), "{what}");
+        assert!(from_source(&leaves, contour).is_empty(), "{what}");
+        assert!(
+            !from_source(&leaves, line).is_empty(),
+            "{what}: the line is drawn"
+        );
+        for (artist, id) in [("surface", surface), ("contour", contour)] {
+            assert_eq!(
+                scene.warnings.iter().filter(|w| w.node == Some(id)).count(),
+                1,
+                "{what}: one warning names the empty {artist}: {:?}",
+                scene.warnings
+            );
+        }
+        assert_eq!(
+            scene.warnings.len(),
+            2,
+            "{what}: nothing else is reported: {:?}",
+            scene.warnings
+        );
+    }
+}
+
 // Why: a curvilinear grid gives every node its own position, which is how a pseudocolour plot is drawn on a sheared,
 // polar or otherwise mapped mesh. Each face must join the positions of its own four nodes, so faces are
 // parallelograms here rather than axis-aligned rectangles, and the limits are tight to the extent of the node

@@ -45,6 +45,8 @@ use std::path::Path;
 use ironlab_ir::Figure;
 use ironlab_scene::display::{self, DisplayList, Item, ItemKind, PathSegment, Rgba};
 use ironlab_text::{FontId, TextEngine};
+
+pub use ironlab_scene::SceneWarning;
 use krilla::Document;
 use krilla::color::rgb;
 use krilla::geom::{
@@ -206,10 +208,22 @@ pub fn render_display_list(
         .map_err(|error| PdfError::Krilla(error.to_string()))
 }
 
+/// A figure exported as a PDF: the bytes of the document, and the warnings the scene compiler raised while drawing
+/// the figure, each naming the node it concerns, so that a caller learns what was left off the page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Exported {
+    /// The PDF document.
+    pub bytes: Vec<u8>,
+    /// The warnings of the compiled scene, in the order the compiler raised them.
+    pub warnings: Vec<SceneWarning>,
+}
+
 /// Compiles and exports a figure, with the document metadata given by [`PdfOptions::for_figure`].
 ///
 /// `raster` renders the dense parts of the figure; pass `None` to draw the whole figure as vector geometry. The
-/// viewer's headless renderer implements [`Rasteriser`], and `ironlab_viewer::export_pdf` wires it in.
+/// viewer's headless renderer implements [`Rasteriser`], and `ironlab_viewer::export_pdf` wires it in. The
+/// warnings the scene compiler raised while drawing the figure are returned with the bytes, because an artist the
+/// compiler left out is missing from the page and the caller must be able to learn why.
 ///
 /// # Errors
 ///
@@ -218,17 +232,22 @@ pub fn export_pdf(
     figure: &Figure,
     text: &TextEngine,
     raster: Option<&mut dyn Rasteriser>,
-) -> Result<Vec<u8>, PdfError> {
+) -> Result<Exported, PdfError> {
     let scene = ironlab_scene::compile(figure, text);
-    render_display_list(
+    let bytes = render_display_list(
         &scene.display_list,
         text,
         &PdfOptions::for_figure(figure),
         raster,
-    )
+    )?;
+    Ok(Exported {
+        bytes,
+        warnings: scene.warnings,
+    })
 }
 
-/// Compiles and exports a figure, writing the PDF to `path`.
+/// Compiles and exports a figure, writing the PDF to `path`, and returns the warnings the scene compiler raised
+/// while drawing the figure, as [`export_pdf`] does.
 ///
 /// # Errors
 ///
@@ -238,10 +257,10 @@ pub fn write_pdf(
     text: &TextEngine,
     raster: Option<&mut dyn Rasteriser>,
     path: impl AsRef<Path>,
-) -> Result<(), PdfError> {
-    let bytes = export_pdf(figure, text, raster)?;
-    std::fs::write(path.as_ref(), bytes)?;
-    Ok(())
+) -> Result<Vec<SceneWarning>, PdfError> {
+    let exported = export_pdf(figure, text, raster)?;
+    std::fs::write(path.as_ref(), exported.bytes)?;
+    Ok(exported.warnings)
 }
 
 /// A font loaded into krilla, with the number of glyphs it contains.

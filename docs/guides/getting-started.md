@@ -162,7 +162,7 @@ Out of the box, a surface in a two-dimensional axes and a [colour-mapped image](
 | Logarithmic axes | not drawn, with a validation warning | drawn, because every vertex is placed through the scale of its axis |
 | Drawn as | one flat raster at its own resolution | one quadrilateral per face, with optional edges |
 
-An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: it passes validation, and the surface is left out of the drawing with a warning. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
+An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
 
 A surface added with `surface` is an ordinary surface, so a later `surf` or `mesh` in the same axes converts that axes to three dimensions and the earlier surface is drawn there with `z` as its height. The [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry draws a field on a polar mesh in this way, and the [figure schema](../reference/figure-schema.md#surface) states how a surface is stored.
 
@@ -354,7 +354,20 @@ if !report.is_valid() {
 }
 ```
 
-Exporting and showing a figure validate it first, and return `Error::Invalid` with the report when it has errors. Warnings, such as non-positive data on a logarithmic axis, do not prevent a figure from being exported or shown.
+Exporting and showing a figure validate it first, and return `Error::Invalid` with the report when it has errors. Warnings do not prevent a figure from being exported or shown: they describe an artist that is drawn with less than its data holds, or not at all. Each warning names the artist it concerns and has a kind that says why. `NonPositiveOnLogAxis` reports data that a logarithmic axis cannot show, `ImageOnLogAxis` an image that cannot be placed on a logarithmic axis, and `NothingToDraw` an artist whose data gives it nothing to draw: a line, scatter or quiver of no points, an image with no rows or no columns, or a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. Empty and singleton data are valid in every artist, so a figure built before its data arrives is valid at every step, and the warning is how a program learns that an artist is missing from the picture:
+
+```rust
+use ironlab::IssueKind;
+
+let report = fig.validate();
+for issue in &report.warnings {
+    if issue.kind == IssueKind::NothingToDraw {
+        eprintln!("{:?} is not drawn: {}", issue.node, issue.message);
+    }
+}
+```
+
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
 
 ## Saving and loading
 
@@ -381,6 +394,20 @@ fig.export_pdf("pressure.pdf")?;
 ```
 
 The page of the PDF is exactly the size of the figure, with no margins, and all text is embedded as real, selectable text in subsets of the bundled fonts. A plot hidden through its visibility flag (for example from the viewer's legend) is left out of the PDF.
+
+`export_pdf` returns an `ExportReport` of what was left off the page: the validation warnings of the figure (see [validating a figure](#validating-a-figure)) and the warnings the scene compiler raised while drawing it, such as a piece of LaTeX the typesetter does not support. Each names the node it concerns. Both lists are empty for a figure from which nothing was left out, so a program can test the report to decide whether the figure is finished, and nothing is printed or logged:
+
+```rust
+let report = fig.export_pdf("pressure.pdf")?;
+for issue in &report.validation {
+    eprintln!("{:?}: {}", issue.node, issue.message);
+}
+for warning in &report.scene {
+    eprintln!("{:?}: {}", warning.node, warning.message);
+}
+```
+
+The two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
 
 ### Dense surfaces
 

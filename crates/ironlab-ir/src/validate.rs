@@ -74,6 +74,16 @@ pub enum IssueKind {
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
+    /// An artist whose data gives it nothing to draw, so that it is left out of the
+    /// drawing: a line, scatter or quiver of no points; an image of any kind with no rows
+    /// or no columns; or a contour or surface whose field has no rows or no columns, or a
+    /// single row or a single column (values, but no cell between nodes to draw them in).
+    /// The message states which case applies and the shape of the array. This is a
+    /// warning, not an error, because empty and singleton data are valid: a figure built
+    /// before its data arrives, or streamed from nothing, passes through these states. It
+    /// is reported only when the artist's references and shapes are otherwise valid, so
+    /// that an artist reported for an error is not reported twice.
+    NothingToDraw,
     /// A figure parameter has an empty name, or is a number that is not finite (which
     /// JSON cannot represent).
     InvalidParameter,
@@ -110,10 +120,14 @@ impl Figure {
     /// policy is strict (for a colour-mapped image, a value lies below or above the range
     /// only when the colour limits are manual and valid, because automatic limits are
     /// the range of the data). Warnings report finite non-positive data plotted along
-    /// logarithmic axes, and an image whose plane has a logarithmic axis, which is not
-    /// drawn; data that is not plotted along an axis (such as quiver components, colour
-    /// data or the pixels of an image) never produces the first of these. An array of
-    /// 8-bit values that no artist refers to is not an error.
+    /// logarithmic axes, an image whose plane has a logarithmic axis, which is not
+    /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
+    /// line, scatter or quiver of no points, an image with no rows or no columns, and a
+    /// contour or surface whose field has no rows or no columns or a single row or
+    /// column, which has no cell between its nodes); data that is not plotted along an
+    /// axis (such as quiver components, colour data or the pixels of an image) never
+    /// produces the first of these. An array of 8-bit values that no artist refers to
+    /// is not an error.
     ///
     /// The z limits and z scale of a 2D axes are ignored, as they are when drawing, and
     /// so is the offset of an image in the xy plane of a 2D axes. A line, scatter or
@@ -123,7 +137,9 @@ impl Figure {
     /// reported repeatedly; the coincidence of an image's pixel centres and its strict
     /// policies are checked only when its array is valid and of the right shape, because
     /// both depend on the pixels, whereas a non-finite centre or offset is always
-    /// reported.
+    /// reported. An artist is reported as having nothing to draw only when it is
+    /// reported for no error, so that the error, which is what must be fixed, stands
+    /// alone.
     pub fn validate(&self) -> ValidationReport {
         let mut validator = Validator {
             figure: self,
@@ -323,7 +339,9 @@ impl Validator<'_> {
             self.check_references(id, &usage.references, usage.accepts_bytes);
         match ImageView::of(artist) {
             Some(image) => self.check_image(axes, three_d, id, &image, references_are_valid),
-            None if references_are_valid => self.check_shapes(id, artist),
+            None if references_are_valid && self.check_shapes(id, artist) => {
+                self.check_something_to_draw(id, artist);
+            }
             None => {}
         }
 
@@ -393,13 +411,13 @@ impl Validator<'_> {
     }
 
     /// Checks the lengths and shapes of the arrays of an artist other than an image, all
-    /// of which exist.
-    fn check_shapes(&mut self, node: NodeId, artist: &Artist) {
+    /// of which exist, and returns whether they agree.
+    fn check_shapes(&mut self, node: NodeId, artist: &Artist) -> bool {
         let data = &self.figure.data;
         match artist {
             Artist::Line(line) => {
                 let counts = [Some(line.x), Some(line.y), line.z];
-                self.check_equal_counts(node, "the coordinate arrays", &counts);
+                self.check_equal_counts(node, "the coordinate arrays", &counts)
             }
             Artist::Scatter(scatter) => {
                 let size = match scatter.size {
@@ -411,7 +429,7 @@ impl Validator<'_> {
                     ScatterColor::Spec { .. } => None,
                 };
                 let counts = [Some(scatter.x), Some(scatter.y), scatter.z, size, color];
-                self.check_equal_counts(node, "the coordinate, size and colour arrays", &counts);
+                self.check_equal_counts(node, "the coordinate, size and colour arrays", &counts)
             }
             Artist::Quiver(quiver) => {
                 let counts = [
@@ -422,11 +440,11 @@ impl Validator<'_> {
                     Some(quiver.v),
                     quiver.w,
                 ];
-                self.check_equal_counts(node, "the position and component arrays", &counts);
+                self.check_equal_counts(node, "the position and component arrays", &counts)
             }
             Artist::Contour(contour) => self.check_grid(node, contour.grid, contour.z),
             Artist::Surface(surface) => {
-                self.check_grid(node, surface.grid, surface.z);
+                let grid_agrees = self.check_grid(node, surface.grid, surface.z);
                 if let Some(c) = surface.c
                     && data[&c].shape != data[&surface.z].shape
                 {
@@ -438,17 +456,60 @@ impl Validator<'_> {
                             data[&c].shape, data[&surface.z].shape
                         ),
                     );
+                    return false;
                 }
+                grid_agrees
             }
             // The shape of an image is checked by `check_image`, which also needs the
             // number of pixels along each axis of the image.
-            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => {}
+            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => true,
         }
     }
 
+    /// Warns of an artist other than an image whose arrays, which exist and agree in
+    /// shape, give it nothing to draw: a line, scatter or quiver of no points, or a
+    /// contour or surface whose field has no rows or no columns or a single row or a
+    /// single column, between whose nodes there is no cell.
+    fn check_something_to_draw(&mut self, node: NodeId, artist: &Artist) {
+        let data = &self.figure.data;
+        let (what, shape) = match artist {
+            Artist::Line(line) => ("the coordinate arrays", &data[&line.x].shape),
+            Artist::Scatter(scatter) => ("the coordinate arrays", &data[&scatter.x].shape),
+            Artist::Quiver(quiver) => ("the position arrays", &data[&quiver.x].shape),
+            Artist::Contour(contour) => ("the field", &data[&contour.z].shape),
+            Artist::Surface(surface) => ("the field", &data[&surface.z].shape),
+            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => return,
+        };
+        let message = match artist {
+            Artist::Contour(_) | Artist::Surface(_) => {
+                let &[ny, nx] = shape.as_slice() else {
+                    return;
+                };
+                let Some(case) = nodes_without_cells(ny, nx) else {
+                    return;
+                };
+                format!(
+                    "{what} has shape {shape:?}: it {case}, and a contour or surface draws the \
+                     cells between the nodes of its grid, of which there is none, so the artist \
+                     is left out of the drawing"
+                )
+            }
+            _ => {
+                if shape.iter().product::<usize>() > 0 {
+                    return;
+                }
+                format!(
+                    "{what} have shape {shape:?}, so the artist has no points and is left out \
+                     of the drawing"
+                )
+            }
+        };
+        self.warning(Some(node), IssueKind::NothingToDraw, message);
+    }
+
     /// Checks an image: the shape of its array when the array is valid, its placement,
-    /// the scales of the axes of its plane, and the pixels that its strict policies
-    /// cover.
+    /// the scales of the axes of its plane, the pixels that its strict policies cover,
+    /// and, when no error was reported against it, whether it has any pixel to draw.
     fn check_image(
         &mut self,
         axes: &Axes,
@@ -457,6 +518,7 @@ impl Validator<'_> {
         image: &ImageView,
         data_is_valid: bool,
     ) {
+        let errors_before = self.report.errors.len();
         let pixels = if data_is_valid {
             self.check_image_shape(node, image)
         } else {
@@ -464,9 +526,31 @@ impl Validator<'_> {
         };
         self.check_image_placement(node, image.placement, pixels);
         self.check_image_plane_scales(axes, three_d, node, image.placement.plane);
-        if let (Some(policies), Some(_)) = (&image.policies, pixels) {
+        let Some([ny, nx]) = pixels else {
+            return;
+        };
+        if let Some(policies) = &image.policies {
             self.check_strict_policies(axes, node, image, policies);
         }
+        if self.report.errors.len() > errors_before {
+            return;
+        }
+        let case = match (ny, nx) {
+            (0, 0) => "no rows and no columns",
+            (0, _) => "no rows",
+            (_, 0) => "no columns",
+            _ => return,
+        };
+        let shape = &self.figure.data[&image.data].shape;
+        self.warning(
+            Some(node),
+            IssueKind::NothingToDraw,
+            format!(
+                "the {} have shape {shape:?}, so the image has {case} of pixels and is left \
+                 out of the drawing",
+                image.what
+            ),
+        );
     }
 
     /// Checks that the array of an image has the shape its kind requires, and returns
@@ -658,8 +742,9 @@ impl Validator<'_> {
         }
     }
 
-    /// Reports a shape mismatch when the present arrays differ in element count.
-    fn check_equal_counts(&mut self, node: NodeId, what: &str, arrays: &[Option<DataId>]) {
+    /// Reports a shape mismatch when the present arrays differ in element count, and
+    /// returns whether they agree.
+    fn check_equal_counts(&mut self, node: NodeId, what: &str, arrays: &[Option<DataId>]) -> bool {
         let counts: Vec<usize> = arrays
             .iter()
             .flatten()
@@ -671,11 +756,14 @@ impl Validator<'_> {
                 IssueKind::ShapeMismatch,
                 format!("{what} have different numbers of elements {counts:?}"),
             );
+            return false;
         }
+        true
     }
 
-    /// Checks that a field is two-dimensional and that its grid matches it.
-    fn check_grid(&mut self, node: NodeId, grid: Grid, field: DataId) {
+    /// Checks that a field is two-dimensional and that its grid matches it, and returns
+    /// whether both hold.
+    fn check_grid(&mut self, node: NodeId, grid: Grid, field: DataId) -> bool {
         let data = &self.figure.data;
         let shape = &data[&field].shape;
         let &[ny, nx] = shape.as_slice() else {
@@ -684,7 +772,7 @@ impl Validator<'_> {
                 IssueKind::ShapeMismatch,
                 format!("the field has shape {shape:?}, but it must be two-dimensional"),
             );
-            return;
+            return false;
         };
         let problem = match grid {
             Grid::Rectilinear { x, y } => {
@@ -708,7 +796,9 @@ impl Validator<'_> {
         };
         if let Some(message) = problem {
             self.error(Some(node), IssueKind::ShapeMismatch, message);
+            return false;
         }
+        true
     }
 
     /// Checks the contour levels of a contour.
@@ -742,6 +832,20 @@ fn axis_of(axes: &Axes, dimension: Dimension) -> &Axis {
         Dimension::Y => &axes.y,
         Dimension::Z => &axes.z,
     }
+}
+
+/// Describes a grid of `ny` rows and `nx` columns of nodes that has no cell between its
+/// nodes, as messages write it, or returns `None` for a grid with a cell.
+fn nodes_without_cells(ny: usize, nx: usize) -> Option<&'static str> {
+    Some(match (ny, nx) {
+        (0, 0) => "has no rows and no columns",
+        (0, _) => "has no rows",
+        (_, 0) => "has no columns",
+        (1, 1) => "has a single node",
+        (1, _) => "has a single row of nodes",
+        (_, 1) => "has a single column of nodes",
+        _ => return None,
+    })
 }
 
 /// Returns the name of a dimension as messages write it.

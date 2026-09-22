@@ -16,7 +16,8 @@
 use std::path::Path;
 
 use ironlab_ir::Figure;
-use ironlab_pdf::{PdfError, PdfOptions, RasterImage, Rasteriser};
+use ironlab_pdf::{Exported, PdfError, PdfOptions, RasterImage, Rasteriser};
+use ironlab_scene::SceneWarning;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
 
@@ -76,6 +77,9 @@ impl Rasteriser for GpuRasteriser<'_> {
 
 /// Compiles and exports a figure, rasterising its dense content on the GPU.
 ///
+/// The warnings the scene compiler raised while drawing the figure are returned with the bytes, as
+/// [`ironlab_pdf::export_pdf`] returns them, so that a caller learns which artists were left off the page.
+///
 /// # Errors
 ///
 /// Returns [`ExportError::Render`] when the figure has content the policy rasterises and the renderer cannot be
@@ -84,9 +88,13 @@ pub fn export_pdf(
     figure: &Figure,
     text: &TextEngine,
     options: &PdfOptions,
-) -> Result<Vec<u8>, ExportError> {
+) -> Result<Exported, ExportError> {
     let scene = ironlab_scene::compile(figure, text);
-    render_display_list(&scene.display_list, text, options)
+    let bytes = render_display_list(&scene.display_list, text, options)?;
+    Ok(Exported {
+        bytes,
+        warnings: scene.warnings,
+    })
 }
 
 /// Exports an already compiled display list, rasterising its dense content on the GPU.
@@ -115,7 +123,8 @@ pub fn render_display_list(
     .map_err(ExportError::Pdf)
 }
 
-/// Compiles and exports a figure, writing the PDF to `path`.
+/// Compiles and exports a figure, writing the PDF to `path`, and returns the warnings the scene compiler raised
+/// while drawing the figure, as [`export_pdf`] does.
 ///
 /// # Errors
 ///
@@ -125,7 +134,9 @@ pub fn write_pdf(
     text: &TextEngine,
     options: &PdfOptions,
     path: impl AsRef<Path>,
-) -> Result<(), ExportError> {
-    let bytes = export_pdf(figure, text, options)?;
-    std::fs::write(path.as_ref(), bytes).map_err(|error| ExportError::Pdf(PdfError::Io(error)))
+) -> Result<Vec<SceneWarning>, ExportError> {
+    let exported = export_pdf(figure, text, options)?;
+    std::fs::write(path.as_ref(), exported.bytes)
+        .map_err(|error| ExportError::Pdf(PdfError::Io(error)))?;
+    Ok(exported.warnings)
 }

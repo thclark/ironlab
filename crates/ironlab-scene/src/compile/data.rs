@@ -4,15 +4,17 @@
 //! before limits are computed or anything is drawn. Every artist but the three image kinds requires floating-point
 //! values, so an array of 8-bit values cannot be used for it; an image accepts either element type. An image is
 //! also checked here for a placement that can be drawn and a plane that its axes can show. An artist whose data
-//! cannot be used is reported with a warning naming it and is then ignored by every later stage, as is an image
-//! without pixels, which is not reported.
+//! cannot be used, and an artist whose data gives it nothing to draw (a line, scatter or quiver of no points, an
+//! image with no rows or no columns, or a field with no cell between its nodes), is reported with one warning
+//! naming it and is then ignored by every later stage, so that the problems indicator of the viewer and the
+//! validation of the figure agree about which artists are absent.
 
 use ironlab_ir::{
     Artist, Axes, ContourPlacement, DataId, Dimension, Figure, Grid, ImagePlacement, ImagePlane,
     NdArray, OutOfRange, PixelRange, QuiverScale, Scale, ScatterColor, ScatterSize,
 };
 
-use crate::maths::contour::{Coords, GridRef};
+use crate::maths::contour::{Coords, GridRef, GridShapeError};
 use crate::maths::quiver;
 
 use super::Ctx;
@@ -123,11 +125,10 @@ pub(super) fn prepare_axes<'a>(ctx: &mut Ctx<'a>, axes: &'a Axes) -> Vec<Prepare
         .iter()
         .map(|artist| {
             let data = match resolve(figure, axes, artist) {
-                Ok(Some(data)) => {
+                Ok(data) => {
                     warn_log_drops(ctx, axes, artist, &data);
                     Some(data)
                 }
-                Ok(None) => None,
                 Err(message) => {
                     ctx.warn(
                         Some(artist.id()),
@@ -198,7 +199,34 @@ fn points(figure: &Figure, x: DataId, y: DataId, z: Option<DataId>) -> Result<Po
     Ok(Points { x, y, z })
 }
 
-/// Resolves a gridded field: its `[ny, nx]` values and the grid coordinates.
+/// Checks that a point set, whose arrays agree in length, holds at least one point, because an artist of no points
+/// draws nothing and is left out with a warning that names it.
+fn at_least_one_point(points: Points<'_>, x: DataId) -> Result<Points<'_>, String> {
+    if points.len() == 0 {
+        return Err(format!(
+            "its x array {x} holds no values, so it has no points"
+        ));
+    }
+    Ok(points)
+}
+
+/// Describes a grid of `ny` rows and `nx` columns of nodes that has no cell between its nodes, or returns `None`
+/// for a grid with a cell.
+fn nodes_without_cells(ny: usize, nx: usize) -> Option<&'static str> {
+    Some(match (ny, nx) {
+        (0, 0) => "has no rows and no columns",
+        (0, _) => "has no rows",
+        (_, 0) => "has no columns",
+        (1, 1) => "has a single node",
+        (1, _) => "has a single row of nodes",
+        (_, 1) => "has a single column of nodes",
+        _ => return None,
+    })
+}
+
+/// Resolves a gridded field: its `[ny, nx]` values and the grid coordinates. A field with no rows or no columns, or
+/// a single row or a single column, has no cell between its nodes, and a contour or surface draws the cells, so
+/// such a field is an error that names the case and the shape of the field.
 fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, String> {
     let field = array(figure, z)?;
     let [ny, nx] = field.shape[..] else {
@@ -223,24 +251,31 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, S
         coords,
         z: f64_values(figure, z, "z")?,
     };
-    grid.validate()
-        .map_err(|e| format!("its grid is invalid: {e}"))?;
+    grid.validate().map_err(|e| match e {
+        GridShapeError::TooSmall { .. } => format!(
+            "its field {z} has shape {:?}: it {}, and a contour or surface draws the cells between the nodes of \
+             its grid, of which there is none",
+            field.shape,
+            nodes_without_cells(ny, nx).unwrap_or("has no cells")
+        ),
+        e => format!("its grid is invalid: {e}"),
+    })?;
     Ok(grid)
 }
 
-/// Resolves the data of one artist, or `None` for an artist that has nothing to draw and nothing wrong with it.
-fn resolve<'a>(
-    figure: &'a Figure,
-    axes: &Axes,
-    artist: &Artist,
-) -> Result<Option<ArtistData<'a>>, String> {
+/// Resolves the data of one artist, or returns why the artist is not drawn: its data cannot be used, or gives it
+/// nothing to draw.
+fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<ArtistData<'a>, String> {
     let policies = |below, above, non_finite| Policies {
         below,
         above,
         non_finite,
     };
-    Ok(Some(match artist {
-        Artist::Line(line) => ArtistData::Line(points(figure, line.x, line.y, line.z)?),
+    Ok(match artist {
+        Artist::Line(line) => {
+            let points = points(figure, line.x, line.y, line.z)?;
+            ArtistData::Line(at_least_one_point(points, line.x)?)
+        }
         Artist::Scatter(scatter) => {
             let points = points(figure, scatter.x, scatter.y, scatter.z)?;
             let sizes = match scatter.size {
@@ -256,7 +291,7 @@ fn resolve<'a>(
                 }
             };
             ArtistData::Scatter {
-                points,
+                points: at_least_one_point(points, scatter.x)?,
                 sizes,
                 colours,
             }
@@ -271,6 +306,7 @@ fn resolve<'a>(
                     .map(|w| values_of_len(figure, w, points.len(), "w"))
                     .transpose()?,
             };
+            let points = at_least_one_point(points, q.x)?;
             let scale = quiver_scale(q.scale, points, vectors);
             ArtistData::Quiver {
                 points,
@@ -297,31 +333,34 @@ fn resolve<'a>(
                 .transpose()?;
             ArtistData::Surface { grid, colours }
         }
-        Artist::Image(i) => {
-            return image_data(figure, axes, i.pixels, ImageKind::TrueColour, i.placement);
-        }
+        Artist::Image(i) => image_data(figure, axes, i.pixels, ImageKind::TrueColour, i.placement)?,
         Artist::IndexedImage(i) => {
             let kind = ImageKind::Indexed(policies(i.below, i.above, i.non_finite));
-            return image_data(figure, axes, i.indices, kind, i.placement);
+            image_data(figure, axes, i.indices, kind, i.placement)?
         }
         Artist::MappedImage(i) => {
             let kind = ImageKind::Mapped(policies(i.below, i.above, i.non_finite));
-            return image_data(figure, axes, i.values, kind, i.placement);
+            image_data(figure, axes, i.values, kind, i.placement)?
         }
-    }))
+    })
 }
 
-/// Resolves the array of an image artist of any kind, checks that its shape suits the kind, that the placement of
-/// the image can be drawn and that the axes can show its plane, and returns `Ok(None)` for an image with no rows
-/// or no columns, which has nothing to draw and nothing wrong with it.
+/// Resolves the array of an image artist of any kind, and checks that its shape suits the kind, that the placement
+/// of the image can be drawn, that the axes can show its plane, and that it has at least one row and one column of
+/// pixels, because an image with none draws nothing and is left out with a warning that names it.
 fn image_data<'a>(
     figure: &'a Figure,
     axes: &Axes,
     id: DataId,
     kind: ImageKind,
     placement: ImagePlacement,
-) -> Result<Option<ArtistData<'a>>, String> {
+) -> Result<ArtistData<'a>, String> {
     let array = array(figure, id)?;
+    let what = match kind {
+        ImageKind::TrueColour => "pixels",
+        ImageKind::Indexed(_) => "indices",
+        ImageKind::Mapped(_) => "values",
+    };
     let (ny, nx, components) = match (kind, array.shape.as_slice()) {
         (ImageKind::TrueColour, &[ny, nx, components @ (3 | 4)]) => (ny, nx, components),
         (ImageKind::TrueColour, shape) => {
@@ -331,21 +370,25 @@ fn image_data<'a>(
             ));
         }
         (ImageKind::Indexed(_) | ImageKind::Mapped(_), &[ny, nx]) => (ny, nx, 1),
-        (ImageKind::Indexed(_), shape) => {
+        (ImageKind::Indexed(_) | ImageKind::Mapped(_), shape) => {
             return Err(format!(
-                "its indices {id} have shape {shape:?}, but they must be two-dimensional"
-            ));
-        }
-        (ImageKind::Mapped(_), shape) => {
-            return Err(format!(
-                "its values {id} have shape {shape:?}, but they must be two-dimensional"
+                "its {what} {id} have shape {shape:?}, but they must be two-dimensional"
             ));
         }
     };
     check_placement(placement, nx, ny)?;
     check_plane(axes, placement.plane)?;
-    if nx == 0 || ny == 0 {
-        return Ok(None);
+    let empty = match (ny, nx) {
+        (0, 0) => Some("no rows and no columns"),
+        (0, _) => Some("no rows"),
+        (_, 0) => Some("no columns"),
+        _ => None,
+    };
+    if let Some(case) = empty {
+        return Err(format!(
+            "its {what} {id} have shape {:?}, so it has {case} of pixels",
+            array.shape
+        ));
     }
     if u32::try_from(nx).is_err() || u32::try_from(ny).is_err() {
         return Err(format!(
@@ -353,14 +396,14 @@ fn image_data<'a>(
             u32::MAX
         ));
     }
-    Ok(Some(ArtistData::Image(ImageData {
+    Ok(ArtistData::Image(ImageData {
         kind,
         array,
         nx,
         ny,
         components,
         placement,
-    })))
+    }))
 }
 
 /// Checks that an image of `nx` columns and `ny` rows can be placed: its pixel centres and plane offset must be

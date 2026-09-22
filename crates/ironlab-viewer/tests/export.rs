@@ -59,9 +59,9 @@ fn tools_available(tools: &[&str]) -> bool {
 }
 
 /// Unwraps an export, or returns `None` (skipping the test) when no adapter is available and a GPU is not required.
-fn exported_or_skip(result: Result<Vec<u8>, ExportError>) -> Option<Vec<u8>> {
+fn exported_or_skip<T>(result: Result<T, ExportError>) -> Option<T> {
     match result {
-        Ok(bytes) => Some(bytes),
+        Ok(exported) => Some(exported),
         Err(ExportError::Render(RenderError::NoAdapter(message))) if !gpu_required() => {
             eprintln!(
                 "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
@@ -342,8 +342,8 @@ fn vector_and_raster_pages(
         &TEXT,
         &options(RasterPolicy::Always, dpi),
     ))?;
-    let vector = ws.write("vector", &vector);
-    let raster = ws.write("raster", &raster);
+    let vector = ws.write("vector", &vector.bytes);
+    let raster = ws.write("raster", &raster.bytes);
     assert!(
         embedded_images(&vector).is_empty(),
         "the vector export embeds no image"
@@ -413,14 +413,14 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
     let ws = Workspace::new("furniture");
     let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColorSpec::default());
     // The default options, with no policy set, to show that a dense surface rasterises without being asked.
-    let Some(bytes) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(exported) = exported_or_skip(ironlab_viewer::export_pdf(
         &figure,
         &TEXT,
         &PdfOptions::for_figure(&figure),
     )) else {
         return;
     };
-    let pdf = ws.write("figure", &bytes);
+    let pdf = ws.write("figure", &exported.bytes);
 
     let images = embedded_images(&pdf);
     assert_eq!(images.len(), 1, "the surface alone became an image");
@@ -445,12 +445,17 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
 #[test]
 fn a_figure_with_nothing_dense_exports_without_a_renderer() {
     let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
-    let bytes = ironlab_viewer::export_pdf(&figure, &TEXT, &PdfOptions::default())
+    let exported = ironlab_viewer::export_pdf(&figure, &TEXT, &PdfOptions::default())
         .expect("a figure with no dense content exports without any renderer");
 
     assert!(
-        bytes.starts_with(b"%PDF"),
+        exported.bytes.starts_with(b"%PDF"),
         "the exported bytes are a PDF document"
+    );
+    assert!(
+        exported.warnings.is_empty(),
+        "nothing was left off the page: {:?}",
+        exported.warnings
     );
 }
 
