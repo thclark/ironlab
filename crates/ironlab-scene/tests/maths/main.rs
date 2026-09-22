@@ -4,6 +4,7 @@ mod camera;
 mod colormap;
 mod contour;
 mod decimate;
+mod polygon;
 mod quiver;
 mod ticks;
 

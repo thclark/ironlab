@@ -104,8 +104,10 @@ impl Ctx<'_> {
 ///   series is decimated, one per stretch of such a run that reaches the axes. Each marker is
 ///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
 ///   is one path item that carries its face fill and, when edges are drawn, its edge stroke, except in a 3D axes,
-///   where a face with both is two path items, the fill and then the edge, so that each carries its own depth (see
-///   **3D**). Each filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
+///   where a face with both is two path items, the fill and then the edge, the edge a ring filled with the edge
+///   colour between the face's outline and that outline moved half the edge width inwards, so that it never spills
+///   over the neighbouring faces (see **3D**); a face whose outline has no such inset is stroked instead. Each
+///   filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
 ///   artist is one image item beneath one group that carries its placement (see **Images**).
 /// - **Decimation.** A line or scatter with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
@@ -211,11 +213,11 @@ impl Ctx<'_> {
 ///   depth buffer tests it, larger being nearer: a polyline (a line run, a contour isoline, a quiver arrow) one
 ///   depth per vertex, a marker a constant depth, a filled contour band and a surface face the plane fitted to
 ///   their projected vertices (see [`crate::maths::camera::depth_plane`]; exact for a planar face and the
-///   least-squares plane for a twisted one), and an image the plane over its pixel space. The fill of a face, and
-///   an image inside the box, are pushed [`crate::maths::camera::FACE_DEPTH_BIAS`] behind their geometry and sorted
-///   at their mean depth less the bias, so that the face's own edge and the lines and markers lying on a surface
-///   are painted, and depth-tested, in front of it; the painter's order and the depth test therefore agree
-///   wherever the order is exact. An image whose plane lies on a face of the box — its coordinate along the third
+///   least-squares plane for a twisted one), and an image the plane over its pixel space. A face, fill and edge
+///   ring alike, and an image inside the box are pushed [`crate::maths::camera::FACE_DEPTH_BIAS`] behind their
+///   geometry and sorted at their mean depth less the bias, so that the lines and markers lying on a surface are
+///   painted, and depth-tested, in front of it; the painter's order and the depth test therefore agree wherever
+///   the order is exact. An image whose plane lies on a face of the box — its coordinate along the third
 ///   axis of its plane, the offset or the lower limit of that axis when it has none, is the lower or the upper
 ///   limit of that axis, to within one part in 10⁹ of the extent of the axis — keeps its unpushed plane and is
 ///   painted before every other primitive of the axes when that face is a back plane of the view (see

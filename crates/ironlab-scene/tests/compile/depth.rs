@@ -14,7 +14,7 @@ use ironlab_ir::{
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Depth, DepthPlane, Item, ItemKind, PathSegment, Point};
 use ironlab_scene::maths::camera::{
-    Camera, FACE_DEPTH_BIAS, depth_plane, fit_to_rect, normalise_box,
+    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, depth_plane, fit_to_rect, normalise_box,
 };
 use ironlab_scene::maths::decimate::Sample;
 use ironlab_scene::maths::quiver::arrow;
@@ -184,9 +184,11 @@ fn leaves_of_face(
         if leaf.source != Some(surf) {
             continue;
         }
+        // A fill has the four corners as its endpoints; an edge ring has them first, then its inner outline.
         let vertices: Vec<Point> = leaf
             .endpoints()
             .iter()
+            .take(4)
             .map(|p| leaf.transform.apply(*p))
             .collect();
         if vertices.len() != 4 {
@@ -735,16 +737,20 @@ fn markers_of_a_line_and_of_a_scatter_carry_the_constant_plane_at_their_depth() 
     }
 }
 
-// WHY: a face's fill and its edge share one plane fitted to its corners, so that the edge is never lost inside the
-// face it outlines; but a marker or a line lying exactly on a face would tie with the fill and flicker, so the fill
-// alone is pushed back by the bias, as a separate leaf with its own depth, while the edge keeps the true plane. A
-// face left as one leaf could carry only one depth for both, and a fill and an edge on planes of different tilt
-// would cross each other across the face.
+// WHY: a face's edge must never spill over its neighbours, or the painter's order and the depth test would disagree
+// along every fold of a surface and no surface with edges could be exported as vectors; so the edge is a ring filled
+// with the edge colour between the face's outline and that outline moved half the edge width inwards, drawn after
+// the fill on the fill's plane lifted by a hair (a depth buffer interpolates one plane differently over two
+// triangulations, and the ring must not lose that tie), and the rings of two neighbours meet to make an edge of the
+// full width. The whole
+// face is pushed back by the bias so that lines and markers lying on the surface are painted, and depth-tested, in
+// front of it; a face left as one leaf could not carry two colours.
 #[test]
-fn a_face_with_fill_and_edge_is_a_fill_leaf_then_an_edge_leaf_on_one_plane_a_bias_apart() {
+fn a_face_with_fill_and_edge_is_a_fill_leaf_then_an_edge_ring_on_its_plane_pushed_back_by_the_bias()
+{
     let grid = linspace(-0.6, 0.6, 3);
     let height = |x: f64, y: f64| 0.5 * (x + y);
-    let (scene, ax, surf) = surface_scene(&grid, height, |_| {});
+    let (scene, ax, surf) = surface_scene(&grid, height, |s| s.edge_width_pt = 0.5);
     let leaves = leaves(&scene);
     let project = projection(&scene, ax);
     assert_eq!(
@@ -760,36 +766,80 @@ fn a_face_with_fill_and_edge_is_a_fill_leaf_then_an_edge_leaf_on_one_plane_a_bia
             2,
             "two leaves for the face at {corners:?}: {found:?}"
         );
-        let (fill_at, fill, fill_depths) = &found[0];
-        let (edge_at, edge, edge_depths) = &found[1];
+        let (fill_at, fill, depths) = &found[0];
+        let (ring_at, ring, _) = &found[1];
         assert!(
-            edge_at > fill_at,
-            "the fill at {fill_at} is painted before the edge at {edge_at}"
+            ring_at > fill_at,
+            "the fill at {fill_at} is painted before the edge at {ring_at}"
         );
-        let (fill_path, edge_path) = (fill.path().unwrap(), edge.path().unwrap());
+        let (fill_path, ring_path) = (fill.path().unwrap(), ring.path().unwrap());
         assert!(
             fill_path.fill.is_some() && fill_path.stroke.is_none(),
             "the first leaf is the fill alone"
         );
         assert!(
-            edge_path.stroke.is_some() && edge_path.fill.is_none(),
-            "the second leaf is the edge alone"
+            ring_path.fill.is_some() && ring_path.stroke.is_none(),
+            "the edge is a filled ring, not a stroke"
         );
-        let (fill_plane, edge_plane) = (plane_of(fill, "the fill"), plane_of(edge, "the edge"));
+        assert_ne!(
+            fill_path.fill.unwrap().color,
+            ring_path.fill.unwrap().color,
+            "the ring has the edge colour and the fill the face colour"
+        );
+
+        let outer: Vec<Point> = corners.iter().map(|c| project(*c).0).collect();
+        let subpaths = ring.subpaths();
         assert_eq!(
-            fill_plane,
-            edge_plane.pushed_back(FACE_DEPTH_BIAS),
-            "the fill lies on the edge's plane pushed back by the bias"
+            subpaths.len(),
+            2,
+            "the ring is the face's outline and an inner outline"
         );
-        assert_plane_reproduces(
-            edge_plane,
-            &edge.endpoints(),
-            edge_depths,
-            "the edge's plane",
+        for (k, p) in subpaths[0].iter().enumerate() {
+            assert!(
+                points_close(*p, outer[k], 1e-9),
+                "outer vertex {k} of the ring is the face's corner: {p:?} against {:?}",
+                outer[k]
+            );
+        }
+        let centre = Point::new(
+            outer.iter().map(|p| p.x).sum::<f64>() / 4.0,
+            outer.iter().map(|p| p.y).sum::<f64>() / 4.0,
         );
-        let pushed: Vec<f64> = fill_depths.iter().map(|d| d - FACE_DEPTH_BIAS).collect();
-        assert_plane_reproduces(fill_plane, &fill.endpoints(), &pushed, "the fill's plane");
+        assert_eq!(
+            subpaths[1].len(),
+            4,
+            "the inner outline has one vertex per corner"
+        );
+        for q in &subpaths[1] {
+            let insides: Vec<f64> = (0..4)
+                .map(|i| distance_inside(*q, outer[i], outer[(i + 1) % 4], centre))
+                .collect();
+            let on_two_edges = insides.iter().filter(|d| (*d - 0.25).abs() <= 1e-9).count();
+            assert!(
+                on_two_edges == 2 && insides.iter().all(|d| *d >= 0.25 - 1e-9),
+                "inner vertex {q:?} lies half the edge width inside two edges and at least that inside the rest: \
+                 {insides:?}"
+            );
+        }
+
+        let (fill_plane, ring_plane) = (plane_of(fill, "the fill"), plane_of(ring, "the ring"));
+        assert_eq!(
+            ring_plane,
+            fill_plane.pushed_back(-EDGE_DEPTH_LIFT),
+            "the ring lies on the fill's plane lifted by the hair that keeps it in front"
+        );
+        let pushed: Vec<f64> = depths.iter().map(|d| d - FACE_DEPTH_BIAS).collect();
+        assert_plane_reproduces(fill_plane, &fill.endpoints(), &pushed, "the face's plane");
     }
+}
+
+/// The distance of `q` inside the edge from `a` to `b` of a polygon whose interior holds `inside`.
+fn distance_inside(q: Point, a: Point, b: Point, inside: Point) -> f64 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let length = dx.hypot(dy);
+    let (nx, ny) = (-dy / length, dx / length);
+    let sign = ((inside.x - a.x) * nx + (inside.y - a.y) * ny).signum();
+    sign * ((q.x - a.x) * nx + (q.y - a.y) * ny)
 }
 
 // WHY: the four corners of a face of a curved surface are not coplanar, and a backend can only test one plane per
@@ -807,8 +857,8 @@ fn a_twisted_face_takes_the_least_squares_plane_through_its_projected_corners() 
     for corners in face_corners(&grid, &grid, height) {
         let found = leaves_of_face(&leaves, surf, &corners, &project);
         assert_eq!(found.len(), 2, "two leaves for the face at {corners:?}");
-        let (_, edge, depths) = &found[1];
-        let vertices = edge.endpoints();
+        let (_, fill, depths) = &found[0];
+        let vertices = fill.endpoints();
         let points: Vec<(Point, f64)> = vertices
             .iter()
             .copied()
@@ -824,30 +874,32 @@ fn a_twisted_face_takes_the_least_squares_plane_through_its_projected_corners() 
             "the face is twisted, so no plane passes through all four corners: {residual}"
         );
 
-        let edge_plane = plane_of(edge, "the edge");
+        let fill_plane = plane_of(fill, "the fill");
+        let expected = expected.pushed_back(FACE_DEPTH_BIAS);
         for (name, actual, wanted) in [
-            ("a", edge_plane.a, expected.a),
-            ("b", edge_plane.b, expected.b),
-            ("c", edge_plane.c, expected.c),
+            ("a", fill_plane.a, expected.a),
+            ("b", fill_plane.b, expected.b),
+            ("c", fill_plane.c, expected.c),
         ] {
             assert!(
                 (actual - wanted).abs() <= 1e-9,
-                "coefficient {name} of the edge's plane is {actual}, expected the least-squares {wanted}"
+                "coefficient {name} of the face's plane is {actual}, expected the least-squares plane pushed back \
+                 by the bias, {wanted}"
             );
         }
         assert_eq!(
-            plane_of(&found[0].1, "the fill"),
-            edge_plane.pushed_back(FACE_DEPTH_BIAS),
-            "the fill is the same plane pushed back by the bias"
+            plane_of(&found[1].1, "the ring"),
+            fill_plane.pushed_back(-EDGE_DEPTH_LIFT),
+            "the edge ring lies on the face's plane, lifted by the hair"
         );
     }
 }
 
-// WHY: the split into two leaves exists to give a fill and an edge different depths; a face with only one of them
-// is one leaf, and it must keep the depth that its kind would have had in the pair, otherwise `mesh` (edges alone)
-// would sink by the bias behind the markers it should meet, and a surface without edges would tie with them.
+// WHY: a face with only a fill or only an edge is one leaf, and it must be pushed back by the bias like a face with
+// both, otherwise `mesh` (edges alone) would tie with the markers and lines it should lie behind, and a surface
+// without edges would hide them.
 #[test]
-fn an_edge_only_face_keeps_the_true_plane_and_a_fill_only_face_the_pushed_one() {
+fn a_face_with_only_a_fill_or_only_an_edge_is_one_leaf_pushed_back_by_the_bias() {
     let grid = linspace(-0.6, 0.6, 3);
     let height = |x: f64, y: f64| 0.5 * (x + y);
     let cases: [(SurfaceEdit, &str); 2] = [
@@ -872,21 +924,23 @@ fn an_edge_only_face_keeps_the_true_plane_and_a_fill_only_face_the_pushed_one() 
             );
             let (_, leaf, depths) = &found[0];
             let path = leaf.path().unwrap();
+            assert!(
+                path.fill.is_some() && path.stroke.is_none(),
+                "{what}: the leaf is a fill (the face, or the edge ring)"
+            );
+            assert_eq!(
+                leaf.subpaths().len(),
+                if what == "edge only" { 2 } else { 1 },
+                "{what}: an edge ring has an inner outline and a fill has none"
+            );
             let plane = plane_of(leaf, what);
-            if what == "edge only" {
-                assert!(
-                    path.stroke.is_some() && path.fill.is_none(),
-                    "{what}: the leaf is the edge"
-                );
-                assert_plane_reproduces(plane, &leaf.endpoints(), depths, what);
+            let lift = if what == "edge only" {
+                EDGE_DEPTH_LIFT
             } else {
-                assert!(
-                    path.fill.is_some() && path.stroke.is_none(),
-                    "{what}: the leaf is the fill"
-                );
-                let pushed: Vec<f64> = depths.iter().map(|d| d - FACE_DEPTH_BIAS).collect();
-                assert_plane_reproduces(plane, &leaf.endpoints(), &pushed, what);
-            }
+                0.0
+            };
+            let pushed: Vec<f64> = depths.iter().map(|d| d - FACE_DEPTH_BIAS + lift).collect();
+            assert_plane_reproduces(plane, &leaf.endpoints()[..4], &pushed, what);
         }
     }
 }
