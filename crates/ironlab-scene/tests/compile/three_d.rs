@@ -46,10 +46,20 @@ fn surface_axes(
     (fx, ax, surf)
 }
 
+/// The face fills of a surface: its filled leaves of one outline. The edge of a face is a second filled leaf, a
+/// ring of two outlines, which [`edge_rings`] returns.
 fn filled(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
     from_source(leaves, id)
         .into_iter()
-        .filter(|l| l.path().is_some_and(|p| p.fill.is_some()))
+        .filter(|l| l.path().is_some_and(|p| p.fill.is_some()) && l.move_to_count() == 1)
+        .collect()
+}
+
+/// The edge rings of a surface: its filled leaves of two outlines, the face and the face moved inwards.
+fn edge_rings(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
+    from_source(leaves, id)
+        .into_iter()
+        .filter(|l| l.path().is_some_and(|p| p.fill.is_some()) && l.move_to_count() == 2)
         .collect()
 }
 
@@ -192,13 +202,23 @@ fn surface_faces_take_the_colour_of_their_mean_height_with_black_edges() {
         );
     }
 
+    // A face whose projected outline is not convex (a twisted face seen from the side) has no ring and is stroked.
+    let rings = edge_rings(&leaves, surf);
     let strokes: Vec<_> = from_source(&leaves, surf)
         .iter()
         .filter_map(|l| l.path().and_then(|p| p.stroke.clone()))
         .collect();
-    assert!(!strokes.is_empty(), "face edges are stroked");
+    assert_eq!(
+        rings.len() + strokes.len(),
+        20,
+        "each face has an edge, as a ring or as a stroke"
+    );
+    assert!(!rings.is_empty(), "the faces seen face-on have edge rings");
     assert!(
-        strokes.iter().all(|s| rgb8(s.color) == [0, 0, 0]),
+        rings
+            .iter()
+            .all(|r| rgb8(r.path().unwrap().fill.unwrap().color) == [0, 0, 0])
+            && strokes.iter().all(|s| rgb8(s.color) == [0, 0, 0]),
         "edges are black"
     );
 }
@@ -222,13 +242,9 @@ fn mesh_faces_take_background_and_edges_are_colormapped() {
             .iter()
             .all(|f| rgb8(f.path().unwrap().fill.unwrap().color) == [255, 255, 255])
     );
-    let mut edge_colours: Vec<[u8; 3]> = from_source(&leaves, surf)
+    let mut edge_colours: Vec<[u8; 3]> = edge_rings(&leaves, surf)
         .iter()
-        .filter_map(|l| {
-            l.path()
-                .and_then(|p| p.stroke.as_ref())
-                .map(|s| rgb8(s.color))
-        })
+        .map(|l| rgb8(l.path().unwrap().fill.unwrap().color))
         .collect();
     assert!(
         edge_colours

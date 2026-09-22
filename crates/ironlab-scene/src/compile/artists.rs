@@ -14,12 +14,12 @@ use ironlab_ir::{
 use crate::display::{Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
 use crate::hit::{ArtistHit, AxisMap, ImageHit};
 use crate::maths::camera::{
-    Camera, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane, fit_to_rect,
-    normalise_box, wrap_azimuth,
+    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
+    fit_to_rect, normalise_box, wrap_azimuth,
 };
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
-use crate::maths::quiver;
+use crate::maths::{polygon, quiver};
 
 use super::Ctx;
 use super::data::{ArtistData, ImageData, Points, Prepared};
@@ -765,11 +765,14 @@ fn node_xy(grid: &GridRef, i: usize, j: usize) -> [f64; 2] {
 
 /// Draws one flat face per grid cell of a surface, and records how many faces it drew.
 ///
-/// In a 2D axes a face is one item carrying its fill and its edge. In a 3D axes the two are separate items on one
-/// plane, the plane fitted to the projected corners of the face: the fill a [`FACE_DEPTH_BIAS`] behind it, sorted
-/// at the mean corner depth less the bias, and the edge on it, sorted at the mean corner depth, so that the edge is
-/// painted, and depth-tested, in front of its own fill and the fill never fights it. A face counts once however
-/// many items it is.
+/// In a 2D axes a face is one item carrying its fill and its edge. In a 3D axes the two are separate items, the
+/// fill and then the edge, both on the plane fitted to the projected corners of the face pushed back by
+/// [`FACE_DEPTH_BIAS`] and sorted at the mean corner depth less the bias, so that lines and markers lying on the
+/// surface are painted, and depth-tested, in front of it. The edge is a ring filled with the edge colour between
+/// the face's outline and the outline moved half the edge width inwards ([`polygon::inset`]), so that it never
+/// spills over the neighbouring faces: the painter's order and the depth test then agree along every fold, and the
+/// rings of two neighbours meet to make an edge of the full width. A face whose outline has no inset (one seen
+/// edge-on, or too small for its edge) is stroked instead. A face counts once however many items it is.
 fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[f64]>) {
     let values = colours.unwrap_or(grid.z);
     let width = style::width_or(s.edge_width_pt, 0.5);
@@ -805,16 +808,28 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
             let segments = b.finish();
             let mean = mean_depth(&mapped);
             let drawn = if draw.space.is_3d() {
-                let plane = face_plane(&mapped);
+                let plane = face_plane(&mapped).pushed_back(FACE_DEPTH_BIAS);
+                let key = mean - FACE_DEPTH_BIAS;
                 let mut drawn = false;
                 if let Some(fill) = fill {
-                    let pushed = plane.pushed_back(FACE_DEPTH_BIAS);
                     let item = paths::item(s.id, segments.clone(), Some(fill), None);
-                    drawn |= draw.push_at(mean - FACE_DEPTH_BIAS, item, || Depth::Plane(pushed));
+                    drawn |= draw.push_at(key, item, || Depth::Plane(plane));
                 }
                 if let Some(stroke) = stroke {
-                    let item = paths::item(s.id, segments, None, Some(stroke));
-                    drawn |= draw.push_at(mean, item, || Depth::Plane(plane));
+                    let corners = positions(&mapped);
+                    let lifted = plane.pushed_back(-EDGE_DEPTH_LIFT);
+                    let item = match polygon::inset(&corners, stroke.width / 2.0) {
+                        Some(inner) => {
+                            let mut ring = PathBuilder::new();
+                            ring.polyline(&corners, true);
+                            let mut reversed = inner;
+                            reversed.reverse();
+                            ring.polyline(&reversed, true);
+                            paths::item(s.id, ring.finish(), Some(paths::fill(stroke.color)), None)
+                        }
+                        None => paths::item(s.id, segments, None, Some(stroke)),
+                    };
+                    drawn |= draw.push_at(key + EDGE_DEPTH_LIFT, item, || Depth::Plane(lifted));
                 }
                 drawn
             } else {
