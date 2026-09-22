@@ -15,7 +15,8 @@
 //!    share one process-wide renderer, created on first successful use, so that rendering a whole gallery creates
 //!    the device only once.
 //! 2. An [`egui_wgpu::Renderer`] is created for `Rgba8Unorm` (egui blends in gamma space and outputs gamma-encoded
-//!    colour into a non-sRGB target) with 4× multisampling (when the adapter supports it), with dithering disabled,
+//!    colour into a non-sRGB target) with 4× multisampling (when the adapter supports it), a depth attachment of
+//!    [`DEPTH_FORMAT`] for the depth groups of three-dimensional axes, with dithering disabled,
 //!    so that repeated renders of the same figure are identical, and with egui's predictable texture filtering off.
 //!    That option makes egui's shader filter every texture bilinearly in its own code, whatever the texture's
 //!    sampler asks for, which would blur the pixel edges of every image; with it off the sampler of each texture is
@@ -28,12 +29,16 @@
 //!    through `Renderer::update_texture` as a user texture with nearest filtering, tiling by the device's maximum
 //!    texture dimension capped at [`MAX_TILE_SIDE`]. The ids are `TextureId::User(n)` with `n` counted from
 //!    [`TILE_TEXTURE_BASE`], far above the count the renderer numbers its own registered textures from, and are
-//!    recorded so that step 7 can free them.
+//!    recorded so that step 7 can free them. The depth groups of three-dimensional axes become draw lists for the
+//!    pipelines of [`crate::gpu`] instead, drawn by paint callbacks in their place in the paint order through the
+//!    [`GpuPainter`] kept in the renderer's callback resources, which uploads their buffers and image tiles itself
+//!    and is emptied after every render.
 //! 6. The figure background is painted as a rectangle mesh beneath the meshes of the display list. The meshes are
 //!    wrapped in `egui::ClippedPrimitive`s whose clip rectangle is the whole image, and `Renderer::update_buffers`
 //!    and `Renderer::render` draw them with `ScreenDescriptor { size_in_pixels: [width, height], pixels_per_point:
 //!    1.0 }` into a multisampled colour texture that is cleared to transparent black and resolved into a
-//!    single-sample `COPY_SRC` texture. A transparent background therefore stays transparent.
+//!    single-sample `COPY_SRC` texture, with a depth attachment cleared to the far plane. A transparent background
+//!    therefore stays transparent.
 //! 7. The resolved texture is copied into a `MAP_READ` buffer with rows padded to
 //!    `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`, the device is polled until the copy completes, and the padding is
 //!    stripped. The textures of step 5 are then freed with `Renderer::free_texture`, whether or not the draw and
@@ -50,7 +55,8 @@ use ironlab_ir::Figure;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{MAX_TILE_SIDE, ScreenTransform, TextureProvider, color32, tessellate_with};
+use crate::canvas::{MAX_TILE_SIDE, ScreenTransform, TextureProvider, color32, drawables_with};
+use crate::gpu::{DEPTH_FORMAT, Drawable, GpuCallback, GpuConfig, GpuPainter};
 
 /// An 8-bit RGBA image with straight alpha, stored row by row from the top-left pixel.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,7 +93,10 @@ impl RenderedImage {
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     /// No wgpu adapter is available, for example on a machine without a GPU or a software rasteriser.
-    #[error("no graphics adapter is available for offscreen rendering: {0}")]
+    #[error(
+        "no graphics adapter is available for offscreen rendering: {0}; a software adapter such as lavapipe from \
+         Mesa (the `mesa-vulkan-drivers` package on Debian and Ubuntu) serves on a machine without a graphics device"
+    )]
     NoAdapter(String),
     /// The adapter refused to create a device.
     #[error("the graphics adapter could not create a device: {0}")]
@@ -262,7 +271,7 @@ impl OffscreenRenderer {
             FORMAT,
             egui_wgpu::RendererOptions {
                 msaa_samples: sample_count,
-                depth_stencil_format: None,
+                depth_stencil_format: Some(DEPTH_FORMAT),
                 dithering: false,
                 predictable_texture_filtering: false,
             },
@@ -341,7 +350,7 @@ impl OffscreenRenderer {
             max_side: max.min(MAX_TILE_SIDE),
             ids: Vec::new(),
         };
-        meshes.extend(tessellate_with(
+        let drawables = drawables_with(
             list,
             text,
             ScreenTransform {
@@ -349,15 +358,32 @@ impl OffscreenRenderer {
                 origin: egui::Pos2::ZERO,
             },
             &mut uploader,
-        ));
+        );
         let tile_textures = uploader.ids;
         let screen_rect =
             egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width as f32, height as f32));
+        let config = GpuConfig {
+            target_format: FORMAT,
+            samples: self.sample_count,
+            depth_format: DEPTH_FORMAT,
+        };
         let primitives: Vec<egui::ClippedPrimitive> = meshes
             .into_iter()
-            .map(|mesh| egui::ClippedPrimitive {
+            .map(Drawable::Mesh)
+            .chain(drawables)
+            .map(|drawable| egui::ClippedPrimitive {
                 clip_rect: screen_rect,
-                primitive: egui::epaint::Primitive::Mesh(mesh),
+                primitive: match drawable {
+                    Drawable::Mesh(mesh) => egui::epaint::Primitive::Mesh(mesh),
+                    // The callback covers the whole image, so that its vertex mapping is the whole target's; every
+                    // draw of the list clips itself.
+                    Drawable::Gpu(list) => {
+                        egui::epaint::Primitive::Callback(egui_wgpu::Callback::new_paint_callback(
+                            screen_rect,
+                            GpuCallback { list, config },
+                        ))
+                    }
+                },
             })
             .collect();
         let screen = egui_wgpu::ScreenDescriptor {
@@ -368,6 +394,9 @@ impl OffscreenRenderer {
         let rendered = self.draw(&primitives, &screen);
         for id in &tile_textures {
             self.renderer.free_texture(id);
+        }
+        if let Some(painter) = self.renderer.callback_resources.get_mut::<GpuPainter>() {
+            painter.clear();
         }
         let oom = pollster::block_on(out_of_memory.pop());
         let invalid = pollster::block_on(validation.pop());
@@ -427,6 +456,17 @@ impl OffscreenRenderer {
             Some(ms) => (ms, Some(&resolved_view)),
             None => (&resolved_view, None),
         };
+        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ironlab offscreen depth"),
+            size,
+            mip_level_count: 1,
+            sample_count: self.sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
@@ -453,6 +493,14 @@ impl OffscreenRenderer {
                         },
                         depth_slice: None,
                     })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                        stencil_ops: None,
+                    }),
                     ..Default::default()
                 })
                 .forget_lifetime();

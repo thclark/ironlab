@@ -39,6 +39,17 @@
 //! as solid colour; the vertices of an image tile sample its texture. The meshes are not anti-aliased by egui; the
 //! viewer relies on 4× MSAA for smooth edges.
 //!
+//! # Depth groups
+//!
+//! [`drawables_with`] is the whole of the above with one addition: the leaves of an [`ItemKind::Depth`] group are
+//! not made into meshes but into one [`DrawList`] for the depth-tested pipelines of [`crate::gpu`], in the group's
+//! place in the paint order, and so is every run of consecutive leaves outside any group that carry a depth, drawn
+//! without the depth test. The triangles are the same lyon output, in screen units, with the depth of every vertex:
+//! a [`Depth::Plane`] evaluated at the vertex's item-space position, or a [`Depth::Vertices`] carried through lyon
+//! as a custom attribute and so interpolated along fills, strokes and dash pieces alike; an image tile's corners take
+//! its plane at their pixel-space positions. Depths are normalised to `[0, 1]` over the list, 0 the nearest.
+//! [`tessellate_with`] and [`tessellate`] are the meshes alone, for callers with no depth pipelines.
+//!
 //! # Texture providers
 //!
 //! [`tessellate`] draws no images, for callers that have no textures to draw them with; [`tessellate_with`] takes a
@@ -52,7 +63,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use ironlab_scene::display::{
-    DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, PathItem,
+    Depth, DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, PathItem,
     PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::{FontId, TextEngine};
@@ -63,6 +74,8 @@ use lyon::tessellation::{
     StrokeVertex, VertexBuffers,
 };
 use lyon_algorithms::measure::{PathMeasurements, SampleType};
+
+use crate::gpu::{Draw, DrawList, Drawable, TileKey, Vertex};
 
 /// The mapping from figure space (points, y down) to screen space (egui points or pixels, y down).
 ///
@@ -177,20 +190,42 @@ pub fn tessellate(
 /// each sampling the texture the provider returned for that tile, in the item's place in the paint order. Every
 /// other mesh samples egui's default texture at [`egui::epaint::WHITE_UV`]. Unlike [`tessellate`], a call has an
 /// effect beyond its result: the provider is asked for a texture for every visible tile, and may upload or record
-/// what it is asked for.
+/// what it is asked for. The leaves of depth groups, and leaves that carry a depth, contribute nothing: they are
+/// drawn only through [`drawables_with`].
 pub fn tessellate_with(
     list: &DisplayList,
     text: &TextEngine,
     to_screen: ScreenTransform,
     textures: &mut dyn TextureProvider,
 ) -> Vec<egui::Mesh> {
-    let mut meshes = Vec::new();
+    drawables_with(list, text, to_screen, textures)
+        .into_iter()
+        .filter_map(|drawable| match drawable {
+            Drawable::Mesh(mesh) => Some(mesh),
+            Drawable::Gpu(_) => None,
+        })
+        .collect()
+}
+
+/// Tessellates every item of `list` in paint order: egui meshes for the leaves outside depth groups that carry no
+/// depth, exactly as [`tessellate_with`] makes them, and one [`DrawList`] for the depth-tested pipelines per depth
+/// group, in its place, holding every leaf of the group with its depth. A run of consecutive leaves outside any
+/// group that carry a depth becomes one list drawn without the depth test. A path whose depth is not usable
+/// ([`PathItem::is_valid_depth`]), a path or an image inside a depth group without a depth, and a glyph run inside
+/// one are skipped. The provider is never asked for the tiles of an image drawn through a list.
+pub fn drawables_with(
+    list: &DisplayList,
+    text: &TextEngine,
+    to_screen: ScreenTransform,
+    textures: &mut dyn TextureProvider,
+) -> Vec<Drawable> {
+    let mut out = Vec::new();
     if !(to_screen.scale.is_finite()
         && to_screen.scale > 0.0
         && to_screen.origin.x.is_finite()
         && to_screen.origin.y.is_finite())
     {
-        return meshes;
+        return out;
     }
     let screen = Transform {
         a: f64::from(to_screen.scale),
@@ -203,32 +238,165 @@ pub fn tessellate_with(
     let mut tessellators = Tessellators::default();
     // The meshes of the leaf being visited: none or one for a path or a glyph run, one per visible tile for an image.
     let mut leaf = Vec::new();
-    list.visit_leaves(|item, transform, clip| {
+    // The list being built for the current depth group (`Some(index)`), or for the current run of depth-carrying
+    // leaves outside any group (`None`).
+    let mut current: Option<(Option<usize>, ListBuilder)> = None;
+    let flush = |current: &mut Option<(Option<usize>, ListBuilder)>, out: &mut Vec<Drawable>| {
+        if let Some((_, builder)) = current.take()
+            && let Some(list) = builder.finish()
+        {
+            out.push(Drawable::Gpu(list));
+        }
+    };
+    list.visit_leaves_grouped(|item, transform, clip, group| {
         let Some(context) = LeafContext::new(transform, screen, clip) else {
             return;
         };
+        let carries_depth = match &item.kind {
+            ItemKind::Path(path) => path.depth.is_some(),
+            ItemKind::Image(image) => image.depth.is_some(),
+            _ => false,
+        };
+        let key = if group.is_some() {
+            Some(group)
+        } else if carries_depth {
+            Some(None)
+        } else {
+            None
+        };
+        let Some(key) = key else {
+            flush(&mut current, &mut out);
+            match &item.kind {
+                ItemKind::Path(path) => {
+                    leaf.extend(tessellate_path(path, &context, &mut tessellators));
+                }
+                ItemKind::Glyphs(glyphs) => {
+                    leaf.extend(tessellate_glyphs(glyphs, text, &context, &mut tessellators));
+                }
+                ItemKind::Image(image) => tessellate_image(image, &context, textures, &mut leaf),
+                // Groups, dense and depth ones included, are descended into by the traversal and never reach this
+                // point.
+                ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => {}
+            }
+            for mut mesh in leaf.drain(..) {
+                if let Some(clip) = context.clip {
+                    mesh = clip_mesh(&mesh, clip);
+                }
+                if !mesh.indices.is_empty() {
+                    out.push(Drawable::Mesh(mesh));
+                }
+            }
+            return;
+        };
+        if current.as_ref().is_none_or(|(k, _)| *k != key) {
+            flush(&mut current, &mut out);
+            current = Some((key, ListBuilder::new(key.is_some())));
+        }
+        let builder = &mut current.as_mut().expect("a list was just started").1;
         match &item.kind {
             ItemKind::Path(path) => {
-                leaf.extend(tessellate_path(path, &context, &mut tessellators));
+                tessellate_path_depth(path, &context, &mut tessellators, builder, item.source);
             }
-            ItemKind::Glyphs(glyphs) => {
-                leaf.extend(tessellate_glyphs(glyphs, text, &context, &mut tessellators));
-            }
-            ItemKind::Image(image) => tessellate_image(image, &context, textures, &mut leaf),
-            // Groups, dense and depth ones included, are descended into by `visit_leaves` and never reach this
-            // point.
-            ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => {}
-        }
-        for mut mesh in leaf.drain(..) {
-            if let Some(clip) = context.clip {
-                mesh = clip_mesh(&mesh, clip);
-            }
-            if !mesh.indices.is_empty() {
-                meshes.push(mesh);
-            }
+            ItemKind::Image(image) => tessellate_image_depth(image, &context, builder, item.source),
+            _ => {}
         }
     });
-    meshes
+    flush(&mut current, &mut out);
+    out
+}
+
+/// A [`DrawList`] under construction, with the depth of every vertex before normalisation.
+struct ListBuilder {
+    depth_test: bool,
+    vertices: Vec<Vertex>,
+    depths: Vec<f64>,
+    indices: Vec<u32>,
+    draws: Vec<Draw>,
+}
+
+impl ListBuilder {
+    fn new(depth_test: bool) -> Self {
+        Self {
+            depth_test,
+            vertices: Vec::new(),
+            depths: Vec::new(),
+            indices: Vec::new(),
+            draws: Vec::new(),
+        }
+    }
+
+    /// Adds one draw of `vertices` (each with its depth) and `indices` relative to them, unless a vertex is not
+    /// finite.
+    fn push(
+        &mut self,
+        vertices: impl IntoIterator<Item = (Vertex, f64)>,
+        indices: impl IntoIterator<Item = u32>,
+        texture: Option<TileKey>,
+        clip: Option<egui::Rect>,
+        source: Option<ironlab_ir::NodeId>,
+    ) {
+        let base = self.vertices.len() as u32;
+        let first_index = self.indices.len() as u32;
+        let mut added = 0usize;
+        for (vertex, depth) in vertices {
+            if !(vertex.pos[0].is_finite() && vertex.pos[1].is_finite() && depth.is_finite()) {
+                self.vertices.truncate(base as usize);
+                self.depths.truncate(base as usize);
+                return;
+            }
+            self.vertices.push(vertex);
+            self.depths.push(depth);
+            added += 1;
+        }
+        let mut count = 0u32;
+        for index in indices {
+            if index as usize >= added {
+                self.vertices.truncate(base as usize);
+                self.depths.truncate(base as usize);
+                self.indices.truncate(first_index as usize);
+                return;
+            }
+            self.indices.push(base + index);
+            count += 1;
+        }
+        if count == 0 {
+            self.vertices.truncate(base as usize);
+            self.depths.truncate(base as usize);
+            return;
+        }
+        self.draws.push(Draw {
+            indices: first_index..first_index + count,
+            texture,
+            depth_test: self.depth_test,
+            clip,
+            source,
+        });
+    }
+
+    /// Normalises the depths into `z` and returns the list, or `None` when nothing was added.
+    fn finish(mut self) -> Option<Arc<DrawList>> {
+        if self.draws.is_empty() {
+            return None;
+        }
+        let (min, max) = self
+            .depths
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
+                (lo.min(*d), hi.max(*d))
+            });
+        for (vertex, depth) in self.vertices.iter_mut().zip(&self.depths) {
+            vertex.z = if max > min {
+                ((max - depth) / (max - min)).clamp(0.0, 1.0) as f32
+            } else {
+                0.5
+            };
+        }
+        Some(Arc::new(DrawList {
+            vertices: self.vertices,
+            indices: self.indices,
+            draws: self.draws,
+        }))
+    }
 }
 
 /// Reusable lyon tessellators.
@@ -318,17 +486,18 @@ pub(crate) fn color32(color: Rgba) -> Option<egui::Color32> {
     ))
 }
 
-/// Appends lyon output (in item space) to `mesh`, mapped to screen space with a uniform colour. Returns `false` when
-/// a vertex does not map to a finite screen position.
-fn append(
+/// Appends lyon output (in item space) to `mesh`, mapped to screen space with a uniform colour, `position` giving
+/// each vertex's item-space position. Returns `false` when a vertex does not map to a finite screen position.
+fn append<V: Copy>(
     mesh: &mut egui::Mesh,
-    buffers: &VertexBuffers<lyon::math::Point, u32>,
+    buffers: &VertexBuffers<V, u32>,
+    position: impl Fn(V) -> lyon::math::Point,
     color: egui::Color32,
     map: impl Fn(lyon::math::Point) -> egui::Pos2,
 ) -> bool {
     let base = mesh.vertices.len() as u32;
     for &v in &buffers.vertices {
-        let pos = map(v);
+        let pos = map(position(v));
         if !(pos.x.is_finite() && pos.y.is_finite()) {
             return false;
         }
@@ -351,22 +520,34 @@ fn lyon_point(p: Point) -> lyon::math::Point {
     lyon::math::point(p.x as f32, p.y as f32)
 }
 
-/// One subpath of a display-list path, in item space.
+/// One subpath of a display-list path, in item space, with the depth attribute of its start and of the end of each
+/// segment (zero for a path without vertex depths, and for `Close`).
 struct SubPath {
     start: Point,
+    start_depth: f32,
     segments: Vec<PathSegment>,
+    depths: Vec<f32>,
     closed: bool,
 }
 
 /// Splits display-list segments into subpaths, following PDF semantics: a segment after `Close` without a `MoveTo`
-/// starts a new subpath at the start point of the closed one. Returns `None` when the path does not start with
-/// `MoveTo` or contains a non-finite coordinate.
-fn subpaths(segments: &[PathSegment]) -> Option<Vec<SubPath>> {
+/// starts a new subpath at the start point of the closed one. `depths`, when given, are the depths of the path's
+/// endpoints in order. Returns `None` when the path does not start with `MoveTo` or contains a non-finite
+/// coordinate.
+fn subpaths(segments: &[PathSegment], depths: Option<&[f64]>) -> Option<Vec<SubPath>> {
     if !matches!(segments.first(), Some(PathSegment::MoveTo(_))) {
         return None;
     }
     let mut result: Vec<SubPath> = Vec::new();
     let mut open = false;
+    let mut endpoint = 0usize;
+    let mut next_depth = || {
+        let depth = depths
+            .and_then(|d| d.get(endpoint))
+            .map_or(0.0, |d| *d as f32);
+        endpoint += 1;
+        depth
+    };
     for segment in segments {
         match *segment {
             PathSegment::MoveTo(p) => {
@@ -375,7 +556,9 @@ fn subpaths(segments: &[PathSegment]) -> Option<Vec<SubPath>> {
                 }
                 result.push(SubPath {
                     start: p,
+                    start_depth: next_depth(),
                     segments: Vec::new(),
+                    depths: Vec::new(),
                     closed: false,
                 });
                 open = true;
@@ -390,15 +573,21 @@ fn subpaths(segments: &[PathSegment]) -> Option<Vec<SubPath>> {
                     return None;
                 }
                 if !open {
-                    let start = result.last()?.start;
+                    let last = result.last()?;
+                    let (start, start_depth) = (last.start, last.start_depth);
                     result.push(SubPath {
                         start,
+                        start_depth,
                         segments: Vec::new(),
+                        depths: Vec::new(),
                         closed: false,
                     });
                     open = true;
                 }
-                result.last_mut()?.segments.push(*segment);
+                let depth = next_depth();
+                let last = result.last_mut()?;
+                last.segments.push(*segment);
+                last.depths.push(depth);
             }
             PathSegment::Close => {
                 if open {
@@ -411,25 +600,31 @@ fn subpaths(segments: &[PathSegment]) -> Option<Vec<SubPath>> {
     Some(result)
 }
 
-/// Builds a lyon path from subpaths. When `explicit_close` is set, a closed subpath is emitted as an open subpath
-/// that returns to its start, which lets path measurement include the closing edge.
+/// Builds a lyon path from subpaths, with the depth of every endpoint as its one custom attribute. When
+/// `explicit_close` is set, a closed subpath is emitted as an open subpath that returns to its start, which lets path
+/// measurement include the closing edge.
 fn lyon_path<'a>(subpaths: impl IntoIterator<Item = &'a SubPath>, explicit_close: bool) -> Path {
-    let mut builder = Path::builder();
+    let mut builder = Path::builder_with_attributes(1);
     for sub in subpaths {
-        builder.begin(lyon_point(sub.start));
-        for segment in &sub.segments {
+        builder.begin(lyon_point(sub.start), &[sub.start_depth]);
+        for (segment, depth) in sub.segments.iter().zip(&sub.depths) {
             match *segment {
                 PathSegment::LineTo(p) => {
-                    builder.line_to(lyon_point(p));
+                    builder.line_to(lyon_point(p), &[*depth]);
                 }
                 PathSegment::CubicTo(c1, c2, p) => {
-                    builder.cubic_bezier_to(lyon_point(c1), lyon_point(c2), lyon_point(p));
+                    builder.cubic_bezier_to(
+                        lyon_point(c1),
+                        lyon_point(c2),
+                        lyon_point(p),
+                        &[*depth],
+                    );
                 }
                 PathSegment::MoveTo(_) | PathSegment::Close => {}
             }
         }
         if sub.closed && explicit_close {
-            builder.line_to(lyon_point(sub.start));
+            builder.line_to(lyon_point(sub.start), &[sub.start_depth]);
             builder.end(false);
         } else {
             builder.end(sub.closed);
@@ -438,52 +633,111 @@ fn lyon_path<'a>(subpaths: impl IntoIterator<Item = &'a SubPath>, explicit_close
     builder.build()
 }
 
-fn tessellate_path(
+/// Appends every event of `path`, with its attributes, to `builder`.
+fn append_events(builder: &mut lyon::path::path::BuilderWithAttributes, path: &Path) {
+    use lyon::path::Event;
+    for event in path.iter_with_attributes() {
+        match event {
+            Event::Begin {
+                at: (p, attributes),
+            } => {
+                builder.begin(p, attributes);
+            }
+            Event::Line {
+                to: (p, attributes),
+                ..
+            } => {
+                builder.line_to(p, attributes);
+            }
+            Event::Quadratic {
+                ctrl,
+                to: (p, attributes),
+                ..
+            } => {
+                builder.quadratic_bezier_to(ctrl, p, attributes);
+            }
+            Event::Cubic {
+                ctrl1,
+                ctrl2,
+                to: (p, attributes),
+                ..
+            } => {
+                builder.cubic_bezier_to(ctrl1, ctrl2, p, attributes);
+            }
+            Event::End { close, .. } => builder.end(close),
+        }
+    }
+}
+
+/// A vertex of tessellated path geometry: its position in item space and its depth attribute, interpolated by lyon
+/// from the depths of the path's endpoints (zero for a path without vertex depths).
+#[derive(Clone, Copy, Debug)]
+struct DepthVertex {
+    pos: lyon::math::Point,
+    depth: f32,
+}
+
+/// The triangles of a path's fill and of its stroke, in item space, each with its colour.
+struct Geometry {
+    fill: Option<(egui::Color32, VertexBuffers<DepthVertex, u32>)>,
+    stroke: Option<(egui::Color32, VertexBuffers<DepthVertex, u32>)>,
+}
+
+/// Tessellates a path in item space. Returns `None` when the path is invalid, and a geometry without a fill or a
+/// stroke when that part has no colour or cannot be tessellated.
+fn path_geometry(
     item: &PathItem,
     context: &LeafContext,
     tessellators: &mut Tessellators,
-) -> Option<egui::Mesh> {
-    let subpaths = subpaths(&item.segments)?;
+) -> Option<Geometry> {
+    let depths = match &item.depth {
+        Some(Depth::Vertices(depths)) => Some(depths.as_slice()),
+        _ => None,
+    };
+    let subpaths = subpaths(&item.segments, depths)?;
     let tolerance = context.local_tolerance();
-    let map = |v: lyon::math::Point| context.apply(f64::from(v.x), f64::from(v.y));
-    let mut mesh = egui::Mesh::default();
+    let vertex = |pos: lyon::math::Point, depth: f32| DepthVertex { pos, depth };
 
-    if let Some(fill) = &item.fill
-        && let Some(color) = color32(fill.color)
+    let mut fill = None;
+    if let Some(f) = &item.fill
+        && let Some(color) = color32(f.color)
     {
         let path = lyon_path(&subpaths, false);
-        let rule = match fill.rule {
+        let rule = match f.rule {
             FillRule::NonZero => lyon::tessellation::FillRule::NonZero,
             FillRule::EvenOdd => lyon::tessellation::FillRule::EvenOdd,
         };
         let options = FillOptions::tolerance(tolerance).with_fill_rule(rule);
-        let mut buffers: VertexBuffers<lyon::math::Point, u32> = VertexBuffers::new();
+        let mut buffers: VertexBuffers<DepthVertex, u32> = VertexBuffers::new();
         let result = tessellators.fill.tessellate_path(
             &path,
             &options,
-            &mut BuffersBuilder::new(&mut buffers, |v: FillVertex| v.position()),
+            &mut BuffersBuilder::new(&mut buffers, |mut v: FillVertex| {
+                vertex(v.position(), v.interpolated_attributes()[0])
+            }),
         );
-        if result.is_ok() && !append(&mut mesh, &buffers, color, map) {
-            return None;
+        if result.is_ok() {
+            fill = Some((color, buffers));
         }
     }
 
-    if let Some(stroke) = &item.stroke
-        && let Some(color) = color32(stroke.color)
-        && let Some(path) = stroke_path(&subpaths, stroke, tolerance)
+    let mut stroke = None;
+    if let Some(s) = &item.stroke
+        && let Some(color) = color32(s.color)
+        && let Some(path) = stroke_path(&subpaths, s, tolerance)
     {
-        let width = if stroke.width == 0.0 {
+        let width = if s.width == 0.0 {
             // A zero width is the thinnest line the device can draw, as in PDF.
             (1.0 / context.mean_stretch) as f32
         } else {
-            stroke.width as f32
+            s.width as f32
         };
-        let cap = match stroke.cap {
+        let cap = match s.cap {
             LineCap::Butt => lyon::tessellation::LineCap::Butt,
             LineCap::Round => lyon::tessellation::LineCap::Round,
             LineCap::Square => lyon::tessellation::LineCap::Square,
         };
-        let join = match stroke.join {
+        let join = match s.join {
             LineJoin::Miter => lyon::tessellation::LineJoin::Miter,
             LineJoin::Round => lyon::tessellation::LineJoin::Round,
             LineJoin::Bevel => lyon::tessellation::LineJoin::Bevel,
@@ -493,18 +747,76 @@ fn tessellate_path(
             .with_line_cap(cap)
             .with_line_join(join)
             .with_miter_limit(MITER_LIMIT);
-        let mut buffers: VertexBuffers<lyon::math::Point, u32> = VertexBuffers::new();
+        let mut buffers: VertexBuffers<DepthVertex, u32> = VertexBuffers::new();
         let result = tessellators.stroke.tessellate_path(
             &path,
             &options,
-            &mut BuffersBuilder::new(&mut buffers, |v: StrokeVertex| v.position()),
+            &mut BuffersBuilder::new(&mut buffers, |mut v: StrokeVertex| {
+                vertex(v.position(), v.interpolated_attributes()[0])
+            }),
         );
-        if result.is_ok() && !append(&mut mesh, &buffers, color, map) {
+        if result.is_ok() {
+            stroke = Some((color, buffers));
+        }
+    }
+    Some(Geometry { fill, stroke })
+}
+
+fn tessellate_path(
+    item: &PathItem,
+    context: &LeafContext,
+    tessellators: &mut Tessellators,
+) -> Option<egui::Mesh> {
+    let geometry = path_geometry(item, context, tessellators)?;
+    let map = |v: lyon::math::Point| context.apply(f64::from(v.x), f64::from(v.y));
+    let mut mesh = egui::Mesh::default();
+    for (color, buffers) in [geometry.fill, geometry.stroke].into_iter().flatten() {
+        if !append(&mut mesh, &buffers, |v: DepthVertex| v.pos, color, map) {
             return None;
         }
     }
-
     Some(mesh)
+}
+
+/// Adds a path with a depth to a list as one draw, its fill before its stroke. A path without a usable depth adds
+/// nothing.
+fn tessellate_path_depth(
+    item: &PathItem,
+    context: &LeafContext,
+    tessellators: &mut Tessellators,
+    builder: &mut ListBuilder,
+    source: Option<ironlab_ir::NodeId>,
+) {
+    let Some(depth) = &item.depth else { return };
+    if !item.is_valid_depth() {
+        return;
+    }
+    let Some(geometry) = path_geometry(item, context, tessellators) else {
+        return;
+    };
+    let depth_of = |v: DepthVertex| match depth {
+        Depth::Plane(plane) => plane.at(Point::new(f64::from(v.pos.x), f64::from(v.pos.y))),
+        Depth::Vertices(_) => f64::from(v.depth),
+    };
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for (color, buffers) in [geometry.fill, geometry.stroke].into_iter().flatten() {
+        let base = vertices.len() as u32;
+        for &v in &buffers.vertices {
+            let pos = context.apply(f64::from(v.pos.x), f64::from(v.pos.y));
+            vertices.push((
+                Vertex {
+                    pos: [pos.x, pos.y],
+                    z: 0.0,
+                    uv: [0.0, 0.0],
+                    color: color.to_array(),
+                },
+                depth_of(v),
+            ));
+        }
+        indices.extend(buffers.indices.iter().map(|&i| base + i));
+    }
+    builder.push(vertices, indices, None, context.clip, source);
 }
 
 /// Returns the path to stroke: the path itself for a solid stroke, or its "on" dash intervals. Returns `None` when
@@ -535,7 +847,7 @@ fn stroke_path(subpaths: &[SubPath], stroke: &Stroke, tolerance: f32) -> Option<
         2.0 * period
     };
 
-    let mut builder = Path::builder();
+    let mut builder = Path::builder_with_attributes(1);
     for sub in subpaths {
         let path = lyon_path(std::iter::once(sub), true);
         let measurements = PathMeasurements::from_path(&path, tolerance);
@@ -544,13 +856,12 @@ fn stroke_path(subpaths: &[SubPath], stroke: &Stroke, tolerance: f32) -> Option<
             continue;
         }
         if length / period > MAX_DASHES_PER_SUBPATH {
-            let solid = lyon_path(std::iter::once(sub), false);
-            for event in solid.iter() {
-                builder.path_event(event);
-            }
+            append_events(&mut builder, &lyon_path(std::iter::once(sub), false));
             continue;
         }
-        let mut sampler = measurements.create_sampler(&path, SampleType::Distance);
+        // The sampler interpolates the depth attribute, so every dash piece keeps the depths along the path.
+        let mut sampler =
+            measurements.create_sampler_with_attributes(&path, &path, SampleType::Distance);
 
         // The dash phase restarts at the beginning of every subpath, as in PDF.
         let mut index = 0;
@@ -696,7 +1007,7 @@ fn tessellate_glyphs(
         let map = |v: lyon::math::Point| {
             context.apply(x + size * f64::from(v.x), y + size * f64::from(v.y))
         };
-        if !append(&mut mesh, &buffers, color, map) {
+        if !append(&mut mesh, &buffers, |p| p, color, map) {
             return None;
         }
     }
@@ -765,6 +1076,87 @@ fn tessellate_image(
             }));
         mesh.indices.extend([0, 1, 2, 2, 1, 3]);
         out.push(mesh);
+    }
+}
+
+/// Adds an image with a depth plane to a list as one draw per visible tile, the tiles cut at [`MAX_TILE_SIDE`] and
+/// numbered as [`tessellate_image`] numbers them, each a white textured quad whose four corners take the plane at
+/// their pixel-space positions. An image without a depth, or an invalid one, adds nothing.
+fn tessellate_image_depth(
+    item: &ImageItem,
+    context: &LeafContext,
+    builder: &mut ListBuilder,
+    source: Option<ironlab_ir::NodeId>,
+) {
+    let Some(plane) = item.depth else { return };
+    if !item.is_valid() {
+        return;
+    }
+    let columns = item.width.div_ceil(MAX_TILE_SIDE);
+    let rows = item.height.div_ceil(MAX_TILE_SIDE);
+    let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
+        return;
+    };
+    let rect = item.rect;
+    let x_at = |column: u32| rect.x + rect.width * (f64::from(column) / f64::from(item.width));
+    let y_at = |row: u32| rect.y + rect.height * (f64::from(row) / f64::from(item.height));
+    for tile in 0..tiles {
+        let (row, column) = (tile / columns, tile % columns);
+        let (c0, r0) = (column * MAX_TILE_SIDE, row * MAX_TILE_SIDE);
+        let c1 = c0.saturating_add(MAX_TILE_SIDE).min(item.width);
+        let r1 = r0.saturating_add(MAX_TILE_SIDE).min(item.height);
+        let (left, right, top, bottom) = (x_at(c0), x_at(c1), y_at(r0), y_at(r1));
+        let corners = [
+            (context.apply(left, top), egui::pos2(0.0, 0.0)),
+            (context.apply(right, top), egui::pos2(1.0, 0.0)),
+            (context.apply(left, bottom), egui::pos2(0.0, 1.0)),
+            (context.apply(right, bottom), egui::pos2(1.0, 1.0)),
+        ];
+        if !corners
+            .iter()
+            .all(|(pos, _)| pos.x.is_finite() && pos.y.is_finite())
+        {
+            continue;
+        }
+        if let Some(clip) = context.clip
+            && !quad_is_visible(&corners, clip)
+        {
+            continue;
+        }
+        let pixel_corners = [
+            Point::new(f64::from(c0), f64::from(r0)),
+            Point::new(f64::from(c1), f64::from(r0)),
+            Point::new(f64::from(c0), f64::from(r1)),
+            Point::new(f64::from(c1), f64::from(r1)),
+        ];
+        let vertices = corners
+            .iter()
+            .zip(pixel_corners)
+            .map(|(&(pos, uv), pixel)| {
+                (
+                    Vertex {
+                        pos: [pos.x, pos.y],
+                        z: 0.0,
+                        uv: [uv.x, uv.y],
+                        color: [255, 255, 255, 255],
+                    },
+                    plane.at(pixel),
+                )
+            });
+        let key = TileKey {
+            samples: Arc::clone(&item.samples),
+            width: item.width,
+            channels: item.channels,
+            columns: c0..c1,
+            rows: r0..r1,
+        };
+        builder.push(
+            vertices,
+            [0, 1, 2, 2, 1, 3],
+            Some(key),
+            context.clip,
+            source,
+        );
     }
 }
 

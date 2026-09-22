@@ -5,8 +5,10 @@
 //! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
 //! is split into nine modules:
 //!
-//! - [`canvas`] converts a display list into `egui` triangle meshes with lyon, and draws images as textured quads
-//!   through a texture provider.
+//! - [`canvas`] converts a display list into `egui` triangle meshes with lyon, draws images as textured quads
+//!   through a texture provider, and makes the depth groups of three-dimensional axes into draw lists for [`gpu`].
+//! - [`gpu`] holds the viewer's own wgpu pipelines, which draw those lists with a depth test inside egui's render
+//!   pass on screen and inside the offscreen renderer's pass headless.
 //! - [`interaction`] holds the pure, GPU-free state machine that maps pointer gestures onto IR edits, keeps the
 //!   source figure and the user's overlay apart, and composes the figure that is displayed.
 //! - [`offscreen`] renders a figure through the same meshes into an image without a window, for the documentation
@@ -27,6 +29,7 @@ pub mod app;
 pub mod canvas;
 pub mod export;
 pub mod files;
+pub mod gpu;
 pub mod inspector;
 pub mod interaction;
 pub mod offscreen;
@@ -35,8 +38,11 @@ pub mod problems;
 pub mod style;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
-pub use canvas::{ScreenTransform, tessellate};
+pub use canvas::{ScreenTransform, drawables_with, tessellate, tessellate_with};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
+pub use gpu::{
+    DEPTH_FORMAT, Draw, DrawList, Drawable, GpuCallback, GpuConfig, GpuPainter, TileKey, Vertex,
+};
 pub use interaction::{
     DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,
     ROTATE_DEGREES_PER_POINT, Tip, Tool,
