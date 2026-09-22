@@ -47,7 +47,16 @@ jobs:
       - name: Install PDF validators (macOS)
         if: runner.os == 'macOS'
         run: brew install poppler ghostscript
-      - run: cargo test --workspace
+      # lavapipe is installed above, so on Linux the tests that need a graphics adapter must fail rather than skip
+      # when it is missing.
+      - name: Test (Linux, adapter required)
+        if: runner.os == 'Linux'
+        run: cargo test --workspace
+        env:
+          IRONLAB_REQUIRE_GPU: "1"
+      - name: Test (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test --workspace
 
   schema:
     # The .proto files of the .fig format are generated from the Rust types rather than committed, so both the files of
