@@ -519,12 +519,14 @@ fn a_hidden_image_draws_nothing_but_its_edges_still_set_the_limits() {
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
 }
 
-// WHY: an array with no rows or no columns holds no pixels, so there is nothing to draw and nothing wrong: such an
-// image, which a computation that returned no data can produce, must neither panic in the placement (whose pitch
-// divides by n − 1) nor clutter the figure's problems with a warning, and having no edges it contributes nothing to
-// the limits, which stay those of the other data.
+// WHY: an array with no rows or no columns holds no pixels, so there is nothing to draw: such an image, which a
+// computation that returned no data can produce, must not panic in the placement (whose pitch divides by n − 1),
+// and having no edges it contributes nothing to the limits, which stay those of the other data. ADR 0012 decides
+// that the compiler warns of every artist it leaves out, naming it, so that the viewer's problems indicator and
+// `validate()` agree about which artists are absent; an empty image of each kind must therefore be reported by one
+// warning that names it, and by nothing else.
 #[test]
-fn an_image_with_no_rows_or_no_columns_draws_nothing_and_raises_no_warning() {
+fn an_image_with_no_rows_or_no_columns_is_left_out_with_a_warning_naming_it() {
     let build = |with_empty_images: bool| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
@@ -548,15 +550,19 @@ fn an_image_with_no_rows_or_no_columns_draws_nothing_and_raises_no_warning() {
     };
     let (scene, ax, line, empty) = build(true);
     assert_eq!(empty.len(), 3);
-    let leaves = leaves(&scene);
-    for id in &empty {
-        assert!(
-            from_source(&leaves, *id).is_empty(),
-            "the empty image {id} draws nothing"
-        );
+    for (id, what) in empty.iter().zip(["image", "mapped image", "indexed image"]) {
+        assert_skipped_with_one_warning(&scene, *id, &format!("empty {what}"));
     }
-    assert!(!from_source(&leaves, line).is_empty(), "the line is drawn");
-    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    assert!(
+        !from_source(&leaves(&scene), line).is_empty(),
+        "the line is drawn"
+    );
+    assert_eq!(
+        scene.warnings.len(),
+        3,
+        "nothing else is reported: {:?}",
+        scene.warnings
+    );
     // The line alone gives limits of [0, 1] on both axes, and the empty images must leave them so.
     let (alone, alone_ax, _, _) = build(false);
     assert_eq!(

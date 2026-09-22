@@ -1127,6 +1127,89 @@ fn warnings_do_not_reject_a_transaction() {
     assert_eq!(find_axes(&edited, s.axes).x.scale, Scale::Log);
 }
 
+// Why: ADR 0012 exists for the stream that grows an artist from nothing. A field passes
+// through no rows and then a single row before it has a cell to draw, and a line through
+// no points before it has one; validation reports each of these states as a
+// `NothingToDraw` warning, which is a true statement about the figure at that moment, and
+// the edit protocol must accept the transaction that produced it, or the stream would be
+// refused at its first frame and again at its second. The warning must name the artist
+// while the state lasts and be gone once the data suffices, so that a viewer of the
+// stream sees the problems indicator clear as the data arrives.
+#[test]
+fn a_stream_may_grow_an_array_from_nothing_through_nothing_to_draw_warnings() {
+    let s = streaming_figure();
+    /// The artists a figure's validation reports as having nothing to draw, in order.
+    fn nothing_to_draw(fig: &Figure) -> Vec<NodeId> {
+        let mut named: Vec<NodeId> = fig
+            .validate()
+            .warnings
+            .iter()
+            .filter(|issue| issue.kind == IssueKind::NothingToDraw)
+            .filter_map(|issue| issue.node)
+            .collect();
+        named.sort();
+        named
+    }
+    let append = |id, array| Edit::AppendData {
+        id,
+        array,
+        retain: None,
+    };
+    let clear = |id, array| Edit::AppendData {
+        id,
+        array,
+        retain: Some(0),
+    };
+    assert_eq!(nothing_to_draw(&s.fig), vec![]);
+
+    // A window of no entries clears the field and the line to nothing.
+    let (cleared, _) = applied(
+        &s.fig,
+        &tx([
+            clear(s.z, rows(0, 3, 0.0)),
+            clear(s.gy, NdArray::vector(vec![])),
+            clear(s.x, NdArray::vector(vec![])),
+            clear(s.y, NdArray::vector(vec![])),
+        ]),
+    )
+    .unwrap();
+    let mut both = vec![s.line, s.contour];
+    both.sort();
+    assert_eq!(nothing_to_draw(&cleared), both, "{:?}", cleared.validate());
+    assert!(cleared.validate().is_valid());
+
+    // The first frame gives the field one row, which has no cell, and the line one point.
+    let (first, _) = applied(
+        &cleared,
+        &tx([
+            append(s.z, rows(1, 3, 100.0)),
+            append(s.gy, NdArray::vector(vec![0.0])),
+            append(s.x, NdArray::vector(vec![0.0])),
+            append(s.y, NdArray::vector(vec![10.0])),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        nothing_to_draw(&first),
+        vec![s.contour],
+        "{:?}",
+        first.validate()
+    );
+    assert!(first.validate().is_valid());
+
+    // The second frame gives the field its first cell.
+    let (second, _) = applied(
+        &first,
+        &tx([
+            append(s.z, rows(1, 3, 200.0)),
+            append(s.gy, NdArray::vector(vec![1.0])),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(nothing_to_draw(&second), vec![], "{:?}", second.validate());
+    assert_eq!(second.data[&s.z].shape, vec![2, 3]);
+}
+
 // Why: an empty transaction (a gesture that changed nothing) must be harmless.
 #[test]
 fn an_empty_transaction_changes_nothing_and_has_an_empty_inverse() {

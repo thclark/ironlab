@@ -13,7 +13,7 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 | `ironlab-scene` | The scene compiler: layout of tiles, axes, titles, labels and legends; tick generation; automatic limits; colormaps; contour extraction; quiver scaling; the placement and colouring of the pixels of images; three-dimensional projection and depth sorting. Its output is a display list and a hit map. |
 | `ironlab-pdf` | The PDF backend: draws a display list onto a single PDF page with krilla, embedding subset fonts and real text. |
 | `ironlab-viewer` | The interactive viewer: an eframe application with one tab per figure, a toolbar, the canvas that draws a display list as egui meshes, the interaction state machine, the property editor, an offscreen renderer that draws a figure into an image without a window, and the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
-| `ironlab` | The facade: the MATLAB-flavoured builder API, and the `show`, `save`, `load` and `export_pdf` operations described in [getting started](../guides/getting-started.md). |
+| `ironlab` | The facade: the MATLAB-flavoured builder API, and the `show`, `save`, `load` and `export_pdf` operations described in [getting started](../guides/getting-started.md). `export_pdf` returns a report of the validation warnings and the scene warnings of the figure, so that a program learns what was left off the page. |
 | `ironlab-gallery` | The example figures, each written against the facade API, and the `gallery` binary that views them, exports them and generates the documentation [gallery](../gallery/index.md). |
 
 The dependencies run in one direction. `ironlab-ir` and `ironlab-text` depend on no other IronLAB crate; `ironlab-scene` depends on both of them; `ironlab-pdf` depends on `ironlab-scene`; `ironlab-viewer` depends on `ironlab-scene` and on `ironlab-pdf`, which it uses to export; the facade depends on every crate above it; and the gallery depends on the facade, the viewer and the PDF backend.
@@ -57,7 +57,7 @@ The display list is a backend-neutral description of one page. Its coordinates a
 
 Every item names the node of the figure model that produced it, so that selection and picking can be added without changing the display list.
 
-Compilation never fails. An artist whose data cannot be drawn is skipped, and text that cannot be typeset is drawn as its source; each such problem becomes a warning in the scene, which the viewer shows in its [problems indicator](../guides/viewer.md#problems).
+Compilation never fails. An artist whose data cannot be drawn, or gives it nothing to draw, is skipped, and text that cannot be typeset is drawn as its source; each such problem becomes a warning in the scene, naming the node it concerns, which the viewer shows in its [problems indicator](../guides/viewer.md#problems) and the PDF exporters return with the document. The compiler warns of every artist it leaves out, so that the problems indicator and `Figure::validate` agree about which artists are absent, as [ADR 0012](../adrs/0012-empty-and-singleton-data.md) decides.
 
 ### Large series are thinned for the current view
 

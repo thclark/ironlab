@@ -95,12 +95,38 @@ pub use ironlab_ir::ImagePlane;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Color, ColorSpec, Interpreter, LegendLocation, NodeId, Parameter, Scale, Text, ValidationReport,
+    Color, ColorSpec, Interpreter, IssueKind, LegendLocation, NodeId, Parameter, Scale, Text,
+    ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist is drawn when the figure is exported, and at what resolution it is
 /// rasterised. See [`Figure::export_pdf_with`].
 pub use ironlab_pdf::{RasterOptions, RasterPolicy};
+
+/// A problem the scene compiler found while drawing a figure that did not prevent the
+/// figure from being drawn, naming the node it concerns. See [`ExportReport`].
+pub use ironlab_scene::SceneWarning;
+
+/// What an export left off the page, returned by [`Figure::export_pdf`] and
+/// [`Figure::export_pdf_with`].
+///
+/// A warning never refuses a figure, so the page is written whatever the report holds;
+/// the report tells a program what the page does not show. Both lists are empty for a
+/// figure from which nothing was left out. The two lists overlap where the compiler
+/// leaves out an artist that validation warned of, such as a surface whose field has a
+/// single row, and differ where the compiler finds a reason that validation cannot see,
+/// such as a piece of LaTeX the typesetter does not support. A program that wants one
+/// reason per artist reads `validation`; one that wants every reason reads both.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ExportReport {
+    /// The warnings of the figure's validation, as [`Figure::validate`] returns them: an
+    /// artist with nothing to draw, data that a logarithmic axis cannot show, or an image
+    /// that cannot be placed. Each names the node it concerns.
+    pub validation: Vec<ValidationIssue>,
+    /// The warnings the scene compiler raised while drawing the figure, each naming the
+    /// node it concerns.
+    pub scene: Vec<SceneWarning>,
+}
 
 /// The types and functions needed to build figures, for glob import.
 ///

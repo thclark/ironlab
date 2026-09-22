@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use common::image_figure;
 use ironlab::ir::IssueKind;
 use ironlab::prelude::*;
+use ironlab::{ExportReport, SceneWarning};
 
 /// Returns a path in Cargo's per-crate temporary directory, unique to the test.
 fn temp_path(name: &str) -> PathBuf {
@@ -245,6 +246,113 @@ fn export_pdf_writes_a_pdf_file() {
     sample_figure().export_pdf(&path).unwrap();
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes.starts_with(b"%PDF"), "file does not start with %PDF");
+}
+
+/// A figure holding a line that is drawn and a pseudocolour surface of a single row of
+/// values, which validation warns of and the scene compiler leaves out, with the
+/// identifier of the surface.
+fn figure_with_an_undrawn_surface() -> (Figure, NodeId) {
+    let x = linspace(0.0, 3.0, 4);
+    let mut fig = Figure::new();
+    fig.axes(0, 0).plot(&x, &x);
+    let surface = fig
+        .axes(0, 0)
+        .surface(&x, [0.0], &Matrix::from_fn(1, 4, |_, col| col as f64))
+        .id();
+    (fig, surface)
+}
+
+// WHY: ADR 0012 decides that `export_pdf` returns a report of what was left off the page,
+// because a program (or an agent working for a user) learns from the call itself that an
+// artist is missing, rather than from a terminal it does not read or a page it does not
+// look at. The report must carry the validation warnings of the figure and the warnings
+// the scene compiler raised while drawing it, each naming the artist it concerns, and the
+// page must still be written, because a warning never refuses a figure. The figure has no
+// dense artist, so the export needs no graphics adapter.
+#[test]
+fn export_pdf_reports_the_artists_left_off_the_page_and_still_writes_the_file() {
+    let path = fresh("undrawn_surface.pdf");
+    let (fig, surface) = figure_with_an_undrawn_surface();
+    let report: ExportReport = fig.export_pdf(&path).unwrap();
+
+    let kinds: Vec<(IssueKind, Option<NodeId>)> = report
+        .validation
+        .iter()
+        .map(|issue| (issue.kind, issue.node))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![(IssueKind::NothingToDraw, Some(surface))],
+        "the validation warnings name the surface and nothing else: {:?}",
+        report.validation
+    );
+
+    let named: Vec<&SceneWarning> = report
+        .scene
+        .iter()
+        .filter(|warning| warning.node == Some(surface))
+        .collect();
+    assert_eq!(
+        named.len(),
+        1,
+        "one compiler warning names the surface: {:?}",
+        report.scene
+    );
+    assert!(
+        report
+            .scene
+            .iter()
+            .all(|warning| warning.node == Some(surface)),
+        "no compiler warning concerns anything else: {:?}",
+        report.scene
+    );
+
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(b"%PDF"), "the page was written");
+}
+
+// WHY: see export_pdf_reports_the_artists_left_off_the_page_and_still_writes_the_file;
+// a program that tests the report to decide whether a figure is finished must find it
+// empty for a figure from which nothing was left out, or every export would need
+// interpreting.
+#[test]
+fn export_pdf_of_a_figure_with_nothing_left_out_returns_an_empty_report() {
+    let path = fresh("complete.pdf");
+    let report = sample_figure().export_pdf(&path).unwrap();
+    assert_eq!(report.validation, vec![], "{report:?}");
+    assert_eq!(report.scene, vec![], "{report:?}");
+    assert!(path.exists());
+}
+
+// WHY: `export_pdf_with` is `export_pdf` with the raster options chosen by the caller, so
+// it must return the same report and still write the page; a caller who sets a policy
+// must not lose the reasons an artist is missing. The report describes what was left off
+// the page, which the raster policy does not change.
+#[test]
+fn export_pdf_with_returns_the_same_report_as_export_pdf() {
+    let (fig, surface) = figure_with_an_undrawn_surface();
+    let plain_path = fresh("undrawn_plain.pdf");
+    let chosen_path = fresh("undrawn_chosen.pdf");
+    let plain = fig.export_pdf(&plain_path).unwrap();
+    let chosen = fig
+        .export_pdf_with(
+            &chosen_path,
+            RasterOptions {
+                policy: RasterPolicy::Never,
+                ..RasterOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(chosen.validation, plain.validation);
+    assert_eq!(chosen.scene, plain.scene);
+    assert!(
+        chosen
+            .validation
+            .iter()
+            .any(|issue| issue.node == Some(surface)),
+        "{chosen:?}"
+    );
+    assert!(plain_path.exists() && chosen_path.exists());
 }
 
 // WHY: exporting an invalid figure must fail with the validation report (so the user

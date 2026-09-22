@@ -396,7 +396,8 @@ impl FigurePane {
                 &ironlab_pdf::PdfOptions::for_figure(self.state.figure()),
                 &path,
             ) {
-                Ok(()) => Notification {
+                // The warnings are those the problems indicator already shows for the open figure.
+                Ok(_) => Notification {
                     message: format!("Exported {}", path.display()),
                     is_error: false,
                     shown_at: now,

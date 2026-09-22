@@ -72,7 +72,8 @@ impl Ctx<'_> {
 ///
 /// This is the only place where layout, tick generation, text placement, contour extraction, projection and depth
 /// sorting happen; every backend draws the resulting display list without further interpretation. Compilation never
-/// fails: invalid artists are skipped and reported as warnings, so a figure is always drawable.
+/// fails: an artist whose data cannot be used, and an artist whose data gives it nothing to draw, is skipped and
+/// reported as a warning, so a figure is always drawable and every artist left out is named.
 ///
 /// # Output conventions
 ///
@@ -156,8 +157,9 @@ impl Ctx<'_> {
 ///   pseudocolour plot: the grid alone places the faces through the x and y axis maps, so that the field `z` positions
 ///   nothing, reaches no axis limit and is not subject to the scale of the z axis, while it still colours the faces
 ///   unless `c` is given. The faces are painted where the surface stands in the artist order and are clipped to the
-///   plot rectangle. A grid of `ny × nx` nodes draws `(ny − 1) × (nx − 1)` faces, so a surface with a single row or
-///   a single column of nodes has no face and is skipped with a warning.
+///   plot rectangle. A grid of `ny × nx` nodes draws `(ny − 1) × (nx − 1)` faces, so a surface or contour whose
+///   field has no rows or no columns, or a single row or a single column of nodes, has no face and is skipped with
+///   one warning naming it, in either projection; a line, scatter or quiver of no points is skipped the same way.
 /// - **Images.** An image artist of any kind is drawn as one image item in pixel space, `[0, nx] × [0, ny]` for
 ///   `nx` columns and `ny` rows with the pixel in row `j` and column `i` covering `[i, i + 1] × [j, j + 1]`, beneath
 ///   one group whose transform maps pixel space into figure space; the group has no clip of its own and lies inside
@@ -185,8 +187,8 @@ impl Ctx<'_> {
 ///   shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels, `[ny, nx]` for indices and values), when a pixel centre or
 ///   the plane offset is not finite or the centres of the first and last pixels coincide along an axis of more
 ///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when an axis of its plane is logarithmic (the
-///   third axis may be, but then the offset must be positive), or when a corner cannot be placed; an image with no
-///   rows or no columns is skipped silently. A skipped image contributes nothing to the axis or colour limits,
+///   third axis may be, but then the offset must be positive), when it has no rows or no columns, or when a corner
+///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
 /// - **Legend.** Only artists with a display name have legend entries, listed in artist order. The hit rectangle of
@@ -196,8 +198,9 @@ impl Ctx<'_> {
 ///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
 ///   keeps clear of.
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped
-///   data, for a placement or plane that cannot be drawn, for a pixel a strict policy refuses and for its display
-///   name, the axes for its title and axis labels, and the figure for its title.
+///   data, for data that gives it nothing to draw, for a placement or plane that cannot be drawn, for a pixel a
+///   strict policy refuses and for its display name, the axes for its title and axis labels, and the figure for its
+///   title.
 /// - **3D.** Faces, segments, markers and images are painted back to front for the current view, each sorted at a
 ///   depth of its own, and primitives at equal depth keep artist order. An image whose plane lies on a face of the
 ///   box — its coordinate along the third axis of its plane, the offset or the lower limit of that axis when it has

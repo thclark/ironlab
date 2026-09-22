@@ -7,9 +7,9 @@ use std::sync::OnceLock;
 use ironlab_ir::{Axes, Cell, Dimension, NodeId, Parameter, Projection, Text, ValidationReport};
 use ironlab_text::TextEngine;
 
-use crate::RasterOptions;
 use crate::axes::AxesMut;
 use crate::error::Error;
+use crate::{ExportReport, RasterOptions};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
 ///
@@ -402,13 +402,31 @@ impl Figure {
     /// image rendered by the same pipeline that draws the viewer; axes, ticks, labels,
     /// legends and every other artist stay vector.
     ///
+    /// The returned [`ExportReport`] holds the validation warnings of the figure and the
+    /// warnings the scene compiler raised while drawing it, each naming the node it
+    /// concerns, so that a program learns from the call itself what was left off the
+    /// page: an artist with nothing to draw, data a logarithmic axis cannot show, or a
+    /// piece of LaTeX the typesetter does not support. Both lists are empty when nothing
+    /// was left out. Nothing is printed or logged.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), ironlab::Error> {
+    /// # let fig = ironlab::Figure::new();
+    /// let report = fig.export_pdf("pressure.pdf")?;
+    /// for issue in &report.validation {
+    ///     eprintln!("{:?}: {}", issue.node, issue.message);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`Error::Invalid`] when the figure has validation errors (and writes no
     /// file), [`Error::Export`] when the exporter fails or the figure needs rasterising
     /// and no graphics adapter is available, and [`Error::Io`] when the file cannot be
     /// written.
-    pub fn export_pdf(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn export_pdf(&self, path: impl AsRef<Path>) -> Result<ExportReport, Error> {
         self.export_pdf_with(path, RasterOptions::default())
     }
 
@@ -435,6 +453,9 @@ impl Figure {
     /// # }
     /// ```
     ///
+    /// The report is the one [`export_pdf`](Figure::export_pdf) returns; the raster
+    /// options do not change what is left off the page.
+    ///
     /// # Errors
     ///
     /// As for [`export_pdf`](Figure::export_pdf).
@@ -442,16 +463,19 @@ impl Figure {
         &self,
         path: impl AsRef<Path>,
         raster: RasterOptions,
-    ) -> Result<(), Error> {
-        self.check_valid()?;
+    ) -> Result<ExportReport, Error> {
+        let validation = self.check_valid()?;
         let text = text_engine();
         let options = ironlab_pdf::PdfOptions {
             raster,
             ..ironlab_pdf::PdfOptions::for_figure(&self.ir)
         };
-        let bytes = ironlab_viewer::export_pdf(&self.ir, text, &options)?;
-        std::fs::write(path, bytes)?;
-        Ok(())
+        let exported = ironlab_viewer::export_pdf(&self.ir, text, &options)?;
+        std::fs::write(path, exported.bytes)?;
+        Ok(ExportReport {
+            validation: validation.warnings,
+            scene: exported.warnings,
+        })
     }
 
     /// Opens the figure in the interactive viewer and blocks until the window is
@@ -475,11 +499,12 @@ impl Figure {
         Ok(())
     }
 
-    /// Returns [`Error::Invalid`] when the figure has validation errors.
-    fn check_valid(&self) -> Result<(), Error> {
+    /// Returns the validation report of the figure when it has no errors, and
+    /// [`Error::Invalid`] with the report when it has.
+    fn check_valid(&self) -> Result<ValidationReport, Error> {
         let report = self.validate();
         if report.is_valid() {
-            Ok(())
+            Ok(report)
         } else {
             Err(Error::Invalid(report))
         }

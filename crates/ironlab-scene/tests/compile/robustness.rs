@@ -93,6 +93,118 @@ fn a_surface_whose_colour_data_is_bytes_is_skipped_with_a_warning_naming_it() {
     assert_skipped_for_eight_bit_values(&scene, surface, "surface");
 }
 
+// Why: a line, scatter or quiver of no points is left out of the drawing, and ADR 0012
+// decides that the compiler warns of every artist it leaves out, naming it, so that the
+// viewer's problems indicator and `validate()` agree about which artists are absent. Each
+// empty artist must be reported by exactly one warning, in both projections, while the
+// rest of the axes is still drawn and the limits stay those of the data that is drawn,
+// because an artist of no points has no extent to widen them with.
+#[test]
+fn a_line_scatter_or_quiver_of_no_points_is_left_out_with_a_warning_naming_it() {
+    for three_d in [false, true] {
+        let build = |with_empty: bool| {
+            let mut fx = Fx::new();
+            let ax = if three_d {
+                fx.axes3d(0, 0, View3d::default())
+            } else {
+                fx.axes2d(0, 0)
+            };
+            let z: Option<&[f64]> = three_d.then_some(&[0.0, 1.0]);
+            let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], z, |_| {});
+            let none: Option<&[f64]> = three_d.then_some(&[]);
+            let empty = if with_empty {
+                vec![
+                    fx.line(ax, &[], &[], none, |_| {}),
+                    fx.scatter(ax, &[], &[], none, |_, _| {}),
+                    fx.quiver(ax, &[], &[], none, &[], &[], none),
+                ]
+            } else {
+                Vec::new()
+            };
+            (compile_figure(&fx.build()), ax, line, empty)
+        };
+        let at = if three_d { "3D" } else { "2D" };
+        let (scene, ax, line, empty) = build(true);
+        let leaves = leaves(&scene);
+        for (id, what) in empty.iter().zip(["line", "scatter", "quiver"]) {
+            assert!(
+                from_source(&leaves, *id).is_empty(),
+                "{at}: the empty {what} draws nothing"
+            );
+            assert_eq!(
+                scene
+                    .warnings
+                    .iter()
+                    .filter(|w| w.node == Some(*id))
+                    .count(),
+                1,
+                "{at}: one warning names the empty {what}: {:?}",
+                scene.warnings
+            );
+        }
+        assert!(
+            !from_source(&leaves, line).is_empty(),
+            "{at}: the line with points is drawn"
+        );
+        assert_eq!(
+            scene.warnings.len(),
+            3,
+            "{at}: nothing else is reported: {:?}",
+            scene.warnings
+        );
+        let (alone, alone_ax, _, _) = build(false);
+        if three_d {
+            // The hit map of a 3D axes carries no axis maps, so the limits are compared through everything
+            // drawn from them: the two figures differ only in the empty artists, so their display lists
+            // agree exactly when those contribute nothing.
+            assert_eq!(
+                scene.display_list, alone.display_list,
+                "{at}: the empty artists contribute nothing to the limits or the drawing"
+            );
+        } else {
+            assert_eq!(
+                axis_maps(&scene, ax),
+                axis_maps(&alone, alone_ax),
+                "{at}: the empty artists contribute nothing to the limits"
+            );
+        }
+    }
+}
+
+// Why: a surface or contour whose field has no rows is left out in a 3D axes as in a 2D
+// one (where `surfaces_2d` pins it), and must be reported there too: a warning that names
+// the artist is what the viewer's problems indicator shows, and a 3D axes that forgot to
+// warn would leave a `surf` of a field streamed from nothing missing without a word.
+#[test]
+fn an_empty_field_in_a_three_dimensional_axes_is_left_out_with_a_warning_naming_it() {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, View3d::default());
+    let surface = fx.surface(ax, &[0.0, 1.0, 2.0], &[], |x, y| x + y, |_| {});
+    let contour = fx.contour(ax, &[], &[0.0, 1.0], |x, y| x + y, |_| {});
+    let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], Some(&[0.0, 1.0]), |_| {});
+    let scene = compile_figure(&fx.build());
+    let leaves = leaves(&scene);
+    for (id, what) in [(surface, "surface"), (contour, "contour")] {
+        assert!(
+            from_source(&leaves, id).is_empty(),
+            "the empty {what} draws nothing"
+        );
+        assert_eq!(
+            scene.warnings.iter().filter(|w| w.node == Some(id)).count(),
+            1,
+            "one warning names the empty {what}: {:?}",
+            scene.warnings
+        );
+    }
+    assert!(!from_source(&leaves, line).is_empty(), "the line is drawn");
+    assert_eq!(
+        scene.warnings.len(),
+        2,
+        "nothing else is reported: {:?}",
+        scene.warnings
+    );
+}
+
 // Why: a label with unsupported LaTeX must not stop the figure from building; the text engine's
 // warning must surface in the scene, attributed to the node that owns the label.
 #[test]

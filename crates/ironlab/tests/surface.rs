@@ -234,3 +234,28 @@ fn surface_grid_mismatch_in_a_2d_axes_is_reported_as_a_shape_mismatch_only() {
     assert!(has_error_at(&report, IssueKind::ShapeMismatch, id));
     assert_eq!(report.errors.len(), 1, "{report:?}");
 }
+
+// WHY: a pseudocolour plot of a single row of values is the natural first attempt of a
+// user who expects n values to give n cells, as they do for a mapped image. The figure is
+// valid, since a streamed field passes through one row, but the surface is not drawn, so
+// the report a user or an agent reads must carry a warning that names the surface, whether
+// it was added with `surface` or promoted to 3D by `surf`.
+#[test]
+fn a_field_with_a_single_row_validates_with_a_warning_for_surface_and_surf() {
+    let x = linspace(0.0, 3.0, 4);
+    let y = vec![0.0];
+    let row = Matrix::from_fn(1, 4, |_, col| col as f64);
+    for three_d in [false, true] {
+        let mut fig = Figure::new();
+        let id = if three_d {
+            fig.axes(0, 0).surf(&x, &y, &row).id()
+        } else {
+            fig.axes(0, 0).surface(&x, &y, &row).id()
+        };
+        let report = fig.validate();
+        assert!(report.is_valid(), "three_d = {three_d}: {report:?}");
+        assert_eq!(report.warnings.len(), 1, "three_d = {three_d}: {report:?}");
+        assert_eq!(report.warnings[0].kind, IssueKind::NothingToDraw);
+        assert_eq!(report.warnings[0].node, Some(id));
+    }
+}

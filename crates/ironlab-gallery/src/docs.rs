@@ -165,6 +165,7 @@ impl Renderer for IronlabRenderer {
     fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<Vec<u8>, GalleryError> {
         let options = ironlab_pdf::PdfOptions::for_figure(figure);
         ironlab_viewer::export_pdf(figure, &self.text, &options)
+            .map(|exported| exported.bytes)
             .map_err(|error| GalleryError::Pdf(error.to_string()))
     }
 }
