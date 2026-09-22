@@ -17,11 +17,14 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use common::{
-    TEXT, depth_group, figure_with_mapped_image, figure_with_surface, find_image, glyph_h,
-    gpu_or_skip, gpu_required, image_sample, rendered_or_skip, scale_then_translate,
+    TEXT, Workspace, assert_same_picture, depth_group, figure_with_mapped_image,
+    figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required, image_sample, rasterise,
+    rendered_or_skip, rgb_of, scale_then_translate, tools_available,
 };
 use egui_wgpu::wgpu;
+use image::RgbImage;
 use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
+use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
     PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
@@ -29,7 +32,7 @@ use ironlab_scene::display::{
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 use ironlab_viewer::offscreen::create_device;
 use ironlab_viewer::{
-    DEPTH_FORMAT, Draw, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
+    DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
     RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
     render_display_list_offscreen, render_offscreen,
 };
@@ -2017,6 +2020,1240 @@ fn the_same_list_at_twice_the_dpi_is_the_same_picture_at_twice_the_size() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Strokes, expanded by the stroke pipeline: joins, caps, dashes, the hairline and the pen beneath a group transform,
+// pinned by direct pixel probes and by pdftoppm's rasters of the same display lists exported through `ironlab_pdf`.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// A solid black stroke `width` wide with butt caps and miter joins, which every stroke test starts from.
+fn pen(width: f64) -> Stroke {
+    Stroke {
+        color: Rgba::BLACK,
+        width,
+        dash: Vec::new(),
+        dash_offset: 0.0,
+        cap: LineCap::Butt,
+        join: LineJoin::Miter,
+    }
+}
+
+/// An open polyline through `points` stroked with `stroke`, neither filled nor given a depth.
+fn stroked_polyline(points: &[(f64, f64)], stroke: Stroke) -> Item {
+    stroked_path(points, false, stroke)
+}
+
+/// The polyline through `points` closed back to its first point and stroked with `stroke`, neither filled nor given
+/// a depth: one closed subpath, whose seam is the joint at `points[0]`.
+fn stroked_polygon(points: &[(f64, f64)], stroke: Stroke) -> Item {
+    stroked_path(points, true, stroke)
+}
+
+fn stroked_path(points: &[(f64, f64)], closed: bool, stroke: Stroke) -> Item {
+    let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
+    segments.extend(
+        points[1..]
+            .iter()
+            .map(|&(x, y)| PathSegment::LineTo(Point::new(x, y))),
+    );
+    if closed {
+        segments.push(PathSegment::Close);
+    }
+    Item {
+        source: None,
+        kind: ItemKind::Path(PathItem {
+            segments,
+            fill: None,
+            stroke: Some(stroke),
+            depth: None,
+        }),
+    }
+}
+
+/// The three joins and the three caps, named for the messages of the table-driven tests.
+const JOINS: [(&str, LineJoin); 3] = [
+    ("miter", LineJoin::Miter),
+    ("round", LineJoin::Round),
+    ("bevel", LineJoin::Bevel),
+];
+const CAPS: [(&str, LineCap); 3] = [
+    ("butt", LineCap::Butt),
+    ("round", LineCap::Round),
+    ("square", LineCap::Square),
+];
+
+/// The brightness of a pixel of a black-on-white render: 0 where the ink covers it whole, 255 where none touches it.
+fn level(pixel: [u8; 4]) -> u8 {
+    ((u16::from(pixel[0]) + u16::from(pixel[1]) + u16::from(pixel[2])) / 3) as u8
+}
+
+/// What a pixel of a black-on-white render holds. The bands leave an eighth of the range at each end for the
+/// rounding of a pixel covered whole or untouched, and take everything between as an anti-aliased edge; the probes
+/// that ask for `Ink` or `Blank` lie at least a pixel inside or outside every edge, where no anti-aliasing reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shade {
+    /// Covered whole by the ink: a level of at most 31.
+    Ink,
+    /// Untouched by the ink: a level of at least 224.
+    Blank,
+    /// Crossed by an anti-aliased edge: a level strictly between the two.
+    Partial,
+}
+
+/// A column to probe on a known row, the shade expected there and what it is.
+type ShadeProbe = (u32, Shade, &'static str);
+
+/// A pixel to probe, the shade expected there and what it is.
+type PixelProbe = (u32, u32, Shade, &'static str);
+
+impl Shade {
+    fn of(pixel: [u8; 4]) -> Self {
+        match level(pixel) {
+            0..=31 => Self::Ink,
+            224..=255 => Self::Blank,
+            _ => Self::Partial,
+        }
+    }
+}
+
+/// Asserts that the pixel at `(x, y)` of a black-on-white render holds `shade`.
+#[track_caller]
+fn assert_shade(image: &RenderedImage, x: u32, y: u32, shade: Shade, what: &str) {
+    let pixel = image.pixel(x, y);
+    assert!(
+        Shade::of(pixel) == shade,
+        "{what} at ({x}, {y}): expected {shade:?}, got {pixel:?}"
+    );
+}
+
+/// The number of pixels of row `y` within `columns` that black ink covers by more than half.
+fn inked_columns(image: &RenderedImage, y: u32, columns: Range<u32>) -> usize {
+    columns.filter(|&x| level(image.pixel(x, y)) < 128).count()
+}
+
+/// The number of pixels of column `x` within `rows` that black ink covers by more than half.
+fn inked_rows(image: &RenderedImage, x: u32, rows: Range<u32>) -> usize {
+    rows.filter(|&y| level(image.pixel(x, y)) < 128).count()
+}
+
+/// The number of pixels of a raster that black ink covers by more than half.
+fn dark_pixels(image: &RgbImage) -> usize {
+    image
+        .pixels()
+        .filter(|p| (u16::from(p.0[0]) + u16::from(p.0[1]) + u16::from(p.0[2])) / 3 < 128)
+        .count()
+}
+
+/// The zigzag of the comparisons with the PDF export, on a 120 by 80 point page: three arms of about 40 points,
+/// several dash periods each, with a hairpin of about 20° between the first two, where a miter join exceeds the
+/// limit of 4 and falls back to a bevel, and a turn of about 60° between the last two, where a miter of ratio 2
+/// (half the limit) reaches 6 points beyond the vertex. Nothing about it is axis-aligned, so no rasteriser can snap
+/// it to the pixel grid.
+const ZIGZAG: [(f64, f64); 4] = [(33.0, 30.0), (40.0, 70.0), (47.0, 30.0), (78.0, 56.0)];
+
+/// The dash patterns of the comparisons, in item units: none; dashes of 6 with gaps of 4; dashes of 1 with gaps of
+/// 3, which butt caps draw as fine dashes and which round or square caps, extending every dash by half the width of
+/// 6 at both ends, close up into a line with scalloped or straight edges, as PDF draws them; and dashes of no
+/// length with gaps of 4, PDF's dotted line, which round caps draw as dots and butt or square caps as nothing (PDF
+/// 32000, 8.5.3.2).
+fn dash_patterns() -> [(&'static str, Vec<f64>); 4] {
+    [
+        ("solid", Vec::new()),
+        ("6-4", vec![6.0, 4.0]),
+        ("1-3", vec![1.0, 3.0]),
+        ("0-4", vec![0.0, 4.0]),
+    ]
+}
+
+/// The resolution of the comparisons with poppler: two pixels per point, so that the blocks compared are 12 pixels
+/// square.
+const COMPARISON_DPI: f64 = 144.0;
+
+/// Renders `list` offscreen at [`COMPARISON_DPI`] and rasterises its PDF export at the same resolution with
+/// poppler, saves both rasters as `name` in `ws` for inspection when the test fails, and asserts that they show the
+/// same picture within the block tolerances of `assert_same_picture`. Both rasters must hold ink (at least 300 dark
+/// pixels), so that two blank pages cannot agree, unless the list is `inked` by nothing, in which case both must be
+/// blank. Returns `None` without asserting anything when no adapter is available and a GPU is not required, for
+/// the caller to skip the rest of its test.
+#[track_caller]
+fn assert_drawn_as_printed(
+    ws: &Workspace,
+    name: &str,
+    what: &str,
+    list: &DisplayList,
+    inked: bool,
+) -> Option<()> {
+    let drawn = rendered_or_skip(render_display_list_offscreen(list, &TEXT, COMPARISON_DPI))?;
+    let exported = ironlab_pdf::render_display_list(list, &TEXT, &PdfOptions::default(), None)
+        .unwrap_or_else(|error| panic!("{what}: the export failed: {error}"));
+    assert!(
+        exported.warnings.is_empty(),
+        "{what}: the export has nothing to warn of: {:?}",
+        exported.warnings
+    );
+    let printed = rasterise(&ws.write(name, &exported.bytes), COMPARISON_DPI);
+    let drawn = rgb_of(&drawn);
+    drawn
+        .save(ws.path(&format!("{name}-viewer.png")))
+        .expect("save the viewer's raster beside poppler's");
+    assert_eq!(
+        printed.dimensions(),
+        drawn.dimensions(),
+        "{what}: poppler and the viewer raster the page at the same size"
+    );
+    for (which, raster) in [("poppler", &printed), ("the viewer", &drawn)] {
+        let dark = dark_pixels(raster);
+        if inked {
+            assert!(
+                dark >= 300,
+                "{what}: {which} inks at least 300 pixels, so that the comparison is not of two blank pages; it \
+                 inked {dark}"
+            );
+        } else {
+            assert_eq!(dark, 0, "{what}: {which} inks nothing");
+        }
+    }
+    assert_same_picture(&printed, &drawn, COMPARISON_DPI, what);
+    Some(())
+}
+
+// Why: the viewer must show the stroke that the PDF prints. The shaders expand every join, cap and dash themselves,
+// so a miter that ignored the limit, a cap missing from the ends of a dash, a dash phase that restarted at every
+// segment, a pattern scaled by the width or a round join drawn as a full disc on the wrong side would pass every
+// test of the segments in `canvas.rs` and still put a different picture on the screen from the one on the page.
+// Comparing block means against pdftoppm's raster of the same display list tolerates the two anti-aliasers'
+// disagreement along an edge and nothing larger: at 144 dpi a block is 12 pixels square and may differ by 16
+// levels of 255, so a missing round cap of the 6 pt pen (a half disc of 57 px², about 100 levels in the block that
+// holds it) or a missing miter at the 60° turn (47 px² beyond the bevel, over 20 levels in some block however the
+// blocks cut it) is detected, while a missing bevel at the hairpin (6 px², 11 levels) is not, and the probe test of
+// the joins covers it; a systematic offset of half a pixel moves about 6 px² of the 12 px wide stroke across a
+// block's edge (10 levels) and passes, one of a whole pixel (21 levels) is detected. Both rasters must hold ink, or
+// two blank pages would agree, except for the dashes of no length with butt caps, which draw nothing in PDF and so
+// must draw nothing here.
+#[test]
+fn every_join_cap_and_dash_pattern_of_a_zigzag_is_the_picture_poppler_prints_of_its_export() {
+    if !tools_available(&["pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("strokes");
+    for (join_name, join) in JOINS {
+        for (cap_name, cap) in CAPS {
+            for (pattern_name, dash) in dash_patterns() {
+                let what = format!("{join_name} joins, {cap_name} caps, {pattern_name}");
+                let name = format!("{join_name}-{cap_name}-{pattern_name}");
+                // Dashes of no length draw nothing with butt or square caps, in PDF as here, so both rasters are
+                // blank in those cells and only the round-capped dots are compared as ink.
+                let dotted = dash.first() == Some(&0.0);
+                let inked = !(dotted && cap != LineCap::Round);
+                let stroke = Stroke {
+                    dash,
+                    cap,
+                    join,
+                    ..pen(6.0)
+                };
+                let list = page(
+                    120.0,
+                    80.0,
+                    Rgba::WHITE,
+                    vec![stroked_polyline(&ZIGZAG, stroke)],
+                );
+                if assert_drawn_as_printed(&ws, &name, &what, &list, inked).is_none() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+// Why: the seam of a closed dashed subpath is one joint measured twice, at arc length 0 by the first edge and at
+// the perimeter by the closing one, and unless the perimeter is a multiple of the period the pattern differs
+// between the two: PDF runs the pattern from the start around to the seam, so the dashes of the closing edge are
+// placed and capped by the perimeter-side length, and the dash starting at the seam is capped there. A square of
+// side 17 and a rectangle of 24 by 15.5 have perimeters of 68 and 79, which put the seam 2 and 3 pt into a gap of
+// the closing edge while the first edge starts a dash, and no corner on the boundary of a dash; a shader that
+// measured the seam at 0 on both sides would draw a join there, where poppler prints a gap and a capped dash.
+// Where the dash runs through the seam on both sides poppler draws no join, printing every dash as a separate
+// open piece, while the join of every corner within a dash calls for one, so that case is pinned by the probe test
+// of the seam rather than here. Every coordinate is a multiple of half a point, so that at 144 dpi the edges of
+// the pen and the ends of the dashes lie on pixel boundaries, which poppler otherwise snaps them to (its stroke
+// adjustment), half a pixel from where the viewer anti-aliases them.
+#[test]
+fn a_dashed_closed_outline_is_the_picture_poppler_prints_of_its_export_around_the_seam() {
+    if !tools_available(&["pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("closed-strokes");
+    for (cap_name, cap) in [("butt", LineCap::Butt), ("round", LineCap::Round)] {
+        let what = format!(
+            "a closed square of side 17 and a closed rectangle of 24 by 15.5 dashed 6-4 with {cap_name} caps"
+        );
+        let stroke = Stroke {
+            dash: vec![6.0, 4.0],
+            cap,
+            ..pen(6.0)
+        };
+        let list = page(
+            120.0,
+            80.0,
+            Rgba::WHITE,
+            vec![
+                stroked_polygon(
+                    &[(15.0, 20.0), (32.0, 20.0), (32.0, 37.0), (15.0, 37.0)],
+                    stroke.clone(),
+                ),
+                stroked_polygon(
+                    &[(60.0, 20.0), (84.0, 20.0), (84.0, 35.5), (60.0, 35.5)],
+                    stroke,
+                ),
+            ],
+        );
+        if assert_drawn_as_printed(&ws, &format!("outlines-{cap_name}"), &what, &list, true)
+            .is_none()
+        {
+            return;
+        }
+    }
+}
+
+// Why: a corner of a dashed outline is joined only where the dash runs through it, and the seam of a closed
+// subpath is a corner measured twice, at arc length 0 by the first edge and at the perimeter by the closing one:
+// the join at the seam is drawn where both measures fall inside a dash, whole, as at any other corner inside a
+// dash, and not at all where either falls in a gap or where a dash ends exactly at the corner (a dash is the
+// half-open run of its arc lengths). Poppler never joins the seam of a dashed outline, so this is pinned by probes
+// rather than by the comparison with its raster; a join drawn from the anti-aliased end of a dash at the corner,
+// rather than from whether the corner lies inside the dash, would come out half covered at every seam, because
+// the seam lies exactly at the start of the first dash whenever the phase is 0.
+#[test]
+fn the_seam_of_a_closed_dashed_outline_is_joined_whole_where_the_dash_runs_through_it_and_not_otherwise()
+ {
+    use Shade::{Blank, Ink};
+    // A square of side 23 dashed 6 on, 4 off with a 6 pt pen, butt caps and miter joins, whose corners lie at the
+    // arc lengths 0 (the seam, also 92), 23, 46 and 69. The outer corner of a miter join is the 3 pt square beyond
+    // both edges, probed a pixel inside its edges.
+    let corners = [
+        ((15.0, 20.0), (13, 18), "the seam"),
+        ((38.0, 20.0), (39, 18), "the corner at arc length 23"),
+        ((38.0, 43.0), (39, 44), "the corner at arc length 46"),
+        ((15.0, 43.0), (13, 44), "the corner at arc length 69"),
+    ];
+    // The dash phase, and the shade of each corner's join: a phase of 2 moves the dashes back by 2, so that the
+    // seam lies inside a dash on both sides (4 pt into the last, 2 pt into the first), the corner at 23 inside the
+    // dash from 18 to 24, 46 in a gap and 69 inside a dash; with a phase of 0 the seam lies 2 pt inside the last
+    // dash (90 to 96) and at the start of the first, the corner at 23 inside the dash from 20 to 26, the dash from
+    // 40 to 46 ends exactly at the corner at 46, and 69 lies in a gap.
+    let cases: [(f64, [Shade; 4]); 2] = [
+        (2.0, [Ink, Ink, Blank, Ink]),
+        (0.0, [Ink, Ink, Blank, Blank]),
+    ];
+    for (dash_offset, shades) in cases {
+        let what = format!("with a dash phase of {dash_offset}");
+        let stroke = Stroke {
+            dash: vec![6.0, 4.0],
+            dash_offset,
+            ..pen(6.0)
+        };
+        let Some(image) = render_page(
+            Rgba::WHITE,
+            vec![stroked_polygon(
+                &corners.map(|(corner, _, _)| corner),
+                stroke,
+            )],
+        ) else {
+            return;
+        };
+        for ((_, (x, y), where_), shade) in corners.iter().zip(shades) {
+            assert_shade(
+                &image,
+                *x,
+                *y,
+                shade,
+                &format!("{what}: the outer corner of the join at {where_}"),
+            );
+        }
+        // The first dash of the first edge runs from x = 15 to 21 with a phase of 0 and to 19 with a phase of 2,
+        // and the gap after it to 25 or 23.
+        assert_shade(
+            &image,
+            17,
+            19,
+            Ink,
+            &format!("{what}: inside the first dash of the first edge"),
+        );
+        assert_shade(
+            &image,
+            22,
+            20,
+            Blank,
+            &format!("{what}: inside the first gap of the first edge"),
+        );
+    }
+}
+
+// Why: PDF's dotted line is the pattern [0, w], dashes of no length that are nothing but their caps: a dot with
+// round caps, and nothing with butt or projecting square caps, as PDF 32000 (8.5.3.2) has for a degenerate subpath
+// and as poppler prints. A shader that skipped dashes of no length would lose the dotted line; one that gave them a
+// square would print more than the PDF does.
+#[test]
+fn a_dash_of_no_length_is_a_dot_with_round_caps_and_nothing_with_butt_or_square_caps() {
+    use Shade::{Blank, Ink};
+    // An 8 pt line along y = 40 from x = 20 to 60 dashed [0, 16], whose dashes of no length lie at x = 20, 36 and
+    // 52: round caps make discs of radius 4 about them, and butt and square caps make nothing.
+    let cases: [(LineCap, &[PixelProbe]); 3] = [
+        (
+            LineCap::Butt,
+            &[(36, 40, Blank, "the middle dash, which butt caps leave bare")],
+        ),
+        (
+            LineCap::Round,
+            &[
+                (36, 40, Ink, "the centre of the middle dot"),
+                (
+                    36,
+                    37,
+                    Ink,
+                    "3 pt above the centre of the middle dot, inside its radius of 4",
+                ),
+                (
+                    32,
+                    36,
+                    Blank,
+                    "the corner of the square a square cap would draw, outside the dot",
+                ),
+            ],
+        ),
+        (
+            LineCap::Square,
+            &[
+                (
+                    36,
+                    40,
+                    Blank,
+                    "the middle dash, which square caps leave bare too",
+                ),
+                (
+                    32,
+                    36,
+                    Blank,
+                    "the corner of the square a square cap does not draw",
+                ),
+            ],
+        ),
+    ];
+    for (cap, probes) in cases {
+        let what = format!("{cap:?} caps");
+        let stroke = Stroke {
+            dash: vec![0.0, 16.0],
+            cap,
+            ..pen(8.0)
+        };
+        let Some(image) = render_page(
+            Rgba::WHITE,
+            vec![stroked_polyline(&[(20.0, 40.0), (60.0, 40.0)], stroke)],
+        ) else {
+            return;
+        };
+        for (x, y, shade, where_) in [
+            (28, 40, Blank, "between the first dash and the middle one"),
+            (44, 40, Blank, "between the middle dash and the last"),
+        ] {
+            assert_shade(&image, x, y, shade, &format!("{what}: {where_}"));
+        }
+        for &(x, y, shade, where_) in probes {
+            assert_shade(&image, x, y, shade, &format!("{what}: {where_}"));
+        }
+    }
+}
+
+// Why: the miter join is the default of every plot line, and its limit is what keeps a sharp turn from growing a
+// spike many widths long; the PDF fixes the limit at 4 widths, so the viewer must draw the miter at a turn whose
+// miter ratio is 3.9 (an interior angle of 30°) and a bevel at one whose ratio is 11.5 (an interior angle of 10°),
+// while round and bevel joins grow no tip at any angle. A join drawn on the wrong side, or not at all, leaves a
+// notch between the ends of the two bodies on the outer side of the turn.
+#[test]
+fn a_miter_join_grows_a_tip_within_the_limit_and_falls_back_to_a_bevel_beyond_it() {
+    // A V of two 40 pt arms coming from the left to meet at (60, 40.5), symmetric about the row of pixels centred
+    // on y = 40.5, so that the tip of a miter lies along that row to the right of the vertex. The stroke is 8 pt
+    // wide, so beyond the vertex along the row the bevel's chord lies 4 sin(half) away (1.0 pt at a half angle of
+    // 15°, 0.35 pt at 5°), a round join reaches 4 pt, and a miter reaches 4 / sin(half): 15.5 pt at 15°, and at
+    // 5° the 45.9 pt that the limit of 32 pt forbids.
+    let vertex = (60.0, 40.5);
+    let arm = 40.0;
+    use Shade::{Blank, Ink, Partial};
+    /// A column to probe on the row of the vertex, the shades accepted there and what it is: one shade where the
+    /// pixel lies a pixel inside or outside every edge, and anything but `Blank` for the pixel just beyond the
+    /// vertex with a bevel at 15°, whose far edge lies 0.04 pt short of the bevel's chord.
+    type JoinProbe = (u32, &'static [Shade], &'static str);
+    let cases: [(f64, LineJoin, &[JoinProbe]); 6] = [
+        (
+            15.0,
+            LineJoin::Miter,
+            &[
+                (
+                    60,
+                    &[Ink],
+                    "the notch between the bodies' ends, filled by the join",
+                ),
+                (62, &[Ink], "2 pt beyond the vertex, inside the miter"),
+                (
+                    68,
+                    &[Ink],
+                    "8 pt beyond the vertex, inside the miter by more than a pixel and beyond any round join",
+                ),
+                (
+                    78,
+                    &[Blank],
+                    "18 pt beyond the vertex, past the miter's tip at 15.5 pt",
+                ),
+            ],
+        ),
+        (
+            15.0,
+            LineJoin::Round,
+            &[
+                (
+                    60,
+                    &[Ink],
+                    "the notch between the bodies' ends, filled by the join",
+                ),
+                (
+                    62,
+                    &[Ink],
+                    "2 pt beyond the vertex, inside the round join's arc of radius 4",
+                ),
+                (70, &[Blank], "10 pt beyond the vertex, past the arc"),
+                (78, &[Blank], "18 pt beyond the vertex"),
+            ],
+        ),
+        (
+            15.0,
+            LineJoin::Bevel,
+            &[
+                (
+                    60,
+                    &[Ink, Partial],
+                    "the notch between the bodies' ends, filled by the join up to its chord 1.04 pt beyond the \
+                     vertex, at the far edge of the pixel",
+                ),
+                (
+                    62,
+                    &[Blank],
+                    "2 pt beyond the vertex, past the bevel's chord at 1 pt",
+                ),
+                (70, &[Blank], "10 pt beyond the vertex"),
+                (78, &[Blank], "18 pt beyond the vertex"),
+            ],
+        ),
+        (
+            5.0,
+            LineJoin::Miter,
+            &[
+                (
+                    62,
+                    &[Blank],
+                    "2 pt beyond the vertex, past the chord of the bevel the miter falls back to",
+                ),
+                (
+                    70,
+                    &[Blank],
+                    "10 pt beyond the vertex, which only a miter beyond the limit would reach",
+                ),
+                (78, &[Blank], "18 pt beyond the vertex"),
+            ],
+        ),
+        (
+            5.0,
+            LineJoin::Round,
+            &[
+                (
+                    62,
+                    &[Ink],
+                    "2 pt beyond the vertex, inside the round join's arc of radius 4",
+                ),
+                (70, &[Blank], "10 pt beyond the vertex, past the arc"),
+                (78, &[Blank], "18 pt beyond the vertex"),
+            ],
+        ),
+        (
+            5.0,
+            LineJoin::Bevel,
+            &[
+                (
+                    62,
+                    &[Blank],
+                    "2 pt beyond the vertex, past the bevel's chord at 0.35 pt",
+                ),
+                (70, &[Blank], "10 pt beyond the vertex"),
+                (78, &[Blank], "18 pt beyond the vertex"),
+            ],
+        ),
+    ];
+    for (degrees, join, probes) in cases {
+        let what = format!("a {join:?} join at a half angle of {degrees}°");
+        let (sin, cos) = f64::to_radians(degrees).sin_cos();
+        let points = [
+            (vertex.0 - arm * cos, vertex.1 - arm * sin),
+            vertex,
+            (vertex.0 - arm * cos, vertex.1 + arm * sin),
+        ];
+        let stroke = Stroke { join, ..pen(8.0) };
+        let Some(image) = render_page(Rgba::WHITE, vec![stroked_polyline(&points, stroke)]) else {
+            return;
+        };
+        // A point 20 pt along the lower arm from the vertex lies within 0.3 pt of the arm's centreline in the
+        // pixel that holds it, deep inside the 4 pt half-width.
+        let body = (
+            (vertex.0 - 20.0 * cos).floor() as u32,
+            (vertex.1 + 20.0 * sin).floor() as u32,
+        );
+        assert_shade(
+            &image,
+            body.0,
+            body.1,
+            Shade::Ink,
+            &format!("{what}: the body of the lower arm"),
+        );
+        for &(x, accepted, where_) in probes {
+            let pixel = image.pixel(x, 40);
+            assert!(
+                accepted.contains(&Shade::of(pixel)),
+                "{what}: {where_} at ({x}, 40): expected one of {accepted:?}, got {pixel:?}"
+            );
+        }
+    }
+}
+
+// Why: a translucent stroke is one shape in PDF, and where its pieces overlap — the bodies of two segments on the
+// inner side of a turn, a round join over both bodies, a round cap over the end of a body — the page holds the
+// colour once. Outside a depth group the stroke pipeline must therefore never blend a pixel with itself, whatever
+// join or cap the stroke has; drawing every piece with plain alpha blending would darken every inner corner, every
+// round join and every round cap of a translucent plot line.
+#[test]
+fn a_translucent_stroke_is_blended_once_where_its_bodies_join_and_caps_overlap() {
+    // Half black over white composites to a level of 128 (127.5, rounded either way); blended twice it would be 64.
+    let grey = [128, 128, 128, 255];
+    for (join_name, join) in JOINS {
+        for (cap_name, cap) in CAPS {
+            let what = format!("{join_name} joins and {cap_name} caps");
+            // An 8 pt right angle from (10, 50) along y = 50 to (50, 50) and up x = 50 to (50, 10): the bodies are
+            // the rectangles [10, 50] × [46, 54] and [46, 54] × [10, 50], which overlap in [46, 50]².
+            let stroke = Stroke {
+                color: Rgba::new(0.0, 0.0, 0.0, 0.5),
+                cap,
+                join,
+                ..pen(8.0)
+            };
+            let Some(image) = render_page(
+                Rgba::WHITE,
+                vec![stroked_polyline(
+                    &[(10.0, 50.0), (50.0, 50.0), (50.0, 10.0)],
+                    stroke,
+                )],
+            ) else {
+                return;
+            };
+            let body = image.pixel(30, 50);
+            assert!(
+                close_to(body, grey, 3),
+                "{what}: the body at (30, 50) is half black over white, got {body:?}"
+            );
+            // Every probe lies at least a pixel inside every edge of every piece that covers it, so that no
+            // anti-aliasing of an edge enters the comparison.
+            let same_as_body: &[(u32, u32, &str)] = &[
+                (47, 47, "the inner corner, inside both bodies"),
+                (
+                    48,
+                    48,
+                    "the inner corner beside the vertex, inside both bodies and a round join's disc",
+                ),
+                (
+                    50,
+                    50,
+                    "the join beside the vertex, beyond the ends of both bodies and 2 px inside every join",
+                ),
+                (
+                    11,
+                    50,
+                    "the start of the first body, inside a round cap's disc",
+                ),
+                (
+                    50,
+                    11,
+                    "the end of the second body, inside a round cap's disc",
+                ),
+            ];
+            for &(x, y, where_) in same_as_body {
+                let pixel = image.pixel(x, y);
+                assert!(
+                    close_to(pixel, body, 2),
+                    "{what}: {where_} at ({x}, {y}) holds the stroke's colour once, as the body does: expected \
+                     {body:?}, got {pixel:?}"
+                );
+            }
+            for (x, y, where_) in [(8, 50, "the start cap"), (50, 8, "the end cap")] {
+                let pixel = image.pixel(x, y);
+                match cap {
+                    LineCap::Butt => assert!(
+                        close_to(pixel, WHITE_PX, 2),
+                        "{what}: {where_} at ({x}, {y}) is bare with butt caps, got {pixel:?}"
+                    ),
+                    LineCap::Round | LineCap::Square => assert!(
+                        close_to(pixel, body, 2),
+                        "{what}: {where_} at ({x}, {y}) holds the stroke's colour once, as the body does: \
+                         expected {body:?}, got {pixel:?}"
+                    ),
+                }
+            }
+        }
+    }
+}
+
+// Why: a hairline is the thinnest line the device can draw, one pixel wide whatever the resolution, and it is what
+// the compiler draws every axis line and tick with when the width is 0; a shader that took a width of 0 at its word
+// would draw nothing, and one that scaled the hairline with the resolution would draw the ticks of a 300 dpi
+// gallery image four pixels wide. The line runs down the centre of a pixel column at each resolution, so that the
+// column is covered whole and its neighbours are not.
+#[test]
+fn a_hairline_covers_one_pixel_column_at_every_resolution() {
+    for (dpi, x, column) in [(72.0, 20.5, 20u32), (144.0, 20.25, 40)] {
+        let list = page(
+            100.0,
+            100.0,
+            Rgba::WHITE,
+            vec![stroked_polyline(&[(x, 10.0), (x, 90.0)], pen(0.0))],
+        );
+        let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, dpi)) else {
+            return;
+        };
+        let y = image.height / 2;
+        assert_shade(
+            &image,
+            column,
+            y,
+            Shade::Ink,
+            &format!("the column of the hairline at {dpi} dpi"),
+        );
+        for neighbour in [column - 1, column + 1] {
+            let brightness = level(image.pixel(neighbour, y));
+            assert!(
+                brightness >= 192,
+                "column {neighbour} beside the hairline at {dpi} dpi holds more than a quarter of the ink: \
+                 level {brightness}"
+            );
+        }
+        assert_eq!(
+            inked_columns(&image, y, 0..image.width),
+            1,
+            "at {dpi} dpi exactly one column of row {y} is covered by more than half"
+        );
+    }
+}
+
+// Why: a dashed plot line is drawn by the fragment shader from the arc length, so a shader that measured the arc in
+// the wrong units, took the phase with the wrong sign or ended the dashes hard would give dashes of the wrong
+// length, in the wrong places, or with a stair-stepped end at every fractional position. Ink inside a dash, none
+// inside a gap and an intermediate value in the pixel that an end crosses pin the pattern, the phase and the
+// anti-aliasing of the ends at 72 dpi, where a point is a pixel.
+#[test]
+fn a_dashed_line_is_inked_in_its_dashes_bare_in_its_gaps_and_anti_aliased_where_a_dash_ends() {
+    // A 4 pt line along y = 30 from x = 10.5 to 90.5 with dashes of 10 and gaps of 6, so that every dash end falls
+    // at the middle of a pixel, and butt caps, so that the dashes end square where the pattern says.
+    let cases: [(f64, &[ShadeProbe]); 2] = [
+        (
+            0.0,
+            &[
+                (15, Shade::Ink, "inside the first dash, x in [10.5, 20.5)"),
+                (23, Shade::Blank, "inside the first gap, x in [20.5, 26.5)"),
+                (30, Shade::Ink, "inside the second dash, x in [26.5, 36.5)"),
+                (39, Shade::Blank, "inside the second gap, x in [36.5, 42.5)"),
+                (
+                    20,
+                    Shade::Partial,
+                    "the pixel the first dash's end crosses at x = 20.5",
+                ),
+                (
+                    36,
+                    Shade::Partial,
+                    "the pixel the second dash's end crosses at x = 36.5",
+                ),
+            ],
+        ),
+        (
+            10.0,
+            &[
+                (
+                    13,
+                    Shade::Blank,
+                    "inside the gap the phase starts the line in, x in [10.5, 16.5)",
+                ),
+                (20, Shade::Ink, "inside the first dash, x in [16.5, 26.5)"),
+                (
+                    29,
+                    Shade::Blank,
+                    "inside the gap after it, x in [26.5, 32.5)",
+                ),
+                (35, Shade::Ink, "inside the second dash, x in [32.5, 42.5)"),
+                (
+                    16,
+                    Shade::Partial,
+                    "the pixel the first dash's start crosses at x = 16.5",
+                ),
+                (
+                    26,
+                    Shade::Partial,
+                    "the pixel the first dash's end crosses at x = 26.5",
+                ),
+            ],
+        ),
+    ];
+    for (offset, probes) in cases {
+        let what = format!("with a dash offset of {offset}");
+        let stroke = Stroke {
+            dash: vec![10.0, 6.0],
+            dash_offset: offset,
+            ..pen(4.0)
+        };
+        let Some(image) = render_page(
+            Rgba::WHITE,
+            vec![stroked_polyline(&[(10.5, 30.0), (90.5, 30.0)], stroke)],
+        ) else {
+            return;
+        };
+        for &(x, shade, where_) in probes {
+            assert_shade(&image, x, 30, shade, &format!("{where_} {what}"));
+        }
+        // The dashes are as wide as the line, whose body spans y in [28, 32].
+        let x = probes
+            .iter()
+            .find(|(_, shade, _)| *shade == Shade::Ink)
+            .expect("every case probes a dash")
+            .0;
+        assert_shade(
+            &image,
+            x,
+            28,
+            Shade::Ink,
+            &format!("the top row of the line {what}"),
+        );
+        assert_shade(
+            &image,
+            x,
+            31,
+            Shade::Ink,
+            &format!("the bottom row of the line {what}"),
+        );
+        assert_shade(
+            &image,
+            x,
+            27,
+            Shade::Blank,
+            &format!("the row above the line {what}"),
+        );
+        assert_shade(
+            &image,
+            x,
+            32,
+            Shade::Blank,
+            &format!("the row beneath the line {what}"),
+        );
+    }
+}
+
+// Why: a group transform scales the pen and the dashes with the geometry, as PDF does, so beneath the transform of
+// an axes that stretches its data space unevenly a stroke is wider one way than the other and its dashes longer
+// along the stretch than across it; only the hairline is exempt, being one screen point wide whichever way it
+// runs, so that the axis lines and ticks drawn with a width of 0 stay the thinnest lines the device draws. A
+// shader that expanded the stroke in figure points by the item width, by one stretch for every direction, or that
+// measured the dashes in figure points, would draw both runs the same width or dash them alike; the transform is a
+// pure scale at the origin and the runs are axis-aligned at whole points, so the edges of the pen and the ends of
+// the dashes fall on pixel boundaries and the counts are exact.
+#[test]
+fn a_stroke_beneath_a_non_uniform_transform_is_widened_with_the_geometry() {
+    let beneath_stretch = |items: Vec<Item>| {
+        render_page(
+            Rgba::WHITE,
+            vec![Item {
+                source: None,
+                kind: ItemKind::Group {
+                    clip: None,
+                    transform: Some(scale_then_translate(4.0, 1.0, 0.0, 0.0)),
+                    items,
+                },
+            }],
+        )
+    };
+
+    // An L in item space, 2 units wide: down x = 5 from y = 20 to 60, then along y = 60 to x = 20. Beneath
+    // scale(4, 1) the vertical run is at figure x = 20 with its pen spanning x in [16, 24], and the horizontal run
+    // is at figure y = 60 with its pen spanning y in [59, 61].
+    let Some(image) = beneath_stretch(vec![stroked_polyline(
+        &[(5.0, 20.0), (5.0, 60.0), (20.0, 60.0)],
+        pen(2.0),
+    )]) else {
+        return;
+    };
+    assert_eq!(
+        inked_columns(&image, 40, 0..100),
+        8,
+        "the vertical run is eight pixels wide in row 40"
+    );
+    for x in 16..24 {
+        assert_shade(&image, x, 40, Shade::Ink, "inside the vertical run");
+    }
+    for x in [15, 24] {
+        assert_shade(&image, x, 40, Shade::Blank, "beside the vertical run");
+    }
+    assert_eq!(
+        inked_rows(&image, 50, 0..100),
+        2,
+        "the horizontal run is two pixels tall in column 50"
+    );
+    for y in [59, 60] {
+        assert_shade(&image, 50, y, Shade::Ink, "inside the horizontal run");
+    }
+    for y in [58, 61] {
+        assert_shade(&image, 50, y, Shade::Blank, "beside the horizontal run");
+    }
+    // The miter at the corner is stretched with the pen: item [4, 5] × [60, 61] is figure [16, 20] × [60, 61].
+    assert_shade(
+        &image,
+        17,
+        60,
+        Shade::Ink,
+        "the miter at the corner, stretched with the pen",
+    );
+
+    // Two lines of the same pen dashed 5 on, 5 off in item units, with butt caps: one along y = 30 from item x = 5
+    // to 20, whose dashes are stretched to 20 px, on figure x in [20, 40) and [60, 80); and one down x = 5 from
+    // y = 50 to 90, whose dashes stay 5 px, on y in [50, 55), [60, 65), [70, 75) and [80, 85).
+    let dashed = Stroke {
+        dash: vec![5.0, 5.0],
+        ..pen(2.0)
+    };
+    let Some(image) = beneath_stretch(vec![
+        stroked_polyline(&[(5.0, 30.0), (20.0, 30.0)], dashed.clone()),
+        stroked_polyline(&[(5.0, 50.0), (5.0, 90.0)], dashed),
+    ]) else {
+        return;
+    };
+    assert_eq!(
+        inked_columns(&image, 30, 0..100),
+        40,
+        "the dashes along the stretch cover two runs of 20 pixels in row 30"
+    );
+    for (x, shade, where_) in [
+        (30, Shade::Ink, "inside the first dash along the stretch"),
+        (50, Shade::Blank, "inside the gap along the stretch"),
+        (70, Shade::Ink, "inside the second dash along the stretch"),
+    ] {
+        assert_shade(&image, x, 30, shade, where_);
+    }
+    for (y, shade, where_) in [
+        (
+            29,
+            Shade::Ink,
+            "the top row of the dashed line along the stretch",
+        ),
+        (
+            30,
+            Shade::Ink,
+            "the bottom row of the dashed line along the stretch",
+        ),
+        (
+            28,
+            Shade::Blank,
+            "the row above the dashed line along the stretch",
+        ),
+        (
+            31,
+            Shade::Blank,
+            "the row beneath the dashed line along the stretch",
+        ),
+    ] {
+        assert_shade(&image, 30, y, shade, where_);
+    }
+    assert_eq!(
+        inked_rows(&image, 20, 45..100),
+        20,
+        "the dashes across the stretch cover four runs of 5 pixels in column 20 beneath the line along it"
+    );
+    for (y, shade, where_) in [
+        (52, Shade::Ink, "inside the first dash across the stretch"),
+        (57, Shade::Blank, "inside the first gap across the stretch"),
+        (62, Shade::Ink, "inside the second dash across the stretch"),
+        (67, Shade::Blank, "inside the second gap across the stretch"),
+    ] {
+        assert_shade(&image, 20, y, shade, where_);
+    }
+    assert_eq!(
+        inked_columns(&image, 52, 0..100),
+        8,
+        "a dash across the stretch is as wide as the stretched pen, eight pixels, in row 52"
+    );
+
+    // Two hairlines: down item x = 5.125, which is the centre of figure column 20, from y = 20 to 60; and along
+    // y = 70.5, the centre of row 70, from item x = 5 to 20. Each covers its one column or row and no more.
+    let Some(image) = beneath_stretch(vec![
+        stroked_polyline(&[(5.125, 20.0), (5.125, 60.0)], pen(0.0)),
+        stroked_polyline(&[(5.0, 70.5), (20.0, 70.5)], pen(0.0)),
+    ]) else {
+        return;
+    };
+    assert_shade(
+        &image,
+        20,
+        40,
+        Shade::Ink,
+        "the column of the hairline down the stretch",
+    );
+    for x in [19, 21] {
+        let brightness = level(image.pixel(x, 40));
+        assert!(
+            brightness >= 192,
+            "column {x} beside the hairline down the stretch holds more than a quarter of the ink: level \
+             {brightness}"
+        );
+    }
+    assert_eq!(
+        inked_columns(&image, 40, 0..100),
+        1,
+        "the hairline down the stretch is one pixel wide in row 40, not four"
+    );
+    assert_shade(
+        &image,
+        50,
+        70,
+        Shade::Ink,
+        "the row of the hairline along the stretch",
+    );
+    for y in [69, 71] {
+        let brightness = level(image.pixel(50, y));
+        assert!(
+            brightness >= 192,
+            "row {y} beside the hairline along the stretch holds more than a quarter of the ink: level \
+             {brightness}"
+        );
+    }
+    assert_eq!(
+        inked_rows(&image, 50, 0..100),
+        1,
+        "the hairline along the stretch is one pixel tall in column 50"
+    );
+}
+
+// Why: the caps of a plot line are what PDF draws at its ends, so a butt cap must add nothing, a square cap must
+// extend the body by half the width, and a round cap must add a half disc of that radius, no more: the corners of
+// the square that a round cap would otherwise fill must stay bare. The line is 8 pt wide from (20, 40) to (60, 40)
+// at 72 dpi, so its body is the rectangle [20, 60] × [36, 44] on pixel boundaries, a square cap adds [16, 20] and
+// [60, 64] of it, and the round cap's arc of radius 4 about (20, 40) misses the pixel [16, 17] × [36, 37] whose
+// nearest corner is 4.24 away, while it covers (17, 40) whole.
+#[test]
+fn caps_extend_a_line_beyond_its_ends_as_pdf_draws_them() {
+    use Shade::{Blank, Ink};
+    let cases: [(LineCap, &[PixelProbe]); 3] = [
+        (
+            LineCap::Butt,
+            &[
+                (18, 40, Blank, "2 pt before the start, bare with butt caps"),
+                (17, 40, Blank, "3 pt before the start, bare with butt caps"),
+                (61, 40, Blank, "1 pt after the end, bare with butt caps"),
+                (
+                    16,
+                    36,
+                    Blank,
+                    "the top-left corner of a square cap's square, bare with butt caps",
+                ),
+                (
+                    16,
+                    43,
+                    Blank,
+                    "the bottom-left corner of a square cap's square, bare with butt caps",
+                ),
+                (
+                    63,
+                    36,
+                    Blank,
+                    "the top-right corner of a square cap's square, bare with butt caps",
+                ),
+                (
+                    63,
+                    43,
+                    Blank,
+                    "the bottom-right corner of a square cap's square, bare with butt caps",
+                ),
+            ],
+        ),
+        (
+            LineCap::Round,
+            &[
+                (18, 40, Ink, "2 pt before the start, inside the round cap"),
+                (17, 40, Ink, "3 pt before the start, inside the round cap"),
+                (61, 40, Ink, "1 pt after the end, inside the round cap"),
+                (
+                    16,
+                    36,
+                    Blank,
+                    "the top-left corner of the square, outside the round cap's arc",
+                ),
+                (
+                    16,
+                    43,
+                    Blank,
+                    "the bottom-left corner of the square, outside the round cap's arc",
+                ),
+                (
+                    63,
+                    36,
+                    Blank,
+                    "the top-right corner of the square, outside the round cap's arc",
+                ),
+                (
+                    63,
+                    43,
+                    Blank,
+                    "the bottom-right corner of the square, outside the round cap's arc",
+                ),
+            ],
+        ),
+        (
+            LineCap::Square,
+            &[
+                (18, 40, Ink, "2 pt before the start, inside the square cap"),
+                (17, 40, Ink, "3 pt before the start, inside the square cap"),
+                (61, 40, Ink, "1 pt after the end, inside the square cap"),
+                (16, 36, Ink, "the top-left corner of the square cap"),
+                (16, 43, Ink, "the bottom-left corner of the square cap"),
+                (63, 36, Ink, "the top-right corner of the square cap"),
+                (63, 43, Ink, "the bottom-right corner of the square cap"),
+            ],
+        ),
+    ];
+    for (cap, probes) in cases {
+        let what = format!("{cap:?} caps");
+        let stroke = Stroke { cap, ..pen(8.0) };
+        let Some(image) = render_page(
+            Rgba::WHITE,
+            vec![stroked_polyline(&[(20.0, 40.0), (60.0, 40.0)], stroke)],
+        ) else {
+            return;
+        };
+        for (x, y, shade, where_) in [
+            (30, 40, Ink, "the middle of the body"),
+            (30, 36, Ink, "the top row of the body"),
+            (30, 43, Ink, "the bottom row of the body"),
+            (30, 35, Blank, "the row above the body"),
+            (30, 44, Blank, "the row beneath the body"),
+            (20, 40, Ink, "the first column of the body"),
+            (59, 40, Ink, "the last column of the body"),
+            (14, 40, Blank, "6 pt before the start, beyond any cap"),
+            (65, 40, Blank, "5 pt after the end, beyond any cap"),
+        ] {
+            assert_shade(&image, x, y, shade, &format!("{what}: {where_}"));
+        }
+        for &(x, y, shade, where_) in probes {
+            assert_shade(&image, x, y, shade, &format!("{what}: {where_}"));
+        }
+    }
+}
+
+// Why: a stroke outside every depth group is depth-tested with `Less` against whatever the depth buffer holds, so
+// that it never blends with itself, and the painter must therefore clear the buffer on leaving a depth group as
+// well as on entering one: without the clear on leaving, a plot line listed after a 3D axes and crossing one of
+// its faces (a legend line, the frame of a second axes) would fail the test against the face's depth wherever it
+// crosses, and vanish there, although the paint order puts it on top.
+#[test]
+fn a_stroke_listed_after_a_depth_group_is_drawn_over_the_faces_of_the_group() {
+    // A red face at depth 1, the nearest of its group (z = 0) beside a far pin at depth 0 (z = 1), and after the
+    // group an 8 pt blue line crossing the face along y = 40.
+    let group = depth_group(vec![
+        face(
+            20.0,
+            20.0,
+            60.0,
+            60.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(1.0),
+        ),
+        face(
+            80.0,
+            80.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 1.0),
+            DepthPlane::constant(0.0),
+        ),
+    ]);
+    let line = stroked_polyline(
+        &[(10.0, 40.0), (90.0, 40.0)],
+        Stroke {
+            color: Rgba::new(0.0, 0.0, 1.0, 1.0),
+            ..pen(8.0)
+        },
+    );
+    let Some(image) = render_page(Rgba::WHITE, vec![group, line]) else {
+        return;
+    };
+    assert_pixel(
+        &image,
+        40,
+        40,
+        BLUE_PX,
+        1,
+        "the line where it crosses the face",
+    );
+    assert_pixel(&image, 70, 40, BLUE_PX, 1, "the line beside the face");
+    assert_pixel(&image, 40, 30, RED_PX, 1, "the face above the line");
+    assert_pixel(&image, 40, 50, RED_PX, 1, "the face beneath the line");
+}
+
+// Why: every stroke draw reads its params from its own slot of one uniform buffer, bound through a dynamic offset,
+// and outside every depth group takes a z below that of the strokes before it, so that the later of two crossing
+// lines passes the depth test at the crossing and shows there, as PDF paints the later line over the earlier one.
+// A painter that bound the slot of the first draw for the second would draw the second line in the first's colour
+// and at the first's z, so that the first would show at the crossing.
+#[test]
+fn of_two_crossing_opaque_strokes_outside_a_depth_group_the_later_one_shows_at_the_crossing() {
+    let red = stroked_polyline(
+        &[(10.0, 50.0), (90.0, 50.0)],
+        Stroke {
+            color: Rgba::new(1.0, 0.0, 0.0, 1.0),
+            ..pen(8.0)
+        },
+    );
+    let blue = stroked_polyline(
+        &[(50.0, 10.0), (50.0, 90.0)],
+        Stroke {
+            color: Rgba::new(0.0, 0.0, 1.0, 1.0),
+            ..pen(8.0)
+        },
+    );
+    let Some(image) = render_page(Rgba::WHITE, vec![red, blue]) else {
+        return;
+    };
+    assert_pixel(
+        &image,
+        50,
+        50,
+        BLUE_PX,
+        1,
+        "the crossing, where the later line shows",
+    );
+    assert_pixel(
+        &image,
+        30,
+        50,
+        RED_PX,
+        1,
+        "the first line away from the crossing",
+    );
+    assert_pixel(
+        &image,
+        50,
+        30,
+        BLUE_PX,
+        1,
+        "the second line away from the crossing",
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // The painter's caches, driven directly on a device: what `prepare` uploads, and what `retain_used` and `clear` drop.
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -2068,8 +3305,10 @@ fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
             vertex(10.0, 10.0, 1.0, 1.0),
         ],
         indices: vec![0, 1, 2, 2, 1, 3],
+        segments: Vec::new(),
+        stroke_params: Vec::new(),
         draws: vec![Draw {
-            indices: 0..6,
+            kind: DrawKind::Triangles(0..6),
             texture,
             depth_group: None,
             clip: None,

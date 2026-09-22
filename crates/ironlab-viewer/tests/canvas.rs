@@ -2,10 +2,15 @@
 //!
 //! Every list is in figure space: a vertex position is a position in figure points whatever the resolution the list
 //! is prepared for, because the mapping from the figure to the screen is a uniform of the painter. The tests
-//! therefore measure geometry in figure points (triangle area, bounding boxes and the ink at a point) rather than
-//! comparing vertex lists, so that they hold for any correct triangulation and fail only when the drawn shape is
-//! wrong. An image becomes draws that each name a tile of the item's samples for the painter to upload; what the
-//! painter makes of a tile, and the cache it keeps of them, are tested in `offscreen.rs`.
+//! therefore measure the triangles of fills, glyphs and images in figure points (triangle area, bounding boxes and
+//! the ink at a point) rather than comparing vertex lists, so that they hold for any correct triangulation and fail
+//! only when the drawn shape is wrong. A stroke is not triangles: the canvas hands the painter one segment per edge
+//! of the flattened path, in item space, and the constants of the stroke (its transform, colour, width, cap, join
+//! and dashes) as one set of params per draw, from which the stroke pipeline expands the segments on the GPU. The
+//! tests read the segments and the params directly, because they are the contract with the shaders; what the
+//! shaders make of them (caps, joins, dashes and the hairline, in pixels) is tested in `offscreen.rs`. An image
+//! becomes draws that each name a tile of the item's samples for the painter to upload; what the painter makes of a
+//! tile, and the cache it keeps of them, are tested in `offscreen.rs` too.
 
 mod common;
 
@@ -20,8 +25,11 @@ use ironlab_scene::display::{
     LineJoin, PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::TextItem;
-use ironlab_viewer::canvas::{MAX_TILE_SIDE, Resolution, tessellate};
-use ironlab_viewer::gpu::{Draw, DrawList, TileKey, Vertex};
+use ironlab_viewer::canvas::{MAX_TILE_SIDE, Resolution, SCREEN_TOLERANCE, tessellate};
+use ironlab_viewer::gpu::{
+    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, Segment, StrokeParams,
+    TileKey, Vertex,
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Display-list fixtures
@@ -76,14 +84,32 @@ fn with_tiles(max_tile_side: u32) -> Resolution {
     }
 }
 
+fn move_to(x: f64, y: f64) -> PathSegment {
+    PathSegment::MoveTo(Point::new(x, y))
+}
+
+fn line_to(x: f64, y: f64) -> PathSegment {
+    PathSegment::LineTo(Point::new(x, y))
+}
+
+/// An open polyline through `points`.
+fn polyline(points: &[(f64, f64)]) -> Vec<PathSegment> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(k, &(x, y))| if k == 0 { move_to(x, y) } else { line_to(x, y) })
+        .collect()
+}
+
+/// The polyline through `points`, closed back to its first point.
+fn closed_polyline(points: &[(f64, f64)]) -> Vec<PathSegment> {
+    let mut segments = polyline(points);
+    segments.push(PathSegment::Close);
+    segments
+}
+
 fn rect_segments(x: f64, y: f64, w: f64, h: f64) -> Vec<PathSegment> {
-    vec![
-        PathSegment::MoveTo(Point::new(x, y)),
-        PathSegment::LineTo(Point::new(x + w, y)),
-        PathSegment::LineTo(Point::new(x + w, y + h)),
-        PathSegment::LineTo(Point::new(x, y + h)),
-        PathSegment::Close,
-    ]
+    closed_polyline(&[(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
 }
 
 /// A circle of radius `r` about `(cx, cy)` as the four cubic Béziers a marker or a pie wedge is drawn with.
@@ -139,6 +165,18 @@ fn group(clip: Option<Rect>, transform: Option<Transform>, items: Vec<Item>) -> 
     }
 }
 
+/// A solid black stroke of `width` with butt caps and miter joins.
+fn black_stroke(width: f64) -> Stroke {
+    Stroke {
+        color: Rgba::BLACK,
+        width,
+        dash: Vec::new(),
+        dash_offset: 0.0,
+        cap: LineCap::Butt,
+        join: LineJoin::Miter,
+    }
+}
+
 /// A stroke of `width` in `color` along `segments`, dashed by `dash` from `dash_offset`, with `cap` and `join`.
 fn stroked(
     segments: Vec<PathSegment>,
@@ -167,12 +205,38 @@ fn stroked(
     }
 }
 
+/// `segments` stroked solid black, 4 wide, with butt caps and miter joins.
+fn solid(segments: Vec<PathSegment>) -> Item {
+    stroked(
+        segments,
+        Rgba::BLACK,
+        4.0,
+        Vec::new(),
+        0.0,
+        LineCap::Butt,
+        LineJoin::Miter,
+    )
+}
+
+/// A path filled in `color` with the non-zero rule and stroked by `stroke`.
+fn filled_and_stroked(segments: Vec<PathSegment>, color: Rgba, stroke: Stroke) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Path(PathItem {
+            segments,
+            fill: Some(Fill {
+                color,
+                rule: FillRule::NonZero,
+            }),
+            stroke: Some(stroke),
+            depth: None,
+        }),
+    }
+}
+
 /// The line along y = 50 from x = 0 to x = 100.
 fn line_segments() -> Vec<PathSegment> {
-    vec![
-        PathSegment::MoveTo(Point::new(0.0, 50.0)),
-        PathSegment::LineTo(Point::new(100.0, 50.0)),
-    ]
+    polyline(&[(0.0, 50.0), (100.0, 50.0)])
 }
 
 /// The line of [`line_segments`] stroked 4 wide in black with miter joins.
@@ -186,10 +250,6 @@ fn stroked_line(dash: Vec<f64>, dash_offset: f64, cap: LineCap) -> Item {
         cap,
         LineJoin::Miter,
     )
-}
-
-fn horizontal_line(dash: Vec<f64>) -> Item {
-    stroked_line(dash, 0.0, LineCap::Butt)
 }
 
 /// The line of [`line_segments`] stroked with a width of zero: the thinnest line the device can draw.
@@ -271,8 +331,8 @@ fn square_at(x: f64, y: f64, size: f64, color: Rgba, plane: DepthPlane) -> Item 
 }
 
 /// Two unit squares at the constant depths 0 and 1, side by side from `(x, y)`, which pin the depth range of the
-/// depth group they lie in to [0, 1], so that the z of every other vertex of the group is `1 − depth` whatever
-/// vertices the tessellation happens to emit.
+/// depth group they lie in to [0, 1], so that the z of every other vertex and segment end of the group is
+/// `1 − depth` whatever vertices the tessellation happens to emit.
 fn range_pins(x: f64, y: f64) -> [Item; 2] {
     [
         square_at(x, y, 1.0, Rgba::BLACK, DepthPlane::constant(0.0)),
@@ -332,30 +392,93 @@ fn tile_key(
 // Measurements over draw lists
 // ---------------------------------------------------------------------------------------------------------------
 
-/// The triangles of one draw, each as its three vertices.
-fn triangles_of<'a>(list: &'a DrawList, draw: &'a Draw) -> impl Iterator<Item = [Vertex; 3]> + 'a {
-    let range = draw.indices.start as usize..draw.indices.end as usize;
-    list.indices[range].as_chunks::<3>().0.iter().map(move |t| {
-        [
-            list.vertices[t[0] as usize],
-            list.vertices[t[1] as usize],
-            list.vertices[t[2] as usize],
-        ]
-    })
+/// The index range of a triangle draw: a fill, a glyph run or an image tile. Panics for a stroke draw, which holds
+/// segments rather than triangles.
+#[track_caller]
+fn triangles_of(draw: &Draw) -> Range<u32> {
+    match &draw.kind {
+        DrawKind::Triangles(range) => range.clone(),
+        DrawKind::Stroke { .. } => {
+            panic!("a triangle draw was expected, but the draw is a stroke: {draw:?}")
+        }
+    }
 }
 
-/// The triangles of every draw of a list, in paint order.
+/// The segments of a stroke draw, in item space. Panics for a triangle draw.
+#[track_caller]
+fn segments_of<'a>(list: &'a DrawList, draw: &Draw) -> &'a [Segment] {
+    match &draw.kind {
+        DrawKind::Stroke { segments, .. } => {
+            &list.segments[segments.start as usize..segments.end as usize]
+        }
+        DrawKind::Triangles(_) => {
+            panic!("a stroke draw was expected, but the draw is triangles: {draw:?}")
+        }
+    }
+}
+
+/// The params of a stroke draw. Panics for a triangle draw.
+#[track_caller]
+fn params_of<'a>(list: &'a DrawList, draw: &Draw) -> &'a StrokeParams {
+    match &draw.kind {
+        DrawKind::Stroke { params, .. } => &list.stroke_params[*params as usize],
+        DrawKind::Triangles(_) => {
+            panic!("a stroke draw was expected, but the draw is triangles: {draw:?}")
+        }
+    }
+}
+
+/// The one draw of a list of one stroked path, which must be a stroke.
+#[track_caller]
+fn only_stroke(list: &DrawList) -> &Draw {
+    assert_eq!(
+        list.draws.len(),
+        1,
+        "one stroked path is one draw: {:?}",
+        list.draws
+    );
+    let draw = &list.draws[0];
+    assert!(
+        matches!(draw.kind, DrawKind::Stroke { .. }),
+        "the one draw of a stroked path is a stroke: {draw:?}"
+    );
+    draw
+}
+
+/// The z of everything a draw refers to: its vertices' z for triangles, or both ends of every segment for a stroke.
+fn depths_of(list: &DrawList, draw: &Draw) -> Vec<f32> {
+    match &draw.kind {
+        DrawKind::Triangles(_) => vertices_of_draw(list, draw).iter().map(|v| v.z).collect(),
+        DrawKind::Stroke { .. } => segments_of(list, draw).iter().flat_map(|s| s.z).collect(),
+    }
+}
+
+/// The triangles of one draw, each as its three vertices.
+fn triangles_in<'a>(list: &'a DrawList, draw: &'a Draw) -> impl Iterator<Item = [Vertex; 3]> + 'a {
+    let range = triangles_of(draw);
+    list.indices[range.start as usize..range.end as usize]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(move |t| {
+            [
+                list.vertices[t[0] as usize],
+                list.vertices[t[1] as usize],
+                list.vertices[t[2] as usize],
+            ]
+        })
+}
+
+/// The triangles of every draw of a list, in paint order; the list must hold no stroke draw.
 fn triangles(list: &DrawList) -> impl Iterator<Item = [Vertex; 3]> + '_ {
     list.draws
         .iter()
-        .flat_map(move |draw| triangles_of(list, draw))
+        .flat_map(move |draw| triangles_in(list, draw))
 }
 
 /// Total unsigned area of `triangles` in figure points squared.
 ///
-/// Triangles that overlap are counted twice, so this measures a fill or the stroke of a single segment, whose
-/// triangles tile the shape, and must not be applied to a stroke with joins, whose join triangles overlap the
-/// bodies of the segments they connect.
+/// Triangles that overlap are counted twice, so this measures a fill, whose triangles tile the shape.
 fn area_of(triangles: impl Iterator<Item = [Vertex; 3]>) -> f64 {
     triangles
         .map(|[a, b, c]| {
@@ -374,7 +497,7 @@ fn area(list: &DrawList) -> f64 {
 
 /// Total unsigned triangle area of one draw in figure points squared, with the caveat of [`area_of`].
 fn draw_area(list: &DrawList, draw: &Draw) -> f64 {
-    area_of(triangles_of(list, draw))
+    area_of(triangles_in(list, draw))
 }
 
 /// The bounding box, in figure points, of every vertex referenced by `triangles`.
@@ -395,7 +518,7 @@ fn bbox(list: &DrawList) -> egui::Rect {
 
 /// The bounding box of every vertex referenced by a triangle of one draw.
 fn draw_bbox(list: &DrawList, draw: &Draw) -> egui::Rect {
-    bounds_of(triangles_of(list, draw))
+    bounds_of(triangles_in(list, draw))
 }
 
 /// The rectangle from `(x0, y0)` to `(x1, y1)` in figure points, as an expected bounding box.
@@ -403,13 +526,15 @@ fn bounds(x0: f32, y0: f32, x1: f32, y1: f32) -> egui::Rect {
     egui::Rect::from_min_max(egui::pos2(x0, y0), egui::pos2(x1, y1))
 }
 
+/// Asserts that every edge of `actual` lies within `tolerance` of the same edge of `expected`, naming `what` was
+/// measured when one does not.
 #[track_caller]
-fn assert_rect_close(actual: egui::Rect, expected: egui::Rect, tolerance: f32) {
+fn assert_rect_close(actual: egui::Rect, expected: egui::Rect, tolerance: f32, what: &str) {
     let ok = (actual.min.x - expected.min.x).abs() <= tolerance
         && (actual.min.y - expected.min.y).abs() <= tolerance
         && (actual.max.x - expected.max.x).abs() <= tolerance
         && (actual.max.y - expected.max.y).abs() <= tolerance;
-    assert!(ok, "expected bbox {expected:?}, got {actual:?}");
+    assert!(ok, "{what}: expected the bbox {expected:?}, got {actual:?}");
 }
 
 /// Whether any of `triangles` covers the figure-space point `p`. A triangle collapsed onto a line covers nothing,
@@ -435,17 +560,19 @@ fn ink_at(list: &DrawList, p: Point) -> bool {
 
 /// Whether any triangle of one draw covers the figure-space point `p`.
 fn draw_ink_at(list: &DrawList, draw: &Draw, p: Point) -> bool {
-    covered(triangles_of(list, draw), p)
+    covered(triangles_in(list, draw), p)
 }
 
-/// The number of indices a draw uses.
+/// The number of indices a triangle draw uses.
 fn index_count(draw: &Draw) -> u32 {
-    draw.indices.end - draw.indices.start
+    let range = triangles_of(draw);
+    range.end - range.start
 }
 
-/// The vertices a draw refers to, one per index in index order.
+/// The vertices a triangle draw refers to, one per index in index order.
 fn vertices_of_draw<'a>(list: &'a DrawList, draw: &Draw) -> Vec<&'a Vertex> {
-    list.indices[draw.indices.start as usize..draw.indices.end as usize]
+    let range = triangles_of(draw);
+    list.indices[range.start as usize..range.end as usize]
         .iter()
         .map(|&i| &list.vertices[i as usize])
         .collect()
@@ -488,32 +615,208 @@ fn premultiplied(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
     Color32::from_rgba_unmultiplied(r, g, b, a).to_array()
 }
 
-/// Asserts what every draw list must satisfy: every draw has a non-empty index range within the index buffer, the
-/// ranges follow the paint order without overlap, every draw is whole triangles, every index names a vertex, every
-/// vertex is finite, every z lies in [0, 1], and the draws of a depth group are contiguous with the groups
-/// ascending in paint order (the numbering need not start at 0 or be consecutive: a group that yields no draws
-/// leaves a gap).
+/// The premultiplied colour of [`premultiplied`] as the fractions a stroke's params carry.
+fn premultiplied_fractions(r: u8, g: u8, b: u8, a: u8) -> [f32; 4] {
+    premultiplied(r, g, b, a).map(|c| f32::from(c) / 255.0)
+}
+
+/// Asserts that every channel of `actual` lies within one byte step of `expected`.
+#[track_caller]
+fn assert_color_close(actual: [f32; 4], expected: [f32; 4], what: &str) {
+    assert!(
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(&got, want)| (got - want).abs() <= 1.0 / 255.0 + 1e-6),
+        "{what}: expected the premultiplied fractions {expected:?}, got {actual:?}"
+    );
+}
+
+/// The code of a cap in a stroke's params: 0 butt, 1 round, 2 square.
+fn cap_code(cap: LineCap) -> u32 {
+    match cap {
+        LineCap::Butt => 0,
+        LineCap::Round => 1,
+        LineCap::Square => 2,
+    }
+}
+
+/// The code of a join in a stroke's params: 0 miter (with a limit of 4), 1 round, 2 bevel.
+fn join_code(join: LineJoin) -> u32 {
+    match join {
+        LineJoin::Miter => 0,
+        LineJoin::Round => 1,
+        LineJoin::Bevel => 2,
+    }
+}
+
+/// What one segment of a stroke must hold: its four points and its arc lengths in item units, and whether a join
+/// is drawn at `p0` and at `p1`. Its depths are the business of the depth-group tests.
+#[derive(Clone, Copy, Debug)]
+struct ExpectedSegment {
+    prev: (f64, f64),
+    p0: (f64, f64),
+    p1: (f64, f64),
+    next: (f64, f64),
+    joins: (bool, bool),
+    arc: (f64, f64),
+}
+
+/// The segment from `p0` to `p1` with the neighbours `prev` and `next`, a join at each end where `joins` says so
+/// (and a cap otherwise), running from the first of `arc` to the second along its subpath.
+fn segment(
+    prev: (f64, f64),
+    p0: (f64, f64),
+    p1: (f64, f64),
+    next: (f64, f64),
+    joins: (bool, bool),
+    arc: (f64, f64),
+) -> ExpectedSegment {
+    ExpectedSegment {
+        prev,
+        p0,
+        p1,
+        next,
+        joins,
+        arc,
+    }
+}
+
+/// Asserts that `actual` holds exactly the segments of `expected`, in order, every point and arc length within
+/// `tolerance` item units and the join bits as expected.
+#[track_caller]
+fn assert_segments(actual: &[Segment], expected: &[ExpectedSegment], tolerance: f64, what: &str) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{what}: {} segments are expected, got {actual:#?}",
+        expected.len()
+    );
+    for (k, (got, want)) in actual.iter().zip(expected).enumerate() {
+        let points = [
+            ("prev", got.prev, want.prev),
+            ("p0", got.p0, want.p0),
+            ("p1", got.p1, want.p1),
+            ("next", got.next, want.next),
+        ];
+        for (name, point, (x, y)) in points {
+            assert!(
+                (f64::from(point[0]) - x).abs() <= tolerance
+                    && (f64::from(point[1]) - y).abs() <= tolerance,
+                "{what}: segment {k} has {name} = ({x}, {y}), got {point:?} in {got:?}"
+            );
+        }
+        let joins = (got.flags & JOIN_AT_START != 0, got.flags & JOIN_AT_END != 0);
+        assert_eq!(
+            joins, want.joins,
+            "{what}: segment {k} draws a join at (p0, p1) = {:?} and a cap at the other end: {got:?}",
+            want.joins
+        );
+        assert!(
+            (f64::from(got.arc[0]) - want.arc.0).abs() <= tolerance
+                && (f64::from(got.arc[1]) - want.arc.1).abs() <= tolerance,
+            "{what}: segment {k} runs from arc length {} to {}, got {:?} in {got:?}",
+            want.arc.0,
+            want.arc.1,
+            got.arc
+        );
+    }
+}
+
+/// Asserts that the ends of `segments` lie at the depths of `expected`, segment by segment, within `tolerance`.
+#[track_caller]
+fn assert_z_pairs(segments: &[Segment], expected: &[[f64; 2]], tolerance: f64, what: &str) {
+    let actual: Vec<[f32; 2]> = segments.iter().map(|s| s.z).collect();
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{what}: {} segments are expected, got {actual:?}",
+        expected.len()
+    );
+    for (k, (got, want)) in actual.iter().zip(expected).enumerate() {
+        assert!(
+            (f64::from(got[0]) - want[0]).abs() <= tolerance
+                && (f64::from(got[1]) - want[1]).abs() <= tolerance,
+            "{what}: the ends of segment {k} lie at z = {want:?}, got {got:?} (all: {actual:?})"
+        );
+    }
+}
+
+/// Asserts what every draw list must satisfy. A triangle draw has a non-empty index range within the index buffer,
+/// the ranges of the triangle draws follow the paint order without overlap, and every one is whole triangles; a
+/// stroke draw has a non-empty segment range, the ranges of the stroke draws partition the segments in paint order
+/// (every segment is owned by exactly one draw), every params slot is owned by exactly one draw, a stroke draw
+/// samples no texture, and it takes its depth from its segments (`vertex_z` set, `z` zero) exactly when it lies in
+/// a depth group; every index names a vertex; every vertex, every segment and every params is finite; every z, of a
+/// vertex, of a segment's ends and of a params, lies in [0, 1]; every segment has distinct ends, a neighbour equal
+/// to the end it belongs to exactly when that end is capped, and no flag bit beyond the two join bits; every params
+/// holds an even dash count of at most [`MAX_DASH_ENTRIES`] and, when dashed, a positive period, entries that are
+/// not negative and a phase in [0, period), a width that is not negative and cap and join codes of at most 2; and
+/// the draws of a depth group are contiguous with the groups ascending in paint order (the numbering need not start
+/// at 0 or be consecutive: a group that yields no draws leaves a gap).
 #[track_caller]
 fn assert_well_formed(list: &DrawList) {
-    let mut end = 0;
+    let mut index_end = 0;
+    let mut segment_end = 0;
+    let mut owners_of_params: Vec<u32> = Vec::new();
     let mut previous: Option<u32> = None;
     let mut highest: Option<u32> = None;
     for (k, draw) in list.draws.iter().enumerate() {
-        assert!(
-            draw.indices.start >= end && draw.indices.end > draw.indices.start,
-            "draw {k} is non-empty and follows the draws before it without overlap: {:?}",
-            list.draws
-        );
-        assert!(
-            draw.indices.end as usize <= list.indices.len(),
-            "draw {k} lies within the {} indices: {draw:?}",
-            list.indices.len()
-        );
-        assert!(
-            index_count(draw).is_multiple_of(3),
-            "draw {k} is whole triangles: {draw:?}"
-        );
-        end = draw.indices.end;
+        match &draw.kind {
+            DrawKind::Triangles(range) => {
+                assert!(
+                    range.start >= index_end && range.end > range.start,
+                    "triangle draw {k} is non-empty and follows the triangle draws before it without overlap: {:?}",
+                    list.draws
+                );
+                assert!(
+                    range.end as usize <= list.indices.len(),
+                    "draw {k} lies within the {} indices: {draw:?}",
+                    list.indices.len()
+                );
+                assert!(
+                    (range.end - range.start).is_multiple_of(3),
+                    "draw {k} is whole triangles: {draw:?}"
+                );
+                index_end = range.end;
+            }
+            DrawKind::Stroke { segments, params } => {
+                assert!(
+                    segments.start == segment_end && segments.end > segments.start,
+                    "stroke draw {k} is non-empty and starts at the segment where the stroke draw before it ended \
+                     ({segment_end}), so that every segment is owned by exactly one draw: {:?}",
+                    list.draws
+                );
+                assert!(
+                    segments.end as usize <= list.segments.len(),
+                    "draw {k} lies within the {} segments: {draw:?}",
+                    list.segments.len()
+                );
+                assert!(
+                    (*params as usize) < list.stroke_params.len(),
+                    "draw {k} names one of the {} stroke params: {draw:?}",
+                    list.stroke_params.len()
+                );
+                assert_eq!(
+                    draw.texture, None,
+                    "a stroke draw samples no texture: {draw:?}"
+                );
+                let p = &list.stroke_params[*params as usize];
+                assert_eq!(
+                    p.vertex_z,
+                    u32::from(draw.depth_group.is_some()),
+                    "stroke draw {k} takes its depth from its segments exactly when it lies in a depth group \
+                     ({:?}): {p:?}",
+                    draw.depth_group
+                );
+                assert!(
+                    p.vertex_z == 0 || p.z == 0.0,
+                    "stroke draw {k}, inside a depth group, carries no depth in its params: {p:?}"
+                );
+                owners_of_params.push(*params);
+                segment_end = segments.end;
+            }
+        }
         if let Some(group) = draw.depth_group
             && previous != Some(group)
         {
@@ -527,6 +830,22 @@ fn assert_well_formed(list: &DrawList) {
         }
         previous = draw.depth_group;
     }
+    assert_eq!(
+        segment_end as usize,
+        list.segments.len(),
+        "the stroke draws own every one of the segments: {:?}",
+        list.draws
+    );
+    owners_of_params.sort_unstable();
+    assert!(
+        owners_of_params
+            .iter()
+            .copied()
+            .eq(0..list.stroke_params.len() as u32),
+        "every one of the {} params slots is owned by exactly one stroke draw, but the draws name the slots \
+         {owners_of_params:?}",
+        list.stroke_params.len()
+    );
     assert!(
         list.indices
             .iter()
@@ -545,10 +864,80 @@ fn assert_well_formed(list: &DrawList) {
         );
         assert!((0.0..=1.0).contains(&v.z), "every z lies in [0, 1]: {v:?}");
     }
+    for (k, s) in list.segments.iter().enumerate() {
+        assert!(
+            [s.prev, s.p0, s.p1, s.next, s.z, s.arc, s.grad]
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite()),
+            "segment {k} is finite: {s:?}"
+        );
+        assert!(
+            s.z.iter().all(|z| (0.0..=1.0).contains(z)),
+            "the z at both ends of segment {k} lies in [0, 1]: {s:?}"
+        );
+        assert_ne!(
+            s.p0, s.p1,
+            "segment {k} has distinct ends, so that it has a direction to expand along: {s:?}"
+        );
+        assert!(
+            s.flags <= JOIN_AT_START | JOIN_AT_END,
+            "segment {k} sets no flag bit beyond the two join bits: {s:?}"
+        );
+        assert_eq!(
+            s.prev == s.p0,
+            s.flags & JOIN_AT_START == 0,
+            "segment {k} has prev equal to p0 exactly when p0 is capped rather than joined: {s:?}"
+        );
+        assert_eq!(
+            s.next == s.p1,
+            s.flags & JOIN_AT_END == 0,
+            "segment {k} has next equal to p1 exactly when p1 is capped rather than joined: {s:?}"
+        );
+    }
+    for (k, p) in list.stroke_params.iter().enumerate() {
+        let count = p.dash_count as usize;
+        assert!(
+            p.dash_count.is_multiple_of(2) && count <= MAX_DASH_ENTRIES,
+            "params {k} hold an even dash count of at most {MAX_DASH_ENTRIES}: {p:?}"
+        );
+        if count > 0 {
+            assert!(
+                p.period > 0.0 && p.dashes[..count].iter().all(|&d| d >= 0.0),
+                "dashed params {k} hold a positive period and no negative entry: {p:?}"
+            );
+            assert!(
+                (0.0..p.period).contains(&p.dash_offset),
+                "dashed params {k} hold a phase reduced into [0, period): {p:?}"
+            );
+        }
+        assert!(
+            p.linear
+                .iter()
+                .chain(&p.offset)
+                .chain(&p.color)
+                .chain([&p.width, &p.dash_offset, &p.period, &p.z])
+                .chain(&p.dashes[..count])
+                .all(|v| v.is_finite()),
+            "params {k} are finite: {p:?}"
+        );
+        assert!(
+            (0.0..=1.0).contains(&p.z),
+            "the z of params {k} lies in [0, 1]: {p:?}"
+        );
+        assert!(
+            p.width >= 0.0,
+            "params {k} hold a width that is not negative: {p:?}"
+        );
+        assert!(
+            p.cap <= 2 && p.join <= 2,
+            "params {k} code the cap and the join as 0, 1 or 2: {p:?}"
+        );
+    }
 }
 
-/// Asserts that no draw of `list` lies in a depth group and that every vertex lies at z = 0, as for a figure
-/// without a three-dimensional axes.
+/// Asserts that no draw of `list` lies in a depth group and that every vertex and every segment end lies at z = 0,
+/// as for a figure without a three-dimensional axes.
 #[track_caller]
 fn assert_outside_depth_groups(list: &DrawList) {
     assert!(
@@ -560,6 +949,16 @@ fn assert_outside_depth_groups(list: &DrawList) {
         list.vertices.iter().all(|v| v.z == 0.0),
         "every vertex outside a depth group lies at z = 0: {:?}",
         list.vertices.iter().map(|v| v.z).collect::<Vec<_>>()
+    );
+    assert!(
+        list.segments.iter().all(|s| s.z == [0.0, 0.0]),
+        "every segment end outside a depth group lies at z = 0: {:?}",
+        list.segments.iter().map(|s| s.z).collect::<Vec<_>>()
+    );
+    assert!(
+        list.segments.iter().all(|s| s.grad == [0.0, 0.0]),
+        "no segment outside a depth group carries a gradient of z: {:?}",
+        list.segments.iter().map(|s| s.grad).collect::<Vec<_>>()
     );
 }
 
@@ -588,7 +987,8 @@ fn assert_textured_quad(
         "the key shares the item's sample buffer rather than copying it, because the painter's tile cache keys by \
          the buffer's address"
     );
-    let indices = &list.indices[draw.indices.start as usize..draw.indices.end as usize];
+    let range = triangles_of(draw);
+    let indices = &list.indices[range.start as usize..range.end as usize];
     let base = *indices.iter().min().expect("the draw has indices");
     let relative: Vec<u32> = indices.iter().map(|i| i - base).collect();
     assert_eq!(
@@ -674,6 +1074,7 @@ fn a_filled_rectangle_covers_its_area_at_its_position_in_figure_points() {
         draw_bbox(&drawn, draw),
         bounds(30.0, 40.0, 80.0, 60.0),
         1e-3,
+        "the rectangle lies at its position in figure points",
     );
     assert_eq!(
         draw.source,
@@ -711,228 +1112,6 @@ fn the_fill_rule_decides_whether_a_nested_contour_is_a_hole() {
     }
 }
 
-// Why: lyon cannot dash, so the canvas splits dashed strokes itself; the drawn ink must be the dash duty fraction of a
-// solid line of the same width, whose area is its length times its width in figure points, and the pieces of one
-// path must stay one draw, or a dashed line would cost a draw per dash.
-#[test]
-fn a_dashed_stroke_covers_the_duty_fraction_of_a_solid_stroke() {
-    let solid = draw_list(&list(vec![horizontal_line(vec![])]));
-    let dashed = draw_list(&list(vec![horizontal_line(vec![6.0, 4.0])]));
-
-    assert_close(
-        area(&solid),
-        100.0 * 4.0,
-        1.0,
-        "solid stroke area is length × width",
-    );
-    assert_close(
-        area(&dashed),
-        0.6 * area(&solid),
-        4.0,
-        "dashes cover 6 of every 10 points",
-    );
-    assert_eq!(
-        dashed.draws.len(),
-        1,
-        "the dashes of one path are one draw: {:?}",
-        dashed.draws
-    );
-}
-
-// Why: the duty fraction alone does not show that dash lengths are in figure points (a pattern left in screen units
-// has the same duty fraction), that the dash phase is honoured, or that an odd pattern is doubled as PDF doubles it;
-// the PDF writes all three natively, so the canvas must place its dashes where the PDF does, at every resolution and
-// beneath a group's scale, which scales the pattern with the geometry.
-#[test]
-fn dash_lengths_and_offset_are_in_figure_points() {
-    // The line runs along y = 50 from x = 0 to x = 100 in item space. With the pattern 6 on, 4 off and no offset the
-    // ink lies on [0, 6], [10, 16] and so on; an offset of 6 starts the stroke at the beginning of the gap, so the
-    // line is off on [0, 4], on on [4, 10] and off on [10, 14]; the odd pattern [3] is doubled to 3 on, 3 off; and
-    // beneath a scale of 2 every length doubles with the line, whose centreline moves to y = 100.
-    let plain = [
-        (1.0, true),
-        (4.0, true),
-        (8.0, false),
-        (13.0, true),
-        (18.0, false),
-        (95.0, true),
-    ];
-    let shifted = [(2.0, false), (7.0, true), (12.0, false), (16.0, true)];
-    let odd = [
-        (1.0, true),
-        (4.0, false),
-        (7.0, true),
-        (10.0, false),
-        (13.0, true),
-    ];
-    let doubled = [
-        (2.0, true),
-        (8.0, true),
-        (16.0, false),
-        (26.0, true),
-        (36.0, false),
-        (190.0, true),
-    ];
-    // The pattern, its offset, the group's scale, the resolution scale and the probes along the centreline.
-    let cases = [
-        (
-            "6 on, 4 off",
-            vec![6.0, 4.0],
-            0.0,
-            1.0,
-            1.0,
-            plain.as_slice(),
-        ),
-        (
-            "6 on, 4 off at a resolution scale of 10",
-            vec![6.0, 4.0],
-            0.0,
-            1.0,
-            10.0,
-            plain.as_slice(),
-        ),
-        (
-            "6 on, 4 off from an offset of 6",
-            vec![6.0, 4.0],
-            6.0,
-            1.0,
-            1.0,
-            shifted.as_slice(),
-        ),
-        (
-            "the odd pattern [3]",
-            vec![3.0],
-            0.0,
-            1.0,
-            1.0,
-            odd.as_slice(),
-        ),
-        (
-            "6 on, 4 off beneath a group scale of 2",
-            vec![6.0, 4.0],
-            0.0,
-            2.0,
-            1.0,
-            doubled.as_slice(),
-        ),
-    ];
-    for (what, dash, dash_offset, group_scale, scale, probes) in cases {
-        let drawn = draw_list_at(
-            &list(vec![group(
-                None,
-                Some(scale_then_translate(group_scale, group_scale, 0.0, 0.0)),
-                vec![stroked_line(dash, dash_offset, LineCap::Butt)],
-            )]),
-            at_scale(scale),
-        );
-
-        let y = 50.0 * group_scale;
-        for &(x, inked) in probes {
-            assert_eq!(
-                ink_at(&drawn, Point::new(x, y)),
-                inked,
-                "with {what}, ink at x = {x} is {inked}"
-            );
-        }
-    }
-}
-
-// Why: caps change the drawn length of every stroke (tick marks, error bars, marker outlines); the canvas must map
-// them as the PDF does, where a square cap extends each end by half the width and a round cap adds a half disc.
-#[test]
-fn line_caps_extend_the_stroke_as_in_pdf() {
-    for (cap, expected, tolerance, what) in [
-        (
-            LineCap::Butt,
-            100.0 * 4.0,
-            0.1,
-            "butt caps end at the end points",
-        ),
-        (
-            LineCap::Square,
-            104.0 * 4.0,
-            0.1,
-            "square caps add half the width at each end",
-        ),
-        (
-            LineCap::Round,
-            100.0 * 4.0 + std::f64::consts::PI * 4.0,
-            1.0,
-            "round caps add a disc of the stroke width in total",
-        ),
-    ] {
-        let drawn = draw_list(&list(vec![stroked_line(vec![], 0.0, cap)]));
-        assert_close(area(&drawn), expected, tolerance, what);
-    }
-}
-
-// Why: joins shape the corner of every polyline (a step plot, a box outline, the frame of an axes); the canvas must
-// map them as the PDF does, where a miter fills the outer corner, a bevel cuts it off and a round join arcs it, and
-// a miter that would exceed the limit of 4 falls back to a bevel rather than spike far beyond the corner.
-#[test]
-fn line_joins_shape_the_corner_as_in_pdf_with_a_miter_limit_of_four() {
-    let corner = |join: LineJoin, end: Point| {
-        stroked(
-            vec![
-                PathSegment::MoveTo(Point::new(0.0, 0.0)),
-                PathSegment::LineTo(Point::new(100.0, 0.0)),
-                PathSegment::LineTo(end),
-            ],
-            Rgba::BLACK,
-            10.0,
-            Vec::new(),
-            0.0,
-            LineCap::Butt,
-            join,
-        )
-    };
-
-    // A right-angle corner at (100, 0) stroked 10 wide: a miter fills the square out to (105, −5), a round join the
-    // quarter disc of radius 5 about the corner, and a bevel the triangle cut off by the line from (100, −5) to
-    // (105, 0), which every join covers.
-    for (join, x, y, inked) in [
-        (LineJoin::Miter, 104.0, -4.0, true),
-        (LineJoin::Round, 104.0, -4.0, false),
-        (LineJoin::Bevel, 104.0, -4.0, false),
-        (LineJoin::Miter, 103.0, -3.0, true),
-        (LineJoin::Round, 103.0, -3.0, true),
-        (LineJoin::Bevel, 103.0, -3.0, false),
-        (LineJoin::Miter, 101.0, -1.0, true),
-        (LineJoin::Round, 101.0, -1.0, true),
-        (LineJoin::Bevel, 101.0, -1.0, true),
-    ] {
-        let drawn = draw_list(&list(vec![corner(join, Point::new(100.0, 100.0))]));
-        assert_eq!(
-            ink_at(&drawn, Point::new(x, y)),
-            inked,
-            "with {join:?} joins, ink at ({x}, {y}) is {inked}"
-        );
-    }
-
-    // A corner of 11° whose miter would reach ten half-widths from the vertex, far beyond the limit of 4.
-    let drawn = draw_list(&list(vec![corner(LineJoin::Miter, Point::new(0.0, 20.0))]));
-    let extent = bbox(&drawn);
-    assert!(
-        extent.max.x <= 110.0,
-        "the miter limit bevels the acute corner rather than letting it spike to x ≈ 150: {extent:?}"
-    );
-}
-
-// Why: stroke widths are in the item's local space, so a scaling group transform thickens the line exactly as the PDF
-// does; transforming only the geometry would draw hairlines where the PDF draws thick strokes.
-#[test]
-fn a_group_scale_scales_the_stroke_width() {
-    let drawn = draw_list(&list(vec![group(
-        None,
-        Some(scale_then_translate(2.0, 2.0, 0.0, 0.0)),
-        vec![horizontal_line(vec![])],
-    )]));
-
-    // The 100 × 4 local stroke becomes 200 × 8 in figure space.
-    assert_close(area(&drawn), 1600.0, 1.0, "area");
-    assert_rect_close(bbox(&drawn), bounds(0.0, 96.0, 200.0, 104.0), 1e-3);
-}
-
 // Why: rotated y-axis labels are drawn as groups with a rotation; if the group transform were ignored or applied in
 // the wrong order, labels would appear horizontal or in the wrong place.
 #[test]
@@ -949,7 +1128,12 @@ fn a_group_rotation_rotates_its_items_before_translating_them() {
 
     // The rotation maps (x, y) to (−y, x), so the 40 × 10 rectangle becomes x ∈ [−10, 0], y ∈ [0, 40] before the
     // translation to (100, 100).
-    assert_rect_close(bbox(&drawn), bounds(90.0, 100.0, 100.0, 140.0), 1e-3);
+    assert_rect_close(
+        bbox(&drawn),
+        bounds(90.0, 100.0, 100.0, 140.0),
+        1e-3,
+        "the rectangle is rotated and then translated",
+    );
     assert_close(area(&drawn), 400.0, 0.1, "rotation preserves area");
 }
 
@@ -1020,7 +1204,12 @@ fn a_clipped_leaf_records_its_effective_clip_and_keeps_its_geometry_whole() {
             1e-2,
             "the square is tessellated whole, clip or no clip",
         );
-        assert_rect_close(draw_bbox(&drawn, draw), expected_bounds, 1e-3);
+        assert_rect_close(
+            draw_bbox(&drawn, draw),
+            expected_bounds,
+            1e-3,
+            "the square keeps its whole extent, clip or no clip",
+        );
     }
 }
 
@@ -1099,9 +1288,11 @@ fn a_leaf_beneath_an_empty_clip_or_a_degenerate_transform_draws_nothing() {
 
 // Why: the painter blends with egui's premultiplied blend state; passing straight alpha would draw translucent fills
 // (legend boxes, alpha surfaces) too bright, and premultiplying differently from egui would change the pixels of
-// every translucent item that the mesh path used to draw.
+// every translucent item that the mesh path used to draw. A stroke's params carry the colour as fractions for the
+// stroke pipeline, which blends the same way, so a translucent line must premultiply exactly as the fill beside it
+// does, or the two would differ in brightness.
 #[test]
-fn colours_are_premultiplied_as_egui_premultiplies_them() {
+fn colours_are_premultiplied_as_egui_premultiplies_them_for_fills_and_strokes_alike() {
     for (color, expected) in [
         (Rgba::new(1.0, 0.0, 0.0, 0.5), premultiplied(255, 0, 0, 128)),
         (
@@ -1110,12 +1301,29 @@ fn colours_are_premultiplied_as_egui_premultiplies_them() {
         ),
         (Rgba::new(0.0, 0.0, 1.0, 1.0), [0, 0, 255, 255]),
     ] {
-        let drawn = draw_list(&list(vec![filled(
-            rect_segments(0.0, 0.0, 10.0, 10.0),
-            color,
-            FillRule::NonZero,
-        )]));
+        let drawn = draw_list(&list(vec![
+            filled(
+                rect_segments(0.0, 0.0, 10.0, 10.0),
+                color,
+                FillRule::NonZero,
+            ),
+            stroked(
+                line_segments(),
+                color,
+                4.0,
+                Vec::new(),
+                0.0,
+                LineCap::Butt,
+                LineJoin::Miter,
+            ),
+        ]));
 
+        assert_eq!(
+            drawn.draws.len(),
+            2,
+            "a fill and a stroke: {:?}",
+            drawn.draws
+        );
         let vertices = vertices_of_draw(&drawn, &drawn.draws[0]);
         assert!(!vertices.is_empty());
         for v in vertices {
@@ -1128,6 +1336,11 @@ fn colours_are_premultiplied_as_egui_premultiplies_them() {
                 v.color
             );
         }
+        assert_color_close(
+            params_of(&drawn, &drawn.draws[1]).color,
+            expected.map(|c| f32::from(c) / 255.0),
+            &format!("the stroke's params carry the same premultiplied colour for {color:?}"),
+        );
     }
 }
 
@@ -1194,12 +1407,7 @@ fn draws_follow_the_paint_order_of_the_leaves() {
 // the rest of the figure from drawing.
 #[test]
 fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
-    let along = || {
-        vec![
-            PathSegment::MoveTo(Point::new(0.0, 200.0)),
-            PathSegment::LineTo(Point::new(100.0, 200.0)),
-        ]
-    };
+    let along = || polyline(&[(0.0, 200.0), (100.0, 200.0)]);
     let bad_stroke = |color: Rgba, width: f64, dash: Vec<f64>| {
         stroked(
             along(),
@@ -1229,11 +1437,7 @@ fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
         ),
         sourced(
             filled(
-                vec![
-                    PathSegment::LineTo(Point::new(0.0, 0.0)),
-                    PathSegment::LineTo(Point::new(10.0, 0.0)),
-                    PathSegment::LineTo(Point::new(10.0, 10.0)),
-                ],
+                vec![line_to(0.0, 0.0), line_to(10.0, 0.0), line_to(10.0, 10.0)],
                 Rgba::BLACK,
                 FillRule::NonZero,
             ),
@@ -1242,7 +1446,7 @@ fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
         sourced(
             filled(
                 vec![
-                    PathSegment::MoveTo(Point::new(0.0, 0.0)),
+                    move_to(0.0, 0.0),
                     PathSegment::CubicTo(
                         Point::new(nan, 0.0),
                         Point::new(10.0, 10.0),
@@ -1312,6 +1516,1036 @@ fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
         ink_at(&drawn, Point::new(310.0, 255.0)),
         "the valid rectangle after the invalid items is drawn"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Strokes
+// ---------------------------------------------------------------------------------------------------------------
+
+// Why: the stroke pipeline expands every segment on the GPU from its own instance, so the canvas must hand it, for
+// each edge of the polyline, the edge's ends, the vertices either side of them (from which the vertex shader
+// builds the joins), which ends get a join and which a cap, and the arc length at each end (from which the
+// fragment shader dashes). A neighbour that is not the real vertex, a join bit at a free end or an arc length that
+// is not the cumulative item-space length would draw a spike, a cap where a join belongs, or dashes that do not
+// line up from one edge to the next.
+#[test]
+fn an_open_polyline_is_one_segment_per_edge_with_caps_at_its_ends_and_joins_between() {
+    let drawn = draw_list(&list(vec![solid(polyline(&[
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 40.0),
+        (60.0, 80.0),
+    ]))]));
+
+    let draw = only_stroke(&drawn);
+    // The edges are 30, 40 and 50 long, so the arc lengths run 0, 30, 70, 120: the diagonal edge measures its own
+    // length, not the sum of its projections.
+    assert_segments(
+        segments_of(&drawn, draw),
+        &[
+            segment(
+                (0.0, 0.0),
+                (0.0, 0.0),
+                (30.0, 0.0),
+                (30.0, 40.0),
+                (false, true),
+                (0.0, 30.0),
+            ),
+            segment(
+                (0.0, 0.0),
+                (30.0, 0.0),
+                (30.0, 40.0),
+                (60.0, 80.0),
+                (true, true),
+                (30.0, 70.0),
+            ),
+            segment(
+                (30.0, 0.0),
+                (30.0, 40.0),
+                (60.0, 80.0),
+                (60.0, 80.0),
+                (true, false),
+                (70.0, 120.0),
+            ),
+        ],
+        1e-4,
+        "an open polyline of three edges",
+    );
+    assert_eq!(draw.texture, None, "a stroke samples no texture: {draw:?}");
+    assert_eq!(
+        draw.clip, None,
+        "an unclipped stroke records no clip: {draw:?}"
+    );
+    assert_outside_depth_groups(&drawn);
+}
+
+// Why: a closed outline (a box, a marker, the edge of a face) has no free end: the edge back to the start is a
+// segment of its own and the join at the start point joins the last edge to the first, so the neighbour before the
+// first segment is the last point and the neighbour after the last is the first. A closed path drawn with caps at
+// its start, or without its closing edge, would show a notch at the seam of every marker.
+#[test]
+fn a_closed_polyline_has_a_closing_segment_and_joins_that_wrap_around_its_start() {
+    let drawn = draw_list(&list(vec![solid(closed_polyline(&[
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+    ]))]));
+
+    assert_segments(
+        segments_of(&drawn, only_stroke(&drawn)),
+        &[
+            segment(
+                (0.0, 10.0),
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (true, true),
+                (0.0, 10.0),
+            ),
+            segment(
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (true, true),
+                (10.0, 20.0),
+            ),
+            segment(
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+                (true, true),
+                (20.0, 30.0),
+            ),
+            segment(
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (true, true),
+                (30.0, 40.0),
+            ),
+        ],
+        1e-4,
+        "a closed square",
+    );
+}
+
+// Why: the joint at the seam of a closed subpath is the start of its first segment, at arc length 0, and the end of
+// its closing segment, at the perimeter, and the two measure the dash pattern differently unless the perimeter is a
+// multiple of its period; the shader decides whether the seam lies in a dash on both sides, and places the caps of
+// the closing segment's dashes, by the arc length of the segment before the joint, so every segment carries that
+// length: the perimeter for the first segment of a closed subpath, and its own start otherwise (on open subpaths
+// too). A first segment that carried 0 would draw the seam of a dashed marker outline with the phase of its start
+// rather than of its end: a join where a gap belongs, or none where a dash runs through.
+#[test]
+fn the_first_segment_of_a_closed_subpath_measures_its_start_at_the_perimeter_and_every_other_at_its_own_arc()
+ {
+    let triangle = closed_polyline(&[(0.0, 0.0), (30.0, 0.0), (30.0, 40.0)]);
+    let open = polyline(&[(100.0, 0.0), (130.0, 0.0), (130.0, 40.0)]);
+    // The path, and the arc length expected at the start of each segment as the segment before it measures it.
+    let cases: [(&str, Vec<PathSegment>, Vec<f64>); 4] = [
+        (
+            "a closed square of perimeter 40",
+            rect_segments(0.0, 0.0, 10.0, 10.0),
+            vec![40.0, 10.0, 20.0, 30.0],
+        ),
+        (
+            "a closed triangle of perimeter 120",
+            triangle.clone(),
+            vec![120.0, 30.0, 70.0],
+        ),
+        (
+            "an open polyline of two edges",
+            open.clone(),
+            vec![0.0, 30.0],
+        ),
+        (
+            "the closed triangle and then the open polyline in one path",
+            [triangle, open].concat(),
+            vec![120.0, 30.0, 70.0, 0.0, 30.0],
+        ),
+    ];
+    for (what, segments, expected) in cases {
+        let drawn = draw_list(&list(vec![solid(segments)]));
+        let segments = segments_of(&drawn, only_stroke(&drawn));
+        let actual: Vec<f32> = segments.iter().map(|s| s.prev_arc).collect();
+        assert!(
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(&expected)
+                    .all(|(&got, &want)| (f64::from(got) - want).abs() <= 1e-4),
+            "{what}: the segments carry the arc lengths {expected:?} at their starts as the segments before them \
+             measure them, got {actual:?} in {segments:#?}"
+        );
+    }
+
+    // A flattened closed curve is a closed subpath of many segments; only its first carries the perimeter.
+    let drawn = draw_list(&list(vec![solid(circle_segments(50.0, 50.0, 20.0))]));
+    let chords = segments_of(&drawn, only_stroke(&drawn));
+    let perimeter = chords[chords.len() - 1].arc[1];
+    assert_eq!(
+        chords[0].prev_arc, perimeter,
+        "the first chord of the circle measures its start at the perimeter, the end of the last chord: {:?}",
+        chords[0]
+    );
+    for (k, chord) in chords.iter().enumerate().skip(1) {
+        assert_eq!(
+            chord.prev_arc, chord.arc[0],
+            "chord {k} of the circle measures its start at its own arc length: {chord:?}"
+        );
+    }
+}
+
+// Why: the dash phase restarts at the start of every subpath and a subpath's ends are capped, as in PDF, so the arc
+// length must restart at 0 with every subpath and no join may cross the gap between two, or the markers of a
+// scatter drawn as one path of many subpaths would be linked by spikes and dashed unevenly; and a segment after
+// `Close` without a `MoveTo` starts a new subpath at the closed one's start, as PDF has it.
+#[test]
+fn every_subpath_restarts_the_arc_length_and_no_join_crosses_the_gap_between_subpaths() {
+    let cases = [
+        (
+            "two subpaths each begun by a MoveTo",
+            vec![
+                move_to(0.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 40.0),
+                move_to(100.0, 0.0),
+                line_to(130.0, 0.0),
+            ],
+            vec![
+                segment(
+                    (0.0, 0.0),
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (false, true),
+                    (0.0, 30.0),
+                ),
+                segment(
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (30.0, 40.0),
+                    (true, false),
+                    (30.0, 70.0),
+                ),
+                segment(
+                    (100.0, 0.0),
+                    (100.0, 0.0),
+                    (130.0, 0.0),
+                    (130.0, 0.0),
+                    (false, false),
+                    (0.0, 30.0),
+                ),
+            ],
+        ),
+        (
+            "a closed triangle and then a segment without a MoveTo, which starts at the triangle's start",
+            vec![
+                move_to(0.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 40.0),
+                PathSegment::Close,
+                line_to(60.0, 80.0),
+            ],
+            vec![
+                segment(
+                    (30.0, 40.0),
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (true, true),
+                    (0.0, 30.0),
+                ),
+                segment(
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (0.0, 0.0),
+                    (true, true),
+                    (30.0, 70.0),
+                ),
+                segment(
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (true, true),
+                    (70.0, 120.0),
+                ),
+                segment(
+                    (0.0, 0.0),
+                    (0.0, 0.0),
+                    (60.0, 80.0),
+                    (60.0, 80.0),
+                    (false, false),
+                    (0.0, 100.0),
+                ),
+            ],
+        ),
+    ];
+    for (what, segments, expected) in cases {
+        let drawn = draw_list(&list(vec![solid(segments)]));
+        assert_segments(
+            segments_of(&drawn, only_stroke(&drawn)),
+            &expected,
+            1e-4,
+            what,
+        );
+    }
+}
+
+// Why: a curve reaches the shader as the chords of its flattening, so the ends of every chord must lie on the curve
+// and the chords must be short enough that no gap between chord and curve shows at the resolution the list is
+// built for, which takes more chords when the canvas is zoomed in; the chords must chain around a closed curve
+// with a join at each of their ends, or a marker outline would show notches, and their arc lengths must accumulate
+// the chord lengths, or the dashes of a curved line would drift along it.
+#[test]
+fn a_stroked_circle_is_flattened_into_chords_on_the_circle_more_finely_at_a_higher_scale() {
+    let (cx, cy, r) = (50.0, 50.0, 20.0);
+    let circle = list(vec![solid(circle_segments(cx, cy, r))]);
+    // The four cubic Béziers of `circle_segments` lie within 0.03 % of the radius of the true circle, which at this
+    // radius is under a hundredth of a point.
+    let bezier_error = 0.01;
+    let radial = |p: [f32; 2]| ((f64::from(p[0]) - cx).hypot(f64::from(p[1]) - cy) - r).abs();
+    let mut counts = Vec::new();
+    for scale in [1.0, 10.0] {
+        let drawn = draw_list_at(&circle, at_scale(scale));
+        let chords = segments_of(&drawn, only_stroke(&drawn));
+        let tolerance = SCREEN_TOLERANCE / f64::from(scale);
+        assert!(
+            chords.len() > 4,
+            "at scale {scale} the circle is flattened into more chords than its four cubics: {}",
+            chords.len()
+        );
+        for (k, chord) in chords.iter().enumerate() {
+            assert!(
+                radial(chord.p0) <= tolerance + bezier_error
+                    && radial(chord.p1) <= tolerance + bezier_error,
+                "at scale {scale} the ends of chord {k} lie on the circle: {chord:?}"
+            );
+            let middle = [
+                (chord.p0[0] + chord.p1[0]) / 2.0,
+                (chord.p0[1] + chord.p1[1]) / 2.0,
+            ];
+            assert!(
+                radial(middle) <= 1.5 * tolerance + bezier_error,
+                "at scale {scale} the middle of chord {k} lies within the flattening tolerance of {tolerance} item \
+                 units of the circle: {chord:?}"
+            );
+            assert_eq!(
+                chord.flags,
+                JOIN_AT_START | JOIN_AT_END,
+                "at scale {scale} chord {k} of the closed circle is joined at both ends: {chord:?}"
+            );
+            let length =
+                f64::from(chord.p1[0] - chord.p0[0]).hypot(f64::from(chord.p1[1] - chord.p0[1]));
+            assert_close(
+                f64::from(chord.arc[1] - chord.arc[0]),
+                length,
+                1e-3,
+                &format!("at scale {scale} the arc length across chord {k} is its length"),
+            );
+            let following = &chords[(k + 1) % chords.len()];
+            assert!(
+                chord.p1 == following.p0
+                    && chord.next == following.p1
+                    && following.prev == chord.p0,
+                "at scale {scale} chord {k} chains into the chord after it, around to the first: {chord:?} then \
+                 {following:?}"
+            );
+        }
+        assert_eq!(
+            chords[0].arc[0], 0.0,
+            "the arc length starts at 0: {:?}",
+            chords[0]
+        );
+        for pair in chords.windows(2) {
+            assert_eq!(
+                pair[0].arc[1], pair[1].arc[0],
+                "the arc length accumulates from chord to chord: {pair:?}"
+            );
+        }
+        let circumference = 2.0 * std::f64::consts::PI * r;
+        assert_close(
+            f64::from(chords[chords.len() - 1].arc[1]),
+            circumference,
+            0.01 * circumference,
+            &format!(
+                "at scale {scale} the arc length at the end of the last chord is the circumference"
+            ),
+        );
+        counts.push(chords.len());
+    }
+    assert!(
+        counts[1] > counts[0],
+        "the circle is flattened more finely at scale 10 ({} chords) than at scale 1 ({} chords)",
+        counts[1],
+        counts[0]
+    );
+}
+
+// Why: a zero-length edge has no direction, so the shader could not expand it (its normal is undefined) and would
+// draw a spike or nothing at its joins; polylines from data repeat points (the risers of a step plot, an outline
+// that returns to its start before closing), so the canvas merges consecutive coincident points and drops the
+// duplicate start of a closed subpath rather than emitting an edge of no length with a join at both ends.
+#[test]
+fn consecutive_coincident_points_are_merged_and_a_closed_subpath_drops_a_last_point_equal_to_its_first()
+ {
+    let open = vec![
+        segment(
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 40.0),
+            (false, true),
+            (0.0, 30.0),
+        ),
+        segment(
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 40.0),
+            (30.0, 40.0),
+            (true, false),
+            (30.0, 70.0),
+        ),
+    ];
+    let closed = vec![
+        segment(
+            (30.0, 40.0),
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 40.0),
+            (true, true),
+            (0.0, 30.0),
+        ),
+        segment(
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 40.0),
+            (0.0, 0.0),
+            (true, true),
+            (30.0, 70.0),
+        ),
+        segment(
+            (30.0, 0.0),
+            (30.0, 40.0),
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (true, true),
+            (70.0, 120.0),
+        ),
+    ];
+    let cases = [
+        (
+            "repeated points along an open polyline",
+            vec![
+                move_to(0.0, 0.0),
+                line_to(0.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 40.0),
+            ],
+            open,
+        ),
+        (
+            "a closed triangle that returns to its start before closing",
+            vec![
+                move_to(0.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 40.0),
+                line_to(0.0, 0.0),
+                PathSegment::Close,
+            ],
+            closed.clone(),
+        ),
+        (
+            "a closed triangle whose start is repeated",
+            vec![
+                move_to(0.0, 0.0),
+                line_to(0.0, 0.0),
+                line_to(30.0, 0.0),
+                line_to(30.0, 40.0),
+                PathSegment::Close,
+            ],
+            closed,
+        ),
+    ];
+    for (what, segments, expected) in cases {
+        let drawn = draw_list(&list(vec![solid(segments)]));
+        assert_segments(
+            segments_of(&drawn, only_stroke(&drawn)),
+            &expected,
+            1e-4,
+            what,
+        );
+    }
+}
+
+// Why: a line of one data point, or of points that project to one place, has no direction to expand along, so a
+// subpath with fewer than two distinct points yields no segments and, on its own, no draw, rather than a segment
+// of no length or an empty draw for the painter; the subpaths beside it are unaffected.
+#[test]
+fn a_subpath_with_fewer_than_two_distinct_points_yields_no_segments() {
+    for (what, segments) in [
+        ("a lone MoveTo", vec![move_to(5.0, 5.0)]),
+        (
+            "a lone MoveTo that is closed",
+            vec![move_to(5.0, 5.0), PathSegment::Close],
+        ),
+        (
+            "a subpath of coincident points",
+            vec![move_to(5.0, 5.0), line_to(5.0, 5.0), line_to(5.0, 5.0)],
+        ),
+        (
+            "a closed subpath of coincident points",
+            vec![move_to(5.0, 5.0), line_to(5.0, 5.0), PathSegment::Close],
+        ),
+    ] {
+        let drawn = draw_list(&list(vec![solid(segments)]));
+        assert!(
+            drawn.draws.is_empty(),
+            "{what} yields no draw, and so no segments: {drawn:?}"
+        );
+    }
+
+    let drawn = draw_list(&list(vec![solid(vec![
+        move_to(5.0, 5.0),
+        move_to(0.0, 0.0),
+        line_to(30.0, 0.0),
+    ])]));
+    assert_segments(
+        segments_of(&drawn, only_stroke(&drawn)),
+        &[segment(
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 0.0),
+            (false, false),
+            (0.0, 30.0),
+        )],
+        1e-4,
+        "a lone point followed by a subpath of two points",
+    );
+}
+
+// Why: the shader transforms the pen with the geometry, as PDF does, so the segments stay in item space and the
+// params carry the leaf's whole item-to-figure transform, in the display list's `[a, b, c, d]` and `[e, f]` order,
+// together with everything else the pipelines need per draw: the premultiplied colour, the width in item units,
+// and the cap and join as the codes the shader switches on. A transform composed in the wrong order, a colour
+// with straight alpha, or a cap and join code swapped would draw every line displaced, too bright, or with the
+// wrong ends.
+#[test]
+fn a_stroke_draws_params_carry_the_leafs_transform_colour_width_cap_and_join() {
+    let outer = Transform {
+        a: 2.0,
+        b: 0.5,
+        c: -0.25,
+        d: 3.0,
+        e: 100.0,
+        f: 200.0,
+    };
+    let color = Rgba::new(0.2, 0.4, 0.6, 0.4);
+    for (cap, join) in [
+        (LineCap::Butt, LineJoin::Miter),
+        (LineCap::Round, LineJoin::Round),
+        (LineCap::Square, LineJoin::Bevel),
+    ] {
+        let drawn = draw_list(&list(vec![group(
+            None,
+            Some(outer),
+            vec![group(
+                None,
+                Some(Transform::translate(5.0, 5.0)),
+                vec![sourced(
+                    stroked(
+                        polyline(&[(0.0, 0.0), (30.0, 0.0), (30.0, 40.0)]),
+                        color,
+                        3.5,
+                        Vec::new(),
+                        0.0,
+                        cap,
+                        join,
+                    ),
+                    7,
+                )],
+            )],
+        )]));
+
+        let draw = only_stroke(&drawn);
+        assert_eq!(
+            draw.source,
+            Some(NodeId(7)),
+            "the draw names the path's node: {draw:?}"
+        );
+        let params = params_of(&drawn, draw);
+        assert_eq!(
+            params.linear,
+            [2.0, 0.5, -0.25, 3.0],
+            "the linear part of the item-to-figure transform is [a, b, c, d]: {params:?}"
+        );
+        // The inner translation is applied first and then the outer transform, which maps (5, 5) to
+        // (2·5 − 0.25·5 + 100, 0.5·5 + 3·5 + 200).
+        assert_eq!(
+            params.offset,
+            [108.75, 217.5, 0.0, 0.0],
+            "the translation is [e, f, 0, 0] of the composed transform: {params:?}"
+        );
+        assert_color_close(
+            params.color,
+            premultiplied_fractions(51, 102, 153, 102),
+            "the colour is premultiplied as a fill's vertices are",
+        );
+        assert_eq!(
+            params.width, 3.5,
+            "the width is in item units, as given: {params:?}"
+        );
+        assert_eq!(
+            params.cap,
+            cap_code(cap),
+            "{cap:?} caps are coded {}: {params:?}",
+            cap_code(cap)
+        );
+        assert_eq!(
+            params.join,
+            join_code(join),
+            "{join:?} joins are coded {}: {params:?}",
+            join_code(join)
+        );
+        assert_eq!(
+            params.dash_count, 0,
+            "a solid stroke has no dash entries: {params:?}"
+        );
+        assert_segments(
+            segments_of(&drawn, draw),
+            &[
+                segment(
+                    (0.0, 0.0),
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (false, true),
+                    (0.0, 30.0),
+                ),
+                segment(
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (30.0, 40.0),
+                    (30.0, 40.0),
+                    (true, false),
+                    (30.0, 70.0),
+                ),
+            ],
+            1e-4,
+            "beneath the transforms the segments stay in item space",
+        );
+    }
+}
+
+// Why: the fragment shader dashes by the arc length of the segments, in item units, against the pattern in the
+// params, so the pattern must reach it in item units too (a group's scale reaches the shader in the transform,
+// which scales the dashes with the geometry as PDF does), an odd pattern must be doubled as PDF doubles it, its
+// period must be the sum of the entries the shader sees, the phase must be the given one reduced into [0, period),
+// which is the same phase and spares the shader the reduction, and a pattern the params cannot hold must be drawn
+// solid rather than truncated into some other pattern; and a dashed line must stay one draw with the segments of
+// the solid one, or it would cost a draw or a segment per dash.
+#[test]
+fn a_dash_pattern_is_carried_in_item_units_doubled_when_odd_and_solid_when_longer_than_the_params_hold()
+ {
+    /// A pattern and its phase as given, the scale of the group the line lies beneath, and the dash entries and
+    /// phase expected in the params.
+    struct Case {
+        what: &'static str,
+        dash: Vec<f64>,
+        dash_offset: f64,
+        group_scale: f64,
+        dashes: Vec<f32>,
+        offset: f32,
+    }
+    let case = |what, dash, dash_offset, group_scale, dashes, offset| Case {
+        what,
+        dash,
+        dash_offset,
+        group_scale,
+        dashes,
+        offset,
+    };
+    let sixteen: Vec<f64> = (1..=16).map(f64::from).collect();
+    let sixteen_as_f32: Vec<f32> = sixteen.iter().map(|&d| d as f32).collect();
+    let cases = vec![
+        case("a solid stroke", vec![], 0.0, 1.0, vec![], 0.0),
+        case("6 on, 4 off", vec![6.0, 4.0], 0.0, 1.0, vec![6.0, 4.0], 0.0),
+        case(
+            "6 on, 4 off from an offset of 6",
+            vec![6.0, 4.0],
+            6.0,
+            1.0,
+            vec![6.0, 4.0],
+            6.0,
+        ),
+        case(
+            "6 on, 4 off from an offset of 26, which the period of 10 reduces to 6",
+            vec![6.0, 4.0],
+            26.0,
+            1.0,
+            vec![6.0, 4.0],
+            6.0,
+        ),
+        case(
+            "6 on, 4 off from an offset of -4, which the period of 10 reduces to 6",
+            vec![6.0, 4.0],
+            -4.0,
+            1.0,
+            vec![6.0, 4.0],
+            6.0,
+        ),
+        case(
+            "the odd pattern [3], doubled to 3 on, 3 off",
+            vec![3.0],
+            0.0,
+            1.0,
+            vec![3.0, 3.0],
+            0.0,
+        ),
+        case(
+            "the odd pattern [1, 2, 3], doubled",
+            vec![1.0, 2.0, 3.0],
+            0.0,
+            1.0,
+            vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
+            0.0,
+        ),
+        case(
+            "sixteen entries, the most the params hold",
+            sixteen,
+            0.0,
+            1.0,
+            sixteen_as_f32,
+            0.0,
+        ),
+        case(
+            "nine entries, eighteen when doubled, drawn solid",
+            vec![1.0; 9],
+            0.0,
+            1.0,
+            vec![],
+            0.0,
+        ),
+        case(
+            "eighteen entries, drawn solid",
+            vec![1.0; 18],
+            0.0,
+            1.0,
+            vec![],
+            0.0,
+        ),
+        case(
+            "6 on, 4 off beneath a group scale of 2, still in item units",
+            vec![6.0, 4.0],
+            6.0,
+            2.0,
+            vec![6.0, 4.0],
+            6.0,
+        ),
+    ];
+    for Case {
+        what,
+        dash,
+        dash_offset,
+        group_scale,
+        dashes,
+        offset,
+    } in cases
+    {
+        let drawn = draw_list(&list(vec![group(
+            None,
+            Some(scale_then_translate(group_scale, group_scale, 0.0, 0.0)),
+            vec![stroked_line(dash, dash_offset, LineCap::Butt)],
+        )]));
+
+        let draw = only_stroke(&drawn);
+        let params = params_of(&drawn, draw);
+        assert_eq!(
+            params.dash_count as usize,
+            dashes.len(),
+            "with {what} the params hold {} dash entries: {params:?}",
+            dashes.len()
+        );
+        assert_eq!(
+            &params.dashes[..dashes.len()],
+            dashes.as_slice(),
+            "with {what} the dash entries are in item units, in order: {params:?}"
+        );
+        if !dashes.is_empty() {
+            assert_close(
+                f64::from(params.period),
+                dashes.iter().map(|&d| f64::from(d)).sum(),
+                1e-4,
+                &format!("with {what} the period is the sum of the entries"),
+            );
+            assert_eq!(
+                params.dash_offset, offset,
+                "with {what} the phase is the given one reduced into [0, period), in item units: {params:?}"
+            );
+        }
+        assert_eq!(
+            params.width, 4.0,
+            "with {what} the width stays in item units: {params:?}"
+        );
+        assert_eq!(
+            params.linear,
+            [group_scale as f32, 0.0, 0.0, group_scale as f32],
+            "with {what} the group's scale reaches the shader in the transform: {params:?}"
+        );
+        assert_segments(
+            segments_of(&drawn, draw),
+            &[segment(
+                (0.0, 50.0),
+                (0.0, 50.0),
+                (100.0, 50.0),
+                (100.0, 50.0),
+                (false, false),
+                (0.0, 100.0),
+            )],
+            1e-4,
+            what,
+        );
+    }
+}
+
+// Why: the display-list contract has a backend skip what it cannot draw rather than panic, and a stroke it cannot
+// draw is the stroke alone: a width or a dash entry that is negative or not finite, a phase that is not finite, a
+// pattern with no positive period (which would dash forever) or a colour that is not a number gives no stroke
+// draw and no segments for it, while the fill of the same path still draws, or one bad line style would blank a
+// filled marker.
+#[test]
+fn an_invalid_stroke_gives_no_stroke_draw_while_the_fill_of_the_same_path_still_draws() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let nan = f64::NAN;
+    // The stroke's colour, width, dash pattern and phase.
+    let cases = [
+        (
+            "a width that is not a number",
+            Rgba::BLACK,
+            nan,
+            vec![],
+            0.0,
+        ),
+        ("an infinite width", Rgba::BLACK, f64::INFINITY, vec![], 0.0),
+        ("a negative width", Rgba::BLACK, -1.0, vec![], 0.0),
+        (
+            "a dash entry that is not a number",
+            Rgba::BLACK,
+            1.0,
+            vec![nan, 2.0],
+            0.0,
+        ),
+        (
+            "a negative dash entry",
+            Rgba::BLACK,
+            1.0,
+            vec![-1.0, 2.0],
+            0.0,
+        ),
+        (
+            "a dash pattern of zeros, whose period is not positive",
+            Rgba::BLACK,
+            1.0,
+            vec![0.0, 0.0],
+            0.0,
+        ),
+        (
+            "an odd dash pattern of one zero, whose period is not positive",
+            Rgba::BLACK,
+            1.0,
+            vec![0.0],
+            0.0,
+        ),
+        (
+            "a phase that is not a number",
+            Rgba::BLACK,
+            1.0,
+            vec![6.0, 4.0],
+            nan,
+        ),
+        (
+            "an infinite phase",
+            Rgba::BLACK,
+            1.0,
+            vec![6.0, 4.0],
+            f64::INFINITY,
+        ),
+        (
+            "a colour that is not a number",
+            Rgba::new(f32::NAN, 0.0, 0.0, 1.0),
+            1.0,
+            vec![],
+            0.0,
+        ),
+    ];
+    for (what, color, width, dash, dash_offset) in cases {
+        let drawn = draw_list(&list(vec![sourced(
+            filled_and_stroked(
+                rect_segments(30.0, 40.0, 50.0, 20.0),
+                red,
+                Stroke {
+                    color,
+                    width,
+                    dash,
+                    dash_offset,
+                    cap: LineCap::Butt,
+                    join: LineJoin::Miter,
+                },
+            ),
+            7,
+        )]));
+
+        assert_eq!(
+            drawn.draws.len(),
+            1,
+            "with {what} the fill is the only draw: {:?}",
+            drawn.draws
+        );
+        let draw = &drawn.draws[0];
+        assert!(
+            matches!(draw.kind, DrawKind::Triangles(_)) && draw.source == Some(NodeId(7)),
+            "with {what} the one draw is the path's fill: {draw:?}"
+        );
+        assert_close(
+            draw_area(&drawn, draw),
+            1000.0,
+            1e-3,
+            &format!("with {what} the fill covers its rectangle"),
+        );
+    }
+}
+
+// Why: PDF paints a path's fill and then its stroke over it, and the painter draws a list in order, so a path with
+// both must be its fill's triangles followed by its stroke as two consecutive draws, and both must carry what the
+// painter cuts, tests and attributes by: the leaf's clip in figure points, its depth group and its node. A stroke
+// that lost the clip would paint over the neighbouring subplot, one outside the group would not be tested against
+// the faces it outlines, and one without the node could not be picked.
+#[test]
+fn a_filled_and_stroked_path_draws_its_fill_then_its_stroke_with_the_leafs_clip_source_and_depth_group()
+ {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let clip = Rect::new(0.0, 0.0, 60.0, 60.0);
+    let rectangle = || {
+        sourced(
+            filled_and_stroked(rect_segments(0.0, 0.0, 50.0, 20.0), red, black_stroke(2.0)),
+            7,
+        )
+    };
+    let [pin0, pin1] = range_pins(-10.0, -10.0);
+    // The items beneath the clipped, translated group, the depth group expected on the draws, and the z of the
+    // fill's vertices and of the segments' ends: 0 outside every depth group, and 0.75 inside a group whose range
+    // the pins fix to [0, 1] with the path at a constant depth of 0.25.
+    let cases: [(&str, Vec<Item>, Option<u32>, f32); 2] = [
+        ("outside every depth group", vec![rectangle()], None, 0.0),
+        (
+            "inside a depth group",
+            vec![depth_group(vec![
+                pin0,
+                pin1,
+                with_depth(rectangle(), Depth::Plane(DepthPlane::constant(0.25))),
+            ])],
+            Some(0),
+            0.75,
+        ),
+    ];
+    for (what, items, group_number, z) in cases {
+        let drawn = draw_list(&list(vec![group(
+            Some(clip),
+            Some(Transform::translate(10.0, 20.0)),
+            items,
+        )]));
+
+        let of_path: Vec<&Draw> = drawn
+            .draws
+            .iter()
+            .filter(|d| d.source == Some(NodeId(7)))
+            .collect();
+        assert_eq!(
+            of_path.len(),
+            2,
+            "{what}, the path is two draws: {:?}",
+            drawn.draws
+        );
+        let first = drawn
+            .draws
+            .iter()
+            .position(|d| d.source == Some(NodeId(7)))
+            .expect("the path is drawn");
+        let (fill, stroke) = (&drawn.draws[first], &drawn.draws[first + 1]);
+        assert!(
+            matches!(fill.kind, DrawKind::Triangles(_))
+                && matches!(stroke.kind, DrawKind::Stroke { .. })
+                && stroke.source == Some(NodeId(7)),
+            "{what}, the fill's triangles are drawn and then, as the next draw, the stroke: {:?}",
+            drawn.draws
+        );
+        for draw in [fill, stroke] {
+            assert_eq!(
+                draw.clip,
+                Some(clip),
+                "{what}, both draws record the leaf's clip in figure points: {draw:?}"
+            );
+            assert_eq!(
+                draw.depth_group, group_number,
+                "{what}, both draws lie in the leaf's depth group: {draw:?}"
+            );
+            assert_eq!(
+                draw.texture, None,
+                "{what}, neither draw samples a texture: {draw:?}"
+            );
+        }
+        assert_close(
+            draw_area(&drawn, fill),
+            1000.0,
+            1e-3,
+            &format!("{what}, the fill covers the rectangle"),
+        );
+        assert_rect_close(
+            draw_bbox(&drawn, fill),
+            bounds(10.0, 20.0, 60.0, 40.0),
+            1e-3,
+            &format!("{what}, the fill lies at the rectangle translated by the group"),
+        );
+        assert!(
+            all_at_z(&vertices_of_draw(&drawn, fill), z),
+            "{what}, the fill's vertices lie at z = {z}: {:?}",
+            vertices_of_draw(&drawn, fill)
+        );
+        let segments = segments_of(&drawn, stroke);
+        assert_eq!(
+            segments.len(),
+            4,
+            "{what}, the stroke is the four edges of the rectangle: {segments:?}"
+        );
+        assert_z_pairs(
+            segments,
+            &[[f64::from(z); 2]; 4],
+            1e-6,
+            &format!(
+                "{what}, every end of the stroke's segments lies at the path's constant depth"
+            ),
+        );
+        assert!(
+            segments.iter().all(|s| s.grad == [0.0, 0.0]),
+            "{what}, a constant depth has no gradient: {segments:?}"
+        );
+        assert_eq!(
+            params_of(&drawn, stroke).offset,
+            [10.0, 20.0, 0.0, 0.0],
+            "{what}, the params carry the leaf's translation: {:?}",
+            params_of(&drawn, stroke)
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1400,7 +2634,12 @@ fn a_run_of_several_glyphs_is_one_draw_and_a_glyph_with_a_non_finite_position_is
     )]));
     let single = draw_list(&list(vec![glyph_h(origin, size, Rgba::BLACK)]));
     assert_eq!(one.draws.len(), 1, "the run still draws: {:?}", one.draws);
-    assert_rect_close(bbox(&one), bbox(&single), 1e-3);
+    assert_rect_close(
+        bbox(&one),
+        bbox(&single),
+        1e-3,
+        "the run of two glyphs, one skipped, covers what the one glyph covers",
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1459,9 +2698,9 @@ fn the_background_is_never_a_draw() {
 
 // Why: the list is reused across a range of canvas scales and the mapping is a uniform, so the resolution can change
 // only how finely curves are flattened, never where or how large the geometry is, what an image's quad is, or what
-// clip a leaf records: a list whose positions or stroke widths followed the scale would draw a magnified figure
-// twice magnified, and one flattened for the default resolution would show polygonal circles and jagged glyphs when
-// the canvas is zoomed in.
+// clip a leaf records: a list whose positions followed the scale would draw a magnified figure twice magnified, and
+// one flattened for the default resolution would show polygonal circles and jagged glyphs when the canvas is
+// zoomed in.
 #[test]
 fn the_resolution_scale_refines_the_flattening_without_moving_or_scaling_the_geometry() {
     let circle = list(vec![filled(
@@ -1480,7 +2719,12 @@ fn the_resolution_scale_refines_the_flattening_without_moving_or_scaling_the_geo
             0.01 * disc,
             &format!("the circle at {what} covers its area in figure points"),
         );
-        assert_rect_close(bbox(drawn), bounds(0.0, 0.0, 100.0, 100.0), 1e-3);
+        assert_rect_close(
+            bbox(drawn),
+            bounds(0.0, 0.0, 100.0, 100.0),
+            1e-3,
+            &format!("the circle at {what} keeps its extent in figure points"),
+        );
     }
     assert!(
         fine.vertices.len() > coarse.vertices.len(),
@@ -1505,17 +2749,12 @@ fn the_resolution_scale_refines_the_flattening_without_moving_or_scaling_the_geo
         fine_o.vertices.len(),
         coarse_o.vertices.len()
     );
-    assert_rect_close(bbox(&fine_o), bbox(&coarse_o), 0.1);
-
-    let stroke = list(vec![horizontal_line(vec![])]);
-    let magnified = draw_list_at(&stroke, at_scale(10.0));
-    assert_close(
-        area(&magnified),
-        100.0 * 4.0,
-        1.0,
-        "a stroke 4 points wide stays 4 points wide at scale 10",
+    assert_rect_close(
+        bbox(&fine_o),
+        bbox(&coarse_o),
+        0.1,
+        "the glyph keeps its extent at scale 10",
     );
-    assert_rect_close(bbox(&magnified), bounds(0.0, 48.0, 100.0, 52.0), 1e-3);
 
     // An image's quad and the clip a leaf records do not depend on the resolution either.
     let clip = Rect::new(10.0, 10.0, 50.0, 50.0);
@@ -1563,25 +2802,82 @@ fn the_resolution_scale_refines_the_flattening_without_moving_or_scaling_the_geo
     );
 }
 
-// Why: a zero-width stroke is the thinnest line the device can draw, as in PDF, so its width depends on the
-// resolution the list is prepared for and on the stretch of the leaf's transform while its geometry stays in
-// figure points: a hairline kept one figure point wide would thicken as the figure is magnified, and one that
-// ignored the group's scale would be thinner or thicker than a device pixel beneath a scaling group.
+// Why: a stroke's segments are in item space and its width, dashes and transform are in its params, none of which
+// depends on the resolution: only the flattening of its curves does (which the circle test shows the resolution
+// scale refining), to within a screen tolerance that the stretch of the leaf's transform tightens in item units as
+// the scale does. A stroke whose segments or params followed the scale (as the tessellated hairline and dashes
+// once had to) would draw a magnified figure twice magnified, and one flattened for the default resolution would
+// show polygonal circles when zoomed in.
 #[test]
-fn a_zero_width_stroke_is_one_screen_unit_wide_at_the_resolution_scale() {
-    // The group's scale in x and y, the resolution scale, and the expected area: the line is 100 item units long
-    // along x, so 100 · sx figure points long, and 1 / (√(sx · sy) · scale) item units wide, which the group's y
-    // scale stretches to sy / (√(sx · sy) · scale) figure points.
-    for (sx, sy, scale, expected) in [
-        (1.0, 1.0, 1.0, 100.0),
-        (1.0, 1.0, 4.0, 25.0),
-        (1.0, 1.0, 0.5, 200.0),
-        (2.0, 2.0, 1.0, 200.0),
-        (2.0, 2.0, 2.0, 100.0),
-        // Beneath a non-uniform stretch the width is set by the geometric mean of the stretches, as the contract's
-        // "mean stretch" implies: under an x-stretch of 4 the mean is 2, so this horizontal hairline is half a unit
-        // wide (its width lies along the unstretched y) while a vertical one would be two units wide.
-        (4.0, 1.0, 1.0, 200.0),
+fn the_resolution_scale_and_the_group_stretch_change_only_the_flattening_of_a_stroke() {
+    let dashed = list(vec![sourced(
+        stroked(
+            polyline(&[(0.0, 0.0), (30.0, 0.0), (30.0, 40.0)]),
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            3.0,
+            vec![6.0, 4.0],
+            2.0,
+            LineCap::Round,
+            LineJoin::Bevel,
+        ),
+        1,
+    )]);
+    let coarse = draw_list_at(&dashed, at_scale(1.0));
+    let fine = draw_list_at(&dashed, at_scale(10.0));
+    assert_eq!(
+        segments_of(&coarse, only_stroke(&coarse)),
+        segments_of(&fine, only_stroke(&fine)),
+        "the segments of straight edges are the same at scale 1 and at scale 10"
+    );
+    assert_eq!(
+        params_of(&coarse, only_stroke(&coarse)),
+        params_of(&fine, only_stroke(&fine)),
+        "the params (transform, colour, width, cap, join, dashes and phase) are the same at scale 1 and at scale 10"
+    );
+
+    let circle = |transform: Option<Transform>| {
+        list(vec![group(
+            None,
+            transform,
+            vec![solid(circle_segments(50.0, 50.0, 20.0))],
+        )])
+    };
+    let chords = |display: &DisplayList, scale: f32| {
+        let drawn = draw_list_at(display, at_scale(scale));
+        segments_of(&drawn, only_stroke(&drawn)).len()
+    };
+    let plain = circle(None);
+    let stretched = circle(Some(scale_then_translate(4.0, 1.0, 0.0, 0.0)));
+    assert!(
+        chords(&stretched, 1.0) > chords(&plain, 1.0),
+        "beneath a stretch of 4 the tolerance in item units is a quarter, so the circle takes more chords ({}) \
+         than without it ({})",
+        chords(&stretched, 1.0),
+        chords(&plain, 1.0)
+    );
+    let drawn = draw_list_at(&stretched, at_scale(1.0));
+    let params = params_of(&drawn, only_stroke(&drawn));
+    assert!(
+        params.linear == [4.0, 0.0, 0.0, 1.0] && params.width == 4.0,
+        "the stretch reaches the shader in the transform and leaves the width in item units: {params:?}"
+    );
+}
+
+// Why: a zero-width stroke is the thinnest line the device can draw, as in PDF: the shader makes a hairline one
+// screen point wide in every direction, whatever the resolution and whatever the leaf's transform stretches (which
+// `offscreen.rs` checks in pixels beneath a non-uniform scale). The canvas must therefore leave the width at 0 and
+// change nothing else in the params: a width baked in from the resolution (as the tessellated hairline's was)
+// would thicken when the same list is drawn at a larger scale, and one made from the transform's stretch would be
+// wrong beneath a non-uniform scale, where only the shader knows the direction of the line on screen.
+#[test]
+fn a_zero_width_stroke_keeps_a_width_of_zero_in_its_params_beneath_any_scale_and_at_any_resolution()
+{
+    for (sx, sy, scale) in [
+        (1.0, 1.0, 1.0),
+        (1.0, 1.0, 4.0),
+        (1.0, 1.0, 0.5),
+        (2.0, 2.0, 2.0),
+        (4.0, 1.0, 1.0),
     ] {
         let drawn = draw_list_at(
             &list(vec![group(
@@ -1592,27 +2888,35 @@ fn a_zero_width_stroke_is_one_screen_unit_wide_at_the_resolution_scale() {
             at_scale(scale),
         );
 
-        assert_close(
-            area(&drawn),
-            expected,
-            0.01,
-            &format!("the hairline beneath a scale of ({sx}, {sy}) at resolution scale {scale}"),
+        let params = params_of(&drawn, only_stroke(&drawn));
+        assert_eq!(
+            params.width, 0.0,
+            "beneath a scale of ({sx}, {sy}) at resolution scale {scale} the hairline's width stays 0 for the \
+             shader to make one screen point of: {params:?}"
+        );
+        assert_eq!(
+            params.linear,
+            [sx as f32, 0.0, 0.0, sy as f32],
+            "beneath a scale of ({sx}, {sy}) the params carry the scale: {params:?}"
         );
     }
 }
 
-// Why: a resolution that is not a positive finite number has no flattening tolerance and no hairline width; the
-// canvas asks for one only by mistake, and the answer must be an empty list rather than a panic, a list of
-// non-finite vertices, or geometry flattened to nothing.
+// Why: a resolution that is not a positive finite number has no flattening tolerance; the canvas asks for one only
+// by mistake, and the answer must be an empty list rather than a panic, a list of non-finite vertices, or geometry
+// flattened to nothing.
 #[test]
 fn an_invalid_resolution_scale_gives_an_empty_list() {
     let display = with_background(
         Rgba::WHITE,
-        vec![filled(
-            rect_segments(0.0, 0.0, 10.0, 10.0),
-            Rgba::BLACK,
-            FillRule::NonZero,
-        )],
+        vec![
+            filled(
+                rect_segments(0.0, 0.0, 10.0, 10.0),
+                Rgba::BLACK,
+                FillRule::NonZero,
+            ),
+            solid(line_segments()),
+        ],
     );
     for scale in [0.0, -1.0, f32::NAN, f32::INFINITY] {
         let drawn = draw_list_at(&display, at_scale(scale));
@@ -1673,7 +2977,12 @@ fn an_image_becomes_one_textured_quad_at_its_transformed_corners() {
         draw.clip, None,
         "an unclipped image records no clip: {draw:?}"
     );
-    assert_rect_close(bbox(&drawn), bounds(20.0, 50.0, 50.0, 60.0), 1e-3);
+    assert_rect_close(
+        bbox(&drawn),
+        bounds(20.0, 50.0, 50.0, 60.0),
+        1e-3,
+        "the quad lies at the image's transformed corners",
+    );
     assert_outside_depth_groups(&drawn);
 }
 
@@ -2284,43 +3593,282 @@ fn a_tilted_plane_gives_z_zero_where_the_depth_is_greatest_and_one_where_it_is_l
     }
 }
 
-// Why: the polylines of plot3, contour3 and quiver3 carry one depth per point; the stroke's outline vertices and
-// every dash piece must take the depth of the point of the line they lie beside, or a line would fight the surface
-// it crosses wherever a dash or the stroke's width fell at the wrong depth.
+// Why: the stroke of a line lying on a plane (the edge of a face, a grid line on the floor of the box) is expanded
+// by the shader from the depth at each end of every segment, so each end must take the plane at its own point, in
+// item space (the compiler fits planes in item space beneath the group transform of a 3D axes), normalised over the
+// group with the fills; and because the shader offsets the stroke's vertices from the polyline by half the width,
+// the segment must also carry the gradient of z per item unit, the plane's tilt mapped through the group's
+// normalisation, so that an offset vertex takes the plane at its own position rather than at the polyline's: a
+// stroke on a steep plane would otherwise leave it by the tilt times half its width and cut into the face it
+// outlines. The params leave the depth to the segments. Outside every depth group the plane is ignored, every end
+// lies at z = 0 like every loose vertex, and there is no gradient.
 #[test]
-fn per_vertex_depths_interpolate_along_a_dashed_stroke() {
-    let line = sourced(
+fn segments_take_the_plane_at_each_end_in_item_space_with_its_gradient_inside_a_depth_group_and_zero_outside()
+ {
+    // The polyline runs along y = 50 from x = 0 through x = 50 to x = 100 in item space; the plane rises by 0.008
+    // per unit of x and by 0.002 per unit of y, so along the line its depth is 0.1, 0.5 and 0.9.
+    let plane = DepthPlane {
+        a: 0.008,
+        b: 0.002,
+        c: 0.0,
+    };
+    let line = || {
+        sourced(
+            with_depth(
+                solid(polyline(&[(0.0, 50.0), (50.0, 50.0), (100.0, 50.0)])),
+                Depth::Plane(plane),
+            ),
+            1,
+        )
+    };
+    let transform = scale_then_translate(2.0, 2.0, 100.0, 200.0);
+    let expected_segments = [
+        segment(
+            (0.0, 50.0),
+            (0.0, 50.0),
+            (50.0, 50.0),
+            (100.0, 50.0),
+            (false, true),
+            (0.0, 50.0),
+        ),
+        segment(
+            (0.0, 50.0),
+            (50.0, 50.0),
+            (100.0, 50.0),
+            (100.0, 50.0),
+            (true, false),
+            (50.0, 100.0),
+        ),
+    ];
+    // The depth range of the group, fixed by two pins at the depths 0 and `range`, over which z is
+    // (range − depth) / range and the gradient of z is −(a, b) / range.
+    for range in [1.0, 2.0] {
+        let grouped = draw_list(&list(vec![group(
+            None,
+            Some(transform),
+            vec![depth_group(vec![
+                square_at(-4.0, -4.0, 1.0, Rgba::BLACK, DepthPlane::constant(0.0)),
+                square_at(-2.0, -4.0, 1.0, Rgba::BLACK, DepthPlane::constant(range)),
+                line(),
+            ])],
+        )]));
+
+        let draw = draw_of(&grouped, 1);
+        assert_eq!(
+            draw.depth_group,
+            Some(0),
+            "the stroke lies in the depth group: {draw:?}"
+        );
+        let segments = segments_of(&grouped, draw);
+        assert_segments(
+            segments,
+            &expected_segments,
+            1e-4,
+            "beneath the group transform the segments stay in item space",
+        );
+        let z = |depth: f64| (range - depth) / range;
+        assert_z_pairs(
+            segments,
+            &[[z(0.1), z(0.5)], [z(0.5), z(0.9)]],
+            1e-5,
+            &format!(
+                "with a depth range of {range}, each end takes the plane read at its own item-space point, 0 the \
+                 nearest (a plane read at the figure position (100 + 2x, 200 + 2y) would give other values)"
+            ),
+        );
+        let gradient = [-plane.a / range, -plane.b / range];
+        for (k, s) in segments.iter().enumerate() {
+            assert!(
+                (f64::from(s.grad[0]) - gradient[0]).abs() <= 1e-6
+                    && (f64::from(s.grad[1]) - gradient[1]).abs() <= 1e-6,
+                "with a depth range of {range}, segment {k} carries the gradient of z per item unit of x and of \
+                 y, −(a, b) / range = {gradient:?}: {s:?}"
+            );
+        }
+        let params = params_of(&grouped, draw);
+        assert_eq!(
+            params.z, 0.0,
+            "inside a depth group the params carry no depth of their own, the segments do: {params:?}"
+        );
+        assert_eq!(
+            params.vertex_z, 1,
+            "inside a depth group the params tell the shader to take the depth from the segments: {params:?}"
+        );
+        assert_eq!(
+            params.offset,
+            [100.0, 200.0, 0.0, 0.0],
+            "the params carry the group's transform: {params:?}"
+        );
+    }
+
+    let loose = draw_list(&list(vec![group(None, Some(transform), vec![line()])]));
+    let draw = draw_of(&loose, 1);
+    assert_eq!(
+        draw.depth_group, None,
+        "outside every depth group the stroke has no group: {draw:?}"
+    );
+    assert_z_pairs(
+        segments_of(&loose, draw),
+        &[[0.0, 0.0], [0.0, 0.0]],
+        0.0,
+        "outside every depth group the plane is ignored and every end lies at z = 0",
+    );
+    assert!(
+        segments_of(&loose, draw)
+            .iter()
+            .all(|s| s.grad == [0.0, 0.0]),
+        "outside every depth group no segment carries a gradient: {:?}",
+        segments_of(&loose, draw)
+    );
+    assert_eq!(
+        params_of(&loose, draw).vertex_z,
+        0,
+        "outside every depth group the params tell the shader to take their own z: {:?}",
+        params_of(&loose, draw)
+    );
+}
+
+// Why: the polylines of plot3, contour3 and quiver3 carry one depth per point, and a curve among them is flattened
+// into chords whose interior points have no depth of their own; each segment end must take the depth of the point
+// that made it, and a flattened point the depth interpolated between the curve's ends by its fraction of the
+// flattened length, or a line would fight the surface it crosses wherever the depth fell at the wrong point along
+// it. The range is pinned to [0, 1], so z is 1 − depth.
+#[test]
+fn segments_take_the_depth_of_the_vertex_at_each_end_and_interpolate_it_along_a_flattened_cubic() {
+    // A polyline whose three points lie at the depths 0, 1 and 0.5, and an arch from a point at depth 0.2 to one
+    // at 0.8.
+    let polyline_item = sourced(
         with_depth(
-            stroked_line(vec![10.0, 10.0], 0.0, LineCap::Butt),
-            Depth::Vertices(vec![0.0, 1.0]),
+            solid(polyline(&[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)])),
+            Depth::Vertices(vec![0.0, 1.0, 0.5]),
         ),
         1,
     );
-    let [pin0, pin1] = range_pins(0.0, 80.0);
-    let drawn = draw_list(&list(vec![depth_group(vec![pin0, pin1, line])]));
+    let arch = sourced(
+        with_depth(
+            solid(vec![
+                move_to(0.0, 150.0),
+                PathSegment::CubicTo(
+                    Point::new(30.0, 190.0),
+                    Point::new(70.0, 190.0),
+                    Point::new(100.0, 150.0),
+                ),
+            ]),
+            Depth::Vertices(vec![0.2, 0.8]),
+        ),
+        2,
+    );
+    let [pin0, pin1] = range_pins(200.0, 0.0);
+    let drawn = draw_list(&list(vec![depth_group(vec![
+        pin0,
+        pin1,
+        polyline_item,
+        arch,
+    ])]));
 
-    let vertices = vertices_of_draw(&drawn, draw_of(&drawn, 1));
+    assert_z_pairs(
+        segments_of(&drawn, draw_of(&drawn, 1)),
+        &[[1.0, 0.0], [0.0, 0.5]],
+        1e-5,
+        "each end of a segment takes the depth of the vertex that made it",
+    );
+
+    let chords = segments_of(&drawn, draw_of(&drawn, 2));
     assert!(
-        vertices.len() >= 5 * 6,
-        "five dashes of at least two triangles each: {} indices",
-        vertices.len()
+        chords.len() >= 4,
+        "the arch is flattened into several chords: {}",
+        chords.len()
     );
-    assert_span(
-        span(&vertices, |v| v.pos[0]),
-        (0.0, 90.0),
-        "the line is still dashed: the pieces run from x = 0 to the end of the last dash at x = 90",
+    let length = f64::from(chords[chords.len() - 1].arc[1]);
+    for (k, chord) in chords.iter().enumerate() {
+        for (end, z, arc) in [
+            ("start", chord.z[0], chord.arc[0]),
+            ("end", chord.z[1], chord.arc[1]),
+        ] {
+            let depth = 0.2 + 0.6 * f64::from(arc) / length;
+            let expected = 1.0 - depth;
+            assert!(
+                (f64::from(z) - expected).abs() <= 1e-3,
+                "the {end} of chord {k}, at arc length {arc} of {length}, takes the depth {depth} interpolated \
+                 between 0.2 and 0.8 by its fraction of the flattened length, z = {expected}: got {z}"
+            );
+        }
+    }
+    assert!(
+        (chords[0].z[0] - 0.8).abs() <= 1e-5 && (chords[chords.len() - 1].z[1] - 0.2).abs() <= 1e-5,
+        "the ends of the arch take the depths of its endpoints: {chords:?}"
     );
-    for v in &vertices {
-        let expected = 1.0 - v.pos[0] / 100.0;
-        assert!(
-            (v.z - expected).abs() <= 1e-4,
-            "z at ({}, {}) is {expected}, the depth interpolated along the line from 0 at x = 0 to 1 at x = 100 \
-             with the range pinned to [0, 1]: got {}",
-            v.pos[0],
-            v.pos[1],
-            v.z
+    let interior: Vec<f32> = chords.iter().skip(1).map(|chord| chord.z[0]).collect();
+    assert!(
+        !interior.is_empty() && interior.iter().all(|&z| z > 0.2 && z < 0.8),
+        "every point made by the flattening lies strictly between the end depths: {interior:?}"
+    );
+    assert!(
+        drawn.segments.iter().all(|s| s.grad == [0.0, 0.0]),
+        "per-vertex depths vary along the line only, so no segment carries a gradient across it: {:?}",
+        drawn.segments.iter().map(|s| s.grad).collect::<Vec<_>>()
+    );
+}
+
+// Why: outside every depth group the stroke pipeline depth-tests with `Less` and writes the draw's own z, so that
+// a translucent stroke never blends with itself where its parts overlap (as PDF paints a stroke once); consecutive
+// stroke draws must therefore take strictly decreasing z, or a later stroke would fail the test against an earlier
+// one and vanish where they cross, and the count restarts whenever the depth group changes, because the painter
+// clears the depth buffer there, so that the values never run out. A fill between two strokes does not restart it.
+// Inside a group the segments carry the depth and the params' z is 0 and unused.
+#[test]
+fn consecutive_stroke_draws_outside_depth_groups_take_strictly_decreasing_params_z_restarting_after_a_group()
+ {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let line = |id: u64| sourced(solid(line_segments()), id);
+    let [pin0, pin1] = range_pins(200.0, 0.0);
+    let drawn = draw_list(&list(vec![
+        line(1),
+        filled(rect_segments(0.0, 0.0, 5.0, 5.0), red, FillRule::NonZero),
+        line(2),
+        depth_group(vec![
+            pin0,
+            pin1,
+            sourced(
+                with_depth(
+                    solid(line_segments()),
+                    Depth::Plane(DepthPlane::constant(0.5)),
+                ),
+                3,
+            ),
+        ]),
+        line(4),
+        line(5),
+    ]));
+
+    for (id, group_number) in [(1, None), (2, None), (3, Some(0)), (4, None), (5, None)] {
+        let draw = draw_of(&drawn, id);
+        assert_eq!(
+            draw.depth_group, group_number,
+            "the stroke of node {id} lies in the depth group {group_number:?}: {draw:?}"
         );
     }
+    let z = |id: u64| params_of(&drawn, draw_of(&drawn, id)).z;
+    assert_eq!(
+        z(3),
+        0.0,
+        "inside the depth group the params carry no depth of their own: {:?}",
+        params_of(&drawn, draw_of(&drawn, 3))
+    );
+    for (first, second) in [(1, 2), (4, 5)] {
+        let (a, b) = (z(first), z(second));
+        assert!(
+            a > b && b > 0.0 && a < 1.0,
+            "the strokes of nodes {first} and {second}, consecutive outside every depth group with only a fill \
+             between them, take strictly decreasing z in (0, 1): {a} then {b}"
+        );
+    }
+    assert_eq!(
+        (z(4), z(5)),
+        (z(1), z(2)),
+        "the count restarts after the depth group: the strokes after it take the z of the strokes at the start of \
+         the list"
+    );
 }
 
 // Why: a filled polygon with one depth per vertex (a filled contour band of contour3, a patch of fill3) must give
@@ -2334,12 +3882,7 @@ fn a_filled_triangle_takes_its_three_vertex_depths_at_its_corners() {
     let triangle = sourced(
         with_depth(
             filled(
-                vec![
-                    PathSegment::MoveTo(Point::new(0.0, 0.0)),
-                    PathSegment::LineTo(Point::new(10.0, 0.0)),
-                    PathSegment::LineTo(Point::new(0.0, 10.0)),
-                    PathSegment::Close,
-                ],
+                closed_polyline(&[(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)]),
                 red,
                 FillRule::NonZero,
             ),
@@ -2377,48 +3920,6 @@ fn a_filled_triangle_takes_its_three_vertex_depths_at_its_corners() {
             "z at ({}, {}) is {expected}, the depth interpolated between the corners: got {}",
             v.pos[0],
             v.pos[1],
-            v.z
-        );
-    }
-}
-
-// Why: the stroke of a line lying on a plane (the edge of a face, a grid line on the floor of the box) has width,
-// and its outline vertices lie half the width either side of the path; each must take the plane at its own
-// position rather than at the point of the path it belongs to, or on a steep plane the stroke would leave the
-// plane by the tilt times half its width and cut into the face it outlines.
-#[test]
-fn the_outline_vertices_of_a_stroke_take_the_plane_at_their_own_position() {
-    // The line runs along y = 50 from x = 0 to x = 100 and is 4 wide; the plane rises by 0.01 per unit of y.
-    let line = sourced(
-        with_depth(
-            stroked_line(vec![], 0.0, LineCap::Butt),
-            Depth::Plane(DepthPlane {
-                a: 0.0,
-                b: 0.01,
-                c: 0.0,
-            }),
-        ),
-        1,
-    );
-    let [pin0, pin1] = range_pins(0.0, 80.0);
-    let drawn = draw_list(&list(vec![depth_group(vec![pin0, pin1, line])]));
-
-    let vertices = vertices_of_draw(&drawn, draw_of(&drawn, 1));
-    assert_span(
-        span(&vertices, |v| v.pos[1]),
-        (48.0, 52.0),
-        "the outline lies half the width either side of the line",
-    );
-    let centreline = 1.0 - 0.01 * 50.0;
-    for v in &vertices {
-        let expected = 1.0 - 0.01 * f64::from(v.pos[1]);
-        assert!(
-            (f64::from(v.z) - expected).abs() <= 1e-5,
-            "z at ({}, {}) is {expected}, the plane 0.01·y read at the vertex itself, {:+} from the centreline's \
-             {centreline} (the tilt times half the width): got {}",
-            v.pos[0],
-            v.pos[1],
-            expected - centreline,
             v.z
         );
     }
@@ -2554,9 +4055,9 @@ fn an_image_in_a_depth_group_is_one_textured_tile_whose_corners_take_the_plane_o
 }
 
 // Why: the display-list contract has a backend skip what it cannot draw rather than panic; a path whose per-vertex
-// depths do not match its endpoints or whose plane is not finite has no depth to give its vertices, a path or an
-// image in a depth group without a depth has nothing to test, and a glyph run has no depth at all, so each must
-// vanish without a draw of its own while its neighbours still draw.
+// depths do not match its endpoints or whose plane is not finite has no depth to give its vertices or segment ends,
+// a path or an image in a depth group without a depth has nothing to test, and a glyph run has no depth at all, so
+// each must vanish without a draw of its own while its neighbours still draw.
 #[test]
 fn leaves_with_an_invalid_or_missing_depth_and_glyph_runs_are_skipped_inside_a_depth_group() {
     let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
@@ -2595,6 +4096,7 @@ fn leaves_with_an_invalid_or_missing_depth_and_glyph_runs_are_skipped_inside_a_d
         filled(rect_segments(40.0, 40.0, 5.0, 5.0), red, FillRule::NonZero),
         6,
     );
+    let depthless_stroke = sourced(solid(line_segments()), 8);
     let glyphs = sourced(glyph_h(Point::new(60.0, 60.0), 20.0, red), 7);
     let drawn = draw_list(&list(vec![depth_group(vec![
         sourced(square_at(0.0, 0.0, 5.0, red, DepthPlane::constant(0.0)), 1),
@@ -2602,6 +4104,7 @@ fn leaves_with_an_invalid_or_missing_depth_and_glyph_runs_are_skipped_inside_a_d
         unbounded,
         depthless,
         depthless_path,
+        depthless_stroke,
         glyphs,
         sourced(square_at(10.0, 0.0, 5.0, red, DepthPlane::constant(1.0)), 5),
     ])]));
@@ -2648,22 +4151,26 @@ fn draws_keep_the_paint_order_around_a_depth_group() {
         draw_bbox(&drawn, &drawn.draws[0]),
         bounds(0.0, 0.0, 5.0, 5.0),
         1e-3,
+        "the first draw is the square before the group",
     );
     assert_rect_close(
         draw_bbox(&drawn, &drawn.draws[1]),
         bounds(10.0, 0.0, 15.0, 5.0),
         1e-3,
+        "the second draw is the square of the group",
     );
     assert_rect_close(
         draw_bbox(&drawn, &drawn.draws[2]),
         bounds(20.0, 0.0, 25.0, 5.0),
         1e-3,
+        "the third draw is the square after the group",
     );
 }
 
 // Why: what the tests above build by hand, the compiler emits for a three-dimensional axes; the faces of a surface
-// must arrive as depth-tested draws of one group attributed to the surface, and everything else (the box, the ticks
-// and the labels) as draws outside any group, or a real figure would be drawn through the wrong path.
+// must arrive as depth-tested draws of one group attributed to the surface, and everything else (the box, whose
+// edges are strokes, the ticks and the labels) as draws outside any group, or a real figure would be drawn through
+// the wrong path.
 #[test]
 fn a_compiled_three_dimensional_figure_gives_draws_in_a_depth_group_beside_draws_outside_it() {
     let scene = ironlab_scene::compile(&figure_with_surface(true), &TEXT);
@@ -2681,14 +4188,10 @@ fn a_compiled_three_dimensional_figure_gives_draws_in_a_depth_group_beside_draws
             .all(|d| d.depth_group == Some(0) && d.source == Some(NodeId(3))),
         "every draw in a group is the surface's, in the one group: {grouped:?}"
     );
-    let zs: Vec<f32> = grouped
-        .iter()
-        .flat_map(|d| vertices_of_draw(&drawn, d))
-        .map(|v| v.z)
-        .collect();
+    let zs: Vec<f32> = grouped.iter().flat_map(|d| depths_of(&drawn, d)).collect();
     assert!(
         zs.iter().any(|z| z.abs() <= 1e-6) && zs.iter().any(|z| (z - 1.0).abs() <= 1e-6),
-        "the nearest vertex of the group lies at z = 0 and the farthest at z = 1: {zs:?}"
+        "the nearest vertex or segment end of the group lies at z = 0 and the farthest at z = 1: {zs:?}"
     );
     assert!(
         !loose.is_empty(),
@@ -2697,8 +4200,14 @@ fn a_compiled_three_dimensional_figure_gives_draws_in_a_depth_group_beside_draws
     assert!(
         loose
             .iter()
-            .flat_map(|d| vertices_of_draw(&drawn, d))
-            .all(|v| v.z == 0.0),
-        "every vertex outside the group lies at z = 0"
+            .any(|d| matches!(d.kind, DrawKind::Stroke { .. })),
+        "the box's edges are strokes outside the group: {loose:?}"
+    );
+    assert!(
+        loose
+            .iter()
+            .flat_map(|d| depths_of(&drawn, d))
+            .all(|z| z == 0.0),
+        "every vertex and segment end outside the group lies at z = 0"
     );
 }

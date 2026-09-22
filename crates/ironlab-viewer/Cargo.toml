@@ -34,7 +34,6 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 egui_tiles.workspace = true
 kurbo.workspace = true
 lyon.workspace = true
-lyon_algorithms.workspace = true
 pollster = "1.0.1"
 rfd.workspace = true
 serde_json.workspace = true

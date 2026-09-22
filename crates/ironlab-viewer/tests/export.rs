@@ -15,11 +15,15 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-use common::{TEXT, figure_with_mapped_image, find_image, gpu_required, rendered_or_skip};
-use image::{Rgb, RgbImage};
+use common::{
+    BLOCK_PT, BLOCK_TOLERANCE, TEXT, Workspace, assert_same_picture, difference,
+    figure_with_mapped_image, find_image, gpu_required, rasterise, rendered_or_skip, rgb_of, run,
+    tools_available,
+};
+use image::RgbImage;
 use ironlab_ir::{
     Artist, Axes, Axis, Cell, Color, ColorSpec, DataId, Figure, Grid, Limits, Line, NdArray,
     NodeId, Projection, Surface, Text, TileLayout, View3d,
@@ -29,37 +33,11 @@ use ironlab_pdf::{
     UnverifiedCause,
 };
 use ironlab_scene::display::Rect;
-use ironlab_viewer::{ExportError, RenderError, RenderedImage, render_display_list_offscreen};
+use ironlab_viewer::{ExportError, RenderError, render_display_list_offscreen};
 
 /// The side of the grid of the dense surface. It has 139 × 139 = 19 321 faces, comfortably above the default
 /// threshold, so the default settings rasterise it without being told to.
 const DENSE_SIDE: usize = 140;
-
-fn tools_required() -> bool {
-    std::env::var_os("IRONLAB_REQUIRE_PDF_TOOLS").is_some()
-}
-
-/// Reports whether every tool is on `PATH`, printing a skip message when one is missing and tools are not required.
-fn tools_available(tools: &[&str]) -> bool {
-    let missing: Vec<&str> = tools
-        .iter()
-        .copied()
-        .filter(|tool| {
-            std::env::var_os("PATH").is_none_or(|path| {
-                !std::env::split_paths(&path).any(|dir| dir.join(tool).is_file())
-            })
-        })
-        .collect();
-    if missing.is_empty() {
-        return true;
-    }
-    assert!(
-        !tools_required(),
-        "required PDF tools are missing from PATH: {missing:?}"
-    );
-    eprintln!("skipping: PDF tools missing from PATH: {missing:?}");
-    false
-}
 
 /// Unwraps an export, or returns `None` (skipping the test) when no adapter is available and a GPU is not required.
 fn exported_or_skip<T>(result: Result<T, ExportError>) -> Option<T> {
@@ -73,52 +51,6 @@ fn exported_or_skip<T>(result: Result<T, ExportError>) -> Option<T> {
         }
         Err(error) => panic!("export failed: {error}"),
     }
-}
-
-/// A scratch directory for one test, removed unless the test panics.
-struct Workspace(PathBuf);
-
-impl Workspace {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "ironlab-export-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos())
-        ));
-        std::fs::create_dir_all(&dir).expect("create the test workspace");
-        Self(dir)
-    }
-
-    fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
-        let path = self.0.join(format!("{name}.pdf"));
-        std::fs::write(&path, bytes).expect("write the PDF");
-        path
-    }
-}
-
-impl Drop for Workspace {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            eprintln!("test artefacts kept in {}", self.0.display());
-        } else {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-}
-
-fn run(command: &mut Command) -> String {
-    let description = format!("{command:?}");
-    let output = command
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run {description}: {e}"));
-    assert!(
-        output.status.success(),
-        "{description} failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 /// The `(width, height)` in samples of every image embedded in a PDF, ignoring soft masks.
@@ -141,72 +73,6 @@ fn embedded_images(pdf: &Path) -> Vec<(u32, u32)> {
 fn pdftotext(pdf: &Path) -> String {
     run(Command::new("pdftotext").arg(pdf).arg("-"))
 }
-
-/// Rasterises the single page of a PDF at `dpi` dots per inch.
-///
-/// Pages are compared at the resolution the figure was exported at, never below it. An embedded image is drawn with
-/// `/Interpolate false`, so a PDF rasteriser asked for fewer pixels than the image has point-samples it and drops
-/// the thin lines between faces, which would make a correctly placed raster look nothing like the paths it replaces.
-fn rasterise(pdf: &Path, dpi: f64) -> RgbImage {
-    let prefix = pdf.with_extension("");
-    run(Command::new("pdftoppm")
-        .args(["-r", &dpi.to_string(), "-png", "-singlefile"])
-        .arg(pdf)
-        .arg(&prefix));
-    image::open(prefix.with_extension("png"))
-        .expect("decode the rasterised page")
-        .to_rgb8()
-}
-
-/// How much two rasters of the same page differ, in levels out of 255.
-///
-/// Block averages are compared rather than single pixels because a raster and the paths it replaces do not resolve a
-/// boundary identically: a face edge that falls inside a pixel is covered by the GPU's multisampling in one and by
-/// the PDF rasteriser's own anti-aliasing in the other, and the two disagree by tens of levels on that pixel alone.
-/// Averaging over a block conserves the ink, so a raster in the wrong place, at the wrong scale or in the wrong
-/// colours still changes the blocks it covers, while a sub-pixel difference along a boundary does not.
-///
-/// Both measures are needed. The mean over the page detects a raster that is displaced, rescaled or recoloured,
-/// because such a raster disagrees with the paths nearly everywhere. The worst block detects a local defect, such as
-/// a corner of the surface left unrendered, which the rest of the page would dilute out of the mean.
-fn difference(a: &RgbImage, b: &RgbImage, block: u32) -> (f64, f64) {
-    assert_eq!(a.dimensions(), b.dimensions(), "rasters of the same page");
-    let (width, height) = a.dimensions();
-    let mean = |image: &RgbImage, column: u32, row: u32, channel: usize| -> f64 {
-        let total: u32 = (row * block..(row + 1) * block)
-            .flat_map(|y| (column * block..(column + 1) * block).map(move |x| (x, y)))
-            .map(|(x, y)| u32::from(image.get_pixel(x, y).0[channel]))
-            .sum();
-        f64::from(total) / f64::from(block * block)
-    };
-    let blocks: Vec<f64> = (0..height / block)
-        .flat_map(|row| (0..width / block).map(move |column| (column, row)))
-        .map(|(column, row)| {
-            (0..3)
-                .map(|channel| {
-                    (mean(a, column, row, channel) - mean(b, column, row, channel)).abs()
-                })
-                .sum::<f64>()
-                / 3.0
-        })
-        .collect();
-    (
-        blocks.iter().sum::<f64>() / blocks.len() as f64,
-        blocks.iter().copied().fold(0.0, f64::max),
-    )
-}
-
-/// The largest mean difference tolerated across the page, out of 255. A raster displaced by as little as a point, or
-/// at a scale wrong by a percent, disagrees with the paths over the whole surface and moves this far beyond it.
-const MEAN_TOLERANCE: f64 = 3.0;
-
-/// The largest difference tolerated in any one block, out of 255. What remains within it is the disagreement between
-/// two anti-aliasers where the projected faces are most foreshortened and several of them fall in one pixel, which no
-/// correct implementation can remove.
-const BLOCK_TOLERANCE: f64 = 16.0;
-
-/// The side of the blocks compared, in points.
-const BLOCK_PT: f64 = 6.0;
 
 /// The mean absolute difference per channel between two rasters, with `b` shifted by `(dx, dy)` pixels and only the
 /// region the two then have in common compared.
@@ -246,18 +112,6 @@ fn assert_registered(vector: &RgbImage, raster: &RgbImage, dpi: f64, offset_pt: 
              ({shifted:.2}) than where it was drawn ({here:.2}), so it is out of register"
         );
     }
-}
-
-/// Asserts that two rasters of the same page, taken at `dpi`, show the same picture.
-fn assert_same_picture(vector: &RgbImage, raster: &RgbImage, dpi: f64) {
-    let block = (BLOCK_PT * dpi / 72.0).round().max(1.0) as u32;
-    let (mean, worst) = difference(vector, raster, block);
-    assert!(
-        mean <= MEAN_TOLERANCE && worst <= BLOCK_TOLERANCE,
-        "the raster and the paths it replaces differ by {mean:.2} of 255 on average (tolerance \
-         {MEAN_TOLERANCE}) and by {worst:.1} in the worst block of {BLOCK_PT} points square (tolerance \
-         {BLOCK_TOLERANCE})"
-    );
 }
 
 /// Options with the given dense policy and resolution, and the three-dimensional axes drawn as vectors in painter's
@@ -394,7 +248,12 @@ fn a_rasterised_2d_surface_is_the_same_picture_as_the_paths_it_replaces() {
     };
 
     assert_registered(&vector, &raster, 300.0, 1.0);
-    assert_same_picture(&vector, &raster, 300.0);
+    assert_same_picture(
+        &vector,
+        &raster,
+        300.0,
+        "the rasterised two-dimensional surface and the paths it replaces",
+    );
 }
 
 // WHY: in a three-dimensional axes the surface is a projection, its faces are sorted back to front, and its geometry
@@ -418,7 +277,12 @@ fn a_rasterised_3d_surface_is_the_same_picture_as_the_paths_it_replaces() {
     };
 
     assert_registered(&vector, &raster, 300.0, 1.0);
-    assert_same_picture(&vector, &raster, 300.0);
+    assert_same_picture(
+        &vector,
+        &raster,
+        300.0,
+        "the rasterised three-dimensional surface and the paths it replaces",
+    );
 }
 
 // WHY: the reason to export a figure as a PDF rather than an image is that its text is text and its lines are lines.
@@ -481,14 +345,6 @@ fn a_figure_with_nothing_dense_exports_without_a_renderer() {
 // ---------------------------------------------------------------------------------------------------------------
 // Images
 // ---------------------------------------------------------------------------------------------------------------
-
-/// The pixels of an offscreen render as an RGB image, which is what a raster of a PDF page is; the page is opaque.
-fn rgb_of(rendered: &RenderedImage) -> RgbImage {
-    RgbImage::from_fn(rendered.width, rendered.height, |x, y| {
-        let [r, g, b, _] = rendered.pixel(x, y);
-        Rgb([r, g, b])
-    })
-}
 
 /// The inset, in points, by which the plot rectangle is shrunk before its interior is compared: enough to leave out
 /// the box of the axes and the tick marks that point into the plot, which are at most half the font size long.
@@ -561,7 +417,12 @@ fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_dr
         "the viewer draws the ramp of the image across the plot interior"
     );
     assert_registered(&printed, &drawn, dpi, 2.0);
-    assert_same_picture(&printed, &drawn, dpi);
+    assert_same_picture(
+        &printed,
+        &drawn,
+        dpi,
+        "the printed image and the viewer's drawing of it",
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -710,7 +571,12 @@ fn a_height_field_under_the_default_policy_stays_vector_and_matches_its_depth_te
     );
     let (vector, raster) = (rasterise(&vector, dpi), rasterise(&raster, dpi));
     assert_registered(&vector, &raster, dpi, 1.0);
-    assert_same_picture(&vector, &raster, dpi);
+    assert_same_picture(
+        &vector,
+        &raster,
+        dpi,
+        "the verified vectors and the depth-tested raster",
+    );
 }
 
 // WHY: two surfaces that cut through each other cannot be painted back to front, so the default policy must embed
@@ -791,7 +657,12 @@ fn crossing_surfaces_under_the_default_policy_are_embedded_and_reported() {
     let printed = plot_interior(&auto_page, plot, dpi);
     let drawn = plot_interior(&rgb_of(&drawn), plot, dpi);
     assert_registered(&printed, &drawn, dpi, 1.0);
-    assert_same_picture(&printed, &drawn, dpi);
+    assert_same_picture(
+        &printed,
+        &drawn,
+        dpi,
+        "the embedded image and the viewer's drawing of the axes",
+    );
 }
 
 // WHY: a figure of two-dimensional axes reaches the page as vectors and needs no verification, so its report must

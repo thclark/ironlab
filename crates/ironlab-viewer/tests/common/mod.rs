@@ -5,8 +5,11 @@
 
 #![allow(dead_code)]
 
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
+use image::{Rgb, RgbImage};
 use ironlab_ir::{
     Axes, Axis, AxisLink, Dimension, Edit, Figure, Limits, NodeId, Projection, PropertyPath,
     Transaction, Value, View3d, command,
@@ -632,4 +635,180 @@ pub fn figure_with_surface(visible: bool) -> Figure {
         }],
         ..Figure::new()
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Rasters of exported pages, for the tests that compare a PDF with what the viewer draws. They need poppler's tools
+// on `PATH`; a missing tool skips a test unless `IRONLAB_REQUIRE_PDF_TOOLS` is set, as it is in CI.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Reports whether a missing PDF tool fails a test rather than skipping it, which the environment variable
+/// `IRONLAB_REQUIRE_PDF_TOOLS` asks for, as CI does.
+pub fn tools_required() -> bool {
+    std::env::var_os("IRONLAB_REQUIRE_PDF_TOOLS").is_some()
+}
+
+/// Reports whether every tool is on `PATH`, printing a skip message when one is missing and tools are not required.
+pub fn tools_available(tools: &[&str]) -> bool {
+    let missing: Vec<&str> = tools
+        .iter()
+        .copied()
+        .filter(|tool| {
+            std::env::var_os("PATH").is_none_or(|path| {
+                !std::env::split_paths(&path).any(|dir| dir.join(tool).is_file())
+            })
+        })
+        .collect();
+    if missing.is_empty() {
+        return true;
+    }
+    assert!(
+        !tools_required(),
+        "required PDF tools are missing from PATH: {missing:?}"
+    );
+    eprintln!("skipping: PDF tools missing from PATH: {missing:?}");
+    false
+}
+
+/// A scratch directory for one test, removed unless the test panics, in which case its path is printed so that the
+/// files it holds can be inspected.
+pub struct Workspace(PathBuf);
+
+impl Workspace {
+    pub fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!(
+            "ironlab-viewer-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        std::fs::create_dir_all(&dir).expect("create the test workspace");
+        Self(dir)
+    }
+
+    /// The path of `file` inside the directory.
+    pub fn path(&self, file: &str) -> PathBuf {
+        self.0.join(file)
+    }
+
+    /// Writes `bytes` as `<name>.pdf` inside the directory and returns the path of the file.
+    pub fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.0.join(format!("{name}.pdf"));
+        std::fs::write(&path, bytes).expect("write the PDF");
+        path
+    }
+}
+
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("test artefacts kept in {}", self.0.display());
+        } else {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+}
+
+/// Runs a command to completion, panicking with its standard error when it fails, and returns its standard output.
+pub fn run(command: &mut Command) -> String {
+    let description = format!("{command:?}");
+    let output = command
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run {description}: {e}"));
+    assert!(
+        output.status.success(),
+        "{description} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Rasterises the single page of a PDF at `dpi` dots per inch.
+///
+/// Pages are compared at the resolution the figure was exported at, never below it. An embedded image is drawn with
+/// `/Interpolate false`, so a PDF rasteriser asked for fewer pixels than the image has point-samples it and drops
+/// the thin lines between faces, which would make a correctly placed raster look nothing like the paths it replaces.
+pub fn rasterise(pdf: &Path, dpi: f64) -> RgbImage {
+    let prefix = pdf.with_extension("");
+    run(Command::new("pdftoppm")
+        .args(["-r", &dpi.to_string(), "-png", "-singlefile"])
+        .arg(pdf)
+        .arg(&prefix));
+    image::open(prefix.with_extension("png"))
+        .expect("decode the rasterised page")
+        .to_rgb8()
+}
+
+/// How much two rasters of the same page differ, in levels out of 255.
+///
+/// Block averages are compared rather than single pixels because two rasterisers of one page, the GPU and the PDF
+/// rasteriser, do not resolve a boundary identically: an edge that falls inside a pixel is covered by the GPU's
+/// multisampling in one and by the PDF rasteriser's own anti-aliasing in the other, and the two disagree by tens of
+/// levels on that pixel alone. Averaging over a block conserves the ink, so a shape in the wrong place, at the wrong
+/// scale or in the wrong colours still changes the blocks it covers, while a sub-pixel difference along a boundary
+/// does not.
+///
+/// Both measures are needed. The mean over the page detects a shape that is displaced, rescaled or recoloured,
+/// because such a shape disagrees with the other raster nearly everywhere. The worst block detects a local defect,
+/// such as a corner of a surface left unrendered or a join missing from a stroke, which the rest of the page would
+/// dilute out of the mean.
+pub fn difference(a: &RgbImage, b: &RgbImage, block: u32) -> (f64, f64) {
+    assert_eq!(a.dimensions(), b.dimensions(), "rasters of the same page");
+    let (width, height) = a.dimensions();
+    let mean = |image: &RgbImage, column: u32, row: u32, channel: usize| -> f64 {
+        let total: u32 = (row * block..(row + 1) * block)
+            .flat_map(|y| (column * block..(column + 1) * block).map(move |x| (x, y)))
+            .map(|(x, y)| u32::from(image.get_pixel(x, y).0[channel]))
+            .sum();
+        f64::from(total) / f64::from(block * block)
+    };
+    let blocks: Vec<f64> = (0..height / block)
+        .flat_map(|row| (0..width / block).map(move |column| (column, row)))
+        .map(|(column, row)| {
+            (0..3)
+                .map(|channel| {
+                    (mean(a, column, row, channel) - mean(b, column, row, channel)).abs()
+                })
+                .sum::<f64>()
+                / 3.0
+        })
+        .collect();
+    (
+        blocks.iter().sum::<f64>() / blocks.len() as f64,
+        blocks.iter().copied().fold(0.0, f64::max),
+    )
+}
+
+/// The largest mean difference tolerated across the page, out of 255. A raster displaced by as little as a point, or
+/// at a scale wrong by a percent, disagrees with the paths over the whole surface and moves this far beyond it.
+pub const MEAN_TOLERANCE: f64 = 3.0;
+
+/// The largest difference tolerated in any one block, out of 255. What remains within it is the disagreement between
+/// two anti-aliasers where the projected faces are most foreshortened and several of them fall in one pixel, which no
+/// correct implementation can remove.
+pub const BLOCK_TOLERANCE: f64 = 16.0;
+
+/// The side of the blocks compared, in points.
+pub const BLOCK_PT: f64 = 6.0;
+
+/// Asserts that two rasters of the same page, taken at `dpi`, show the same picture, naming `what` was compared
+/// when they do not.
+#[track_caller]
+pub fn assert_same_picture(a: &RgbImage, b: &RgbImage, dpi: f64, what: &str) {
+    let block = (BLOCK_PT * dpi / 72.0).round().max(1.0) as u32;
+    let (mean, worst) = difference(a, b, block);
+    assert!(
+        mean <= MEAN_TOLERANCE && worst <= BLOCK_TOLERANCE,
+        "{what}: the two rasters differ by {mean:.2} of 255 on average (tolerance {MEAN_TOLERANCE}) and by \
+         {worst:.1} in the worst block of {BLOCK_PT} points square (tolerance {BLOCK_TOLERANCE})"
+    );
+}
+
+/// The pixels of an offscreen render as an RGB image, which is what a raster of a PDF page is; the page is opaque.
+pub fn rgb_of(rendered: &RenderedImage) -> RgbImage {
+    RgbImage::from_fn(rendered.width, rendered.height, |x, y| {
+        let [r, g, b, _] = rendered.pixel(x, y);
+        Rgb([r, g, b])
+    })
 }
