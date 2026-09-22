@@ -33,6 +33,8 @@
 //! is `(-0.5, -0.5, -0.5)`. The +x axis points to the right and slightly up on screen
 //! (`≈ (0.793, 0.304)`), and the +y axis points to the left and up (`≈ (-0.609, 0.397)`).
 
+use crate::display::{DepthPlane, Point};
+
 /// The eight corners of the normalised data box `[-0.5, 0.5]³`.
 pub const UNIT_BOX_CORNERS: [[f64; 3]; 8] = [
     [-0.5, -0.5, -0.5],
@@ -188,6 +190,61 @@ pub fn back_planes(cam: &Camera) -> [Plane; 3] {
         pick(toward[1], Plane::YMin, Plane::YMax),
         pick(toward[2], Plane::ZMin, Plane::ZMax),
     ]
+}
+
+/// The largest ratio of the determinant of the centred normal equations to the squared spread of the positions at
+/// which the positions still count as collinear, so that a face seen edge-on to within rounding gets a constant
+/// depth rather than a tilt of the order of the reciprocal of the rounding.
+const COLLINEAR_TOLERANCE: f64 = 1e-12;
+
+/// Fits the plane `depth(x, y) = a·x + b·y + c` to points given as `(position, depth)`, by least squares.
+///
+/// The plane is exact through three non-collinear points and through any coplanar set, which is what the four
+/// corners of a planar face are, and the least-squares fit otherwise, which is the best single plane for a twisted
+/// face. When the positions are collinear (a face seen edge-on) or there are fewer than three of them (a marker or a
+/// segment), the tilt is undetermined and the plane is the constant one at the mean depth. The normal equations are
+/// formed about the centroid, so that a face far from the origin loses no precision, and collinearity is judged
+/// relative to the spread of the positions ([`COLLINEAR_TOLERANCE`]), so that it does not depend on the figure's
+/// scale.
+///
+/// Returns `None` for no points at all, or for any non-finite coordinate or depth.
+pub fn depth_plane(points: &[(Point, f64)]) -> Option<DepthPlane> {
+    if points.is_empty()
+        || !points
+            .iter()
+            .all(|(p, d)| p.x.is_finite() && p.y.is_finite() && d.is_finite())
+    {
+        return None;
+    }
+    let n = points.len() as f64;
+    let mean_x = points.iter().map(|(p, _)| p.x).sum::<f64>() / n;
+    let mean_y = points.iter().map(|(p, _)| p.y).sum::<f64>() / n;
+    let mean_d = points.iter().map(|(_, d)| d).sum::<f64>() / n;
+    if points.len() < 3 {
+        return Some(DepthPlane::constant(mean_d));
+    }
+    let (mut sxx, mut syy, mut sxy, mut sxd, mut syd) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for (p, d) in points {
+        let (x, y, d) = (p.x - mean_x, p.y - mean_y, d - mean_d);
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+        sxd += x * d;
+        syd += y * d;
+    }
+    let spread = sxx + syy;
+    let det = sxx * syy - sxy * sxy;
+    if !det.is_finite() || det <= COLLINEAR_TOLERANCE * spread * spread {
+        return Some(DepthPlane::constant(mean_d));
+    }
+    let a = (syy * sxd - sxy * syd) / det;
+    let b = (sxx * syd - sxy * sxd) / det;
+    let plane = DepthPlane {
+        a,
+        b,
+        c: mean_d - a * mean_x - b * mean_y,
+    };
+    plane.is_finite().then_some(plane)
 }
 
 /// Sorts depth-tagged items back-to-front, in ascending depth, for painter's-algorithm drawing.

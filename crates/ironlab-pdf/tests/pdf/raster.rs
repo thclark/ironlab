@@ -290,6 +290,7 @@ fn miter_joins_are_limited_at_a_ratio_of_four() {
             ],
             fill: None,
             stroke: Some(stroke.clone()),
+            depth: None,
         }))
     };
     // A 20° corner at (100, 50) opening downwards: its miter ratio 1/sin(10°) ≈ 5.8 exceeds 4, so it is bevelled. With
@@ -714,6 +715,7 @@ fn path_with_both_fill_and_stroke_draws_the_stroke_over_the_fill() {
             rule: FillRule::NonZero,
         }),
         stroke: Some(solid_stroke(BLUE, 10.0)),
+        depth: None,
     })));
 
     for (engine, image) in render_and_rasterise(&ws, &list, &text) {
@@ -798,6 +800,7 @@ fn mixed_content_page(text: &ironlab_text::TextEngine) -> DisplayList {
                 ],
                 fill: None,
                 stroke: Some(solid_stroke(Rgba::BLACK, 1.5)),
+                depth: None,
             })),
         ],
     ));

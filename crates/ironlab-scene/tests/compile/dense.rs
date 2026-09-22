@@ -14,7 +14,7 @@ fn dense_groups(scene: &ironlab_scene::Scene) -> Vec<(Option<NodeId>, u64, usize
         for item in items {
             match &item.kind {
                 ItemKind::Dense { cells, items } => out.push((item.source, *cells, items.len())),
-                ItemKind::Group { items, .. } => walk(items, out),
+                ItemKind::Group { items, .. } | ItemKind::Depth { items } => walk(items, out),
                 _ => {}
             }
         }
@@ -251,7 +251,7 @@ fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
 fn inside_dense(items: &[Item], id: NodeId, dense: bool) -> bool {
     items.iter().any(|item| match &item.kind {
         ItemKind::Dense { items, .. } => inside_dense(items, id, true),
-        ItemKind::Group { items, .. } => inside_dense(items, id, dense),
+        ItemKind::Group { items, .. } | ItemKind::Depth { items } => inside_dense(items, id, dense),
         _ => dense && item.source == Some(id),
     })
 }

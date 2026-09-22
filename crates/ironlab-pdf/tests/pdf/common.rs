@@ -144,6 +144,7 @@ pub fn filled_path(segments: Vec<PathSegment>, color: Rgba, rule: FillRule) -> I
         segments,
         fill: Some(Fill { color, rule }),
         stroke: None,
+        depth: None,
     }))
 }
 
@@ -167,6 +168,7 @@ pub fn stroked_line(from: Point, to: Point, stroke: Stroke) -> Item {
         segments: vec![PathSegment::MoveTo(from), PathSegment::LineTo(to)],
         fill: None,
         stroke: Some(stroke),
+        depth: None,
     }))
 }
 

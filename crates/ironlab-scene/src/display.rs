@@ -11,6 +11,17 @@
 //! colour channels lie in `[0, 1]`; glyph text ranges are byte ranges within their run's text; and no clipped group
 //! is placed beneath a group whose transform rotates or skews. Backends must nevertheless skip (not panic on) items
 //! that violate these rules, because display lists can be built by hand.
+//!
+//! # Depth
+//!
+//! The artists of a three-dimensional axes lie inside an [`ItemKind::Depth`] group, in the painter's order the scene
+//! compiler chose, and every path and image among them carries the depth at which it is painted: a [`DepthPlane`]
+//! over the item's local space, or one depth per endpoint of a path. Larger depths are nearer the viewer. A backend
+//! with a depth buffer clears it at the group and tests every item against it, so that faces, lines, markers and
+//! images which cross one another are resolved pixel by pixel; a backend without one draws the items in order and
+//! gets the painter's picture. Depths are literal: no backend biases or reorders them. Inside a depth group every
+//! path and image carries a depth, a path's vertex depths are one finite value per endpoint, and no glyph run or
+//! further depth group appears.
 
 use std::sync::Arc;
 
@@ -237,12 +248,88 @@ pub struct Stroke {
     pub join: LineJoin,
 }
 
+/// A depth that is affine over an item's local space: `depth(x, y) = a·x + b·y + c`.
+///
+/// Larger depths are nearer the viewer, as [`crate::maths::camera::Camera::project`] reports them; a backend
+/// normalises the depths of one depth group among themselves before it tests them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthPlane {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+}
+
+impl DepthPlane {
+    /// The same depth everywhere: `a = b = 0`.
+    pub const fn constant(depth: f64) -> Self {
+        Self {
+            a: 0.0,
+            b: 0.0,
+            c: depth,
+        }
+    }
+
+    /// The depth at a point of the item's local space.
+    pub fn at(&self, p: Point) -> f64 {
+        self.a * p.x + self.b * p.y + self.c
+    }
+
+    /// Whether every coefficient is finite.
+    pub fn is_finite(&self) -> bool {
+        self.a.is_finite() && self.b.is_finite() && self.c.is_finite()
+    }
+
+    /// The same plane moved `by` farther from the viewer: every depth smaller by `by`, the tilt unchanged.
+    pub fn pushed_back(self, by: f64) -> Self {
+        Self {
+            c: self.c - by,
+            ..self
+        }
+    }
+}
+
+/// How deep a path lies, in its local coordinate space; larger is nearer the viewer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Depth {
+    /// One plane for the whole path. The scene compiler gives the faces of a surface the plane fitted to their
+    /// projected corners, shared by a face's fill and its edge so that the two never fight; markers a constant
+    /// plane; and filled contour bands the plane they lie in.
+    Plane(DepthPlane),
+    /// One depth per endpoint of the path's segments (`MoveTo`, `LineTo` and the end point of `CubicTo`; none for
+    /// `Close`), interpolated linearly along each segment: the polylines of plot3, contour3 and quiver3.
+    Vertices(Vec<f64>),
+}
+
 /// A filled and/or stroked path.
+///
+/// `depth` is `Some` for every path inside an [`ItemKind::Depth`] group and `None` elsewhere.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PathItem {
     pub segments: Vec<PathSegment>,
     pub fill: Option<Fill>,
     pub stroke: Option<Stroke>,
+    pub depth: Option<Depth>,
+}
+
+impl PathItem {
+    /// The number of endpoints of the path: one for each `MoveTo`, `LineTo` and `CubicTo`; a `Close` has none.
+    pub fn endpoint_count(&self) -> usize {
+        self.segments
+            .iter()
+            .filter(|s| !matches!(s, PathSegment::Close))
+            .count()
+    }
+
+    /// Reports whether the depth can be used: none, a finite plane, or one finite depth per endpoint.
+    pub fn is_valid_depth(&self) -> bool {
+        match &self.depth {
+            None => true,
+            Some(Depth::Plane(plane)) => plane.is_finite(),
+            Some(Depth::Vertices(depths)) => {
+                depths.len() == self.endpoint_count() && depths.iter().all(|d| d.is_finite())
+            }
+        }
+    }
 }
 
 /// A raster image drawn into an axis-aligned rectangle of the item's local coordinate space.
@@ -259,6 +346,9 @@ pub struct PathItem {
 /// disturbing it.
 ///
 /// The samples are shared behind an [`Arc`] so that cloning a display list does not copy them.
+///
+/// `depth`, present for an image inside an [`ItemKind::Depth`] group, is the depth of the image over its own pixel
+/// space, from which a backend places every pixel in depth.
 #[derive(Clone, PartialEq)]
 pub struct ImageItem {
     /// Where the image is drawn, in the item's local coordinate space.
@@ -271,6 +361,8 @@ pub struct ImageItem {
     pub channels: u8,
     /// `width · height · channels` bytes.
     pub samples: Arc<[u8]>,
+    /// The depth of the image over its pixel space, inside a depth group.
+    pub depth: Option<DepthPlane>,
 }
 
 impl ImageItem {
@@ -280,7 +372,7 @@ impl ImageItem {
     pub const RGBA: u8 = 4;
 
     /// Reports whether the item can be drawn: a positive, finite rectangle, a non-empty grid of samples, a supported
-    /// channel count, and exactly `width · height · channels` bytes of samples.
+    /// channel count, exactly `width · height · channels` bytes of samples, and a finite depth when it has one.
     pub fn is_valid(&self) -> bool {
         let finite = [self.rect.x, self.rect.y, self.rect.width, self.rect.height]
             .iter()
@@ -296,6 +388,7 @@ impl ImageItem {
             && matches!(self.channels, Self::RGB | Self::RGBA)
             && expected == Some(self.samples.len())
             && !self.samples.is_empty()
+            && self.depth.is_none_or(|plane| plane.is_finite())
     }
 }
 
@@ -308,6 +401,7 @@ impl std::fmt::Debug for ImageItem {
             .field("height", &self.height)
             .field("channels", &self.channels)
             .field("samples", &format_args!("{} bytes", self.samples.len()))
+            .field("depth", &self.depth)
             .finish()
     }
 }
@@ -372,7 +466,21 @@ pub enum ItemKind {
         cells: u64,
         items: Vec<Item>,
     },
+    /// The artists of one three-dimensional axes, in the painter's order the scene compiler chose, drawn with a
+    /// depth buffer by a backend that has one.
+    ///
+    /// Like a dense group it carries neither clip nor transform, so a backend without a depth buffer draws its items
+    /// in order and gets the painter's picture, which agrees with the depth-tested one wherever the painter's order
+    /// is exact. Every path and image inside carries a depth; groups and dense groups may appear inside; glyph runs
+    /// and further depth groups never do; and the group is never empty. A backend with a depth buffer clears the
+    /// buffer at the group and tests every item against it.
+    Depth {
+        items: Vec<Item>,
+    },
 }
+
+/// A visitor of leaves: the leaf, its accumulated transform, its clip in figure space, and its depth group.
+type LeafVisitor<'a> = dyn FnMut(&Item, Transform, Option<Rect>, Option<usize>) + 'a;
 
 /// The complete, ordered list of items to draw for a figure; later items paint over earlier ones.
 #[derive(Clone, Debug, PartialEq)]
@@ -385,20 +493,37 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
-    /// Visits every leaf item (paths and glyph runs) in paint order.
+    /// Visits every leaf item (paths, glyph runs and images) in paint order.
     ///
     /// The callback receives the item, the accumulated transform from item space to figure space, and the
     /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and
     /// scalings; the scene compiler never places a clipped group beneath a rotation.
     ///
-    /// [`ItemKind::Dense`] groups are descended into like any other group, so a backend that draws leaves through
-    /// this method draws dense content as vector geometry without having to know about the marking.
+    /// [`ItemKind::Dense`] and [`ItemKind::Depth`] groups are descended into like any other group, so a backend that
+    /// draws leaves through this method draws dense content as vector geometry, and the artists of a
+    /// three-dimensional axes in painter's order, without having to know about either marking.
     pub fn visit_leaves(&self, mut visit: impl FnMut(&Item, Transform, Option<Rect>)) {
+        self.visit_leaves_grouped(|item, transform, clip, _| visit(item, transform, clip));
+    }
+
+    /// Visits every leaf item as [`visit_leaves`](Self::visit_leaves) does, reporting with each leaf the depth group
+    /// it lies in.
+    ///
+    /// The depth groups of the list are numbered from 0 in the order they are met in paint order, whatever their
+    /// nesting, an empty group taking a number like any other, so that the numbering is a function of the list's
+    /// structure alone; a leaf outside every depth group is reported with `None`. A backend with a depth buffer uses
+    /// the number to bundle the leaves of one group into one depth-tested drawing.
+    pub fn visit_leaves_grouped(
+        &self,
+        mut visit: impl FnMut(&Item, Transform, Option<Rect>, Option<usize>),
+    ) {
         fn walk(
             items: &[Item],
             transform: Transform,
             clip: Option<Rect>,
-            visit: &mut dyn FnMut(&Item, Transform, Option<Rect>),
+            group: Option<usize>,
+            next_group: &mut usize,
+            visit: &mut LeafVisitor<'_>,
         ) {
             for item in items {
                 match &item.kind {
@@ -428,10 +553,17 @@ impl DisplayList {
                             Some(t) => t.then(transform),
                             None => transform,
                         };
-                        walk(items, transform, clip, visit);
+                        walk(items, transform, clip, group, next_group, visit);
                     }
-                    ItemKind::Dense { items, .. } => walk(items, transform, clip, visit),
-                    _ => visit(item, transform, clip),
+                    ItemKind::Dense { items, .. } => {
+                        walk(items, transform, clip, group, next_group, visit);
+                    }
+                    ItemKind::Depth { items } => {
+                        let index = *next_group;
+                        *next_group += 1;
+                        walk(items, transform, clip, Some(index), next_group, visit);
+                    }
+                    _ => visit(item, transform, clip, group),
                 }
             }
         }
@@ -442,6 +574,14 @@ impl DisplayList {
             let bottom = a.bottom().min(b.bottom());
             Rect::new(x, y, (right - x).max(0.0), (bottom - y).max(0.0))
         }
-        walk(&self.items, Transform::IDENTITY, None, &mut visit);
+        let mut next_group = 0;
+        walk(
+            &self.items,
+            Transform::IDENTITY,
+            None,
+            None,
+            &mut next_group,
+            &mut visit,
+        );
     }
 }
