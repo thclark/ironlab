@@ -430,11 +430,12 @@ impl Figure {
         self.export_pdf_with(path, RasterOptions::default())
     }
 
-    /// Exports the figure as a PDF, choosing how dense artists are drawn and at what
-    /// resolution they are rasterised.
+    /// Exports the figure as a PDF, choosing how dense artists and three-dimensional axes
+    /// are drawn and at what resolution they are rasterised.
     ///
     /// [`RasterOptions::policy`] overrides the decision that [`export_pdf`](Figure::export_pdf)
-    /// makes from the cell count, and [`RasterOptions::dpi`] sets the resolution, in dots per
+    /// makes from the cell count, [`RasterOptions::depth`] the one it makes for a
+    /// three-dimensional axes, and [`RasterOptions::dpi`] sets the resolution, in dots per
     /// inch, of the rasterised part of the page.
     ///
     /// ```no_run
@@ -454,7 +455,8 @@ impl Figure {
     /// ```
     ///
     /// The report is the one [`export_pdf`](Figure::export_pdf) returns; the raster
-    /// options do not change what is left off the page.
+    /// options do not change what is left off the page, only what its `export` warnings
+    /// say reached the page as an image or unverified.
     ///
     /// # Errors
     ///
@@ -475,6 +477,7 @@ impl Figure {
         Ok(ExportReport {
             validation: validation.warnings,
             scene: exported.warnings,
+            export: exported.export,
         })
     }
 

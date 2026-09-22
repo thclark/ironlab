@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use common::image_figure;
 use ironlab::ir::IssueKind;
 use ironlab::prelude::*;
-use ironlab::{ExportReport, SceneWarning};
+use ironlab::{
+    DepthPolicy, ExportReport, ExportWarning, ExportWarningKind, SceneWarning, UnverifiedCause,
+};
 
 /// Returns a path in Cargo's per-crate temporary directory, unique to the test.
 fn temp_path(name: &str) -> PathBuf {
@@ -321,7 +323,7 @@ fn export_pdf_of_a_figure_with_nothing_left_out_returns_an_empty_report() {
     let report = sample_figure().export_pdf(&path).unwrap();
     assert_eq!(report.validation, vec![], "{report:?}");
     assert_eq!(report.scene, vec![], "{report:?}");
-    assert!(path.exists());
+    assert!(path.exists(), "the page was written");
 }
 
 // WHY: `export_pdf_with` is `export_pdf` with the raster options chosen by the caller, so
@@ -352,7 +354,180 @@ fn export_pdf_with_returns_the_same_report_as_export_pdf() {
             .any(|issue| issue.node == Some(surface)),
         "{chosen:?}"
     );
-    assert!(plain_path.exists() && chosen_path.exists());
+    assert!(
+        plain_path.exists() && chosen_path.exists(),
+        "both pages were written"
+    );
+}
+
+/// A figure of one two-dimensional axes holding a line, which gives a rasteriser nothing
+/// to check and nothing to draw.
+fn two_dimensional_figure() -> Figure {
+    let x = linspace(0.0, 1.0, 5);
+    let mut fig = Figure::new();
+    fig.axes(0, 0).plot(&x, &x);
+    fig
+}
+
+/// A figure of one three-dimensional axes holding a small surface, with the identifier
+/// of the axes.
+fn three_dimensional_figure() -> (Figure, NodeId) {
+    let x = linspace(0.0, 1.0, 5);
+    let z = Matrix::from_fn(x.len(), x.len(), |row, col| (row * col) as f64);
+    let mut fig = Figure::new();
+    fig.axes(0, 0).surf(&x, &x, &z);
+    let axes = fig.axes(0, 0).id();
+    (fig, axes)
+}
+
+/// The node and kind of every export warning, which is what the tests compare; the
+/// messages are prose.
+fn reported(warnings: &[ExportWarning]) -> Vec<(Option<NodeId>, ExportWarningKind)> {
+    warnings
+        .iter()
+        .map(|warning| (warning.node, warning.kind.clone()))
+        .collect()
+}
+
+/// The raster options that keep every three-dimensional axes vector.
+fn vector_depth() -> RasterOptions {
+    RasterOptions {
+        depth: DepthPolicy::Vector,
+        ..RasterOptions::default()
+    }
+}
+
+// WHY: the report's third list is what the exporter did to the page, as opposed to what
+// was left off it: an axes rasterised, or drawn unchecked. A two-dimensional figure gives
+// the exporter nothing to check and nothing to rasterise, so the list must be empty, or a
+// program testing the report to decide whether a figure is finished would have to
+// interpret every export.
+#[test]
+fn export_pdf_of_a_two_dimensional_figure_reports_nothing_from_the_exporter() {
+    let path = fresh("two_dimensional.pdf");
+    let report = two_dimensional_figure().export_pdf(&path).unwrap();
+    assert!(report.export.is_empty(), "{report:?}");
+    assert!(
+        report.validation.is_empty() && report.scene.is_empty(),
+        "{report:?}"
+    );
+    assert!(path.exists(), "the page was written");
+}
+
+// WHY: `DepthPolicy::Vector` keeps a three-dimensional axes vector, drawn in the painter's
+// order, which nobody has checked against a depth test. The user who asked for it must
+// be told through the report, naming the axes, that their own choice is the reason, and
+// the page must still be written. The report must reach the facade's caller, because the
+// facade is where a program reads it, and the export must need no graphics adapter,
+// because the user asked for vectors.
+#[test]
+fn export_pdf_with_the_vector_depth_policy_reports_the_three_dimensional_axes_as_unverified() {
+    let path = fresh("three_dimensional_vector.pdf");
+    let (fig, axes) = three_dimensional_figure();
+    let report = fig.export_pdf_with(&path, vector_depth()).unwrap();
+
+    assert_eq!(
+        reported(&report.export),
+        vec![(
+            Some(axes),
+            ExportWarningKind::Unverified {
+                cause: UnverifiedCause::PolicyVector,
+            },
+        )],
+        "the exporter reports the axes it left unchecked, and nothing else: {report:?}"
+    );
+    assert!(
+        !report.export[0].message.trim().is_empty(),
+        "the warning carries a message: {report:?}"
+    );
+    assert!(
+        report.validation.is_empty() && report.scene.is_empty(),
+        "nothing was left off the page: {report:?}"
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(b"%PDF"), "the page was written");
+}
+
+// WHY: the report names the axes each warning concerns so that a program can act on one
+// axes and not another; a figure with two three-dimensional axes must therefore be
+// reported once per axes, each under its own identifier, rather than once for the figure.
+#[test]
+fn export_pdf_with_the_vector_depth_policy_reports_each_three_dimensional_axes_once() {
+    let path = fresh("two_three_dimensional_axes.pdf");
+    let x = linspace(0.0, 1.0, 5);
+    let z = Matrix::from_fn(x.len(), x.len(), |row, col| (row + col) as f64);
+    let mut fig = Figure::new().tiles(1, 2);
+    fig.axes(0, 0).surf(&x, &x, &z);
+    fig.axes(0, 1).mesh(&x, &x, &z);
+    let (left, right) = (fig.axes(0, 0).id(), fig.axes(0, 1).id());
+    assert_ne!(left, right, "the two axes are distinct nodes");
+
+    let report = fig.export_pdf_with(&path, vector_depth()).unwrap();
+    let mut nodes: Vec<Option<NodeId>> = report.export.iter().map(|w| w.node).collect();
+    nodes.sort();
+    let mut expected = vec![Some(left), Some(right)];
+    expected.sort();
+    assert_eq!(nodes, expected, "one warning per axes: {report:?}");
+    assert!(
+        report.export.iter().all(|warning| {
+            warning.kind
+                == ExportWarningKind::Unverified {
+                    cause: UnverifiedCause::PolicyVector,
+                }
+        }),
+        "every warning gives the user's choice as the reason: {report:?}"
+    );
+    assert!(path.exists(), "the page was written");
+}
+
+// WHY: under the default policy the exporter proves the painter's order of a
+// three-dimensional axes through the graphics adapter, and what it can prove depends on
+// the machine: one with an adapter either proves the order, and reports nothing, or finds
+// it wrong and embeds an image, while one without an adapter draws the axes unchecked and
+// says so. A program reading the report must therefore meet exactly one of those three
+// outcomes, each naming the axes, and the page must be written in every one of them, or a
+// figure that exports on a workstation would fail on a build machine without a graphics
+// device. The test admits every outcome rather than assuming one, because it runs on both
+// kinds of machine; which one a given machine gives is the viewer's business.
+#[test]
+fn export_pdf_of_a_three_dimensional_figure_reports_only_what_the_machine_could_verify() {
+    let path = fresh("three_dimensional_auto.pdf");
+    let (fig, axes) = three_dimensional_figure();
+    let report = fig.export_pdf(&path).unwrap();
+
+    assert!(
+        report.export.len() <= 1,
+        "the one axes is reported at most once: {report:?}"
+    );
+    for warning in &report.export {
+        assert_eq!(
+            warning.node,
+            Some(axes),
+            "every warning names the axes: {report:?}"
+        );
+        assert!(
+            matches!(
+                warning.kind,
+                ExportWarningKind::Unverified {
+                    cause: UnverifiedCause::NoAdapter
+                } | ExportWarningKind::RasterisedForDepth
+            ),
+            "the exporter either had no adapter to verify the axes or found its order wrong: {warning:?}"
+        );
+        assert!(
+            !warning.message.trim().is_empty(),
+            "the warning carries a message: {warning:?}"
+        );
+    }
+    assert!(
+        report.validation.is_empty() && report.scene.is_empty(),
+        "nothing was left off the page: {report:?}"
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(
+        bytes.starts_with(b"%PDF"),
+        "the page was written whatever the machine could verify"
+    );
 }
 
 // WHY: exporting an invalid figure must fail with the validation report (so the user
@@ -375,7 +550,7 @@ fn export_pdf_refuses_an_invalid_figure() {
         }
         other => panic!("expected Error::Invalid, found {other:?}"),
     }
-    assert!(!path.exists());
+    assert!(!path.exists(), "no partial file is left behind");
 }
 
 // WHY: a destination that cannot be written is an I/O problem of the caller's

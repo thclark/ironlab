@@ -302,7 +302,8 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
         &PdfOptions::for_figure(&figure),
         None,
     )
-    .expect("render the compiled display list");
+    .expect("render the compiled display list")
+    .bytes;
     assert_eq!(
         exported, from_the_compiled_scene,
         "exporting a figure draws the compiled scene and nothing else"

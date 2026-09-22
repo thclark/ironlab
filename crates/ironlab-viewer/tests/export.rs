@@ -21,10 +21,13 @@ use std::process::Command;
 use common::{TEXT, figure_with_mapped_image, find_image, gpu_required, rendered_or_skip};
 use image::{Rgb, RgbImage};
 use ironlab_ir::{
-    Artist, Axes, Axis, Cell, ColorSpec, DataId, Figure, Grid, Limits, NdArray, NodeId, Projection,
-    Surface, Text, TileLayout, View3d,
+    Artist, Axes, Axis, Cell, Color, ColorSpec, DataId, Figure, Grid, Limits, Line, NdArray,
+    NodeId, Projection, Surface, Text, TileLayout, View3d,
 };
-use ironlab_pdf::{PdfOptions, RasterOptions, RasterPolicy};
+use ironlab_pdf::{
+    DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterOptions, RasterPolicy,
+    UnverifiedCause,
+};
 use ironlab_scene::display::Rect;
 use ironlab_viewer::{ExportError, RenderError, RenderedImage, render_display_list_offscreen};
 
@@ -257,9 +260,15 @@ fn assert_same_picture(vector: &RgbImage, raster: &RgbImage, dpi: f64) {
     );
 }
 
+/// Options with the given dense policy and resolution, and the three-dimensional axes drawn as vectors in painter's
+/// order, so that the dense comparisons measure the dense fallback alone.
 fn options(policy: RasterPolicy, dpi: f64) -> PdfOptions {
     PdfOptions {
-        raster: RasterOptions { policy, dpi },
+        raster: RasterOptions {
+            policy,
+            dpi,
+            depth: DepthPolicy::Vector,
+        },
         ..PdfOptions::default()
     }
 }
@@ -280,9 +289,19 @@ fn field(side: usize, f: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<f64>) {
 fn surface_figure(side: usize, projection: Projection, edge: ColorSpec) -> Figure {
     // A field of alternating blocks about eight faces across, rather than a smooth one. Its edges are what make a
     // misplaced or rescaled raster measurable: a smooth field looks almost the same wherever it is put.
-    let (axis, values) = field(side, |x, y| {
+    surface_figure_of(side, projection, edge, |x, y| {
         f64::from(((x * 12.0) as i32 + (y * 12.0) as i32) % 2 == 0)
-    });
+    })
+}
+
+/// [`surface_figure`] over the field `f`.
+fn surface_figure_of(
+    side: usize,
+    projection: Projection,
+    edge: ColorSpec,
+    f: impl Fn(f64, f64) -> f64,
+) -> Figure {
+    let (axis, values) = field(side, f);
     let (gx, gy, z) = (DataId(0), DataId(1), DataId(2));
     let data = std::collections::BTreeMap::from([
         (gx, NdArray::vector(axis.clone())),
@@ -511,14 +530,14 @@ fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_dr
     // pixels and a boundary placed a device pixel apart by the two rasterisers is a small part of every block.
     let dpi = 288.0;
     // An image is never dense, so the export needs no renderer; only the comparison does.
-    let Some(bytes) = exported_or_skip(ironlab_viewer::export::render_display_list(
+    let Some(rendered) = exported_or_skip(ironlab_viewer::export::render_display_list(
         &scene.display_list,
         &TEXT,
         &PdfOptions::for_figure(&figure),
     )) else {
         return;
     };
-    let pdf = ws.write("figure", &bytes);
+    let pdf = ws.write("figure", &rendered.bytes);
     assert_eq!(
         embedded_images(&pdf),
         vec![(nx as u32, ny as u32)],
@@ -543,4 +562,387 @@ fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_dr
     );
     assert_registered(&printed, &drawn, dpi, 2.0);
     assert_same_picture(&printed, &drawn, dpi);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Three-dimensional axes
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Options with the given dense and depth policies at `dpi`.
+fn depth_options(policy: RasterPolicy, depth: DepthPolicy, dpi: f64) -> PdfOptions {
+    PdfOptions {
+        raster: RasterOptions { policy, dpi, depth },
+        ..PdfOptions::default()
+    }
+}
+
+/// The node and kind of every export warning, in order.
+fn kinds(warnings: &[ExportWarning]) -> Vec<(Option<NodeId>, ExportWarningKind)> {
+    warnings.iter().map(|w| (w.node, w.kind.clone())).collect()
+}
+
+/// A three-dimensional figure of two planes that cut through each other along the diagonal `x + y = 1`, which runs
+/// through the middle of the faces rather than along their edges: `z = 0.2 + 0.6x` coloured through the colormap
+/// and `z = 0.8 − 0.6y` in grey, with a line from `(0, 0, 0.1)` to `(1, 1, 0.9)` passing through both. The axes is
+/// node 2, the planes 3 and 4 and the line 5.
+fn crossing_planes_figure() -> Figure {
+    let side = 7;
+    let (axis, rising) = field(side, |x, _| 0.2 + 0.6 * x);
+    let (_, falling) = field(side, |_, y| 0.8 - 0.6 * y);
+    let (gx, gy, z1, z2, lx, ly, lz) = (
+        DataId(0),
+        DataId(1),
+        DataId(2),
+        DataId(3),
+        DataId(4),
+        DataId(5),
+        DataId(6),
+    );
+    let matrix = |values| NdArray::from_shape(vec![side, side], values).expect("a square field");
+    let data = std::collections::BTreeMap::from([
+        (gx, NdArray::vector(axis.clone())),
+        (gy, NdArray::vector(axis)),
+        (z1, matrix(rising)),
+        (z2, matrix(falling)),
+        (lx, NdArray::vector(vec![0.0, 1.0])),
+        (ly, NdArray::vector(vec![0.0, 1.0])),
+        (lz, NdArray::vector(vec![0.1, 0.9])),
+    ]);
+    Figure {
+        id: NodeId(1),
+        layout: TileLayout { rows: 1, cols: 1 },
+        data,
+        axes: vec![Axes {
+            id: NodeId(2),
+            cell: Cell::default(),
+            projection: Projection::ThreeD {
+                view3d: View3d::default(),
+            },
+            z: Axis {
+                limits: Limits::Manual { min: 0.0, max: 1.0 },
+                ..Axis::default()
+            },
+            artists: vec![
+                Artist::Surface(Surface {
+                    id: NodeId(3),
+                    grid: Grid::Rectilinear { x: gx, y: gy },
+                    z: z1,
+                    edge: ColorSpec::None,
+                    ..Surface::default()
+                }),
+                Artist::Surface(Surface {
+                    id: NodeId(4),
+                    grid: Grid::Rectilinear { x: gx, y: gy },
+                    z: z2,
+                    face: ColorSpec::Rgba {
+                        color: Color::rgb(0.8, 0.8, 0.8),
+                    },
+                    edge: ColorSpec::None,
+                    ..Surface::default()
+                }),
+                Artist::Line(Line {
+                    id: NodeId(5),
+                    x: lx,
+                    y: ly,
+                    z: Some(lz),
+                    ..Line::default()
+                }),
+            ],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+// WHY: the default policy must keep a figure whose painter's order shows what the viewer shows as vectors, or every
+// three-dimensional figure would become an image; and the vectors it writes must be the picture the depth-tested
+// raster would have been, which is what the two renders of the verification compare. A smooth height field with
+// edges is the commonest such figure.
+#[test]
+fn a_height_field_under_the_default_policy_stays_vector_and_matches_its_depth_tested_raster() {
+    if !tools_available(&["pdfimages", "pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("height-field");
+    let figure = surface_figure_of(
+        20,
+        Projection::ThreeD {
+            view3d: View3d::default(),
+        },
+        ColorSpec::default(),
+        |x, y| 0.5 + 0.3 * (std::f64::consts::TAU * x).sin() * (std::f64::consts::TAU * y).cos(),
+    );
+    let dpi = 300.0;
+    let Some(vector) = exported_or_skip(ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Auto, dpi),
+    )) else {
+        return;
+    };
+    let Some(raster) = exported_or_skip(ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Raster, dpi),
+    )) else {
+        return;
+    };
+    assert!(
+        vector.export.is_empty(),
+        "the verified axes is written as vectors with nothing to warn of: {:?}",
+        vector.export
+    );
+    assert_eq!(
+        kinds(&raster.export),
+        vec![(Some(NodeId(2)), ExportWarningKind::RasterisedByRequest)],
+        "forcing an image is reported as asked for"
+    );
+    let vector = ws.write("vector", &vector.bytes);
+    let raster = ws.write("raster", &raster.bytes);
+    assert!(
+        embedded_images(&vector).is_empty(),
+        "the verified export embeds no image"
+    );
+    assert_eq!(
+        embedded_images(&raster).len(),
+        1,
+        "the forced export embeds one image"
+    );
+    let (vector, raster) = (rasterise(&vector, dpi), rasterise(&raster, dpi));
+    assert_registered(&vector, &raster, dpi, 1.0);
+    assert_same_picture(&vector, &raster, dpi);
+}
+
+// WHY: two surfaces that cut through each other cannot be painted back to front, so the default policy must embed
+// the depth-tested render and say why; forcing vectors must draw the painter's order, which differs visibly around
+// the crossing; and what the embedded image shows must be what the viewer draws, which is the golden rule.
+#[test]
+fn crossing_surfaces_under_the_default_policy_are_embedded_and_reported() {
+    if !tools_available(&["pdfimages", "pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("crossing");
+    let figure = crossing_planes_figure();
+    let dpi = 300.0;
+    let Some(auto) = exported_or_skip(ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Auto, dpi),
+    )) else {
+        return;
+    };
+    let Some(vector) = exported_or_skip(ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Vector, dpi),
+    )) else {
+        return;
+    };
+    assert_eq!(
+        kinds(&auto.export),
+        vec![(Some(NodeId(2)), ExportWarningKind::RasterisedForDepth)],
+        "the axes is reported as drawn as an image for its depth"
+    );
+    assert!(
+        auto.export[0].message.contains("image"),
+        "the message says what happened: {}",
+        auto.export[0].message
+    );
+    assert_eq!(
+        kinds(&vector.export),
+        vec![(
+            Some(NodeId(2)),
+            ExportWarningKind::Unverified {
+                cause: UnverifiedCause::PolicyVector
+            }
+        )],
+        "forcing vectors is reported as unverified by request"
+    );
+    let auto_pdf = ws.write("auto", &auto.bytes);
+    let vector_pdf = ws.write("vector", &vector.bytes);
+    assert_eq!(
+        embedded_images(&auto_pdf).len(),
+        1,
+        "the default export embeds exactly one image"
+    );
+    assert!(
+        embedded_images(&vector_pdf).is_empty(),
+        "the forced vector export embeds none"
+    );
+
+    let (auto_page, vector_page) = (rasterise(&auto_pdf, dpi), rasterise(&vector_pdf, dpi));
+    let block = (BLOCK_PT * dpi / 72.0).round() as u32;
+    let (_, worst) = difference(&vector_page, &auto_page, block);
+    assert!(
+        worst > BLOCK_TOLERANCE,
+        "the painter's order differs visibly from the depth-tested picture around the crossing (worst block \
+         {worst}, tolerance {BLOCK_TOLERANCE})"
+    );
+
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    let Some(drawn) = rendered_or_skip(render_display_list_offscreen(
+        &scene.display_list,
+        &TEXT,
+        dpi,
+    )) else {
+        return;
+    };
+    let plot = scene.hit_map.axes[0].plot_rect;
+    let printed = plot_interior(&auto_page, plot, dpi);
+    let drawn = plot_interior(&rgb_of(&drawn), plot, dpi);
+    assert_registered(&printed, &drawn, dpi, 1.0);
+    assert_same_picture(&printed, &drawn, dpi);
+}
+
+// WHY: a figure of two-dimensional axes reaches the page as vectors and needs no verification, so its report must
+// say nothing from the exporter, or every program checking the report would have to filter it.
+#[test]
+fn a_two_dimensional_figure_reports_nothing_from_the_exporter() {
+    let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
+    let exported = ironlab_viewer::export_pdf(&figure, &TEXT, &PdfOptions::default())
+        .expect("a two-dimensional figure exports without a renderer");
+    assert!(
+        exported.export.is_empty(),
+        "nothing to report: {:?}",
+        exported.export
+    );
+}
+
+// WHY: the dense fallback and the depth policy are separate decisions: a surface too large for vectors is still
+// drawn as an image for its size inside an axes drawn as vectors, and the report must give both reasons, the axes
+// first because it encloses the surface.
+#[test]
+fn a_dense_surface_in_an_axes_drawn_as_vectors_is_rasterised_for_its_size_with_both_warnings() {
+    if !tools_available(&["pdfimages"]) {
+        return;
+    }
+    let ws = Workspace::new("dense-in-vector-axes");
+    let figure = surface_figure(
+        DENSE_SIDE,
+        Projection::ThreeD {
+            view3d: View3d::default(),
+        },
+        ColorSpec::None,
+    );
+    let Some(exported) = exported_or_skip(ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::default(), DepthPolicy::Vector, 300.0),
+    )) else {
+        return;
+    };
+    let faces = ((DENSE_SIDE - 1) * (DENSE_SIDE - 1)) as u64;
+    assert_eq!(
+        kinds(&exported.export),
+        vec![
+            (
+                Some(NodeId(2)),
+                ExportWarningKind::Unverified {
+                    cause: UnverifiedCause::PolicyVector
+                }
+            ),
+            (
+                Some(NodeId(3)),
+                ExportWarningKind::RasterisedForSize { cells: faces }
+            ),
+        ],
+        "the axes is unverified by request and the surface is an image for its size"
+    );
+    let pdf = ws.write("figure", &exported.bytes);
+    assert_eq!(
+        embedded_images(&pdf).len(),
+        1,
+        "the surface alone became an image"
+    );
+}
+
+// WHY: a machine without a graphics adapter must still export a three-dimensional figure: under the vector policy the
+// exporter never looks for one, and under the default policy it draws the painter's order and says it could not
+// verify it, naming the missing adapter, rather than failing; only forcing an image is an error there. The check
+// runs in a child process restricted, through `WGPU_BACKEND`, to a backend that does not exist on this platform,
+// as the offscreen tests do.
+#[test]
+fn a_three_dimensional_figure_exports_without_an_adapter() {
+    let figure = crossing_planes_figure();
+    let exported = ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Vector, 300.0),
+    )
+    .expect("vectors need no adapter");
+    assert!(exported.bytes.starts_with(b"%PDF"), "a PDF was written");
+    assert_eq!(
+        kinds(&exported.export),
+        vec![(
+            Some(NodeId(2)),
+            ExportWarningKind::Unverified {
+                cause: UnverifiedCause::PolicyVector
+            }
+        )]
+    );
+
+    let unavailable = if cfg!(windows) { "metal" } else { "dx12" };
+    let output = Command::new(std::env::current_exe().expect("test binary path"))
+        .args([
+            "--exact",
+            "no_adapter_export_probe",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("WGPU_BACKEND", unavailable)
+        .env(NO_ADAPTER_EXPORT_PROBE, "1")
+        .output()
+        .expect("spawn the probe");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "the probe failed or did not run:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Set by [`a_three_dimensional_figure_exports_without_an_adapter`] for its child process, so that the probe does
+/// nothing when run directly with a real adapter available.
+const NO_ADAPTER_EXPORT_PROBE: &str = "IRONLAB_NO_ADAPTER_EXPORT_PROBE";
+
+#[test]
+#[ignore = "run in a child process with an unavailable WGPU_BACKEND by a_three_dimensional_figure_exports_without_an_adapter"]
+fn no_adapter_export_probe() {
+    if std::env::var_os(NO_ADAPTER_EXPORT_PROBE).is_none() {
+        eprintln!(
+            "skipping: only meaningful in the child process started by a_three_dimensional_figure_exports_without_an_adapter"
+        );
+        return;
+    }
+    let figure = crossing_planes_figure();
+    let auto = ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Auto, 300.0),
+    )
+    .expect("the default policy exports without an adapter");
+    assert_eq!(
+        kinds(&auto.export),
+        vec![(
+            Some(NodeId(2)),
+            ExportWarningKind::Unverified {
+                cause: UnverifiedCause::NoAdapter
+            }
+        )],
+        "the axes is reported as unverified for want of an adapter"
+    );
+    assert!(
+        auto.export[0].message.contains("adapter"),
+        "the message names the missing adapter: {}",
+        auto.export[0].message
+    );
+    let forced = ironlab_viewer::export_pdf(
+        &figure,
+        &TEXT,
+        &depth_options(RasterPolicy::Never, DepthPolicy::Raster, 300.0),
+    );
+    assert!(
+        matches!(forced, Err(ExportError::Render(RenderError::NoAdapter(_)))),
+        "forcing an image without an adapter is an error: {forced:?}"
+    );
 }

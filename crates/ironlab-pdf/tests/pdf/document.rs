@@ -161,7 +161,9 @@ fn options_are_written_to_the_document_metadata() {
         creator: "IronLAB test suite".to_owned(),
         subject: Some("typesetter: test; fonts: A, B".to_owned()),
     };
-    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None).expect("render");
+    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None)
+        .expect("render")
+        .bytes;
     let info = pdfinfo(&ws.write_pdf("figure", &bytes), false);
     assert_eq!(
         info.get("Title").map(String::as_str),
@@ -193,7 +195,9 @@ fn absent_title_is_omitted_from_the_metadata() {
         creator: "IronLAB test suite".to_owned(),
         subject: None,
     };
-    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None).expect("render");
+    let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None)
+        .expect("render")
+        .bytes;
     let info = pdfinfo(&ws.write_pdf("figure", &bytes), false);
     assert!(
         info.get("Title").is_none_or(String::is_empty),
@@ -255,7 +259,7 @@ fn degenerate_page_size_is_an_error() {
         assert!(
             matches!(result, Err(PdfError::Krilla(_))),
             "page size {width} x {height} gave {:?}",
-            result.map(|bytes| bytes.len())
+            result.map(|rendered| rendered.bytes.len())
         );
     }
 }
