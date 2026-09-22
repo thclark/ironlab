@@ -280,7 +280,8 @@ fn straddling_grid() -> Vec<f64> {
 }
 
 /// The depth at `camera` of every face of a flat surface at height `z` over the grid `grid × grid`, as the mean of
-/// the depths of its four corners, which is the key at which a 3D axes sorts the face.
+/// the depths of its four corners, which is the key at which a 3D axes sorts the edge of the face; the fill of the
+/// face is sorted a small bias behind its edge, which is far less than any margin the tests built on this rely on.
 fn flat_face_depths(camera: Camera, grid: &[f64], z: f64) -> Vec<f64> {
     let mut depths = Vec::new();
     for xs in grid.windows(2) {
@@ -343,8 +344,8 @@ fn paint_positions(leaves: &[Leaf], id: NodeId) -> Vec<usize> {
         .collect()
 }
 
-/// Asserts that the one leaf of `image` is painted before every one of the sixteen faces of `surface` when `before`
-/// is true, and after every one of them otherwise.
+/// Asserts that the one leaf of `image` is painted before every leaf of the sixteen faces of `surface` (a fill and
+/// an edge each) when `before` is true, and after every one of them otherwise.
 #[track_caller]
 fn assert_image_painted(scene: &Scene, image: NodeId, surface: NodeId, before: bool, what: &str) {
     let leaves = leaves(scene);
@@ -357,8 +358,8 @@ fn assert_image_painted(scene: &Scene, image: NodeId, surface: NodeId, before: b
     let faces = paint_positions(&leaves, surface);
     assert_eq!(
         faces.len(),
-        16,
-        "{what}: one face per cell of the 5 by 5 grid"
+        2 * 16,
+        "{what}: a fill leaf and an edge leaf per cell of the 5 by 5 grid"
     );
     let (side, ordered) = if before {
         ("before", faces.iter().all(|k| *k > image_at[0]))
@@ -882,11 +883,12 @@ fn in_three_dimensions_an_image_lies_on_its_plane_with_columns_along_its_first_a
 }
 
 // WHY: a 3D axes paints back to front, and an image inside the box is one primitive whose key is the mean depth of
-// its four corners, as a face's key is the mean of its corners; the depth sort does not split it. So a surface just
-// above an image at mid-height near the centre of the box, whose faces are all nearer than that mean, is painted
-// after the image, while faces farther than the mean, though nearer than the image's farthest corner, are painted
-// before it. An image keyed on its nearest or its farthest corner would order one of these the other way round, and
-// one split into pieces would no longer be the single raster the backends draw.
+// its four corners, as a face's key is the mean of its corners (its fill a small bias behind its edge); the depth
+// sort does not split it. So a surface just above an image at mid-height near the centre of the box, whose faces
+// are all nearer than that mean, is painted after the image, while faces farther than the mean, though nearer than
+// the image's farthest corner, are painted before it. An image keyed on its nearest or its farthest corner would
+// order one of these the other way round, and one split into pieces would no longer be the single raster the
+// backends draw. Each face is a fill leaf and an edge leaf, and both must fall on the right side of the image.
 #[test]
 fn an_image_at_an_interior_offset_is_one_primitive_sorted_by_the_mean_depth_of_its_corners() {
     let camera = Camera::default();
@@ -949,8 +951,8 @@ fn an_image_at_an_interior_offset_is_one_primitive_sorted_by_the_mean_depth_of_i
     );
     assert_eq!(
         (centred_faces.len(), far_faces.len()),
-        (4, 4),
-        "one face per cell of each 3 by 3 grid"
+        (2 * 4, 2 * 4),
+        "a fill leaf and an edge leaf per cell of each 3 by 3 grid"
     );
     assert!(
         far_faces.iter().all(|k| *k < image[0]),
@@ -1135,7 +1137,11 @@ fn images_on_the_same_face_of_the_box_keep_artist_order() {
         positions[0]
     };
     let faces = paint_positions(&leaves, surface);
-    assert_eq!(faces.len(), 16, "one face per cell of the 5 by 5 grid");
+    assert_eq!(
+        faces.len(),
+        2 * 16,
+        "a fill leaf and an edge leaf per cell of the 5 by 5 grid"
+    );
     assert!(
         at(first_floor) < at(second_floor),
         "the floor images keep artist order on the back face"
