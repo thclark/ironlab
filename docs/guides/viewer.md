@@ -33,7 +33,7 @@ With the Pan tool, dragging on a two-dimensional axes shifts its x and y limits 
 
 ## Rotating
 
-With the Rotate tool, dragging on a three-dimensional axes changes its azimuth and elevation, and the axes box follows the pointer as in MATLAB's `rotate3d`.
+With the Rotate tool, dragging on a three-dimensional axes changes its azimuth and elevation, and the axes box follows the pointer as in MATLAB's `rotate3d`. The artists of a three-dimensional axes are drawn with a depth buffer, so surfaces, lines, markers and images that cross one another show correctly from every angle; translucent faces are drawn back to front, which is exact except where a translucent face is nearer than an opaque one drawn after it ([issue #34](https://github.com/thclark/ironlab/issues/34)).
 
 - Dragging to the right decreases the azimuth, and dragging to the left increases it.
 - Dragging down increases the elevation, and dragging up decreases it.

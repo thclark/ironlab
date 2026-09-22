@@ -32,6 +32,7 @@ nav = [
     { "0010 PDF-first export with a raster fallback for dense artists" = "adrs/0010-pdf-export-with-a-raster-fallback.md" },
     { "0011 Image artists as pixel-centred planar rasters" = "adrs/0011-image-artists.md" },
     { "0012 An artist with nothing to draw is valid and is reported as a warning" = "adrs/0012-empty-and-singleton-data.md" },
+    { "0013 Depth-buffered three-dimensional artists, exported as vectors where the painter's order is proven" = "adrs/0013-depth-buffered-three-dimensional-artists.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },
