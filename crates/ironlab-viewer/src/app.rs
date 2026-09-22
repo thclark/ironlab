@@ -4,11 +4,11 @@
 //! figure at its physical aspect ratio, scaled to fit and centred in the area below the toolbar on a neutral
 //! surround. The canvas compiles the scene when the figure is first shown and recompiles it after every change to
 //! the figure, so that each gesture is hit-tested against the geometry that is on screen. It converts pointer input
-//! into figure-space calls on [`FigureState`], and draws the meshes from [`crate::canvas::tessellate_with`] with
-//! `egui::Shape::mesh`, relying on 4× MSAA for anti-aliasing; the meshes are rebuilt only when the scene, the scale
-//! or the position of the figure changes. The textures of the figure's images live in a
-//! [`crate::canvas::TextureCache`] that outlives the meshes, so that a rebuild re-uploads nothing it already holds,
-//! and that is pruned after every rebuild to the textures the new meshes sample.
+//! into figure-space calls on [`FigureState`], and draws the figure as one draw list from
+//! [`crate::canvas::tessellate`] through the viewer's own pipelines ([`crate::gpu`]) by a paint callback in the
+//! figure's place among egui's shapes, relying on 4× MSAA for anti-aliasing. The list is in figure points and is
+//! rebuilt only when the scene changes or the figure's scale on screen has changed enough for the flattening of
+//! curves to show; a pan, a resize or a frame in which nothing moved uploads nothing but, at most, the mapping.
 //!
 //! A tab also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar opens
 //! into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
@@ -29,8 +29,8 @@ use ironlab_scene::display::Point;
 use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{ScreenTransform, TextureCache, color32, drawables_with};
-use crate::gpu::{DEPTH_FORMAT, DrawList, Drawable, GpuCallback, GpuConfig, GpuPainter};
+use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
+use crate::gpu::{DEPTH_FORMAT, DrawList, GpuCallback, GpuConfig, GpuPainter};
 use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
@@ -45,6 +45,11 @@ const CANVAS_MARGIN: f32 = 12.0;
 /// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
 /// match.
 const MSAA_SAMPLES: u16 = 4;
+
+/// The factor by which the scale of a figure on screen may change before its draw list is rebuilt for the new
+/// scale: within it, curves flattened for the old scale stay within a tenth of a pixel of true, and a hairline
+/// stays within a quarter of a pixel of one pixel wide.
+const REBUILD_RATIO: f32 = 1.25;
 
 /// The radius, in egui points, of the ring drawn around the data point under the pointer, and around the centre of
 /// a pixel too small on screen to outline.
@@ -301,16 +306,10 @@ pub fn problems_list(ui: &mut egui::Ui, figure: &Figure, problems: &[Problem]) {
         });
 }
 
-/// One drawable of a figure, ready to add to a painter: an egui mesh, or a list for the viewer's own pipelines.
-enum Cached {
-    Mesh(Arc<egui::Mesh>),
-    Gpu(Arc<DrawList>),
-}
-
-/// The drawables tessellated for one placement of the figure on screen.
-struct DrawCache {
-    to_screen: ScreenTransform,
-    draws: Vec<Cached>,
+/// The draw list of a figure and the scale it was built for.
+struct Built {
+    list: Arc<DrawList>,
+    scale: f32,
 }
 
 /// One figure tab.
@@ -321,11 +320,8 @@ struct FigurePane {
     panel: PropertyPanel,
     /// The compilation of the displayed figure, or `None` when it must be recompiled.
     scene: Option<Scene>,
-    /// The drawables of `scene`, or `None` when they must be rebuilt.
-    draws: Option<DrawCache>,
-    /// The textures of the images of `scene`, made with the egui context when the canvas is first drawn and pruned
-    /// after each rebuild of the meshes to the textures they sample.
-    textures: Option<TextureCache>,
+    /// The draw list of `scene`, or `None` when it must be rebuilt.
+    built: Option<Built>,
 }
 
 impl FigurePane {
@@ -335,21 +331,20 @@ impl FigurePane {
             state: FigureState::new(figure),
             panel: PropertyPanel::default(),
             scene: None,
-            draws: None,
-            textures: None,
+            built: None,
         }
     }
 
     /// Marks the scene as out of date after a change to the figure.
     fn invalidate(&mut self) {
         self.scene = None;
-        self.draws = None;
+        self.built = None;
     }
 
     /// Compiles the scene if it is out of date and returns it.
     fn scene(&mut self, text: &TextEngine) -> &Scene {
         if self.scene.is_none() {
-            self.draws = None;
+            self.built = None;
         }
         self.scene
             .get_or_insert_with(|| ironlab_scene::compile(self.state.figure(), text))
@@ -455,9 +450,8 @@ impl FigurePane {
 
     /// Draws the figure in the remaining space of the tab and applies pointer gestures to it.
     ///
-    /// The depth groups of three-dimensional axes are drawn through the viewer's own pipelines by paint callbacks
-    /// built for `gpu`, in their place among the meshes; without a graphics configuration (only the headless test
-    /// harness lacks one) they are not drawn at all.
+    /// The figure is drawn through the viewer's own pipelines by one paint callback built for `gpu`; without a
+    /// graphics configuration (only the headless test harness lacks one) the list is built but not drawn.
     fn canvas(&mut self, ui: &mut egui::Ui, text: &TextEngine, gpu: Option<GpuConfig>) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
@@ -482,57 +476,54 @@ impl FigurePane {
         self.handle_input(ui, &response, to_screen, text);
 
         let scene = self.scene(text);
-        if let Some(background) = color32(scene.display_list.background)
-            && background.a() > 0
+        if let Some(background) = premultiplied(scene.display_list.background)
+            && background[3] > 0
         {
             painter.rect_filled(
                 egui::Rect::from_min_size(to_screen.origin, size),
                 0.0,
-                background,
+                egui::Color32::from_rgba_premultiplied(
+                    background[0],
+                    background[1],
+                    background[2],
+                    background[3],
+                ),
             );
         }
-        if self
-            .draws
-            .as_ref()
-            .is_none_or(|cache| cache.to_screen != to_screen)
-        {
+        let rebuild = self.built.as_ref().is_none_or(|built| {
+            scale > built.scale * REBUILD_RATIO || scale < built.scale / REBUILD_RATIO
+        });
+        if rebuild {
             let scene = self.scene.as_ref().expect("compiled above");
-            let textures = self
-                .textures
-                .get_or_insert_with(|| TextureCache::new(ui.ctx().clone()));
-            let draws = drawables_with(&scene.display_list, text, to_screen, textures)
-                .into_iter()
-                .map(|drawable| match drawable {
-                    Drawable::Mesh(mesh) => Cached::Mesh(Arc::new(mesh)),
-                    Drawable::Gpu(list) => Cached::Gpu(list),
-                })
-                .collect();
-            textures.retain_requested();
-            self.draws = Some(DrawCache { to_screen, draws });
+            let max_tile_side = ui.ctx().input(|input| input.max_texture_side);
+            let max_tile_side = u32::try_from(max_tile_side)
+                .map_or(MAX_TILE_SIDE, |limit| limit.min(MAX_TILE_SIDE));
+            let list = tessellate(
+                &scene.display_list,
+                text,
+                Resolution {
+                    scale,
+                    max_tile_side,
+                },
+            );
+            self.built = Some(Built {
+                list: Arc::new(list),
+                scale,
+            });
         }
-        if let Some(cache) = &self.draws {
-            for draw in &cache.draws {
-                match draw {
-                    Cached::Mesh(mesh) => {
-                        painter.add(egui::Shape::Mesh(Arc::clone(mesh)));
-                    }
-                    Cached::Gpu(list) => {
-                        if let Some(config) = gpu {
-                            // The callback covers the whole screen, so that its vertex mapping is the whole
-                            // target's; every draw of the list clips itself, within the painter's clip.
-                            painter.add(egui::Shape::Callback(
-                                egui_wgpu::Callback::new_paint_callback(
-                                    ui.ctx().viewport_rect(),
-                                    GpuCallback {
-                                        list: Arc::clone(list),
-                                        config,
-                                    },
-                                ),
-                            ));
-                        }
-                    }
-                }
-            }
+        if let (Some(built), Some(config)) = (&self.built, gpu) {
+            // The callback covers the whole screen, so that its vertex mapping is the whole target's; every draw
+            // of the list clips itself, within the painter's clip.
+            painter.add(egui::Shape::Callback(
+                egui_wgpu::Callback::new_paint_callback(
+                    ui.ctx().viewport_rect(),
+                    GpuCallback {
+                        list: Arc::clone(&built.list),
+                        config,
+                        to_screen,
+                    },
+                ),
+            ));
         }
 
         self.datatip(ui, &response, &painter, to_screen, text);
@@ -772,6 +763,19 @@ impl ViewerApp {
     pub fn figure_state(&self, index: usize) -> Option<&FigureState> {
         let id = *self.panes.get(index)?;
         self.tree.tiles.get_pane(&id).map(|pane| &pane.state)
+    }
+
+    /// Returns the draw list last built for the figure at `index`, or `None` before its canvas has been drawn. The
+    /// list is rebuilt when the figure changes or its scale on screen moves outside the band of the scale it was
+    /// built for, and is otherwise the same `Arc` from frame to frame.
+    #[must_use]
+    pub fn draw_list(&self, index: usize) -> Option<Arc<DrawList>> {
+        let id = *self.panes.get(index)?;
+        self.tree
+            .tiles
+            .get_pane(&id)
+            .and_then(|pane| pane.built.as_ref())
+            .map(|built| Arc::clone(&built.list))
     }
 
     /// Returns the interactive state of the figure at `index`, mutably.

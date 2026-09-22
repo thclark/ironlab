@@ -1,13 +1,16 @@
-// IronLAB's own pipelines: geometry in screen points with a depth, drawn into egui's frame or into the offscreen
+// IronLAB's own pipelines: geometry in figure points with a depth, drawn into egui's frame or into the offscreen
 // renderer's texture with the mapping, blending and sampling of egui's own meshes, plus a depth test.
 
-struct Screen {
-    // The size of the render target in points (pixels over pixels per point), as egui's own uniform holds it.
-    size_in_points: vec2<f32>,
-    _padding: vec2<f32>,
+struct Mapping {
+    // The size of the render target in points (pixels over pixels per point), as egui's own uniform holds it, in
+    // the first two components.
+    size_in_points: vec4<f32>,
+    // The screen position of the figure's top-left corner in the first two components and the screen points per
+    // figure point in the third.
+    origin_scale: vec4<f32>,
 };
 
-@group(0) @binding(0) var<uniform> screen: Screen;
+@group(0) @binding(0) var<uniform> mapping: Mapping;
 @group(1) @binding(0) var texture: texture_2d<f32>;
 @group(1) @binding(1) var texture_sampler: sampler;
 
@@ -27,9 +30,10 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
+    let screen = mapping.origin_scale.xy + mapping.origin_scale.z * in.position;
     out.clip_position = vec4<f32>(
-        2.0 * in.position.x / screen.size_in_points.x - 1.0,
-        1.0 - 2.0 * in.position.y / screen.size_in_points.y,
+        2.0 * screen.x / mapping.size_in_points.x - 1.0,
+        1.0 - 2.0 * screen.y / mapping.size_in_points.y,
         in.z,
         1.0,
     );
