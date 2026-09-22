@@ -7,8 +7,8 @@ pub const DESCRIPTION: &str = "A three-dimensional cross-correlation volume, of 
      in particle image velocimetry, drawn as colour-mapped images: one over the whole floor, and three quarter-size \
      planes through the dominant peak at the centre, one in each coordinate plane at an explicit offset. Weaker \
      noise peaks lie throughout the volume, several of them near the floor. An image lies in a plane of its axes at \
-     any offset, not only on the faces of the box. The three planes cross at the peak; where images cross, the one \
-     drawn last covers the others until the viewer draws with a depth buffer.";
+     any offset, not only on the faces of the box. The three planes cross at the peak, and every backend draws each \
+     of them in front of the others exactly where it is nearer.";
 
 /// The number of pixels along each axis of every image.
 const N: usize = 101;
@@ -35,9 +35,8 @@ pub fn figure() -> Figure {
         .title("Cross-correlation volume with its peak at the centre");
     let mut ax = fig.axes3(0, 0);
     // The floor lies on a face of the box, so it is painted behind everything else. The three planes through the
-    // dominant peak cross there, and each image is painted as one primitive in the order of the mean depth of its
-    // corners, so until the viewer draws with a depth buffer (issue #4), where images cross the one drawn last
-    // covers the others; the three means coincide, so the rounding of their depths decides which plane that is.
+    // dominant peak cross there, and each carries the plane of its depth, so the depth buffer shows each of them in
+    // front of the others where it is nearer; a PDF embeds the axes as an image for the same reason.
     section(&mut ax, ImagePlane::Xy { z: Some(0.0) }, 0.0, 1.0, |x, y| correlation_field(x, y, 0.0));
     section(&mut ax, ImagePlane::Xy { z: Some(0.5) }, 0.25, 0.75, |x, y| correlation_field(x, y, 0.5));
     section(&mut ax, ImagePlane::Xz { y: Some(0.5) }, 0.25, 0.75, |x, z| correlation_field(x, 0.5, z));

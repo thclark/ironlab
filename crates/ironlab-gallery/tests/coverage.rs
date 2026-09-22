@@ -50,7 +50,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 24] = [
+    let requirements: [(&str, Predicate); 25] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
@@ -101,6 +101,25 @@ fn every_required_chart_type_is_present() {
             is_3d(axes)
                 && matches!(artist, Artist::Surface(s) if s.edge == ColorSpec::Colormapped && s.face != ColorSpec::Colormapped)
         }),
+        // WHY: the painter's algorithm cannot draw two surfaces that cut through each other, and a gallery that
+        // showed only single height fields would hide the case the depth buffer exists for; an axes must hold two
+        // surfaces, with a line and markers among them, so that the gallery shows the crossings resolved.
+        (
+            "two surfaces, a line and markers in one three-dimensional axes",
+            |_, axes, artist| {
+                let surfaces = axes
+                    .artists
+                    .iter()
+                    .filter(|a| matches!(a, Artist::Surface(_)))
+                    .count();
+                let has = |f: fn(&Artist) -> bool| axes.artists.iter().any(f);
+                is_3d(axes)
+                    && surfaces >= 2
+                    && matches!(artist, Artist::Surface(_))
+                    && has(|a| matches!(a, Artist::Line(l) if l.z.is_some()))
+                    && has(|a| matches!(a, Artist::Scatter(s) if s.z.is_some()))
+            },
+        ),
         // WHY: a surface in a 2D axes is the pseudocolour plot (MATLAB's `pcolor`), which the compiler draws from
         // directly above with the field colouring the faces and positioning nothing. A curvilinear grid is what such
         // a plot can show and an image cannot, so the entry must use one; otherwise the 2D path would be exercised
