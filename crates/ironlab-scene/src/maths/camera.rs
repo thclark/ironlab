@@ -192,6 +192,18 @@ pub fn back_planes(cam: &Camera) -> [Plane; 3] {
     ]
 }
 
+/// The distance by which the fill of a surface face, and an image inside the axes box, are painted behind their
+/// geometry, in normalised-box depth units (the box's depth range is at most √3 whatever the view, the zoom or the
+/// size of the plot, so the distance means the same in every figure).
+///
+/// A face's own edge, and the lines and markers lying on a surface, coincide with the face in depth, and a depth
+/// test cannot separate what coincides. Pushing the fill back by this much puts them in front of it, wherever the
+/// face is and however it is inclined, because the fill and the edge share one plane and so are separated by
+/// exactly this distance everywhere. The painter's order sorts the fill at its mean depth less this distance, so
+/// that the two orders agree. Anything within this distance behind a face therefore shows through it, which at a
+/// thousandth of the box is invisible in practice.
+pub const FACE_DEPTH_BIAS: f64 = 1e-3;
+
 /// The largest ratio of the determinant of the centred normal equations to the squared spread of the positions at
 /// which the positions still count as collinear, so that a face seen edge-on to within rounding gets a constant
 /// depth rather than a tilt of the order of the reciprocal of the rounding.

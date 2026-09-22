@@ -4,7 +4,8 @@
 use ironlab_ir::NodeId;
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
-    GlyphsItem, ImageItem, ItemKind, PathItem, PathSegment, Point, Rect, Rgba, Transform,
+    Depth, DepthPlane, GlyphsItem, ImageItem, ItemKind, PathItem, PathSegment, Point, Rect, Rgba,
+    Transform,
 };
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::FontId;
@@ -37,6 +38,27 @@ pub fn leaves(scene: &Scene) -> Vec<Leaf> {
     out
 }
 
+/// Collects every leaf of the scene's display list in paint order together with the depth group it lies in,
+/// numbered as [`ironlab_scene::display::DisplayList::visit_leaves_grouped`] numbers them: `None` for a leaf outside
+/// every depth group.
+pub fn grouped_leaves(scene: &Scene) -> Vec<(Leaf, Option<usize>)> {
+    let mut out = Vec::new();
+    scene
+        .display_list
+        .visit_leaves_grouped(|item, transform, clip, group| {
+            out.push((
+                Leaf {
+                    source: item.source,
+                    kind: item.kind.clone(),
+                    transform,
+                    clip,
+                },
+                group,
+            ));
+        });
+    out
+}
+
 /// Returns the leaves produced by a node, in paint order.
 pub fn from_source(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
     leaves
@@ -66,6 +88,40 @@ impl Leaf {
             ItemKind::Image(i) => Some(i),
             _ => None,
         }
+    }
+
+    /// Returns the depth of a path leaf: `None` for a path outside every depth group and for any other leaf.
+    pub fn depth(&self) -> Option<&Depth> {
+        self.path().and_then(|p| p.depth.as_ref())
+    }
+
+    /// Returns the one plane a leaf lies at: that of a path whose depth is a plane, or of an image with a depth.
+    pub fn plane(&self) -> Option<DepthPlane> {
+        match &self.kind {
+            ItemKind::Path(p) => match p.depth {
+                Some(Depth::Plane(plane)) => Some(plane),
+                _ => None,
+            },
+            ItemKind::Image(i) => i.depth,
+            _ => None,
+        }
+    }
+
+    /// Returns the endpoints of the segments of a path leaf in the leaf's own coordinate space, in segment order:
+    /// one for each `MoveTo`, `LineTo` and `CubicTo` and none for `Close`, which is the order in which a
+    /// [`Depth::Vertices`] lists its depths, so `endpoints()[k]` is the point whose depth is `depths[k]`.
+    pub fn endpoints(&self) -> Vec<Point> {
+        self.path().map_or_else(Vec::new, |path| {
+            path.segments
+                .iter()
+                .filter_map(|s| match *s {
+                    PathSegment::MoveTo(p)
+                    | PathSegment::LineTo(p)
+                    | PathSegment::CubicTo(_, _, p) => Some(p),
+                    PathSegment::Close => None,
+                })
+                .collect()
+        })
     }
 
     fn to_figure(&self, p: Point) -> Point {

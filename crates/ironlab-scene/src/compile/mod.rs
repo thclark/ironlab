@@ -103,8 +103,9 @@ impl Ctx<'_> {
 /// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points, or, where the
 ///   series is decimated, one per stretch of such a run that reaches the axes. Each marker is
 ///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
-///   is one path item that carries its face fill and, when edges are drawn, its edge stroke. Each filled-contour
-///   band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
+///   is one path item that carries its face fill and, when edges are drawn, its edge stroke, except in a 3D axes,
+///   where a face with both is two path items, the fill and then the edge, so that each carries its own depth (see
+///   **3D**). Each filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
 ///   artist is one image item beneath one group that carries its placement (see **Images**).
 /// - **Decimation.** A line or scatter with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
@@ -123,9 +124,10 @@ impl Ctx<'_> {
 ///   how many faces the artist drew, so that a backend can replace them with a raster image instead of drawing one
 ///   vector path per face. The count is of the faces actually drawn, not of the cells the grid holds: a face dropped
 ///   for a NaN corner, and geometry a future decimation removes, cost a backend nothing and do not count towards
-///   rasterising the rest. Each group holds one maximal run of consecutive faces of one artist in paint order, so a
-///   surface whose faces the 3D depth sort interleaves with the geometry of other artists — including a line thinned
-///   by the decimation above — yields several groups, each recording the artist's total face count. A dense group has
+///   rasterising the rest. Each group holds one maximal run of consecutive items of one artist in paint order (in a
+///   3D axes the fill and the edge of a face are two items of one run), so a surface whose faces the 3D depth sort
+///   interleaves with the geometry of other artists — including a line thinned by the decimation above — yields
+///   several groups, each recording the artist's total face count. A dense group has
 ///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture. An
 ///   image artist is already a raster and is never wrapped in a dense group, so that no backend resamples the pixels
 ///   the user supplied.
@@ -201,10 +203,21 @@ impl Ctx<'_> {
 ///   data, for data that gives it nothing to draw, for a placement or plane that cannot be drawn, for a pixel a
 ///   strict policy refuses and for its display name, the axes for its title and axis labels, and the figure for its
 ///   title.
-/// - **3D.** Faces, segments, markers and images are painted back to front for the current view, each sorted at a
-///   depth of its own, and primitives at equal depth keep artist order. An image whose plane lies on a face of the
-///   box — its coordinate along the third axis of its plane, the offset or the lower limit of that axis when it has
-///   none, is the lower or the upper limit of that axis, to within one part in 10⁹ of the extent of the axis — is
+/// - **3D.** The artists of a 3D axes are wrapped in one [`crate::display::ItemKind::Depth`] group, placed after
+///   the grid and the back edges of the box and before its front edges, which a backend with a depth buffer clears
+///   its buffer at and tests every item of; the group is absent when no artist draws anything. Inside it, faces,
+///   segments, markers and images are painted back to front for the current view, each sorted at a key of its own,
+///   and primitives at equal keys keep artist order. Every path and image in the group carries the depth at which a
+///   depth buffer tests it, larger being nearer: a polyline (a line run, a contour isoline, a quiver arrow) one
+///   depth per vertex, a marker a constant depth, a filled contour band and a surface face the plane fitted to
+///   their projected vertices (see [`crate::maths::camera::depth_plane`]; exact for a planar face and the
+///   least-squares plane for a twisted one), and an image the plane over its pixel space. The fill of a face, and
+///   an image inside the box, are pushed [`crate::maths::camera::FACE_DEPTH_BIAS`] behind their geometry and sorted
+///   at their mean depth less the bias, so that the face's own edge and the lines and markers lying on a surface
+///   are painted, and depth-tested, in front of it; the painter's order and the depth test therefore agree
+///   wherever the order is exact. An image whose plane lies on a face of the box — its coordinate along the third
+///   axis of its plane, the offset or the lower limit of that axis when it has none, is the lower or the upper
+///   limit of that axis, to within one part in 10⁹ of the extent of the axis — keeps its unpushed plane and is
 ///   painted before every other primitive of the axes when that face is a back plane of the view (see
 ///   [`crate::maths::camera::back_planes`]) and after every other primitive when it is a front face, because
 ///   everything inside the box is in front of a back face and behind a front face; several images on faces keep

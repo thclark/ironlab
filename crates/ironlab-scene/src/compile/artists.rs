@@ -11,10 +11,11 @@ use ironlab_ir::{
     NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
 };
 
-use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
+use crate::display::{Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
 use crate::hit::{ArtistHit, AxisMap, ImageHit};
 use crate::maths::camera::{
-    Camera, Plane, back_planes, clamp_elevation, fit_to_rect, normalise_box, wrap_azimuth,
+    Camera, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane, fit_to_rect,
+    normalise_box, wrap_azimuth,
 };
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
@@ -190,6 +191,17 @@ impl Draw<'_, '_> {
         }
     }
 
+    /// Emits an item at a sort key, giving it the depth `depth` builds when the axes is three-dimensional; the
+    /// items of a 2D axes carry no depth. Reports whether there was an item to emit.
+    fn push_at(&mut self, key: f64, item: Option<Item>, depth: impl FnOnce() -> Depth) -> bool {
+        let item = if self.space.is_3d() {
+            item.map(|item| paths::with_depth(item, depth()))
+        } else {
+            item
+        };
+        self.push(key, item)
+    }
+
     /// Records the points an artist drew, merging the samples of its line and of its markers.
     fn record(&mut self, artist: ironlab_ir::NodeId, mut samples: Vec<Sample>) {
         samples.sort_by_key(|s| s.source_index);
@@ -326,6 +338,19 @@ fn mean_depth(samples: &[Sample]) -> f64 {
         return 0.0;
     }
     samples.iter().map(|s| s.depth).sum::<f64>() / samples.len() as f64
+}
+
+/// Returns the depths of mapped samples, in order.
+fn depths(samples: &[Sample]) -> Vec<f64> {
+    samples.iter().map(|s| s.depth).collect()
+}
+
+/// Returns the plane fitted to the positions and depths of mapped samples: exact for the corners of a planar face
+/// and for the vertices of a band at one height, the least-squares plane for a twisted face, and the constant plane
+/// at the mean depth when the samples are collinear on the page.
+fn face_plane(samples: &[Sample]) -> DepthPlane {
+    let points: Vec<(Point, f64)> = samples.iter().map(|s| (s.position, s.depth)).collect();
+    depth_plane(&points).unwrap_or_else(|| DepthPlane::constant(mean_depth(samples)))
 }
 
 /// Returns the positions of mapped samples, in order.
@@ -482,7 +507,7 @@ fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
                 let mut b = PathBuilder::new();
                 b.polyline(&positions(&run), false);
                 let item = paths::item(line.id, b.finish(), None, Some(stroke.clone()));
-                draw.push(mean_depth(&run), item);
+                draw.push_at(mean_depth(&run), item, || Depth::Vertices(depths(&run)));
             }
         } else {
             let mut b = PathBuilder::new();
@@ -506,7 +531,9 @@ fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
                 width,
                 1.0,
             );
-            draw.push(s.depth, item);
+            draw.push_at(s.depth, item, || {
+                Depth::Plane(DepthPlane::constant(s.depth))
+            });
         }
         drawn.extend(samples);
     }
@@ -558,7 +585,9 @@ fn draw_scatter(
             0.5,
             1.0,
         );
-        draw.push(s.depth, item);
+        draw.push_at(s.depth, item, || {
+            Depth::Plane(DepthPlane::constant(s.depth))
+        });
     }
     draw.record(scatter.id, samples);
 }
@@ -614,7 +643,9 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
                 mapped_all.extend(mapped);
             }
             let item = paths::item(c.id, b.finish(), Some(paths::fill(colour)), None);
-            draw.push(mean_depth(&mapped_all), item);
+            draw.push_at(mean_depth(&mapped_all), item, || {
+                Depth::Plane(face_plane(&mapped_all))
+            });
         }
     }
     let scale = draw.scale;
@@ -644,7 +675,7 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
                     let mut single = PathBuilder::new();
                     single.polyline(&pts, closed);
                     let item = paths::item(c.id, single.finish(), None, Some(stroke.clone()));
-                    draw.push(mean_depth(&run), item);
+                    draw.push_at(mean_depth(&run), item, || Depth::Vertices(depths(&run)));
                 } else {
                     b.polyline(&pts, closed);
                 }
@@ -716,11 +747,11 @@ fn draw_quiver(
         let mut b = PathBuilder::new();
         b.polyline(&[arrow[0].0, arrow[1].0], false);
         b.polyline(&[arrow[2].0, arrow[3].0, arrow[4].0], false);
-        let depth = (arrow[0].1 + arrow[1].1) / 2.0;
-        draw.push(
-            depth,
-            paths::item(q.id, b.finish(), None, Some(stroke.clone())),
-        );
+        let key = (arrow[0].1 + arrow[1].1) / 2.0;
+        let item = paths::item(q.id, b.finish(), None, Some(stroke.clone()));
+        draw.push_at(key, item, || {
+            Depth::Vertices(arrow.iter().map(|(_, depth)| *depth).collect())
+        });
     }
 }
 
@@ -733,6 +764,12 @@ fn node_xy(grid: &GridRef, i: usize, j: usize) -> [f64; 2] {
 }
 
 /// Draws one flat face per grid cell of a surface, and records how many faces it drew.
+///
+/// In a 2D axes a face is one item carrying its fill and its edge. In a 3D axes the two are separate items on one
+/// plane, the plane fitted to the projected corners of the face: the fill a [`FACE_DEPTH_BIAS`] behind it, sorted
+/// at the mean corner depth less the bias, and the edge on it, sorted at the mean corner depth, so that the edge is
+/// painted, and depth-tested, in front of its own fill and the fill never fights it. A face counts once however
+/// many items it is.
 fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[f64]>) {
     let values = colours.unwrap_or(grid.z);
     let width = style::width_or(s.edge_width_pt, 0.5);
@@ -765,10 +802,25 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
             let stroke = paint(s.edge).map(|c| paths::stroke(c, width, Vec::new()));
             let mut b = PathBuilder::new();
             b.polyline(&positions(&mapped), true);
-            if draw.push(
-                mean_depth(&mapped),
-                paths::item(s.id, b.finish(), fill, stroke),
-            ) {
+            let segments = b.finish();
+            let mean = mean_depth(&mapped);
+            let drawn = if draw.space.is_3d() {
+                let plane = face_plane(&mapped);
+                let mut drawn = false;
+                if let Some(fill) = fill {
+                    let pushed = plane.pushed_back(FACE_DEPTH_BIAS);
+                    let item = paths::item(s.id, segments.clone(), Some(fill), None);
+                    drawn |= draw.push_at(mean - FACE_DEPTH_BIAS, item, || Depth::Plane(pushed));
+                }
+                if let Some(stroke) = stroke {
+                    let item = paths::item(s.id, segments, None, Some(stroke));
+                    drawn |= draw.push_at(mean, item, || Depth::Plane(plane));
+                }
+                drawn
+            } else {
+                draw.push(mean, paths::item(s.id, segments, fill, stroke))
+            };
+            if drawn {
                 faces += 1;
             }
         }
@@ -813,16 +865,18 @@ fn face_depth(projector: &Projector, third: usize, offset: f64) -> Option<f64> {
     })
 }
 
-/// Computes the transform of the pixel space `[0, nx] × [0, ny]` of an image into figure space, and the depth at
-/// which the image is sorted in 3D.
+/// Computes the transform of the pixel space `[0, nx] × [0, ny]` of an image into figure space, the key at which
+/// the image is sorted in 3D, and the plane of its depth over pixel space in 3D.
 ///
 /// The columns run along the first axis of the plane and the rows along the second, between the pixel edges of the
 /// placement; the coordinate along the third axis is the offset of the plane, or the lower limit of that axis when
 /// it has none, and a 2D axes ignores it. The four corners are mapped through the axes, which is affine on the
-/// linear axes of the plane, so the transform follows from three of them and the depth is the mean of all four,
-/// unless the plane lies on a face of the box of a 3D axes, when the depth is the sentinel of [`face_depth`].
-/// Returns `None` when a corner cannot be placed.
-fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64)> {
+/// linear axes of the plane, so the transform follows from three of them, and so does the plane of the depth, which
+/// reproduces the depth of every corner. An image whose plane lies on a face of the box is sorted at the sentinel
+/// of [`face_depth`] and keeps that plane; an image inside the box is sorted at the mean depth of its corners less
+/// [`FACE_DEPTH_BIAS`], with its plane pushed back by the same, so that markers and lines lying on it are painted,
+/// and depth-tested, in front of it. Returns `None` when a corner cannot be placed.
+fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64, Option<DepthPlane>)> {
     let [columns, rows] = image.plane_dims();
     let third = image.offset_dim();
     let (x0, x1) = image::edges(image.placement.columns, image.nx);
@@ -849,23 +903,36 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64)> {
         f: origin.y,
     };
     let mean = (d0 + d1 + d2 + d3) / 4.0;
-    let depth = match draw.space {
-        Space::ThreeD(projector) => face_depth(projector, third, offset).unwrap_or(mean),
-        Space::TwoD { .. } => mean,
+    let (key, plane) = match draw.space {
+        Space::ThreeD(projector) => {
+            let plane = DepthPlane {
+                a: (d1 - d0) / nx,
+                b: (d2 - d0) / ny,
+                c: d0,
+            };
+            match face_depth(projector, third, offset) {
+                Some(sentinel) => (sentinel, Some(plane)),
+                None => (
+                    mean - FACE_DEPTH_BIAS,
+                    Some(plane.pushed_back(FACE_DEPTH_BIAS)),
+                ),
+            }
+        }
+        Space::TwoD { .. } => (mean, None),
     };
-    Some((transform, depth))
+    Some((transform, key, plane))
 }
 
 /// Draws an image of any kind as one image item in pixel space beneath one group whose transform places it in the
-/// axes, pushed as one primitive at the depth [`place_image`] gives, and records the placement in the hit map when
-/// the axes is two-dimensional.
+/// axes, pushed as one primitive at the key [`place_image`] gives and carrying the plane of its depth in 3D, and
+/// records the placement in the hit map when the axes is two-dimensional.
 ///
 /// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
 /// through the transform alone, so the row and column that a hit resolves to index the artist's array. The image is
 /// never wrapped in a dense group, since it is already a raster. An image whose corners cannot be placed, or that
 /// holds a pixel a strict policy refuses, is skipped with a warning naming it.
 fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
-    let Some((transform, depth)) = place_image(draw, image) else {
+    let Some((transform, key, plane)) = place_image(draw, image) else {
         draw.ctx.warn(
             Some(id),
             "The artist is not drawn because the corners of the image cannot be placed in the axes.",
@@ -889,11 +956,11 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
             height: ny as u32,
             channels: raster.channels,
             samples: raster.samples,
-            depth: None,
+            depth: plane,
         }),
     };
     draw.out.push((
-        depth,
+        key,
         Item {
             source: Some(id),
             kind: ItemKind::Group {

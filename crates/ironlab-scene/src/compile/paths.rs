@@ -3,8 +3,8 @@
 use ironlab_ir::NodeId;
 
 use crate::display::{
-    Fill, FillRule, Item, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect, Rgba,
-    Stroke, Transform,
+    Depth, Fill, FillRule, Item, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect,
+    Rgba, Stroke, Transform,
 };
 
 /// The distance of the Bézier control points from the ends of a quarter circle of unit radius.
@@ -139,6 +139,14 @@ pub(super) fn item(
             depth: None,
         }),
     })
+}
+
+/// Gives a path item the depth at which a 3D axes paints it; an item that is not a path is returned unchanged.
+pub(super) fn with_depth(mut item: Item, depth: Depth) -> Item {
+    if let ItemKind::Path(path) = &mut item.kind {
+        path.depth = Some(depth);
+    }
+    item
 }
 
 /// Returns whether every coordinate of a point is finite.
