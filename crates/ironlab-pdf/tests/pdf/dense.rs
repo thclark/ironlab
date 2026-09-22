@@ -1,78 +1,21 @@
 //! Raster fallback for dense content: when it is used, where the image lands and how it is embedded.
 //!
-//! The rasteriser here is a stub that paints a flat colour and records what it was asked to render. That is
-//! deliberate: these tests are about the exporter's decisions and geometry, which must be exact, and a stub makes
-//! them exact. That the pixels themselves come from the viewer's own GPU pipeline, and land where the vector
-//! geometry would have, is proved end to end in `ironlab-viewer/tests/export.rs`, which has access to the renderer
-//! this crate must not depend on.
+//! The rasteriser here is the stub of `common.rs`, which paints a flat colour and records what it was asked to
+//! render. That is deliberate: these tests are about the exporter's decisions and geometry, which must be exact, and
+//! a stub makes them exact. That the pixels themselves come from the viewer's own GPU pipeline, and land where the
+//! vector geometry would have, is proved end to end in `ironlab-viewer/tests/export.rs`, which has access to the
+//! renderer this crate must not depend on.
 //!
 //! Pages are rasterised at 72 dpi, so one pixel is one point and pixel coordinates equal display-list coordinates.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use ironlab_pdf::{
-    PdfError, PdfOptions, RasterImage, RasterOptions, RasterPolicy, Rasteriser, render_display_list,
+    ExportWarningKind, PdfError, PdfOptions, RasterOptions, RasterPolicy, Rasteriser,
+    render_display_list,
 };
-use ironlab_scene::display::{DisplayList, Item, ItemKind, Rect, Rgba, Transform};
+use ironlab_scene::display::{DisplayList, ItemKind, Rect, Rgba, Transform};
 
 use crate::common::*;
 use crate::require_tools;
-
-/// What the rasteriser was asked to render, and at what resolution.
-type Calls = Rc<RefCell<Vec<(DisplayList, f64)>>>;
-
-/// A rasteriser that paints every pixel one colour and records the lists and resolutions it was asked for.
-struct Stub {
-    color: [u8; 4],
-    calls: Calls,
-}
-
-impl Stub {
-    fn new(color: [u8; 4]) -> (Self, Calls) {
-        let calls = Rc::new(RefCell::new(Vec::new()));
-        (
-            Self {
-                color,
-                calls: Rc::clone(&calls),
-            },
-            calls,
-        )
-    }
-}
-
-impl Rasteriser for Stub {
-    fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
-        self.calls.borrow_mut().push((list.clone(), dpi));
-        let scale = dpi / 72.0;
-        let width = (list.width_pt * scale).round() as u32;
-        let height = (list.height_pt * scale).round() as u32;
-        Ok(RasterImage {
-            width,
-            height,
-            rgba: self
-                .color
-                .iter()
-                .copied()
-                .cycle()
-                .take(width as usize * height as usize * 4)
-                .collect(),
-        })
-    }
-}
-
-/// A rasteriser that always fails, so that a failure cannot be mistaken for a decision not to rasterise.
-struct Failing;
-
-impl Rasteriser for Failing {
-    fn rasterise(&mut self, _list: &DisplayList, _dpi: f64) -> Result<RasterImage, String> {
-        Err("no adapter".to_owned())
-    }
-}
-
-fn dense(cells: u64, items: Vec<Item>) -> Item {
-    item(ItemKind::Dense { cells, items })
-}
 
 /// Options that rasterise whatever is marked dense, at `dpi`.
 fn always(dpi: f64) -> PdfOptions {
@@ -80,19 +23,19 @@ fn always(dpi: f64) -> PdfOptions {
         raster: RasterOptions {
             policy: RasterPolicy::Always,
             dpi,
+            ..RasterOptions::default()
         },
         ..PdfOptions::default()
     }
 }
 
-/// Renders a list with the given options and rasteriser, panicking on failure.
+/// Renders a list with the given options and rasteriser, panicking on failure, and returns the bytes of the page.
 fn render_with(
     list: &DisplayList,
     options: &PdfOptions,
     raster: Option<&mut dyn Rasteriser>,
 ) -> Vec<u8> {
-    let text = engine();
-    render_display_list(list, &text, options, raster).expect("render display list")
+    render_reporting(list, options, raster).bytes
 }
 
 /// A page holding one dense red square, 40 by 20 points at (20, 10), on a 200 by 100 point page.
@@ -114,34 +57,18 @@ fn a_rasterised_square_covers_exactly_the_area_its_paths_covered() {
     require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
     let ws = Workspace::new("dense-place");
     let list = page_with_square(10_000);
-    let (mut stub, _) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, _) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&list, &always(72.0), Some(&mut stub)),
     );
 
-    for &engine_ in &ENGINES {
-        let image = rasterise(&pdf, engine_);
+    for &viewer in &ENGINES {
+        let image = rasterise(&pdf, viewer);
+        assert_pixel(viewer, &image, 40.5, 20.5, RED_PX, 3, "the square's centre");
+        assert_pixel(viewer, &image, 21.5, 11.5, RED_PX, 3, "its top-left corner");
         assert_pixel(
-            engine_,
-            &image,
-            40.5,
-            20.5,
-            RED_PX,
-            3,
-            "the square's centre",
-        );
-        assert_pixel(
-            engine_,
-            &image,
-            21.5,
-            11.5,
-            RED_PX,
-            3,
-            "its top-left corner",
-        );
-        assert_pixel(
-            engine_,
+            viewer,
             &image,
             58.5,
             28.5,
@@ -149,12 +76,12 @@ fn a_rasterised_square_covers_exactly_the_area_its_paths_covered() {
             3,
             "its bottom-right corner",
         );
-        assert_pixel(engine_, &image, 18.5, 20.5, WHITE_PX, 3, "left of it");
-        assert_pixel(engine_, &image, 61.5, 20.5, WHITE_PX, 3, "right of it");
-        assert_pixel(engine_, &image, 40.5, 7.5, WHITE_PX, 3, "above it");
-        assert_pixel(engine_, &image, 40.5, 31.5, WHITE_PX, 3, "below it");
+        assert_pixel(viewer, &image, 18.5, 20.5, WHITE_PX, 3, "left of it");
+        assert_pixel(viewer, &image, 61.5, 20.5, WHITE_PX, 3, "right of it");
+        assert_pixel(viewer, &image, 40.5, 7.5, WHITE_PX, 3, "above it");
+        assert_pixel(viewer, &image, 40.5, 31.5, WHITE_PX, 3, "below it");
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             40.5,
             79.5,
@@ -182,17 +109,17 @@ fn a_raster_inside_a_translated_group_lands_where_its_paths_would_have() {
             vec![filled_rect(Rect::new(0.0, 0.0, 40.0, 20.0), RED)],
         )],
     ));
-    let (mut stub, _) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, _) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&list, &always(72.0), Some(&mut stub)),
     );
 
-    for &engine_ in &ENGINES {
-        let image = rasterise(&pdf, engine_);
-        assert_pixel(engine_, &image, 120.5, 50.5, RED_PX, 3, "inside the square");
+    for &viewer in &ENGINES {
+        let image = rasterise(&pdf, viewer);
+        assert_pixel(viewer, &image, 120.5, 50.5, RED_PX, 3, "inside the square");
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             20.5,
             10.5,
@@ -201,7 +128,7 @@ fn a_raster_inside_a_translated_group_lands_where_its_paths_would_have() {
             "where an untransformed raster would have landed",
         );
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             180.5,
             85.5,
@@ -228,7 +155,7 @@ fn a_raster_is_clipped_to_the_box_that_would_have_clipped_its_paths() {
             vec![filled_rect(Rect::new(20.0, 10.0, 100.0, 20.0), RED)],
         )],
     ));
-    let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&list, &always(72.0), Some(&mut stub)),
@@ -240,11 +167,11 @@ fn a_raster_is_clipped_to_the_box_that_would_have_clipped_its_paths() {
         "the exporter renders only the 30 points of the square inside the clip, not {} points",
         rendered.width_pt
     );
-    for &engine_ in &ENGINES {
-        let image = rasterise(&pdf, engine_);
-        assert_pixel(engine_, &image, 40.5, 20.5, RED_PX, 3, "inside the clip");
-        assert_pixel(engine_, &image, 55.5, 20.5, WHITE_PX, 3, "beyond the clip");
-        assert_pixel(engine_, &image, 100.5, 20.5, WHITE_PX, 3, "well beyond it");
+    for &viewer in &ENGINES {
+        let image = rasterise(&pdf, viewer);
+        assert_pixel(viewer, &image, 40.5, 20.5, RED_PX, 3, "inside the clip");
+        assert_pixel(viewer, &image, 55.5, 20.5, WHITE_PX, 3, "beyond the clip");
+        assert_pixel(viewer, &image, 100.5, 20.5, WHITE_PX, 3, "well beyond it");
     }
 }
 
@@ -264,16 +191,16 @@ fn a_semi_transparent_raster_composites_with_the_vectors_around_it() {
     ));
     list.items
         .push(filled_rect(Rect::new(150.0, 0.0, 50.0, 100.0), Rgba::BLACK));
-    let (mut stub, _) = Stub::new([255, 0, 0, 128]);
+    let (mut stub, _) = Stub::flat([255, 0, 0, 128]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&list, &always(72.0), Some(&mut stub)),
     );
 
-    for &engine_ in &ENGINES {
-        let image = rasterise(&pdf, engine_);
+    for &viewer in &ENGINES {
+        let image = rasterise(&pdf, viewer);
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             50.5,
             20.5,
@@ -282,7 +209,7 @@ fn a_semi_transparent_raster_composites_with_the_vectors_around_it() {
             "half red over blue",
         );
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             120.5,
             20.5,
@@ -291,7 +218,7 @@ fn a_semi_transparent_raster_composites_with_the_vectors_around_it() {
             "half red over the white page",
         );
         assert_pixel(
-            engine_,
+            viewer,
             &image,
             170.5,
             20.5,
@@ -312,7 +239,7 @@ fn the_export_resolution_sets_the_sample_count_and_not_the_size_on_the_page() {
     let list = page_with_square(10_000);
 
     for (dpi, expected) in [(72.0, (40, 20)), (144.0, (80, 40)), (288.0, (160, 80))] {
-        let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
+        let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
         let pdf = ws.write_pdf(
             &format!("figure-{dpi}"),
             &render_with(&list, &always(dpi), Some(&mut stub)),
@@ -345,7 +272,7 @@ fn the_export_resolution_sets_the_sample_count_and_not_the_size_on_the_page() {
 fn the_image_is_deflated_and_not_interpolated() {
     require_tools!(IMAGE_TOOL);
     let ws = Workspace::new("dense-encoding");
-    let (mut stub, _) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, _) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&page_with_square(10_000), &always(72.0), Some(&mut stub)),
@@ -371,7 +298,7 @@ fn a_soft_mask_is_written_only_when_the_raster_is_transparent() {
     let ws = Workspace::new("dense-smask");
     let list = page_with_square(10_000);
 
-    let (mut opaque, _) = Stub::new([255, 0, 0, 255]);
+    let (mut opaque, _) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "opaque",
         &render_with(&list, &always(72.0), Some(&mut opaque)),
@@ -384,7 +311,7 @@ fn a_soft_mask_is_written_only_when_the_raster_is_transparent() {
     );
     assert_eq!(images[0].components, 3, "red, green and blue only");
 
-    let (mut translucent, _) = Stub::new([255, 0, 0, 128]);
+    let (mut translucent, _) = Stub::flat([255, 0, 0, 128]);
     let pdf = ws.write_pdf(
         "translucent",
         &render_with(&list, &always(72.0), Some(&mut translucent)),
@@ -403,7 +330,11 @@ fn a_soft_mask_is_written_only_when_the_raster_is_transparent() {
 
 // WHY: the threshold exists so that a figure only pays for a raster when vectors would be worse, and the boundary is
 // the only interesting part of it. A surface of exactly the threshold size must rasterise and one cell smaller must
-// not, and in the vector case the paths must actually be drawn rather than silently dropped.
+// not, and in the vector case the paths must actually be drawn rather than silently dropped. The report must follow
+// the same boundary: a raster is reported with the cell count that forced it, naming the surface and the option
+// that keeps it vector, so that a program reading the report can tell a figure's size from a user's request and a
+// reader knows what to change, and a surface kept vector is not reported at all, or the report would have something
+// to say about every export.
 #[test]
 fn the_threshold_decides_at_its_own_boundary_and_the_vector_case_still_draws() {
     require_tools!(IMAGE_TOOL, RASTER_TOOLS[0]);
@@ -412,25 +343,25 @@ fn the_threshold_decides_at_its_own_boundary_and_the_vector_case_still_draws() {
         raster: RasterOptions {
             policy: RasterPolicy::Auto { cells: 100 },
             dpi: 72.0,
+            ..RasterOptions::default()
         },
         ..PdfOptions::default()
     };
 
     for (cells, rasterised) in [(99, false), (100, true), (101, true)] {
-        let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
-        let pdf = ws.write_pdf(
-            &format!("figure-{cells}"),
-            &render_with(&page_with_square(cells), &options, Some(&mut stub)),
-        );
+        let name = format!("{cells} cells against a threshold of 100");
+        let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+        let rendered = render_reporting(&page_with_square(cells), &options, Some(&mut stub));
+        let pdf = ws.write_pdf(&format!("figure-{cells}"), &rendered.bytes);
         assert_eq!(
             !calls.borrow().is_empty(),
             rasterised,
-            "{cells} cells against a threshold of 100"
+            "{name}: the rasteriser is asked exactly when the surface is rasterised"
         );
         assert_eq!(
             pdfimages(&pdf).len(),
             usize::from(rasterised),
-            "images embedded for {cells} cells"
+            "{name}: images embedded"
         );
         let image = rasterise(&pdf, Engine::Poppler);
         assert_pixel(
@@ -440,39 +371,64 @@ fn the_threshold_decides_at_its_own_boundary_and_the_vector_case_still_draws() {
             20.5,
             RED_PX,
             3,
-            "the square is drawn either way",
+            &format!("{name}: the square is drawn either way"),
         );
+        let expected: Vec<_> = rasterised
+            .then_some((SURFACE, ExportWarningKind::RasterisedForSize { cells }))
+            .into_iter()
+            .collect();
+        assert_warnings(&rendered.warnings, &expected, &name);
+        if rasterised {
+            assert_message_names(
+                &rendered.warnings[0],
+                "`RasterPolicy::Never`",
+                &format!("{name}: the option that keeps the surface vector"),
+            );
+        }
     }
 }
 
 // WHY: the user override has to beat the threshold in both directions, because the threshold is a guess about what is
 // worth rasterising and the user knows their figure: a coarse surface that must be a raster because it will be
-// scaled down, or a huge one that must stay vector because it is going to be edited.
+// scaled down, or a huge one that must stay vector because it is going to be edited. The report must give the
+// override as the reason rather than a cell count, naming the option, so that a program reading it does not conclude
+// that the surface was too big, and must say nothing when the override kept the surface vector, because nothing was
+// done to it.
 #[test]
 fn the_user_override_beats_the_threshold_in_both_directions() {
     require_tools!(IMAGE_TOOL);
     let ws = Workspace::new("dense-override");
-
     let mut never = always(72.0);
     never.raster.policy = RasterPolicy::Never;
-    let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
-    let pdf = ws.write_pdf(
-        "never",
-        &render_with(&page_with_square(1_000_000), &never, Some(&mut stub)),
-    );
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+    let rendered = render_reporting(&page_with_square(1_000_000), &never, Some(&mut stub));
+    let pdf = ws.write_pdf("never", &rendered.bytes);
     assert!(
         calls.borrow().is_empty() && pdfimages(&pdf).is_empty(),
         "a million cells stay vector when the user says never"
     );
-
-    let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
-    let pdf = ws.write_pdf(
-        "always",
-        &render_with(&page_with_square(1), &always(72.0), Some(&mut stub)),
+    assert!(
+        rendered.warnings.is_empty(),
+        "nothing was rasterised, so there is nothing to report: {:?}",
+        rendered.warnings
     );
+
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+    let rendered = render_reporting(&page_with_square(1), &always(72.0), Some(&mut stub));
+    let pdf = ws.write_pdf("always", &rendered.bytes);
     assert!(
         calls.borrow().len() == 1 && pdfimages(&pdf).len() == 1,
         "a single cell is rasterised when the user says always"
+    );
+    assert_warnings(
+        &rendered.warnings,
+        &[(SURFACE, ExportWarningKind::RasterisedByRequest)],
+        "the raster is reported as the user's request, naming the surface",
+    );
+    assert_message_names(
+        &rendered.warnings[0],
+        "`RasterPolicy::Always`",
+        "the request that forced the raster",
     );
 }
 
@@ -506,23 +462,25 @@ fn without_a_rasteriser_dense_content_is_drawn_as_vector_geometry() {
 
 // WHY: a rasteriser that was asked to render and could not has produced no picture, and quietly falling back to
 // vectors would hand the user a file of a different size and kind from the one they asked for, without telling them.
-// The error must name the way out, which the message does.
+// The error must repeat the cause and name the way out, which for dense content is the raster policy.
 #[test]
 fn a_rasteriser_that_fails_is_reported_rather_than_worked_around() {
     let mut failing = Failing;
     let text = engine();
-    let error = render_display_list(
+    let result = render_display_list(
         &page_with_square(10_000),
         &text,
         &always(72.0),
         Some(&mut failing),
-    )
-    .expect_err("a failing rasteriser must not be ignored");
+    );
+    let Err(error) = result else {
+        panic!("a failing rasteriser must not be ignored")
+    };
 
     assert!(matches!(error, PdfError::Raster(_)), "got {error:?}");
     let message = error.to_string();
     assert!(
-        message.contains("no adapter") && message.contains("Never"),
+        message.contains("no adapter") && message.contains("`RasterPolicy::Never`"),
         "the message repeats the cause and names the way out: {message}"
     );
 }
@@ -539,7 +497,7 @@ fn the_rasteriser_is_given_only_the_dense_geometry_in_the_images_own_coordinates
         10_000,
         vec![filled_rect(Rect::new(20.0, 10.0, 40.0, 20.0), RED)],
     ));
-    let (mut stub, calls) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
     render_with(&list, &always(72.0), Some(&mut stub));
 
     let calls = calls.borrow();
@@ -597,7 +555,7 @@ fn the_furniture_around_a_raster_stays_vector_and_selectable() {
         ironlab_scene::display::Point::new(190.0, 90.0),
         solid_stroke(Rgba::BLACK, 1.0),
     ));
-    let (mut stub, _) = Stub::new([255, 0, 0, 255]);
+    let (mut stub, _) = Stub::flat([255, 0, 0, 255]);
     let pdf = ws.write_pdf(
         "figure",
         &render_with(&list, &always(72.0), Some(&mut stub)),

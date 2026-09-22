@@ -9,14 +9,21 @@
 //! [`export_pdf`] and [`write_pdf`] are the export path the whole project uses: the viewer's "Export PDF…" command,
 //! the `ironlab` crate's [`Figure::export_pdf`](../../ironlab/struct.Figure.html) and the documentation gallery.
 //!
-//! A figure with nothing dense in it is exported without ever touching the GPU, so exporting on a machine with no
-//! graphics adapter works as it always has. Only a figure that must be rasterised needs an adapter, and when none is
-//! available that is reported as [`ExportError::Render`] rather than quietly exported as something else.
+//! A figure with nothing to rasterise and no three-dimensional axes is exported without ever touching the GPU, so
+//! exporting on a machine with no graphics adapter works as it always has. A three-dimensional axes under the
+//! default policy needs an adapter only to verify that its painter's order shows what the viewer shows; without one
+//! it is still exported, back to front, with an [`ironlab_pdf::ExportWarning`] that says so and names a software
+//! adapter as the remedy. Only a figure that must be rasterised needs an adapter, and when none is available that
+//! is reported as [`ExportError::Render`] rather than quietly exported as something else.
 
 use std::path::Path;
 
 use ironlab_ir::Figure;
-use ironlab_pdf::{Exported, PdfError, PdfOptions, RasterImage, Rasteriser};
+use ironlab_pdf::raster::{Need, needs_rasteriser};
+use ironlab_pdf::{
+    ExportWarning, ExportWarningKind, Exported, PdfError, PdfOptions, RasterImage, Rasteriser,
+    Rendered, UnverifiedCause,
+};
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
@@ -90,14 +97,18 @@ pub fn export_pdf(
     options: &PdfOptions,
 ) -> Result<Exported, ExportError> {
     let scene = ironlab_scene::compile(figure, text);
-    let bytes = render_display_list(&scene.display_list, text, options)?;
+    let rendered = render_display_list(&scene.display_list, text, options)?;
     Ok(Exported {
-        bytes,
+        bytes: rendered.bytes,
         warnings: scene.warnings,
+        export: rendered.warnings,
     })
 }
 
-/// Exports an already compiled display list, rasterising its dense content on the GPU.
+/// Exports an already compiled display list, rasterising and verifying through the GPU what the options ask.
+///
+/// A list that needs the renderer only to verify its three-dimensional axes is exported without it when no
+/// adapter is available, with each such axes drawn back to front and a warning naming the missing adapter.
 ///
 /// # Errors
 ///
@@ -106,11 +117,12 @@ pub fn render_display_list(
     list: &DisplayList,
     text: &TextEngine,
     options: &PdfOptions,
-) -> Result<Vec<u8>, ExportError> {
-    if !ironlab_pdf::raster::rasterises_any(list, &options.raster) {
+) -> Result<Rendered, ExportError> {
+    let need = needs_rasteriser(list, &options.raster);
+    if need == Need::No {
         return Ok(ironlab_pdf::render_display_list(list, text, options, None)?);
     }
-    with_shared_renderer(|renderer| {
+    let attempt = with_shared_renderer(|renderer| {
         let mut raster = GpuRasteriser::new(renderer, text);
         let result = ironlab_pdf::render_display_list(list, text, options, Some(&mut raster));
         // A failure of the renderer is returned as itself, so that a lost device is recognised and replaced. Every
@@ -119,8 +131,30 @@ pub fn render_display_list(
             (Err(PdfError::Raster(_)), Some(failure)) => Err(failure),
             (result, _) => Ok(result),
         }
-    })?
-    .map_err(ExportError::Pdf)
+    });
+    match attempt {
+        Ok(result) => result.map_err(ExportError::Pdf),
+        Err(RenderError::NoAdapter(message)) if need == Need::ToVerify => {
+            let mut rendered = ironlab_pdf::render_display_list(list, text, options, None)?;
+            for warning in &mut rendered.warnings {
+                if let ExportWarningKind::Unverified {
+                    cause: UnverifiedCause::NoRasteriser,
+                } = warning.kind
+                {
+                    *warning = ExportWarning::unverified(
+                        warning.node,
+                        UnverifiedCause::NoAdapter,
+                        &format!(
+                            "no graphics adapter is available to verify it ({message}); a software adapter \
+                             such as lavapipe from Mesa serves on a machine without a graphics device"
+                        ),
+                    );
+                }
+            }
+            Ok(rendered)
+        }
+        Err(error) => Err(ExportError::Render(error)),
+    }
 }
 
 /// Compiles and exports a figure, writing the PDF to `path`, and returns the warnings the scene compiler raised

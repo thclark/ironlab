@@ -10,6 +10,7 @@
 
 mod common;
 mod dense;
+mod depth;
 mod document;
 mod export;
 mod images;
