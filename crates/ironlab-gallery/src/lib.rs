@@ -13,7 +13,7 @@ pub mod error;
 pub mod export;
 pub mod fields;
 
-pub use docs::{DocsOptions, DocsReport, IronlabRenderer, Renderer, generate_docs};
+pub use docs::{DocsOptions, DocsReport, ExportedPdf, IronlabRenderer, Renderer, generate_docs};
 pub use error::GalleryError;
 pub use export::export_entries;
 
@@ -110,6 +110,7 @@ gallery!(
     quiver3,
     mapped_image_and_surface,
     correlation_peak,
+    intersecting_surfaces,
     subplots_unlinked,
     subplots_linked,
     subplots_all_x,
