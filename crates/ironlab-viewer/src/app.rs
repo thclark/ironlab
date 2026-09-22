@@ -29,7 +29,8 @@ use ironlab_scene::display::Point;
 use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
-use crate::canvas::{ScreenTransform, TextureCache, color32, tessellate_with};
+use crate::canvas::{ScreenTransform, TextureCache, color32, drawables_with};
+use crate::gpu::{DEPTH_FORMAT, DrawList, Drawable, GpuCallback, GpuConfig, GpuPainter};
 use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
@@ -40,6 +41,10 @@ const WHEEL_ZOOM_RATE: f64 = 0.0036;
 
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
 const CANVAS_MARGIN: f32 = 12.0;
+
+/// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
+/// match.
+const MSAA_SAMPLES: u16 = 4;
 
 /// The radius, in egui points, of the ring drawn around the data point under the pointer, and around the centre of
 /// a pixel too small on screen to outline.
@@ -296,10 +301,16 @@ pub fn problems_list(ui: &mut egui::Ui, figure: &Figure, problems: &[Problem]) {
         });
 }
 
-/// Meshes tessellated for one placement of the figure on screen.
-struct MeshCache {
+/// One drawable of a figure, ready to add to a painter: an egui mesh, or a list for the viewer's own pipelines.
+enum Cached {
+    Mesh(Arc<egui::Mesh>),
+    Gpu(Arc<DrawList>),
+}
+
+/// The drawables tessellated for one placement of the figure on screen.
+struct DrawCache {
     to_screen: ScreenTransform,
-    meshes: Vec<Arc<egui::Mesh>>,
+    draws: Vec<Cached>,
 }
 
 /// One figure tab.
@@ -310,8 +321,8 @@ struct FigurePane {
     panel: PropertyPanel,
     /// The compilation of the displayed figure, or `None` when it must be recompiled.
     scene: Option<Scene>,
-    /// The meshes of `scene`, or `None` when they must be rebuilt.
-    meshes: Option<MeshCache>,
+    /// The drawables of `scene`, or `None` when they must be rebuilt.
+    draws: Option<DrawCache>,
     /// The textures of the images of `scene`, made with the egui context when the canvas is first drawn and pruned
     /// after each rebuild of the meshes to the textures they sample.
     textures: Option<TextureCache>,
@@ -324,7 +335,7 @@ impl FigurePane {
             state: FigureState::new(figure),
             panel: PropertyPanel::default(),
             scene: None,
-            meshes: None,
+            draws: None,
             textures: None,
         }
     }
@@ -332,13 +343,13 @@ impl FigurePane {
     /// Marks the scene as out of date after a change to the figure.
     fn invalidate(&mut self) {
         self.scene = None;
-        self.meshes = None;
+        self.draws = None;
     }
 
     /// Compiles the scene if it is out of date and returns it.
     fn scene(&mut self, text: &TextEngine) -> &Scene {
         if self.scene.is_none() {
-            self.meshes = None;
+            self.draws = None;
         }
         self.scene
             .get_or_insert_with(|| ironlab_scene::compile(self.state.figure(), text))
@@ -348,6 +359,7 @@ impl FigurePane {
         &mut self,
         ui: &mut egui::Ui,
         text: &TextEngine,
+        gpu: Option<GpuConfig>,
         notification: &mut Option<Notification>,
     ) {
         self.scene(text);
@@ -378,7 +390,7 @@ impl FigurePane {
         {
             *notification = Some(outcome);
         }
-        self.canvas(ui, text);
+        self.canvas(ui, text, gpu);
     }
 
     /// Asks for a destination and writes the displayed figure as a PDF there. Returns a notification of the outcome,
@@ -442,7 +454,11 @@ impl FigurePane {
     }
 
     /// Draws the figure in the remaining space of the tab and applies pointer gestures to it.
-    fn canvas(&mut self, ui: &mut egui::Ui, text: &TextEngine) {
+    ///
+    /// The depth groups of three-dimensional axes are drawn through the viewer's own pipelines by paint callbacks
+    /// built for `gpu`, in their place among the meshes; without a graphics configuration (only the headless test
+    /// harness lacks one) they are not drawn at all.
+    fn canvas(&mut self, ui: &mut egui::Ui, text: &TextEngine, gpu: Option<GpuConfig>) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
@@ -476,7 +492,7 @@ impl FigurePane {
             );
         }
         if self
-            .meshes
+            .draws
             .as_ref()
             .is_none_or(|cache| cache.to_screen != to_screen)
         {
@@ -484,16 +500,38 @@ impl FigurePane {
             let textures = self
                 .textures
                 .get_or_insert_with(|| TextureCache::new(ui.ctx().clone()));
-            let meshes = tessellate_with(&scene.display_list, text, to_screen, textures)
+            let draws = drawables_with(&scene.display_list, text, to_screen, textures)
                 .into_iter()
-                .map(Arc::new)
+                .map(|drawable| match drawable {
+                    Drawable::Mesh(mesh) => Cached::Mesh(Arc::new(mesh)),
+                    Drawable::Gpu(list) => Cached::Gpu(list),
+                })
                 .collect();
             textures.retain_requested();
-            self.meshes = Some(MeshCache { to_screen, meshes });
+            self.draws = Some(DrawCache { to_screen, draws });
         }
-        if let Some(cache) = &self.meshes {
-            for mesh in &cache.meshes {
-                painter.add(egui::Shape::Mesh(Arc::clone(mesh)));
+        if let Some(cache) = &self.draws {
+            for draw in &cache.draws {
+                match draw {
+                    Cached::Mesh(mesh) => {
+                        painter.add(egui::Shape::Mesh(Arc::clone(mesh)));
+                    }
+                    Cached::Gpu(list) => {
+                        if let Some(config) = gpu {
+                            // The callback covers the whole screen, so that its vertex mapping is the whole
+                            // target's; every draw of the list clips itself, within the painter's clip.
+                            painter.add(egui::Shape::Callback(
+                                egui_wgpu::Callback::new_paint_callback(
+                                    ui.ctx().viewport_rect(),
+                                    GpuCallback {
+                                        list: Arc::clone(list),
+                                        config,
+                                    },
+                                ),
+                            ));
+                        }
+                    }
+                }
             }
         }
 
@@ -664,6 +702,7 @@ struct Notification {
 /// Connects the figure panes to `egui_tiles`.
 struct TabBehavior<'a> {
     text: &'a TextEngine,
+    gpu: Option<GpuConfig>,
     notification: &'a mut Option<Notification>,
 }
 
@@ -674,7 +713,7 @@ impl egui_tiles::Behavior<FigurePane> for TabBehavior<'_> {
         _tile_id: egui_tiles::TileId,
         pane: &mut FigurePane,
     ) -> egui_tiles::UiResponse {
-        pane.ui(ui, self.text, self.notification);
+        pane.ui(ui, self.text, self.gpu, self.notification);
         egui_tiles::UiResponse::None
     }
 
@@ -697,6 +736,9 @@ pub struct ViewerApp {
     panes: Vec<egui_tiles::TileId>,
     text: Arc<TextEngine>,
     notification: Option<Notification>,
+    /// The render target the viewer's own pipelines draw into, or `None` when the application has no graphics
+    /// device, which only the headless test harness lacks.
+    gpu: Option<GpuConfig>,
 }
 
 impl ViewerApp {
@@ -714,7 +756,15 @@ impl ViewerApp {
             panes,
             text,
             notification: None,
+            gpu: None,
         }
+    }
+
+    /// Sets the render target that the viewer's own pipelines draw into, from the window's graphics state.
+    #[must_use]
+    pub fn with_gpu(mut self, gpu: GpuConfig) -> Self {
+        self.gpu = Some(gpu);
+        self
     }
 
     /// Returns the interactive state of the figure at `index` in the order the figures were given.
@@ -783,7 +833,17 @@ impl ViewerApp {
 }
 
 impl eframe::App for ViewerApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // The buffers and textures the previous frame did not draw are freed before this frame draws.
+        if let Some(state) = frame.wgpu_render_state()
+            && let Some(painter) = state
+                .renderer
+                .write()
+                .callback_resources
+                .get_mut::<GpuPainter>()
+        {
+            painter.retain_used();
+        }
         // A shortcut is read only when no text field has the keyboard, so that typing never navigates a figure. The
         // redo shortcut is read before the undo shortcut, because egui matches a shortcut whose modifiers are held
         // alongside others: ⌘⇧Z would otherwise be taken as ⌘Z.
@@ -816,6 +876,7 @@ impl eframe::App for ViewerApp {
                 ui.set_min_size(ui.available_size());
                 let mut behavior = TabBehavior {
                     text: &self.text,
+                    gpu: self.gpu,
                     notification: &mut self.notification,
                 };
                 self.tree.ui(&mut behavior, ui);
@@ -826,9 +887,10 @@ impl eframe::App for ViewerApp {
 
 /// Opens a native window showing `figures` as tabs and blocks until it is closed.
 ///
-/// The window is titled "IronLAB" and uses the wgpu backend with `NativeOptions { multisampling: 4, .. }`. Its text
-/// sizes and colours come from [`crate::style`], which is applied to the egui context as the window is created: this
-/// is the only place the interface is styled, so that what is on screen matches what that module defines.
+/// The window is titled "IronLAB" and uses the wgpu backend with four-sample anti-aliasing and a depth buffer, which
+/// the viewer's own pipelines draw the three-dimensional axes with. Its text sizes and colours come from
+/// [`crate::style`], which is applied to the egui context as the window is created: this is the only place the
+/// interface is styled, so that what is on screen matches what that module defines.
 ///
 /// # Errors
 ///
@@ -840,7 +902,8 @@ pub fn run(figures: Vec<(String, Figure)>) -> eframe::Result<()> {
             .with_title("IronLAB")
             .with_inner_size([1100.0, 800.0]),
         renderer: eframe::Renderer::Wgpu,
-        multisampling: 4,
+        multisampling: MSAA_SAMPLES,
+        depth_buffer: 32,
         ..Default::default()
     };
     eframe::run_native(
@@ -848,7 +911,15 @@ pub fn run(figures: Vec<(String, Figure)>) -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             crate::style::apply(&cc.egui_ctx);
-            Ok(Box::new(ViewerApp::new(figures, text)))
+            let mut app = ViewerApp::new(figures, text);
+            if let Some(state) = cc.wgpu_render_state.as_ref() {
+                app = app.with_gpu(GpuConfig {
+                    target_format: state.target_format,
+                    samples: u32::from(MSAA_SAMPLES),
+                    depth_format: DEPTH_FORMAT,
+                });
+            }
+            Ok(Box::new(app))
         }),
     )
 }
