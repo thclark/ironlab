@@ -150,7 +150,9 @@ fn each_surface_is_marked_separately_with_its_own_count() {
 // WHY: in a 3D axes the depth sort interleaves the faces of a surface with the geometry of other artists, and a
 // backend that replaced each run with an image must keep the back-to-front order. The runs are therefore split at
 // every interruption, and each one records the artist's whole face count rather than the size of the run, because
-// the decision to rasterise is about the artist, not about a fragment of it.
+// the decision to rasterise is about the artist, not about a fragment of it. In a 3D axes each face is two leaves,
+// its fill and then its edge, and both must stay inside the runs, so that a backend rasterising a run does not lose
+// the edges; the count is still of faces, not of leaves, so that the split does not double what the threshold sees.
 #[test]
 fn depth_sorting_splits_a_3d_surface_into_runs_that_each_record_the_whole_count() {
     let mut fx = Fx::new();
@@ -186,8 +188,8 @@ fn depth_sorting_splits_a_3d_surface_into_runs_that_each_record_the_whole_count(
     );
     assert_eq!(
         groups.iter().map(|g| g.2).sum::<usize>(),
-        faces,
-        "the runs between them hold every face exactly once"
+        2 * faces,
+        "the runs between them hold the fill leaf and the edge leaf of every face exactly once"
     );
 }
 
@@ -195,7 +197,8 @@ fn depth_sorting_splits_a_3d_surface_into_runs_that_each_record_the_whole_count(
 // stream of items. Two things must hold at that seam. A thinned artist lying between two stretches of a surface must
 // break the dense runs rather than be swallowed into one, because a backend replaces a run with an image that would
 // otherwise paint over the line. And the count each run records must still be the surface's whole face count, which
-// decimation does not touch, so that thinning a line never changes whether the surface beside it is rasterised.
+// decimation does not touch, so that thinning a line never changes whether the surface beside it is rasterised. The
+// faces of a 3D surface are two leaves each, a fill and an edge, both of which the runs hold.
 #[test]
 fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
     let mut fx = Fx::new();
@@ -242,8 +245,8 @@ fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
     );
     assert_eq!(
         groups.iter().map(|g| g.2).sum::<usize>(),
-        faces,
-        "the runs between them still hold every face exactly once"
+        2 * faces,
+        "the runs between them still hold the fill leaf and the edge leaf of every face exactly once"
     );
 }
 

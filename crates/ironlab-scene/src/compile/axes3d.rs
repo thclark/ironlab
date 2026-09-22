@@ -125,7 +125,17 @@ pub(super) fn emit(
     let mut prims = drawn.prims;
     depth_order(&mut prims);
     let sorted: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();
-    content.extend(group_dense(sorted, &drawn.dense));
+    let artists = group_dense(sorted, &drawn.dense);
+    // The artists are one depth group, between the back of the box and its front edges: a backend with a depth
+    // buffer clears it here and tests every artist item, each of which carries its depth; one without draws the
+    // painter's order the sort produced. Nothing inside the box lies beyond a back face or in front of a front edge,
+    // so the box itself needs no depth.
+    if !artists.is_empty() {
+        content.push(Item {
+            source: Some(axes.id),
+            kind: ItemKind::Depth { items: artists },
+        });
+    }
 
     if axes.box_ {
         content.extend(paths::item(
