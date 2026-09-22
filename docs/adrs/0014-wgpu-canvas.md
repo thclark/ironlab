@@ -26,15 +26,22 @@ Every draw is cut by the scissor rectangle of its clip, rounded to whole pixels 
 
 A glyph is tessellated once per font, glyph and size bucket from its outline, and placed by translation and scale into every run that uses it. Under multisample anti-aliasing an outline tessellation is independent of resolution in a way a glyph atlas is not, and a figure has few glyphs, so no atlas is kept.
 
+### Strokes are expanded on the device
+
+A stroked path is not tessellated. The canvas flattens each subpath into a polyline and uploads one segment per edge, in the item space of the path, with its neighbours, the arc length at its ends and the depth at its ends; the stroke's width, cap, join, dash pattern, colour and item-to-figure transform go into a small block of parameters per draw. The stroke vertex shader expands every segment into its body, the join at its start (a miter within the PDF limit of four, else a bevel; or an arc) and the caps at its free ends (butt, round or square), and the fragment shader dashes by arc length, giving every dash the caps of the stroke, cutting the dashes at the ends of the subpath and anti-aliasing their ends over a pixel, all as the PDF operators define them. A dashed stroke with round or square caps draws a fan around each joint whose coverage the dashes decide, because the caps of the dashes ending or starting beside the joint reach where a join would. Widths are transformed with the geometry, so a stroke beneath a non-uniform transform has an anisotropic pen, as in PDF. A hairline (width zero) is one screen point wide.
+
+A stroke outside every depth group is depth-tested against itself: the k-th such stroke since the list or the last depth group began writes a depth of `1 − (k + 1) · 2⁻²⁰`, so a later stroke passes over an earlier one while the parts of one stroke that overlap, on the inner side of a turn or under a round join, take its colour exactly once. A translucent polyline therefore has no dark specks at its joints, as it has none in PDF. Inside a depth group a stroke takes the depth of its segments, following the plane of its face across its own width, and its overlapping parts may blend twice; that is accepted.
+
 ### What the change that follows adds
 
-Strokes are still expanded into triangles by lyon in this change, and markers are still one path each. The change that follows carries markers as instances of one outline in the display list and expands strokes, with their joins, caps and dashes, on the GPU from the compiler's polylines, which closes the last of [issue #13](https://github.com/thclark/ironlab/issues/13).
+Markers are still one path each. The change that follows carries markers as instances of one outline in the display list and draws them through one instanced draw per run, which closes the last of [issue #13](https://github.com/thclark/ironlab/issues/13).
 
 ## Consequences
 
 - There is one route from the display list to pixels in the viewer: the same list, pipelines, blending and clipping produce the window, the gallery and the rasters the PDF exporter embeds or compares. The renders of the gallery before and after the change are identical for every figure without a clip edge, and differ by less than one level in 255 per block along clip edges.
 - The canvas, the offscreen renderer and the application lost more code than they gained: the mesh path, its texture caches and the geometric clipper are gone.
-- An idle frame uploads nothing, and a resize uploads thirty-two bytes per figure; a gesture on an axes recompiles the axes and rebuilds the list, whose size is bounded by the plot, as ADR 0009 intended.
+- An idle frame uploads nothing, and a resize uploads thirty-two bytes per figure; a gesture on an axes recompiles the axes and rebuilds the list, whose size is bounded by the plot, as ADR 0009 intended. A polyline of a thousand points uploads a thousand segments of sixty-four bytes rather than the triangles of its stroke, and no dash is split on the processor.
+- The strokes the viewer draws and the strokes a PDF reader draws are two implementations of one contract; the comparison tests render every join, cap and dash pattern through both and require the same picture within the tolerances the dense-surface exports use.
 - Clip edges are whole pixels rather than anti-aliased, which moves a plot's edge by at most a pixel and identically in every backend.
 - The image tiles of the canvas are cut at the smaller of 8192 pixels and the device's largest texture side, in both the window and the offscreen renderer, so the two tile alike.
 - [Issue #1](https://github.com/thclark/ironlab/issues/1) replays the same list into an integer target using the node every draw records.
