@@ -341,6 +341,8 @@ assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(2_400_000));
 
 Setting a parameter again with the same name replaces its value. `fig.parameters()` returns every parameter in ascending order of name. Each value keeps its kind when the figure is saved in either format, so the number `3900.0` never reloads as an integer; how parameters are stored is described in the [figure schema reference](../reference/figure-schema.md#parameters).
 
+Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by. It also reads a few parameters and a set of labels off each figure itself, so a collection is worth browsing before any figure has been given a parameter of its own.
+
 ## Validating a figure
 
 The builder never panics because of inconsistent input, such as arrays of different lengths or an axes placed outside the tile layout. Such problems are found by `validate`, which returns a report of errors and warnings:

@@ -400,7 +400,7 @@ A parameter takes one of four forms:
 | `{"type": "number", "value": 100000.0}` | `number_value` (ParameterNumber) | A double-precision floating-point number, which must be finite. |
 | `{"type": "string", "value": "k–ω SST"}` | `string_value` (ParameterString) | A string, which may be empty. |
 
-Parameters are edited in the viewer's [property editor](../guides/viewer.md#parameters) as well as through the API.
+Parameters are edited in the viewer's [property editor](../guides/viewer.md#parameters) as well as through the API, and are what its [figure browser](../guides/viewer.md#the-figure-browser) filters, orders and groups a collection of figures by.
 
 The form is stated explicitly because JSON has a single number type: without it, the number `3.0` would reload as the integer `3`. A JavaScript program reads a JSON integer as a double, which holds integers exactly only up to 2<sup>53</sup> in magnitude, so a larger integer parameter is exact only in readers that parse JSON integers as 64-bit integers. A parameter name must not be empty; it may contain any other Unicode text, and names that differ only in case are distinct.
 
