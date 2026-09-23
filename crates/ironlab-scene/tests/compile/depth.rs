@@ -12,7 +12,9 @@ use ironlab_ir::{
     QuiverScale, ScatterColor, Surface, View3d,
 };
 use ironlab_scene::Scene;
-use ironlab_scene::display::{Depth, DepthPlane, Item, ItemKind, PathSegment, Point};
+use ironlab_scene::display::{
+    Depth, DepthPlane, Item, ItemKind, MarkerInstance, PathSegment, Point,
+};
 use ironlab_scene::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, depth_plane, fit_to_rect, normalise_box,
 };
@@ -21,7 +23,8 @@ use ironlab_scene::maths::quiver::arrow;
 
 use crate::common::{Fx, compile_figure, linspace, placement, range};
 use crate::probe::{
-    Leaf, assert_close, axes_hit, centre, from_source, grouped_leaves, leaves, points_close,
+    Leaf, assert_close, axes_hit, from_source, grouped_leaves, leaves, marker_instances,
+    points_close,
 };
 
 const LO: [f64; 3] = [-1.0; 3];
@@ -563,9 +566,10 @@ fn a_three_dimensional_axes_whose_artists_draw_nothing_emits_no_depth_group() {
 }
 
 // WHY: a backend with a depth buffer reads the depth of every leaf of the group without checking it, so every path
-// inside must carry a depth a backend can use (a finite plane, or one finite depth per endpoint) and every image a
-// finite plane, whatever kind of artist drew it; a line, a band or an arrow whose depth count did not match its
-// vertices would be drawn at garbage depths, and a glyph run inside the group would have no depth at all.
+// inside must carry a depth a backend can use (a finite plane, or one finite depth per endpoint), every image a
+// finite plane and every marker instance a finite depth of its own, whatever kind of artist drew it; a line, a band
+// or an arrow whose depth count did not match its vertices would be drawn at garbage depths, and a glyph run inside
+// the group would have no depth at all.
 #[test]
 fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
     let (scene, _, _) = axes_with_every_artist(true);
@@ -596,7 +600,25 @@ fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
                 leaf.source,
                 image.depth
             ),
-            other => panic!("only paths and images lie inside a depth group, not {other:?}"),
+            ItemKind::Markers(markers) => {
+                assert!(
+                    !markers.instances.is_empty(),
+                    "a markers item of {:?} inside the depth group holds a marker",
+                    leaf.source
+                );
+                for instance in &markers.instances {
+                    assert!(
+                        instance.depth.is_finite(),
+                        "marker {} of {:?} inside the depth group carries a finite depth: {}",
+                        instance.source_index,
+                        leaf.source,
+                        instance.depth
+                    );
+                }
+            }
+            other => {
+                panic!("only paths, images and markers lie inside a depth group, not {other:?}")
+            }
         }
     }
     for (leaf, _) in grouped.iter().filter(|(_, group)| group.is_none()) {
@@ -683,12 +705,13 @@ fn a_line_run_carries_one_depth_per_point_equal_to_the_depths_of_its_samples() {
     );
 }
 
-// WHY: a marker is a small flat symbol at one point, so its whole outline lies at the depth of that point, whatever
+// WHY: a marker is a small flat symbol at one point, so the whole of it lies at the depth of that point, whatever
 // the shape; a marker given the plane of the line it decorates, or a depth per vertex of its outline, would sink
-// half into whatever surface it sits on. The depth is the one the hit map records for the point, so that picking
-// and drawing agree.
+// half into whatever surface it sits on. Each instance carries that depth itself, since the run it lies in holds
+// markers at many depths, and it is the depth the hit map records for the point, so that picking and drawing
+// agree.
 #[test]
-fn markers_of_a_line_and_of_a_scatter_carry_the_constant_plane_at_their_depth() {
+fn markers_of_a_line_and_of_a_scatter_each_carry_the_depth_of_their_own_point() {
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
     let line = fx.line(
@@ -712,14 +735,11 @@ fn markers_of_a_line_and_of_a_scatter_carry_the_constant_plane_at_their_depth() 
     for (id, count, what) in [(line, 3, "line"), (scatter, 4, "scatter")] {
         let samples = samples_of(&scene, id);
         assert_eq!(samples.len(), count, "the {what} draws every point");
-        let drawn = from_source(&leaves, id);
+        let drawn = marker_instances(&leaves, id);
         for s in samples {
-            let markers: Vec<&Leaf> = drawn
+            let markers: Vec<&MarkerInstance> = drawn
                 .iter()
-                .filter(|l| {
-                    l.bbox()
-                        .is_some_and(|b| points_close(centre(b), s.position, 1e-6))
-                })
+                .filter(|m| points_close(m.position, s.position, 1e-6))
                 .collect();
             assert_eq!(
                 markers.len(),
@@ -728,9 +748,13 @@ fn markers_of_a_line_and_of_a_scatter_carry_the_constant_plane_at_their_depth() 
                 s.source_index
             );
             assert_eq!(
-                markers[0].depth(),
-                Some(&Depth::Plane(DepthPlane::constant(s.depth))),
+                markers[0].depth, s.depth,
                 "{what}: the marker of point {} lies at the depth of its sample",
+                s.source_index
+            );
+            assert_eq!(
+                markers[0].source_index, s.source_index,
+                "{what}: the marker of point {} names its point",
                 s.source_index
             );
         }
@@ -1087,7 +1111,12 @@ fn a_marker_on_or_just_behind_a_face_is_painted_after_its_fill() {
 
     let position = |artist: NodeId| {
         let at = paint_positions(&leaves, artist);
-        assert_eq!(at.len(), 1, "scatter {artist} is one marker");
+        assert_eq!(at.len(), 1, "scatter {artist} is one markers item");
+        assert_eq!(
+            leaves[at[0]].instances().len(),
+            1,
+            "scatter {artist} holds one marker"
+        );
         at[0]
     };
     assert!(
@@ -1359,17 +1388,17 @@ fn a_scatter_coloured_by_data_gives_each_remaining_marker_the_depth_of_its_own_p
         vec![0, 2, 3],
         "the point without a colour is left out"
     );
-    let markers = from_source(&leaves(&scene), scatter);
+    let markers = marker_instances(&leaves(&scene), scatter);
     assert_eq!(markers.len(), 3, "one marker per drawn point");
     for index in [0, 2, 3] {
         let expected = depth_at([x[index], y[index], z[index]]);
-        let carried = markers.iter().any(|m| {
-            let plane = plane_of(m, "a marker");
-            plane.a == 0.0 && plane.b == 0.0 && (plane.c - expected).abs() <= 1e-12
-        });
+        let of_point: Vec<&MarkerInstance> =
+            markers.iter().filter(|m| m.source_index == index).collect();
+        assert_eq!(of_point.len(), 1, "one marker names point {index}");
         assert!(
-            carried,
-            "a marker carries the constant depth {expected} of point {index}"
+            (of_point[0].depth - expected).abs() <= 1e-12,
+            "the marker of point {index} carries the depth {expected} of its own point, not {}",
+            of_point[0].depth
         );
     }
 }

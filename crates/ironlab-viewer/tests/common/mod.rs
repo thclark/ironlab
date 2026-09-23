@@ -578,7 +578,7 @@ pub fn find_image(items: &[Item]) -> Option<&ImageItem> {
         ItemKind::Group { items, .. }
         | ItemKind::Dense { items, .. }
         | ItemKind::Depth { items } => find_image(items),
-        ItemKind::Path(_) | ItemKind::Glyphs(_) => None,
+        ItemKind::Path(_) | ItemKind::Glyphs(_) | ItemKind::Markers(_) => None,
     })
 }
 

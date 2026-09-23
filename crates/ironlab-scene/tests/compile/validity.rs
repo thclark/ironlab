@@ -105,7 +105,7 @@ fn gallery_like() -> ironlab_ir::Figure {
 
     let log = fx.axes2d(1, 0);
     let lx = [0.01, 0.1, 1.0, 10.0, 100.0];
-    fx.line(log, &lx, &lx, None, |_| {});
+    fx.line(log, &lx, &lx, None, |l| l.marker.shape = MarkerShape::Plus);
     fx.ax(log).x.scale = Scale::Log;
     fx.ax(log).y.scale = Scale::Log;
 
@@ -147,6 +147,14 @@ fn finite_point(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite()
 }
 
+fn finite_segment(seg: &PathSegment) -> bool {
+    match *seg {
+        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => finite_point(p),
+        PathSegment::CubicTo(a, b, c) => finite_point(a) && finite_point(b) && finite_point(c),
+        PathSegment::Close => true,
+    }
+}
+
 fn valid_colour(c: Rgba) -> bool {
     [c.r, c.g, c.b, c.a].iter().all(|v| (0.0..=1.0).contains(v))
 }
@@ -170,14 +178,7 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                     problems.push(format!("{at}: path does not start with MoveTo"));
                 }
                 for seg in &path.segments {
-                    let ok = match *seg {
-                        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => finite_point(p),
-                        PathSegment::CubicTo(a, b, c) => {
-                            finite_point(a) && finite_point(b) && finite_point(c)
-                        }
-                        PathSegment::Close => true,
-                    };
-                    if !ok {
+                    if !finite_segment(seg) {
                         problems.push(format!("{at}: non-finite segment {seg:?}"));
                     }
                 }
@@ -285,13 +286,61 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                     problems.push(format!("{at}: image without a depth inside a depth group"));
                 }
             }
+            ItemKind::Markers(markers) => {
+                if !markers.is_valid() {
+                    problems.push(format!("{at}: invalid markers item"));
+                }
+                if !matches!(markers.outline.first(), Some(PathSegment::MoveTo(_))) {
+                    problems.push(format!("{at}: marker outline does not start with MoveTo"));
+                }
+                for seg in markers.outline.iter() {
+                    if !finite_segment(seg) {
+                        problems.push(format!("{at}: non-finite marker outline segment {seg:?}"));
+                    }
+                }
+                if !(markers.edge_width.is_finite() && markers.edge_width >= 0.0) {
+                    problems.push(format!("{at}: marker edge width {}", markers.edge_width));
+                }
+                if markers.instances.is_empty() {
+                    problems.push(format!("{at}: markers item with no instances"));
+                }
+                for instance in &markers.instances {
+                    let index = instance.source_index;
+                    if !finite_point(instance.position) {
+                        problems.push(format!("{at}: marker {index} at {:?}", instance.position));
+                    }
+                    if !(instance.size_pt.is_finite() && instance.size_pt > 0.0) {
+                        problems.push(format!("{at}: marker {index} of size {}", instance.size_pt));
+                    }
+                    if in_depth && !instance.depth.is_finite() {
+                        problems.push(format!(
+                            "{at}: marker {index} inside a depth group at depth {}",
+                            instance.depth
+                        ));
+                    }
+                    for (part, colour) in [("face", instance.face), ("edge", instance.edge)] {
+                        if let Some(c) = colour
+                            && !valid_colour(c)
+                        {
+                            problems.push(format!("{at}: marker {index} {part} colour {c:?}"));
+                        }
+                    }
+                    if instance.face.is_none() && instance.edge.is_none() {
+                        problems.push(format!(
+                            "{at}: marker {index} with neither a face nor an edge"
+                        ));
+                    }
+                }
+            }
         }
     }
 }
 
-// Why: backends trust the compiler's validity guarantees (finite geometry, paths starting with
-// MoveTo, sane dashes and colours, text ranges inside their text, no clip beneath a rotation), so a
-// figure exercising every artist must satisfy all of them.
+// Why: backends trust the compiler's validity guarantees (finite geometry, paths and marker outlines
+// starting with MoveTo, sane dashes, edge widths and colours, marker instances with a finite position,
+// a positive size, something to draw and, inside a depth group, a finite depth, text ranges inside
+// their text, no clip beneath a rotation), so a figure exercising every artist must satisfy all of
+// them.
 #[test]
 fn compiled_display_list_satisfies_the_validity_contract() {
     let scene = compile_figure(&gallery_like());

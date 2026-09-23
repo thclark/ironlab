@@ -8,7 +8,7 @@ use crate::hit::{AxesHit, AxesHitKind, HitMap};
 use crate::maths::camera::{Plane, UNIT_BOX_CORNERS, back_planes, depth_order};
 
 use super::Ctx;
-use super::artists::{AxesInput, Projector, Space, draw_artists, group_dense};
+use super::artists::{AxesInput, Projector, Space, coalesce_markers, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::legend;
@@ -125,7 +125,7 @@ pub(super) fn emit(
     let mut prims = drawn.prims;
     depth_order(&mut prims);
     let sorted: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();
-    let artists = group_dense(sorted, &drawn.dense);
+    let artists = group_dense(coalesce_markers(sorted), &drawn.dense);
     // The artists are one depth group, between the back of the box and its front edges: a backend with a depth
     // buffer clears it here and tests every artist item, each of which carries its depth; one without draws the
     // painter's order the sort produced. Nothing inside the box lies beyond a back face or in front of a front edge,

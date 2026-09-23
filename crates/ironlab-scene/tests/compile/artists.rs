@@ -8,7 +8,9 @@ use ironlab_scene::maths::colormap::{VIRIDIS, sample};
 use crate::common::{
     COLOUR_ORDER, Fx, compile_figure, linspace, nearest_lut_index, rgb8, rgb8_close,
 };
-use crate::probe::{Leaf, assert_close, axis_maps, centre, from_source, leaves, signed_area};
+use crate::probe::{
+    Leaf, assert_close, axis_maps, from_source, leaves, marker_instances, signed_area,
+};
 
 fn stroked(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
     from_source(leaves, id)
@@ -21,18 +23,16 @@ fn in_viridis(color: Rgba) -> bool {
     VIRIDIS.iter().any(|c| rgb8_close(*c, rgb8(color)))
 }
 
-/// Asserts that each data point has exactly one marker centred on it, whatever order the markers are
-/// painted in.
+/// Asserts that each data point has exactly one marker instance of the artist centred on it, whatever order the
+/// markers are painted in.
 #[track_caller]
-fn assert_one_marker_per_point(scene: &Scene, ax: NodeId, markers: &[Leaf], points: &[(f64, f64)]) {
+fn assert_one_marker_per_point(scene: &Scene, ax: NodeId, artist: NodeId, points: &[(f64, f64)]) {
     let (xmap, ymap) = axis_maps(scene, ax);
+    let markers = marker_instances(&leaves(scene), artist);
     assert_eq!(markers.len(), points.len(), "one marker per point");
     let centres: Vec<(f64, f64)> = markers
         .iter()
-        .map(|m| {
-            let c = centre(m.bbox().expect("marker is a path"));
-            (xmap.to_data(c.x), ymap.to_data(c.y))
-        })
+        .map(|m| (xmap.to_data(m.position.x), ymap.to_data(m.position.y)))
         .collect();
     for (px, py) in points {
         let here = centres
@@ -46,13 +46,16 @@ fn assert_one_marker_per_point(scene: &Scene, ax: NodeId, markers: &[Leaf], poin
     }
 }
 
-/// Returns the stroke colour of the first stroked item of `id`, as 8-bit sRGB.
+/// Returns the colour of the first stroke of `id`, as 8-bit sRGB: the stroke of its first stroked path, or, for
+/// an artist drawn as markers alone, the edge of its first marker.
 fn stroke_rgb8(scene: &Scene, id: NodeId) -> [u8; 3] {
-    let strokes = stroked(&leaves(scene), id);
-    let first = strokes
+    let leaves = leaves(scene);
+    let colour = stroked(&leaves, id)
         .first()
+        .map(|l| l.path().unwrap().stroke.as_ref().unwrap().color)
+        .or_else(|| marker_instances(&leaves, id).first().and_then(|m| m.edge))
         .unwrap_or_else(|| panic!("artist {id} is stroked"));
-    rgb8(first.path().unwrap().stroke.as_ref().unwrap().color)
+    rgb8(colour)
 }
 
 // Why: successive series with automatic colour must be told apart. The colour order is the
@@ -196,15 +199,14 @@ fn markers_only_line_draws_one_marker_per_finite_point() {
     );
     let scene = compile_figure(&fx.build());
     let items = from_source(&leaves(&scene), line);
-    for item in &items {
-        let b = item.bbox().expect("marker is a path");
-        assert!(
-            b.width <= 6.0 * 1.5 + 1.0 && b.height <= 6.0 * 1.5 + 1.0,
-            "a marker, not a polyline: {b:?}"
-        );
-    }
+    assert!(
+        !items.is_empty() && items.iter().all(|item| item.markers().is_some()),
+        "markers and no polyline: {} of the line's {} items are paths",
+        items.iter().filter(|item| item.path().is_some()).count(),
+        items.len()
+    );
     let finite = [(0.0, 0.0), (1.0, 1.0), (3.0, 3.0), (4.0, 4.0)];
-    assert_one_marker_per_point(&scene, ax, &items, &finite);
+    assert_one_marker_per_point(&scene, ax, line, &finite);
 }
 
 // Why: NaN marks missing data, so the polyline must break there instead of bridging the gap.
@@ -246,9 +248,8 @@ fn scatter_draws_one_marker_per_point() {
     let y: Vec<f64> = x.iter().map(|v| 1.0 - v * v).collect();
     let scatter = fx.scatter(ax, &x, &y, None, |_, _| {});
     let scene = compile_figure(&fx.build());
-    let markers = from_source(&leaves(&scene), scatter);
     let points: Vec<(f64, f64)> = x.iter().copied().zip(y.iter().copied()).collect();
-    assert_one_marker_per_point(&scene, ax, &markers, &points);
+    assert_one_marker_per_point(&scene, ax, scatter, &points);
 }
 
 // Why: scatter colour data must be mapped through the axes colormap and automatic colour limits, so
@@ -265,13 +266,13 @@ fn scatter_colour_data_is_colormapped() {
     });
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
-    let markers = from_source(&leaves(&scene), scatter);
+    let markers = marker_instances(&leaves(&scene), scatter);
     assert_eq!(markers.len(), 3);
     for m in markers {
-        let data_x = xmap.to_data(centre(m.bbox().unwrap()).x).round();
+        let data_x = xmap.to_data(m.position.x).round();
         let t = data_x / 2.0;
         let expected = sample(&VIRIDIS, t).unwrap();
-        let fill = m.path().unwrap().fill.expect("filled marker").color;
+        let fill = m.face.expect("filled marker");
         assert!(
             rgb8_close(rgb8(fill), expected),
             "marker at x = {data_x}: {fill:?} vs {expected:?}"

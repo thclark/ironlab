@@ -1,13 +1,16 @@
 //! Thinning of dense series to the current view, and the index map back to the source data that
 //! the hit map publishes for picking and datatips.
 
-use ironlab_ir::{Limits, MarkerShape, NodeId, ScatterColor, View3d};
+use ironlab_ir::{ColorSpec, Limits, MarkerShape, NodeId, ScatterColor, View3d};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Point;
+use ironlab_scene::maths::colormap::{VIRIDIS, sample};
 use ironlab_scene::maths::decimate::{Sample, target_points};
 
-use crate::common::{Fx, compile_figure};
-use crate::probe::{Leaf, assert_close, axes_hit, axis_maps, centre, from_source, leaves};
+use crate::common::{Fx, compile_figure, rgb8, rgb8_close};
+use crate::probe::{
+    Leaf, assert_close, axes_hit, axis_maps, from_source, leaves, marker_instances,
+};
 
 /// `n` points spread deterministically over a rectangle, as a dense scatter fills its plot.
 fn spread(n: usize) -> (Vec<f64>, Vec<f64>) {
@@ -39,10 +42,9 @@ fn polyline_subpaths(scene: &Scene, id: NodeId) -> Vec<Vec<Point>> {
 
 /// Returns the centres of the markers an artist drew, in figure space.
 fn marker_centres(scene: &Scene, id: NodeId) -> Vec<Point> {
-    from_source(&leaves(scene), id)
+    marker_instances(&leaves(scene), id)
         .iter()
-        .filter_map(|l| l.bbox())
-        .map(centre)
+        .map(|m| m.position)
         .collect()
 }
 
@@ -335,7 +337,8 @@ fn a_scatter_whose_markers_the_view_separates_keeps_all_of_them() {
 
 // Why: a colour-mapped scatter reads its colour from a third array by index. If a decimated marker
 // carried a position from one index and a colour from another the picture would be wrong in a way
-// no one could see, so the drawn marker and the index it reports must agree.
+// no one could see, so every drawn instance must sit where the data at its index maps to and wear
+// the colour of the value at that index, and the index the hit map reports for it must agree.
 #[test]
 fn a_decimated_colour_mapped_scatter_keeps_its_colours_aligned_with_its_points() {
     let (x, y) = dense_sine(40_000);
@@ -346,11 +349,39 @@ fn a_decimated_colour_mapped_scatter_keeps_its_colours_aligned_with_its_points()
         s.color = ScatterColor::Data {
             data: fx.vector(&c),
         };
+        // A scatter's markers are hollow by default, with the colour on the edge; the face is asked
+        // for so that both parts carry the point's colour.
+        s.marker.face = ColorSpec::Auto;
     });
     let scene = compile_figure(&fx.build());
+    let samples = samples_of(&scene, id);
 
-    assert!(samples_of(&scene, id).len() < 40_000);
+    assert!(samples.len() < 40_000);
     assert_samples_match_source(&scene, ax, id, &x, &y);
+    let (xmap, ymap) = axis_maps(&scene, ax);
+    let instances = marker_instances(&leaves(&scene), id);
+    assert_eq!(
+        instances.len(),
+        samples.len(),
+        "one instance is drawn per point the hit map records"
+    );
+    for m in &instances {
+        let i = m.source_index;
+        assert!(i < c.len(), "index {i} lies inside the source arrays");
+        assert_close(m.position.x, xmap.to_figure(x[i]), 1e-9);
+        assert_close(m.position.y, ymap.to_figure(y[i]), 1e-9);
+        // The colour limits follow the data, 0 to 99, so the value at the index normalises to c / 99.
+        let expected = sample(&VIRIDIS, c[i] / 99.0).expect("a value inside the limits");
+        for (part, colour) in [("face", m.face), ("edge", m.edge)] {
+            let colour = colour.unwrap_or_else(|| panic!("the instance of point {i} has a {part}"));
+            assert!(
+                rgb8_close(rgb8(colour), expected),
+                "the {part} of the instance of point {i} is the colour of the value {} at its index, \
+                 {expected:?}, not {colour:?}",
+                c[i]
+            );
+        }
+    }
 }
 
 // Why: in a 3D axes the view is the camera rather than the axis limits, and a curve that projects
