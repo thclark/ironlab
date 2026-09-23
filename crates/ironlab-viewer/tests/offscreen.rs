@@ -515,6 +515,31 @@ fn page(width_pt: f64, height_pt: f64, background: Rgba, items: Vec<Item>) -> Di
     }
 }
 
+/// Asserts that the pixel immediately outside a scissor edge is untouched or, at most, half covered by `ink`.
+///
+/// A scissor rounds the clip to a whole pixel, and a driver decides for itself which samples of the pixel that
+/// straddles the rounded edge lie across it: Metal covers none of them and lavapipe covers half. Both put the edge
+/// within half a pixel of where the rounding placed it, which is all the scissor promises, so a test of where a
+/// clip lands admits either and pins the pixel beyond it, which no driver may touch.
+#[track_caller]
+fn assert_outside_the_scissor(
+    image: &RenderedImage,
+    x: u32,
+    y: u32,
+    ink: [u8; 4],
+    background: [u8; 4],
+    what: &str,
+) {
+    let pixel = image.pixel(x, y);
+    let half: [u8; 4] =
+        std::array::from_fn(|i| ((u16::from(ink[i]) + u16::from(background[i])) / 2) as u8);
+    assert!(
+        close_to(pixel, background, 1) || close_to(pixel, half, 4),
+        "{what} at ({x}, {y}) is untouched or at most half covered: expected {background:?} or \
+         {half:?}, got {pixel:?}"
+    );
+}
+
 /// Asserts that the pixel at `(x, y)` is within `tolerance` of `expected` in every channel.
 #[track_caller]
 fn assert_pixel(
@@ -1802,9 +1827,10 @@ fn the_background_covers_every_pixel_of_the_image() {
 // Why: an axes clips its artists to its plot rectangle, and the clip reaches the painter as a scissor rectangle
 // rather than as clipped geometry, so that every draw is cut alike, in whole pixels, as egui cuts its own clip
 // rectangles. An edge of the clip at a fraction of a pixel must be rounded to the nearest pixel boundary: the pixel
-// inside the rounded edge is painted whole and the one outside is untouched. A geometric clip would blend the pixel
-// the edge crosses, a scissor that truncated would move the edge by up to a pixel from where egui puts it, and one
-// that took the clip in figure points for pixels would put it in the wrong place at every dpi but 72.
+// inside the rounded edge is painted whole, the pixel that straddles it is at most half covered, and the pixel
+// beyond that is untouched. A geometric clip would blend the pixel the edge crosses, a scissor that truncated would
+// move the edge by up to a pixel from where egui puts it, and one that took the clip in figure points for pixels
+// would put it in the wrong place at every dpi but 72.
 #[test]
 fn a_clip_with_fractional_edges_is_cut_at_the_nearest_whole_pixels() {
     let clip = Rect::new(20.3, 30.6, 40.4, 29.8);
@@ -1826,57 +1852,73 @@ fn a_clip_with_fractional_edges_is_cut_at_the_nearest_whole_pixels() {
         };
         let middle_column = (first_column + last_column) / 2;
         let middle_row = (first_row + last_row) / 2;
-        for (x, y, expected, what) in [
+        for (x, y, what) in [
             (
                 first_column,
                 middle_row,
-                RED_PX,
                 "the first column inside the clip is painted whole",
-            ),
-            (
-                first_column - 1,
-                middle_row,
-                WHITE_PX,
-                "the column before it is untouched",
             ),
             (
                 last_column,
                 middle_row,
-                RED_PX,
                 "the last column inside the clip is painted whole",
-            ),
-            (
-                last_column + 1,
-                middle_row,
-                WHITE_PX,
-                "the column after it is untouched",
             ),
             (
                 middle_column,
                 first_row,
-                RED_PX,
                 "the first row inside the clip is painted whole",
             ),
             (
                 middle_column,
-                first_row - 1,
-                WHITE_PX,
-                "the row before it is untouched",
-            ),
-            (
-                middle_column,
                 last_row,
-                RED_PX,
                 "the last row inside the clip is painted whole",
             ),
+        ] {
+            assert_pixel(&image, x, y, RED_PX, 1, &format!("{what} at {dpi} dpi"));
+        }
+        // The pixel that straddles each rounded edge, then the pixel beyond it, which the clip reaches under no
+        // reading of the rounding. Every one of them lies inside the face, so only the scissor can leave it bare.
+        for (x, y, what) in [
+            (first_column - 1, middle_row, "the column before the clip"),
+            (last_column + 1, middle_row, "the column after the clip"),
+            (middle_column, first_row - 1, "the row before the clip"),
+            (middle_column, last_row + 1, "the row after the clip"),
+        ] {
+            assert_outside_the_scissor(
+                &image,
+                x,
+                y,
+                RED_PX,
+                WHITE_PX,
+                &format!("{what} at {dpi} dpi"),
+            );
+        }
+        for (x, y, what) in [
+            (
+                first_column - 2,
+                middle_row,
+                "the second column before the clip",
+            ),
+            (
+                last_column + 2,
+                middle_row,
+                "the second column after the clip",
+            ),
             (
                 middle_column,
-                last_row + 1,
-                WHITE_PX,
-                "the row after it is untouched",
+                first_row - 2,
+                "the second row before the clip",
             ),
+            (middle_column, last_row + 2, "the second row after the clip"),
         ] {
-            assert_pixel(&image, x, y, expected, 1, &format!("{what} at {dpi} dpi"));
+            assert_pixel(
+                &image,
+                x,
+                y,
+                WHITE_PX,
+                1,
+                &format!("{what} is untouched at {dpi} dpi"),
+            );
         }
     }
 }
@@ -4234,6 +4276,10 @@ fn a_tile_shared_by_two_lists_is_uploaded_once_and_a_different_tile_of_the_buffe
 /// pixel is.
 type PixelCheck = (u32, u32, [u8; 4], u8, &'static str);
 
+/// One pixel straddling a rounded scissor edge, which [`assert_outside_the_scissor`] allows to be half covered:
+/// its column, its row and what it is.
+type StraddlingCheck = (u32, u32, &'static str);
+
 // Why: the interactive canvas places a figure anywhere on a window of any scale factor and clips it to the canvas,
 // and each of those reaches the pixels through the viewport alone: the mapping uniform carries the origin, the
 // scale and the target's size in points, and the scissor carries the clip. An origin ignored or rounded would shift
@@ -4257,7 +4303,7 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
     // Half of the four samples of a pixel lie either side of an edge at its middle, so a half-covered pixel is
     // the mean of red and white.
     let half_red = [255, 128, 128, 255];
-    let cases: [(&str, Viewport, &[PixelCheck]); 6] = [
+    let cases: [(&str, Viewport, &[PixelCheck], &[StraddlingCheck]); 6] = [
         (
             "the whole target, unmoved",
             viewport(ONE_TO_ONE),
@@ -4267,6 +4313,7 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 (10, 5, WHITE_PX, 1, "the column beyond the square"),
                 (5, 10, WHITE_PX, 1, "the row beneath the square"),
             ],
+            &[],
         ),
         (
             "an origin half a pixel to the right",
@@ -4280,6 +4327,7 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 (5, 9, RED_PX, 1, "row 9, unmoved"),
                 (5, 10, WHITE_PX, 1, "row 10, untouched"),
             ],
+            &[],
         ),
         (
             "two pixels per point",
@@ -4296,12 +4344,12 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 (20, 10, WHITE_PX, 1, "the column beyond the square"),
                 (10, 20, WHITE_PX, 1, "the row beneath the square"),
             ],
+            &[],
         ),
         (
             "a clip at fractional points",
             clipped_to(2.3, 1.6, 5.0, 6.0),
             &[
-                (1, 4, WHITE_PX, 1, "the column before the clip"),
                 (
                     2,
                     4,
@@ -4310,8 +4358,6 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                     "the first column inside the clip, painted whole",
                 ),
                 (6, 4, RED_PX, 1, "the last column inside the clip"),
-                (7, 4, WHITE_PX, 1, "the column after the clip"),
-                (4, 1, WHITE_PX, 1, "the row above the clip"),
                 (
                     4,
                     2,
@@ -4320,7 +4366,18 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                     "the first row inside the clip, painted whole",
                 ),
                 (4, 7, RED_PX, 1, "the last row inside the clip"),
-                (4, 8, WHITE_PX, 1, "the row beneath the clip"),
+                // The pixels beyond the ones that straddle the rounded edges, which no reading of the rounding
+                // reaches; each lies inside the square, so only the scissor can leave it bare.
+                (0, 4, WHITE_PX, 1, "the second column before the clip"),
+                (8, 4, WHITE_PX, 1, "the second column after the clip"),
+                (4, 0, WHITE_PX, 1, "the second row above the clip"),
+                (4, 9, WHITE_PX, 1, "the second row beneath the clip"),
+            ],
+            &[
+                (1, 4, "the column before the clip"),
+                (7, 4, "the column after the clip"),
+                (4, 1, "the row above the clip"),
+                (4, 8, "the row beneath the clip"),
             ],
         ),
         (
@@ -4330,6 +4387,7 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 (0, 0, WHITE_PX, 1, "the first pixel, undrawn"),
                 (5, 5, WHITE_PX, 1, "the middle of the square, undrawn"),
             ],
+            &[],
         ),
         (
             "a clip beyond the right edge of the target",
@@ -4338,9 +4396,10 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 (5, 5, WHITE_PX, 1, "the middle of the square, undrawn"),
                 (99, 5, WHITE_PX, 1, "the last column, undrawn"),
             ],
+            &[],
         ),
     ];
-    for (what, target, pixels) in cases {
+    for (what, target, pixels, straddling) in cases {
         let image = renderer
             .render_list(&list, &target, WHITE_PX)
             .unwrap_or_else(|error| panic!("{what}: {error}"));
@@ -4356,6 +4415,16 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
                 y,
                 expected,
                 tolerance,
+                &format!("{which} with {what}"),
+            );
+        }
+        for &(x, y, which) in straddling {
+            assert_outside_the_scissor(
+                &image,
+                x,
+                y,
+                RED_PX,
+                WHITE_PX,
                 &format!("{which} with {what}"),
             );
         }
