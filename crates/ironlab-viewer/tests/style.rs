@@ -235,15 +235,66 @@ fn the_fonts_have_every_character_the_interface_draws() {
 }
 
 // Why: the list is what the code draws from and what the fonts are checked against, so a character used in the
-// interface but left out of it would never be checked. The revert control is the one character the interface draws
-// on its own, so it must be in the list by construction rather than by someone remembering to add it.
+// interface but left out of it would never be checked. Every mark the interface draws is named in `MARKS`, so the
+// two lists can be held together by construction rather than by someone remembering to add to both.
 #[test]
-fn the_revert_control_is_one_of_the_listed_characters() {
-    let revert: Vec<char> = style::REVERT.chars().collect();
-    assert_eq!(revert.len(), 1, "the revert control is one character");
+fn every_mark_the_interface_draws_is_one_of_the_listed_characters() {
     assert!(
-        style::INTERFACE_CHARACTERS.contains(&revert[0]),
-        "the revert control {:?} is not in the list the fonts are checked against",
-        style::REVERT
+        style::MARKS.contains(&style::REVERT),
+        "the revert control is a mark, and must be named among them"
     );
+    for mark in style::MARKS {
+        let characters: Vec<char> = mark.chars().collect();
+        assert_eq!(
+            characters.len(),
+            1,
+            "the mark {mark:?} is more than one character, so it is a word and does not belong here"
+        );
+        assert!(
+            style::INTERFACE_CHARACTERS.contains(&characters[0]),
+            "the mark {mark:?} is not in the list the fonts are checked against"
+        );
+    }
+}
+
+// Why: the last-resort face is in the interface for one reason, and it is a reason that would be invisible if it
+// stopped being true: egui's own fonts have no arrow in them. Were a future egui to gain one, this test would fail
+// and the face could be dropped rather than carried forever for nothing; were the face dropped while egui still
+// lacks the arrows, the coverage test above would fail instead. Between them the two pin why it is there.
+#[test]
+fn the_arrows_come_from_the_last_resort_face_because_eguis_own_fonts_have_none() {
+    let bare = egui::Context::default();
+    bare.set_fonts(egui::FontDefinitions::default());
+    bare.all_styles_mut(|style| style.text_styles = style::text_styles());
+    let mut output = bare.run_ui(egui::RawInput::default(), |_| {});
+    output.textures_delta.clear();
+
+    let arrows: Vec<char> = [style::ASCENDING, style::DESCENDING]
+        .iter()
+        .flat_map(|mark| mark.chars())
+        .collect();
+    bare.fonts_mut(|fonts| {
+        let font = FontId::new(style::BODY_SIZE_PT, FontFamily::Proportional);
+        for arrow in &arrows {
+            assert!(
+                !fonts.has_glyph(&font, *arrow),
+                "egui's own fonts now draw {arrow:?}, so the last-resort face is no longer needed for it"
+            );
+        }
+    });
+
+    // The face the viewer adds is what supplies them.
+    let ours = egui::Context::default();
+    style::apply(&ours);
+    let mut output = ours.run_ui(egui::RawInput::default(), |_| {});
+    output.textures_delta.clear();
+    ours.fonts_mut(|fonts| {
+        let font = FontId::new(style::BODY_SIZE_PT, FontFamily::Proportional);
+        for arrow in &arrows {
+            assert!(
+                fonts.has_glyph(&font, *arrow),
+                "the viewer's fonts must draw {arrow:?}"
+            );
+        }
+    });
 }

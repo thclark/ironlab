@@ -67,13 +67,14 @@ would add, and choosing a second value never empties the list. A value that woul
 greyed, rather than disappearing as the reader reaches for it. A parameter holding numbers is narrowed by the two
 ends of a range instead of by a list of values.
 
-Each filter reads back as a chip below the search field, naming the parameter and what it was narrowed to. Clicking
-a chip removes that filter. **Clear**, and **Show all** at the foot of the panel, take back every filter and empty
+Each filter reads back as a chip below the search field, naming the parameter, what it was narrowed to, and a cross
+(×). Clicking a chip removes that filter. **Clear**, and **Show all** at the foot of the panel, take back every filter and empty
 the search field at once.
 
 ### Ordering and grouping
 
-**Order by** puts the list in order of the title or of any parameter, and the button beside it reverses the order.
+**Order by** puts the list in order of the title or of any parameter. The button beside it reverses the order and
+says which way it runs, **Ascending ↑** or **Descending ↓**.
 Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
 comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
 When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows

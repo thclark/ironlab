@@ -16,9 +16,10 @@
 //! The list is drawn with [`egui::ScrollArea::show_rows`], which lays out only the rows on screen, so a collection
 //! of a few hundred figures costs the same per frame as a collection of ten.
 //!
-//! Every mark drawn here is either a word, or one of the characters [`crate::style::INTERFACE_CHARACTERS`] promises
-//! the fonts carry. In particular a chip does not carry a cross: the chip is itself the control that removes the
-//! filter, and its tooltip says so.
+//! Every mark drawn here is one of [`crate::style::MARKS`], which [`crate::style::INTERFACE_CHARACTERS`] promises
+//! the fonts carry, and each augments words rather than standing in for them: a chip says which parameter it
+//! narrows and to what, and carries a cross to say that clicking it takes that away; the control that reverses an
+//! order says "Ascending" or "Descending", and carries the arrow that says which at a glance.
 
 use std::collections::BTreeSet;
 
@@ -451,8 +452,9 @@ fn range_control(ui: &mut egui::Ui, browser: &mut FigureBrowser, facet: &Facet) 
 
 /// Draws one chip per filter, and the control that takes them all back.
 ///
-/// A chip says which parameter it narrows and to what, and clicking it takes the filter away. There is no cross on
-/// it: the chip is the control, and the tooltip is where that is said.
+/// A chip says which parameter it narrows and to what, and carries [`crate::style::REMOVE`] to say that clicking
+/// it takes the filter away. The words are what the chip means; the mark is there to be found at a glance among
+/// several of them.
 fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let mut remove = None;
     for filter in &browser.browse.filters {
@@ -468,7 +470,7 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
                 crate::browse::number_text(*high)
             ),
         };
-        let label = format!("{}: {text}", filter.key.name());
+        let label = format!("{}: {text} {}", filter.key.name(), crate::style::REMOVE);
         let chip = egui::Button::new(&label)
             .fill(ui.visuals().selection.bg_fill)
             .stroke(ui.visuals().selection.stroke);
@@ -515,15 +517,16 @@ fn order_controls(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Face
                 }
             }
         });
-    // The caption is a word rather than an arrow, because the interface draws only characters the fonts are known
-    // to carry and an arrow is not one of them.
+    // The caption says which way the order runs and the arrow shows it. The arrow never stands alone: a mark on its
+    // own would leave the control unreadable to anyone who does not take the mark in.
     let descending = browser.browse.sort.descending;
+    let caption = if descending {
+        format!("Descending {}", crate::style::DESCENDING)
+    } else {
+        format!("Ascending {}", crate::style::ASCENDING)
+    };
     if ui
-        .button(if descending {
-            "Descending"
-        } else {
-            "Ascending"
-        })
+        .button(caption)
         .on_hover_text("Reverse the order.")
         .clicked()
     {
