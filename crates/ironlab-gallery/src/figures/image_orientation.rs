@@ -39,7 +39,12 @@ pub fn figure() -> Figure {
         .label("subplots")
         .label("comparison")
         .label("orientation")
-        .label("placement");
+        .label("placement")
+        .parameter("kind", "image")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 589_824)
+        .parameter("has_legend", false);
 
     // The default placement puts the centre of the pixel in row r and column c at (c, r). Row 0, the top of the
     // photograph, therefore lies at the bottom of the image.

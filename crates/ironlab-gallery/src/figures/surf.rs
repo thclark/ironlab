@@ -15,7 +15,12 @@ pub fn figure() -> Figure {
         .label("3d")
         .label("surface")
         .label("basics")
-        .label("interaction");
+        .label("interaction")
+        .parameter("kind", "surface")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1763)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.surf(&x, &y, &z).edge_width(0.25);
     ax.xlabel("$x$")

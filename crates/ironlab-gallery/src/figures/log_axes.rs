@@ -16,7 +16,12 @@ pub fn figure() -> Figure {
         .label("log")
         .label("comparison")
         .label("dashes")
-        .label("signals");
+        .label("signals")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 6)
+        .parameter("data_points", 712)
+        .parameter("has_legend", true);
 
     // Power laws are straight lines on log-log axes, with slopes equal to their exponents.
     let x = logspace(-1.0, 2.0, 61);

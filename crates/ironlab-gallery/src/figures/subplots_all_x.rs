@@ -25,7 +25,12 @@ pub fn figure() -> Figure {
         .label("subplots")
         .label("interaction")
         .label("linked-axes")
-        .label("signals");
+        .label("signals")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 2406)
+        .parameter("has_legend", false);
     let rows = [
         (0, &signal, r"$s(t)$"),
         (1, &derivative, r"$\frac{ds}{dt}$"),

@@ -16,7 +16,12 @@ pub fn figure() -> Figure {
         .label("line")
         .label("subplots")
         .label("interaction")
-        .label("linked-axes");
+        .label("linked-axes")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 6)
+        .parameter("data_points", 2412)
+        .parameter("has_legend", false);
 
     // Each tile plots a sine wave of a different frequency: 0.5, 1, 1.5, ... from left to right and top to bottom.
     let t = linspace(0.0, 4.0 * PI, 201);

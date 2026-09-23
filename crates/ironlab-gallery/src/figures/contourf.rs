@@ -16,7 +16,12 @@ pub fn figure() -> Figure {
         .label("2d")
         .label("contour")
         .label("colormap")
-        .label("levels");
+        .label("levels")
+        .parameter("kind", "contour")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 14_883)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contourf(&x, &y, &z).level_values(&levels);
     ax.colormap(Colormap::Magma).xlabel("$x$").ylabel("$y$");

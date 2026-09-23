@@ -3,8 +3,10 @@
 //! The gallery is the collection the figure browser was built for: two dozen figures that differ in what they draw,
 //! opened together in one window, where finding the surface figures used to mean reading every tab. The viewer
 //! works nothing out for itself, because the writer of a figure is the one who knows what matters about it, so
-//! everything the gallery can be browsed by is a label an entry wrote: the structural words for what it draws and
-//! how it is laid out, and the words naming the features of IronLAB it demonstrates.
+//! everything the gallery can be browsed by is something an entry wrote. Each entry writes both kinds of thing:
+//! labels, of which a figure carries as many as it likes — the structural words for what it draws and how it is
+//! laid out, and the words naming the features of IronLAB it demonstrates — and five parameters, each a single
+//! value, which is what a collection can be sorted, grouped and narrowed by a range of.
 //!
 //! That makes these tests more valuable than they were, not less. The answers they check are no longer produced by
 //! the same code that reads them: what a figure draws is read straight from the IR and compared with what the
@@ -13,9 +15,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_gallery::all;
-use ironlab_ir::{Artist, Figure, Projection, Scale};
+use ironlab_ir::{Artist, Figure, Parameter, Projection, Scale};
 use ironlab_viewer::browse::{
-    Browse, FacetKey, FacetValue, FigureCard, Query, describe_facets, parameter_names,
+    Browse, FacetKey, FacetKind, FacetValue, FigureCard, Query, Sort, SortKey, describe_facets,
+    parameter_names,
 };
 
 /// Every gallery figure as the browser sees it.
@@ -228,41 +231,92 @@ fn a_bare_word_searches_the_titles_and_the_labels_together() {
     );
 }
 
-// Why: the panel offers what the collection gives it, and the gallery gives it labels and nothing else: no entry
-// carries a parameter, and the viewer no longer invents any. If the labels came to nothing the panel would open on
-// an empty menu and the reader would conclude the gallery cannot be filtered at all, which is the whole feature
-// lost. The facet also has to be worth offering rather than merely present, which is what its score decides.
+// Why: the panel offers what the collection gives it, and the gallery gives it two kinds of thing. The labels are
+// the menu of words; the parameters are what a label cannot be, because each holds one value and can therefore be
+// sorted, grouped and narrowed by a range. If either came to nothing the panel would open half empty and the
+// reader would conclude the gallery cannot be filtered that way at all. A facet also has to be worth offering
+// rather than merely present, which is what its score decides, and `data_points` is the only numeric facet in the
+// repository measured against real figures rather than a fixture, so its range is pinned here.
 #[test]
 fn the_gallery_offers_facets_worth_filtering_on() {
     let cards = cards();
     let facets = describe_facets(&cards);
+    let offered: Vec<&str> = facets.iter().map(|facet| facet.key.name()).collect();
 
     assert_eq!(
-        facets
-            .iter()
-            .map(|facet| facet.key.clone())
-            .collect::<Vec<FacetKey>>(),
-        vec![FacetKey::Labels],
-        "the labels are the whole of what the gallery offers, because they are all it wrote"
+        facets.first().map(|facet| facet.key.clone()),
+        Some(FacetKey::Labels),
+        "the labels lead, because they are the words the reader browses by: {offered:?}"
     );
     let labels = &facets[0];
     assert!(
-        labels.cardinality() > 10 && labels.score > 0.0,
-        "the labels divide the gallery many ways and are offered: {} values, score {}",
+        labels.cardinality() > 10 && labels.score > 0.0 && labels.present == cards.len(),
+        "the labels divide the gallery many ways, are offered, and cover every figure: {} values, \
+         score {}, on {} of {} figures",
         labels.cardinality(),
-        labels.score
-    );
-    assert_eq!(
+        labels.score,
         labels.present,
-        cards.len(),
-        "and every figure is in the menu, because every figure labelled itself"
+        cards.len()
     );
+
+    for wanted in PARAMETERS {
+        assert!(
+            offered.contains(&wanted),
+            "{wanted:?} is written by every entry and offered beside the labels: {offered:?}"
+        );
+    }
+    for wanted in ["dimensionality", "kind"] {
+        let facet = facets
+            .iter()
+            .find(|facet| facet.key.name() == wanted)
+            .expect("an offered facet");
+        assert!(
+            facet.cardinality() > 1 && facet.score > 0.0,
+            "{wanted:?} divides the gallery rather than saying the same thing of every figure: \
+             {} values, score {}",
+            facet.cardinality(),
+            facet.score
+        );
+    }
+
+    let points = facets
+        .iter()
+        .find(|facet| facet.key.name() == "data_points")
+        .expect("an offered facet");
+    assert_eq!(
+        points.kind,
+        FacetKind::Integer,
+        "the count of data values is a whole number, so it is narrowed by a range rather than \
+         chosen from a list"
+    );
+    let (least, most) = points.range.expect("a range over the gallery's data");
     assert!(
-        parameter_names(&cards).is_empty(),
-        "the gallery writes no parameters, and none is invented for it: {:?}",
-        parameter_names(&cards)
+        least > 0.0 && most > least * 100.0,
+        "the gallery spans figures from a few hundred values to hundreds of thousands, which is \
+         what makes a range worth dragging: {least} to {most}"
+    );
+
+    // The gallery's titles are all different, so a facet of them would name every figure rather than divide the
+    // collection. The check is that the facets are ordered by how well they divide, not merely that they are
+    // present.
+    let scores: Vec<f64> = facets.iter().map(|facet| facet.score).collect();
+    assert!(
+        scores.windows(2).all(|pair| pair[0] >= pair[1]),
+        "the facets are offered in descending order of how well they divide the gallery: {scores:?}"
     );
 }
+
+/// Every parameter each gallery entry writes, in the order the entries write them.
+///
+/// They are the single-valued companions to the labels: the headline kind of the entry, whether it is flat or
+/// solid, how many artists it draws, how many values its data holds and whether it shows a legend.
+const PARAMETERS: [&str; 5] = [
+    "kind",
+    "dimensionality",
+    "artists",
+    "data_points",
+    "has_legend",
+];
 
 // Why: the labels are the menu the reader sees first, so they have to be the words they would look for. Two kinds
 // of word have to be there. The structural ones say what a figure is made of, which is how a reader who knows the
@@ -436,6 +490,127 @@ fn the_structural_labels_say_what_each_figure_actually_holds() {
         );
     }
 }
+
+// Why: a parameter is a description written by hand, and `artists` and `data_points` are descriptions written as
+// numbers. A number is exactly the kind of description that rots silently: adding an artist or raising a grid from
+// 121 to 241 points changes the figure and leaves the written count looking as plausible as it did before, so the
+// gallery would sort and order itself by a lie that nothing shows. Reading all five back off the figure is what
+// makes writing them down safe.
+#[test]
+fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
+    for entry in all() {
+        let (figure, _warnings) = entry.build_validated().expect("a valid gallery entry");
+        let parameters = figure.parameters().clone();
+        let ir = figure.into_ir();
+        let slug = entry.slug;
+
+        for name in PARAMETERS {
+            assert!(
+                parameters.contains_key(name),
+                "the gallery entry {slug:?} writes {name:?}, as every entry does"
+            );
+        }
+
+        // The headline kind is one value where the labels are a set, so it has to be one of the kinds the figure
+        // actually draws; which of them is the headline is the entry's own judgement and not something a test can
+        // settle.
+        let drawn: BTreeSet<String> = structural(&ir)
+            .into_iter()
+            .filter(|label| ARTIST_KINDS.contains(&label.as_str()))
+            .collect();
+        let kind = parameters.get("kind").expect("the kind");
+        let Parameter::String(kind) = kind else {
+            panic!("the gallery entry {slug:?} writes a kind that is not text: {kind:?}");
+        };
+        assert!(
+            drawn.contains(kind),
+            "the gallery entry {slug:?} calls itself a {kind:?} figure and draws {drawn:?}"
+        );
+
+        let solid = ir
+            .axes
+            .iter()
+            .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }));
+        assert_eq!(
+            parameters.get("dimensionality"),
+            Some(&Parameter::String(
+                if solid { "3D" } else { "2D" }.to_owned()
+            )),
+            "the gallery entry {slug:?} says which dimensionality it has, and its axes decide"
+        );
+
+        let artists: usize = ir.axes.iter().map(|axes| axes.artists.len()).sum();
+        assert_eq!(
+            parameters.get("artists"),
+            Some(&Parameter::Integer(artists as i64)),
+            "the gallery entry {slug:?} draws {artists} artists"
+        );
+
+        let points: usize = ir
+            .data
+            .values()
+            .map(|array| array.shape.iter().product::<usize>())
+            .sum();
+        assert_eq!(
+            parameters.get("data_points"),
+            Some(&Parameter::Integer(points as i64)),
+            "the gallery entry {slug:?} holds {points} data values"
+        );
+
+        let legend = ir.axes.iter().any(|axes| axes.legend.is_some());
+        assert_eq!(
+            parameters.get("has_legend"),
+            Some(&Parameter::Bool(legend)),
+            "the gallery entry {slug:?} says whether any of its axes shows a legend"
+        );
+    }
+}
+
+// Why: ordering by a value is the capability the parameters exist to add, and the gallery is where it is exercised
+// against figures rather than against a fixture built to be ordered. The record of a hundred thousand samples is
+// the heaviest figure IronLAB is asked to draw, so it is the one a reader looking for the expensive figures — or
+// for the cheap ones — is looking for, and it has to arrive at the end of the list one way round and at the front
+// the other.
+#[test]
+fn the_gallery_can_be_put_in_order_of_how_much_data_each_figure_holds() {
+    let cards = cards();
+    let order = |descending: bool| {
+        let browse = Browse {
+            sort: Sort {
+                key: SortKey::Parameter("data_points".to_owned()),
+                descending,
+            },
+            ..Browse::default()
+        };
+        let results = browse.results(&cards);
+        results
+            .members()
+            .map(|index| cards[index].title.clone())
+            .collect::<Vec<String>>()
+    };
+
+    let heaviest = "Image orientation";
+    let ascending = order(false);
+    let descending = order(true);
+    assert_eq!(
+        ascending.last().map(String::as_str),
+        Some(heaviest),
+        "the figure holding the most data comes last when the order runs upwards: {ascending:?}"
+    );
+    assert_eq!(
+        descending.first().map(String::as_str),
+        Some(heaviest),
+        "and first when it runs downwards: {descending:?}"
+    );
+    assert_eq!(
+        ascending.len(),
+        all().len(),
+        "ordering the gallery leaves every figure in it"
+    );
+}
+
+/// The words naming a kind of artist, which are the values the `kind` parameter chooses one of.
+const ARTIST_KINDS: &[&str] = &["contour", "image", "line", "quiver", "scatter", "surface"];
 
 /// Every word that says what a figure is made of rather than what it demonstrates.
 ///

@@ -19,7 +19,12 @@ pub fn figure() -> Figure {
         .label("scatter")
         .label("basics")
         .label("colormap")
-        .label("markers");
+        .label("markers")
+        .parameter("kind", "scatter")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1600)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.scatter(&x, &y)
         .colors(&field_value)

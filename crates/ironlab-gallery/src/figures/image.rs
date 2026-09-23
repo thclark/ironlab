@@ -43,7 +43,12 @@ pub fn figure() -> Figure {
         .label("image")
         .label("basics")
         .label("placement")
-        .label("transparency");
+        .label("transparency")
+        .parameter("kind", "image")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 362_404)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.image(&pixels)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

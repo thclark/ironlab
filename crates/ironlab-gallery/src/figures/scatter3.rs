@@ -16,7 +16,12 @@ pub fn figure() -> Figure {
         .label("3d")
         .label("scatter")
         .label("basics")
-        .label("markers");
+        .label("markers")
+        .parameter("kind", "scatter")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1200)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.scatter3(&x, &y, &z).colors(&z).size(3.0).filled();
     ax.xlabel("$x$")

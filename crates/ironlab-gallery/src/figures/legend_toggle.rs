@@ -30,7 +30,12 @@ pub fn figure() -> Figure {
         .label("export")
         .label("interaction")
         .label("latex")
-        .label("signals");
+        .label("signals")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 4)
+        .parameter("data_points", 6408)
+        .parameter("has_legend", true);
     let mut ax = fig.axes(0, 0);
     for terms in [1, 2, 4, 16] {
         let partial_sum: Vec<f64> = x

@@ -109,7 +109,12 @@ pub fn figure() -> Figure {
         .label("decimation")
         .label("export")
         .label("interaction")
-        .label("signals");
+        .label("signals")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 2)
+        .parameter("data_points", 400_000)
+        .parameter("has_legend", false);
 
     let mut overview = fig.axes(0, 0);
     overview.plot(&t, &acceleration);
