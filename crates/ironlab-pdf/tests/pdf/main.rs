@@ -14,6 +14,7 @@ mod depth;
 mod document;
 mod export;
 mod images;
+mod markers;
 mod raster;
 mod robustness;
 mod text;

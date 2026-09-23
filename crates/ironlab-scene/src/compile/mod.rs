@@ -101,8 +101,10 @@ impl Ctx<'_> {
 ///   the right end of the axis, below the tick labels, and for a y axis above the top end of the axis. In a 3D axes
 ///   the label is drawn at the end of the axis's row of tick labels, beyond the label of the largest tick.
 /// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points, or, where the
-///   series is decimated, one per stretch of such a run that reaches the axes. Each marker is
-///   one path item that carries both its fill and its stroke. Each quiver arrow is one path item. Each surface face
+///   series is decimated, one per stretch of such a run that reaches the axes. The markers of an artist are one
+///   [`crate::display::ItemKind::Markers`] item in a 2D axes, and in a 3D axes one item per run of its markers
+///   that the depth sort leaves together; every instance carries its position, size, colours and data index, and
+///   the item the outline of the marker shape in unit space and the edge width. Each quiver arrow is one path item. Each surface face
 ///   is one path item that carries its face fill and, when edges are drawn, its edge stroke, except in a 3D axes,
 ///   where a face with both is two path items, the fill and then the edge, the edge a ring filled with the edge
 ///   colour between the face's outline and that outline moved half the edge width inwards, so that it never spills
@@ -211,7 +213,8 @@ impl Ctx<'_> {
 ///   segments, markers and images are painted back to front for the current view, each sorted at a key of its own,
 ///   and primitives at equal keys keep artist order. Every path and image in the group carries the depth at which a
 ///   depth buffer tests it, larger being nearer: a polyline (a line run, a contour isoline, a quiver arrow) one
-///   depth per vertex, a marker a constant depth, a filled contour band and a surface face the plane fitted to
+///   depth per vertex, a marker its own constant depth (carried by the instance), a filled contour band and a
+///   surface face the plane fitted to
 ///   their projected vertices (see [`crate::maths::camera::depth_plane`]; exact for a planar face and the
 ///   least-squares plane for a twisted one), and an image the plane over its pixel space. A face, fill and edge
 ///   ring alike, and an image inside the box are pushed [`crate::maths::camera::FACE_DEPTH_BIAS`] behind their

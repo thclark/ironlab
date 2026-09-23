@@ -5,10 +5,11 @@
 //! items of all artists back to front.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, MarkerShape,
-    NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
+    Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, NodeId, Quiver,
+    Scatter, ScatterSize, Surface, View3d,
 };
 
 use crate::display::{Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
@@ -332,6 +333,31 @@ pub(super) fn group_dense(items: Vec<Item>, dense: &BTreeMap<NodeId, u64>) -> Ve
     out
 }
 
+/// Merges every maximal run of consecutive marker items of one artist that share an outline and an edge width into
+/// one item holding their instances in order.
+///
+/// The compiler pushes one marker per item so that the depth sort of a 3D axes can order every marker among the
+/// faces around it; afterwards the markers that the sort left together become one item, and in a 2D axes, where
+/// nothing is sorted, an artist's markers are one item. No merge crosses another kind of item, so the order of
+/// everything else is untouched.
+pub(super) fn coalesce_markers(items: Vec<Item>) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    for item in items {
+        if let ItemKind::Markers(markers) = &item.kind
+            && let Some(last) = out.last_mut()
+            && last.source == item.source
+            && let ItemKind::Markers(run) = &mut last.kind
+            && Arc::ptr_eq(&run.outline, &markers.outline)
+            && run.edge_width == markers.edge_width
+        {
+            run.instances.extend(markers.instances.iter().copied());
+            continue;
+        }
+        out.push(item);
+    }
+    out
+}
+
 /// Returns the mean of the depths of mapped samples.
 fn mean_depth(samples: &[Sample]) -> f64 {
     if samples.is_empty() {
@@ -517,23 +543,27 @@ fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
             draw.push(0.0, paths::item(line.id, b.finish(), None, Some(stroke)));
         }
     }
-    if line.marker.shape != MarkerShape::None {
+    if let Some(outline) = style::marker_outline(line.marker.shape) {
         let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
         let samples = mapped_samples(draw.space, (0..points.len()).map(|i| points.get(i)));
         let samples = thin_markers(samples, draw.target, line.marker.size_pt, draw.clip);
         for s in &samples {
-            let item = style::marker_item(
-                line.id,
+            let instance = style::marker_instance(
                 &line.marker,
-                s.position,
-                line.marker.size_pt,
+                &outline,
+                style::MarkerPlace {
+                    position: s.position,
+                    size: line.marker.size_pt,
+                    depth: s.depth,
+                    source_index: s.source_index,
+                },
                 colour,
-                width,
                 1.0,
             );
-            draw.push_at(s.depth, item, || {
-                Depth::Plane(DepthPlane::constant(s.depth))
-            });
+            draw.push(
+                s.depth,
+                instance.map(|instance| style::marker_item(line.id, &outline, width, instance)),
+            );
         }
         drawn.extend(samples);
     }
@@ -550,9 +580,9 @@ fn draw_scatter(
     colours: Option<&[f64]>,
     primary: Paint,
 ) {
-    if scatter.marker.shape == MarkerShape::None {
+    let Some(outline) = style::marker_outline(scatter.marker.shape) else {
         return;
-    }
+    };
     let scalar_size = match scatter.size {
         ScatterSize::Scalar { value } => value,
         ScatterSize::Data { .. } => scatter.marker.size_pt,
@@ -576,18 +606,22 @@ fn draw_scatter(
             Some(values) => draw.scale.colour(values[s.source_index]),
             None => primary.single(&draw.scale),
         };
-        let item = style::marker_item(
-            scatter.id,
+        let instance = style::marker_instance(
             &scatter.marker,
-            s.position,
-            size_at(s.source_index),
+            &outline,
+            style::MarkerPlace {
+                position: s.position,
+                size: size_at(s.source_index),
+                depth: s.depth,
+                source_index: s.source_index,
+            },
             colour,
-            0.5,
             1.0,
         );
-        draw.push_at(s.depth, item, || {
-            Depth::Plane(DepthPlane::constant(s.depth))
-        });
+        draw.push(
+            s.depth,
+            instance.map(|instance| style::marker_item(scatter.id, &outline, 0.5, instance)),
+        );
     }
     draw.record(scatter.id, samples);
 }

@@ -8,7 +8,9 @@ use ironlab_scene::maths::camera::{Camera, normalise_box};
 use ironlab_scene::maths::colormap::{VIRIDIS, normalise};
 
 use crate::common::{Fx, compile_figure, linspace, nearest_lut_index, rgb8, rgb8_close};
-use crate::probe::{Leaf, axes_hit, from_source, glyph_runs, leaves, parse_number, runs_with_text};
+use crate::probe::{
+    Leaf, axes_hit, from_source, glyph_runs, leaves, marker_instances, parse_number, runs_with_text,
+};
 
 const LO: [f64; 3] = [-1.0, -1.0, -1.0];
 const HI: [f64; 3] = [1.0, 1.0, 1.0];
@@ -335,7 +337,7 @@ fn three_d_scatter_quiver_and_contour_produce_items() {
     let scene = compile_figure(&fx.build());
     let leaves = leaves(&scene);
     assert_eq!(
-        from_source(&leaves, scatter).len(),
+        marker_instances(&leaves, scatter).len(),
         4,
         "one marker per point"
     );

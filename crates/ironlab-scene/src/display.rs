@@ -406,6 +406,70 @@ impl std::fmt::Debug for ImageItem {
     }
 }
 
+/// The markers of one artist, drawn as instances of one outline.
+///
+/// The outline is the marker of width 1 centred on the origin; every instance scales it by its size and moves it to
+/// its position. A closed outline is filled with the instance's face colour under the non-zero rule and its edge is
+/// stroked with the instance's edge colour at `edge_width` (in the item's units, not scaled by the size), with butt
+/// caps and round joins, as the scene compiler strokes every line; an open outline (a plus or a cross) is only
+/// stroked. The PDF exporter writes one path per instance; the viewer tessellates the outline once and draws the
+/// instances through one instanced draw. An item with no instances draws nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkersItem {
+    /// The outline of a marker of width 1 centred on the origin, shared by every instance.
+    pub outline: Arc<[PathSegment]>,
+    /// The width of the edge, in the item's units.
+    pub edge_width: f64,
+    pub instances: Vec<MarkerInstance>,
+}
+
+/// One marker of a [`MarkersItem`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarkerInstance {
+    /// The centre of the marker in the item's local space.
+    pub position: Point,
+    /// The depth of the marker, in the units of [`crate::maths::camera::Camera::project`]: a constant plane, which
+    /// a backend with a depth buffer draws the marker at inside an [`ItemKind::Depth`] group and ignores elsewhere.
+    pub depth: f64,
+    /// The width of the marker, in the item's units.
+    pub size_pt: f64,
+    /// The colour of the interior, or `None` for a marker that is not filled.
+    pub face: Option<Rgba>,
+    /// The colour of the edge, or `None` for a marker without an edge.
+    pub edge: Option<Rgba>,
+    /// The index of the marker's point in the artist's data, carried for picking (issue #1).
+    pub source_index: usize,
+}
+
+impl MarkersItem {
+    /// Reports whether the item can be drawn: the outline starts with `MoveTo`, has a segment beyond it and only
+    /// finite coordinates; `edge_width` is finite and not negative; and every instance has a finite position, a
+    /// finite positive size, a finite depth and colours whose channels are numbers.
+    pub fn is_valid(&self) -> bool {
+        let finite = |p: Point| p.x.is_finite() && p.y.is_finite();
+        let outline_ok = matches!(self.outline.first(), Some(PathSegment::MoveTo(_)))
+            && self.outline.len() > 1
+            && self.outline.iter().all(|segment| match *segment {
+                PathSegment::MoveTo(p) | PathSegment::LineTo(p) => finite(p),
+                PathSegment::CubicTo(c1, c2, p) => finite(c1) && finite(c2) && finite(p),
+                PathSegment::Close => true,
+            });
+        let colour_ok =
+            |c: Option<Rgba>| c.is_none_or(|c| [c.r, c.g, c.b, c.a].iter().all(|v| !v.is_nan()));
+        outline_ok
+            && self.edge_width.is_finite()
+            && self.edge_width >= 0.0
+            && self.instances.iter().all(|instance| {
+                finite(instance.position)
+                    && instance.size_pt.is_finite()
+                    && instance.size_pt > 0.0
+                    && instance.depth.is_finite()
+                    && colour_ok(instance.face)
+                    && colour_ok(instance.edge)
+            })
+    }
+}
+
 /// A run of glyphs from one font at one size, positioned in figure space.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlyphsItem {
@@ -442,6 +506,9 @@ pub enum ItemKind {
     /// whose transform places it in the axes (see [`crate::compile::compile`]), and the PDF exporter builds them
     /// when it replaces dense vector content with a raster.
     Image(ImageItem),
+    /// The markers of one artist as instances of one outline. The scene compiler emits one per artist in a 2D axes
+    /// and one per run of consecutive markers in the painter's order of a 3D axes.
+    Markers(MarkersItem),
     /// A group of items. `clip` is expressed in the parent coordinate space and applied before `transform`; the
     /// items are expressed in the group's local space, which `transform` maps into the parent space.
     Group {
@@ -493,7 +560,7 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
-    /// Visits every leaf item (paths, glyph runs and images) in paint order.
+    /// Visits every leaf item (paths, glyph runs, images and markers) in paint order.
     ///
     /// The callback receives the item, the accumulated transform from item space to figure space, and the
     /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and

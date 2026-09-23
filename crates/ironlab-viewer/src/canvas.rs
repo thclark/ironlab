@@ -18,6 +18,10 @@
 //!   colour and item-to-figure transform go into the draw's [`StrokeParams`]. The stroke pipeline expands the
 //!   segments into the body, joins and caps of the stroke and dashes it by arc length, so the geometry uploaded
 //!   for a polyline is one segment per edge and a resize or a pan re-uploads nothing.
+//! - **Markers** are one instanced draw per item: the unit outline is tessellated once, its fill with lyon and its
+//!   edge with lyon's stroker at a nominal width, each edge vertex recording its position on the centreline and its
+//!   offset of half the edge width along the stroke's normal, so that the edge is exactly as wide as the item says
+//!   whatever an instance's size; every instance carries its centre, size, depth and colours.
 //! - **Glyph runs** use [`TextEngine::glyph_outline`], which is em-normalised with y pointing down. Each outline is
 //!   tessellated once per `(font, glyph, size bucket)` and cached, scaled by the run's `size_pt` and translated to
 //!   the glyph origin.
@@ -54,17 +58,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use ironlab_scene::display::{
-    Depth, DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, PathItem,
-    PathSegment, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, MarkersItem,
+    PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::{FontId, TextEngine};
 use kurbo::PathEl;
 use lyon::path::Path;
-use lyon::tessellation::{BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers};
+use lyon::tessellation::{
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
+    StrokeVertex, VertexBuffers,
+};
 
 use crate::gpu::{
-    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, Segment, StrokeParams,
-    TileKey, Vertex,
+    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu,
+    MarkerVertex, Segment, StrokeParams, TileKey, Vertex,
 };
 
 /// The mapping from figure space (points, y down) to screen space (egui points or pixels, y down).
@@ -169,6 +176,15 @@ pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution)
             ItemKind::Image(image) => {
                 tessellate_image(image, &context, max_tile_side, &mut builder, item.source);
             }
+            ItemKind::Markers(markers) => {
+                tessellate_markers(
+                    markers,
+                    &context,
+                    &mut tessellator,
+                    &mut builder,
+                    item.source,
+                );
+            }
             // A glyph run inside a depth group has no depth to draw at. Groups, dense and depth ones included, are
             // descended into by the traversal and never reach this point.
             ItemKind::Glyphs(_)
@@ -190,10 +206,15 @@ struct ListBuilder {
     /// The depths at the two ends of each segment and the gradient of its depth over item space.
     segment_depths: Vec<(f64, f64, [f64; 2])>,
     stroke_params: Vec<StrokeParams>,
+    marker_vertices: Vec<MarkerVertex>,
+    marker_indices: Vec<u32>,
+    markers: Vec<MarkerGpu>,
+    /// The depth of each marker instance.
+    marker_depths: Vec<f64>,
     draws: Vec<Draw>,
-    /// The depth group being built with the indices of its first vertex and first segment, or `None` outside
-    /// every group.
-    group: Option<(u32, usize, usize)>,
+    /// The depth group being built with the indices of its first vertex, first segment and first marker, or `None`
+    /// outside every group.
+    group: Option<(u32, usize, usize, usize)>,
     /// The number of strokes drawn outside every group since the list or the last group began.
     flat_strokes: u32,
 }
@@ -202,27 +223,34 @@ impl ListBuilder {
     /// Moves to depth group `group`, closing the group being built when it is another.
     fn enter(&mut self, group: Option<usize>) {
         let group = group.map(|g| g as u32);
-        if self.group.map(|(g, _, _)| g) == group {
+        if self.group.map(|(g, _, _, _)| g) == group {
             return;
         }
         self.close_group();
         self.flat_strokes = 0;
         if let Some(g) = group {
-            self.group = Some((g, self.vertices.len(), self.segments.len()));
+            self.group = Some((
+                g,
+                self.vertices.len(),
+                self.segments.len(),
+                self.markers.len(),
+            ));
         }
     }
 
     /// Normalises the depths of the group being built into `z`, 0 the nearest, and leaves the group.
     fn close_group(&mut self) {
-        let Some((_, vertex_start, segment_start)) = self.group.take() else {
+        let Some((_, vertex_start, segment_start, marker_start)) = self.group.take() else {
             return;
         };
         let depths = &self.depths[vertex_start..];
         let segment_depths = &self.segment_depths[segment_start..];
+        let marker_depths = &self.marker_depths[marker_start..];
         let (min, max) = depths
             .iter()
             .copied()
             .chain(segment_depths.iter().flat_map(|(a, b, _)| [*a, *b]))
+            .chain(marker_depths.iter().copied())
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
                 (lo.min(d), hi.max(d))
             });
@@ -251,6 +279,9 @@ impl ListBuilder {
             segment.z = [normalise(*a), normalise(*b)];
             segment.grad = [slope(gradient[0]), slope(gradient[1])];
         }
+        for (marker, depth) in self.markers[marker_start..].iter_mut().zip(marker_depths) {
+            marker.z = normalise(*depth);
+        }
     }
 
     /// Whether a leaf is being built inside a depth group.
@@ -259,7 +290,49 @@ impl ListBuilder {
     }
 
     fn depth_group(&self) -> Option<u32> {
-        self.group.map(|(g, _, _)| g)
+        self.group.map(|(g, _, _, _)| g)
+    }
+
+    /// Adds one markers draw of the outline's `vertices` and `indices` and the `instances` (each with its depth),
+    /// unless there is nothing to draw. Outside every group the instances lie at `z = 0`.
+    fn push_markers(
+        &mut self,
+        vertices: Vec<MarkerVertex>,
+        indices: Vec<u32>,
+        instances: Vec<(MarkerGpu, f64)>,
+        mut params: StrokeParams,
+        clip: Option<Rect>,
+        source: Option<ironlab_ir::NodeId>,
+    ) {
+        if vertices.is_empty() || indices.is_empty() || instances.is_empty() {
+            return;
+        }
+        params.vertex_z = u32::from(self.in_group());
+        params.z = 0.0;
+        let base = self.marker_vertices.len() as u32;
+        self.marker_vertices.extend(vertices);
+        let first_index = self.marker_indices.len() as u32;
+        self.marker_indices.extend(indices.iter().map(|i| base + i));
+        let last_index = self.marker_indices.len() as u32;
+        let first_instance = self.markers.len() as u32;
+        for (instance, depth) in instances {
+            self.markers.push(instance);
+            self.marker_depths.push(depth);
+        }
+        let last_instance = self.markers.len() as u32;
+        let index = self.stroke_params.len() as u32;
+        self.stroke_params.push(params);
+        self.draws.push(Draw {
+            kind: DrawKind::Markers {
+                indices: first_index..last_index,
+                instances: first_instance..last_instance,
+                params: index,
+            },
+            texture: None,
+            depth_group: self.depth_group(),
+            clip,
+            source,
+        });
     }
 
     /// Adds one triangle draw of `vertices` (each with its depth) and `indices` relative to them, unless a vertex is
@@ -358,6 +431,9 @@ impl ListBuilder {
             indices: self.indices,
             segments: self.segments,
             stroke_params: self.stroke_params,
+            marker_vertices: self.marker_vertices,
+            marker_indices: self.marker_indices,
+            markers: self.markers,
             draws: self.draws,
         }
     }
@@ -893,6 +969,136 @@ fn tessellate_path(
         };
         builder.push_stroke(segments, gradient, params, context.clip, source);
     }
+}
+
+/// Adds a markers item to the list as one instanced draw: the unit outline's fill triangles, then its edge
+/// triangles, and one instance per marker. An invalid item adds nothing.
+fn tessellate_markers(
+    item: &MarkersItem,
+    context: &LeafContext,
+    tessellator: &mut FillTessellator,
+    builder: &mut ListBuilder,
+    source: Option<ironlab_ir::NodeId>,
+) {
+    if !item.is_valid() {
+        return;
+    }
+    let Some(params) = stroke_params(
+        &Stroke {
+            color: Rgba::new(0.0, 0.0, 0.0, 1.0),
+            width: item.edge_width,
+            dash: Vec::new(),
+            dash_offset: 0.0,
+            cap: LineCap::Butt,
+            join: LineJoin::Round,
+        },
+        context.to_figure,
+    ) else {
+        return;
+    };
+    let largest = item
+        .instances
+        .iter()
+        .map(|instance| instance.size_pt)
+        .fold(0.0, f64::max);
+    if !(largest.is_finite() && largest > 0.0) {
+        return;
+    }
+    let Some(subpaths) = subpaths(&item.outline, None) else {
+        return;
+    };
+    // The outline is flattened for the largest instance at the resolution, in unit space.
+    let tolerance = (context.local_tolerance() / largest).max(1e-6) as f32;
+    let any_face = item
+        .instances
+        .iter()
+        .any(|instance| instance.face.is_some());
+    let any_edge = item
+        .instances
+        .iter()
+        .any(|instance| instance.edge.is_some())
+        && item.edge_width > 0.0;
+    let mut vertices: Vec<MarkerVertex> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    if any_face {
+        let path = lyon_path(&subpaths);
+        let mut buffers: VertexBuffers<lyon::math::Point, u32> = VertexBuffers::new();
+        if tessellator
+            .tessellate_path(
+                &path,
+                &FillOptions::tolerance(tolerance)
+                    .with_fill_rule(lyon::tessellation::FillRule::NonZero),
+                &mut BuffersBuilder::new(&mut buffers, |v: FillVertex| v.position()),
+            )
+            .is_ok()
+        {
+            let base = vertices.len() as u32;
+            vertices.extend(buffers.vertices.iter().map(|p| MarkerVertex {
+                pos: [p.x, p.y],
+                offset: [0.0, 0.0],
+                slot: 0,
+                _pad: 0,
+            }));
+            indices.extend(buffers.indices.iter().map(|i| base + i));
+        }
+    }
+    if any_edge {
+        // The edge is stroked at a nominal width in unit space; each vertex records where it lies on the outline
+        // and its unit normal, which the instance's edge width scales, so the joins and caps are laid out for the
+        // largest instance and the edge is as wide as the item says for every instance.
+        let nominal = (item.edge_width / largest) as f32;
+        let path = lyon_path(&subpaths);
+        let options = StrokeOptions::tolerance(tolerance)
+            .with_line_width(nominal)
+            .with_line_cap(lyon::tessellation::LineCap::Butt)
+            .with_line_join(lyon::tessellation::LineJoin::Round);
+        let mut buffers: VertexBuffers<(lyon::math::Point, lyon::math::Vector), u32> =
+            VertexBuffers::new();
+        let mut stroker = StrokeTessellator::new();
+        if stroker
+            .tessellate_path(
+                &path,
+                &options,
+                &mut BuffersBuilder::new(&mut buffers, |v: StrokeVertex| {
+                    (v.position_on_path(), v.normal())
+                }),
+            )
+            .is_ok()
+        {
+            let base = vertices.len() as u32;
+            let half = (item.edge_width / 2.0) as f32;
+            vertices.extend(buffers.vertices.iter().map(|(p, n)| MarkerVertex {
+                pos: [p.x, p.y],
+                offset: [n.x * half, n.y * half],
+                slot: 1,
+                _pad: 0,
+            }));
+            indices.extend(buffers.indices.iter().map(|i| base + i));
+        }
+    }
+    // Every instance is finite with a positive size, as `is_valid` has checked.
+    let colour = |c: Option<Rgba>| c.and_then(premultiplied).unwrap_or([0, 0, 0, 0]);
+    let instances: Vec<(MarkerGpu, f64)> = item
+        .instances
+        .iter()
+        .map(|instance| {
+            (
+                MarkerGpu {
+                    center: [instance.position.x as f32, instance.position.y as f32],
+                    z: 0.0,
+                    size: instance.size_pt as f32,
+                    face: colour(instance.face),
+                    edge: colour(instance.edge),
+                },
+                if builder.in_group() {
+                    instance.depth
+                } else {
+                    0.0
+                },
+            )
+        })
+        .collect();
+    builder.push_markers(vertices, indices, instances, params, context.clip, source);
 }
 
 /// The bucket of screen sizes that share one cached glyph tessellation: a glyph whose em spans `s` screen units uses

@@ -14,6 +14,7 @@ mod depth;
 mod images;
 mod layout;
 mod legend;
+mod markers;
 mod robustness;
 mod scales;
 mod surfaces_2d;

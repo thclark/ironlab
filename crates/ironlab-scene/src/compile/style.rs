@@ -5,10 +5,12 @@ use ironlab_ir::{
     ScatterColor,
 };
 
-use crate::display::{Item, PathSegment, Point, Rgba};
+use std::sync::Arc;
+
+use crate::display::{Item, ItemKind, MarkerInstance, MarkersItem, PathSegment, Point, Rgba};
 use crate::maths::colormap::{self, Lut};
 
-use super::paths::{self, PathBuilder};
+use super::paths::PathBuilder;
 
 /// The automatic colour order: the Okabe–Ito palette without black, starting at orange.
 pub(super) const COLOUR_ORDER: [[u8; 3]; 7] = [
@@ -152,32 +154,28 @@ pub(super) fn width_or(value: f64, default: f64) -> f64 {
     }
 }
 
-/// The outline of a marker centred on a point.
+/// The outline of a marker of width 1 centred on the origin, shared by every instance of the marker.
 pub(super) struct MarkerOutline {
-    pub segments: Vec<PathSegment>,
+    pub segments: Arc<[PathSegment]>,
     /// Whether the outline encloses an area that a face colour fills.
     pub closed: bool,
     /// Whether the marker is a solid dot filled with its edge colour.
     pub dot: bool,
 }
 
-/// Builds the outline of a marker of width `size` centred on `c`, or `None` for `MarkerShape::None` or an
-/// unusable size.
-pub(super) fn marker_outline(shape: MarkerShape, c: Point, size: f64) -> Option<MarkerOutline> {
-    if !(size.is_finite() && size > 0.0) {
-        return None;
-    }
-    let h = size / 2.0;
+/// Builds the outline of a marker shape in unit space, or `None` for `MarkerShape::None`.
+pub(super) fn marker_outline(shape: MarkerShape) -> Option<MarkerOutline> {
+    let h = 0.5;
     let mut b = PathBuilder::new();
-    let at = |dx: f64, dy: f64| Point::new(c.x + dx, c.y + dy);
+    let at = |dx: f64, dy: f64| Point::new(dx, dy);
     let (closed, dot) = match shape {
         MarkerShape::None => return None,
         MarkerShape::Circle => {
-            b.circle(c, h);
+            b.circle(Point::new(0.0, 0.0), h);
             (true, false)
         }
         MarkerShape::Point => {
-            b.circle(c, size / 6.0);
+            b.circle(Point::new(0.0, 0.0), 1.0 / 6.0);
             (true, true)
         }
         MarkerShape::Square => {
@@ -221,26 +219,43 @@ pub(super) fn marker_outline(shape: MarkerShape, c: Point, size: f64) -> Option<
         }
     };
     Some(MarkerOutline {
-        segments: b.finish(),
+        segments: Arc::from(b.finish()),
         closed,
         dot,
     })
 }
 
-/// Builds one marker item of width `size` centred on `centre`.
+/// Where one marker goes: its centre, width, depth and the index of its data point.
+#[derive(Clone, Copy)]
+pub(super) struct MarkerPlace {
+    pub position: Point,
+    pub size: f64,
+    pub depth: f64,
+    pub source_index: usize,
+}
+
+/// Builds one instance of a marker of `outline` at `place`.
 ///
 /// A face or edge set to `Auto` (or `Colormapped`) takes `auto`, the resolved colour of the artist or data point.
 /// Every colour is multiplied by `alpha`. An open marker (plus or cross) is stroked with its edge colour, or with
-/// its face colour when it has no edge colour, and a point marker is filled with its edge colour.
-pub(super) fn marker_item(
-    source: NodeId,
+/// its face colour when it has no edge colour, and a point marker is filled with its edge colour. Returns `None`
+/// for an unusable size or a marker with neither a face nor an edge to draw.
+pub(super) fn marker_instance(
     style: &MarkerStyle,
-    centre: Point,
-    size: f64,
+    outline: &MarkerOutline,
+    place: MarkerPlace,
     auto: Option<Rgba>,
-    width: f64,
     alpha: f32,
-) -> Option<Item> {
+) -> Option<MarkerInstance> {
+    let MarkerPlace {
+        position,
+        size,
+        depth,
+        source_index,
+    } = place;
+    if !(size.is_finite() && size > 0.0) {
+        return None;
+    }
     let resolve = |spec: ColorSpec| {
         match spec {
             ColorSpec::Auto | ColorSpec::Colormapped => auto,
@@ -250,21 +265,40 @@ pub(super) fn marker_item(
         .map(|c| c.with_alpha_factor(alpha))
     };
     let (face, edge) = (resolve(style.face), resolve(style.edge));
-    let outline = marker_outline(style.shape, centre, size)?;
-    if outline.dot {
-        return paths::item(
-            source,
-            outline.segments,
-            Some(paths::fill(edge.or(face)?)),
-            None,
-        );
-    }
-    let fill = if outline.closed {
-        face.map(paths::fill)
+    let (face, edge) = if outline.dot {
+        (edge.or(face), None)
+    } else if outline.closed {
+        (face, edge)
     } else {
-        None
+        (None, edge.or(face))
     };
-    let edge = if outline.closed { edge } else { edge.or(face) };
-    let stroke = edge.map(|c| paths::stroke(c, width, Vec::new()));
-    paths::item(source, outline.segments, fill, stroke)
+    if face.is_none() && edge.is_none() {
+        return None;
+    }
+    Some(MarkerInstance {
+        position,
+        depth,
+        size_pt: size,
+        face,
+        edge,
+        source_index,
+    })
+}
+
+/// Wraps one marker instance in an item of its own, which [`super::artists::coalesce_markers`] merges with its
+/// neighbours of the same artist and outline.
+pub(super) fn marker_item(
+    source: NodeId,
+    outline: &MarkerOutline,
+    edge_width: f64,
+    instance: MarkerInstance,
+) -> Item {
+    Item {
+        source: Some(source),
+        kind: ItemKind::Markers(MarkersItem {
+            outline: Arc::clone(&outline.segments),
+            edge_width,
+            instances: vec![instance],
+        }),
+    }
 }
