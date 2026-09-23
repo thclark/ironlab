@@ -18,8 +18,9 @@
 //! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below.
 //! - [`problems`] describes what the viewer has to tell the user about a figure it cannot draw as asked, and is
 //!   pure logic too.
-//! - [`browse`] works out what a collection of figures can be filtered, ordered and grouped by, and applies what
-//!   the user chose; like [`inspector`], it is pure logic with no egui in it.
+//! - [`browse`] works out what a collection of figures offers to be filtered, ordered and grouped by, from the
+//!   labels and parameters its figures carry, and applies what the user chose; like [`inspector`], it is pure
+//!   logic with no egui in it.
 //! - [`sidebar`] draws that as the figure browser: a left-hand panel that narrows the open figures down to the one
 //!   to look at.
 //! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
@@ -47,8 +48,7 @@ pub mod style;
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use browse::{
     Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
-    Group, Query, Results, Sort, SortKey, Term, derived_labels, derived_parameters,
-    describe_facets, parameter_names,
+    Group, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets, parameter_names,
 };
 pub use canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, tessellate};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};

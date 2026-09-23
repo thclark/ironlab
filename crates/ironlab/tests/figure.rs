@@ -290,3 +290,65 @@ fn setting_a_parameter_again_replaces_its_value_and_kind() {
     assert_eq!(fig.parameters().len(), 1);
     assert_eq!(fig.parameters()["mesh"], Parameter::Integer(3));
 }
+
+// WHY: labels are a sequence, not a set and not a map, and the order a figure carries them
+// in is part of its value: it is the order the viewer lists them in. The builder must
+// therefore add to them rather than replace them, which is the opposite of what setting a
+// parameter of the same name does, and is the distinction between the two that is easiest
+// to get wrong.
+#[test]
+fn label_adds_to_the_labels_in_the_order_they_are_given() {
+    let fig = Figure::new()
+        .label("wake")
+        .label("piv")
+        .label(String::from("2025"));
+    assert_eq!(fig.labels(), ["wake", "piv", "2025"]);
+    assert!(
+        fig.validate().is_valid(),
+        "three distinct, non-empty labels are valid"
+    );
+}
+
+// WHY: an empty label describes nothing and cannot be chosen in the viewer, and a label
+// added twice says no more than it did the first time. Neither is a choice the code could
+// have meant, so both are errors rather than something quietly tidied away — and the
+// message has to name the label, because a figure may carry many.
+#[test]
+fn an_empty_or_repeated_label_is_a_validation_error_that_names_it() {
+    let empty = Figure::new().label("wake").label("");
+    let messages: Vec<String> = empty
+        .validate()
+        .errors
+        .into_iter()
+        .map(|issue| issue.message)
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("position 2") && message.contains("empty")),
+        "an empty label is refused, and is named by where it is, because it has no text to \
+         be named by: {messages:?}"
+    );
+
+    let repeated = Figure::new().label("wake").label("wake");
+    let messages: Vec<String> = repeated
+        .validate()
+        .errors
+        .into_iter()
+        .map(|issue| issue.message)
+        .collect();
+    assert!(
+        messages.iter().any(|message| message.contains("\"wake\"")),
+        "a repeated label is refused, and the message names it: {messages:?}"
+    );
+
+    // Case is significant, so these are two labels rather than one repeated.
+    assert!(
+        Figure::new()
+            .label("Wake")
+            .label("wake")
+            .validate()
+            .is_valid(),
+        "labels differing only in case are distinct"
+    );
+}

@@ -16,7 +16,13 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title(r"Gradient of $\ln(1 + |z_3|)$");
+        .title(r"Gradient of $\ln(1 + |z_3|)$")
+        .label("2d")
+        .label("contour")
+        .label("quiver")
+        .label("basics")
+        .label("gradient")
+        .label("overlay");
     let mut ax = fig.axes(0, 0);
     ax.contour(&x_fine, &y_fine, &z_fine).levels(12);
     ax.quiver(xx.values(), yy.values(), dzdx.values(), dzdy.values())

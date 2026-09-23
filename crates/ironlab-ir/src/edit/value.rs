@@ -54,6 +54,8 @@ pub enum Value {
     DataId(DataId),
     /// A list of double-precision numbers: explicit contour levels.
     Doubles(Vec<f64>),
+    /// A list of strings: the labels of a figure.
+    Strings(Vec<String>),
     /// A text, such as a title.
     Text(Text),
     /// How the source of a text is interpreted.
@@ -138,6 +140,8 @@ pub enum ValueType {
     DataId,
     /// See [`Value::Doubles`].
     Doubles,
+    /// See [`Value::Strings`].
+    Strings,
     /// See [`Value::Text`].
     Text,
     /// See [`Value::Interpreter`].
@@ -219,6 +223,7 @@ impl Value {
             Value::String(_) => ValueType::String,
             Value::DataId(_) => ValueType::DataId,
             Value::Doubles(_) => ValueType::Doubles,
+            Value::Strings(_) => ValueType::Strings,
             Value::Text(_) => ValueType::Text,
             Value::Interpreter(_) => ValueType::Interpreter,
             Value::FigureSize(_) => ValueType::FigureSize,

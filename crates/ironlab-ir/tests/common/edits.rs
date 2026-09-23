@@ -321,6 +321,8 @@ pub fn perturb(value: &Value) -> Value {
         Value::DataId(id) => Value::DataId(DataId(id.0 + 1)),
         Value::Doubles(values) if values.is_empty() => Value::Doubles(vec![1.0]),
         Value::Doubles(values) => Value::Doubles(values.iter().map(|v| v + 0.25).collect()),
+        Value::Strings(values) if values.is_empty() => Value::Strings(vec!["edited".to_owned()]),
+        Value::Strings(values) => Value::Strings(values.iter().skip(1).cloned().collect()),
         Value::Text(text) => Value::Text(Text {
             content: format!("{} (edited)", text.content),
             interpreter: text.interpreter,
@@ -449,7 +451,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 40;
+pub const VALUE_VARIANTS: usize = 41;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -498,6 +500,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::PixelRange(_) => 37,
         Value::ImagePlane(_) => 38,
         Value::OutOfRange(_) => 39,
+        Value::Strings(_) => 40,
     }
 }
 
@@ -515,6 +518,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::String("k–ω $\\alpha$".to_owned()),
         Value::DataId(DataId((1 << 53) + 1)),
         Value::Doubles(vec![-1.0, 0.0, 2.5]),
+        Value::Strings(vec!["surface".to_owned(), "k–ω".to_owned()]),
         Value::Text(Text::plain("Plain $5")),
         Value::Interpreter(Interpreter::None),
         Value::FigureSize(FigureSize {

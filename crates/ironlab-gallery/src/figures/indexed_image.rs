@@ -33,7 +33,13 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 90.0)
         .tiles(1, 2)
-        .title(r"Eight classes of $\ln(1 + |z_3|)$");
+        .title(r"Eight classes of $\ln(1 + |z_3|)$")
+        .label("2d")
+        .label("image")
+        .label("subplots")
+        .label("colormap")
+        .label("comparison")
+        .label("out-of-range");
     let mut ax = fig.axes(0, 0);
     ax.indexed_image(&classes)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

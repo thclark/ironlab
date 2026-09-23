@@ -270,15 +270,7 @@ fn parameter_menu(
                 }
                 offered += 1;
                 let held = browser.browse.filter(&facet.key).is_some();
-                let label = format!(
-                    "{}{}",
-                    facet.key.name(),
-                    if facet.key.is_derived() {
-                        " (from the figure)"
-                    } else {
-                        ""
-                    }
-                );
+                let label = facet.key.name().to_owned();
                 let detail = format!(
                     "{} values, on {} of the figures",
                     facet.cardinality(),

@@ -18,7 +18,7 @@ use crate::text::Text;
 ///
 /// Files are compatible when their major and minor components equal this version's;
 /// the patch component may differ.
-pub const SCHEMA_VERSION: &str = "0.3.0";
+pub const SCHEMA_VERSION: &str = "0.3.1";
 
 /// A figure: the root of the retained IR, holding axes, data and axis links.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -53,6 +53,21 @@ pub struct Figure {
     /// The property is omitted from JSON when there are no parameters.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parameters: BTreeMap<String, Parameter>,
+    /// Free words that describe the figure, used to filter and group collections of
+    /// figures, in the order they were given.
+    ///
+    /// A label is what a parameter cannot be: a figure carries any number of them, and
+    /// none of them is a name with a value under it. "surface" and "3d" are labels; the
+    /// Reynolds number is a parameter.
+    ///
+    /// A label must not be empty, and no label may occur twice in one figure, both of
+    /// which [`crate::ValidationReport`] reports as errors. Labels are compared exactly, so
+    /// labels differing only in case are distinct.
+    ///
+    /// The property is omitted from JSON when there are no labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(inner(length(min = 1)), extend("uniqueItems" = true))]
+    pub labels: Vec<String>,
     /// The state used to allocate node identifiers; not part of the figure's value.
     #[serde(skip)]
     #[schemars(skip)]
@@ -75,6 +90,7 @@ impl Default for Figure {
             links: Vec::new(),
             provenance: Provenance::default(),
             parameters: BTreeMap::new(),
+            labels: Vec::new(),
             id_allocator: NodeIdAllocator::default(),
         }
     }

@@ -2388,3 +2388,72 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
         wide_control.max.x - wide_name.max.x
     );
 }
+
+// ---------------------------------------------------------------------------------
+// The labels of a figure
+// ---------------------------------------------------------------------------------
+
+// Why: labels are what the figure browser filters and groups by, so being able to give a
+// figure one without going back to the code is the difference between the browser being
+// useful on the figures at hand and only on figures built for it. They are edited as one
+// field of comma-separated words because they are short and few, so what the field does
+// with the spaces and the empty words between the commas is the whole of its behaviour.
+#[test]
+fn the_labels_of_a_figure_are_edited_as_one_field_of_comma_separated_words() {
+    let mut figure = figure_with_artists();
+    figure.labels = vec!["wake".to_owned()];
+    let mut harness = panel_harness(figure, Some(FIGURE));
+    harness.run();
+
+    let field = title_field(&harness, "wake");
+    field.focus();
+    harness.run();
+    // A trailing comma and the spaces around a word are what someone typing a list
+    // actually produces part way through.
+    title_field(&harness, "wake").type_text(", piv , ");
+    harness.run();
+
+    assert_eq!(
+        harness.state().figure.figure().labels,
+        ["wake", "piv"],
+        "the words are trimmed, and the empty one after the trailing comma is dropped \
+         rather than becoming a label of nothing"
+    );
+}
+
+// Why: a repeated label says no more than it did the first time, so the figure refuses it.
+// The refusal has to reach the problems list rather than happening silently, or the reader
+// is left looking at a field whose contents the figure does not hold.
+#[test]
+fn a_label_typed_twice_is_refused_and_reported() {
+    let mut figure = figure_with_artists();
+    figure.labels = vec!["wake".to_owned()];
+    let mut harness = panel_harness(figure, Some(FIGURE));
+    harness.run();
+    assert!(
+        harness.state().figure.problems().is_empty(),
+        "the figure starts with nothing wrong with it"
+    );
+
+    title_field(&harness, "wake").focus();
+    harness.run();
+    title_field(&harness, "wake").type_text(", wake");
+    harness.run();
+
+    assert_eq!(
+        harness.state().figure.figure().labels,
+        ["wake"],
+        "the figure keeps the labels it had"
+    );
+    let reported: Vec<&str> = harness
+        .state()
+        .figure
+        .problems()
+        .iter()
+        .map(|problem| problem.detail.as_str())
+        .collect();
+    assert!(
+        reported.iter().any(|detail| detail.contains("wake")),
+        "and the refusal is reported, naming the label: {reported:?}"
+    );
+}

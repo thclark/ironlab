@@ -371,6 +371,7 @@ ir_leaf! {
     String => String;
     DataId => DataId;
     Vec<f64> => Doubles;
+    Vec<String> => Strings;
     Vec<AxisLink> => Links;
     BTreeMap<String, Parameter> => Parameters;
     Interpreter => Interpreter;
@@ -400,6 +401,8 @@ ir_node! {
         hidden "provenance" => provenance: () = "";
         plain "parameters" => parameters: BTreeMap<String, Parameter> =
             "Named values that describe the figure, used to sort, filter and search collections of figures.";
+        plain "labels" => labels: Vec<String> =
+            "Free words that describe the figure, used to filter and group collections of figures.";
     }
 
     Axes {

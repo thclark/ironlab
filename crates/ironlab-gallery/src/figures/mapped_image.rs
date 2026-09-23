@@ -27,7 +27,13 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title(r"$\ln(1 + |z_3|)$ as a mapped image");
+        .title(r"$\ln(1 + |z_3|)$ as a mapped image")
+        .label("2d")
+        .label("contour")
+        .label("image")
+        .label("colormap")
+        .label("overlay")
+        .label("transparency");
     let mut ax = fig.axes(0, 0);
     ax.mapped_image(&masked)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

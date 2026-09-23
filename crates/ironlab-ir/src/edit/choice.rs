@@ -153,6 +153,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::String
         | ValueType::DataId
         | ValueType::Doubles
+        | ValueType::Strings
         | ValueType::Text
         | ValueType::FigureSize
         | ValueType::Color
@@ -398,6 +399,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::String(_)
         | Value::DataId(_)
         | Value::Doubles(_)
+        | Value::Strings(_)
         | Value::Text(_)
         | Value::FigureSize(_)
         | Value::Color(_)

@@ -12,7 +12,11 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title("Julia field sampled at scattered points");
+        .title("Julia field sampled at scattered points")
+        .label("3d")
+        .label("scatter")
+        .label("basics")
+        .label("markers");
     let mut ax = fig.axes3(0, 0);
     ax.scatter3(&x, &y, &z).colors(&z).size(3.0).filled();
     ax.xlabel("$x$")

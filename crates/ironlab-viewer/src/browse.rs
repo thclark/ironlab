@@ -11,9 +11,11 @@
 //!
 //! The pieces are:
 //!
-//! - A [`FigureCard`] is one figure as the browser sees it: its title, its labels, and its parameters. Building a
-//!   card from a [`Figure`] adds the facets that can be read off the figure itself ([`derived_parameters`] and
-//!   [`derived_labels`]), so a collection is filterable before anyone has given a figure a parameter of their own.
+//! - A [`FigureCard`] is one figure as the browser sees it: its title, its labels, and its parameters, and nothing
+//!   besides. The viewer works out none of them: what a collection can be narrowed by is what the program that
+//!   built the figures said it could be narrowed by, because that program is the only thing that knows which of a
+//!   figure's properties matter. A figure's structure is rarely one of them, and an author who thinks otherwise can
+//!   write it down in a line.
 //! - A [`Facet`] is one thing the collection can be narrowed by, and [`describe_facets`] decides which facets are
 //!   worth offering and in what order.
 //! - A [`Query`] is the typed form of the same thing: `rig:CFD angle>=8 -stalled`.
@@ -38,29 +40,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
-use ironlab_ir::{Artist, Figure, Parameter, Projection, Scale};
-
-/// The name of the derived parameter holding whether a figure is two- or three-dimensional.
-pub const DIMENSIONALITY: &str = "dimensionality";
-
-/// The name of the derived parameter holding the number of axes a figure has.
-pub const AXES_COUNT: &str = "axes";
-
-/// The name of the derived parameter holding the number of artists a figure draws.
-pub const ARTIST_COUNT: &str = "artists";
-
-/// The name of the derived parameter holding how many data values the figure carries.
-///
-/// It is one word, as every parameter name must be to be reachable from the query language, which takes a term to
-/// end at the first space.
-pub const DATA_VALUES: &str = "data_values";
-
-/// The names of every parameter this module derives from a figure, in the order [`derived_parameters`] returns
-/// them.
-///
-/// The list is public because the interface distinguishes what the viewer worked out from what the user wrote, and
-/// because a user's own parameter of the same name takes precedence over the derived one.
-pub const DERIVED: &[&str] = &[ARTIST_COUNT, AXES_COUNT, DATA_VALUES, DIMENSIONALITY];
+use ironlab_ir::{Figure, Parameter};
 
 /// The label given to a group of figures that the grouping parameter does not apply to.
 pub const NOT_SET: &str = "not set";
@@ -200,7 +180,7 @@ pub fn number_text(value: f64) -> String {
 pub enum FacetKey {
     /// The labels of a figure, which are a set of values rather than one value.
     Labels,
-    /// A named parameter, whether the user gave it or the viewer derived it.
+    /// A named parameter of the figure.
     Parameter(String),
 }
 
@@ -217,15 +197,6 @@ impl FacetKey {
         match self {
             FacetKey::Labels => "labels",
             FacetKey::Parameter(name) => name,
-        }
-    }
-
-    /// Whether the facet is one the viewer derived from the figure rather than one the user wrote.
-    #[must_use]
-    pub fn is_derived(&self) -> bool {
-        match self {
-            FacetKey::Labels => false,
-            FacetKey::Parameter(name) => DERIVED.contains(&name.as_str()),
         }
     }
 }
@@ -289,30 +260,21 @@ pub struct FigureCard {
     pub title: String,
     /// The labels the figure carries, in the order they were given.
     pub labels: Vec<String>,
-    /// The parameters the figure can be narrowed by, in ascending order of name: the user's own, and the ones
-    /// [`derived_parameters`] read off the figure.
+    /// The parameters the figure can be narrowed by, in ascending order of name.
     pub parameters: BTreeMap<String, Parameter>,
 }
 
 impl FigureCard {
     /// Builds the card of `figure`, listed under `title`.
     ///
-    /// The card holds the figure's own parameters and the ones derived from the figure itself, with the figure's own
-    /// winning where the two share a name: a parameter the user wrote says what they meant, and the viewer's guess
-    /// at the same name does not.
+    /// The card holds exactly what the figure carries. The viewer adds nothing of its own: a collection is narrowed
+    /// by what its author said it could be narrowed by.
     #[must_use]
     pub fn of(title: impl Into<String>, figure: &Figure) -> Self {
-        let mut parameters = derived_parameters(figure);
-        parameters.extend(
-            figure
-                .parameters
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone())),
-        );
         Self {
             title: title.into(),
-            labels: derived_labels(figure),
-            parameters,
+            labels: browsable_labels(figure),
+            parameters: figure.parameters.clone(),
         }
     }
 
@@ -344,96 +306,24 @@ impl FigureCard {
     }
 }
 
-/// The labels read off a figure itself: what kind of thing it draws, and whether it is flat.
+/// The labels a figure is browsed by: the ones it carries, once each and without the empty ones.
 ///
-/// They are what makes a collection worth browsing before anyone has labelled a figure by hand. A figure gets, in
-/// this order:
-///
-/// 1. `"2d"` or `"3d"`;
-/// 2. one label for each kind of artist it draws, in alphabetical order, from `"contour"`, `"image"`, `"line"`,
-///    `"quiver"`, `"scatter"` and `"surface"`, with the three kinds of raster all counting as `"image"`;
-/// 3. `"subplots"` when it has more than one axes;
-/// 4. `"legend"` when any axes shows one;
-/// 5. `"log"` when any axis is logarithmic.
-///
-/// Each label appears at most once.
+/// A figure should hold neither an empty label nor the same label twice — both are errors that
+/// [`ironlab_ir::Figure::validate`] reports, and the viewer shows them in its problems list — but a figure built by
+/// another program can conform to the Protocol Buffers schema and still hold them, because that format cannot
+/// express either rule. The figure is left as it was read rather than quietly corrected, so that opening a file and
+/// saving it again does not change it behind the user's back; it is only what the browser draws and counts that is
+/// cleaned up, because a blank entry in a menu, or the same word offered twice, is a fault in the interface
+/// whatever the file says.
 #[must_use]
-pub fn derived_labels(figure: &Figure) -> Vec<String> {
-    let mut labels = Vec::new();
-    let three_d = figure
-        .axes
-        .iter()
-        .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }));
-    labels.push(if three_d { "3d" } else { "2d" }.to_owned());
-
-    let mut kinds = BTreeSet::new();
-    for axes in &figure.axes {
-        for artist in &axes.artists {
-            kinds.insert(artist_label(artist));
+pub fn browsable_labels(figure: &Figure) -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    for label in &figure.labels {
+        if !label.is_empty() && !labels.contains(label) {
+            labels.push(label.clone());
         }
     }
-    labels.extend(kinds.into_iter().map(str::to_owned));
-
-    if figure.axes.len() > 1 {
-        labels.push("subplots".to_owned());
-    }
-    if figure.axes.iter().any(|axes| axes.legend.is_some()) {
-        labels.push("legend".to_owned());
-    }
-    if figure.axes.iter().any(|axes| {
-        [&axes.x, &axes.y, &axes.z]
-            .iter()
-            .any(|axis| axis.scale == Scale::Log)
-    }) {
-        labels.push("log".to_owned());
-    }
     labels
-}
-
-/// The label naming what an artist draws.
-fn artist_label(artist: &Artist) -> &'static str {
-    match artist {
-        Artist::Line(_) => "line",
-        Artist::Scatter(_) => "scatter",
-        Artist::Contour(_) => "contour",
-        Artist::Quiver(_) => "quiver",
-        Artist::Surface(_) => "surface",
-        // The three rasters differ in how their pixels get their colour, which is not a distinction anyone browses
-        // by; all three are an image.
-        Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => "image",
-    }
-}
-
-/// The parameters read off a figure itself: how many axes and artists it has, how many data values it carries, and
-/// whether it is two- or three-dimensional.
-///
-/// They are named by [`DERIVED`], and are what a collection can be sorted and grouped by before anyone has given a
-/// figure a parameter. The count of data values is the total length of every array in the figure's data table,
-/// which is what makes a figure slow to draw and is therefore worth sorting by.
-#[must_use]
-pub fn derived_parameters(figure: &Figure) -> BTreeMap<String, Parameter> {
-    let artists: usize = figure.axes.iter().map(|axes| axes.artists.len()).sum();
-    let values: usize = figure
-        .data
-        .values()
-        .map(|array| array.shape.iter().product::<usize>())
-        .sum();
-    let three_d = figure
-        .axes
-        .iter()
-        .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }));
-    BTreeMap::from([
-        (ARTIST_COUNT.to_owned(), Parameter::Integer(artists as i64)),
-        (
-            AXES_COUNT.to_owned(),
-            Parameter::Integer(figure.axes.len() as i64),
-        ),
-        (DATA_VALUES.to_owned(), Parameter::Integer(values as i64)),
-        (
-            DIMENSIONALITY.to_owned(),
-            Parameter::String(if three_d { "3D" } else { "2D" }.to_owned()),
-        ),
-    ])
 }
 
 /// Describes every facet the collection offers, the most useful first.
@@ -450,7 +340,10 @@ pub fn derived_parameters(figure: &Figure) -> BTreeMap<String, Parameter> {
 ///   it: choosing its only value would leave the list exactly as it is.
 /// - A facet with a value for almost every figure — a run number, a note — is a search term rather than a facet,
 ///   and its score is cut hard.
-/// - The labels always come first, because they are the facet the user wrote in order to browse by.
+/// - The labels always come first, because they are the facet the user wrote in order to browse by. The penalty
+///   above is deliberately not applied to them, however many distinct labels a collection holds: a label carried by
+///   one figure is not a label wasted, because the browser lists every label with the count behind it, and that
+///   list is how a reader learns what the collection can be narrowed by at all.
 ///
 /// Facets with equal scores are ordered by name, so the list does not shuffle between frames.
 #[must_use]
