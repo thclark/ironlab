@@ -20,7 +20,7 @@ A vertex holds its figure-space position; the mapping from figure points to the 
 
 ### Clipping is a scissor
 
-Every draw is cut by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own. A geometric clip anti-aliased the edge of a plot; a scissor makes it a whole pixel, on screen and offscreen alike. An image tile whose bounds lie wholly outside its clip is not drawn at all.
+Every draw is cut by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own. A geometric clip anti-aliased the edge of a plot; a scissor makes it a whole pixel, on screen and offscreen alike. An image tile whose bounds lie wholly outside its clip is not drawn at all. Which samples of the pixel that straddles a rounded edge lie across it is the driver's to decide, and drivers differ: Metal covers none of them and lavapipe covers half. The edge therefore lands within half a pixel of the rounding on any device, which is what a clip of a plot rectangle needs, and the tests require no more than that.
 
 ### Glyphs are cached outline tessellations
 
@@ -43,7 +43,7 @@ The markers of an artist are one item of the display list: the outline of the ma
 - A display list built by hand must carry markers as a markers item; a consumer that handled paths, glyphs and images handles one more kind of leaf, and the picking pass of [issue #1](https://github.com/thclark/ironlab/issues/1) reads a marker's data index from its instance.
 - An idle frame uploads nothing, and a resize uploads thirty-two bytes per figure; a gesture on an axes recompiles the axes and rebuilds the list, whose size is bounded by the plot, as ADR 0009 intended. A polyline of a thousand points uploads a thousand segments of sixty-four bytes rather than the triangles of its stroke, and no dash is split on the processor.
 - The strokes the viewer draws and the strokes a PDF reader draws are two implementations of one contract; the comparison tests render every join, cap and dash pattern through both and require the same picture within the tolerances the dense-surface exports use.
-- Clip edges are whole pixels rather than anti-aliased, which moves a plot's edge by at most a pixel and identically in every backend.
+- Clip edges are whole pixels rather than anti-aliased, which moves a plot's edge by at most a pixel; the pixel that straddles a rounded edge may be left bare or half covered, as the device's scissor test decides.
 - The image tiles of the canvas are cut at the smaller of 8192 pixels and the device's largest texture side, in both the window and the offscreen renderer, so the two tile alike.
 - [Issue #1](https://github.com/thclark/ironlab/issues/1) replays the same list into an integer target using the node every draw records.
 
