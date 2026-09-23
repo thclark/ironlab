@@ -46,3 +46,9 @@ The markers of an artist are one item of the display list: the outline of the ma
 - Clip edges are whole pixels rather than anti-aliased, which moves a plot's edge by at most a pixel and identically in every backend.
 - The image tiles of the canvas are cut at the smaller of 8192 pixels and the device's largest texture side, in both the window and the offscreen renderer, so the two tile alike.
 - [Issue #1](https://github.com/thclark/ironlab/issues/1) replays the same list into an integer target using the node every draw records.
+
+Follow-up work is tracked in GitHub issues:
+
+- [#1: Add a GPU picking pass](https://github.com/thclark/ironlab/issues/1)
+- [#11: Fix 3d axes zoom, improve clipping, label orientation and fit](https://github.com/thclark/ironlab/issues/11), whose clipping of three-dimensional geometry to the box the shaders now make straightforward
+- [#34: Add an opacity property to image artists](https://github.com/thclark/ironlab/issues/34), under which the translucency plan of [ADR 0013](0013-depth-buffered-three-dimensional-artists.md) is recorded
