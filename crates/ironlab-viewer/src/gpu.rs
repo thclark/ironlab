@@ -17,6 +17,11 @@
 //! held as premultiplied gamma-space bytes. The blend state is egui's premultiplied one, so that the figure
 //! composites over the interface as egui's own shapes do.
 //!
+//! The markers of an artist are one instanced draw: the outline of the marker, tessellated once in unit space with
+//! its edge's offsets recorded per vertex, is drawn once per instance at the instance's centre, size, depth and
+//! colours, fill before edge, so a scatter of ten thousand points uploads ten thousand instances of twenty-four
+//! bytes and one outline.
+//!
 //! A stroke is expanded on the device: the stroke vertex shader turns each segment instance into its body quad,
 //! the join at its start (miter within the PDF limit of four, else bevel; or round) and the caps at its free ends
 //! (butt, round or square), in item space, and maps the result through the draw's item-to-figure transform held
@@ -162,6 +167,50 @@ pub struct StrokeParams {
 /// The stride of a [`StrokeParams`] slot in the uniform buffer, which every device accepts as a dynamic offset.
 const PARAMS_STRIDE: u64 = 256;
 
+/// One vertex of a marker outline's tessellation, in the unit space of the outline.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MarkerVertex {
+    /// The position on the unit outline (a fill vertex) or on the centreline of its edge (an edge vertex).
+    pub pos: [f32; 2],
+    /// The offset of an edge vertex from the centreline, in item units (half the edge width along the stroke's
+    /// normal, not scaled by the instance's size); zero for a fill vertex.
+    pub offset: [f32; 2],
+    /// 0 for a fill vertex, drawn in the instance's face colour; 1 for an edge vertex, drawn in its edge colour.
+    pub slot: u32,
+    pub _pad: u32,
+}
+
+impl MarkerVertex {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<MarkerVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
+    };
+}
+
+/// One marker instance, in the item space of its item.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MarkerGpu {
+    pub center: [f32; 2],
+    /// The depth `z` in `[0, 1]`, normalised over the depth group; 0 outside every group.
+    pub z: f32,
+    /// The width of the marker in item units, by which the outline is scaled.
+    pub size: f32,
+    /// The premultiplied sRGB face and edge colours; transparent black where the instance has none.
+    pub face: [u8; 4],
+    pub edge: [u8; 4],
+}
+
+impl MarkerGpu {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<MarkerGpu>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![3 => Float32x2, 4 => Float32, 5 => Float32, 6 => Unorm8x4, 7 => Unorm8x4],
+    };
+}
+
 /// One tile of an image: the pixels of `columns` × `rows` of an image whose rows hold `width` pixels of `channels`
 /// bytes each, three for opaque RGB and four for RGB with straight alpha. No texture exists until a painter uploads
 /// the tile.
@@ -231,6 +280,13 @@ pub enum DrawKind {
     /// A range of the list's segments, expanded into a stroke with the parameters at index `params` of
     /// [`DrawList::stroke_params`].
     Stroke { segments: Range<u32>, params: u32 },
+    /// A range of [`DrawList::marker_indices`] over [`DrawList::marker_vertices`], drawn once per instance of a
+    /// range of [`DrawList::markers`], with the transform and depth of the [`StrokeParams`] slot `params`.
+    Markers {
+        indices: Range<u32>,
+        instances: Range<u32>,
+        params: u32,
+    },
 }
 
 /// One drawing of a [`DrawList`]: triangles drawn with a texture or as solid geometry, or a stroke, inside a depth
@@ -255,7 +311,11 @@ pub struct DrawList {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub segments: Vec<Segment>,
+    /// The parameters of stroke draws and of marker draws (which use the transform and depth alone).
     pub stroke_params: Vec<StrokeParams>,
+    pub marker_vertices: Vec<MarkerVertex>,
+    pub marker_indices: Vec<u32>,
+    pub markers: Vec<MarkerGpu>,
     pub draws: Vec<Draw>,
 }
 
@@ -411,6 +471,10 @@ struct Pipelines {
     stroke_tested: wgpu::RenderPipeline,
     /// Strokes outside every depth group, at the depth of their params.
     stroke_flat: wgpu::RenderPipeline,
+    /// Markers inside a depth group, with the depth of their instances.
+    markers_tested: wgpu::RenderPipeline,
+    /// Markers outside every depth group.
+    markers_flat: wgpu::RenderPipeline,
     clear: wgpu::RenderPipeline,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -432,7 +496,10 @@ struct ListBuffers {
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
     segments: Option<wgpu::Buffer>,
-    /// The stroke params, one [`PARAMS_STRIDE`] slot each, and their bind group.
+    marker_vertices: Option<wgpu::Buffer>,
+    marker_indices: Option<wgpu::Buffer>,
+    markers: Option<wgpu::Buffer>,
+    /// The stroke and marker params, one [`PARAMS_STRIDE`] slot each, and their bind group.
     params: Option<wgpu::BindGroup>,
     /// The mapping uniform of the list and its bind group.
     mapping: wgpu::Buffer,
@@ -665,6 +732,49 @@ impl GpuPainter {
                     pass.set_vertex_buffer(0, segment_buffer.slice(..));
                     pass.draw(0..STROKE_VERTICES, segments.clone());
                 }
+                DrawKind::Markers {
+                    indices,
+                    instances,
+                    params,
+                } => {
+                    if indices.is_empty()
+                        || instances.is_empty()
+                        || indices.end as usize > list.marker_indices.len()
+                        || instances.end as usize > list.markers.len()
+                        || *params as usize >= list.stroke_params.len()
+                    {
+                        continue;
+                    }
+                    let (
+                        Some(vertices),
+                        Some(index_buffer),
+                        Some(instance_buffer),
+                        Some(params_group),
+                    ) = (
+                        &buffers.marker_vertices,
+                        &buffers.marker_indices,
+                        &buffers.markers,
+                        &buffers.params,
+                    )
+                    else {
+                        continue;
+                    };
+                    pass.set_scissor_rect(x, y, w, h);
+                    pass.set_pipeline(if draw.depth_group.is_some() {
+                        &pipelines.markers_tested
+                    } else {
+                        &pipelines.markers_flat
+                    });
+                    pass.set_bind_group(
+                        1,
+                        params_group,
+                        &[u32::try_from(u64::from(*params) * PARAMS_STRIDE).unwrap_or(u32::MAX)],
+                    );
+                    pass.set_vertex_buffer(0, vertices.slice(..));
+                    pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                    pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(indices.clone(), 0, instances.clone());
+                }
             }
         }
     }
@@ -804,6 +914,21 @@ impl ListBuffers {
             segments: buffer(
                 "ironlab segments",
                 bytemuck::cast_slice(&list.segments),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            marker_vertices: buffer(
+                "ironlab marker vertices",
+                bytemuck::cast_slice(&list.marker_vertices),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            marker_indices: buffer(
+                "ironlab marker indices",
+                bytemuck::cast_slice(&list.marker_indices),
+                wgpu::BufferUsages::INDEX,
+            ),
+            markers: buffer(
+                "ironlab markers",
+                bytemuck::cast_slice(&list.markers),
                 wgpu::BufferUsages::VERTEX,
             ),
             params,
@@ -948,6 +1073,26 @@ impl Pipelines {
             wgpu::ColorWrites::ALL,
             Some(BLEND),
         );
+        let markers_tested = pipeline(
+            "ironlab markers depth-tested",
+            &stroke_layout,
+            "vs_marker",
+            &[MarkerVertex::LAYOUT, MarkerGpu::LAYOUT],
+            "fs_marker",
+            depth(true, wgpu::CompareFunction::LessEqual),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
+        let markers_flat = pipeline(
+            "ironlab markers flat",
+            &stroke_layout,
+            "vs_marker",
+            &[MarkerVertex::LAYOUT, MarkerGpu::LAYOUT],
+            "fs_marker",
+            depth(false, wgpu::CompareFunction::Always),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
         let clear = pipeline(
             "ironlab depth clear",
             &triangle_layout,
@@ -991,6 +1136,8 @@ impl Pipelines {
             untested,
             stroke_tested,
             stroke_flat,
+            markers_tested,
+            markers_flat,
             clear,
             texture_layout,
             sampler,

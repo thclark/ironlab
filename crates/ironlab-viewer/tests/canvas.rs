@@ -22,13 +22,14 @@ use egui::Color32;
 use ironlab_ir::NodeId;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageItem, Item, ItemKind, LineCap,
-    LineJoin, PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
+    LineJoin, MarkerInstance, MarkersItem, PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba,
+    Stroke, Transform,
 };
 use ironlab_text::TextItem;
 use ironlab_viewer::canvas::{MAX_TILE_SIDE, Resolution, SCREEN_TOLERANCE, tessellate};
 use ironlab_viewer::gpu::{
-    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, Segment, StrokeParams,
-    TileKey, Vertex,
+    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu,
+    MarkerVertex, Segment, StrokeParams, TileKey, Vertex,
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -388,42 +389,115 @@ fn tile_key(
     }
 }
 
+/// The unit square outline of a marker: the closed square of side 1 centred on the origin, which an instance of
+/// size `s` draws as the square of side `s` about its centre.
+fn unit_square() -> Arc<[PathSegment]> {
+    Arc::from(closed_polyline(&[
+        (-0.5, -0.5),
+        (0.5, -0.5),
+        (0.5, 0.5),
+        (-0.5, 0.5),
+    ]))
+}
+
+/// The unit plus outline of a marker: two open arms across the full width, which an open outline is only stroked
+/// along.
+fn unit_plus() -> Arc<[PathSegment]> {
+    Arc::from(vec![
+        move_to(-0.5, 0.0),
+        line_to(0.5, 0.0),
+        move_to(0.0, -0.5),
+        line_to(0.0, 0.5),
+    ])
+}
+
+/// The unit circle outline of a marker: the circle of radius 0.5 about the origin.
+fn unit_circle() -> Arc<[PathSegment]> {
+    Arc::from(circle_segments(0.0, 0.0, 0.5))
+}
+
+/// A marker of `size` centred on `(x, y)` at depth 0, filled in `face` and edged in `edge` where given.
+fn instance(x: f64, y: f64, size: f64, face: Option<Rgba>, edge: Option<Rgba>) -> MarkerInstance {
+    MarkerInstance {
+        position: Point::new(x, y),
+        depth: 0.0,
+        size_pt: size,
+        face,
+        edge,
+        source_index: 0,
+    }
+}
+
+/// `instance` moved to `depth`.
+fn at_depth(mut instance: MarkerInstance, depth: f64) -> MarkerInstance {
+    instance.depth = depth;
+    instance
+}
+
+/// A markers item of `outline`, edged `edge_width` wide, holding `instances`.
+fn markers(outline: Arc<[PathSegment]>, edge_width: f64, instances: Vec<MarkerInstance>) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Markers(MarkersItem {
+            outline,
+            edge_width,
+            instances,
+        }),
+    }
+}
+
+/// A case of the depth of marker instances: the items, the depth group expected on the markers draw, the z
+/// expected of each of its instances and the z expected at the ends of each segment of the stroke among the
+/// items, empty when there is none.
+type DepthCase = (
+    &'static str,
+    Vec<Item>,
+    Option<u32>,
+    Vec<f32>,
+    Vec<[f64; 2]>,
+);
+
+/// A markers item that gives no draw: what is wrong with it, its outline, its edge width and its instances.
+type UndrawableMarkers = (&'static str, Arc<[PathSegment]>, f64, Vec<MarkerInstance>);
+
 // ---------------------------------------------------------------------------------------------------------------
 // Measurements over draw lists
 // ---------------------------------------------------------------------------------------------------------------
 
 /// The index range of a triangle draw: a fill, a glyph run or an image tile. Panics for a stroke draw, which holds
-/// segments rather than triangles.
+/// segments rather than triangles, and for a markers draw, whose triangles are in the marker buffers.
 #[track_caller]
 fn triangles_of(draw: &Draw) -> Range<u32> {
     match &draw.kind {
         DrawKind::Triangles(range) => range.clone(),
-        DrawKind::Stroke { .. } => {
-            panic!("a triangle draw was expected, but the draw is a stroke: {draw:?}")
+        DrawKind::Stroke { .. } | DrawKind::Markers { .. } => {
+            panic!("a triangle draw was expected, but the draw is a stroke or markers: {draw:?}")
         }
     }
 }
 
-/// The segments of a stroke draw, in item space. Panics for a triangle draw.
+/// The segments of a stroke draw, in item space. Panics for any other draw.
 #[track_caller]
 fn segments_of<'a>(list: &'a DrawList, draw: &Draw) -> &'a [Segment] {
     match &draw.kind {
         DrawKind::Stroke { segments, .. } => {
             &list.segments[segments.start as usize..segments.end as usize]
         }
-        DrawKind::Triangles(_) => {
-            panic!("a stroke draw was expected, but the draw is triangles: {draw:?}")
+        DrawKind::Triangles(_) | DrawKind::Markers { .. } => {
+            panic!("a stroke draw was expected, but the draw is triangles or markers: {draw:?}")
         }
     }
 }
 
-/// The params of a stroke draw. Panics for a triangle draw.
+/// The params of a stroke draw or of a markers draw. Panics for a triangle draw.
 #[track_caller]
 fn params_of<'a>(list: &'a DrawList, draw: &Draw) -> &'a StrokeParams {
     match &draw.kind {
-        DrawKind::Stroke { params, .. } => &list.stroke_params[*params as usize],
+        DrawKind::Stroke { params, .. } | DrawKind::Markers { params, .. } => {
+            &list.stroke_params[*params as usize]
+        }
         DrawKind::Triangles(_) => {
-            panic!("a stroke draw was expected, but the draw is triangles: {draw:?}")
+            panic!("a stroke or markers draw was expected, but the draw is triangles: {draw:?}")
         }
     }
 }
@@ -445,11 +519,13 @@ fn only_stroke(list: &DrawList) -> &Draw {
     draw
 }
 
-/// The z of everything a draw refers to: its vertices' z for triangles, or both ends of every segment for a stroke.
+/// The z of everything a draw refers to: its vertices' z for triangles, both ends of every segment for a stroke, or
+/// every instance's z for markers.
 fn depths_of(list: &DrawList, draw: &Draw) -> Vec<f32> {
     match &draw.kind {
         DrawKind::Triangles(_) => vertices_of_draw(list, draw).iter().map(|v| v.z).collect(),
         DrawKind::Stroke { .. } => segments_of(list, draw).iter().flat_map(|s| s.z).collect(),
+        DrawKind::Markers { .. } => instances_of(list, draw).iter().map(|m| m.z).collect(),
     }
 }
 
@@ -575,6 +651,75 @@ fn vertices_of_draw<'a>(list: &'a DrawList, draw: &Draw) -> Vec<&'a Vertex> {
     list.indices[range.start as usize..range.end as usize]
         .iter()
         .map(|&i| &list.vertices[i as usize])
+        .collect()
+}
+
+/// The instances of a markers draw, in the item space of their item. Panics for any other draw.
+#[track_caller]
+fn instances_of<'a>(list: &'a DrawList, draw: &Draw) -> &'a [MarkerGpu] {
+    match &draw.kind {
+        DrawKind::Markers { instances, .. } => {
+            &list.markers[instances.start as usize..instances.end as usize]
+        }
+        DrawKind::Triangles(_) | DrawKind::Stroke { .. } => {
+            panic!("a markers draw was expected, but the draw is triangles or a stroke: {draw:?}")
+        }
+    }
+}
+
+/// The vertices a markers draw refers to, one per index in index order, in the unit space of the outline. Panics
+/// for any other draw.
+#[track_caller]
+fn marker_vertices_of<'a>(list: &'a DrawList, draw: &Draw) -> Vec<&'a MarkerVertex> {
+    match &draw.kind {
+        DrawKind::Markers { indices, .. } => list.marker_indices
+            [indices.start as usize..indices.end as usize]
+            .iter()
+            .map(|&i| &list.marker_vertices[i as usize])
+            .collect(),
+        DrawKind::Triangles(_) | DrawKind::Stroke { .. } => {
+            panic!("a markers draw was expected, but the draw is triangles or a stroke: {draw:?}")
+        }
+    }
+}
+
+/// The one draw of a list of one markers item, which must be a markers draw.
+#[track_caller]
+fn only_markers(list: &DrawList) -> &Draw {
+    assert_eq!(
+        list.draws.len(),
+        1,
+        "one markers item is one draw: {:?}",
+        list.draws
+    );
+    let draw = &list.draws[0];
+    assert!(
+        matches!(draw.kind, DrawKind::Markers { .. }),
+        "the one draw of a markers item is a markers draw: {draw:?}"
+    );
+    draw
+}
+
+/// The slot of the fill vertices of a marker outline and of its edge vertices.
+const FILL_SLOT: u32 = 0;
+const EDGE_SLOT: u32 = 1;
+
+/// The triangles of `slot` of a markers draw as the vertex shader lays them out for one instance of `size` centred
+/// on the origin, `size × pos + offset` in item units, as vertices so that the measurements of fills apply to them.
+fn laid_out(list: &DrawList, draw: &Draw, size: f32, slot: u32) -> Vec<[Vertex; 3]> {
+    marker_vertices_of(list, draw)
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter(|triangle| triangle.iter().all(|v| v.slot == slot))
+        .map(|triangle| {
+            triangle.map(|v| Vertex {
+                pos: [size * v.pos[0] + v.offset[0], size * v.pos[1] + v.offset[1]],
+                z: 0.0,
+                uv: [0.0, 0.0],
+                color: [0; 4],
+            })
+        })
         .collect()
 }
 
@@ -751,13 +896,21 @@ fn assert_z_pairs(segments: &[Segment], expected: &[[f64; 2]], tolerance: f64, w
 /// vertex, of a segment's ends and of a params, lies in [0, 1]; every segment has distinct ends, a neighbour equal
 /// to the end it belongs to exactly when that end is capped, and no flag bit beyond the two join bits; every params
 /// holds an even dash count of at most [`MAX_DASH_ENTRIES`] and, when dashed, a positive period, entries that are
-/// not negative and a phase in [0, period), a width that is not negative and cap and join codes of at most 2; and
-/// the draws of a depth group are contiguous with the groups ascending in paint order (the numbering need not start
-/// at 0 or be consecutive: a group that yields no draws leaves a gap).
+/// not negative and a phase in [0, period), a width that is not negative and cap and join codes of at most 2; a
+/// markers draw has a non-empty range of marker indices that is whole triangles and a non-empty range of
+/// instances, the ranges of the markers draws partition the marker indices and the instances in paint order,
+/// every marker index names a marker vertex, every triangle is wholly fill or wholly edge and the fill triangles
+/// precede the edge triangles, the draw samples no texture, and its params take the depth from the instances
+/// (`vertex_z` set) exactly when it lies in a depth group and carry a `z` of zero either way; every marker vertex
+/// is finite with a slot of 0 or 1 and no offset when it is a fill vertex; every instance is finite with a positive
+/// size and a z in [0, 1]; and the draws of a depth group are contiguous with the groups ascending in paint order
+/// (the numbering need not start at 0 or be consecutive: a group that yields no draws leaves a gap).
 #[track_caller]
 fn assert_well_formed(list: &DrawList) {
     let mut index_end = 0;
     let mut segment_end = 0;
+    let mut marker_index_end = 0;
+    let mut instance_end = 0;
     let mut owners_of_params: Vec<u32> = Vec::new();
     let mut previous: Option<u32> = None;
     let mut highest: Option<u32> = None;
@@ -816,6 +969,90 @@ fn assert_well_formed(list: &DrawList) {
                 owners_of_params.push(*params);
                 segment_end = segments.end;
             }
+            DrawKind::Markers {
+                indices,
+                instances,
+                params,
+            } => {
+                assert!(
+                    indices.start == marker_index_end && indices.end > indices.start,
+                    "markers draw {k} is non-empty and starts at the marker index where the markers draw before \
+                     it ended ({marker_index_end}), so that every marker index is owned by exactly one draw: {:?}",
+                    list.draws
+                );
+                assert!(
+                    indices.end as usize <= list.marker_indices.len(),
+                    "draw {k} lies within the {} marker indices: {draw:?}",
+                    list.marker_indices.len()
+                );
+                assert!(
+                    (indices.end - indices.start).is_multiple_of(3),
+                    "draw {k} is whole triangles: {draw:?}"
+                );
+                assert!(
+                    instances.start == instance_end && instances.end > instances.start,
+                    "markers draw {k} is non-empty and starts at the instance where the markers draw before it \
+                     ended ({instance_end}), so that every instance is owned by exactly one draw: {:?}",
+                    list.draws
+                );
+                assert!(
+                    instances.end as usize <= list.markers.len(),
+                    "draw {k} lies within the {} marker instances: {draw:?}",
+                    list.markers.len()
+                );
+                assert!(
+                    (*params as usize) < list.stroke_params.len(),
+                    "draw {k} names one of the {} stroke params: {draw:?}",
+                    list.stroke_params.len()
+                );
+                assert_eq!(
+                    draw.texture, None,
+                    "a markers draw samples no texture: {draw:?}"
+                );
+                let p = &list.stroke_params[*params as usize];
+                assert_eq!(
+                    p.vertex_z,
+                    u32::from(draw.depth_group.is_some()),
+                    "markers draw {k} takes its depth from its instances exactly when it lies in a depth group \
+                     ({:?}): {p:?}",
+                    draw.depth_group
+                );
+                assert_eq!(
+                    p.z, 0.0,
+                    "markers draw {k} carries no depth in its params, because outside a depth group its instances \
+                     write none and inside one they take their own: {p:?}"
+                );
+                let range = indices.start as usize..indices.end as usize;
+                assert!(
+                    list.marker_indices[range.clone()]
+                        .iter()
+                        .all(|&i| (i as usize) < list.marker_vertices.len()),
+                    "every marker index of draw {k} names one of the {} marker vertices: {:?}",
+                    list.marker_vertices.len(),
+                    &list.marker_indices[range.clone()]
+                );
+                let slots: Vec<u32> = list.marker_indices[range]
+                    .iter()
+                    .map(|&i| list.marker_vertices[i as usize].slot)
+                    .collect();
+                assert!(
+                    slots
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .all(|t| t[0] == t[1] && t[1] == t[2]),
+                    "every triangle of markers draw {k} is wholly a fill triangle or wholly an edge triangle: \
+                     {slots:?}"
+                );
+                assert!(
+                    slots.windows(2).all(|pair| pair[0] <= pair[1]),
+                    "the fill triangles of markers draw {k} precede its edge triangles, so that an instance's edge \
+                     is drawn over its fill: {slots:?}"
+                );
+                owners_of_params.push(*params);
+                marker_index_end = indices.end;
+                instance_end = instances.end;
+            }
         }
         if let Some(group) = draw.depth_group
             && previous != Some(group)
@@ -836,14 +1073,57 @@ fn assert_well_formed(list: &DrawList) {
         "the stroke draws own every one of the segments: {:?}",
         list.draws
     );
+    assert_eq!(
+        marker_index_end as usize,
+        list.marker_indices.len(),
+        "the markers draws own every one of the marker indices: {:?}",
+        list.draws
+    );
+    assert_eq!(
+        instance_end as usize,
+        list.markers.len(),
+        "the markers draws own every one of the marker instances: {:?}",
+        list.draws
+    );
+    for (k, v) in list.marker_vertices.iter().enumerate() {
+        assert!(
+            v.pos.iter().chain(&v.offset).all(|c| c.is_finite()),
+            "marker vertex {k} is finite: {v:?}"
+        );
+        assert!(
+            v.slot == FILL_SLOT || v.slot == EDGE_SLOT,
+            "marker vertex {k} is a fill vertex (slot 0) or an edge vertex (slot 1): {v:?}"
+        );
+        assert!(
+            v.slot == EDGE_SLOT || v.offset == [0.0, 0.0],
+            "fill marker vertex {k} lies on the outline itself, without an offset: {v:?}"
+        );
+    }
+    for (k, m) in list.markers.iter().enumerate() {
+        assert!(
+            m.center
+                .iter()
+                .chain([&m.z, &m.size])
+                .all(|c| c.is_finite()),
+            "marker instance {k} is finite: {m:?}"
+        );
+        assert!(
+            (0.0..=1.0).contains(&m.z),
+            "the z of marker instance {k} lies in [0, 1]: {m:?}"
+        );
+        assert!(
+            m.size > 0.0,
+            "marker instance {k} has a positive size, because one without would draw nothing: {m:?}"
+        );
+    }
     owners_of_params.sort_unstable();
     assert!(
         owners_of_params
             .iter()
             .copied()
             .eq(0..list.stroke_params.len() as u32),
-        "every one of the {} params slots is owned by exactly one stroke draw, but the draws name the slots \
-         {owners_of_params:?}",
+        "every one of the {} params slots is owned by exactly one stroke or markers draw, but the draws name the \
+         slots {owners_of_params:?}",
         list.stroke_params.len()
     );
     assert!(
@@ -959,6 +1239,11 @@ fn assert_outside_depth_groups(list: &DrawList) {
         list.segments.iter().all(|s| s.grad == [0.0, 0.0]),
         "no segment outside a depth group carries a gradient of z: {:?}",
         list.segments.iter().map(|s| s.grad).collect::<Vec<_>>()
+    );
+    assert!(
+        list.markers.iter().all(|m| m.z == 0.0),
+        "every marker instance outside a depth group lies at z = 0: {:?}",
+        list.markers.iter().map(|m| m.z).collect::<Vec<_>>()
     );
 }
 
@@ -2544,6 +2829,702 @@ fn a_filled_and_stroked_path_draws_its_fill_then_its_stroke_with_the_leafs_clip_
             [10.0, 20.0, 0.0, 0.0],
             "{what}, the params carry the leaf's translation: {:?}",
             params_of(&drawn, stroke)
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Markers
+// ---------------------------------------------------------------------------------------------------------------
+
+// Why: the markers of an artist reach the painter as one instanced draw, so that a scatter of ten thousand points
+// uploads one outline and ten thousand instances: the outline's fill triangles must come first and its edge
+// triangles after them, each vertex naming its slot, or an instance's edge would be drawn under its fill; a fill
+// vertex must lie on the outline without an offset and an edge vertex on the outline with an offset of half the
+// edge width along the stroke's normal in item units, because the vertex shader lays an instance out as
+// `centre + size × pos + offset`, so an offset scaled by the size would thicken the edge of every large marker and
+// one in the nominal unit-space width would thin it; and the edge must be stroked with round joins as PDF strokes
+// it, so a corner of a square marker is rounded to half the edge width and not mitred beyond it.
+#[test]
+fn a_markers_item_is_one_instanced_draw_of_its_fill_triangles_then_its_edge_triangles() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let drawn = draw_list(&list(vec![markers(
+        unit_square(),
+        2.0,
+        vec![
+            instance(10.0, 20.0, 8.0, Some(red), Some(Rgba::BLACK)),
+            instance(30.0, 40.0, 12.0, Some(red), Some(Rgba::BLACK)),
+        ],
+    )]));
+
+    let draw = only_markers(&drawn);
+    assert_eq!(
+        (draw.depth_group, draw.clip, draw.source, &draw.texture),
+        (None, None, None, &None),
+        "a loose, unclipped, unattributed item gives a draw without a group, a clip, a node or a texture: {draw:?}"
+    );
+    assert_eq!(
+        instances_of(&drawn, draw).len(),
+        2,
+        "the draw holds one instance per marker: {draw:?}"
+    );
+    let vertices = marker_vertices_of(&drawn, draw);
+    let fill: Vec<&MarkerVertex> = vertices
+        .iter()
+        .copied()
+        .filter(|v| v.slot == FILL_SLOT)
+        .collect();
+    let edge: Vec<&MarkerVertex> = vertices
+        .iter()
+        .copied()
+        .filter(|v| v.slot == EDGE_SLOT)
+        .collect();
+    assert!(
+        !fill.is_empty() && !edge.is_empty(),
+        "the outline is filled and edged: {vertices:?}"
+    );
+    assert!(
+        fill.iter()
+            .all(|v| v.pos[0].abs() <= 0.5 + 1e-5 && v.pos[1].abs() <= 0.5 + 1e-5),
+        "every fill vertex lies within the unit square: {fill:?}"
+    );
+    assert!(
+        edge.iter()
+            .all(|v| (v.pos[0].abs().max(v.pos[1].abs()) - 0.5).abs() <= 1e-5),
+        "every edge vertex lies on the unit outline: {edge:?}"
+    );
+    // Half the edge width of 2 is 1: the offset of a vertex on the side of an edge or on the arc of a round join,
+    // while the vertex at the inner corner of a right angle, where the inner sides of two edges meet, lies √2 times
+    // as far along the diagonal.
+    let lengths: Vec<f32> = edge
+        .iter()
+        .map(|v| v.offset[0].hypot(v.offset[1]))
+        .collect();
+    assert!(
+        lengths
+            .iter()
+            .all(|&l| (l - 1.0).abs() <= 1e-3 || (l - 2f32.sqrt()).abs() <= 1e-3),
+        "every edge vertex is offset by half the edge width, or by √2 times it at an inner corner: {lengths:?}"
+    );
+    assert!(
+        lengths.iter().any(|&l| (l - 1.0).abs() <= 1e-3),
+        "the sides of the edges are offset by exactly half the edge width: {lengths:?}"
+    );
+
+    // Laid out for an instance of either size, the fill is the square of that side and the edge a band of width 2
+    // around it whatever the size, with round corners.
+    for size in [8.0f32, 12.0] {
+        let what = format!("laid out at size {size}");
+        let half = f64::from(size) / 2.0;
+        let fill = laid_out(&drawn, draw, size, FILL_SLOT);
+        assert_close(
+            area_of(fill.iter().copied()),
+            f64::from(size * size),
+            1e-3,
+            &format!("{what}, the fill covers the square of that side"),
+        );
+        assert_rect_close(
+            bounds_of(fill.iter().copied()),
+            bounds(-size / 2.0, -size / 2.0, size / 2.0, size / 2.0),
+            1e-3,
+            &format!("{what}, the fill is the square of that side about the centre"),
+        );
+        assert!(
+            covered(fill.iter().copied(), Point::new(0.0, 0.0)),
+            "{what}, the centre is filled"
+        );
+        let edge = laid_out(&drawn, draw, size, EDGE_SLOT);
+        assert_rect_close(
+            bounds_of(edge.iter().copied()),
+            bounds(
+                -size / 2.0 - 1.0,
+                -size / 2.0 - 1.0,
+                size / 2.0 + 1.0,
+                size / 2.0 + 1.0,
+            ),
+            1e-3,
+            &format!(
+                "{what}, the edge reaches half its width of 2 beyond the square, whatever the size"
+            ),
+        );
+        let probes: [(f64, f64, bool, &str); 6] = [
+            (
+                half + 0.7,
+                0.0,
+                true,
+                "the outer side of the right edge, 0.7 beyond the outline",
+            ),
+            (
+                half - 0.7,
+                0.0,
+                true,
+                "the inner side of the right edge, 0.7 within the outline",
+            ),
+            (
+                half + 1.3,
+                0.0,
+                false,
+                "beyond the outer side of the right edge",
+            ),
+            (
+                half - 1.3,
+                0.0,
+                false,
+                "within the inner side of the right edge, where only the fill lies",
+            ),
+            (
+                half + 0.5,
+                half + 0.5,
+                true,
+                "the corner, 0.71 from the vertex along the diagonal, inside the round join",
+            ),
+            (
+                half + 0.9,
+                half + 0.9,
+                false,
+                "the corner, 1.27 from the vertex along the diagonal, beyond the round join and within a miter",
+            ),
+        ];
+        for (x, y, inside, where_) in probes {
+            assert_eq!(
+                covered(edge.iter().copied(), Point::new(x, y)),
+                inside,
+                "{what}, {where_} at ({x}, {y}) is {} by the edge",
+                if inside { "covered" } else { "not covered" }
+            );
+        }
+    }
+}
+
+// Why: a plus or a cross is an open outline that is only stroked, with the butt caps every marker edge has, so its
+// edge vertices must lie at the ends of its arms, offset by exactly half the edge width across the arm and not at
+// all along it: a square or round cap would extend every arm by half the edge width and draw the marker larger
+// than the PDF prints it, and a fill of the open arms, which enclose nothing, would leave stray triangles.
+#[test]
+fn an_open_outline_is_only_an_edge_whose_vertices_lie_at_the_ends_of_its_arms_offset_across_them() {
+    let drawn = draw_list(&list(vec![markers(
+        unit_plus(),
+        2.0,
+        vec![instance(10.0, 20.0, 10.0, None, Some(Rgba::BLACK))],
+    )]));
+
+    let draw = only_markers(&drawn);
+    let vertices = marker_vertices_of(&drawn, draw);
+    assert!(
+        !vertices.is_empty() && vertices.iter().all(|v| v.slot == EDGE_SLOT),
+        "an open outline has edge vertices and no fill vertices: {vertices:?}"
+    );
+    for v in &vertices {
+        let horizontal = v.pos[1].abs() <= 1e-6 && (v.pos[0].abs() - 0.5).abs() <= 1e-6;
+        let vertical = v.pos[0].abs() <= 1e-6 && (v.pos[1].abs() - 0.5).abs() <= 1e-6;
+        assert!(
+            horizontal || vertical,
+            "every edge vertex lies at the end of an arm: {v:?}"
+        );
+        let (across, along) = if horizontal {
+            (v.offset[1], v.offset[0])
+        } else {
+            (v.offset[0], v.offset[1])
+        };
+        assert!(
+            (across.abs() - 1.0).abs() <= 1e-3,
+            "the offset across the arm is half the edge width of 2: {v:?}"
+        );
+        assert!(
+            along.abs() <= 1e-3,
+            "a butt cap offsets nothing along the arm: {v:?}"
+        );
+    }
+    let edge = laid_out(&drawn, draw, 10.0, EDGE_SLOT);
+    assert_rect_close(
+        bounds_of(edge.iter().copied()),
+        bounds(-5.0, -5.0, 5.0, 5.0),
+        1e-3,
+        "laid out at size 10, the arms reach 5 from the centre and, with butt caps, no farther",
+    );
+    for (x, y, inside, where_) in [
+        (4.5, 0.0, true, "the horizontal arm near its end"),
+        (0.0, -4.5, true, "the vertical arm near its end"),
+        (
+            5.5,
+            0.0,
+            false,
+            "beyond the end of the horizontal arm, where a square cap would reach",
+        ),
+        (0.0, 0.0, true, "the centre, where the arms cross"),
+        (2.0, 2.0, false, "between the arms"),
+    ] {
+        assert_eq!(
+            covered(edge.iter().copied(), Point::new(x, y)),
+            inside,
+            "laid out at size 10, {where_} at ({x}, {y}) is {} by the edge",
+            if inside { "covered" } else { "not covered" }
+        );
+    }
+}
+
+// Why: the outline is tessellated once for every instance of the item, so an item none of whose instances is
+// filled must not carry fill triangles (drawn in transparent black, they would cost every instance a blend of
+// nothing), and one none of whose instances is edged, or whose edge has no width, must not carry edge triangles;
+// while a face on one instance and an edge on another keep both, each instance's colours deciding what shows.
+#[test]
+fn an_item_without_faces_has_no_fill_vertices_and_one_without_edges_or_edge_width_no_edge_vertices()
+{
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let dot = |x: f64, face: Option<Rgba>, edge: Option<Rgba>| instance(x, 10.0, 5.0, face, edge);
+    // The instances of the item, its edge width, and whether fill and edge triangles are expected.
+    let cases: [(&str, Vec<MarkerInstance>, f64, bool, bool); 4] = [
+        (
+            "faces and no edges",
+            vec![dot(10.0, Some(red), None), dot(20.0, Some(red), None)],
+            2.0,
+            true,
+            false,
+        ),
+        (
+            "edges and no faces",
+            vec![
+                dot(10.0, None, Some(Rgba::BLACK)),
+                dot(20.0, None, Some(Rgba::BLACK)),
+            ],
+            2.0,
+            false,
+            true,
+        ),
+        (
+            "faces and edges of no width",
+            vec![dot(10.0, Some(red), Some(Rgba::BLACK))],
+            0.0,
+            true,
+            false,
+        ),
+        (
+            "a face on one instance and an edge on the other",
+            vec![
+                dot(10.0, Some(red), None),
+                dot(20.0, None, Some(Rgba::BLACK)),
+            ],
+            2.0,
+            true,
+            true,
+        ),
+    ];
+    for (what, instances, edge_width, fill_expected, edge_expected) in cases {
+        let drawn = draw_list(&list(vec![markers(unit_square(), edge_width, instances)]));
+        let vertices = marker_vertices_of(&drawn, only_markers(&drawn));
+        let has = |slot: u32| vertices.iter().any(|v| v.slot == slot);
+        assert_eq!(
+            has(FILL_SLOT),
+            fill_expected,
+            "with {what} the outline {} fill triangles: {vertices:?}",
+            if fill_expected { "has" } else { "has no" }
+        );
+        assert_eq!(
+            has(EDGE_SLOT),
+            edge_expected,
+            "with {what} the outline {} edge triangles: {vertices:?}",
+            if edge_expected { "has" } else { "has no" }
+        );
+    }
+}
+
+// Why: every instance is twenty-four bytes the vertex shader reads as they are: the centre in item space, the size
+// the unit outline is scaled by, and the face and edge colours premultiplied as egui's blend state expects, with
+// transparent black where the instance has none so that the slot draws nothing; a centre mapped through the
+// transform here, a straight-alpha colour or an opaque stand-in for a missing colour would place, brighten or fill
+// the marker wrongly.
+#[test]
+fn each_instance_carries_its_centre_size_and_premultiplied_colours_with_transparent_black_for_none()
+{
+    let drawn = draw_list(&list(vec![group(
+        None,
+        Some(Transform::translate(100.0, 200.0)),
+        vec![markers(
+            unit_square(),
+            1.0,
+            vec![
+                instance(10.5, 20.25, 7.5, Some(Rgba::new(0.2, 0.4, 0.6, 0.4)), None),
+                instance(-3.0, 4.0, 3.0, None, Some(Rgba::new(1.0, 0.0, 0.0, 0.5))),
+            ],
+        )],
+    )]));
+
+    let draw = only_markers(&drawn);
+    assert_eq!(
+        instances_of(&drawn, draw),
+        &[
+            MarkerGpu {
+                center: [10.5, 20.25],
+                z: 0.0,
+                size: 7.5,
+                face: premultiplied(51, 102, 153, 102),
+                edge: [0, 0, 0, 0],
+            },
+            MarkerGpu {
+                center: [-3.0, 4.0],
+                z: 0.0,
+                size: 3.0,
+                face: [0, 0, 0, 0],
+                edge: premultiplied(255, 0, 0, 128),
+            },
+        ],
+        "the instances are in item space, in order, with premultiplied colours and transparent black for a \
+         missing one"
+    );
+    assert_eq!(
+        params_of(&drawn, draw).offset,
+        [100.0, 200.0, 0.0, 0.0],
+        "the group's translation is in the params, not in the centres"
+    );
+}
+
+// Why: the instances stay in item space and the vertex shader maps them through the params' transform, as the
+// stroke pipeline maps its segments, so beneath the group transforms of an axes the params must carry the leaf's
+// whole item-to-figure transform, composed in the display list's order, and no depth of their own: outside every
+// depth group a markers draw writes no depth, so `vertex_z` is clear and `z` unused, and inside one `vertex_z`
+// tells the shader to take each instance's own z. A transform composed the other way round would draw every marker
+// of a rotated group displaced.
+#[test]
+fn the_params_of_a_markers_draw_carry_the_leafs_transform_and_take_the_depth_from_the_instances_in_a_group()
+ {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let outer = Transform {
+        a: 2.0,
+        b: 0.5,
+        c: -0.25,
+        d: 3.0,
+        e: 100.0,
+        f: 200.0,
+    };
+    let item = || {
+        sourced(
+            markers(
+                unit_square(),
+                1.5,
+                vec![instance(1.0, 2.0, 4.0, Some(red), Some(Rgba::BLACK))],
+            ),
+            7,
+        )
+    };
+    for (what, items, vertex_z) in [
+        ("outside every depth group", vec![item()], 0),
+        ("inside a depth group", vec![depth_group(vec![item()])], 1),
+    ] {
+        let drawn = draw_list(&list(vec![group(
+            None,
+            Some(outer),
+            vec![group(None, Some(Transform::translate(5.0, 5.0)), items)],
+        )]));
+
+        let draw = only_markers(&drawn);
+        assert_eq!(
+            draw.source,
+            Some(NodeId(7)),
+            "{what}, the draw names the item's node: {draw:?}"
+        );
+        let params = params_of(&drawn, draw);
+        assert_eq!(
+            params.linear,
+            [2.0, 0.5, -0.25, 3.0],
+            "{what}, the linear part of the item-to-figure transform is [a, b, c, d]: {params:?}"
+        );
+        // The inner translation is applied first and then the outer transform, which maps (5, 5) to
+        // (2·5 − 0.25·5 + 100, 0.5·5 + 3·5 + 200).
+        assert_eq!(
+            params.offset,
+            [108.75, 217.5, 0.0, 0.0],
+            "{what}, the translation is [e, f, 0, 0] of the composed transform: {params:?}"
+        );
+        assert_eq!(
+            params.vertex_z, vertex_z,
+            "{what}, the params take the depth from the instances exactly inside a group: {params:?}"
+        );
+        assert_eq!(
+            params.z, 0.0,
+            "{what}, the params carry no depth of their own: {params:?}"
+        );
+        assert_eq!(
+            instances_of(&drawn, draw)[0].center,
+            [1.0, 2.0],
+            "{what}, the centre stays in item space"
+        );
+    }
+}
+
+// Why: a marker in a three-dimensional axes lies at one depth, a constant plane, and the depth test must place it
+// among the faces of its group, so each instance's z must be normalised over the whole group, 0 the nearest and 1
+// the farthest, with the group's other leaves setting the range and the instances setting it for them in turn: a
+// stroke at vertex depths between two markers is normalised over the range the markers span, as the markers would
+// be over its; a group of one depth has no range and lands in the middle; and outside every group the depth means
+// nothing and every instance lies at z = 0, or a loose marker would be tested against nothing. An instance
+// normalised over its own item alone would sit in front of, or behind, every face of the axes.
+#[test]
+fn an_instances_z_is_normalised_over_its_depth_group_and_zero_outside() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let dots = |depths: &[f64]| {
+        markers(
+            unit_square(),
+            1.0,
+            depths
+                .iter()
+                .enumerate()
+                .map(|(k, &depth)| {
+                    at_depth(instance(10.0 * k as f64, 0.0, 4.0, Some(red), None), depth)
+                })
+                .collect(),
+        )
+    };
+    let [pin0, pin1] = range_pins(50.0, 0.0);
+    // The items, the depth group expected on the markers draw, the z of each of its instances and the z at the
+    // ends of each segment of the stroke among the items, if there is one.
+    let cases: [DepthCase; 5] = [
+        (
+            "outside every depth group",
+            vec![dots(&[0.2, 0.9])],
+            None,
+            vec![0.0, 0.0],
+            vec![],
+        ),
+        (
+            "alone in a depth group",
+            vec![depth_group(vec![dots(&[0.0, 1.0])])],
+            Some(0),
+            vec![1.0, 0.0],
+            vec![],
+        ),
+        (
+            "one instance alone in a depth group",
+            vec![depth_group(vec![dots(&[3.0])])],
+            Some(0),
+            vec![0.5],
+            vec![],
+        ),
+        (
+            "in a depth group whose range the pins fix to [0, 1]",
+            vec![depth_group(vec![pin0, pin1, dots(&[0.25, 0.75])])],
+            Some(0),
+            vec![0.75, 0.25],
+            vec![],
+        ),
+        (
+            "in a depth group with a stroke at vertex depths within the range the markers span",
+            vec![depth_group(vec![
+                dots(&[0.0, 1.0]),
+                with_depth(
+                    solid(polyline(&[(0.0, 20.0), (50.0, 20.0)])),
+                    Depth::Vertices(vec![0.25, 0.75]),
+                ),
+            ])],
+            Some(0),
+            vec![1.0, 0.0],
+            vec![[0.75, 0.25]],
+        ),
+    ];
+    for (what, items, group_number, expected, stroke_z) in cases {
+        let drawn = draw_list(&list(items));
+        let draw = drawn
+            .draws
+            .iter()
+            .find(|d| matches!(d.kind, DrawKind::Markers { .. }))
+            .unwrap_or_else(|| panic!("{what}, the markers are drawn: {:?}", drawn.draws));
+        assert_eq!(
+            draw.depth_group, group_number,
+            "{what}, the draw lies in the depth group {group_number:?}: {draw:?}"
+        );
+        let zs: Vec<f32> = instances_of(&drawn, draw).iter().map(|m| m.z).collect();
+        assert!(
+            zs.len() == expected.len()
+                && zs.iter().zip(&expected).all(|(z, e)| (z - e).abs() <= 1e-6),
+            "{what}, the instances lie at z = {expected:?}: {zs:?}"
+        );
+        assert_eq!(
+            params_of(&drawn, draw).vertex_z,
+            u32::from(group_number.is_some()),
+            "{what}, the shader takes the depth from the instances exactly inside a group: {:?}",
+            params_of(&drawn, draw)
+        );
+        if !stroke_z.is_empty() {
+            let stroke = drawn
+                .draws
+                .iter()
+                .find(|d| matches!(d.kind, DrawKind::Stroke { .. }))
+                .unwrap_or_else(|| panic!("{what}, the stroke is drawn: {:?}", drawn.draws));
+            assert_z_pairs(
+                segments_of(&drawn, stroke),
+                &stroke_z,
+                1e-6,
+                &format!(
+                    "{what}, the ends of the segments are normalised over the range the markers span"
+                ),
+            );
+        }
+    }
+}
+
+// Why: an item that is not valid as a whole draws nothing, and the canvas skips the item rather than the list.
+// What makes a markers item invalid is tabled against `MarkersItem::is_valid` in the scene tests; one row of each
+// kind shows that an outline that does not start with a move, an edge width that is not a number or an instance
+// whose position is not finite gives no draw, because a bad outline that reached lyon would panic or draw garbage
+// for every instance and a non-finite instance would draw nowhere or everywhere; one bad instance makes its whole
+// item invalid, so its valid sibling is not drawn either. An item with no instance is valid and draws nothing.
+// Whatever was wrong, the item beside the skipped one still draws.
+#[test]
+fn an_invalid_item_and_one_with_no_instances_give_no_draw_while_the_item_beside_them_draws() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let valid = instance(30.0, 40.0, 5.0, Some(red), Some(Rgba::BLACK));
+    // What is wrong with the item, its outline, its edge width and its instances.
+    let cases: [UndrawableMarkers; 4] = [
+        ("no instances", unit_square(), 1.0, vec![]),
+        (
+            "an outline that does not start with a move",
+            Arc::from(vec![line_to(0.5, 0.5), line_to(-0.5, 0.5)]),
+            1.0,
+            vec![valid],
+        ),
+        (
+            "an edge width that is not a number",
+            unit_square(),
+            f64::NAN,
+            vec![valid],
+        ),
+        (
+            "an instance at a position that is not a number beside a valid sibling",
+            unit_square(),
+            1.0,
+            vec![valid, instance(f64::NAN, 40.0, 5.0, Some(red), None)],
+        ),
+    ];
+    for (what, outline, edge_width, instances) in cases {
+        let drawn = draw_list(&list(vec![
+            markers(outline, edge_width, instances),
+            sourced(
+                markers(
+                    unit_square(),
+                    1.0,
+                    vec![instance(60.0, 40.0, 5.0, Some(red), None)],
+                ),
+                7,
+            ),
+        ]));
+        let sources: Vec<Option<NodeId>> = drawn.draws.iter().map(|d| d.source).collect();
+        assert_eq!(
+            sources,
+            vec![Some(NodeId(7))],
+            "the item with {what} gives no draw and the item beside it draws: {sources:?}"
+        );
+    }
+}
+
+// Why: the painter draws a list in sequence and cuts, tests and attributes every draw by what it carries, so a
+// markers draw must sit between the draws of the items before and after it (the line under its markers, the
+// legend over them) and carry the leaf's clip in figure points, its depth group and its node, as a path's draws
+// do; a markers draw out of order would put the markers under the line, and one without the clip would draw the
+// markers of panned data over the tick labels outside the plot box.
+#[test]
+fn a_markers_draw_keeps_its_place_in_the_paint_order_with_the_leafs_clip_and_source() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let clip = Rect::new(0.0, 0.0, 60.0, 60.0);
+    let drawn = draw_list(&list(vec![
+        sourced(
+            filled(rect_segments(0.0, 0.0, 5.0, 5.0), red, FillRule::NonZero),
+            1,
+        ),
+        group(
+            Some(clip),
+            Some(Transform::translate(10.0, 20.0)),
+            vec![sourced(
+                markers(
+                    unit_square(),
+                    1.0,
+                    vec![instance(5.0, 5.0, 4.0, Some(red), Some(Rgba::BLACK))],
+                ),
+                7,
+            )],
+        ),
+        sourced(
+            filled(rect_segments(20.0, 0.0, 5.0, 5.0), red, FillRule::NonZero),
+            2,
+        ),
+    ]));
+
+    assert_eq!(
+        drawn.draws.iter().map(|d| d.source).collect::<Vec<_>>(),
+        [Some(NodeId(1)), Some(NodeId(7)), Some(NodeId(2))],
+        "the markers draw sits between the draws of the items before and after it"
+    );
+    let draw = &drawn.draws[1];
+    assert!(
+        matches!(draw.kind, DrawKind::Markers { .. }),
+        "the draw of the markers item is a markers draw: {draw:?}"
+    );
+    assert_eq!(
+        draw.clip,
+        Some(clip),
+        "the draw records the leaf's clip in figure points: {draw:?}"
+    );
+    assert_eq!(
+        (draw.depth_group, &draw.texture),
+        (None, &None),
+        "a loose markers draw lies in no depth group and samples no texture: {draw:?}"
+    );
+    assert_eq!(
+        params_of(&drawn, draw).offset,
+        [10.0, 20.0, 0.0, 0.0],
+        "the params carry the group's translation: {:?}",
+        params_of(&drawn, draw)
+    );
+    assert_eq!(
+        instances_of(&drawn, draw)[0].center,
+        [5.0, 5.0],
+        "the centre stays in item space: {:?}",
+        instances_of(&drawn, draw)
+    );
+}
+
+// Why: the outline is flattened once for every instance, so its tolerance must be chosen for the largest instance
+// at the resolution: a circle flattened for the smallest marker of a scatter, or in unit space without regard to
+// the size, would draw the largest marker as a visible polygon, and one flattened far finer than the screen
+// resolves would upload vertices nobody can see. The fill of a circle of radius 20 flattened within the screen
+// tolerance of 0.05 at scale 1 loses about a third of a percent of its area to the chords; flattened for a marker a
+// tenth the size it would lose over three percent.
+#[test]
+fn a_curved_outline_is_flattened_for_the_largest_instance_at_the_resolution() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let item = || {
+        markers(
+            unit_circle(),
+            1.0,
+            vec![
+                instance(10.0, 10.0, 4.0, Some(red), None),
+                instance(50.0, 50.0, 40.0, Some(red), None),
+            ],
+        )
+    };
+    let coarse = draw_list_at(&list(vec![item()]), at_scale(1.0));
+    let fine = draw_list_at(&list(vec![item()]), at_scale(8.0));
+
+    let count = |drawn: &DrawList| marker_vertices_of(drawn, only_markers(drawn)).len();
+    assert!(
+        count(&fine) > count(&coarse),
+        "a finer resolution flattens the circle into more chords: {} vertices at scale 8 against {} at scale 1",
+        count(&fine),
+        count(&coarse)
+    );
+    let disc = std::f64::consts::PI * 400.0;
+    for (what, drawn) in [("at scale 1", &coarse), ("at scale 8", &fine)] {
+        let draw = only_markers(drawn);
+        let vertices = marker_vertices_of(drawn, draw);
+        assert!(
+            vertices
+                .iter()
+                .all(|v| v.pos[0].hypot(v.pos[1]) <= 0.5 + 1e-3),
+            "{what}, every fill vertex lies on or inside the unit circle: {vertices:?}"
+        );
+        let area = area_of(laid_out(drawn, draw, 40.0, FILL_SLOT).into_iter());
+        assert!(
+            (area - disc).abs() <= disc * 0.01,
+            "{what}, laid out at size 40 the fill covers the disc of radius 20 within a percent, as the chords of \
+             a flattening for the largest instance do: {area} against {disc}"
         );
     }
 }

@@ -215,15 +215,22 @@ fn draw_sample(
             line_sample(&line.line, colour, out);
             let size = line.marker.size_pt.min(marker_room);
             let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
-            out.extend(style::marker_item(
-                source,
-                &line.marker,
-                centre,
-                size,
-                colour,
-                width,
-                alpha,
-            ));
+            if let Some(outline) = style::marker_outline(line.marker.shape)
+                && let Some(instance) = style::marker_instance(
+                    &line.marker,
+                    &outline,
+                    style::MarkerPlace {
+                        position: centre,
+                        size,
+                        depth: 0.0,
+                        source_index: 0,
+                    },
+                    colour,
+                    alpha,
+                )
+            {
+                out.push(style::marker_item(source, &outline, width, instance));
+            }
         }
         Artist::Scatter(scatter) => {
             let colour = entry.primary.single(scale);
@@ -236,15 +243,22 @@ fn draw_sample(
             } else {
                 4.0
             };
-            out.extend(style::marker_item(
-                source,
-                &scatter.marker,
-                centre,
-                size.min(marker_room),
-                colour,
-                0.5,
-                alpha,
-            ));
+            if let Some(outline) = style::marker_outline(scatter.marker.shape)
+                && let Some(instance) = style::marker_instance(
+                    &scatter.marker,
+                    &outline,
+                    style::MarkerPlace {
+                        position: centre,
+                        size: size.min(marker_room),
+                        depth: 0.0,
+                        source_index: 0,
+                    },
+                    colour,
+                    alpha,
+                )
+            {
+                out.push(style::marker_item(source, &outline, 0.5, instance));
+            }
         }
         Artist::Quiver(q) => {
             let Some(stroke) = sample_stroke(&q.line, entry.primary.single(scale).map(fade)) else {

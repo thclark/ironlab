@@ -4,7 +4,7 @@ use crate::display::{Item, ItemKind, Point};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
 
 use super::Ctx;
-use super::artists::{AxesInput, Space, draw_artists, group_dense};
+use super::artists::{AxesInput, Space, coalesce_markers, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
@@ -116,7 +116,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     // The vertices of the drawn data, the corners of images included, which the `best` legend location avoids.
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
-    let data = group_dense(data, &drawn.dense);
+    let data = group_dense(coalesce_markers(data), &drawn.dense);
     if !data.is_empty() {
         out.push(Item {
             source: Some(axes.id),

@@ -42,7 +42,8 @@ pub use canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, tessellate};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
 pub use gpu::{
     DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuCallback, GpuConfig, GpuPainter, JOIN_AT_END,
-    JOIN_AT_START, MAX_DASH_ENTRIES, Segment, StrokeParams, TileKey, Uploads, Vertex, Viewport,
+    JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu, MarkerVertex, Segment, StrokeParams, TileKey,
+    Uploads, Vertex, Viewport,
 };
 pub use interaction::{
     DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,
