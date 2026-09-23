@@ -28,7 +28,7 @@ let fig = Figure::new()
     .title("Wake behind a cylinder")
     .label("wake")
     .label("piv")
-    .label("2d");
+    .label("quiver");
 ```
 
 Labels are kept in the order they were given, which is the order the viewer lists them in. A label must not be
@@ -79,9 +79,14 @@ from it.
 The second test is how many answers a figure can have at once. A figure is two-dimensional or three-dimensional and
 never both, so `dimensionality` is a parameter with the values `2D` and `3D`, and a collection can be grouped by it
 into two runs. A figure may draw a surface *and* an image, so the kinds it draws are labels, and a figure carries one
-for each. The two are not alternatives, and this repository's own gallery uses both at once: every entry carries a
-`kind` parameter naming the artist the entry is about, which the browser sorts and groups by, and a label for each
-kind it actually draws, which answers whether there is a surface in there anywhere.
+for each.
+
+**Write each fact one way only.** Having decided which a fact is, resist describing it the other way as well: a
+figure that is labelled `3d` *and* carries `dimensionality: 3D` leaves a reader unable to tell whether the two mean
+the same thing, and the browser offers them separately as though they did not. This repository's own gallery is the
+worked example. Its entries carry `dimensionality` as a parameter and no `2d` or `3d` label, and they carry a label
+for each artist kind they draw and no parameter naming one — because a figure drawing an image over a surface is
+genuinely both, and choosing which of them it is "really" would be a judgement nobody asked for.
 
 Something that is simply true or false can be either, and the difference is what absence means. As the parameter
 `converged: false` a figure is positively marked as not having converged, and the browser can group the converged
@@ -98,6 +103,8 @@ want to know which figure is making the viewer work.
 Beyond that, the descriptions worth carrying are the ones that separate one figure from its neighbours: the
 conditions of the run, the campaign it belongs to, the quantity plotted, whether it is a result or a diagnostic. A
 description that is the same on every figure divides nothing, and the browser ranks it last accordingly.
+
+Write each of them once, as a label or as a parameter, and never as both.
 
 Descriptions cost nothing to draw and very little to store, so the error worth avoiding is writing too few.
 
