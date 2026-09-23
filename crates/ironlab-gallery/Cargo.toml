@@ -26,5 +26,8 @@ clap.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+# The browsing test reads the artists of a gallery figure straight from the IR, so that what it expects of the
+# browser is worked out independently of the browser.
+ironlab-ir.workspace = true
 # The decimation entry demonstrates a property of the scene compiler, so its test inspects the compiled scene.
 ironlab-scene.workspace = true
