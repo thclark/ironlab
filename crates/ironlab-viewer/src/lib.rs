@@ -3,7 +3,7 @@
 //! The viewer is a dumb consumer of the scene compiler: it draws the display list produced by
 //! [`ironlab_scene::compile()`] and turns pointer input into typed edits of the figure IR (axis limits, 3D views and
 //! artist visibility), which it records in a view overlay rather than applying to the figure it was given. The crate
-//! is split into nine modules:
+//! is split into eleven modules:
 //!
 //! - [`canvas`] converts a display list into one draw list of triangles in figure points with lyon, image tiles as
 //!   textured quads, and the depth of every vertex of a three-dimensional axes.
@@ -18,14 +18,20 @@
 //! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below.
 //! - [`problems`] describes what the viewer has to tell the user about a figure it cannot draw as asked, and is
 //!   pure logic too.
+//! - [`browse`] works out what a collection of figures can be filtered, ordered and grouped by, and applies what
+//!   the user chose; like [`inspector`], it is pure logic with no egui in it.
+//! - [`sidebar`] draws that as the figure browser: a left-hand panel that narrows the open figures down to the one
+//!   to look at.
 //! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
-//! - [`app`] is the eframe application: one tab per figure, a toolbar, undo and redo, PDF export and saving.
+//! - [`app`] is the eframe application: one tab per figure, the figure browser beside them, a toolbar, undo and
+//!   redo, PDF export and saving.
 //! - [`export`] writes a figure as a PDF, supplying the PDF exporter with the viewer's own renderer so that the
 //!   dense parts of a figure are rasterised by the pipeline that draws the screen.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
 
 pub mod app;
+pub mod browse;
 pub mod canvas;
 pub mod export;
 pub mod files;
@@ -35,9 +41,15 @@ pub mod interaction;
 pub mod offscreen;
 pub mod panel;
 pub mod problems;
+pub mod sidebar;
 pub mod style;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
+pub use browse::{
+    Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
+    Group, Query, Results, Sort, SortKey, Term, derived_labels, derived_parameters,
+    describe_facets, parameter_names,
+};
 pub use canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, tessellate};
 pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
 pub use gpu::{
@@ -55,3 +67,4 @@ pub use offscreen::{
 };
 pub use panel::{PropertyPanel, property_panel};
 pub use problems::{Origin, Problem};
+pub use sidebar::{BrowserResponse, FigureBrowser, figure_browser};

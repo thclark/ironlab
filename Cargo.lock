@@ -1851,6 +1851,7 @@ dependencies = [
  "clap",
  "image",
  "ironlab",
+ "ironlab-ir",
  "ironlab-pdf",
  "ironlab-scene",
  "ironlab-text",

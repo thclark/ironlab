@@ -29,11 +29,13 @@ use ironlab_scene::display::Point;
 use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
+use crate::browse::FigureCard;
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::{DEPTH_FORMAT, DrawList, GpuCallback, GpuConfig, GpuPainter};
 use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
+use crate::sidebar::{FigureBrowser, figure_browser};
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
 /// typical mouse wheel (50 points) zooms by about 20 %.
@@ -169,14 +171,32 @@ pub struct ToolbarResponse {
 /// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
 /// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
 /// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
+///
+/// When `show_browser` is given, a "Figures" button opens and closes the figure browser through it, at the left of
+/// the toolbar because choosing which figure to look at comes before anything done to the one on screen. It is
+/// `None` when the viewer holds one figure, which is nothing to browse.
 pub fn toolbar(
     ui: &mut egui::Ui,
     state: &mut FigureState,
     problems: &[Problem],
     show_properties: &mut bool,
+    show_browser: Option<&mut bool>,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
     ui.horizontal(|ui| {
+        if let Some(open) = show_browser {
+            if ui
+                .add(egui::Button::selectable(*open, "Figures"))
+                .on_hover_text(
+                    "Show or hide the figure browser, which filters, orders and groups the open figures by their \
+                     parameters.",
+                )
+                .clicked()
+            {
+                *open = !*open;
+            }
+            ui.separator();
+        }
         let has_3d = state.has_3d();
         for (tool, label, hint, enabled) in [
             (
@@ -356,6 +376,7 @@ impl FigurePane {
         text: &TextEngine,
         gpu: Option<GpuConfig>,
         notification: &mut Option<Notification>,
+        show_browser: Option<&mut bool>,
     ) {
         self.scene(text);
         let mut problems: Vec<Problem> = self.scene.as_ref().map_or_else(Vec::new, |scene| {
@@ -365,7 +386,13 @@ impl FigurePane {
         let response = egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
-                toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
+                toolbar(
+                    ui,
+                    &mut self.state,
+                    &problems,
+                    &mut self.panel.open,
+                    show_browser,
+                )
             })
             .inner;
         if response.changed {
@@ -695,6 +722,8 @@ struct TabBehavior<'a> {
     text: &'a TextEngine,
     gpu: Option<GpuConfig>,
     notification: &'a mut Option<Notification>,
+    /// Whether the figure browser is open, or `None` when there is one figure and nothing to browse.
+    show_browser: Option<&'a mut bool>,
 }
 
 impl egui_tiles::Behavior<FigurePane> for TabBehavior<'_> {
@@ -704,7 +733,13 @@ impl egui_tiles::Behavior<FigurePane> for TabBehavior<'_> {
         _tile_id: egui_tiles::TileId,
         pane: &mut FigurePane,
     ) -> egui_tiles::UiResponse {
-        pane.ui(ui, self.text, self.gpu, self.notification);
+        pane.ui(
+            ui,
+            self.text,
+            self.gpu,
+            self.notification,
+            self.show_browser.as_deref_mut(),
+        );
         egui_tiles::UiResponse::None
     }
 
@@ -725,6 +760,11 @@ pub struct ViewerApp {
     tree: egui_tiles::Tree<FigurePane>,
     /// Tile identifiers of the figure panes, in the order the figures were given.
     panes: Vec<egui_tiles::TileId>,
+    /// What the figure browser shows of each figure, in the order the figures were given. It is read once, when
+    /// the figures are opened, because counting the values of a figure's data on every frame would be felt.
+    cards: Vec<FigureCard>,
+    /// The figure browser, which chooses which tab is shown.
+    browser: FigureBrowser,
     text: Arc<TextEngine>,
     notification: Option<Notification>,
     /// The render target the viewer's own pipelines draw into, or `None` when the application has no graphics
@@ -736,18 +776,64 @@ impl ViewerApp {
     /// Creates an application with one tab per `(title, figure)` pair, in order.
     #[must_use]
     pub fn new(figures: Vec<(String, Figure)>, text: Arc<TextEngine>) -> Self {
+        let cards: Vec<FigureCard> = figures
+            .iter()
+            .map(|(title, figure)| FigureCard::of(title.clone(), figure))
+            .collect();
         let mut tiles = egui_tiles::Tiles::default();
         let panes: Vec<egui_tiles::TileId> = figures
             .into_iter()
             .map(|(title, figure)| tiles.insert_pane(FigurePane::new(title, figure)))
             .collect();
         let root = tiles.insert_tab_tile(panes.clone());
+        // The browser opens with the collection, because a collection large enough to need browsing is one the
+        // reader cannot see the whole of in the tab strip. One figure is not a collection, and opens as before.
+        let browser = FigureBrowser::for_collection(panes.len());
         Self {
             tree: egui_tiles::Tree::new("ironlab_viewer_tabs", root, tiles),
             panes,
+            cards,
+            browser,
             text,
             notification: None,
             gpu: None,
+        }
+    }
+
+    /// The index, in the order the figures were given, of the figure whose tab is shown.
+    ///
+    /// It is 0 when no pane is active, which happens only before the first frame has laid the tabs out.
+    #[must_use]
+    pub fn shown(&self) -> usize {
+        self.tree
+            .active_tiles()
+            .iter()
+            .find_map(|id| self.panes.iter().position(|pane| pane == id))
+            .unwrap_or(0)
+    }
+
+    /// What the figure browser shows of each figure, in the order the figures were given.
+    #[must_use]
+    pub fn cards(&self) -> &[FigureCard] {
+        &self.cards
+    }
+
+    /// The state of the figure browser, so that a test can drive the browsing without the interface.
+    #[must_use]
+    pub fn browser(&self) -> &FigureBrowser {
+        &self.browser
+    }
+
+    /// The state of the figure browser, mutably.
+    pub fn browser_mut(&mut self) -> &mut FigureBrowser {
+        &mut self.browser
+    }
+
+    /// Shows the figure at `index` in the order the figures were given, returning whether the shown figure changed.
+    pub fn show_figure(&mut self, index: usize) -> bool {
+        match self.panes.get(index).copied() {
+            Some(wanted) => self.tree.make_active(|id, _| id == wanted),
+            None => false,
         }
     }
 
@@ -874,6 +960,16 @@ impl eframe::App for ViewerApp {
         if undo {
             self.for_active_panes(FigureState::undo);
         }
+        // The browser is a panel, so it is added before the central panel that holds the tabs; a panel takes its
+        // room from what is left, and the central panel takes what remains.
+        let browsable = self.panes.len() > 1;
+        if browsable {
+            let shown = self.shown();
+            let chosen = figure_browser(ui, &mut self.browser, &self.cards, shown).chosen;
+            if let Some(index) = chosen {
+                self.show_figure(index);
+            }
+        }
         egui::Frame::central_panel(ui.style())
             .inner_margin(0)
             .show(ui, |ui| {
@@ -882,6 +978,7 @@ impl eframe::App for ViewerApp {
                     text: &self.text,
                     gpu: self.gpu,
                     notification: &mut self.notification,
+                    show_browser: browsable.then_some(&mut self.browser.open),
                 };
                 self.tree.ui(&mut behavior, ui);
             });
