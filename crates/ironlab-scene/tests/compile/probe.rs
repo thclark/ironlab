@@ -4,8 +4,8 @@
 use ironlab_ir::NodeId;
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
-    Depth, DepthPlane, GlyphsItem, ImageItem, ItemKind, PathItem, PathSegment, Point, Rect, Rgba,
-    Transform,
+    Depth, DepthPlane, GlyphsItem, ImageItem, ItemKind, MarkerInstance, MarkersItem, PathItem,
+    PathSegment, Point, Rect, Rgba, Transform,
 };
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::FontId;
@@ -88,6 +88,28 @@ impl Leaf {
             ItemKind::Image(i) => Some(i),
             _ => None,
         }
+    }
+
+    pub fn markers(&self) -> Option<&MarkersItem> {
+        match &self.kind {
+            ItemKind::Markers(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// Returns the instances of a markers leaf in paint order, each with its position mapped into figure space
+    /// and everything else as the item carries it; the compiler's groups never scale, so a size in the item's
+    /// units is a size in figure points. Any other leaf has no instances.
+    pub fn instances(&self) -> Vec<MarkerInstance> {
+        self.markers().map_or_else(Vec::new, |m| {
+            m.instances
+                .iter()
+                .map(|instance| MarkerInstance {
+                    position: self.to_figure(instance.position),
+                    ..*instance
+                })
+                .collect()
+        })
     }
 
     /// Returns the depth of a path leaf: `None` for a path outside every depth group and for any other leaf.
@@ -205,14 +227,21 @@ impl Leaf {
     /// is the union of the glyph outline boxes (from the text engine), or of the glyph origins for
     /// glyphs without outlines, so it follows the ink rather than a nominal line height. For an image
     /// it is the box of the four corners of its rectangle, which the transform of a 3D axes may turn
-    /// into a parallelogram.
+    /// into a parallelogram. For markers it is the box of the outline's control points scaled and
+    /// moved to every instance, ignoring the edge width as the box of a path ignores its stroke.
     pub fn bbox(&self) -> Option<Rect> {
         match &self.kind {
             ItemKind::Path(path) => {
-                let points = path.segments.iter().flat_map(|s| match *s {
-                    PathSegment::MoveTo(p) | PathSegment::LineTo(p) => vec![p],
-                    PathSegment::CubicTo(a, b, c) => vec![a, b, c],
-                    PathSegment::Close => vec![],
+                bbox_of(control_points(&path.segments).map(|p| self.to_figure(p)))
+            }
+            ItemKind::Markers(markers) => {
+                let points = markers.instances.iter().flat_map(|instance| {
+                    control_points(&markers.outline).map(move |p| {
+                        Point::new(
+                            instance.position.x + instance.size_pt * p.x,
+                            instance.position.y + instance.size_pt * p.y,
+                        )
+                    })
                 });
                 bbox_of(points.map(|p| self.to_figure(p)))
             }
@@ -259,7 +288,8 @@ impl Leaf {
         }
     }
 
-    /// Returns the colours this leaf paints with (fill, stroke or glyph colour).
+    /// Returns the colours this leaf paints with (fill, stroke or glyph colour, or the face and edge of every
+    /// marker instance).
     pub fn colors(&self) -> Vec<Rgba> {
         match &self.kind {
             ItemKind::Path(p) => p
@@ -269,6 +299,11 @@ impl Leaf {
                 .chain(p.stroke.as_ref().map(|s| s.color))
                 .collect(),
             ItemKind::Glyphs(g) => vec![g.color],
+            ItemKind::Markers(m) => m
+                .instances
+                .iter()
+                .flat_map(|instance| instance.face.into_iter().chain(instance.edge))
+                .collect(),
             ItemKind::Image(_)
             | ItemKind::Group { .. }
             | ItemKind::Dense { .. }
@@ -283,6 +318,25 @@ impl Leaf {
         let ahead = self.transform.apply(Point::new(1.0, 0.0));
         (ahead.x - origin.x).abs() < 1e-6 && ahead.y - origin.y < -0.999
     }
+}
+
+/// Returns every point of a path's segments, control points included, in segment order.
+pub fn control_points(segments: &[PathSegment]) -> impl Iterator<Item = Point> + '_ {
+    segments.iter().flat_map(|s| match *s {
+        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => vec![p],
+        PathSegment::CubicTo(a, b, c) => vec![a, b, c],
+        PathSegment::Close => vec![],
+    })
+}
+
+/// Returns every marker a node drew, in paint order across its markers leaves, with each instance's position
+/// mapped into figure space as [`Leaf::instances`] maps it.
+pub fn marker_instances(leaves: &[Leaf], id: NodeId) -> Vec<MarkerInstance> {
+    leaves
+        .iter()
+        .filter(|l| l.source == Some(id))
+        .flat_map(Leaf::instances)
+        .collect()
 }
 
 /// Returns the bounding box of a set of points.

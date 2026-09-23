@@ -154,9 +154,9 @@ pub(super) fn finite(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite()
 }
 
-/// Visits the end point of every segment of the path items among `items` and the four corners of every image item,
-/// including those inside groups, in the coordinate space of `items`: a vertex beneath a group that carries a
-/// transform is mapped through it.
+/// Visits the end point of every segment of the path items among `items`, the four corners of every image item and
+/// the position of every marker, including those inside groups, in the coordinate space of `items`: a vertex beneath
+/// a group that carries a transform is mapped through it.
 pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
     fn walk(items: &[Item], transform: Transform, visit: &mut dyn FnMut(Point)) {
         for item in items {
@@ -194,6 +194,11 @@ pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
                         Point::new(r.right(), r.bottom()),
                     ] {
                         visit(transform.apply(corner));
+                    }
+                }
+                ItemKind::Markers(markers) => {
+                    for instance in &markers.instances {
+                        visit(transform.apply(instance.position));
                     }
                 }
                 ItemKind::Glyphs(_) => {}

@@ -27,7 +27,7 @@ use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, N
 use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
-    PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
+    MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 use ironlab_viewer::offscreen::create_device;
@@ -902,8 +902,8 @@ fn translucent_floor(rect: Rect, rgba: [u8; 4], plane: DepthPlane) -> Item {
     }
 }
 
-/// `items` with the depth removed from every path and image, at any depth of grouping, so that a render with the
-/// depths in place can be compared against one without them.
+/// `items` with the depth removed from every path and image and zeroed on every marker instance, at any depth of
+/// grouping, so that a render with the depths in place can be compared against one without them.
 fn without_depths(items: Vec<Item>) -> Vec<Item> {
     items
         .into_iter()
@@ -911,6 +911,11 @@ fn without_depths(items: Vec<Item>) -> Vec<Item> {
             match &mut item.kind {
                 ItemKind::Path(path) => path.depth = None,
                 ItemKind::Image(image) => image.depth = None,
+                ItemKind::Markers(markers) => {
+                    for instance in &mut markers.instances {
+                        instance.depth = 0.0;
+                    }
+                }
                 ItemKind::Group { items, .. }
                 | ItemKind::Dense { items, .. }
                 | ItemKind::Depth { items } => {
@@ -3254,6 +3259,544 @@ fn of_two_crossing_opaque_strokes_outside_a_depth_group_the_later_one_shows_at_t
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Markers, drawn as instances of one outline through the marker pipelines: every shape against poppler's raster of
+// the same list, the sizes and colours of a scatter, the blending of a translucent marker and of overlapping ones,
+// a stroke listed after the markers, and markers among the faces of a depth group.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// A marker of `size` centred on `(x, y)` at depth 0, filled in `face` and edged in `edge` where given.
+fn marker(x: f64, y: f64, size: f64, face: Option<Rgba>, edge: Option<Rgba>) -> MarkerInstance {
+    MarkerInstance {
+        position: Point::new(x, y),
+        depth: 0.0,
+        size_pt: size,
+        face,
+        edge,
+        source_index: 0,
+    }
+}
+
+/// `marker` moved to `depth`.
+fn at_depth(mut marker: MarkerInstance, depth: f64) -> MarkerInstance {
+    marker.depth = depth;
+    marker
+}
+
+/// A markers item of `outline`, edged `edge_width` wide, holding `instances`.
+fn markers_item(
+    outline: Arc<[PathSegment]>,
+    edge_width: f64,
+    instances: Vec<MarkerInstance>,
+) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Markers(MarkersItem {
+            outline,
+            edge_width,
+            instances,
+        }),
+    }
+}
+
+/// The closed polyline through `points` as a marker outline.
+fn closed_outline(points: &[(f64, f64)]) -> Arc<[PathSegment]> {
+    let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
+    segments.extend(
+        points[1..]
+            .iter()
+            .map(|&(x, y)| PathSegment::LineTo(Point::new(x, y))),
+    );
+    segments.push(PathSegment::Close);
+    Arc::from(segments)
+}
+
+/// The open arms from the first to the second point of each of `arms` as a marker outline, which is only stroked.
+fn open_outline(arms: &[[(f64, f64); 2]]) -> Arc<[PathSegment]> {
+    Arc::from(
+        arms.iter()
+            .flat_map(|&[(x0, y0), (x1, y1)]| {
+                [
+                    PathSegment::MoveTo(Point::new(x0, y0)),
+                    PathSegment::LineTo(Point::new(x1, y1)),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// The circle of radius `r` about the origin as the four cubic Béziers the compiler draws a circular marker with.
+fn circle_outline(r: f64) -> Arc<[PathSegment]> {
+    // The control-point distance at which a cubic Bézier approximates a quarter circle.
+    let k = 0.5523 * r;
+    Arc::from(vec![
+        PathSegment::MoveTo(Point::new(r, 0.0)),
+        PathSegment::CubicTo(Point::new(r, k), Point::new(k, r), Point::new(0.0, r)),
+        PathSegment::CubicTo(Point::new(-k, r), Point::new(-r, k), Point::new(-r, 0.0)),
+        PathSegment::CubicTo(Point::new(-r, -k), Point::new(-k, -r), Point::new(0.0, -r)),
+        PathSegment::CubicTo(Point::new(k, -r), Point::new(r, -k), Point::new(r, 0.0)),
+        PathSegment::Close,
+    ])
+}
+
+/// The unit square outline: the closed square of side 1 centred on the origin, which an instance of size `s` draws
+/// as the square of side `s` about its centre.
+fn unit_square() -> Arc<[PathSegment]> {
+    closed_outline(&[(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])
+}
+
+/// A marker shape: its name, its outline in unit space, and the face and the edge an instance of it takes.
+type MarkerShape = (&'static str, Arc<[PathSegment]>, Option<Rgba>, Option<Rgba>);
+
+/// A square of a scatter: its centre, its size, its face and edge colours, and the pixels expected of its face and
+/// of its edge.
+type ColouredSquare = ((u32, u32), f64, Rgba, Rgba, [u8; 4], [u8; 4]);
+
+/// Every marker shape the compiler makes, in unit space, each with the face and the edge an instance of it takes
+/// from `face` and `edge`: the closed shapes are filled and edged, the dot is filled with the edge colour and not
+/// edged, and the open plus and cross are only edged.
+fn marker_shapes(face: Rgba, edge: Rgba) -> Vec<MarkerShape> {
+    let h = 0.5;
+    let r = 1.15 * h;
+    let half_base = r * 3f64.sqrt() / 2.0;
+    let s = h * std::f64::consts::FRAC_1_SQRT_2;
+    vec![
+        ("circle", circle_outline(h), Some(face), Some(edge)),
+        ("dot", circle_outline(1.0 / 6.0), Some(edge), None),
+        (
+            "square",
+            closed_outline(&[(-0.45, -0.45), (0.45, -0.45), (0.45, 0.45), (-0.45, 0.45)]),
+            Some(face),
+            Some(edge),
+        ),
+        (
+            "diamond",
+            closed_outline(&[(0.0, -r), (r, 0.0), (0.0, r), (-r, 0.0)]),
+            Some(face),
+            Some(edge),
+        ),
+        (
+            "triangle-up",
+            closed_outline(&[(0.0, -r), (half_base, r / 2.0), (-half_base, r / 2.0)]),
+            Some(face),
+            Some(edge),
+        ),
+        (
+            "triangle-down",
+            closed_outline(&[(0.0, r), (half_base, -r / 2.0), (-half_base, -r / 2.0)]),
+            Some(face),
+            Some(edge),
+        ),
+        (
+            "plus",
+            open_outline(&[[(-h, 0.0), (h, 0.0)], [(0.0, -h), (0.0, h)]]),
+            None,
+            Some(edge),
+        ),
+        (
+            "cross",
+            open_outline(&[[(-s, -s), (s, s)], [(-s, s), (s, -s)]]),
+            None,
+            Some(edge),
+        ),
+    ]
+}
+
+/// The centres of the twelve markers of a comparison with the PDF export, on a 120 by 80 point page: none of them
+/// on a whole point, so that neither rasteriser can snap a marker's outline to its pixel grid.
+const MARKER_GRID: [(f64, f64); 12] = [
+    (17.3, 16.4),
+    (45.6, 16.4),
+    (73.9, 16.4),
+    (102.2, 16.4),
+    (17.3, 40.1),
+    (45.6, 40.1),
+    (73.9, 40.1),
+    (102.2, 40.1),
+    (17.3, 63.7),
+    (45.6, 63.7),
+    (73.9, 63.7),
+    (102.2, 63.7),
+];
+
+// Why: the viewer must show the marker that the PDF prints. The outline is tessellated once by lyon and laid out
+// by the vertex shader, which scales the fill by the instance's size but offsets the edge by half the edge width
+// unscaled, and the PDF exporter writes one path per instance instead; an edge scaled with the size, an outline
+// mirrored or rotated, a dot not filled, an open outline given a face or a corner mitred rather than rounded would
+// pass the tests of the vertices in `canvas.rs` and still put a different picture on the screen from the one on
+// the page. Comparing block means against pdftoppm's raster of the same list tolerates the two anti-aliasers'
+// disagreement along an edge and nothing larger, as the strokes comparison does: at 144 dpi a marker of size 12
+// is 24 pixels across and its edge of width 1 two pixels wide, so an edge drawn twice as wide (a further 48 px² of
+// black per marker, over 40 levels in the block that holds it) or a marker displaced by a pixel is detected. Every
+// shape is drawn twelve times, so that the dot and the thin plus ink enough pixels for the comparison not to be
+// of blank pages.
+#[test]
+fn every_marker_shape_is_the_picture_poppler_prints_of_its_export() {
+    if !tools_available(&["pdftoppm"]) {
+        return;
+    }
+    let ws = Workspace::new("markers");
+    let blue = Rgba::new(0.1, 0.3, 0.8, 1.0);
+    for (name, outline, face, edge) in marker_shapes(blue, Rgba::BLACK) {
+        let instances = MARKER_GRID
+            .iter()
+            .map(|&(x, y)| marker(x, y, 12.0, face, edge))
+            .collect();
+        let list = page(
+            120.0,
+            80.0,
+            Rgba::WHITE,
+            vec![markers_item(outline, 1.0, instances)],
+        );
+        if assert_drawn_as_printed(&ws, name, &format!("{name} markers"), &list, true).is_none() {
+            return;
+        }
+    }
+}
+
+// Why: a scatter colours and sizes every point on its own, and all of them are instances of one draw, so each
+// instance must be laid out at its own size and drawn in its own two colours: an instance that took the size or
+// the colours of its neighbour, or an edge that grew with the size, would misreport the data. The squares are
+// probed at their centres, three points inside their edges, in their edge bands and two points beyond them, so
+// that a marker drawn too small or too large fails as surely as one in the wrong colour.
+#[test]
+fn a_scatter_of_instances_renders_each_at_its_own_size_and_colours() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let green = Rgba::new(0.0, 1.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    // The centre, size, face and edge of each square, and the pixels expected of its face and its edge.
+    let squares: [ColouredSquare; 3] = [
+        ((20, 20), 10.0, red, blue, RED_PX, BLUE_PX),
+        ((50, 50), 20.0, green, red, GREEN_PX, RED_PX),
+        ((75, 75), 30.0, blue, green, BLUE_PX, GREEN_PX),
+    ];
+    let item = markers_item(
+        unit_square(),
+        2.0,
+        squares
+            .iter()
+            .map(|&((x, y), size, face, edge, _, _)| {
+                marker(f64::from(x), f64::from(y), size, Some(face), Some(edge))
+            })
+            .collect(),
+    );
+    let Some(image) = render_page(Rgba::WHITE, vec![item]) else {
+        return;
+    };
+    for ((cx, cy), size, _, _, face_px, edge_px) in squares {
+        // The square spans `half` either side of its centre and the edge band of width 2 a point either side of
+        // the outline.
+        let half = size as u32 / 2;
+        let what = format!("the square of size {size}");
+        for (x, y, expected, where_) in [
+            (cx, cy, face_px, "the centre"),
+            (
+                cx + half - 3,
+                cy,
+                face_px,
+                "the face 3 pt inside the right edge",
+            ),
+            (
+                cx,
+                cy - half + 3,
+                face_px,
+                "the face 3 pt inside the top edge",
+            ),
+            (cx + half, cy, edge_px, "the right edge band"),
+            (cx, cy - half - 1, edge_px, "the top edge band"),
+            (
+                cx + half + 2,
+                cy,
+                WHITE_PX,
+                "2 pt beyond the right edge band",
+            ),
+            (cx, cy - half - 3, WHITE_PX, "2 pt beyond the top edge band"),
+        ] {
+            assert_pixel(&image, x, y, expected, 2, &format!("{what}: {where_}"));
+        }
+    }
+}
+
+// Why: a marker is one filled and one stroked path in PDF, its edge painted over its fill, so a translucent marker
+// must show its fill composited over the background once, its edge composited over the fill once where the band
+// lies within the outline and over the background once where it lies beyond, at the corners as along the sides;
+// an edge drawn under the fill, a fill drawn once per edge triangle, or a round join overlapping the bodies it
+// joins would darken the band or the corners of every translucent marker of a scatter.
+#[test]
+fn a_translucent_marker_blends_its_fill_over_the_background_once_and_its_edge_over_its_fill_once() {
+    let half_black = Rgba::new(0.0, 0.0, 0.0, 0.5);
+    // A square of side 40 about (50, 50), spanning [30, 70] in both directions, with an edge of width 4 whose band
+    // spans [28, 32] and [68, 72] on each side: its inner half lies over the fill and its outer half over the
+    // background. Half black over white composites to a level of 128 (127.5, rounded either way) and half black
+    // over that to 64.
+    let item = markers_item(
+        unit_square(),
+        4.0,
+        vec![marker(50.0, 50.0, 40.0, Some(half_black), Some(half_black))],
+    );
+    let Some(image) = render_page(Rgba::WHITE, vec![item]) else {
+        return;
+    };
+    let grey = [128, 128, 128, 255];
+    let dark = [64, 64, 64, 255];
+    for (x, y, expected, where_) in [
+        (50, 50, grey, "the centre of the fill"),
+        (65, 50, grey, "the fill 3 pt inside the right band"),
+        (
+            67,
+            67,
+            grey,
+            "the fill just inside the inner corner of the band",
+        ),
+        (
+            68,
+            50,
+            dark,
+            "the inner half of the right band, over the fill",
+        ),
+        (
+            30,
+            50,
+            dark,
+            "the inner half of the left band, over the fill",
+        ),
+        (
+            50,
+            30,
+            dark,
+            "the inner half of the top band, over the fill",
+        ),
+        (
+            50,
+            68,
+            dark,
+            "the inner half of the bottom band, over the fill",
+        ),
+        (68, 68, dark, "the inner corner of the band, over the fill"),
+        (
+            70,
+            50,
+            grey,
+            "the outer half of the right band, over the background once",
+        ),
+        (
+            70,
+            70,
+            grey,
+            "the corner of the band beyond the fill, inside the round join, over the background once",
+        ),
+        (73, 50, WHITE_PX, "the background beyond the right band"),
+        (26, 50, WHITE_PX, "the background beyond the left band"),
+    ] {
+        assert_pixel(&image, x, y, expected, 3, where_);
+    }
+}
+
+// Why: outside every depth group the markers are drawn in order without a depth test, each instance's fill and
+// then its edge, so where two opaque markers overlap the later one must cover the earlier one, its fill hiding
+// the earlier one's edge, as PDF paints the later path over the earlier one; a draw that painted every instance's
+// fill and then every edge would show the earlier marker's edge through the later marker's fill, and a depth
+// written by the markers would let the earlier one show through. Two instances of one item and two items must
+// agree, because the compiler gives a 2D axes one item per artist and a 3D axes one per run.
+#[test]
+fn of_two_overlapping_opaque_markers_outside_a_depth_group_the_later_one_shows_where_they_overlap()
+{
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    // Squares of side 40 with edges of width 4: the first spans [20, 60] along y = 50 with its bands at [18, 22]
+    // and [58, 62], the second [40, 80] with its bands at [38, 42] and [78, 82].
+    let first = marker(40.0, 50.0, 40.0, Some(red), Some(Rgba::BLACK));
+    let second = marker(60.0, 50.0, 40.0, Some(blue), Some(Rgba::BLACK));
+    let black = [0, 0, 0, 255];
+    for (what, items) in [
+        (
+            "two instances of one item",
+            vec![markers_item(unit_square(), 4.0, vec![first, second])],
+        ),
+        (
+            "two items",
+            vec![
+                markers_item(unit_square(), 4.0, vec![first]),
+                markers_item(unit_square(), 4.0, vec![second]),
+            ],
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, items) else {
+            return;
+        };
+        for (x, y, expected, where_) in [
+            (
+                50,
+                50,
+                BLUE_PX,
+                "the overlap, where the later marker's fill shows",
+            ),
+            (
+                60,
+                50,
+                BLUE_PX,
+                "the first marker's right band, beneath the later marker's fill",
+            ),
+            (
+                40,
+                50,
+                black,
+                "the second marker's left band, over the first marker's fill",
+            ),
+            (30, 50, RED_PX, "the first marker beside the overlap"),
+            (70, 50, BLUE_PX, "the second marker beside the overlap"),
+            (20, 50, black, "the first marker's left band"),
+            (80, 50, black, "the second marker's right band"),
+        ] {
+            assert_pixel(&image, x, y, expected, 1, &format!("{what}: {where_}"));
+        }
+    }
+}
+
+// Why: outside every depth group a markers draw goes through the pipeline that never writes depth, so that a
+// stroke listed after the markers, which is depth-tested with `Less` against whatever the buffer holds at a z of
+// its own, passes wherever it crosses them, as PDF paints the later path over the earlier ones; a markers draw
+// that wrote its instances' z of 0 would cut every later stroke (the line of the next artist, the frame of the
+// axes) wherever it crossed a marker, although the paint order puts the stroke on top. Two instances of one item
+// and two items must agree, as for the overlap.
+#[test]
+fn a_stroke_listed_after_markers_outside_a_depth_group_shows_where_it_crosses_them() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    // The squares of the overlap test, spanning [20, 60] and [40, 80] along y = 50 with edges of width 4, and
+    // after them an 8 pt green line along y = 40, through the fills of both squares, from x = 10 to x = 90.
+    let first = marker(40.0, 50.0, 40.0, Some(red), Some(Rgba::BLACK));
+    let second = marker(60.0, 50.0, 40.0, Some(blue), Some(Rgba::BLACK));
+    let line = || {
+        stroked_polyline(
+            &[(10.0, 40.0), (90.0, 40.0)],
+            Stroke {
+                color: Rgba::new(0.0, 1.0, 0.0, 1.0),
+                ..pen(8.0)
+            },
+        )
+    };
+    for (what, items) in [
+        (
+            "two instances of one item",
+            vec![
+                markers_item(unit_square(), 4.0, vec![first, second]),
+                line(),
+            ],
+        ),
+        (
+            "two items",
+            vec![
+                markers_item(unit_square(), 4.0, vec![first]),
+                markers_item(unit_square(), 4.0, vec![second]),
+                line(),
+            ],
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, items) else {
+            return;
+        };
+        for (x, y, expected, where_) in [
+            (30, 40, GREEN_PX, "the line over the first marker's fill"),
+            (
+                40,
+                40,
+                GREEN_PX,
+                "the line over the second marker's left band",
+            ),
+            (50, 40, GREEN_PX, "the line over the overlap"),
+            (70, 40, GREEN_PX, "the line over the second marker's fill"),
+            (85, 40, GREEN_PX, "the line beyond the markers"),
+            (30, 50, RED_PX, "the first marker beneath the line"),
+            (70, 50, BLUE_PX, "the second marker beneath the line"),
+        ] {
+            assert_pixel(&image, x, y, expected, 1, &format!("{what}: {where_}"));
+        }
+    }
+}
+
+// Why: the markers of a three-dimensional axes lie among its faces at their own depths, and the depth test must
+// place each instance by its depth: a marker behind a nearer face is hidden by it and one in front of a farther
+// face shows over it, whichever is listed first, as the faces themselves are placed. A marker drawn without the
+// test, or at the depth of its item rather than of its instance, would show through the face in front of it or
+// vanish behind the one behind it.
+#[test]
+fn markers_in_a_depth_group_hide_behind_a_nearer_face_and_show_over_a_farther_one() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let green = Rgba::new(0.0, 1.0, 0.0, 1.0);
+    let blue = Rgba::new(0.0, 0.0, 1.0, 1.0);
+    let nearer = || face(10.0, 10.0, 50.0, 90.0, red, DepthPlane::constant(1.0));
+    let farther = || face(50.0, 10.0, 90.0, 90.0, green, DepthPlane::constant(0.0));
+    // Two squares of side 16 at the depth between the faces: one on the nearer face and one on the farther.
+    let dots = || {
+        markers_item(
+            unit_square(),
+            1.0,
+            vec![
+                at_depth(marker(30.0, 50.0, 16.0, Some(blue), None), 0.5),
+                at_depth(marker(70.0, 50.0, 16.0, Some(blue), None), 0.5),
+            ],
+        )
+    };
+    for (order, items) in [
+        (
+            "the markers after the faces",
+            vec![nearer(), farther(), dots()],
+        ),
+        (
+            "the markers before the faces",
+            vec![dots(), nearer(), farther()],
+        ),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+            return;
+        };
+        for (x, y, expected, where_) in [
+            (
+                30,
+                50,
+                RED_PX,
+                "the nearer face, hiding the marker behind it",
+            ),
+            (70, 50, BLUE_PX, "the marker over the farther face"),
+            (30, 30, RED_PX, "the nearer face beside the hidden marker"),
+            (70, 30, GREEN_PX, "the farther face beside the shown marker"),
+        ] {
+            assert_pixel(&image, x, y, expected, 2, &format!("{where_} with {order}"));
+        }
+    }
+}
+
+// Why: a marker whose face is `None` (a hollow circle, the default of an open marker style) is only its edge, so
+// the fill slot must draw nothing rather than a transparent-black nothing over the page or an opaque black disc:
+// the centre and the interior stay bare while the edge band is inked all the way round.
+#[test]
+fn a_marker_with_an_edge_and_no_face_leaves_its_centre_bare() {
+    use Shade::{Blank, Ink};
+    // A square of side 40 about (50, 50) with an edge of width 4: the band spans [28, 32] and [68, 72] on each side.
+    let item = markers_item(
+        unit_square(),
+        4.0,
+        vec![marker(50.0, 50.0, 40.0, None, Some(Rgba::BLACK))],
+    );
+    let Some(image) = render_page(Rgba::WHITE, vec![item]) else {
+        return;
+    };
+    for (x, y, shade, where_) in [
+        (50, 50, Blank, "the centre"),
+        (65, 50, Blank, "the interior 3 pt inside the right band"),
+        (35, 35, Blank, "the interior inside the top-left corner"),
+        (70, 50, Ink, "the right band"),
+        (30, 50, Ink, "the left band"),
+        (50, 30, Ink, "the top band"),
+        (50, 70, Ink, "the bottom band"),
+        (70, 70, Ink, "the corner of the band, inside the round join"),
+        (75, 50, Blank, "the background beyond the right band"),
+    ] {
+        assert_shade(&image, x, y, shade, where_);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // The painter's caches, driven directly on a device: what `prepare` uploads, and what `retain_used` and `clear` drop.
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -3307,6 +3850,9 @@ fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
         indices: vec![0, 1, 2, 2, 1, 3],
         segments: Vec::new(),
         stroke_params: Vec::new(),
+        marker_vertices: Vec::new(),
+        marker_indices: Vec::new(),
+        markers: Vec::new(),
         draws: vec![Draw {
             kind: DrawKind::Triangles(0..6),
             texture,
