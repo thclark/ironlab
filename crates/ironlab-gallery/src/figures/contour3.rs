@@ -15,7 +15,12 @@ pub fn figure() -> Figure {
         .label("3d")
         .label("contour")
         .label("colormap")
-        .label("levels");
+        .label("levels")
+        .parameter("kind", "contour")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 6723)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.contour3(&x, &y, &z).levels(20).line_width(1.0);
     ax.colormap(Colormap::Cividis)

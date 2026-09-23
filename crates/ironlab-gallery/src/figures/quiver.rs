@@ -22,7 +22,12 @@ pub fn figure() -> Figure {
         .label("quiver")
         .label("basics")
         .label("gradient")
-        .label("overlay");
+        .label("overlay")
+        .parameter("kind", "quiver")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 2)
+        .parameter("data_points", 16_647)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contour(&x_fine, &y_fine, &z_fine).levels(12);
     ax.quiver(xx.values(), yy.values(), dzdx.values(), dzdy.values())

@@ -39,7 +39,12 @@ pub fn figure() -> Figure {
         .label("subplots")
         .label("colormap")
         .label("comparison")
-        .label("out-of-range");
+        .label("out-of-range")
+        .parameter("kind", "image")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 2)
+        .parameter("data_points", 29_282)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.indexed_image(&classes)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

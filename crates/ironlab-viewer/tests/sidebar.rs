@@ -757,3 +757,84 @@ fn the_page_the_note_links_to_exists_in_the_documentation() {
         page.display()
     );
 }
+
+// ---------------------------------------------------------------------------------
+// A parameter holding numbers
+// ---------------------------------------------------------------------------------
+
+// Why: a parameter holding numbers is narrowed by the two ends of a range rather than by picking from a list, and
+// that is a different branch of the menu reached only when the values are numeric. Nothing else in the interface
+// exercises it, so without this the first numeric parameter anyone writes would be the test.
+#[test]
+fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
+    let mut harness = app(campaign());
+    harness.get_by_label("Add filter").click();
+    harness.run();
+    harness.get_by_label_contains("angle").click();
+    harness.run();
+
+    assert!(
+        harness.query_by_label("from").is_some() && harness.query_by_label("to").is_some(),
+        "the two ends of the range are offered"
+    );
+    assert!(
+        harness.query_by_label_contains("4, 3").is_none(),
+        "and not the counted checklist a text parameter would get"
+    );
+
+    // Narrowing to the upper end keeps the figures at twelve degrees and drops those at four.
+    harness
+        .state_mut()
+        .browser_mut()
+        .browse
+        .filters
+        .push(ironlab_viewer::browse::Filter {
+            key: FacetKey::parameter("angle"),
+            constraint: ironlab_viewer::browse::Constraint::Between {
+                low: 8.0,
+                high: 12.0,
+            },
+        });
+    harness.run();
+    assert!(listed(&harness, "Run 10 lift"), "twelve degrees stays");
+    assert!(!listed(&harness, "Run 9 lift"), "four degrees goes");
+    assert!(
+        harness.query_by_label_contains("angle: 8 to 12").is_some(),
+        "and the chip says the range it was narrowed to"
+    );
+}
+
+// Why: a range covering the whole parameter keeps every figure, so leaving it on the list would show a chip that
+// narrows nothing and invite the reader to wonder what it is doing. The control that says so has to actually
+// remove the filter rather than widen it to the ends.
+#[test]
+fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
+    let mut harness = app(campaign());
+    harness
+        .state_mut()
+        .browser_mut()
+        .browse
+        .filters
+        .push(ironlab_viewer::browse::Filter {
+            key: FacetKey::parameter("angle"),
+            constraint: ironlab_viewer::browse::Constraint::Between {
+                low: 8.0,
+                high: 12.0,
+            },
+        });
+    harness.run();
+    assert!(!listed(&harness, "Run 9 lift"));
+
+    harness.get_by_label("Add filter").click();
+    harness.run();
+    harness.get_by_label_contains("angle\n2 values").click();
+    harness.run();
+    harness.get_by_label("Whole range").click();
+    harness.run();
+
+    assert!(
+        harness.state().browser().browse.filters.is_empty(),
+        "the filter is gone rather than widened to the ends of the parameter"
+    );
+    assert!(listed(&harness, "Run 9 lift"), "and every figure is back");
+}

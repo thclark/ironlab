@@ -43,7 +43,12 @@ pub fn figure() -> Figure {
         .label("surface")
         .label("depth")
         .label("export")
-        .label("overlay");
+        .label("overlay")
+        .parameter("kind", "surface")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 4)
+        .parameter("data_points", 2730)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.surf(&grid, &grid, &saddle).edge_width(0.25);
     ax.surf(&grid, &grid, &plane)

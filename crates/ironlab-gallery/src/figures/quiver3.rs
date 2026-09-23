@@ -20,7 +20,12 @@ pub fn figure() -> Figure {
         .label("quiver")
         .label("surface")
         .label("gradient")
-        .label("overlay");
+        .label("overlay")
+        .parameter("kind", "quiver")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 2)
+        .parameter("data_points", 1605)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.surf(&x, &y, &z).edge_width(0.25);
     ax.quiver3(

@@ -21,7 +21,12 @@ pub fn figure() -> Figure {
         .label("log")
         .label("basics")
         .label("interaction")
-        .label("linked-axes");
+        .label("linked-axes")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 4)
+        .parameter("data_points", 7265)
+        .parameter("has_legend", false);
 
     let t = linspace(0.0, 2.0 * PI, 101);
     let wave: Vec<f64> = t.iter().map(|t| (3.0 * t).sin() * t.cos()).collect();

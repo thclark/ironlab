@@ -16,7 +16,12 @@ pub fn figure() -> Figure {
         .label("surface")
         .label("colormap")
         .label("depth")
-        .label("wireframe");
+        .label("wireframe")
+        .parameter("kind", "surface")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1023)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.mesh(&x, &y, &z).edge_width(0.6);
     ax.colormap(Colormap::Plasma)

@@ -32,7 +32,12 @@ pub fn figure() -> Figure {
         .label("subplots")
         .label("comparison")
         .label("interaction")
-        .label("linked-axes");
+        .label("linked-axes")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 486)
+        .parameter("has_legend", false);
     for (col, name, surface_temperature_c, thermocline_depth_m) in sites {
         let temperature: Vec<f64> = depth_m
             .iter()

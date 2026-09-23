@@ -33,7 +33,12 @@ pub fn figure() -> Figure {
         .label("image")
         .label("colormap")
         .label("overlay")
-        .label("transparency");
+        .label("transparency")
+        .parameter("kind", "image")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 2)
+        .parameter("data_points", 116_644)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.mapped_image(&masked)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

@@ -15,7 +15,12 @@ pub fn figure() -> Figure {
         .label("2d")
         .label("contour")
         .label("basics")
-        .label("levels");
+        .label("levels")
+        .parameter("kind", "contour")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 14_883)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contour(&x, &y, &z).levels(12).line_width(1.0);
     ax.xlabel("$x$").ylabel("$y$");

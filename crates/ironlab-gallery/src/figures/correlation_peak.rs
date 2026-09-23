@@ -37,7 +37,12 @@ pub fn figure() -> Figure {
         .label("image")
         .label("colormap")
         .label("depth")
-        .label("placement");
+        .label("placement")
+        .parameter("kind", "image")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 4)
+        .parameter("data_points", 40_804)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     // The floor lies on a face of the box, so it is painted behind everything else. The three planes through the
     // dominant peak cross there, and each carries the plane of its depth, so the depth buffer shows each of them in

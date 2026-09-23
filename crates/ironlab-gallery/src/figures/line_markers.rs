@@ -24,7 +24,12 @@ pub fn figure() -> Figure {
         .label("dashes")
         .label("latex")
         .label("markers")
-        .label("signals");
+        .label("signals")
+        .parameter("kind", "line")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 294)
+        .parameter("has_legend", true);
     let mut ax = fig.axes(0, 0);
     ax.plot(&t, &damped_cosine)
         .display_name(r"$e^{-t/4} \cos t$")

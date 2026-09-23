@@ -27,7 +27,12 @@ pub fn figure() -> Figure {
         .label("2d")
         .label("surface")
         .label("colormap")
-        .label("pcolor");
+        .label("pcolor")
+        .parameter("kind", "surface")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 3723)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     // `surface` leaves the axes two-dimensional, where `surf` would convert it to three dimensions.
     ax.surface(x, y, &speed).edge_width(0.25);

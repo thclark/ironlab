@@ -76,6 +76,13 @@ A useful test is whether you would ever want a **range** or an **order**. An ang
 you expect to group by it and read the groups in order; it is a label if you only ever want to say which figures came
 from it.
 
+The second test is how many answers a figure can have at once. A figure is two-dimensional or three-dimensional and
+never both, so `dimensionality` is a parameter with the values `2D` and `3D`, and a collection can be grouped by it
+into two runs. A figure may draw a surface *and* an image, so the kinds it draws are labels, and a figure carries one
+for each. The two are not alternatives, and this repository's own gallery uses both at once: every entry carries a
+`kind` parameter naming the artist the entry is about, which the browser sorts and groups by, and a label for each
+kind it actually draws, which answers whether there is a surface in there anywhere.
+
 Something that is simply true or false can be either, and the difference is what absence means. As the parameter
 `converged: false` a figure is positively marked as not having converged, and the browser can group the converged
 against the rest. As the label `converged`, a figure without it is either one that did not converge or one nobody
@@ -84,8 +91,9 @@ checked, and the browser cannot tell those apart. Prefer the parameter when the 
 ## What to write down
 
 Write what someone would search for, including facts about the figure's own structure when those are among them.
-`3d`, `surface` and `subplots` are perfectly good labels; the viewer will not add them for you, and a collection is
-easier to browse for having them.
+The viewer will not add them for you, and a collection is easier to browse for having them: `surface` and `subplots`
+are perfectly good labels, and how many data values a figure holds is a perfectly good parameter, sorted by when you
+want to know which figure is making the viewer work.
 
 Beyond that, the descriptions worth carrying are the ones that separate one figure from its neighbours: the
 conditions of the run, the campaign it belongs to, the quantity plotted, whether it is a result or a diagnostic. A
