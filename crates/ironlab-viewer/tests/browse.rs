@@ -12,7 +12,7 @@ use ironlab_ir::{Artist, Axes, DataId, Figure, Line, NdArray, NodeId, Parameter,
 use ironlab_viewer::browse::{
     Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
     NO_LABELS, NOT_SET, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets,
-    parameter_names,
+    has_nothing_to_browse_by, parameter_names,
 };
 
 // ---------------------------------------------------------------------------------
@@ -1580,5 +1580,34 @@ fn a_card_carries_the_figures_own_labels_and_nothing_else() {
     assert!(
         card.haystack().contains("basics"),
         "and a search for the author's word finds the figure"
+    );
+}
+
+// Why: a collection nobody has described is not a fault and not an empty collection — the figures are all there and
+// can be searched by title. It is the one state the interface has to explain rather than simply render, so telling
+// it apart from a collection that merely has few descriptions is worth pinning: a single parameter on a single
+// figure is something to browse by, and the explanation would be false.
+#[test]
+fn a_collection_is_without_anything_to_browse_by_only_when_nothing_is_described() {
+    let bare = [card("One", &[], &[]), card("Two", &[], &[])];
+    assert!(has_nothing_to_browse_by(&bare));
+    assert!(
+        has_nothing_to_browse_by(&[]),
+        "an empty collection has nothing to browse by either, vacuously"
+    );
+
+    let labelled = [card("One", &["wake"], &[]), card("Two", &[], &[])];
+    assert!(
+        !has_nothing_to_browse_by(&labelled),
+        "one label on one figure is something to browse by"
+    );
+
+    let measured = [
+        card("One", &[], &[("rig", string("CFD"))]),
+        card("Two", &[], &[]),
+    ];
+    assert!(
+        !has_nothing_to_browse_by(&measured),
+        "and so is one parameter on one figure"
     );
 }

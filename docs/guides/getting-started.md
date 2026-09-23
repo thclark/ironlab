@@ -341,7 +341,7 @@ assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(2_400_000));
 
 Setting a parameter again with the same name replaces its value. `fig.parameters()` returns every parameter in ascending order of name. Each value keeps its kind when the figure is saved in either format, so the number `3900.0` never reloads as an integer; how parameters are stored is described in the [figure schema reference](../reference/figure-schema.md#parameters).
 
-Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by. It also reads a few parameters and a set of labels off each figure itself, so a collection is worth browsing before any figure has been given a parameter of its own.
+Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by; when to reach for a parameter rather than a label is covered in [describing figures](describing-figures.md). It also reads a few parameters and a set of labels off each figure itself, so a collection is worth browsing before any figure has been given a parameter of its own.
 
 ## Labels
 
@@ -359,7 +359,7 @@ assert_eq!(fig.labels(), ["wake", "piv"]);
 
 Labels are kept in the order they were given. A label must not be empty, and adding the same label twice is an error, which [`validate`](#validating-a-figure) reports; labels are compared exactly, so `Surface` and `surface` are distinct labels.
 
-Labels are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and they are the whole of what it has to work with: the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Label a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `3d` or `surface`, if those are words anyone would search by.
+Labels, with parameters, are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and between them they are the whole of what it has to work with (see [describing figures](describing-figures.md)): the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Label a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `3d` or `surface`, if those are words anyone would search by.
 
 A label need not be shared with another figure to be worth adding. The browser lists every label it finds, with the number of figures behind each, so a label carried by a single figure is how that figure is found rather than a label wasted: the list of labels is itself what tells a reader what the collection can be narrowed by.
 

@@ -27,6 +27,7 @@ use egui::text::LayoutJob;
 
 use crate::browse::{
     Browse, Constraint, Facet, FacetKey, FacetValue, FigureCard, SortKey, describe_facets,
+    has_nothing_to_browse_by,
 };
 
 /// The width the browser opens at, in egui points, which is wide enough for a figure's title beside its count.
@@ -49,6 +50,13 @@ const MENU_VALUES: usize = 60;
 
 /// The hint shown in the empty search field, which is also where the typed form is taught.
 const SEARCH_HINT: &str = "Search, or rig:CFD angle>=8 -stalled";
+
+/// The page that explains how to describe a figure so that it can be found again.
+///
+/// The browser links to it when a collection carries nothing to browse by. The address is the published site
+/// rather than a path, because the viewer is a desktop program with no documentation beside it; a test checks that
+/// the page it names is still in `docs/`, so the link cannot rot unnoticed when a page is renamed.
+pub const DESCRIBING_FIGURES_URL: &str = "https://ironlab.org/guides/describing-figures/";
 
 /// What the browser is showing in its "Add filter" menu.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -179,6 +187,10 @@ fn controls(
          A term such as rig:CFD or angle>=8 asks about one parameter, and a leading minus excludes.",
     );
 
+    if has_nothing_to_browse_by(cards) {
+        tip(ui);
+    }
+
     ui.horizontal_wrapped(|ui| {
         add_filter_menu(ui, browser, cards, facets);
         chips(ui, browser);
@@ -189,6 +201,27 @@ fn controls(
     });
     ui.horizontal(|ui| {
         group_control(ui, browser, facets);
+    });
+}
+
+/// Draws the note shown when no figure of the collection carries a label or a parameter.
+///
+/// Without one, the panel would offer an empty menu and a reader would reasonably conclude that it does not work.
+/// The note says what is missing, that it is added in the code that builds the figures, and where to read about
+/// doing so: the viewer works nothing out for itself, so this is the one thing it cannot fix on the reader's
+/// behalf.
+fn tip(ui: &mut egui::Ui) {
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(
+            egui::RichText::new(
+                "None of these figures carries a label or a parameter, so there is nothing to \
+                 narrow them by. Add them where the figures are built, and this panel will \
+                 filter, sort and group by them.",
+            )
+            .weak(),
+        );
+        ui.hyperlink_to("How to describe figures", DESCRIBING_FIGURES_URL);
     });
 }
 
