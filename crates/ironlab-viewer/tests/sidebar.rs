@@ -593,3 +593,101 @@ fn a_long_list_is_narrowed_from_the_whole_collection_not_the_rows_on_screen() {
     );
     assert!(listed(&harness, "Figure 299"));
 }
+
+// ---------------------------------------------------------------------------------
+// What the panel paints
+// ---------------------------------------------------------------------------------
+
+/// Every run of text the browser paints, with its filter menu open on a parameter.
+///
+/// The panel is run through an egui context of its own rather than through the accessibility harness, because what
+/// is asked of it here is what reaches the screen: the characters themselves, which the accessibility tree does not
+/// carry.
+fn painted_words(filtered: bool) -> Vec<String> {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let cards: Vec<ironlab_viewer::browse::FigureCard> = campaign()
+        .into_iter()
+        .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
+        .collect();
+    let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
+    if filtered {
+        browser.browse.toggle(
+            &FacetKey::parameter("rig"),
+            &FacetValue::Text("CFD".to_owned()),
+        );
+        browser.browse.group = Some(FacetKey::parameter("rig"));
+    }
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut words = Vec::new();
+    // egui lays a panel out over two passes; the second draws where the first decided, so it is the pass whose
+    // text is read.
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            ironlab_viewer::figure_browser(ui, &mut browser, &cards, 0);
+        });
+        output.textures_delta.clear();
+        words.clear();
+        for clipped in &output.shapes {
+            collect_painted_text(&clipped.shape, &mut words);
+        }
+    }
+    words
+}
+
+/// Adds every run of text in a shape, and in the shapes it holds, to `words`.
+fn collect_painted_text(shape: &egui::Shape, words: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(text) => words.push(text.galley.text().to_owned()),
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_painted_text(shape, words);
+            }
+        }
+        _ => {}
+    }
+}
+
+// Why: the browser is the first part of the interface to draw a mark beside its words, and the last-resort face
+// that gives it the arrows also draws four and a half thousand other characters. A character left out of the
+// style's list therefore no longer announces itself as an empty box — it simply appears, unchecked, and will be an
+// empty box for whoever builds without that face. This test is what the empty box used to be.
+#[test]
+fn the_browser_paints_no_character_outside_the_listed_ones() {
+    let listed = ironlab_viewer::style::INTERFACE_CHARACTERS;
+    for filtered in [false, true] {
+        for word in painted_words(filtered) {
+            for character in word.chars() {
+                assert!(
+                    character.is_ascii() || listed.contains(&character),
+                    "the browser paints {character:?} in {word:?}, which is not in \
+                     style::INTERFACE_CHARACTERS and is therefore not checked against the fonts"
+                );
+            }
+        }
+    }
+}
+
+// Why: a mark that augments words has to actually be on screen beside them, or the decision to add it to the fonts
+// bought nothing. Both marks are checked where they are drawn, because each is the only reason its character is in
+// the style's list at all.
+#[test]
+fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
+    let words = painted_words(true);
+    assert!(
+        words
+            .iter()
+            .any(|word| word.contains("rig: CFD") && word.contains(ironlab_viewer::style::REMOVE)),
+        "the chip says what it narrows and carries the mark that says clicking it takes that away: {words:?}"
+    );
+    assert!(
+        words
+            .iter()
+            .any(|word| word == &format!("Ascending {}", ironlab_viewer::style::ASCENDING)),
+        "the order says which way it runs and carries the arrow that shows it: {words:?}"
+    );
+}

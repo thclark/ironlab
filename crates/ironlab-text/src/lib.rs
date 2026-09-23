@@ -38,6 +38,16 @@ pub enum FontId {
     Math,
 }
 
+/// Returns the complete OpenType file of a bundled face.
+///
+/// The faces are compiled into the binary, so this hands back a slice of it rather than reading anything. It is
+/// public because a consumer that draws its own text — the viewer's interface, which egui typesets rather than
+/// this crate — may need a face the figures already carry, instead of bundling a second copy of one.
+#[must_use]
+pub fn font_bytes(font: FontId) -> &'static [u8] {
+    fonts::bytes(font)
+}
+
 /// Key of the layout memo: source text, math parsing flag and the bit pattern
 /// of the requested size in points.
 type LayoutKey = (String, bool, u64);
