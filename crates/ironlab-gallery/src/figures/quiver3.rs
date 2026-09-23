@@ -15,7 +15,12 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"Normals of the surface of $\ln(1 + |z_3|)$");
+        .title(r"Normals of the surface of $\ln(1 + |z_3|)$")
+        .label("3d")
+        .label("quiver")
+        .label("surface")
+        .label("gradient")
+        .label("overlay");
     let mut ax = fig.axes3(0, 0);
     ax.surf(&x, &y, &z).edge_width(0.25);
     ax.quiver3(

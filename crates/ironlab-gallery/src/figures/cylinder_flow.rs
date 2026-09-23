@@ -23,7 +23,11 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 124.0)
-        .title(r"Speed $|\mathbf{u}| / U_\infty$ of the potential flow past a cylinder");
+        .title(r"Speed $|\mathbf{u}| / U_\infty$ of the potential flow past a cylinder")
+        .label("2d")
+        .label("surface")
+        .label("colormap")
+        .label("pcolor");
     let mut ax = fig.axes(0, 0);
     // `surface` leaves the axes two-dimensional, where `surf` would convert it to three dimensions.
     ax.surface(x, y, &speed).edge_width(0.25);

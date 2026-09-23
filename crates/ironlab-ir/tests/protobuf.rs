@@ -893,6 +893,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 },
             ),
         ]),
+        // Not in alphabetical order, so that a decoder that sorts them is caught.
+        labels: vec!["label two".to_owned(), "label one".to_owned()],
     };
 
     // Every field is written out, so that no expected value comes from a default.
@@ -1268,6 +1270,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             ("d".to_owned(), Parameter::Integer(-18)),
             ("e".to_owned(), Parameter::String("parameter".to_owned())),
         ]),
+        labels: vec!["label two".to_owned(), "label one".to_owned()],
         id_allocator: NodeIdAllocator::default(),
     };
 
@@ -2584,6 +2587,9 @@ fn hand_encoded_bytes() -> Vec<u8> {
         // An int64 is a varint of its two's complement, ten bytes for a negative value.
         parameter("mesh_cells", 2, varint_field(1, (-4_096i64) as u64)),
         parameter("converged", 1, varint_field(1, 1)),
+        // Labels are a sequence, so they are written and read in the order given.
+        length_delimited(14, "boundary layer".as_bytes()),
+        length_delimited(14, "k–ω".as_bytes()),
     ]
     .concat()
 }
@@ -2753,6 +2759,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
             ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
             ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
         ]),
+        labels: vec!["boundary layer".to_owned(), "k–ω".to_owned()],
         id_allocator: NodeIdAllocator::default(),
     };
 
@@ -2882,16 +2889,23 @@ fn newer_minor_version_with_incompatible_structure_reports_the_version() {
     );
 }
 
-// Why: patch releases of the schema are compatible by definition, so they must load, and
-// the declared version must be kept.
+// Why: patch releases of the schema are compatible by definition, and in both
+// directions: a file of an earlier patch release lacks only fields that this build can
+// do without, and a file of a later one carries only fields that this build may ignore.
+// Both must load, and each must keep the version that it declares.
 #[test]
-fn different_patch_version_is_accepted() {
+fn an_earlier_or_later_patch_version_is_accepted() {
     let [major, minor, patch] = supported_version();
-    let fig = Figure {
-        schema_version: format!("{major}.{minor}.{}", patch + 42),
-        ..kitchen_sink_figure()
-    };
-    assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
+    for version in [
+        format!("{major}.{minor}.0"),
+        format!("{major}.{minor}.{}", patch + 42),
+    ] {
+        let fig = Figure {
+            schema_version: version,
+            ..kitchen_sink_figure()
+        };
+        assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
+    }
 }
 
 // Why: a file cut short (by an interrupted write or transfer) must produce an error when

@@ -14,7 +14,13 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"$\ln(1 + |z_3|)$ on the floor beneath its surface");
+        .title(r"$\ln(1 + |z_3|)$ on the floor beneath its surface")
+        .label("3d")
+        .label("image")
+        .label("surface")
+        .label("depth")
+        .label("overlay")
+        .label("placement");
     let mut ax = fig.axes3(0, 0);
     // A plane without an offset lies at the low end of its third axis, so the image lies on the floor of the box, at
     // the bottom of the z axis. The floor is at the back of the default view, so the image is painted before the

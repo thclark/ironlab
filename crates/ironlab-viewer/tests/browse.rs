@@ -8,15 +8,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use ironlab_ir::{
-    Artist, Axes, Axis, Cell, Contour, DataId, Figure, Image, IndexedImage, Legend, Line,
-    MappedImage, NdArray, NodeId, Parameter, Projection, Quiver, Scale, Scatter, Surface,
-    TileLayout, View3d,
-};
+use ironlab_ir::{Artist, Axes, DataId, Figure, Line, NdArray, NodeId, Parameter, TileLayout};
 use ironlab_viewer::browse::{
-    ARTIST_COUNT, AXES_COUNT, Browse, Comparison, Constraint, DATA_VALUES, DERIVED, DIMENSIONALITY,
-    Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter, NO_LABELS, NOT_SET, Query, Results,
-    Sort, SortKey, Term, derived_labels, derived_parameters, describe_facets, parameter_names,
+    Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
+    NO_LABELS, NOT_SET, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets,
+    parameter_names,
 };
 
 // ---------------------------------------------------------------------------------
@@ -290,217 +286,6 @@ fn only_the_numeric_forms_have_a_number() {
 // ---------------------------------------------------------------------------------
 // What is read off a figure
 // ---------------------------------------------------------------------------------
-
-// Why: the derived labels are what makes a collection worth browsing before anyone has labelled a
-// figure by hand, so the documented set must be complete and each label must appear once however
-// many artists earn it. The order is documented and therefore pinned: the dimensionality leads
-// because it is the coarsest division, the artist kinds follow in alphabetical order, and
-// "subplots", "legend" and "log" come last because they describe the figure rather than what it
-// draws.
-#[test]
-fn a_figure_is_labelled_by_what_it_draws_and_how_it_is_drawn() {
-    let drawing = Axes {
-        legend: Some(Legend::default()),
-        x: Axis {
-            scale: Scale::Log,
-            ..Axis::default()
-        },
-        ..axes(
-            2,
-            vec![
-                Artist::Line(Line::default()),
-                // A second line must not earn a second "line".
-                Artist::Line(Line::default()),
-                Artist::Scatter(Scatter::default()),
-                Artist::Contour(Contour::default()),
-                Artist::Quiver(Quiver::default()),
-                Artist::Surface(Surface::default()),
-                Artist::Image(Image::default()),
-                Artist::IndexedImage(IndexedImage::default()),
-                Artist::MappedImage(MappedImage::default()),
-            ],
-        )
-    };
-    let second = Axes {
-        cell: Cell {
-            col: 1,
-            ..Cell::default()
-        },
-        ..axes(3, Vec::new())
-    };
-    let labels = derived_labels(&figure(vec![drawing, second], &[]));
-
-    assert_eq!(
-        labels,
-        [
-            "2d", "contour", "image", "line", "quiver", "scatter", "surface", "subplots", "legend",
-            "log"
-        ],
-        "the dimensionality, then one label for each kind of artist drawn in alphabetical order \
-         and each at most once with the three kinds of raster all an image, then the labels that \
-         describe the figure itself"
-    );
-}
-
-// Why: whether a figure is flat is the question a reader asks first of a collection they do not
-// know, and a figure is three-dimensional as soon as any one of its axes is. A figure that draws
-// nothing is still a figure, and must still be labelled rather than dropped from the collection.
-#[test]
-fn a_figure_with_any_three_dimensional_axes_is_labelled_three_dimensional() {
-    let flat = axes(2, vec![Artist::Line(Line::default())]);
-    let solid = Axes {
-        projection: Projection::ThreeD {
-            view3d: View3d::default(),
-        },
-        cell: Cell {
-            col: 1,
-            ..Cell::default()
-        },
-        ..axes(3, vec![Artist::Surface(Surface::default())])
-    };
-    assert_eq!(
-        derived_labels(&figure(vec![flat, solid], &[])),
-        ["3d", "line", "surface", "subplots"],
-        "one three-dimensional axes makes the figure three-dimensional"
-    );
-    assert_eq!(
-        derived_labels(&figure(Vec::new(), &[])),
-        ["2d"],
-        "a figure that draws nothing is flat and carries no other label"
-    );
-}
-
-// Why: the derived parameters are what a collection is sorted and grouped by before anyone has
-// given a figure a parameter, and they are named by a public constant that the interface uses to
-// tell what the viewer worked out from what the user wrote. The count of data values is the total
-// length of every array, because that is what makes a figure slow to draw and therefore what is
-// worth sorting by; counting arrays instead of values would say nothing about the cost.
-#[test]
-fn a_figure_carries_counts_of_its_axes_artists_and_data_values() {
-    let first = axes(
-        2,
-        vec![
-            Artist::Line(Line::default()),
-            Artist::Scatter(Scatter::default()),
-        ],
-    );
-    let second = Axes {
-        cell: Cell {
-            col: 1,
-            ..Cell::default()
-        },
-        ..axes(3, vec![Artist::Surface(Surface::default())])
-    };
-    let drawn = figure(
-        vec![first, second],
-        &[
-            (0, NdArray::vector(vec![1.0, 2.0, 3.0])),
-            (
-                1,
-                NdArray::from_shape(vec![2, 3], vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
-                    .expect("the shape matches the values"),
-            ),
-        ],
-    );
-    let parameters = derived_parameters(&drawn);
-
-    assert_eq!(
-        parameters.keys().map(String::as_str).collect::<Vec<&str>>(),
-        DERIVED,
-        "the derived names are exactly the ones the public constant lists, in its order"
-    );
-    assert_eq!(parameters[ARTIST_COUNT], Parameter::Integer(3));
-    assert_eq!(parameters[AXES_COUNT], Parameter::Integer(2));
-    assert_eq!(
-        parameters[DATA_VALUES],
-        Parameter::Integer(9),
-        "three values in the vector and six in the matrix, not two arrays"
-    );
-    assert_eq!(parameters[DIMENSIONALITY], string("2D"));
-
-    let solid = Axes {
-        projection: Projection::ThreeD {
-            view3d: View3d::default(),
-        },
-        ..axes(2, Vec::new())
-    };
-    assert_eq!(
-        derived_parameters(&figure(vec![solid], &[]))[DIMENSIONALITY],
-        string("3D"),
-        "the dimensionality is derived from the projection, as the label is"
-    );
-}
-
-// Why: the derived parameters are the viewer's guess at what a figure is, and a parameter the user
-// wrote is a statement of what they meant. When the two share a name the user's must win, because
-// a collection where the viewer's count of artists silently overwrote a column the experimentalist
-// filled in would be a collection they cannot trust.
-#[test]
-fn a_users_own_parameter_beats_the_derived_one_of_the_same_name() {
-    let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
-    source
-        .parameters
-        .insert(ARTIST_COUNT.to_owned(), Parameter::Integer(99));
-    source.parameters.insert("rig".to_owned(), string("CFD"));
-
-    let card = FigureCard::of("Wake survey", &source);
-
-    assert_eq!(card.title, "Wake survey");
-    assert_eq!(
-        card.parameter(ARTIST_COUNT),
-        Some(&Parameter::Integer(99)),
-        "the figure's own parameter replaces the derived one of the same name"
-    );
-    assert_eq!(card.parameter("rig"), Some(&string("CFD")));
-    assert_eq!(
-        card.parameter(AXES_COUNT),
-        Some(&Parameter::Integer(1)),
-        "the derived parameters the user did not write are still there"
-    );
-    assert_eq!(
-        card.labels,
-        derived_labels(&source),
-        "a card's labels are the ones read off the figure"
-    );
-}
-
-// Why: a parameter is worth deriving only if it can be reached, and the query language ends a term
-// at the first space. A derived name with a space in it would be sortable and groupable but never
-// askable, so the count of data values — the one derived parameter that says how slow a figure is
-// to draw — must be one word.
-#[test]
-fn every_derived_parameter_is_one_word_and_can_be_asked_about_by_name() {
-    for name in DERIVED {
-        assert!(
-            !name.contains(' '),
-            "{name:?} could never be typed as a term, because a term ends at the first space"
-        );
-    }
-    let cards = [
-        FigureCard::of(
-            "Small",
-            &figure(
-                vec![axes(2, vec![Artist::Line(Line::default())])],
-                &[(0, NdArray::vector(vec![1.0, 2.0, 3.0]))],
-            ),
-        ),
-        FigureCard::of(
-            "Large",
-            &figure(
-                vec![axes(2, vec![Artist::Line(Line::default())])],
-                &[(0, NdArray::vector(vec![1.0; 40]))],
-            ),
-        ),
-    ];
-    let names = parameter_names(&cards);
-    let query = Query::parse(&format!("{DATA_VALUES}>=10"), &names);
-    assert_eq!(
-        query.terms,
-        [named(DATA_VALUES, Comparison::AtLeast, "10", false)],
-        "the derived name is a question about a parameter, not text to search for"
-    );
-    assert!(!query.matches(&cards[0]) && query.matches(&cards[1]));
-}
 
 // Why: a free-text term is matched against one string, and what is in that string decides what
 // typing a word can find. Parameter names belong in it so that someone who half remembers a
@@ -1742,4 +1527,58 @@ fn what_was_typed_and_what_was_ticked_both_narrow_the_result() {
         "clearing takes back what was typed as well as what was ticked"
     );
     assert_eq!(browse.results(&cards).matched, 4);
+}
+
+// ---------------------------------------------------------------------------------
+// The labels a figure is browsed by
+// ---------------------------------------------------------------------------------
+
+// Why: neither an empty label nor a repeated one can reach a figure through IronLAB — both are validation errors,
+// and the JSON Schema refuses them outright. A figure written by another program can still carry them, because the
+// Protocol Buffers schema cannot express either rule, and a blank entry in a menu or the same word offered twice
+// is a fault in the interface whatever the file says. The figure itself is left alone, so that opening a file and
+// saving it again does not quietly change it.
+#[test]
+fn an_empty_or_repeated_label_is_cleaned_up_for_browsing_without_altering_the_figure() {
+    let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
+    source.labels = vec![
+        "wake".to_owned(),
+        String::new(),
+        "wake".to_owned(),
+        "piv".to_owned(),
+    ];
+
+    assert_eq!(
+        browsable_labels(&source),
+        ["wake", "piv"],
+        "the empty label is dropped and the repeat is kept once"
+    );
+    assert_eq!(
+        source.labels.len(),
+        4,
+        "and the figure still holds exactly what it was given"
+    );
+    assert!(
+        !source.validate().is_valid(),
+        "which validation reports, so the reader is told rather than left to wonder"
+    );
+}
+
+// Why: a card is what the rest of the browser works from, and it must carry what the figure carries and nothing
+// besides. A viewer that added facets of its own would be deciding what a collection can be narrowed by, which is
+// the author's decision to make: they are the only one who knows which of a figure's properties matter.
+#[test]
+fn a_card_carries_the_figures_own_labels_and_nothing_else() {
+    let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
+    source.labels = vec!["basics".to_owned()];
+    let card = FigureCard::of("Lines", &source);
+    assert_eq!(
+        card.labels,
+        ["basics"],
+        "the card carries the figure's labels and nothing the viewer invented"
+    );
+    assert!(
+        card.haystack().contains("basics"),
+        "and a search for the author's word finds the figure"
+    );
 }

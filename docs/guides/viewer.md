@@ -12,20 +12,15 @@ When the viewer opens more than one figure, a browser appears down the left-hand
 the left of the toolbar shows and hides it. It narrows the open figures down to the one to look at, and clicking a
 figure in its list shows that figure. A viewer holding a single figure has nothing to browse, and opens without it.
 
-The browser is built around the [parameters](getting-started.md#parameters) of a figure, which exist so that a
-collection of figures can be sorted, filtered and searched. It needs no preparation to be useful, because it also
-reads four parameters and a set of labels off each figure itself:
+The browser is built around the [parameters](getting-started.md#parameters) and
+[labels](getting-started.md#labels) of a figure, which exist so that a collection of figures can be sorted,
+filtered and searched. It offers exactly what the figures carry and nothing else: the viewer works out no
+properties of its own, because the program that built the figures is the only thing that knows which of their
+properties matter. A collection whose figures carry no labels and no parameters can still be searched by title and
+listed, but there is nothing to filter it by until its author says what there should be.
 
-| Read from the figure | What it holds |
-| --- | --- |
-| `dimensionality` | `2D`, or `3D` when any axes of the figure is three-dimensional. |
-| `axes` | How many axes the figure has. |
-| `artists` | How many plots the figure draws, across all of its axes. |
-| `data_values` | How many values the figure's data holds, which is what makes a figure slow to draw. |
-| labels | `2d` or `3d`; one label for each kind of plot drawn, in alphabetical order, from `contour`, `image`, `line`, `quiver`, `scatter` and `surface`; then `subplots` when the figure has more than one axes, `legend` when any axes shows one, and `log` when any axis is logarithmic. |
-
-A parameter of the figure's own takes precedence over the one read from it when the two share a name, because a
-parameter the author wrote says what they meant.
+An empty label, or one a figure carries twice, is shown once and reported in the problems list: neither is possible
+in a figure IronLAB wrote, but a file written by another program can carry either.
 
 ### Searching
 
@@ -194,6 +189,18 @@ It is wider than **Reset view** in the toolbar, which discards only the limits a
 The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table, in which an entry can be added, renamed, given another kind (yes or no, whole number, number or text), changed and removed. The whole table is committed together, so a change to it is one step of the history.
 
 While the table cannot be committed — an entry has no name, two entries share a name, or a number has not been typed in full — the reason is shown below it and the figure keeps the parameters it had. Typing is never interrupted; the change reaches the figure as soon as the table makes sense again.
+
+### Labels
+
+The properties of the figure also include its **labels**: the free words that describe it, which are what the
+[figure browser](#the-figure-browser) filters and groups by (see [labels](getting-started.md#labels) and the
+[figure schema](../reference/figure-schema.md#labels)). They are edited as one text field holding them separated by
+commas, because they are short words and there are a handful of them. The spaces around a word are trimmed and an
+empty word is dropped, so a trailing comma while typing never makes a label of nothing.
+
+A label added twice is refused, and the reason appears in the problems list. The labels the browser reads off the
+figure itself are not shown here and cannot be edited, because they are not part of the figure: they are worked out
+from what it draws each time it is opened.
 
 ### What the editor does not change
 

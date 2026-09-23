@@ -235,9 +235,10 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 
 /// A valid figure that uses every artist variant and every variant of every enum in
 /// the schema, including NaN data, non-default styles, links on every dimension, a
-/// figure parameter of every kind, and images of every kind on the floor of a 2D axes
-/// and on the walls of a 3D axes, of floats and of bytes, with every plane, every
-/// out-of-range policy, and pixel ranges that are absent, ascending and mirrored.
+/// figure parameter of every kind, labels that are not in alphabetical order, and images
+/// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
+/// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
+/// absent, ascending and mirrored.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -259,6 +260,13 @@ pub fn kitchen_sink_figure() -> Figure {
         ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
         ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
     ]);
+    // Out of alphabetical order, and one label not ASCII, so that a fixture written or
+    // read through a sorted collection is caught.
+    b.fig.labels = vec![
+        "validated".to_owned(),
+        "grenzschicht".to_owned(),
+        "k–ω".to_owned(),
+    ];
 
     // Shared data. Positive values so that log axes produce no warnings.
     let t = b.vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
@@ -1074,4 +1082,49 @@ pub fn special_values_figure() -> Figure {
         *value = *next.next().expect("the cycle is infinite");
     });
     fig
+}
+
+/// Reads a base-128 varint from the front of the bytes, advancing them past it.
+pub fn read_varint(bytes: &mut &[u8]) -> u64 {
+    let mut value = 0;
+    for shift in (0..64).step_by(7) {
+        let byte = bytes[0];
+        *bytes = &bytes[1..];
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            break;
+        }
+    }
+    value
+}
+
+/// Returns the payloads of the top-level length-delimited fields of the given number, in
+/// the order in which they appear in the encoded message.
+///
+/// The bytes are walked without the generated wire types, because decoding a repeated
+/// field into a map or a set would discard the order that the encoder wrote, which is
+/// what the tests of order are about.
+pub fn raw_fields(mut bytes: &[u8], number: u64) -> Vec<Vec<u8>> {
+    let mut payloads = Vec::new();
+    while !bytes.is_empty() {
+        let key = read_varint(&mut bytes);
+        let (found, wire_type) = (key >> 3, key & 7);
+        match wire_type {
+            0 => {
+                read_varint(&mut bytes);
+            }
+            1 => bytes = &bytes[8..],
+            5 => bytes = &bytes[4..],
+            2 => {
+                let len = read_varint(&mut bytes) as usize;
+                let (payload, rest) = bytes.split_at(len);
+                bytes = rest;
+                if found == number {
+                    payloads.push(payload.to_vec());
+                }
+            }
+            other => panic!("unexpected wire type {other}"),
+        }
+    }
+    payloads
 }

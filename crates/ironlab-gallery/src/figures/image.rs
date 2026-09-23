@@ -38,7 +38,12 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title(r"Domain colouring of $z_3$");
+        .title(r"Domain colouring of $z_3$")
+        .label("2d")
+        .label("image")
+        .label("basics")
+        .label("placement")
+        .label("transparency");
     let mut ax = fig.axes(0, 0);
     ax.image(&pixels)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)

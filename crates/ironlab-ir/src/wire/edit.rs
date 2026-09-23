@@ -195,6 +195,8 @@ proto_file! {
             ImagePlane(ValueImagePlane) image_plane_value = 39;
             /// The policy of an image for pixels it cannot colour.
             OutOfRange(ValueOutOfRange) out_of_range_value = 40;
+            /// The labels of a figure.
+            Strings(ValueStrings) strings_value = 41;
         }
     }
 
@@ -241,6 +243,12 @@ proto_file! {
     message ValueDoubles {
         /// The values, which may be empty.
         repeated double values = 1;
+    }
+
+    /// A list of strings.
+    message ValueStrings {
+        /// The values, in order, which may be empty.
+        repeated string values = 1;
     }
 
     /// A text value.

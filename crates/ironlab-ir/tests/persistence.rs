@@ -89,6 +89,7 @@ fn decay_figure() -> Figure {
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
         parameters: BTreeMap::new(),
+        labels: Vec::new(),
         id_allocator: NodeIdAllocator::default(),
     }
 }
@@ -536,15 +537,16 @@ fn every_image_variant_survives_a_json_round_trip() {
     assert_eq!(restored.to_json(), text);
 }
 
-// Why: the image kinds are new variants of an artist, so this release raises the minor
-// schema version to 0.3.0, which the build must declare and the fixture must carry; a
-// `.fig.json` document of the previous release, 0.2.0, must be refused (a document of
-// this build that reached that release would be misread there, and the rules are the
-// same in both directions), and the refusal must name both versions, so that the user
-// knows which build to use.
+// Why: figure labels are a new optional property whose absence preserves the previous
+// drawing, which the schema rules make a patch change, so this release raises the schema
+// version to 0.3.1 rather than to 0.4.0. The build must declare it, and the fixture,
+// which still declares 0.3.0, must load unchanged, because a difference in the patch
+// component alone is compatible in both directions. A `.fig.json` document of the
+// previous minor release, 0.2.0, must still be refused, and the refusal must name both
+// versions, so that the user knows which build to use.
 #[test]
-fn the_build_implements_schema_version_0_3_0_and_refuses_documents_of_0_2_0() {
-    assert_eq!(SCHEMA_VERSION, "0.3.0");
+fn the_build_implements_schema_version_0_3_1_and_refuses_documents_of_0_2_0() {
+    assert_eq!(SCHEMA_VERSION, "0.3.1");
     let loaded = Figure::from_json(DECAY_FIXTURE).expect("the fixture declares the version");
     assert_eq!(loaded.schema_version, "0.3.0");
     let error = Figure::from_json(&decay_fixture_with_version(json!("0.2.0")))
@@ -553,13 +555,13 @@ fn the_build_implements_schema_version_0_3_0_and_refuses_documents_of_0_2_0() {
         matches!(
             &error,
             IrError::IncompatibleSchemaVersion { found, supported }
-                if found == "0.2.0" && *supported == "0.3.0"
+                if found == "0.2.0" && *supported == "0.3.1"
         ),
         "{error:?}"
     );
     let message = error.to_string();
     assert!(
-        message.contains("0.2.0") && message.contains("0.3.0"),
+        message.contains("0.2.0") && message.contains("0.3.1"),
         "the message must name both versions: {message}"
     );
 }
@@ -603,14 +605,22 @@ fn newer_minor_version_with_unknown_structure_reports_the_version() {
     );
 }
 
-// Why: patch releases of the schema are compatible by definition, so they must load.
+// Why: patch releases of the schema are compatible by definition, and in both
+// directions: a document of an earlier patch release lacks only properties that this
+// build can do without, and a document of a later one carries only properties that this
+// build may ignore. Both must load, and each must keep the version that it declares, so
+// that saving it again does not claim a compatibility that the document never had.
 #[test]
-fn different_patch_version_is_accepted() {
+fn an_earlier_or_later_patch_version_is_accepted() {
     let [major, minor, patch] = supported_version();
-    let version = format!("{major}.{minor}.{}", patch + 42);
-    let fig = Figure::from_json(&decay_fixture_with_version(json!(version)))
-        .expect("patch versions are compatible");
-    assert_eq!(fig.schema_version, version);
+    for version in [
+        format!("{major}.{minor}.0"),
+        format!("{major}.{minor}.{}", patch + 42),
+    ] {
+        let fig = Figure::from_json(&decay_fixture_with_version(json!(version)))
+            .expect("patch versions are compatible");
+        assert_eq!(fig.schema_version, version);
+    }
 }
 
 // Why: a version string that is not `major.minor.patch` cannot be checked for

@@ -11,7 +11,11 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"Surface of $\ln(1 + |z_3|)$");
+        .title(r"Surface of $\ln(1 + |z_3|)$")
+        .label("3d")
+        .label("surface")
+        .label("basics")
+        .label("interaction");
     let mut ax = fig.axes3(0, 0);
     ax.surf(&x, &y, &z).edge_width(0.25);
     ax.xlabel("$x$")

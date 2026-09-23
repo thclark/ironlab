@@ -16,7 +16,15 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title("A damped oscillator");
+        .title("A damped oscillator")
+        .label("2d")
+        .label("line")
+        .label("legend")
+        .label("basics")
+        .label("dashes")
+        .label("latex")
+        .label("markers")
+        .label("signals");
     let mut ax = fig.axes(0, 0);
     ax.plot(&t, &damped_cosine)
         .display_name(r"$e^{-t/4} \cos t$")

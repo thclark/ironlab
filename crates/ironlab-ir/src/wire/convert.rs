@@ -106,6 +106,9 @@ impl From<&Figure> for w::Figure {
                 .iter()
                 .map(|(name, parameter)| (name.clone(), encode_parameter(parameter)))
                 .collect(),
+            // Labels are a sequence rather than a map, so they are written in the order the
+            // figure carries them rather than sorted; that order is part of the figure's value.
+            labels: figure.labels.clone(),
         }
     }
 }
@@ -584,6 +587,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             fonts: provenance.fonts,
         },
         parameters,
+        labels: wire.labels,
         id_allocator: default.id_allocator,
     })
 }
@@ -1203,6 +1207,7 @@ fn encode_value(value: &Value) -> w::Value {
         Value::String(v) => w::ValueKind::String(w::ValueString { value: v.clone() }),
         Value::DataId(v) => w::ValueKind::DataId(w::ValueDataId { value: Some(v.0) }),
         Value::Doubles(v) => w::ValueKind::Doubles(w::ValueDoubles { values: v.clone() }),
+        Value::Strings(v) => w::ValueKind::Strings(w::ValueStrings { values: v.clone() }),
         Value::Text(v) => w::ValueKind::Text(w::ValueText {
             value: Some(encode_text(v)),
         }),
@@ -1414,6 +1419,7 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             "value",
         )?)),
         w::ValueKind::Doubles(v) => Value::Doubles(v.values),
+        w::ValueKind::Strings(v) => Value::Strings(v.values),
         w::ValueKind::Text(v) => {
             let (text, at) = value_message(v.value, at, "text_value")?;
             Value::Text(decode_text(text, &at)?)

@@ -36,7 +36,14 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title("A saddle, a plane, a helix and points that pass through one another");
+        .title("A saddle, a plane, a helix and points that pass through one another")
+        .label("3d")
+        .label("line")
+        .label("scatter")
+        .label("surface")
+        .label("depth")
+        .label("export")
+        .label("overlay");
     let mut ax = fig.axes3(0, 0);
     ax.surf(&grid, &grid, &saddle).edge_width(0.25);
     ax.surf(&grid, &grid, &plane)

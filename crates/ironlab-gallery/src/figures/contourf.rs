@@ -12,7 +12,11 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title(r"Filled contours of $\ln(1 + |z_3|)$");
+        .title(r"Filled contours of $\ln(1 + |z_3|)$")
+        .label("2d")
+        .label("contour")
+        .label("colormap")
+        .label("levels");
     let mut ax = fig.axes(0, 0);
     ax.contourf(&x, &y, &z).level_values(&levels);
     ax.colormap(Colormap::Magma).xlabel("$x$").ylabel("$y$");

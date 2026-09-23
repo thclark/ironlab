@@ -440,6 +440,7 @@ fn property_row(
                     Editor::Color => color_control(ui, panel, state, node, row),
                     Editor::Text | Editor::RichText => text_control(ui, panel, state, node, row),
                     Editor::Numbers => numbers_control(ui, panel, state, node, row),
+                    Editor::Words => words_control(ui, panel, state, node, row),
                     Editor::Data { shape } => {
                         let text = data_label(row, shape.as_deref());
                         read_only_control(ui, row, text, DATA_REASON);
@@ -794,6 +795,44 @@ fn numbers_control(
     }
 }
 
+/// Draws the control of a list of words: a text field holding them separated by commas.
+///
+/// The labels of a figure are short words rather than sentences, and there are a handful of
+/// them, so one field holding the lot reads as what it is and is quicker to change than a
+/// row of fields would be. A word is trimmed of the spaces around it, and an empty one is
+/// dropped, so that a trailing comma while typing does not make a label of nothing; the
+/// figure refuses a repeat, and says so in the problems list.
+fn words_control(
+    ui: &mut egui::Ui,
+    panel: &mut PropertyPanel,
+    state: &mut FigureState,
+    node: NodeId,
+    row: &PropertyRow,
+) -> bool {
+    let Value::Strings(current) = &row.value else {
+        return false;
+    };
+    let mut text = current.join(", ");
+    let response = ui
+        .add(
+            egui::TextEdit::singleline(&mut text)
+                .desired_width(ui.available_width())
+                .hint_text("empty"),
+        )
+        .on_hover_text(format!("{} Separate the words with commas.", row.docs));
+    panel.hold(state, response.id, response.has_focus());
+    if !response.changed() {
+        return false;
+    }
+    let words: Vec<String> = text
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect();
+    words != *current && set(state, node, &row.path, Value::Strings(words))
+}
+
 /// Draws a property that the panel shows but cannot change: its value, drawn dimmed, with
 /// what the property means and the reason it cannot be changed here in its tooltip.
 ///
@@ -856,6 +895,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Float => Some(Value::Float(0.0)),
         ValueType::String => Some(Value::String(String::new())),
         ValueType::Doubles => Some(Value::Doubles(Vec::new())),
+        ValueType::Strings => Some(Value::Strings(Vec::new())),
         ValueType::Text => Some(Value::Text(Text::default())),
         ValueType::Color => Some(Value::Color(Color::BLACK)),
         ValueType::FigureSize => Some(Value::FigureSize(FigureSize::default())),

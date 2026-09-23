@@ -19,7 +19,13 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 120.0)
         .tiles(3, 1)
-        .title("A signal with its derivative and integral");
+        .title("A signal with its derivative and integral")
+        .label("2d")
+        .label("line")
+        .label("subplots")
+        .label("interaction")
+        .label("linked-axes")
+        .label("signals");
     let rows = [
         (0, &signal, r"$s(t)$"),
         (1, &derivative, r"$\frac{ds}{dt}$"),
