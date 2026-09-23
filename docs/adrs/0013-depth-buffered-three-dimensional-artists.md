@@ -22,7 +22,7 @@ A depth test cannot separate what coincides, so the compiler moves things apart 
 
 ### The viewer draws depth groups with pipelines of its own
 
-The canvas keeps drawing egui meshes for everything else and draws each depth group through IronLAB's own wgpu pipelines: the same lyon geometry, in screen units, with a depth at every vertex, depth-tested inside egui's render pass, which the window now creates with a depth attachment. The offscreen renderer draws the same lists through the same pipelines inside its own pass, so the gallery and the PDF's rasteriser see exactly what the window shows, and nothing needs a window. A list drawn outside a depth group goes through the same pipelines with the depth test off, and that is what the exporter's proof rests on.
+The canvas draws each depth group through IronLAB's own wgpu pipelines: the same lyon geometry, with a depth at every vertex, depth-tested inside egui's render pass, which the window now creates with a depth attachment. Everything else is drawn as egui meshes, until [ADR 0014](0014-wgpu-canvas.md), released alongside this one, moves every item of the figure through the same pipelines. The offscreen renderer draws the same lists through the same pipelines inside its own pass, so the gallery and the PDF's rasteriser see exactly what the window shows, and nothing needs a window. A list drawn outside a depth group goes through the same pipelines with the depth test off, and that is what the exporter's proof rests on.
 
 ### The exporter proves the painter's order or embeds the picture
 
@@ -44,12 +44,11 @@ wgpu has no processor-only backend, and a rasteriser of IronLAB's own would be a
 - Translucent faces are drawn in painter's order with depth writes, so a translucent face drawn before a nearer opaque one blends correctly and one drawn after hides what is behind it; the remedy is planned under [issue #34](https://github.com/thclark/ironlab/issues/34).
 - Coplanar geometry is resolved by order, and a twisted face is drawn as a plane; both are invisible in practice.
 - A display list built by hand must give every path and image of a depth group a depth, and the raster options of an export gain a depth policy.
-- The egui-mesh path of the canvas is transitional: the change that follows draws every item through the viewer's own pipelines and removes it.
+- The egui-mesh path of the canvas is transitional, and [ADR 0014](0014-wgpu-canvas.md) removes it in the same release.
 - The consequence of ADR 0010 that a viewer with a depth buffer must document its difference from the painter-sorted PDF is discharged: the exporter proves the two the same or prints the viewer's picture.
 
 Follow-up work is tracked in GitHub issues:
 
-- [#13: Replace the egui-mesh canvas with custom wgpu pipelines](https://github.com/thclark/ironlab/issues/13)
 - [#1: Add a GPU picking pass](https://github.com/thclark/ironlab/issues/1)
 - [#36: Read pixel datatips of images in three-dimensional axes](https://github.com/thclark/ironlab/issues/36)
 - [#34: Add an opacity property to image artists](https://github.com/thclark/ironlab/issues/34)
