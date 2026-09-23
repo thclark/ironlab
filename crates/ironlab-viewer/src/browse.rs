@@ -42,6 +42,19 @@ use std::hash::{Hash, Hasher};
 
 use ironlab_ir::{Figure, Parameter};
 
+/// Whether nothing in the collection can be narrowed by: no figure carries a label or a parameter.
+///
+/// A collection like this is not a fault, and nor is it empty — the figures are all there, listed and searchable by
+/// title. It is a collection whose author has not yet said what it can be browsed by, and since the viewer works
+/// out nothing for itself, that is a thing only they can fix. The interface uses this to say so, rather than
+/// showing a menu with nothing in it and leaving the reader to conclude the panel is broken.
+#[must_use]
+pub fn has_nothing_to_browse_by(cards: &[FigureCard]) -> bool {
+    cards
+        .iter()
+        .all(|card| card.labels.is_empty() && card.parameters.is_empty())
+}
+
 /// The label given to a group of figures that the grouping parameter does not apply to.
 pub const NOT_SET: &str = "not set";
 

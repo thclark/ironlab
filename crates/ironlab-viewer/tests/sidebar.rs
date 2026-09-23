@@ -691,3 +691,69 @@ fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
         "the order says which way it runs and carries the arrow that shows it: {words:?}"
     );
 }
+
+// ---------------------------------------------------------------------------------
+// A collection with nothing to browse by
+// ---------------------------------------------------------------------------------
+
+// Why: the viewer works out no properties of a figure for itself, so a collection whose author has not described it
+// has nothing to filter by at all. Offering an empty menu would read as a panel that does not work, when what is
+// actually missing is two lines in the program that built the figures. The note is the only way the reader learns
+// that, and it has to name the remedy rather than merely state the problem.
+#[test]
+fn a_collection_with_no_labels_or_parameters_is_told_how_to_describe_itself() {
+    let bare: Vec<(String, Figure)> = (0..4)
+        .map(|index| flat(&format!("Figure {index}"), &[]))
+        .collect();
+    let harness = app(bare);
+
+    assert!(
+        harness
+            .query_by_label_contains("nothing to narrow them by")
+            .is_some(),
+        "the note says what is missing"
+    );
+    assert!(
+        harness
+            .query_by_label_contains("How to describe figures")
+            .is_some(),
+        "and offers the page that says how to fix it"
+    );
+    assert!(
+        listed(&harness, "Figure 0"),
+        "while the figures are still listed, because nothing is wrong with them"
+    );
+}
+
+// Why: the note is for a collection that cannot be browsed at all. A collection carrying even one description can be
+// browsed, so the note would be false there, and it would take room from the list every time it was shown.
+#[test]
+fn a_collection_that_carries_a_description_is_not_offered_the_note() {
+    let harness = app(campaign());
+    assert!(
+        harness
+            .query_by_label_contains("nothing to narrow them by")
+            .is_none(),
+        "a described collection is left to get on with it"
+    );
+}
+
+// Why: the note's whole value is the page it points at, and that page is in this repository while the link is an
+// address on the published site. Nothing else connects the two, so renaming or moving the page would leave the
+// viewer pointing at a page that no longer exists, and nobody would find out until a user clicked it.
+#[test]
+fn the_page_the_note_links_to_exists_in_the_documentation() {
+    let url = ironlab_viewer::sidebar::DESCRIBING_FIGURES_URL;
+    let path = url
+        .strip_prefix("https://ironlab.org/")
+        .unwrap_or_else(|| panic!("{url} is not an address on the documentation site"));
+    let page = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs")
+        .join(path.trim_end_matches('/'))
+        .with_extension("md");
+    assert!(
+        page.exists(),
+        "the note links to {url}, which is built from {}, and that file is not there",
+        page.display()
+    );
+}

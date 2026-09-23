@@ -12,12 +12,16 @@ When the viewer opens more than one figure, a browser appears down the left-hand
 the left of the toolbar shows and hides it. It narrows the open figures down to the one to look at, and clicking a
 figure in its list shows that figure. A viewer holding a single figure has nothing to browse, and opens without it.
 
-The browser is built around the [parameters](getting-started.md#parameters) and
-[labels](getting-started.md#labels) of a figure, which exist so that a collection of figures can be sorted,
+The browser is built around the [labels and parameters](describing-figures.md) of a figure, which exist so that a collection of figures can be sorted,
 filtered and searched. It offers exactly what the figures carry and nothing else: the viewer works out no
 properties of its own, because the program that built the figures is the only thing that knows which of their
 properties matter. A collection whose figures carry no labels and no parameters can still be searched by title and
 listed, but there is nothing to filter it by until its author says what there should be.
+
+When no figure of a collection carries a label or a parameter, there is nothing to narrow it by, and the browser
+says so rather than offering an empty menu: it explains that descriptions are added where the figures are built,
+and links to [describing figures](describing-figures.md). The figures are still listed and can still be searched by
+title.
 
 An empty label, or one a figure carries twice, is shown once and reported in the problems list: neither is possible
 in a figure IronLAB wrote, but a file written by another program can carry either.
