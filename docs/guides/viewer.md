@@ -1,10 +1,90 @@
 # Using the viewer
 
-The IronLAB viewer is a desktop window that shows figures as tabs and lets them be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer).
+The IronLAB viewer is a desktop window that shows figures as tabs and lets them be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side narrows them down to the one to look at.
 
 Each tab has a toolbar above a canvas. The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the tab. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
 
 Every interaction described on this page changes the figure by setting a property of it — an axis limit, a three-dimensional view or the visibility of a plot — exactly as setting that property from the Rust API would. The viewer keeps the figure as it was opened, called the source, and the changes made to it, called the overlay, apart: what the canvas draws, what **Export PDF…** writes and what **Save figure…** writes is the source with the overlay applied. Because each change is a value of its own, any of them can be undone, and a view is restored by discarding the changes made to it rather than by copying an earlier figure back. The reasons for this design are recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md).
+
+## The figure browser
+
+When the viewer opens more than one figure, a browser appears down the left-hand side, and the **Figures** button at
+the left of the toolbar shows and hides it. It narrows the open figures down to the one to look at, and clicking a
+figure in its list shows that figure. A viewer holding a single figure has nothing to browse, and opens without it.
+
+The browser is built around the [parameters](getting-started.md#parameters) of a figure, which exist so that a
+collection of figures can be sorted, filtered and searched. It needs no preparation to be useful, because it also
+reads four parameters and a set of labels off each figure itself:
+
+| Read from the figure | What it holds |
+| --- | --- |
+| `dimensionality` | `2D`, or `3D` when any axes of the figure is three-dimensional. |
+| `axes` | How many axes the figure has. |
+| `artists` | How many plots the figure draws, across all of its axes. |
+| `data_values` | How many values the figure's data holds, which is what makes a figure slow to draw. |
+| labels | `2d` or `3d`; one label for each kind of plot drawn, in alphabetical order, from `contour`, `image`, `line`, `quiver`, `scatter` and `surface`; then `subplots` when the figure has more than one axes, `legend` when any axes shows one, and `log` when any axis is logarithmic. |
+
+A parameter of the figure's own takes precedence over the one read from it when the two share a name, because a
+parameter the author wrote says what they meant.
+
+### Searching
+
+The field at the top of the browser searches the titles, the labels and the parameters. Typing `surface` leaves the
+figures that mention it anywhere; the list narrows as each character is typed.
+
+A word can also ask about one parameter, which is how a search becomes precise:
+
+| Typed | Meaning |
+| --- | --- |
+| `surface` | the figure mentions "surface" anywhere |
+| `-stalled` | it does not mention "stalled" |
+| `rig:CFD` | its `rig` parameter contains "CFD", ignoring case |
+| `rig=CFD` | its `rig` parameter is exactly "CFD", ignoring case |
+| `angle>=8` | its `angle` parameter is 8 or more, and `>`, `<` and `<=` compare in the same way |
+| `label:piv` | one of its labels contains "piv" |
+
+Words are cumulative: every one of them must hold. A word only asks about a parameter when the collection has one
+of that name, so a colon in a title, a file path or a web address searches rather than asking about a parameter
+that does not exist. A figure that does not carry the parameter a word asks about is left out, so `solver:LES`
+finds the computed runs and leaves the measured ones out, which is what asking about a solver means. Underscores
+inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was written in the code that set it.
+
+### Filtering
+
+**Add filter** opens a menu of the parameters worth filtering on, the most useful first, and then of that
+parameter's values with the number of figures each would leave. A parameter that takes the same value on every
+figure divides nothing and is not offered.
+
+Which parameters are worth offering is decided from the collection rather than declared in advance, because the
+parameters are the user's own. A parameter is offered in proportion to how much of the collection carries it and how
+evenly it divides what it covers, and a parameter with a different value on nearly every figure — a run number, a
+note — is treated as something to search for rather than something to filter by.
+
+Values within one parameter are alternatives and parameters are cumulative: choosing two rigs widens the result to
+the figures from either, while choosing a rig and a solver narrows it to the figures with both. The number beside a
+value is worked out as though that parameter were not filtered at all, so it always says what choosing the value
+would add, and choosing a second value never empties the list. A value that would leave nothing is still shown,
+greyed, rather than disappearing as the reader reaches for it. A parameter holding numbers is narrowed by the two
+ends of a range instead of by a list of values.
+
+Each filter reads back as a chip below the search field, naming the parameter and what it was narrowed to. Clicking
+a chip removes that filter. **Clear**, and **Show all** at the foot of the panel, take back every filter and empty
+the search field at once.
+
+### Ordering and grouping
+
+**Order by** puts the list in order of the title or of any parameter, and the button beside it reverses the order.
+Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
+comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
+When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows
+the figure's labels.
+
+**Group by** breaks the list into runs under a heading that names the value the figures share and counts them.
+Clicking a heading closes the group. Grouping by labels lists a figure under each of the labels it carries, because
+that is how browsing by labels is meant to read. The figures the grouping does not apply to are gathered last, under
+"not set" or "no labels".
+
+The foot of the panel says how much of the collection is left, such as "12 of 26 figures".
 
 ## Tools
 
