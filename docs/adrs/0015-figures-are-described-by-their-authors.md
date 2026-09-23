@@ -117,13 +117,21 @@ a solver, and a figure with no solver is not an answer to it.
 
 ## Consequences
 
-The gallery describes itself, in full, because nothing is read off it any more: labels for what each figure holds
-and what each entry demonstrates, and parameters for the facts that have one value per figure and are therefore
-worth sorting and grouping by — its headline artist kind, its dimensionality, how many artists it draws, how many
-data values it holds and whether it shows a legend. A test reconciles both against every entry's own IR, so an entry
-that grows a surface and forgets to say so, or whose hand-written count of data values has drifted, is caught. That
-test is what the derivation used to do, asked as a question rather than assumed as an answer, and it is the pattern
-to reach for wherever a description could drift from the figure it describes.
+The gallery describes itself, in full, because nothing is read off it any more: labels for what each figure is among
+several things at once — the kinds it draws, whether it holds subplots, a legend or a logarithmic axis, and what the
+entry demonstrates — and parameters for the facts that have one value per figure and are therefore worth sorting and
+grouping by: its dimensionality, how many artists it draws, how many data values it holds and whether it shows a
+legend.
+
+Each fact is written one way only. Describing the same thing as both a label and a parameter leaves a reader unable
+to tell whether the two mean different things, and the browser offering them separately as though they did; so
+dimensionality is a parameter and not also a `3d` label, and the artist kinds are labels and not also a parameter
+naming the principal one. The second of those also spares an author a judgement nobody asked for, because a figure
+drawing an image over a surface is genuinely both. A test holds the rule, alongside two that reconcile the
+descriptions with every entry's own IR, so an entry that grows a surface and forgets to say so, or whose
+hand-written count of data values has drifted, is caught. Those are what the derivation used to do, asked as a
+question rather than assumed as an answer, and they are the pattern to reach for wherever a description could drift
+from the figure it describes.
 
 The documentation has to teach this, because it is not what a user will assume. [Describing
 figures](../guides/describing-figures.md) states the rule, explains when to reach for a label and when for a

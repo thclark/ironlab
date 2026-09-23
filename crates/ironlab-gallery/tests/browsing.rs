@@ -5,8 +5,11 @@
 //! works nothing out for itself, because the writer of a figure is the one who knows what matters about it, so
 //! everything the gallery can be browsed by is something an entry wrote. Each entry writes both kinds of thing:
 //! labels, of which a figure carries as many as it likes — the structural words for what it draws and how it is
-//! laid out, and the words naming the features of IronLAB it demonstrates — and five parameters, each a single
+//! laid out, and the words naming the features of IronLAB it demonstrates — and four parameters, each a single
 //! value, which is what a collection can be sorted, grouped and narrowed by a range of.
+//!
+//! No fact is written in both places. A figure draws several kinds of artist, so the kinds are labels; a figure
+//! has one dimensionality, so that is a parameter.
 //!
 //! That makes these tests more valuable than they were, not less. The answers they check are no longer produced by
 //! the same code that reads them: what a figure draws is read straight from the IR and compared with what the
@@ -86,20 +89,15 @@ fn drawing(wanted: fn(&Artist) -> bool) -> Vec<String> {
     titles
 }
 
-/// The structural labels a figure ought to carry, read from the IR: whether it is flat or solid, what kinds of
-/// artist it draws, whether it is tiled, whether any of its axes shows a legend and whether any of its axes is
-/// logarithmic.
+/// The structural labels a figure ought to carry, read from the IR: what kinds of artist it draws, whether it is
+/// tiled, whether any of its axes shows a legend and whether any of its axes is logarithmic.
 ///
-/// The viewer no longer works these out, so they are the entry's own words; reading them back off the figure here
-/// is what keeps those words true. The three kinds of raster all count as an image, because how a pixel gets its
-/// colour is a distinction inside the IR rather than one anyone browses by.
+/// Whether the figure is flat or solid is not among them: that is one value, so it is the `dimensionality`
+/// parameter and not a label. The viewer works none of this out, so these are the entry's own words; reading them
+/// back off the figure here is what keeps those words true. The three kinds of raster all count as an image,
+/// because how a pixel gets its colour is a distinction inside the IR rather than one anyone browses by.
 fn structural(figure: &Figure) -> BTreeSet<String> {
     let mut labels = BTreeSet::new();
-    let solid = figure
-        .axes
-        .iter()
-        .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }));
-    labels.insert(if solid { "3d" } else { "2d" }.to_owned());
     for axes in &figure.axes {
         for artist in &axes.artists {
             labels.insert(
@@ -171,14 +169,16 @@ fn the_three_kinds_of_raster_are_all_found_by_asking_for_images() {
     );
 }
 
-// Why: the other half of the same request. Whether a figure is three-dimensional is the first thing anyone divides
-// a gallery by, and it is a property of the figure rather than an opinion about it, so the two labels have to
-// partition the gallery exactly: every entry solid or flat, none both and none neither, and each one agreeing with
-// the projection of its axes.
+// Why: the other half of the same request, and now a question about a parameter rather than about a label. A
+// figure has exactly one dimensionality, so it is written once, as a value that can be sorted and grouped by; the
+// test that it is written correctly is the same either way. The two values have to partition the gallery exactly —
+// every entry solid or flat, none both and none neither — and the solid ones have to be the ones whose axes are
+// three-dimensional, read from the IR. The comparison is by equality rather than by containment, because "2D" and
+// "3D" are whole values and a reader asking for one does not want the other.
 #[test]
 fn asking_for_the_three_dimensional_figures_finds_every_one_of_them() {
-    let solid = found("label:3d");
-    let flat = found("label:2d");
+    let solid = found("dimensionality=3D");
+    let flat = found("dimensionality=2D");
     let expected = drawing_in_three_dimensions();
 
     assert!(expected.len() >= 6, "the gallery has several: {expected:?}");
@@ -186,7 +186,7 @@ fn asking_for_the_three_dimensional_figures_finds_every_one_of_them() {
     sorted.sort();
     assert_eq!(
         sorted, expected,
-        "the entries labelled 3d are exactly the ones whose axes are three-dimensional"
+        "the entries whose dimensionality is 3D are exactly the ones whose axes are three-dimensional"
     );
     assert_eq!(
         solid.len() + flat.len(),
@@ -265,19 +265,17 @@ fn the_gallery_offers_facets_worth_filtering_on() {
             "{wanted:?} is written by every entry and offered beside the labels: {offered:?}"
         );
     }
-    for wanted in ["dimensionality", "kind"] {
-        let facet = facets
-            .iter()
-            .find(|facet| facet.key.name() == wanted)
-            .expect("an offered facet");
-        assert!(
-            facet.cardinality() > 1 && facet.score > 0.0,
-            "{wanted:?} divides the gallery rather than saying the same thing of every figure: \
-             {} values, score {}",
-            facet.cardinality(),
-            facet.score
-        );
-    }
+    let dimensionality = facets
+        .iter()
+        .find(|facet| facet.key.name() == "dimensionality")
+        .expect("an offered facet");
+    assert!(
+        dimensionality.cardinality() > 1 && dimensionality.score > 0.0,
+        "the dimensionality divides the gallery rather than saying the same thing of every \
+         figure: {} values, score {}",
+        dimensionality.cardinality(),
+        dimensionality.score
+    );
 
     let points = facets
         .iter()
@@ -308,15 +306,9 @@ fn the_gallery_offers_facets_worth_filtering_on() {
 
 /// Every parameter each gallery entry writes, in the order the entries write them.
 ///
-/// They are the single-valued companions to the labels: the headline kind of the entry, whether it is flat or
+/// They are the facts of which a figure has exactly one, which is what a label cannot hold: whether it is flat or
 /// solid, how many artists it draws, how many values its data holds and whether it shows a legend.
-const PARAMETERS: [&str; 5] = [
-    "kind",
-    "dimensionality",
-    "artists",
-    "data_points",
-    "has_legend",
-];
+const PARAMETERS: [&str; 4] = ["dimensionality", "artists", "data_points", "has_legend"];
 
 // Why: the labels are the menu the reader sees first, so they have to be the words they would look for. Two kinds
 // of word have to be there. The structural ones say what a figure is made of, which is how a reader who knows the
@@ -334,8 +326,7 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
     let values: Vec<String> = labels.values.iter().map(FacetValue::text).collect();
 
     for wanted in [
-        "2d", "3d", "contour", "image", "line", "quiver", "scatter", "surface", "subplots",
-        "legend", "log",
+        "contour", "image", "line", "quiver", "scatter", "surface", "subplots", "legend", "log",
     ] {
         assert!(
             values.iter().any(|value| value == wanted),
@@ -365,7 +356,8 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
 }
 
 // Why: the counts are what make the menu worth opening rather than guessing, and they have to come from the whole
-// gallery rather than from whatever the panel has drawn.
+// gallery rather than from whatever the panel has drawn. The surfaces are the count worth pinning, because they
+// are the request the browser was built for and because several entries draw one without saying so in their title.
 #[test]
 fn the_menu_counts_every_figure_behind_a_label() {
     let cards = cards();
@@ -376,14 +368,14 @@ fn the_menu_counts_every_figure_behind_a_label() {
         .expect("the gallery has labels");
     let counts = Browse::default().counts(&cards, labels);
 
-    let solid = counts
-        .get(&FacetValue::Text("3d".to_owned()))
+    let surfaces = counts
+        .get(&FacetValue::Text("surface".to_owned()))
         .copied()
         .unwrap_or_default();
     assert_eq!(
-        solid,
-        found("label:3d").len(),
-        "the count beside 3d is how many figures asking for 3d would leave"
+        surfaces,
+        found("label:surface").len(),
+        "the count beside surface is how many figures asking for surfaces would leave"
     );
     assert!(
         counts.values().sum::<usize>() > all().len(),
@@ -511,22 +503,6 @@ fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
             );
         }
 
-        // The headline kind is one value where the labels are a set, so it has to be one of the kinds the figure
-        // actually draws; which of them is the headline is the entry's own judgement and not something a test can
-        // settle.
-        let drawn: BTreeSet<String> = structural(&ir)
-            .into_iter()
-            .filter(|label| ARTIST_KINDS.contains(&label.as_str()))
-            .collect();
-        let kind = parameters.get("kind").expect("the kind");
-        let Parameter::String(kind) = kind else {
-            panic!("the gallery entry {slug:?} writes a kind that is not text: {kind:?}");
-        };
-        assert!(
-            drawn.contains(kind),
-            "the gallery entry {slug:?} calls itself a {kind:?} figure and draws {drawn:?}"
-        );
-
         let solid = ir
             .axes
             .iter()
@@ -563,6 +539,38 @@ fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
             Some(&Parameter::Bool(legend)),
             "the gallery entry {slug:?} says whether any of its axes shows a legend"
         );
+    }
+}
+
+// Why: a fact written twice is worse than a fact written once, because a reader cannot tell whether the two
+// entries mean the same thing. A figure labelled "3d" that also says `dimensionality` is 3D offers the reader two
+// ways to ask the same question, in a panel that presents them as different questions with counts of their own,
+// and leaves whoever edits the entry next to keep them in step by hand. Which side a fact belongs on is decided by
+// how many values it has: a figure draws several kinds of artist, so the kinds are labels, and a figure has one
+// dimensionality, so that is a parameter.
+#[test]
+fn no_label_says_what_a_parameter_of_the_same_entry_already_says() {
+    for entry in all() {
+        let (figure, _warnings) = entry.build_validated().expect("a valid gallery entry");
+        let mut written: BTreeSet<String> = figure
+            .parameters()
+            .keys()
+            .map(|name| name.to_lowercase())
+            .collect();
+        written.extend(
+            figure
+                .parameters()
+                .values()
+                .map(|value| FacetValue::from(value).text().to_lowercase()),
+        );
+
+        for label in figure.labels() {
+            assert!(
+                !written.contains(&label.to_lowercase()),
+                "the gallery entry {:?} says {label:?} as a label and as a parameter: {written:?}",
+                entry.slug
+            );
+        }
     }
 }
 
@@ -609,16 +617,12 @@ fn the_gallery_can_be_put_in_order_of_how_much_data_each_figure_holds() {
     );
 }
 
-/// The words naming a kind of artist, which are the values the `kind` parameter chooses one of.
-const ARTIST_KINDS: &[&str] = &["contour", "image", "line", "quiver", "scatter", "surface"];
-
 /// Every word that says what a figure is made of rather than what it demonstrates.
 ///
 /// The list is written out because the test has to tell a structural word an entry left out from a feature word it
 /// never claimed: without it, an entry that forgot "legend" would look the same as one that simply has no legend.
 const STRUCTURAL: &[&str] = &[
-    "2d", "3d", "contour", "image", "legend", "line", "log", "quiver", "scatter", "subplots",
-    "surface",
+    "contour", "image", "legend", "line", "log", "quiver", "scatter", "subplots", "surface",
 ];
 
 // Why: the gallery is the code a reader copies, so an entry of it must be a figure IronLAB would accept. Labels are
