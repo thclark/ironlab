@@ -529,6 +529,35 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
             ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
                 accumulate(items, transform, box_);
             }
+            ItemKind::Markers(markers) => {
+                // A marker reaches half its size times the outline's furthest point from the origin, plus the
+                // reach of its edge's joins.
+                let extent = markers
+                    .outline
+                    .iter()
+                    .flat_map(|segment| match *segment {
+                        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => vec![p],
+                        PathSegment::CubicTo(c1, c2, p) => vec![c1, c2, p],
+                        PathSegment::Close => Vec::new(),
+                    })
+                    .map(|p| p.x.abs().max(p.y.abs()))
+                    .fold(0.0, f64::max);
+                let scale = linear_scale(transform);
+                for instance in &markers.instances {
+                    let edge = if instance.edge.is_some() {
+                        markers.edge_width * f64::from(crate::MITER_LIMIT) / 2.0
+                    } else {
+                        0.0
+                    };
+                    let reach = instance.size_pt / 2.0 * extent + edge;
+                    let margin = if reach.is_finite() && reach > 0.0 {
+                        reach * scale
+                    } else {
+                        0.0
+                    };
+                    box_.add(transform.apply(instance.position), margin);
+                }
+            }
             ItemKind::Image(image) => {
                 box_.add(transform.apply(Point::new(image.rect.x, image.rect.y)), 0.0);
                 box_.add(

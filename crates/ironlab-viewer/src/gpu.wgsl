@@ -532,3 +532,41 @@ fn fs_stroke(in: StrokeOutput) -> @location(0) vec4<f32> {
     }
     return stroke.color * coverage;
 }
+
+// ---- Markers ----
+
+struct MarkerVertexInput {
+    @location(0) pos: vec2<f32>,
+    @location(1) offset: vec2<f32>,
+    @location(2) slot: u32,
+    @location(3) center: vec2<f32>,
+    @location(4) z: f32,
+    @location(5) size: f32,
+    @location(6) face: vec4<f32>,
+    @location(7) edge: vec4<f32>,
+};
+
+struct MarkerOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+// The instance's centre, the outline scaled by its size and the edge's offset (in item units, unscaled), mapped
+// through the draw's item-to-figure transform; the depth is the instance's inside a depth group.
+@vertex
+fn vs_marker(in: MarkerVertexInput) -> MarkerOutput {
+    var out: MarkerOutput;
+    let item = in.center + in.size * in.pos + in.offset;
+    var z = in.z;
+    if stroke.vertex_z == 0u {
+        z = 0.0;
+    }
+    out.clip_position = clip_of(item_to_figure(item), z);
+    out.color = select(in.face, in.edge, in.slot == 1u);
+    return out;
+}
+
+@fragment
+fn fs_marker(in: MarkerOutput) -> @location(0) vec4<f32> {
+    return in.color;
+}

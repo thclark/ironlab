@@ -405,6 +405,7 @@ impl Painter<'_, '_> {
         for item in items {
             match &item.kind {
                 ItemKind::Path(path) => draw_path(surface, path),
+                ItemKind::Markers(markers) => draw_markers(surface, markers),
                 ItemKind::Glyphs(glyphs) => self.draw_glyphs(surface, glyphs)?,
                 ItemKind::Image(image) => draw_image(surface, image),
                 ItemKind::Group {
@@ -809,6 +810,52 @@ fn draw_path(surface: &mut Surface<'_>, item: &display::PathItem) {
     surface.set_fill(fill);
     surface.set_stroke(stroke);
     surface.draw_path(&path);
+}
+
+/// Draws a markers item as one path per instance: the outline scaled by the instance's size and moved to its
+/// position, filled with its face colour and stroked with its edge colour at the item's edge width, with butt caps
+/// and round joins. An invalid item draws nothing.
+fn draw_markers(surface: &mut Surface<'_>, item: &display::MarkersItem) {
+    if !item.is_valid() {
+        return;
+    }
+    for instance in &item.instances {
+        let place = |p: display::Point| {
+            display::Point::new(
+                instance.position.x + instance.size_pt * p.x,
+                instance.position.y + instance.size_pt * p.y,
+            )
+        };
+        let segments: Vec<PathSegment> = item
+            .outline
+            .iter()
+            .map(|segment| match *segment {
+                PathSegment::MoveTo(p) => PathSegment::MoveTo(place(p)),
+                PathSegment::LineTo(p) => PathSegment::LineTo(place(p)),
+                PathSegment::CubicTo(c1, c2, p) => {
+                    PathSegment::CubicTo(place(c1), place(c2), place(p))
+                }
+                PathSegment::Close => PathSegment::Close,
+            })
+            .collect();
+        let path = display::PathItem {
+            segments,
+            fill: instance.face.map(|color| display::Fill {
+                color,
+                rule: display::FillRule::NonZero,
+            }),
+            stroke: instance.edge.map(|color| display::Stroke {
+                color,
+                width: item.edge_width,
+                dash: Vec::new(),
+                dash_offset: 0.0,
+                cap: display::LineCap::Butt,
+                join: display::LineJoin::Round,
+            }),
+            depth: None,
+        };
+        draw_path(surface, &path);
+    }
 }
 
 /// Converts path segments, returning `None` when the path does not start with a move, has a non-finite coordinate or

@@ -3,9 +3,11 @@
 //! The scene compiler never intends to emit such items, but a single NaN from user data or a numerical corner case
 //! must not cost the user the whole export or produce a file that some viewers reject.
 
+use std::sync::Arc;
+
 use ironlab_scene::display::{
-    Fill, FillRule, GlyphsItem, Item, ItemKind, PathItem, PathSegment, PlacedGlyph, Point, Rect,
-    Rgba, Transform,
+    Fill, FillRule, GlyphsItem, Item, ItemKind, MarkersItem, PathItem, PathSegment, PlacedGlyph,
+    Point, Rect, Rgba, Transform,
 };
 use ironlab_text::TextItem;
 
@@ -20,7 +22,7 @@ const BAD_REGION: Rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 /// Whether the problematic item must leave no ink at all, or may be drawn in a corrected form.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Expect {
-    /// The item has non-finite geometry and must be skipped entirely.
+    /// The item has non-finite geometry, or nothing to draw, and must leave no ink at all.
     Skipped,
     /// The item has an invalid attribute that may either be skipped or be corrected (for example by clamping).
     SkippedOrCorrected,
@@ -288,6 +290,19 @@ fn glyph_identifier_beyond_the_font_does_not_panic() {
     // must not abort the export.
     let bad = glyph_run(|run| run.glyphs[0].id = u16::MAX);
     assert_survives("glyph-id-out-of-range", bad, Expect::SkippedOrCorrected);
+}
+
+#[test]
+fn markers_item_with_no_instances_writes_nothing() {
+    // WHY: a markers item with no instances is valid and draws nothing, and the exporter must write nothing for it:
+    // an exporter that wrote the outline once regardless, or an empty path with a fill and a stroke, would leave a
+    // marker at the origin of the item's space or an operator without a current point, which some consumers reject.
+    let bad = item(ItemKind::Markers(MarkersItem {
+        outline: Arc::from(rect_segments(Rect::new(-0.5, -0.5, 1.0, 1.0))),
+        edge_width: 1.0,
+        instances: Vec::new(),
+    }));
+    assert_survives("no-marker-instances", bad, Expect::Skipped);
 }
 
 #[test]

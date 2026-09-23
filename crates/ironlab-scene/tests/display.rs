@@ -1,15 +1,15 @@
-//! The depth information the display list carries for three-dimensional artists, and how the
-//! traversals present depth groups to backends.
+//! The depth information the display list carries for three-dimensional artists, the validity of
+//! a markers item, and how the traversals present depth groups to backends.
 //!
 //! Display lists are built by hand here, because the contract under test belongs to the display
-//! list itself (which depths are valid, and what a backend sees of a depth group), not to the
-//! scene compiler that produces it.
+//! list itself (which depths and markers are valid, and what a backend sees of a depth group), not
+//! to the scene compiler that produces it.
 
 use std::sync::Arc;
 
 use ironlab_scene::display::{
-    Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, PathItem,
-    PathSegment, Point, Rect, Rgba, Transform,
+    Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, MarkerInstance,
+    MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Transform,
 };
 
 #[track_caller]
@@ -55,27 +55,48 @@ fn path(segments: Vec<PathSegment>, depth: Option<Depth>) -> PathItem {
     }
 }
 
-/// A filled unit square whose first vertex is at `(x, 0)`, so that `marker_of` can tell the
-/// leaves of a list apart after a traversal.
-fn marker(x: f64) -> Item {
-    let segments = vec![
-        PathSegment::MoveTo(Point::new(x, 0.0)),
-        PathSegment::LineTo(Point::new(x + 1.0, 0.0)),
-        PathSegment::LineTo(Point::new(x + 1.0, 1.0)),
-        PathSegment::LineTo(Point::new(x, 1.0)),
+/// The outline of a unit square centred on the origin.
+fn unit_square() -> Arc<[PathSegment]> {
+    Arc::from(vec![
+        PathSegment::MoveTo(Point::new(-0.5, -0.5)),
+        PathSegment::LineTo(Point::new(0.5, -0.5)),
+        PathSegment::LineTo(Point::new(0.5, 0.5)),
+        PathSegment::LineTo(Point::new(-0.5, 0.5)),
         PathSegment::Close,
-    ];
-    item(ItemKind::Path(path(segments, None)))
+    ])
+}
+
+/// An opaque black marker four points wide at `position`, at depth 0, from the first point of its
+/// artist.
+fn instance(position: Point) -> MarkerInstance {
+    MarkerInstance {
+        position,
+        depth: 0.0,
+        size_pt: 4.0,
+        face: Some(Rgba::BLACK),
+        edge: Some(Rgba::BLACK),
+        source_index: 0,
+    }
+}
+
+/// A markers item of one unit square instance centred at `(x, 0)`, so that `marker_of` can tell
+/// the leaves of a list apart after a traversal.
+fn marker(x: f64) -> Item {
+    item(ItemKind::Markers(MarkersItem {
+        outline: unit_square(),
+        edge_width: 0.5,
+        instances: vec![instance(Point::new(x, 0.0))],
+    }))
 }
 
 /// The `x` that a leaf was built with by `marker`.
 fn marker_of(leaf: &Item) -> f64 {
     match &leaf.kind {
-        ItemKind::Path(path) => match path.segments.first() {
-            Some(PathSegment::MoveTo(p)) => p.x,
-            other => panic!("a marker path starts with {other:?}"),
+        ItemKind::Markers(markers) => match markers.instances.as_slice() {
+            [only] => only.position.x,
+            other => panic!("a marker item holds {} instances, not one", other.len()),
         },
-        other => panic!("a leaf that is not a marker path: {other:?}"),
+        other => panic!("a leaf that is not a markers item: {other:?}"),
     }
 }
 
@@ -144,8 +165,8 @@ fn a_depth_plane_evaluates_the_affine_depth_at_a_point() {
     assert_close(tilted.at(Point::new(2.0, -1.0)), 7.5, 1e-12);
 }
 
-// WHY: a constant plane is what everything without a tilt (a marker, an edge-on face) is given,
-// so it must give the same depth everywhere in the item's space, not only at the origin.
+// WHY: a constant plane is what everything without a tilt (an edge-on face) is given, so it must
+// give the same depth everywhere in the item's space, not only at the origin.
 #[test]
 fn a_constant_depth_plane_has_the_same_depth_everywhere() {
     let constant = DepthPlane::constant(4.0);
@@ -281,6 +302,139 @@ fn an_image_with_a_depth_plane_is_valid_only_when_the_plane_is_finite() {
     assert!(image(Some(plane(0.1, 0.2, -3.0))).is_valid());
     assert!(!image(Some(plane(f64::NAN, 0.0, 0.0))).is_valid());
     assert!(!image(Some(plane(0.0, 0.0, f64::NEG_INFINITY))).is_valid());
+}
+
+// WHY: a backend draws every instance of a markers item without checking it, scaling one outline
+// by each size and filling and stroking it with each colour, so one bad value anywhere would
+// poison every marker of the run: the outline must be a path it can walk (starting with `MoveTo`,
+// with something after it, and finite), the edge width a usable stroke width, and every instance
+// a finite position, a positive size, a depth a depth buffer can take and colours whose channels
+// are numbers. An item with no instances is valid and draws nothing, and an instance with neither
+// face nor edge is valid too, since it asks for nothing to be drawn.
+#[test]
+fn a_markers_item_is_valid_only_when_its_outline_its_edge_width_and_every_instance_are_usable() {
+    let reference = || MarkersItem {
+        outline: unit_square(),
+        edge_width: 0.5,
+        instances: vec![
+            instance(Point::new(1.0, 2.0)),
+            instance(Point::new(3.0, 4.0)),
+        ],
+    };
+    assert!(reference().is_valid(), "the reference item is valid");
+    /// A description of the change, the edit that makes it to the reference item, and whether the
+    /// item is still valid.
+    type Case = (&'static str, fn(&mut MarkersItem), bool);
+    let cases: Vec<Case> = vec![
+        ("no instances", |m| m.instances.clear(), true),
+        ("a zero edge width", |m| m.edge_width = 0.0, true),
+        (
+            "an instance with neither face nor edge",
+            |m| {
+                m.instances[1].face = None;
+                m.instances[1].edge = None;
+            },
+            true,
+        ),
+        (
+            "an outline that starts with LineTo",
+            |m| {
+                let mut segments = m.outline.to_vec();
+                segments[0] = PathSegment::LineTo(Point::new(-0.5, -0.5));
+                m.outline = Arc::from(segments);
+            },
+            false,
+        ),
+        (
+            "an outline of a lone MoveTo",
+            |m| m.outline = Arc::from(vec![PathSegment::MoveTo(Point::new(0.0, 0.0))]),
+            false,
+        ),
+        (
+            "an empty outline",
+            |m| m.outline = Arc::from(Vec::new()),
+            false,
+        ),
+        (
+            "an outline with a NaN vertex",
+            |m| {
+                let mut segments = m.outline.to_vec();
+                segments[2] = PathSegment::LineTo(Point::new(f64::NAN, 0.5));
+                m.outline = Arc::from(segments);
+            },
+            false,
+        ),
+        (
+            "an outline with an infinite control point",
+            |m| {
+                let mut segments = m.outline.to_vec();
+                segments[2] = PathSegment::CubicTo(
+                    Point::new(0.5, f64::INFINITY),
+                    Point::new(0.5, 0.5),
+                    Point::new(0.5, 0.5),
+                );
+                m.outline = Arc::from(segments);
+            },
+            false,
+        ),
+        ("a negative edge width", |m| m.edge_width = -0.5, false),
+        ("a NaN edge width", |m| m.edge_width = f64::NAN, false),
+        (
+            "an instance at a NaN position",
+            |m| m.instances[1].position = Point::new(f64::NAN, 0.0),
+            false,
+        ),
+        (
+            "an instance at an infinite position",
+            |m| m.instances[0].position = Point::new(0.0, f64::NEG_INFINITY),
+            false,
+        ),
+        (
+            "an instance of zero size",
+            |m| m.instances[1].size_pt = 0.0,
+            false,
+        ),
+        (
+            "an instance of negative size",
+            |m| m.instances[1].size_pt = -4.0,
+            false,
+        ),
+        (
+            "an instance of infinite size",
+            |m| m.instances[1].size_pt = f64::INFINITY,
+            false,
+        ),
+        (
+            "an instance at a NaN depth",
+            |m| m.instances[0].depth = f64::NAN,
+            false,
+        ),
+        (
+            "an instance at an infinite depth",
+            |m| m.instances[1].depth = f64::INFINITY,
+            false,
+        ),
+        (
+            "an instance with a NaN face channel",
+            |m| m.instances[1].face = Some(Rgba::new(0.0, f32::NAN, 0.0, 1.0)),
+            false,
+        ),
+        (
+            "an instance with a NaN edge alpha",
+            |m| m.instances[0].edge = Some(Rgba::new(0.0, 0.0, 0.0, f32::NAN)),
+            false,
+        ),
+    ];
+    for (what, edit, expected) in cases {
+        let mut item = reference();
+        edit(&mut item);
+        assert_eq!(
+            item.is_valid(),
+            expected,
+            "an item with {what} is {}",
+            if expected { "valid" } else { "invalid" }
+        );
+    }
 }
 
 // WHY: both backends draw leaves through `visit_leaves`, and a backend without a depth buffer
