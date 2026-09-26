@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Related:** [ADR 0001](0001-retained-figure-ir-and-protobuf-wire-format.md), [ADR 0002](0002-egui-viewer-on-rerun-family-crates.md), [ADR 0008](0008-typed-edits-and-a-view-overlay.md)
+**Related:** [ADR 0001](0001-retained-figure-ir-and-protobuf-wire-format.md), [ADR 0002](0002-egui-viewer-on-rerun-family-crates.md) (whose tab strip this supersedes), [ADR 0008](0008-typed-edits-and-a-view-overlay.md)
 
 ## Context
 
@@ -138,6 +138,12 @@ figures](../guides/describing-figures.md) states the rule, explains when to reac
 parameter, and says plainly that whatever you might want to search by must be written down. The browser tells a user
 the same thing at the moment it matters: a collection of several figures carrying no description at all is offered a
 tip pointing at that page, rather than an empty menu that looks broken.
+
+The browser replaces the tab strip of [ADR 0002](0002-egui-viewer-on-rerun-family-crates.md) rather than sitting
+beside it: the two answered the same question, and the strip answered it badly once there were more titles than fit
+across the window. One figure is shown at a time, chosen in the browser, and `egui_tiles` is no longer a dependency
+of the viewer. Showing two figures side by side, which the tiles allowed in principle and nobody used, would return
+as a feature of its own if it is wanted.
 
 What the viewer knows about a figure stays narrow, which keeps `browse` a pure function of the collection and the
 user's choices, testable without a window, in the same way that [ADR 0008](0008-typed-edits-and-a-view-overlay.md)

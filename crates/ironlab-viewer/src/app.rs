@@ -1,8 +1,9 @@
 //! The eframe viewer application.
 //!
-//! Each figure is shown in its own `egui_tiles` tab. A tab has a toolbar ([`toolbar`]) above a canvas that draws the
-//! figure at its physical aspect ratio, scaled to fit and centred in the area below the toolbar on a neutral
-//! surround. The canvas compiles the scene when the figure is first shown and recompiles it after every change to
+//! One figure is shown at a time, chosen in the figure browser of [`crate::sidebar`] when more than one is open.
+//! The figure has a toolbar ([`toolbar`]) above a canvas that draws it at its physical aspect ratio, scaled to fit
+//! and centred in the area below the toolbar on a neutral surround, and below the canvas a strip of details: the
+//! labels and parameters the figure carries, which are what the browser narrows the collection by. The canvas compiles the scene when the figure is first shown and recompiles it after every change to
 //! the figure, so that each gesture is hit-tested against the geometry that is on screen. It converts pointer input
 //! into figure-space calls on [`FigureState`], and draws the figure as one draw list from
 //! [`crate::canvas::tessellate`] through the viewer's own pipelines ([`crate::gpu`]) by a paint callback in the
@@ -10,8 +11,8 @@
 //! rebuilt only when the scene changes or the figure's scale on screen has changed enough for the flattening of
 //! curves to show; a pan, a resize or a frame in which nothing moved uploads nothing but, at most, the mapping.
 //!
-//! A tab also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar opens
-//! into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
+//! Each figure also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar
+//! opens into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
 //!
 //! Everything shown, exported and saved is the displayed figure of [`FigureState`]: the source figure with the user's
 //! overlay applied. Pressing `R` resets the view of the active figure, and ⌘Z and ⌘⇧Z (Ctrl+Z and Ctrl+Shift+Z away
@@ -29,7 +30,7 @@ use ironlab_scene::display::Point;
 use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
-use crate::browse::FigureCard;
+use crate::browse::{FacetValue, FigureCard};
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::{DEPTH_FORMAT, DrawList, GpuCallback, GpuConfig, GpuPainter};
 use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
@@ -56,6 +57,31 @@ const REBUILD_RATIO: f32 = 1.25;
 /// The radius, in egui points, of the ring drawn around the data point under the pointer, and around the centre of
 /// a pixel too small on screen to outline.
 const DATATIP_RING_POINTS: f32 = 4.0;
+
+/// The identifier of the strip of details below the canvas, which is also what a test loads its geometry by.
+pub const DETAILS_ID: &str = "ironlab_figure_details";
+
+/// The height beyond which the strip of details scrolls, in egui points, which is room for a handful of parameters
+/// before the strip starts taking the canvas's room.
+const DETAILS_MAX_HEIGHT: f32 = 150.0;
+
+/// Draws one label of a figure as a tag: a small word in a frame of its own, so that a row of them reads as a set
+/// of words rather than as a sentence.
+fn tag(ui: &mut egui::Ui, label: &str) {
+    egui::Frame::new()
+        .fill(crate::style::TAG_FILL)
+        .stroke(egui::Stroke::new(1.0, crate::style::TAG_STROKE))
+        .corner_radius(2)
+        .inner_margin(egui::Margin::symmetric(4, 1))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(label)
+                    .monospace()
+                    .small()
+                    .color(crate::style::TAG_TEXT),
+            );
+        });
+}
 
 /// How long a notification stays on screen, in seconds.
 const NOTIFICATION_SECONDS: f64 = 5.0;
@@ -172,31 +198,16 @@ pub struct ToolbarResponse {
 /// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
 /// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
 ///
-/// When `show_browser` is given, a "Figures" button opens and closes the figure browser through it, at the left of
-/// the toolbar because choosing which figure to look at comes before anything done to the one on screen. It is
-/// `None` when the viewer holds one figure, which is nothing to browse.
+/// The tools and the history sit at the left and everything that acts on the whole figure at the right, so that
+/// the two groups read as what they are and the space between them is not filled with buttons.
 pub fn toolbar(
     ui: &mut egui::Ui,
     state: &mut FigureState,
     problems: &[Problem],
     show_properties: &mut bool,
-    show_browser: Option<&mut bool>,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
     ui.horizontal(|ui| {
-        if let Some(open) = show_browser {
-            if ui
-                .add(egui::Button::selectable(*open, "Figures"))
-                .on_hover_text(
-                    "Show or hide the figure browser, which filters, orders and groups the open figures by their \
-                     parameters.",
-                )
-                .clicked()
-            {
-                *open = !*open;
-            }
-            ui.separator();
-        }
         let has_3d = state.has_3d();
         for (tool, label, hint, enabled) in [
             (
@@ -242,45 +253,47 @@ pub fn toolbar(
         {
             response.changed |= state.redo();
         }
-        ui.separator();
-        if ui
-            .button("Reset view")
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Laid out from the right edge inwards, so the first widget added is the rightmost.
+            if let Some(label) = indicator_label(problems) {
+                problems_indicator(ui, state.figure(), problems, &label);
+                ui.separator();
+            }
+            if ui
+                .add(egui::Button::selectable(*show_properties, "Properties"))
+                .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
+                .clicked()
+            {
+                *show_properties = !*show_properties;
+            }
+            if ui
+                .button("Save figure…")
+                .on_hover_text(
+                    "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
+                )
+                .clicked()
+            {
+                response.save_requested = true;
+            }
+            if ui
+                .button("Export PDF…")
+                .on_hover_text("Save the figure, as currently shown, to a PDF file.")
+                .clicked()
+            {
+                response.export_requested = true;
+            }
+            if ui
+                .button("Reset view")
             .on_hover_text(
                 "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
                  you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
                  use Revert all changes at the foot of the property editor.",
             )
-            .clicked()
-        {
-            response.changed |= state.reset_view();
-        }
-        if ui
-            .button("Export PDF…")
-            .on_hover_text("Save the figure, as currently shown, to a PDF file.")
-            .clicked()
-        {
-            response.export_requested = true;
-        }
-        if ui
-            .add(egui::Button::selectable(*show_properties, "Properties"))
-            .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
-            .clicked()
-        {
-            *show_properties = !*show_properties;
-        }
-        if ui
-            .button("Save figure…")
-            .on_hover_text(
-                "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
-            )
-            .clicked()
-        {
-            response.save_requested = true;
-        }
-        if let Some(label) = indicator_label(problems) {
-            ui.separator();
-            problems_indicator(ui, state.figure(), problems, &label);
-        }
+                .clicked()
+            {
+                response.changed |= state.reset_view();
+            }
+        });
     });
     response
 }
@@ -376,7 +389,6 @@ impl FigurePane {
         text: &TextEngine,
         gpu: Option<GpuConfig>,
         notification: &mut Option<Notification>,
-        show_browser: Option<&mut bool>,
     ) {
         self.scene(text);
         let mut problems: Vec<Problem> = self.scene.as_ref().map_or_else(Vec::new, |scene| {
@@ -386,13 +398,7 @@ impl FigurePane {
         let response = egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
-                toolbar(
-                    ui,
-                    &mut self.state,
-                    &problems,
-                    &mut self.panel.open,
-                    show_browser,
-                )
+                toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
             })
             .inner;
         if response.changed {
@@ -412,7 +418,60 @@ impl FigurePane {
         {
             *notification = Some(outcome);
         }
+        self.details(ui);
         self.canvas(ui, text, gpu);
+    }
+
+    /// Draws the strip below the canvas that says what the figure carries: its labels as tags, then its parameters
+    /// as a table, in ascending order of name.
+    ///
+    /// It is the same information the property editor edits, shown where it can be read at a glance beside the
+    /// figure it describes, because it is what the browser narrows the collection by and a reader choosing between
+    /// figures wants to see it without opening an editor. The strip is drawn only when there is something in it,
+    /// so a figure that carries nothing keeps the whole height for its canvas.
+    fn details(&mut self, ui: &mut egui::Ui) {
+        let figure = self.state.figure();
+        if figure.labels.is_empty() && figure.parameters.is_empty() {
+            return;
+        }
+        let labels = figure.labels.clone();
+        let parameters: Vec<(String, String)> = figure
+            .parameters
+            .iter()
+            .map(|(name, value)| (name.clone(), FacetValue::from(value).text()))
+            .collect();
+        egui::Panel::bottom(egui::Id::new(DETAILS_ID))
+            .resizable(false)
+            .show_separator_line(true)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("ironlab_details_scroll")
+                    .max_height(DETAILS_MAX_HEIGHT)
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        if !labels.is_empty() {
+                            ui.horizontal_wrapped(|ui| {
+                                for label in &labels {
+                                    tag(ui, label);
+                                }
+                            });
+                        }
+                        if !parameters.is_empty() {
+                            egui::Grid::new("ironlab_details_parameters")
+                                .num_columns(2)
+                                .spacing([12.0, 2.0])
+                                .show(ui, |ui| {
+                                    for (name, value) in &parameters {
+                                        ui.label(
+                                            egui::RichText::new(name).monospace().small().weak(),
+                                        );
+                                        ui.label(egui::RichText::new(value).monospace().small());
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
+            });
     }
 
     /// Asks for a destination and writes the displayed figure as a PDF there. Returns a notification of the outcome,
@@ -717,53 +776,16 @@ struct Notification {
     shown_at: f64,
 }
 
-/// Connects the figure panes to `egui_tiles`.
-struct TabBehavior<'a> {
-    text: &'a TextEngine,
-    gpu: Option<GpuConfig>,
-    notification: &'a mut Option<Notification>,
-    /// Whether the figure browser is open, or `None` when there is one figure and nothing to browse.
-    show_browser: Option<&'a mut bool>,
-}
-
-impl egui_tiles::Behavior<FigurePane> for TabBehavior<'_> {
-    fn pane_ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        _tile_id: egui_tiles::TileId,
-        pane: &mut FigurePane,
-    ) -> egui_tiles::UiResponse {
-        pane.ui(
-            ui,
-            self.text,
-            self.gpu,
-            self.notification,
-            self.show_browser.as_deref_mut(),
-        );
-        egui_tiles::UiResponse::None
-    }
-
-    fn tab_title_for_pane(&mut self, pane: &FigurePane) -> egui::WidgetText {
-        pane.title.clone().into()
-    }
-
-    fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
-        egui_tiles::SimplificationOptions {
-            all_panes_must_have_tabs: true,
-            ..Default::default()
-        }
-    }
-}
-
-/// The viewer application: one tab per figure.
+/// The viewer application: the open figures, one of which is shown.
 pub struct ViewerApp {
-    tree: egui_tiles::Tree<FigurePane>,
-    /// Tile identifiers of the figure panes, in the order the figures were given.
-    panes: Vec<egui_tiles::TileId>,
+    /// The figures, in the order they were given.
+    panes: Vec<FigurePane>,
+    /// The index of the figure shown, into `panes`.
+    shown: usize,
     /// What the figure browser shows of each figure, in the order the figures were given. It is read once, when
     /// the figures are opened, because counting the values of a figure's data on every frame would be felt.
     cards: Vec<FigureCard>,
-    /// The figure browser, which chooses which tab is shown.
+    /// The figure browser, which chooses which figure is shown.
     browser: FigureBrowser,
     text: Arc<TextEngine>,
     notification: Option<Notification>,
@@ -773,25 +795,23 @@ pub struct ViewerApp {
 }
 
 impl ViewerApp {
-    /// Creates an application with one tab per `(title, figure)` pair, in order.
+    /// Creates an application holding the `(title, figure)` pairs in order, showing the first.
     #[must_use]
     pub fn new(figures: Vec<(String, Figure)>, text: Arc<TextEngine>) -> Self {
         let cards: Vec<FigureCard> = figures
             .iter()
             .map(|(title, figure)| FigureCard::of(title.clone(), figure))
             .collect();
-        let mut tiles = egui_tiles::Tiles::default();
-        let panes: Vec<egui_tiles::TileId> = figures
+        let panes: Vec<FigurePane> = figures
             .into_iter()
-            .map(|(title, figure)| tiles.insert_pane(FigurePane::new(title, figure)))
+            .map(|(title, figure)| FigurePane::new(title, figure))
             .collect();
-        let root = tiles.insert_tab_tile(panes.clone());
-        // The browser opens with the collection, because a collection large enough to need browsing is one the
-        // reader cannot see the whole of in the tab strip. One figure is not a collection, and opens as before.
+        // The browser opens with the collection: it is the only way to reach a figure other than the first. One
+        // figure is not a collection, and opens as before.
         let browser = FigureBrowser::for_collection(panes.len());
         Self {
-            tree: egui_tiles::Tree::new("ironlab_viewer_tabs", root, tiles),
             panes,
+            shown: 0,
             cards,
             browser,
             text,
@@ -800,16 +820,10 @@ impl ViewerApp {
         }
     }
 
-    /// The index, in the order the figures were given, of the figure whose tab is shown.
-    ///
-    /// It is 0 when no pane is active, which happens only before the first frame has laid the tabs out.
+    /// The index, in the order the figures were given, of the figure shown.
     #[must_use]
     pub fn shown(&self) -> usize {
-        self.tree
-            .active_tiles()
-            .iter()
-            .find_map(|id| self.panes.iter().position(|pane| pane == id))
-            .unwrap_or(0)
+        self.shown
     }
 
     /// What the figure browser shows of each figure, in the order the figures were given.
@@ -831,10 +845,11 @@ impl ViewerApp {
 
     /// Shows the figure at `index` in the order the figures were given, returning whether the shown figure changed.
     pub fn show_figure(&mut self, index: usize) -> bool {
-        match self.panes.get(index).copied() {
-            Some(wanted) => self.tree.make_active(|id, _| id == wanted),
-            None => false,
+        if index >= self.panes.len() || index == self.shown {
+            return false;
         }
+        self.shown = index;
+        true
     }
 
     /// Sets the render target that the viewer's own pipelines draw into, from the window's graphics state.
@@ -847,8 +862,7 @@ impl ViewerApp {
     /// Returns the interactive state of the figure at `index` in the order the figures were given.
     #[must_use]
     pub fn figure_state(&self, index: usize) -> Option<&FigureState> {
-        let id = *self.panes.get(index)?;
-        self.tree.tiles.get_pane(&id).map(|pane| &pane.state)
+        self.panes.get(index).map(|pane| &pane.state)
     }
 
     /// Returns the draw list last built for the figure at `index`, or `None` before its canvas has been drawn. The
@@ -856,10 +870,8 @@ impl ViewerApp {
     /// built for, and is otherwise the same `Arc` from frame to frame.
     #[must_use]
     pub fn draw_list(&self, index: usize) -> Option<Arc<DrawList>> {
-        let id = *self.panes.get(index)?;
-        self.tree
-            .tiles
-            .get_pane(&id)
+        self.panes
+            .get(index)
             .and_then(|pane| pane.built.as_ref())
             .map(|built| Arc::clone(&built.list))
     }
@@ -869,24 +881,17 @@ impl ViewerApp {
     /// The scene of the figure is recompiled before it is next drawn, so that edits made through this reference are
     /// shown.
     pub fn figure_state_mut(&mut self, index: usize) -> Option<&mut FigureState> {
-        let id = *self.panes.get(index)?;
-        match self.tree.tiles.get_mut(id)? {
-            egui_tiles::Tile::Pane(pane) => {
-                pane.invalidate();
-                Some(&mut pane.state)
-            }
-            egui_tiles::Tile::Container(_) => None,
-        }
+        let pane = self.panes.get_mut(index)?;
+        pane.invalidate();
+        Some(&mut pane.state)
     }
 
-    /// Applies a change to the figure state of every tab that is currently shown, recompiling the tabs it changes.
-    fn for_active_panes(&mut self, change: impl Fn(&mut FigureState) -> bool) {
-        for id in self.tree.active_tiles() {
-            if let Some(egui_tiles::Tile::Pane(pane)) = self.tree.tiles.get_mut(id)
-                && change(&mut pane.state)
-            {
-                pane.invalidate();
-            }
+    /// Applies a change to the figure state of the figure shown, recompiling it if it changed.
+    fn for_shown_pane(&mut self, change: impl Fn(&mut FigureState) -> bool) {
+        if let Some(pane) = self.panes.get_mut(self.shown)
+            && change(&mut pane.state)
+        {
+            pane.invalidate();
         }
     }
 
@@ -952,20 +957,18 @@ impl eframe::App for ViewerApp {
             })
         };
         if reset {
-            self.for_active_panes(FigureState::reset_view);
+            self.for_shown_pane(FigureState::reset_view);
         }
         if redo {
-            self.for_active_panes(FigureState::redo);
+            self.for_shown_pane(FigureState::redo);
         }
         if undo {
-            self.for_active_panes(FigureState::undo);
+            self.for_shown_pane(FigureState::undo);
         }
-        // The browser is a panel, so it is added before the central panel that holds the tabs; a panel takes its
-        // room from what is left, and the central panel takes what remains.
-        let browsable = self.panes.len() > 1;
-        if browsable {
-            let shown = self.shown();
-            let chosen = figure_browser(ui, &mut self.browser, &self.cards, shown).chosen;
+        // The browser is a panel, so it is added before the central panel that holds the figure; a panel takes
+        // its room from what is left, and the central panel takes what remains.
+        if self.panes.len() > 1 {
+            let chosen = figure_browser(ui, &mut self.browser, &self.cards, self.shown).chosen;
             if let Some(index) = chosen {
                 self.show_figure(index);
             }
@@ -974,19 +977,16 @@ impl eframe::App for ViewerApp {
             .inner_margin(0)
             .show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
-                let mut behavior = TabBehavior {
-                    text: &self.text,
-                    gpu: self.gpu,
-                    notification: &mut self.notification,
-                    show_browser: browsable.then_some(&mut self.browser.open),
-                };
-                self.tree.ui(&mut behavior, ui);
+                if let Some(pane) = self.panes.get_mut(self.shown) {
+                    pane.ui(ui, &self.text, self.gpu, &mut self.notification);
+                }
             });
         self.show_notification(ui.ctx());
     }
 }
 
-/// Opens a native window showing `figures` as tabs and blocks until it is closed.
+/// Opens a native window showing `figures`, with the browser beside them when there are several, and blocks until
+/// it is closed.
 ///
 /// The window is titled "IronLAB" and uses the wgpu backend with four-sample anti-aliasing and a depth buffer, which
 /// the viewer's own pipelines draw the three-dimensional axes with. Its text sizes and colours come from

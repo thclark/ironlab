@@ -30,8 +30,9 @@ use crate::browse::{
     has_nothing_to_browse_by,
 };
 
-/// The width the browser opens at, in egui points, which is wide enough for a figure's title beside its count.
-pub const WIDTH: f32 = 300.0;
+/// The width the browser opens at, in egui points: wide enough for the order and the grouping to share one row and
+/// for a figure's title not to be cut short in the ordinary case.
+pub const WIDTH: f32 = 336.0;
 
 /// The narrowest the browser can be dragged, in egui points, below which a title tells the reader nothing.
 pub const MIN_WIDTH: f32 = 220.0;
@@ -47,6 +48,12 @@ const MENU_LIST_HEIGHT: f32 = 240.0;
 
 /// How many values of a facet the menu offers before the rest are reached by typing in its search field.
 const MENU_VALUES: usize = 60;
+
+/// The room between the edge of a row of the list and its text, in egui points, sideways and up and down.
+const ROW_PADDING: egui::Vec2 = egui::vec2(9.0, 5.0);
+
+/// The width of the bar drawn down the left edge of the row of the figure shown, in egui points.
+const SELECTED_BAR: f32 = 2.0;
 
 /// The hint shown in the empty search field, which is also where the typed form is taught.
 const SEARCH_HINT: &str = "Search, or rig:CFD angle>=8 -stalled";
@@ -172,7 +179,7 @@ fn contents(
         .inner
 }
 
-/// Draws the search field, the filter chips and the order and grouping.
+/// Draws the search field, the filter chips, and the order and grouping on one row.
 fn controls(
     ui: &mut egui::Ui,
     browser: &mut FigureBrowser,
@@ -181,7 +188,7 @@ fn controls(
 ) {
     let search = egui::TextEdit::singleline(&mut browser.browse.query)
         .hint_text(SEARCH_HINT)
-        .desired_width(ui.available_width());
+        .desired_width(f32::INFINITY);
     ui.add(search).on_hover_text(
         "Type words to search the titles, labels and parameters. \
          A term such as rig:CFD or angle>=8 asks about one parameter, and a leading minus excludes.",
@@ -196,12 +203,7 @@ fn controls(
         chips(ui, browser);
     });
 
-    ui.horizontal(|ui| {
-        order_controls(ui, browser, facets);
-    });
-    ui.horizontal(|ui| {
-        group_control(ui, browser, facets);
-    });
+    order_and_group(ui, browser, facets);
 }
 
 /// Draws the note shown when no figure of the collection carries a label or a parameter.
@@ -237,7 +239,7 @@ fn add_filter_menu(
     facets: &[Facet],
 ) {
     let response = ui
-        .button("Add filter")
+        .button("+ Filter")
         .on_hover_text("Narrow the list by one of the figures' parameters.");
     if response.clicked() {
         // Each opening starts at the list of parameters, because the parameter wanted this time is rarely the one
@@ -477,9 +479,9 @@ fn range_control(ui: &mut egui::Ui, browser: &mut FigureBrowser, facet: &Facet) 
 
 /// Draws one chip per filter, and the control that takes them all back.
 ///
-/// A chip says which parameter it narrows and to what, and carries [`crate::style::REMOVE`] to say that clicking
-/// it takes the filter away. The words are what the chip means; the mark is there to be found at a glance among
-/// several of them.
+/// A chip names the parameter in small text and what it was narrowed to in ordinary text, and carries
+/// [`crate::style::REMOVE`] to say that clicking it takes the filter away. The words are what the chip means; the
+/// mark is there to be found at a glance among several of them.
 fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let mut remove = None;
     for filter in &browser.browse.filters {
@@ -495,15 +497,37 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
                 crate::browse::number_text(*high)
             ),
         };
-        let label = format!("{}: {text} {}", filter.key.name(), crate::style::REMOVE);
-        let chip = egui::Button::new(&label)
+        let name = filter.key.name();
+        let label = format!("{name}: {text} {}", crate::style::REMOVE);
+        let mut job = LayoutJob::default();
+        job.append(
+            name,
+            0.0,
+            egui::TextFormat {
+                font_id: monospace_small(ui),
+                color: ui.visuals().selection.stroke.color,
+                valign: egui::Align::Center,
+                ..Default::default()
+            },
+        );
+        job.append(
+            &format!(" {text} {}", crate::style::REMOVE),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::TextStyle::Body.resolve(ui.style()),
+                color: ui.visuals().strong_text_color(),
+                valign: egui::Align::Center,
+                ..Default::default()
+            },
+        );
+        let chip = egui::Button::new(job)
             .fill(ui.visuals().selection.bg_fill)
             .stroke(ui.visuals().selection.stroke);
-        if ui
-            .add(chip)
-            .on_hover_text("Click to remove this filter.")
-            .clicked()
-        {
+        let response = ui.add(chip).on_hover_text("Click to remove this filter.");
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
+        });
+        if response.clicked() {
             remove = Some(filter.key.clone());
         }
     }
@@ -520,68 +544,121 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     }
 }
 
-/// Draws the control of the order: what it is taken from, and which way it runs.
-fn order_controls(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
-    ui.label("Order by");
-    let selected = match &browser.browse.sort.key {
-        SortKey::Title => "title".to_owned(),
-        SortKey::Parameter(name) => name.clone(),
-    };
-    egui::ComboBox::from_id_salt("ironlab_browser_sort")
-        .selected_text(selected)
-        .width(ui.available_width() - 92.0)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut browser.browse.sort.key, SortKey::Title, "title");
-            for facet in facets {
-                if let FacetKey::Parameter(name) = &facet.key {
-                    ui.selectable_value(
-                        &mut browser.browse.sort.key,
-                        SortKey::Parameter(name.clone()),
-                        name,
-                    );
-                }
-            }
-        });
-    // The caption says which way the order runs and the arrow shows it. The arrow never stands alone: a mark on its
-    // own would leave the control unreadable to anyone who does not take the mark in.
+/// Draws the order and the grouping on one row: what the order is taken from, which way it runs, and what the list
+/// is grouped by.
+///
+/// The two share a row because they are two settings of the same list and neither needs the width of the panel;
+/// the width left after their captions and the direction button is split between the two boxes.
+fn order_and_group(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
     let descending = browser.browse.sort.descending;
-    let caption = if descending {
+    let direction = if descending {
         format!("Descending {}", crate::style::DESCENDING)
     } else {
         format!("Ascending {}", crate::style::ASCENDING)
     };
-    if ui
-        .button(caption)
-        .on_hover_text("Reverse the order.")
-        .clicked()
-    {
-        browser.browse.sort.descending = !descending;
-    }
+    ui.horizontal(|ui| {
+        let spacing = ui.spacing().item_spacing.x;
+        let measure = |ui: &egui::Ui, text: &str, style: egui::TextStyle| {
+            ui.painter()
+                .layout_no_wrap(
+                    text.to_owned(),
+                    style.resolve(ui.style()),
+                    egui::Color32::WHITE,
+                )
+                .size()
+                .x
+        };
+        let reserved = measure(ui, "SORT", egui::TextStyle::Small)
+            + measure(ui, "GROUP", egui::TextStyle::Small)
+            + measure(ui, &direction, egui::TextStyle::Button)
+            + 2.0 * ui.spacing().button_padding.x
+            + 6.0 * spacing;
+        let box_width = ((ui.available_width() - reserved) / 2.0).max(56.0);
+
+        heading_label(ui, "SORT");
+        let selected = match &browser.browse.sort.key {
+            SortKey::Title => "Title".to_owned(),
+            SortKey::Parameter(name) => name.clone(),
+        };
+        egui::ComboBox::from_id_salt("ironlab_browser_sort")
+            .selected_text(selected)
+            .width(box_width)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut browser.browse.sort.key, SortKey::Title, "Title");
+                for facet in facets {
+                    if let FacetKey::Parameter(name) = &facet.key {
+                        ui.selectable_value(
+                            &mut browser.browse.sort.key,
+                            SortKey::Parameter(name.clone()),
+                            name,
+                        );
+                    }
+                }
+            });
+        // The caption says which way the order runs and the arrow shows it. The arrow never stands alone: a mark
+        // on its own would leave the control unreadable to anyone who does not take the mark in.
+        if ui
+            .button(direction)
+            .on_hover_text("Reverse the order.")
+            .clicked()
+        {
+            browser.browse.sort.descending = !descending;
+        }
+
+        heading_label(ui, "GROUP");
+        let selected = match &browser.browse.group {
+            None => "None".to_owned(),
+            Some(key) => key.name().to_owned(),
+        };
+        egui::ComboBox::from_id_salt("ironlab_browser_group")
+            .selected_text(selected)
+            .width(box_width)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut browser.browse.group, None, "None");
+                for facet in facets {
+                    if facet.cardinality() < 2 {
+                        continue;
+                    }
+                    ui.selectable_value(
+                        &mut browser.browse.group,
+                        Some(facet.key.clone()),
+                        facet.key.name(),
+                    );
+                }
+            });
+    });
 }
 
-/// Draws the control of the grouping.
-fn group_control(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
-    ui.label("Group by");
-    let selected = match &browser.browse.group {
-        None => "nothing".to_owned(),
-        Some(key) => key.name().to_owned(),
+/// Draws the caption of a control: a short word in small capitals, quieter than the control it names.
+fn heading_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).small().weak());
+}
+
+/// The small monospaced font, which the second line of a row, the name on a chip and the count on a heading are
+/// set in: the details of a figure read as data beside its title.
+fn monospace_small(ui: &egui::Ui) -> egui::FontId {
+    egui::FontId::new(
+        egui::TextStyle::Small.resolve(ui.style()).size,
+        egui::FontFamily::Monospace,
+    )
+}
+
+/// Lays out one line of text, cut short with an ellipsis where it would run past `width`.
+fn truncated(
+    ui: &egui::Ui,
+    text: &str,
+    font_id: egui::FontId,
+    color: egui::Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::simple_singleline(text.to_owned(), font_id, color);
+    job.wrap = egui::text::TextWrapping {
+        max_width: width,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
     };
-    egui::ComboBox::from_id_salt("ironlab_browser_group")
-        .selected_text(selected)
-        .width(ui.available_width())
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut browser.browse.group, None, "nothing");
-            for facet in facets {
-                if facet.cardinality() < 2 {
-                    continue;
-                }
-                ui.selectable_value(
-                    &mut browser.browse.group,
-                    Some(facet.key.clone()),
-                    facet.key.name(),
-                );
-            }
-        });
+    ui.painter().layout_job(job)
 }
 
 /// Draws the list of figures, and returns the one chosen this frame.
@@ -618,7 +695,15 @@ fn list(
                         }
                     }
                     Row::Figure(card) => {
-                        if figure_row(ui, &cards[*card], browser, *card == selected, height) {
+                        let striped = index % 2 == 1;
+                        if figure_row(
+                            ui,
+                            &cards[*card],
+                            browser,
+                            *card == selected,
+                            striped,
+                            height,
+                        ) {
                             response.chosen = Some(*card);
                         }
                     }
@@ -633,14 +718,15 @@ fn list(
     response
 }
 
-/// The height of one row of the list: two lines of text and the padding of a button.
+/// The height of one row of the list: a line of ordinary text, a line of small text, and the padding above and
+/// below.
 ///
 /// Every row is the same height, headings included, because [`egui::ScrollArea::show_rows`] finds a row by
 /// multiplying rather than by laying out the rows above it.
 fn row_height(ui: &egui::Ui) -> f32 {
     ui.text_style_height(&egui::TextStyle::Body)
         + ui.text_style_height(&egui::TextStyle::Small)
-        + 2.0 * ui.spacing().button_padding.y
+        + 2.0 * ROW_PADDING.y
 }
 
 /// Flattens the grouped result into the rows to draw, leaving out the figures of the groups that are closed.
@@ -665,40 +751,77 @@ fn flatten(browser: &FigureBrowser, results: &crate::browse::Results) -> Vec<Row
     rows
 }
 
-/// Draws the heading of a group, and returns whether it was clicked.
+/// Draws the heading of a group: a band across the list carrying a triangle that says whether the group is open,
+/// the name of the group in small capitals, and how many figures it holds. Returns whether it was clicked.
 fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32) -> bool {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
     let label = format!(
         "{name}, {count} figures, {}",
         if open { "open" } else { "closed" }
     );
-    let mut job = LayoutJob::default();
-    job.append(
-        name,
-        0.0,
-        egui::TextFormat {
-            font_id: egui::TextStyle::Body.resolve(ui.style()),
-            color: ui.visuals().strong_text_color(),
-            ..Default::default()
-        },
-    );
-    job.append(
-        &format!("   {count}"),
-        0.0,
-        egui::TextFormat {
-            font_id: egui::TextStyle::Small.resolve(ui.style()),
-            color: ui.visuals().weak_text_color(),
-            ..Default::default()
-        },
-    );
-    let response = ui.add(
-        egui::Button::new(job)
-            .fill(ui.visuals().faint_bg_color)
-            .min_size(egui::vec2(ui.available_width(), height))
-            .wrap_mode(egui::TextWrapMode::Truncate),
-    );
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, open, label.clone())
     });
+    if !ui.is_rect_visible(rect) {
+        return response.clicked();
+    }
+    let visuals = ui.visuals();
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, visuals.faint_bg_color);
+    let hairline = visuals.widgets.noninteractive.bg_stroke;
+    painter.hline(rect.x_range(), rect.top(), hairline);
+    painter.hline(rect.x_range(), rect.bottom(), hairline);
+
+    // The triangle is painted rather than typed, as egui paints the one on a collapsing header, so that it needs
+    // no character the fonts might lack.
+    let centre = egui::pos2(rect.min.x + ROW_PADDING.x + 4.0, rect.center().y);
+    let points = if open {
+        vec![
+            centre + egui::vec2(-4.0, -2.0),
+            centre + egui::vec2(4.0, -2.0),
+            centre + egui::vec2(0.0, 3.0),
+        ]
+    } else {
+        vec![
+            centre + egui::vec2(-2.0, -4.0),
+            centre + egui::vec2(-2.0, 4.0),
+            centre + egui::vec2(3.0, 0.0),
+        ]
+    };
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        visuals.weak_text_color(),
+        egui::Stroke::NONE,
+    ));
+
+    let count = painter.layout_no_wrap(
+        count.to_string(),
+        monospace_small(ui),
+        visuals.weak_text_color(),
+    );
+    let count_x = rect.max.x - ROW_PADDING.x - count.size().x;
+    painter.galley(
+        egui::pos2(count_x, rect.center().y - count.size().y / 2.0),
+        count,
+        visuals.weak_text_color(),
+    );
+
+    let text_x = rect.min.x + ROW_PADDING.x + 16.0;
+    let title = truncated(
+        ui,
+        &name.to_uppercase(),
+        egui::TextStyle::Small.resolve(ui.style()),
+        visuals.weak_text_color(),
+        count_x - text_x - ROW_PADDING.x,
+    );
+    painter.galley(
+        egui::pos2(text_x, rect.center().y - title.size().y / 2.0),
+        title,
+        visuals.weak_text_color(),
+    );
     response
         .on_hover_text(if open {
             "Close this group."
@@ -710,28 +833,40 @@ fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32)
 
 /// Draws one figure of the list, and returns whether it was chosen.
 ///
-/// The second line says whatever the reader is most likely to want beside the title: the value the list is ordered
-/// by when it is ordered by a parameter, and the figure's labels otherwise.
+/// The row is two lines: the title, and beneath it whatever the reader is most likely to want beside the title —
+/// the value the list is ordered by when it is ordered by a parameter, and the figure's labels otherwise. Rows
+/// alternate between the panel and a fainter fill so that the eye can follow one across, and the row of the figure
+/// shown carries the selection colour with a bar down its left edge, so that it can be found in a long list at a
+/// glance.
+///
+/// The row is painted rather than built from a button, because a button centres its caption and frames itself,
+/// and neither is what a list looks like.
 fn figure_row(
     ui: &mut egui::Ui,
     card: &FigureCard,
     browser: &FigureBrowser,
     selected: bool,
+    striped: bool,
     height: f32,
 ) -> bool {
     let detail = match &browser.browse.sort.key {
         SortKey::Parameter(name) => match card.parameter(name) {
-            Some(value) => format!("{name}: {}", FacetValue::from(value).text()),
+            Some(value) => format!("{name} = {}", FacetValue::from(value).text()),
             None => format!("no {name}"),
         },
-        SortKey::Title => card.labels.join(", "),
+        SortKey::Title => card
+            .labels
+            .iter()
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", "),
     };
-    let label = format!("{}, {detail}", card.title);
-    let response = ui.add(
-        egui::Button::selectable(selected, two_line(ui, &card.title, &detail))
-            .min_size(egui::vec2(ui.available_width(), height))
-            .wrap_mode(egui::TextWrapMode::Truncate),
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
     );
+    let label = format!("{}, {detail}", card.title);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,
@@ -740,6 +875,52 @@ fn figure_row(
             label.clone(),
         )
     });
+    if !ui.is_rect_visible(rect) {
+        return response.clicked();
+    }
+
+    let visuals = ui.visuals();
+    let (fill, title_color, detail_color) = if selected {
+        (
+            visuals.selection.bg_fill,
+            visuals.strong_text_color(),
+            visuals.selection.stroke.color,
+        )
+    } else {
+        let fill = if response.hovered() {
+            visuals.widgets.hovered.weak_bg_fill
+        } else if striped {
+            visuals.faint_bg_color
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        (fill, visuals.text_color(), visuals.weak_text_color())
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, fill);
+    if selected {
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(SELECTED_BAR, rect.height())),
+            0.0,
+            visuals.selection.stroke.color,
+        );
+    }
+
+    let text_width = rect.width() - 2.0 * ROW_PADDING.x - SELECTED_BAR;
+    let origin = rect.min + ROW_PADDING + egui::vec2(SELECTED_BAR, 0.0);
+    let title = truncated(
+        ui,
+        &card.title,
+        egui::TextStyle::Body.resolve(ui.style()),
+        title_color,
+        text_width,
+    );
+    let title_height = title.size().y;
+    painter.galley(origin, title, title_color);
+    if !detail.is_empty() {
+        let detail = truncated(ui, &detail, monospace_small(ui), detail_color, text_width);
+        painter.galley(origin + egui::vec2(0.0, title_height), detail, detail_color);
+    }
     response.clicked()
 }
 
@@ -751,11 +932,11 @@ fn count_strip(ui: &mut egui::Ui, browser: &mut FigureBrowser, matched: usize, t
         } else {
             format!("{matched} of {total} figures")
         };
-        ui.label(egui::RichText::new(text).weak());
+        ui.label(egui::RichText::new(text).monospace().small().weak());
         if !browser.browse.is_unfiltered() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button("Show all")
+                    .button("Reset")
                     .on_hover_text("Remove every filter and clear the search.")
                     .clicked()
                 {

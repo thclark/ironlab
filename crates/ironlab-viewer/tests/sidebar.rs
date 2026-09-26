@@ -155,29 +155,30 @@ fn the_browser_opens_with_a_collection_and_stays_shut_for_one_figure() {
     );
 }
 
-// Why: room taken from the figure must be givable back. The toolbar button is the only way to do that which is
-// visible without knowing the panel can be dragged, so it is the one that must work.
+// Why: the browser is the only way to reach a figure other than the first, so it is open whenever there is a
+// collection and nothing in the toolbar stands in for it. Shutting it is still possible, because room taken from
+// the figure must be givable back, and shutting it must take the list with it.
 #[test]
-fn the_figures_button_shows_and_hides_the_browser() {
+fn the_browser_is_open_for_a_collection_and_can_be_shut() {
     let mut harness = app(campaign());
     assert!(listed(&harness, "Run 9 lift"), "it starts open");
+    assert!(
+        harness.query_by_label("Figures").is_none(),
+        "with no toggle in the toolbar, which the browser makes redundant"
+    );
 
-    harness.get_by_label("Figures").click();
+    harness.state_mut().browser_mut().open = false;
     harness.run();
     assert!(
         !listed(&harness, "Run 9 lift"),
-        "clicking it takes the panel, and the list with it, off the screen"
-    );
-    assert!(
-        !harness.state().browser().open,
-        "and the browser records that it is shut"
+        "shutting it takes the panel, and the list with it, off the screen"
     );
 
-    harness.get_by_label("Figures").click();
+    harness.state_mut().browser_mut().open = true;
     harness.run();
     assert!(
         listed(&harness, "Run 9 lift"),
-        "clicking it again brings the panel back"
+        "and opening it brings the list back"
     );
 }
 
@@ -336,7 +337,7 @@ fn showing_all_takes_back_everything_that_was_typed_and_chosen() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("Show all").click();
+    harness.get_by_label("Reset").click();
     harness.run();
     assert!(listed(&harness, "Run 9 lift"), "every figure is back");
     assert!(
@@ -386,12 +387,14 @@ fn a_chip_says_what_is_filtered_and_removes_it_when_clicked() {
 #[test]
 fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
     let mut harness = app(campaign());
-    harness.get_by_label("Add filter").click();
+    harness.get_by_label("+ Filter").click();
     harness.run();
 
     for parameter in ["rig", "angle", "solver"] {
         assert!(
-            harness.query_by_label_contains(parameter).is_some(),
+            harness
+                .query_by_label_contains(&format!("{parameter}\n"))
+                .is_some(),
             "the menu offers {parameter:?}, which divides the collection"
         );
     }
@@ -409,9 +412,9 @@ fn the_menu_counts_what_each_value_would_leave() {
     let mut harness = app(campaign());
     harness.state_mut().browser_mut().browse.query = "wake".to_owned();
     harness.run();
-    harness.get_by_label("Add filter").click();
+    harness.get_by_label("+ Filter").click();
     harness.run();
-    harness.get_by_label_contains("rig").click();
+    harness.get_by_label_contains("rig\n").click();
     harness.run();
 
     assert!(
@@ -531,7 +534,7 @@ fn a_row_shows_the_value_the_list_is_ordered_by() {
 
     assert!(
         harness
-            .query_by_label_contains("Run 9 lift, angle: 4")
+            .query_by_label_contains("Run 9 lift, angle = 4")
             .is_some(),
         "a figure that carries the parameter shows its value beside its title"
     );
@@ -604,6 +607,19 @@ fn a_long_list_is_narrowed_from_the_whole_collection_not_the_rows_on_screen() {
 /// is asked of it here is what reaches the screen: the characters themselves, which the accessibility tree does not
 /// carry.
 fn painted_words(filtered: bool) -> Vec<String> {
+    painted_words_with(|browser| {
+        if filtered {
+            browser.browse.toggle(
+                &FacetKey::parameter("rig"),
+                &FacetValue::Text("CFD".to_owned()),
+            );
+            browser.browse.group = Some(FacetKey::parameter("rig"));
+        }
+    })
+}
+
+/// Every run of text the browser paints for the campaign, after `configure` has set it up.
+fn painted_words_with(configure: impl FnOnce(&mut ironlab_viewer::FigureBrowser)) -> Vec<String> {
     let ctx = egui::Context::default();
     ironlab_viewer::style::apply(&ctx);
     ctx.set_theme(egui::Theme::Dark);
@@ -612,13 +628,7 @@ fn painted_words(filtered: bool) -> Vec<String> {
         .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
         .collect();
     let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
-    if filtered {
-        browser.browse.toggle(
-            &FacetKey::parameter("rig"),
-            &FacetValue::Text("CFD".to_owned()),
-        );
-        browser.browse.group = Some(FacetKey::parameter("rig"));
-    }
+    configure(&mut browser);
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
         ..egui::RawInput::default()
@@ -679,9 +689,9 @@ fn the_browser_paints_no_character_outside_the_listed_ones() {
 fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
     let words = painted_words(true);
     assert!(
-        words
-            .iter()
-            .any(|word| word.contains("rig: CFD") && word.contains(ironlab_viewer::style::REMOVE)),
+        words.iter().any(|word| word.contains("rig")
+            && word.contains("CFD")
+            && word.contains(ironlab_viewer::style::REMOVE)),
         "the chip says what it narrows and carries the mark that says clicking it takes that away: {words:?}"
     );
     assert!(
@@ -768,9 +778,9 @@ fn the_page_the_note_links_to_exists_in_the_documentation() {
 #[test]
 fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
     let mut harness = app(campaign());
-    harness.get_by_label("Add filter").click();
+    harness.get_by_label("+ Filter").click();
     harness.run();
-    harness.get_by_label_contains("angle").click();
+    harness.get_by_label_contains("angle\n").click();
     harness.run();
 
     assert!(
@@ -825,7 +835,7 @@ fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("Add filter").click();
+    harness.get_by_label("+ Filter").click();
     harness.run();
     harness.get_by_label_contains("angle\n2 values").click();
     harness.run();
@@ -837,4 +847,68 @@ fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
         "the filter is gone rather than widened to the ends of the parameter"
     );
     assert!(listed(&harness, "Run 9 lift"), "and every figure is back");
+}
+
+// ---------------------------------------------------------------------------------
+// The details below the canvas
+// ---------------------------------------------------------------------------------
+
+// Why: the labels and parameters are what the reader narrowed the collection by, so once a figure is on screen
+// they want to see, without opening an editor, that it is the one they meant. The strip has to follow the figure
+// shown, or it would describe a figure the reader is no longer looking at.
+#[test]
+fn the_details_below_the_canvas_say_what_the_shown_figure_carries() {
+    let mut harness = app(campaign());
+    assert!(
+        harness.query_by_label("Tunnel A").is_some(),
+        "the first figure's rig is shown beneath its canvas"
+    );
+    assert!(
+        harness.query_by_label("angle").is_some(),
+        "as is the name of its other parameter"
+    );
+
+    harness
+        .get_by_label_contains(&row_of("Case B surface"))
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("LES").is_some(),
+        "choosing another figure shows that figure's solver instead"
+    );
+    assert!(
+        harness.query_by_label("Tunnel A").is_none(),
+        "and the first figure's rig is gone with it"
+    );
+}
+
+// Why: a figure carrying nothing has nothing to say beneath its canvas, and a strip with nothing in it would only
+// take height from the figure.
+#[test]
+fn a_figure_carrying_nothing_has_no_details_strip() {
+    let harness = app(vec![flat("Only", &[]), flat("Other", &[])]);
+    assert!(
+        egui::PanelState::load(&harness.ctx, egui::Id::new(ironlab_viewer::app::DETAILS_ID),)
+            .is_none(),
+        "no strip is drawn for a figure with no labels and no parameters"
+    );
+}
+
+// Why: a row's second line is what makes the list worth reading rather than scanning, and it is the line that
+// was lost when the row was a button, whose truncation ate the newline before it. The accessibility label carried
+// the line all along, so every other test passed while the screen showed a title cut short. Only what is painted
+// can say whether the line is there.
+#[test]
+fn the_second_line_of_a_row_is_actually_painted() {
+    let words = painted_words_with(|browser| {
+        browser.browse.sort.key = SortKey::Parameter("angle".to_owned());
+    });
+    assert!(
+        words.iter().any(|word| word == "angle = 4"),
+        "the value the list is ordered by is painted as a line of its own beneath the title: {words:?}"
+    );
+    assert!(
+        words.iter().any(|word| word == "Run 9 lift"),
+        "and the title is painted whole, not cut short to make room: {words:?}"
+    );
 }

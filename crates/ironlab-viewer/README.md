@@ -2,7 +2,7 @@
 
 The interactive egui viewer for [IronLAB](https://ironlab.org) figures, an interactive plotting tool for scientific computing in Rust.
 
-The viewer is an eframe application that shows one or more figures as tabs, in which axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a property editor. It is a deliberately simple consumer of the scene compiler: it tessellates the display list into egui meshes with lyon and turns every gesture into a typed edit of the figure model, recorded in a view overlay rather than applied to the figure it was given. Undo, redo, saving and PDF export all act on that overlay, so what is exported is exactly what is on screen. The crate also provides an offscreen renderer that draws a figure into an image without a window, which the documentation gallery and the tests use, and which the PDF exporter calls to rasterise dense content.
+The viewer is an eframe application that shows one or more figures, one at a time with a browser to choose between them, in which axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a property editor. It is a deliberately simple consumer of the scene compiler: it tessellates the display list into egui meshes with lyon and turns every gesture into a typed edit of the figure model, recorded in a view overlay rather than applied to the figure it was given. Undo, redo, saving and PDF export all act on that overlay, so what is exported is exactly what is on screen. The crate also provides an offscreen renderer that draws a figure into an image without a window, which the documentation gallery and the tests use, and which the PDF exporter calls to rasterise dense content.
 
 ## Where this crate sits
 
@@ -19,7 +19,7 @@ cargo install ironlab-viewer
 ironlab-viewer figure.fig
 ```
 
-Several files may be given, and each opens in its own tab. The format of each file is chosen by its extension: `.fig` files are read as Protocol Buffers, the default format, and `.json` files (such as `figure.fig.json`) are read as JSON.
+Several files may be given, and the browser down the left-hand side chooses between them. The format of each file is chosen by its extension: `.fig` files are read as Protocol Buffers, the default format, and `.json` files (such as `figure.fig.json`) are read as JSON.
 
 ## Documentation
 
