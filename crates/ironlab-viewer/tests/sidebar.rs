@@ -513,7 +513,7 @@ fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
         clear
             .accesskit_node()
             .label()
-            .is_some_and(|label| label.contains(ironlab_viewer::style::REVERT)),
+            .is_some_and(|label| label.contains(ironlab_viewer::style::RESTORE)),
         "the control carries the revert mark beside its words"
     );
     let edit = edit_filters(&harness).rect();

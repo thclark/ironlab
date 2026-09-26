@@ -1049,13 +1049,13 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
 }
 
 /// Draws the control that takes every filter away, beside "Edit" on the "Filters" row, when there is a filter to
-/// take away. It is the same button as "Edit", with [`crate::style::REVERT`] before its words.
+/// take away. It is the same button as "Edit", with [`crate::style::RESTORE`] before its words.
 fn clear_all_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     if browser.browse.filters.is_empty() {
         return;
     }
     if ui
-        .button(format!("{} Clear all", style::REVERT))
+        .button(format!("{} Clear all", style::RESTORE))
         .on_hover_text("Remove every filter.")
         .clicked()
     {

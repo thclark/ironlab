@@ -147,14 +147,15 @@ pub const TAG_TEXT: Color32 = Color32::from_rgb(155, 191, 166);
 /// disabled control still reads as unmistakably disabled.
 pub const DISABLED_ALPHA: f32 = 0.7;
 
-/// The character that marks the control which takes back a change to one property, and, beside its words, the
-/// control of the figure browser that takes every filter away.
+/// The mark on a control that puts things back as they were: the column of the property editor that takes back
+/// a change to one property, and "Clear all" in the figure browser, which takes every filter away.
 ///
-/// In the property editor the control is a column of its own, narrower than any word, so that one place in the
-/// interface is named by a character rather than by what it does. The character is listed in
+/// It is named for the class of control it marks, not for any one of them, because a mark is what says that two
+/// controls are of one kind. In the property editor the control is a column of its own, narrower than any word,
+/// so that one place in the interface is named by the mark alone. The character is listed in
 /// [`INTERFACE_CHARACTERS`], which is checked against the fonts, so it cannot become a character the viewer draws
 /// as an empty box.
-pub const REVERT: &str = "↺";
+pub const RESTORE: &str = "↺";
 
 /// The mark on a control that takes something away, such as the chip of a filter in the figure browser.
 ///
@@ -184,7 +185,7 @@ pub const COLLAPSE: &str = "−";
 ///
 /// It exists so that the check is by construction: a mark named here and left out of the list fails a test rather
 /// than waiting to be noticed as an empty box on screen.
-pub const MARKS: &[&str] = &[REVERT, REMOVE, ASCENDING, DESCENDING, COLLAPSE];
+pub const MARKS: &[&str] = &[RESTORE, REMOVE, ASCENDING, DESCENDING, COLLAPSE];
 
 /// Every character outside ASCII that the viewer's interface draws.
 ///
@@ -211,7 +212,7 @@ pub const INTERFACE_CHARACTERS: &[char] = &[
     // lengths of an array's shape
     '↑', // the mark of ascending order, `ASCENDING`
     '↓', // the mark of descending order, `DESCENDING`
-    '↺', // the revert control, `REVERT`
+    '↺', // the mark of a control that puts things back, `RESTORE`
     '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
     '−', // the minus sign on the control that shuts the filter menu, `COLLAPSE`
 ];

@@ -271,7 +271,7 @@ fn the_fonts_have_every_character_the_interface_draws() {
 #[test]
 fn every_mark_the_interface_draws_is_one_of_the_listed_characters() {
     assert!(
-        style::MARKS.contains(&style::REVERT),
+        style::MARKS.contains(&style::RESTORE),
         "the revert control is a mark, and must be named among them"
     );
     for mark in style::MARKS {

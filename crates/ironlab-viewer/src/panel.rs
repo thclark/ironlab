@@ -544,7 +544,7 @@ fn revert_button(
 ) -> bool {
     let label = format!("Revert {name}");
     let enabled = ui.is_enabled();
-    let response = ui.small_button(crate::style::REVERT);
+    let response = ui.small_button(crate::style::RESTORE);
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label.clone())
     });
