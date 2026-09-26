@@ -1,16 +1,18 @@
 # Using the viewer
 
-The IronLAB viewer is a desktop window that shows figures as tabs and lets them be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side narrows them down to the one to look at.
+The IronLAB viewer is a desktop window that shows one figure at a time and lets it be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side is how the others are reached: it narrows them down to the one to look at.
 
-Each tab has a toolbar above a canvas. The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the tab. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
+The figure has a toolbar above a canvas, and beneath the canvas a strip of [details](#details). The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the window. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
 
 Every interaction described on this page changes the figure by setting a property of it — an axis limit, a three-dimensional view or the visibility of a plot — exactly as setting that property from the Rust API would. The viewer keeps the figure as it was opened, called the source, and the changes made to it, called the overlay, apart: what the canvas draws, what **Export PDF…** writes and what **Save figure…** writes is the source with the overlay applied. Because each change is a value of its own, any of them can be undone, and a view is restored by discarding the changes made to it rather than by copying an earlier figure back. The reasons for this design are recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md).
 
 ## The figure browser
 
-When the viewer opens more than one figure, a browser appears down the left-hand side, and the **Figures** button at
-the left of the toolbar shows and hides it. It narrows the open figures down to the one to look at, and clicking a
-figure in its list shows that figure. A viewer holding a single figure has nothing to browse, and opens without it.
+When the viewer opens more than one figure, a browser appears down the left-hand side. It narrows the open figures
+down to the one to look at, and clicking a figure in its list shows that figure; the row of the figure shown is
+marked in the selection colour, and every row shows the figure's labels beneath its title, or the value the list is
+ordered by. Dragging the browser's edge past its narrowest width shuts it, leaving a handle to drag it open again. A
+viewer holding a single figure has nothing to browse, and opens without it.
 
 The browser is built around the [labels and parameters](describing-figures.md) of a figure, which exist so that a collection of figures can be sorted,
 filtered and searched. It offers exactly what the figures carry and nothing else: the viewer works out no
@@ -50,7 +52,7 @@ inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was
 
 ### Filtering
 
-**Add filter** opens a menu of the parameters worth filtering on, the most useful first, and then of that
+**+ Filter** opens a menu of the parameters worth filtering on, the most useful first, and then of that
 parameter's values with the number of figures each would leave. A parameter that takes the same value on every
 figure divides nothing and is not offered.
 
@@ -67,19 +69,19 @@ greyed, rather than disappearing as the reader reaches for it. A parameter holdi
 ends of a range instead of by a list of values.
 
 Each filter reads back as a chip below the search field, naming the parameter, what it was narrowed to, and a cross
-(×). Clicking a chip removes that filter. **Clear**, and **Show all** at the foot of the panel, take back every filter and empty
+(×). Clicking a chip removes that filter. **Clear**, and **Reset** at the foot of the panel, take back every filter and empty
 the search field at once.
 
 ### Ordering and grouping
 
-**Order by** puts the list in order of the title or of any parameter. The button beside it reverses the order and
+**Sort** puts the list in order of the title or of any parameter. The button beside it reverses the order and
 says which way it runs, **Ascending ↑** or **Descending ↓**.
 Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
 comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
 When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows
 the figure's labels.
 
-**Group by** breaks the list into runs under a heading that names the value the figures share and counts them.
+**Group** breaks the list into runs under a heading that names the value the figures share and counts them.
 Clicking a heading closes the group. Grouping by labels lists a figure under each of the labels it carries, because
 that is how browsing by labels is meant to read. The figures the grouping does not apply to are gathered last, under
 "not set" or "no labels".
@@ -123,7 +125,7 @@ The rate is half a degree for each point of pointer travel measured on the figur
 ## Restoring views
 
 - **Double-clicking** an axes discards the changes made to the x, y and z limits and to the three-dimensional view of that axes, so that it shows the view the figure was opened with. Axes linked with it follow the restored limits.
-- **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure in the visible tab, unless a text field has keyboard focus or a modifier key is held.
+- **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure shown, unless a text field has keyboard focus or a modifier key is held.
 
 Neither action changes the visibility of plots, so plots hidden from the legend stay hidden, and neither changes a property edited in the property editor. Both can be undone. To discard every change instead, use [Revert all changes](#taking-changes-back) at the foot of the property editor.
 
@@ -152,9 +154,17 @@ Very large series are thinned to what the plot can resolve before they are drawn
 
 Resting the pointer over an image (see [images](getting-started.md#images)) outlines the pixel under it and shows the name of the image, the row and column of the pixel in the array you supplied, the x and y coordinates of the pixel's centre, and what the array holds there. A colour-mapped image shows the value of the pixel; a colour-indexed image shows the index as stored, so a floating-point index is not truncated to the entry it takes; and a true-colour image shows the red, green, blue and alpha components in the units the array stores them, bytes from 0 to 255 or fractions from 0 to 1. The row and column are the indices you would use to find the pixel in your own array, whichever way its [pixel ranges](../reference/figure-schema.md#image-placement) run, and the coordinates are those of the pixel's centre from its placement rather than of the pointer, so every position within one pixel reads the same. A pixel is read whatever colour it was painted: one left transparent by an [out-of-range policy](../reference/figure-schema.md#out-of-range-policies), or one holding NaN, still reports what it holds. A point of a line or a scatter within reach of the pointer is read in preference to the pixel beneath it, because it is small and drawn over the image, so pointing at it means the point; moving the pointer out of reach of the point reads the pixel. A pixel smaller on screen than the ring drawn around a point is ringed at its centre instead of outlined, so the mark stays visible however fine the image. Images on the floor or a wall of a three-dimensional axes have no datatips for now, because the viewer cannot yet pick in three dimensions ([issue #1](https://github.com/thclark/ironlab/issues/1)).
 
+## Details
+
+Beneath the canvas, a strip says what the figure carries: its [labels](describing-figures.md) as a row of tags, then
+its parameters as a table in ascending order of name. It is the same information the property editor edits, shown
+where it can be read at a glance beside the figure it describes, because it is what the browser narrows a
+collection by and a reader choosing between figures wants to see it without opening an editor. A figure that
+carries nothing has no strip, and keeps the whole height for its canvas.
+
 ## The property editor
 
-**Properties**, in the toolbar, opens a panel on the right of the tab; it is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
+**Properties**, in the toolbar, opens a panel on the right of the figure; it is closed when a figure is opened, so the canvas has the whole width until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
 
 The panel has three parts: the objects of the figure at the top, the properties of the selected object below, and the control that takes back every change at the foot. The foot is a strip of the same height whatever it says, and the object tree and the properties divide the rest of the panel: the boundary between them can be dragged, and the tree is held short of the point at which the properties would have no room, so that the properties of the selected object can always be reached. Both the tree and the properties scroll within the height they are given.
 

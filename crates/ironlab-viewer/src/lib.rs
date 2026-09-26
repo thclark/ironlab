@@ -24,7 +24,7 @@
 //! - [`sidebar`] draws that as the figure browser: a left-hand panel that narrows the open figures down to the one
 //!   to look at.
 //! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
-//! - [`app`] is the eframe application: one tab per figure, the figure browser beside them, a toolbar, undo and
+//! - [`app`] is the eframe application: one figure shown at a time, the figure browser beside it, a toolbar, undo and
 //!   redo, PDF export and saving.
 //! - [`export`] writes a figure as a PDF, supplying the PDF exporter with the viewer's own renderer so that the
 //!   dense parts of a figure are rasterised by the pipeline that draws the screen.

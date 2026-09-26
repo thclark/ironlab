@@ -46,6 +46,21 @@ pub const TEXT: Color32 = Color32::from_gray(190);
 /// [`TEXT`]. egui's default, which fades ordinary text to 60 % opacity, gives 2.7:1.
 pub const WEAK_TEXT: Color32 = Color32::from_gray(150);
 
+/// The fill of a tag: the frame a label of a figure is drawn in, below the canvas.
+///
+/// A dark green, so that a row of tags reads as a set of words and not as a row of buttons, which the greys of the
+/// interface are spent on. The tint is faint enough that a tag is quieter than the text beside it.
+pub const TAG_FILL: Color32 = Color32::from_rgb(35, 48, 31);
+
+/// The outline of a tag, a shade lighter than [`TAG_FILL`], which is what separates two tags side by side.
+pub const TAG_STROKE: Color32 = Color32::from_rgb(51, 69, 44);
+
+/// The text of a tag.
+///
+/// A pale green on [`TAG_FILL`] is a contrast ratio of 6.6:1, above the 4.5:1 asked of body text, so a label reads
+/// as clearly as any other word in the interface.
+pub const TAG_TEXT: Color32 = Color32::from_rgb(155, 191, 166);
+
 /// The opacity at which egui paints a disabled widget.
 ///
 /// egui's 0.5 would leave [`WEAK_TEXT`] in a disabled row at 2.4:1 over the panel; 0.7 leaves it at 3.5:1, and a
@@ -122,6 +137,11 @@ pub const FALLBACK_FONT: &str = "ironlab_fallback";
 /// draws today changes shape. It does mean a character left out of [`INTERFACE_CHARACTERS`] may now be drawn rather
 /// than showing as an empty box, so the tests of what the interface paints, rather than the box, are what keep the
 /// list honest.
+///
+/// Whether a family has a character is checked by laying the character out, not by asking egui's `has_glyph`.
+/// That method compares the face that owns the character with the face that owns the replacement box, and in the
+/// monospaced family those are one face, Hack, for every character Hack has — so it answers "no" for characters
+/// that draw perfectly well.
 #[must_use]
 pub fn font_definitions() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();

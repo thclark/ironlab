@@ -11,6 +11,29 @@ use ironlab_viewer::style;
 /// The contrast ratio WCAG 2.1 asks of ordinary body text.
 const READABLE: f64 = 4.5;
 
+/// A character the fonts certainly do not have, which shows what a real gap looks like: it is drawn as the
+/// replacement box, and a character is covered exactly when it is drawn as something else.
+const MISSING: char = '\u{2B6E}';
+
+/// Whether `family` draws `character` as a glyph of its own rather than as the replacement box.
+///
+/// It is decided by laying the character out and comparing where in the glyph atlas it was drawn from with where
+/// the box is drawn from, because that is what reaches the screen. egui's `has_glyph` answers a different
+/// question — whether the face that owns the character differs from the face that owns the box — and in a family
+/// whose first face owns both, which the monospaced family is, it says "no" for every character that face has.
+fn draws(
+    fonts: &mut egui::epaint::text::FontsView<'_>,
+    family: &FontFamily,
+    character: char,
+) -> bool {
+    let font = FontId::new(style::BODY_SIZE_PT, family.clone());
+    let mut atlas_rect = |c: char| {
+        let galley = fonts.layout_no_wrap(c.to_string(), font.clone(), Color32::WHITE);
+        galley.rows[0].glyphs[0].uv_rect.min
+    };
+    atlas_rect(character) != atlas_rect(MISSING)
+}
+
 /// The contrast ratio WCAG 2.1 asks of large text, which is the least that text meant to be read but not
 /// emphasised should have.
 const SECONDARY: f64 = 3.0;
@@ -200,31 +223,29 @@ fn the_fonts_have_every_character_the_interface_draws() {
     let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
 
-    // Every text style of the interface but the monospaced one is proportional, and the viewer draws no monospaced
-    // text, so the proportional family is the family every character reaches the screen through.
-    let families: Vec<FontFamily> = style::text_styles()
+    // The interface draws proportional text everywhere and monospaced text where a figure's details are shown as
+    // data, so both families are checked: a character is only safe when every family it might be set in has it.
+    let mut families: Vec<FontFamily> = style::text_styles()
         .values()
         .map(|font| font.family.clone())
-        .filter(|family| *family == FontFamily::Proportional)
         .collect();
+    families.sort_by_key(|family| format!("{family:?}"));
+    families.dedup();
     assert!(
         !families.is_empty(),
         "the interface draws proportional text, so there is a family to check"
     );
 
     ctx.fonts_mut(|fonts| {
-        // A character the fonts certainly do not have, which shows that the check answers "no" for a real gap
-        // rather than answering "yes" to everything.
-        const MISSING: char = '\u{2B6E}';
         for family in &families {
-            let font = FontId::new(style::BODY_SIZE_PT, family.clone());
+            // A character the fonts have and one they lack must come out differently, or the check proves nothing.
             assert!(
-                !fonts.has_glyph(&font, MISSING),
-                "the check must report a character the fonts lack, or it proves nothing"
+                draws(fonts, family, 'a') && !draws(fonts, family, MISSING),
+                "the check must tell a character the fonts have from one they lack"
             );
             for character in style::INTERFACE_CHARACTERS {
                 assert!(
-                    fonts.has_glyph(&font, *character),
+                    draws(fonts, family, *character),
                     "the interface draws {character:?} (U+{:04X}), which the fonts of the {family:?} family \
                      cannot draw and would show as an empty box",
                     *character as u32
@@ -274,10 +295,9 @@ fn the_arrows_come_from_the_last_resort_face_because_eguis_own_fonts_have_none()
         .flat_map(|mark| mark.chars())
         .collect();
     bare.fonts_mut(|fonts| {
-        let font = FontId::new(style::BODY_SIZE_PT, FontFamily::Proportional);
         for arrow in &arrows {
             assert!(
-                !fonts.has_glyph(&font, *arrow),
+                !draws(fonts, &FontFamily::Proportional, *arrow),
                 "egui's own fonts now draw {arrow:?}, so the last-resort face is no longer needed for it"
             );
         }
@@ -289,10 +309,9 @@ fn the_arrows_come_from_the_last_resort_face_because_eguis_own_fonts_have_none()
     let mut output = ours.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
     ours.fonts_mut(|fonts| {
-        let font = FontId::new(style::BODY_SIZE_PT, FontFamily::Proportional);
         for arrow in &arrows {
             assert!(
-                fonts.has_glyph(&font, *arrow),
+                draws(fonts, &FontFamily::Proportional, *arrow),
                 "the viewer's fonts must draw {arrow:?}"
             );
         }

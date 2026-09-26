@@ -7,7 +7,7 @@ Records that have been released on the `main` branch are never modified. A decis
 | ADR | Decision | Status |
 | --- | --- | --- |
 | [0001](0001-retained-figure-ir-and-protobuf-wire-format.md) | Figures are a retained IR with stable node identifiers whose Rust types are the source of truth; `.fig` files use Protocol Buffers, with JSON as a secondary format and both schemas generated. | Accepted |
-| [0002](0002-egui-viewer-on-rerun-family-crates.md) | The viewer is built with egui and eframe, using only Rerun-family user-interface crates plus `rfd`. | Accepted |
+| [0002](0002-egui-viewer-on-rerun-family-crates.md) | The viewer is built with egui and eframe, using only Rerun-family user-interface crates plus `rfd`. | Accepted; its tab strip is superseded by [0015](0015-figures-are-described-by-their-authors.md) |
 | [0003](0003-shared-scene-compiler-and-display-list.md) | One scene compiler produces a display list that every backend draws; the canvas uses egui meshes now and custom wgpu pipelines with GPU picking later. | Accepted |
 | [0004](0004-pdf-first-export-with-krilla.md) | PDF is the first export format, written with krilla, with the page equal to the artwork, real subset text, and flat, painter-sorted shading. | Superseded by [0010](0010-pdf-export-with-a-raster-fallback.md) |
 | [0005](0005-embedded-latex-math-with-latex-rust.md) | LaTeX mathematics is typeset in process with latex-rust from source stored in the IR, with a fallback and warning for unsupported input. | Accepted |

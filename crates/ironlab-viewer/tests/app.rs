@@ -24,8 +24,6 @@ struct ToolbarHarnessState {
     export_requested: bool,
     save_requested: bool,
     show_properties: bool,
-    /// Whether the figure browser is open, or `None` for a viewer holding one figure, which has no browser.
-    show_browser: Option<bool>,
 }
 
 fn toolbar_harness(
@@ -39,7 +37,6 @@ fn toolbar_harness(
                 &mut state.figure,
                 &state.problems,
                 &mut state.show_properties,
-                state.show_browser.as_mut(),
             );
             state.export_requested |= response.export_requested;
             state.save_requested |= response.save_requested;
@@ -50,17 +47,8 @@ fn toolbar_harness(
             export_requested: false,
             save_requested: false,
             show_properties: false,
-            show_browser: None,
         },
     )
-}
-
-/// A toolbar harness for a viewer holding a collection, whose toolbar therefore carries the "Figures" button.
-fn browsing_toolbar_harness(figure: FigureState) -> Harness<'static, ToolbarHarnessState> {
-    let mut harness = toolbar_harness(figure, Vec::new());
-    harness.state_mut().show_browser = Some(false);
-    harness.run();
-    harness
 }
 
 /// Two problems reported by the scene compiler: one about a node, one about the figure.
@@ -375,10 +363,11 @@ fn app_harness(figures: Vec<(String, ironlab_ir::Figure)>) -> Harness<'static, V
         .build_eframe(|_cc| ViewerApp::new(figures, TEXT.clone()))
 }
 
-// Why: the application must show one tab per figure, titled as given, with each tab's toolbar reflecting its own
-// figure.
+// Why: the application shows one figure at a time, and the toolbar is that figure's: what it enables must follow
+// the figure shown, not the first one opened, or the Rotate tool would be dead on every three-dimensional figure
+// but the first.
 #[test]
-fn the_app_shows_one_tab_per_figure_with_its_own_toolbar() {
+fn the_app_shows_one_figure_at_a_time_with_that_figures_toolbar() {
     let mut harness = app_harness(vec![
         ("flat.fig".to_owned(), figure_with(vec![axes_2d(2)], vec![])),
         (
@@ -388,24 +377,28 @@ fn the_app_shows_one_tab_per_figure_with_its_own_toolbar() {
     ]);
     harness.run();
 
-    assert!(harness.query_by_label("flat.fig").is_some());
-    assert!(harness.query_by_label("solid.fig").is_some());
+    assert_eq!(harness.state().shown(), 0, "the first figure opens");
+    assert_eq!(
+        harness.query_all_by_label("Rotate").count(),
+        1,
+        "one toolbar is drawn, not one per figure"
+    );
     assert!(
         harness
             .get_by_label("Rotate")
             .accesskit_node()
             .is_disabled(),
-        "the first (2D) tab is active"
+        "and it is the flat figure's, on which Rotate does nothing"
     );
 
-    harness.get_by_label("solid.fig").click();
+    assert!(harness.state_mut().show_figure(1));
     harness.run();
     assert!(
         !harness
             .get_by_label("Rotate")
             .accesskit_node()
             .is_disabled(),
-        "the 3D tab enables Rotate"
+        "showing the three-dimensional figure enables Rotate"
     );
 }
 
@@ -905,41 +898,5 @@ fn the_draw_list_is_kept_through_idle_frames_and_small_resizes_but_not_large_one
     assert!(
         !Arc::ptr_eq(&previous, &edited),
         "after an edit through figure_state_mut the list is rebuilt from the new scene"
-    );
-}
-
-// ---------------------------------------------------------------------------------
-// The figure browser's place in the toolbar
-// ---------------------------------------------------------------------------------
-
-// Why: the browser belongs to the window rather than to one figure, but the toolbar is where every other way of
-// changing what is on screen lives, so that is where the reader will look for it. A viewer holding one figure has
-// nothing to browse, and must not carry a button that opens a panel listing that one figure.
-#[test]
-fn the_figures_button_is_offered_only_when_there_is_a_collection_to_browse() {
-    let alone = toolbar_harness(FigureState::new(figure_with_artists()), Vec::new());
-    assert!(
-        alone.query_by_label("Figures").is_none(),
-        "a viewer holding one figure offers no browser"
-    );
-
-    let mut together = browsing_toolbar_harness(FigureState::new(figure_with_artists()));
-    let button = together.get_by_label("Figures");
-    assert_eq!(
-        button.accesskit_node().toggled(),
-        Some(egui::accesskit::Toggled::False),
-        "with a collection the button is there, and says the browser is shut"
-    );
-
-    button.click();
-    together.run();
-    assert!(
-        together.state().show_browser == Some(true),
-        "clicking it asks for the browser to be opened"
-    );
-    assert_eq!(
-        together.get_by_label("Figures").accesskit_node().toggled(),
-        Some(egui::accesskit::Toggled::True),
-        "and the button then says the browser is open"
     );
 }

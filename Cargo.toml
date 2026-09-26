@@ -31,7 +31,6 @@ krilla = { version = "0.8.2", default-features = false }
 lyon = "1.0.19"
 egui = "0.36.2"
 eframe = "0.36.2"
-egui_tiles = "0.17.1"
 egui_kittest = "0.36.2"
 rfd = "0.17.2"
 clap = { version = "4.6.7", features = ["derive"] }
