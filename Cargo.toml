@@ -32,6 +32,8 @@ lyon = "1.0.19"
 egui = "0.36.2"
 eframe = "0.36.2"
 egui_kittest = "0.36.2"
+# The version egui-wgpu 0.36.2 builds against, with the features it enables, so that feature unification adds nothing.
+wgpu = { version = "30.0.1", features = ["webgl", "fragile-send-sync-non-atomic-wasm"] }
 rfd = "0.17.2"
 clap = { version = "4.6.7", features = ["derive"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
