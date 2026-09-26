@@ -238,6 +238,45 @@ fn the_background_is_reported_premultiplied_and_omitted_when_transparent() {
     );
 }
 
+// Why: the native window keeps a margin between the figure and the edges of its canvas so that the page reads as a
+// page on a surround, but a figure embedded in a document fills the box the document gives it, as an image would; a
+// host must therefore be able to fit the page with no margin, and, since the box is sized to the page's aspect ratio,
+// the page must then cover the area exactly, so that nothing of the host's backdrop shows through.
+#[test]
+fn a_host_may_fit_the_page_with_no_margin_so_that_it_fills_an_area_of_its_own_aspect_ratio() {
+    let mut figure = figure_with(vec![axes_2d(2)], vec![]);
+    figure.size = FigureSize {
+        width_mm: 127.0,
+        height_mm: 101.6,
+    };
+    let mut canvas = FigureCanvas::new(figure);
+    canvas.set_margin(0.0);
+    // Twice the page, so that the fit is exact rather than a rounded quotient.
+    let area = Rect::from_min_size(pos2(10.0, 20.0), vec2(720.0, 576.0));
+    canvas.resize(area, MAX_TILE_SIDE);
+    let fit = canvas.fit(&TEXT).expect("the page fits");
+    assert_close(
+        f64::from(fit.to_screen.scale),
+        2.0,
+        1e-6,
+        "the page is scaled to the area",
+    );
+    assert_pos_close(
+        fit.page.min,
+        area.min,
+        1e-3,
+        "the page starts at the area's corner",
+    );
+    assert_pos_close(fit.page.max, area.max, 1e-3, "and ends at its far corner");
+
+    canvas.set_margin(CANVAS_MARGIN);
+    let fit = canvas.fit(&TEXT).expect("the page still fits");
+    assert!(
+        fit.page.width() < area.width() && fit.page.min.x > area.min.x,
+        "restoring the margin fits the page inside it again"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The draw list
 // ---------------------------------------------------------------------------------------------------------------------

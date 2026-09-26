@@ -1,0 +1,80 @@
+/*
+ * ironlab.css — the light-DOM defaults for a page that embeds <ironlab-figure>.
+ *
+ * Everything inside the element is styled by the module itself. This file gives the element its place in the page,
+ * makes the fallback content behave like an ordinary image, and states the colour tokens the element draws from,
+ * so that a page can read them here and override them in its own stylesheet.
+ *
+ * The tokens are wrapped in :where(), which has no specificity, so that any rule a page writes on `ironlab-figure`
+ * wins over them. They are the same values, in the same switching, as the element's own defaults; a page that does
+ * not load this file looks the same.
+ */
+
+ironlab-figure {
+  display: block;
+  margin: 0 0 1em;
+  max-width: 100%;
+}
+
+/* The fallback: a linked still image, sized as the figure will be. */
+ironlab-figure > a {
+  display: block;
+  text-decoration: none;
+}
+
+ironlab-figure > img,
+ironlab-figure > a > img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ---- tokens: dark, from the viewer's style.rs ----------------------------------------------------------------- */
+
+:where(ironlab-figure) {
+  --ironlab-bg: #1b1b1b;
+  --ironlab-text: #bebebe;
+  --ironlab-weak: #969696;
+  --ironlab-widget: #2d2d2d;
+  --ironlab-widget-hover: #464646;
+  --ironlab-stroke: #3c3c3c;
+  --ironlab-accent: #005c80;
+  --ironlab-accent-text: #ffffff;
+  --ironlab-selection: #c0deff;
+  --ironlab-problem: #e59280;
+  --ironlab-canvas-bg: #2b2b2e;
+  --ironlab-font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  --ironlab-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ---- tokens: light --------------------------------------------------------------------------------------------- */
+
+:where(ironlab-figure[theme="light"]) {
+  --ironlab-bg: #f8f8f8;
+  --ironlab-text: #3c3c3c;
+  --ironlab-weak: #6e6e6e;
+  --ironlab-widget: #e0e0e0;
+  --ironlab-widget-hover: #d2d2d2;
+  --ironlab-stroke: #bebebe;
+  --ironlab-accent: #90d1ff;
+  --ironlab-accent-text: #000000;
+  --ironlab-selection: #00537d;
+  --ironlab-problem: #a8412a;
+  --ironlab-canvas-bg: #d9d9dc;
+}
+
+@media (prefers-color-scheme: light) {
+  :where(ironlab-figure:not([theme="dark"])) {
+    --ironlab-bg: #f8f8f8;
+    --ironlab-text: #3c3c3c;
+    --ironlab-weak: #6e6e6e;
+    --ironlab-widget: #e0e0e0;
+    --ironlab-widget-hover: #d2d2d2;
+    --ironlab-stroke: #bebebe;
+    --ironlab-accent: #90d1ff;
+    --ironlab-accent-text: #000000;
+    --ironlab-selection: #00537d;
+    --ironlab-problem: #a8412a;
+    --ironlab-canvas-bg: #d9d9dc;
+  }
+}

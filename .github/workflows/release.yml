@@ -90,7 +90,8 @@ jobs:
         # starting the next, so the seven are published as ironlab-ir, ironlab-text, ironlab-scene, ironlab-pdf,
         # ironlab-canvas, ironlab-viewer and finally ironlab. `--locked` publishes the dependency versions recorded in
         # Cargo.lock.
-        # `ironlab-gallery` sets `publish = false` and is skipped.
+        # `ironlab-gallery` and `ironlab-web` set `publish = false` and are skipped: the gallery is a tool of this
+        # repository, and the browser host is distributed as a bundle rather than as a crate.
         #
         # If this fails part way through, do not simply re-run the job: `--workspace` refuses outright when any member
         # of the workspace is already on the registry, rather than stepping over it. Publish the remainder one at a
