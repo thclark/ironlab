@@ -115,10 +115,9 @@ const CHIP_PADDING: egui::Margin = egui::Margin::symmetric(7, 2);
 /// of the chip, because the cross is a small glyph and at their size it reads as a speck.
 const REMOVE_MARK_SIZE_PT: f32 = 14.0;
 
-/// How far below the size of its words a mark beside the caption of a control is set, in points: the arrow on the
-/// control that reverses the order, and the marks on the controls of the "Filters" row. The arrow comes from the
-/// mathematical face, which stands its arrows taller than the letters of the interface at one size, and the other
-/// marks follow it so that every button's mark sits alike beside its words.
+/// How far below the size of its words the arrow on the control that reverses the order is set, in points. The
+/// arrow comes from the mathematical face, which stands its arrows taller than the letters of the interface at one
+/// size.
 const MARK_STEP_PT: f32 = 1.5;
 
 /// The room between the edge of a text field and its text, in egui points.
@@ -481,12 +480,12 @@ fn tip(ui: &mut egui::Ui) {
 fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let open = browser.menu != Menu::Closed;
     let mark = if open { style::COLLAPSE } else { style::EXPAND };
-    let response = marked_button(ui, mark, "Edit").on_hover_text(if open {
+    let text = format!("{mark} Edit");
+    let response = ui.button(&text).on_hover_text(if open {
         "Shut the menu, keeping what has been chosen."
     } else {
         "Narrow the list by one of the figures' parameters."
     });
-    let text = format!("{mark} Edit");
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, text.clone())
     });
@@ -1050,31 +1049,18 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
 }
 
 /// Draws the control that takes every filter away, beside "Edit" on the "Filters" row, when there is a filter to
-/// take away. It is drawn by the same hand as "Edit", with [`crate::style::REVERT`] before its words.
+/// take away. It is the same button as "Edit", with [`crate::style::REVERT`] before its words.
 fn clear_all_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     if browser.browse.filters.is_empty() {
         return;
     }
-    let response =
-        marked_button(ui, style::REVERT, "Clear all").on_hover_text("Remove every filter.");
-    let caption = format!("{} Clear all", style::REVERT);
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone()));
-    if response.clicked() {
+    if ui
+        .button(format!("{} Clear all", style::REVERT))
+        .on_hover_text("Remove every filter.")
+        .clicked()
+    {
         browser.browse.filters.clear();
     }
-}
-
-/// Draws a button of the "Filters" row: a mark, then its caption, the mark set a size down and centred on the
-/// caption's row so that the marks of the row's buttons all sit alike beside their words.
-fn marked_button(ui: &mut egui::Ui, mark: &str, text: &str) -> egui::Response {
-    ui.add(egui::Button::new(marked_caption(
-        ui,
-        egui::TextStyle::Button.resolve(ui.style()),
-        "",
-        mark,
-        &format!(" {text}"),
-    )))
 }
 
 /// The colours a chip is drawn in: its fill, its fill under the pointer, its outline, the name of its parameter and
