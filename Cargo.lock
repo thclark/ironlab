@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "eframe",
  "ironlab-ir",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-gallery"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "clap",
  "image",
@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-ir"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "proptest",
  "prost",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-pdf"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "image",
  "ironlab-ir",
@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-scene"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "ironlab-ir",
  "ironlab-text",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-text"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo",
@@ -1877,7 +1877,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-viewer"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "bytemuck",
  "eframe",
