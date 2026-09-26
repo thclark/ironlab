@@ -12,12 +12,12 @@ homepage = "https://ironlab.org"
 authors = ["Tom Clark"]
 
 [workspace.dependencies]
-ironlab-ir = { path = "crates/ironlab-ir", version = "0.8.0" }
-ironlab-text = { path = "crates/ironlab-text", version = "0.8.0" }
-ironlab-scene = { path = "crates/ironlab-scene", version = "0.8.0" }
-ironlab-pdf = { path = "crates/ironlab-pdf", version = "0.8.0" }
-ironlab-viewer = { path = "crates/ironlab-viewer", version = "0.8.0" }
-ironlab = { path = "crates/ironlab", version = "0.8.0" }
+ironlab-ir = { path = "crates/ironlab-ir", version = "0.9.0" }
+ironlab-text = { path = "crates/ironlab-text", version = "0.9.0" }
+ironlab-scene = { path = "crates/ironlab-scene", version = "0.9.0" }
+ironlab-pdf = { path = "crates/ironlab-pdf", version = "0.9.0" }
+ironlab-viewer = { path = "crates/ironlab-viewer", version = "0.9.0" }
+ironlab = { path = "crates/ironlab", version = "0.9.0" }
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
