@@ -464,18 +464,10 @@ impl Gallery {
             .inner_margin(egui::Margin::symmetric(10, 0))
             .show(ui, |ui| section(ui, "The property editor: the rows"));
         heading(ui, "Properties", Some("Line (measured)"));
-        let two = Row::height(ui, false);
-        if Row::new(text(Role::Label, "marker"), Detail::None)
-            .leading(Leading::Disclosure {
-                open: editor.marker_open,
-            })
-            .state(RowState {
-                band: true,
-                ..RowState::default()
-            })
-            .show(ui, two)
-            .clicked()
-        {
+        let marker = Property::new("marker")
+            .disclosure(editor.marker_open)
+            .show(ui, |_| ());
+        if marker.name.clicked() {
             editor.marker_open = !editor.marker_open;
         }
         let mut stripe = 0;
@@ -487,33 +479,37 @@ impl Gallery {
         let mut restore = None;
         // The restored list is what the reader has clicked back, so that a row's restore control is seen to
         // go away and its name to lose its colour.
-        const DOCS: &str =
-            "Whether the plot is drawn. A hidden plot keeps its place in the legend, greyed.";
-        let response = Property::new("visible")
-            .docs(DOCS)
-            .changed(changed(editor, "visible"))
-            .striped(striped())
-            .show(ui, |ui| {
-                checkbox(ui, &mut editor.visible, "visible");
-            });
-        if response.restore {
-            restore = Some("visible");
-        }
-        let response = Property::new("size_pt")
-            .depth(1)
-            .docs("The size of a marker, in points.")
-            .changed(changed(editor, "size_pt"))
-            .striped(striped())
-            .show(ui, |ui| {
-                number(
-                    ui,
-                    &mut editor.size_pt,
-                    Number::real(0.1),
-                    egui::Id::new("g_size_pt"),
-                );
-            });
-        if response.restore {
-            restore = Some("size_pt");
+        // The rows the marker gathers are drawn only while it is open.
+        if editor.marker_open {
+            const DOCS: &str =
+                "Whether the plot is drawn. A hidden plot keeps its place in the legend, greyed.";
+            let response = Property::new("visible")
+                .depth(1)
+                .docs(DOCS)
+                .changed(changed(editor, "visible"))
+                .striped(striped())
+                .show(ui, |ui| {
+                    checkbox(ui, &mut editor.visible, "visible");
+                });
+            if response.restore {
+                restore = Some("visible");
+            }
+            let response = Property::new("size_pt")
+                .depth(1)
+                .docs("The size of a marker, in points.")
+                .changed(changed(editor, "size_pt"))
+                .striped(striped())
+                .show(ui, |ui| {
+                    number(
+                        ui,
+                        &mut editor.size_pt,
+                        Number::real(0.1),
+                        egui::Id::new("g_size_pt"),
+                    );
+                });
+            if response.restore {
+                restore = Some("size_pt");
+            }
         }
         Property::new("rows")
             .docs("How many rows of tiles the figure is divided into.")

@@ -270,3 +270,88 @@ fn a_heading_is_read_as_it_was_written_and_its_datum_is_read_by_itself() {
         "a heading is not read in the capitals it is spelled in"
     );
 }
+
+// Why: a property that gathers others opens and closes them from its own name, as a node of the object tree does,
+// so the name must be a button where it is read, and a click on it must reach the program that decides what is
+// drawn beneath. A property that gathers nothing must stay a label, or every name would announce itself as a
+// control.
+#[test]
+fn a_property_that_gathers_others_is_a_button_named_by_it_and_reports_a_click() {
+    #[derive(Default)]
+    struct State {
+        open: bool,
+        clicks: usize,
+    }
+    let mut harness = driven(
+        State {
+            open: true,
+            clicks: 0,
+        },
+        |ui, state| {
+            let response = Property::new("marker")
+                .disclosure(state.open)
+                .show(ui, |_| ());
+            if response.name.clicked() {
+                state.open = !state.open;
+                state.clicks += 1;
+            }
+            Property::new("visible").show(ui, |_| ());
+        },
+    );
+
+    harness
+        .get_by_role_and_label(Role::Button, "marker")
+        .click();
+    harness.run();
+    assert_eq!(harness.state().clicks, 1, "a click on the name is reported");
+    assert!(
+        !harness.state().open,
+        "and the caller closed the rows beneath"
+    );
+    harness.get_by_role_and_label(Role::Label, "visible");
+    assert!(
+        harness
+            .query_by_role_and_label(Role::Button, "visible")
+            .is_none(),
+        "a property that gathers nothing is a label, not a button"
+    );
+}
+
+// Why: a row's height is the row's, not its control's. A row that gathers others has no control at all, and a row
+// whose control is short must still follow the row above it exactly, or the rows of an inspector would climb over
+// one another wherever a column happened to be empty, which is exactly where a group begins.
+#[test]
+fn rows_follow_one_another_exactly_whatever_their_columns_hold() {
+    let harness = driven((), |ui, ()| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        Property::new("first").show(ui, |ui| {
+            let mut flag = false;
+            checkbox(ui, &mut flag, "first");
+        });
+        Property::new("marker").disclosure(true).show(ui, |_| ());
+        Property::new("color")
+            .depth(1)
+            .changed(true)
+            .show(ui, |_| ());
+        Property::new("last").show(ui, |_| ());
+    });
+
+    let first = harness.get_by_role_and_label(Role::Label, "first").rect();
+    let marker = harness.get_by_role_and_label(Role::Button, "marker").rect();
+    let color = harness.get_by_role_and_label(Role::Label, "color").rect();
+    let last = harness.get_by_role_and_label(Role::Label, "last").rect();
+    for (above, below, name) in [
+        (first, marker, "marker"),
+        (marker, color, "color"),
+        (color, last, "last"),
+    ] {
+        assert!(
+            (below.min.y - above.max.y).abs() < 0.5,
+            "{name} begins where the row above it ends: {below:?} beneath {above:?}"
+        );
+        assert!(
+            (below.height() - above.height()).abs() < 0.5,
+            "every row is one height: {name} is {below:?} beneath {above:?}"
+        );
+    }
+}

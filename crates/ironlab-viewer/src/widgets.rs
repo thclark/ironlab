@@ -322,8 +322,10 @@ impl Spacing {
     pub const WELL_RADIUS: u8 = 4;
     /// The width of the column of names in a property row. Every name is drawn within it and every control begins
     /// where it ends, so that the controls of a node form one column however deeply their properties are nested.
-    pub const NAME_COLUMN: f32 = 104.0;
-    /// The indent of one level of nesting: in a tree, and among the properties of a group.
+    pub const NAME_COLUMN: f32 = 116.0;
+    /// The indent of one level of nesting: in a tree, and among the properties of a group. It is also the slot the
+    /// disclosure triangle of a property that gathers others is drawn in, so that every name stands one indent in
+    /// from the edge and a triangle takes no room from the names.
     pub const INDENT: f32 = 12.0;
     /// The least width the column of names keeps for its words, however deep the indent.
     pub const NAME_MIN: f32 = 32.0;
@@ -891,9 +893,6 @@ pub struct Row<'a> {
     pub state: RowState,
     /// How many levels of nesting the row stands in from the edge, each one [`Spacing::INDENT`].
     pub depth: usize,
-    /// Whether the row is read and not clicked: the heading of a group of properties, which gathers the rows
-    /// beneath it and does nothing itself.
-    pub passive: bool,
     /// What the row is called in the accessibility tree when its title and detail do not say enough, such as a
     /// heading whose trailing count needs its unit.
     pub spoken: Option<String>,
@@ -909,17 +908,8 @@ impl<'a> Row<'a> {
             leading: Leading::None,
             state: RowState::default(),
             depth: 0,
-            passive: false,
             spoken: None,
         }
-    }
-
-    /// Makes the row one that is read and not clicked: a label in the accessibility tree, with no fill under the
-    /// pointer.
-    #[must_use]
-    pub fn passive(mut self) -> Self {
-        self.passive = true;
-        self
     }
 
     /// Sets the row in from the edge by `depth` levels of nesting.
@@ -961,7 +951,7 @@ impl<'a> Row<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, height: f32) -> Response {
-        let sense = if self.state.faded || self.passive {
+        let sense = if self.state.faded {
             Sense::hover()
         } else {
             Sense::click()
@@ -971,16 +961,10 @@ impl<'a> Row<'a> {
         let label = self.label();
         let (enabled, selected) = (!self.state.faded, self.state.selected);
         let kind = match self.leading {
-            _ if self.passive => egui::WidgetType::Label,
             Leading::Check { .. } => egui::WidgetType::Checkbox,
             _ => egui::WidgetType::SelectableLabel,
         };
-        if self.passive {
-            response.widget_info(|| egui::WidgetInfo::labeled(kind, enabled, label.clone()));
-        } else {
-            response
-                .widget_info(|| egui::WidgetInfo::selected(kind, enabled, selected, label.clone()));
-        }
+        response.widget_info(|| egui::WidgetInfo::selected(kind, enabled, selected, label.clone()));
         if ui.is_rect_visible(rect) {
             self.paint(ui, &response, rect);
         }
@@ -1006,7 +990,7 @@ impl<'a> Row<'a> {
         } else {
             1.0
         };
-        let hovered = response.hovered() && !self.state.faded && !self.passive;
+        let hovered = response.hovered() && !self.state.faded;
         let (fill, mut title_color, data_color) = if self.state.selected {
             (
                 visuals.selection.bg_fill,
@@ -1156,6 +1140,12 @@ pub fn heading(ui: &mut Ui, words: &str, datum: Option<&str>) -> Response {
 ///
 /// A property the reader has changed is marked by its name, drawn in the colour a chip draws the name of what it
 /// narrows: the one colour the interface uses for what the reader has chosen.
+///
+/// A property that gathers others, such as the style of a line, is a row like any other, in the same text, with a
+/// disclosure triangle before its name that opens and closes the rows beneath it; those rows are set in by one
+/// indent, with a fine line down their left from the triangle, as the rows beneath a node of the object tree
+/// are. Every name stands one indent in from the edge, so that a name with a triangle and a name without begin
+/// at one place.
 #[derive(Clone, Debug)]
 pub struct Property<'a> {
     name: &'a str,
@@ -1163,6 +1153,8 @@ pub struct Property<'a> {
     changed: bool,
     striped: bool,
     docs: Option<&'a str>,
+    /// Whether the property gathers the rows beneath it, and whether they are shown.
+    disclosure: Option<bool>,
 }
 
 /// What a property row reports: what its control returned, whether its restore control was clicked, and the
@@ -1183,7 +1175,16 @@ impl<'a> Property<'a> {
             changed: false,
             striped: false,
             docs: None,
+            disclosure: None,
         }
+    }
+
+    /// Makes the property one that gathers the rows beneath it, showing them while `open`. Clicking its name
+    /// reports through [`PropertyResponse::name`], and what is drawn beneath it is the caller's to decide.
+    #[must_use]
+    pub fn disclosure(mut self, open: bool) -> Self {
+        self.disclosure = Some(open);
+        self
     }
 
     /// How deeply the property is nested beneath the group it belongs to.
@@ -1252,32 +1253,70 @@ impl<'a> Property<'a> {
             egui::vec2(restore_width, height),
         );
 
-        // The name: set in by its depth, cut short to what is left of its column, and a label in the accessibility
-        // tree so that it can be found and hovered. It takes its identity from the row's place in the panel rather
-        // than from its words, because three axes each have a scale.
+        // The name: one indent in, and one more for every level of nesting, cut short to what is left of its
+        // column, and a label in the accessibility tree so that it can be found and hovered. It takes its identity
+        // from the row's place in the panel rather than from its words, because three axes each have a scale. A
+        // name with a triangle before it is a button that takes the triangle's slot too.
         #[allow(clippy::cast_precision_loss)]
-        let indent =
-            (self.depth as f32 * Spacing::INDENT).min(Spacing::NAME_COLUMN - Spacing::NAME_MIN);
-        let name = ui.interact(
-            Rect::from_min_max(
-                egui::pos2(name_rect.min.x + indent, name_rect.min.y),
-                name_rect.max,
+        let indent = ((self.depth + 1) as f32 * Spacing::INDENT)
+            .min(Spacing::NAME_COLUMN - Spacing::NAME_MIN);
+        let (name_left, sense, kind) = match self.disclosure {
+            Some(_) => (
+                name_rect.min.x + indent - Spacing::INDENT,
+                Sense::click(),
+                egui::WidgetType::CollapsingHeader,
             ),
+            None => (
+                name_rect.min.x + indent,
+                Sense::hover(),
+                egui::WidgetType::Label,
+            ),
+        };
+        let name = ui.interact(
+            Rect::from_min_max(egui::pos2(name_left, name_rect.min.y), name_rect.max),
             allocated.id.with("name"),
-            Sense::hover(),
+            sense,
         );
         let words = self.name.to_owned();
-        name.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words.clone())
-        });
+        name.widget_info(|| egui::WidgetInfo::labeled(kind, true, words.clone()));
         if visible {
+            let painter = ui.painter();
             let color = if self.changed {
                 style::CHIP_KEY
+            } else if self.disclosure.is_some() && name.hovered() {
+                ui.visuals().text_color()
             } else {
                 ui.visuals().weak_text_color()
             };
+            // The triangle sits in the slot before the name; the guide of a nested row runs down that slot's
+            // middle, from the triangle of the row that gathers it.
+            let slot_x = name_rect.min.x + indent - Spacing::INDENT / 2.0;
+            if let Some(open) = self.disclosure {
+                let icon = if open {
+                    Icon::TriangleDown
+                } else {
+                    Icon::TriangleRight
+                };
+                // The triangle is drawn a little smaller than an icon, as the tree's is, so that it stands clear
+                // of the name in a slot one indent wide.
+                icon.paint(
+                    painter,
+                    Rect::from_center_size(
+                        egui::pos2(slot_x, name_rect.center().y),
+                        Vec2::splat(Icon::SLOT * 0.75),
+                    ),
+                    color,
+                );
+            }
+            if self.depth > 0 {
+                painter.vline(
+                    name_rect.min.x + Spacing::INDENT / 2.0,
+                    rect.y_range(),
+                    Stroke::new(1.0, style::STROKE),
+                );
+            }
             let galley = text(Role::Data, self.name).galley(ui, Spacing::NAME_COLUMN - indent);
-            ui.painter().galley(
+            painter.galley(
                 egui::pos2(
                     name_rect.min.x + indent,
                     name_rect.center().y - galley.size().y / 2.0,
@@ -1291,33 +1330,32 @@ impl<'a> Property<'a> {
             None => name,
         };
 
-        let inner = ui
-            .scope_builder(
-                egui::UiBuilder::new()
-                    .max_rect(control_rect)
-                    .layout(egui::Layout::left_to_right(Align::Center)),
-                |ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, 0.0);
-                    control(ui)
-                },
-            )
-            .inner;
+        // The columns are drawn in children that allocate nothing in the row, so that the row advances by its
+        // own height whatever its columns hold: a control, a control that has been changed, or nothing at all.
+        let mut column = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt(allocated.id.with("control"))
+                .max_rect(control_rect)
+                .layout(egui::Layout::left_to_right(Align::Center)),
+        );
+        column.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, 0.0);
+        let inner = control(&mut column);
 
-        let restore = self.changed
-            && ui
-                .scope_builder(
-                    egui::UiBuilder::new().max_rect(restore_rect).layout(
-                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                    ),
-                    |ui| {
-                        Control::new(text(Role::Control, ""), Face::Quiet)
-                            .before(Icon::Restore)
-                            .spoken(format!("Revert {}", self.name))
-                            .show(ui)
-                            .clicked()
-                    },
-                )
-                .inner;
+        let restore = self.changed && {
+            let mut column = ui.new_child(
+                egui::UiBuilder::new()
+                    .id_salt(allocated.id.with("restore"))
+                    .max_rect(restore_rect)
+                    .layout(egui::Layout::centered_and_justified(
+                        egui::Direction::LeftToRight,
+                    )),
+            );
+            Control::new(text(Role::Control, ""), Face::Quiet)
+                .before(Icon::Restore)
+                .spoken(format!("Revert {}", self.name))
+                .show(&mut column)
+                .clicked()
+        };
 
         PropertyResponse {
             inner,

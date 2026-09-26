@@ -9,7 +9,9 @@
 //! a heading and a property row for every property, every control in a row the widget of
 //! its kind, and no size, colour or padding of the panel's own beyond the share of its
 //! height each part takes. The object tree keeps egui's own collapsing headers and
-//! selectable labels beneath a heading of the same kind as the inspector's.
+//! selectable labels beneath a heading of the same kind as the inspector's, and a
+//! property that gathers others follows the tree's pattern: a triangle before its name,
+//! and a fine line down the left of the rows it gathers.
 //!
 //! A change made in the panel is committed through [`FigureState::try_record`], which
 //! records it in the overlay exactly as a gesture does, or refuses it and reports the
@@ -41,8 +43,8 @@ use crate::inspector::{
 };
 use crate::interaction::FigureState;
 use crate::widgets::{
-    Control, Detail, Face, Icon, Number, PanelKind, Property, Role, Row, RowState, Spacing,
-    checkbox, choice, combo, field, heading, hint, note, number, problem, readout, swatch, text,
+    Control, Face, Icon, Number, PanelKind, Property, Role, Spacing, checkbox, choice, combo,
+    field, heading, hint, note, number, problem, readout, swatch, text,
 };
 
 /// The identifier egui lays the object tree out under. It is named here so that the
@@ -373,6 +375,12 @@ impl Stripe {
 }
 
 /// Draws one group of properties, and returns whether the figure changed.
+///
+/// A group whose own value is a row is named by that row; one that is only a container
+/// (an axis, a line style) is named by a row of its own, in the same text as every other
+/// name, with a disclosure triangle that opens and closes the rows beneath it, as a node
+/// of the object tree opens and closes its children. The rows it gathers are indented
+/// beneath it with a fine line down their left.
 fn property_group(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
@@ -381,19 +389,19 @@ fn property_group(
     group: &PropertyGroup,
     stripe: &mut Stripe,
 ) -> bool {
-    // A group whose own value is a row is named by that row; one that is only a
-    // container (an axis, a line style) is named by a heading of its own: a band across
-    // the inspector, as the heading of a group in the browser's list is, beneath which
-    // the properties it gathers are indented.
     if group.rows.first().is_none_or(|row| !row.label.is_empty()) {
-        Row::new(text(Role::Label, &group.name), Detail::None)
-            .state(RowState {
-                band: true,
-                ..RowState::default()
-            })
-            .passive()
-            .show(ui, Row::height(ui, false));
-        *stripe = Stripe::default();
+        let id = ui.make_persistent_id(("ironlab_group", node.0, &group.name));
+        let open = ui.ctx().data_mut(|data| *data.get_temp_mut_or(id, true));
+        let response = Property::new(&group.name)
+            .disclosure(open)
+            .striped(stripe.next())
+            .show(ui, |_| ());
+        if response.name.clicked() {
+            ui.ctx().data_mut(|data| data.insert_temp(id, !open));
+        }
+        if !open {
+            return false;
+        }
     }
     let mut changed = false;
     for row in &group.rows {

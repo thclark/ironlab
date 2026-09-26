@@ -2259,14 +2259,14 @@ fn every_property_name_of_one_depth_begins_at_the_same_left_edge() {
 }
 
 // Why: the headings gather thirty-odd properties into the values they belong to, which is
-// the only structure the inspector has. A heading is a band across the inspector, as the
-// heading of a group in the browser's list is, so it must read as the same kind of thing
-// as the inspector's own heading — the same size, in the same spaced capitals — and it
-// must sit at the left edge of the rows, where a property that belongs to no group is
-// drawn, with the properties it gathers indented beneath it, or the reader cannot see
-// which rows belong to it.
+// the only structure the inspector has. A heading set apart from the rows — larger, in
+// capitals, on a band — hides that structure rather than showing it, because it reads as
+// a section of the panel instead of as a property that happens to hold others. A heading
+// is therefore a row in the same text as every other name, beginning where a property
+// that belongs to no group begins, and it shows what it gathers the way the object tree
+// does: a triangle before its name, and the rows it gathers indented beneath it.
 #[test]
-fn a_group_heading_is_a_band_at_the_left_edge_of_the_rows_read_as_the_inspector_heading_is() {
+fn a_group_heading_is_a_row_in_the_same_text_as_its_members_with_them_indented_beneath_it() {
     let painted = painted_text(figure_with_artists(), SOLID);
     let run = |words: &str| {
         painted
@@ -2276,19 +2276,17 @@ fn a_group_heading_is_a_band_at_the_left_edge_of_the_rows_read_as_the_inspector_
             .unwrap_or_else(|| panic!("the inspector paints {words:?}"))
             .clone()
     };
-    // The cell of the axes is spelled in capitals, as every heading is; the colormap
-    // belongs to no group, and the column of the cell is gathered under the cell.
-    let heading = run("CELL");
-    let title = run("colormap");
+    // The cell of the axes gathers its column and row; the colormap belongs to no group.
+    let heading = run("cell");
+    let alone = run("colormap");
     let inside = run("col");
-    let inspector = run("AXES");
 
     assert!(
-        (heading.rect.min.x - title.rect.min.x).abs() < 0.5,
+        (heading.rect.min.x - alone.rect.min.x).abs() < 0.5,
         "a heading begins where a property that belongs to no group begins: the heading \
          is {:?} and the property is {:?}",
         heading.rect,
-        title.rect
+        alone.rect
     );
     assert!(
         inside.rect.min.x > heading.rect.min.x + 8.0,
@@ -2297,11 +2295,49 @@ fn a_group_heading_is_a_band_at_the_left_edge_of_the_rows_read_as_the_inspector_
         heading.rect
     );
     assert!(
-        (heading.rect.height() - inspector.rect.height()).abs() < 0.5,
-        "a group heading is set as the heading of the inspector is: {} points against {} \
-         points",
+        (heading.rect.height() - alone.rect.height()).abs() < 0.5 && heading.color == alone.color,
+        "a heading is set in the same text as every other name: {} points in {:?} against \
+         {} points in {:?}",
         heading.rect.height(),
-        inspector.rect.height()
+        heading.color,
+        alone.rect.height(),
+        alone.color
+    );
+}
+
+// Why: a figure of many axes has a long inspector, and the rows a reader is not working
+// on are in the way of the ones they are. A group can therefore be closed from its
+// heading and opened again, as a node of the object tree can, and closing it must take
+// its rows out of the panel altogether rather than leaving them to be tabbed into.
+#[test]
+fn a_group_is_closed_and_opened_again_from_its_heading() {
+    let mut harness = panel_harness(figure_with_artists(), Some(SOLID));
+    harness.run();
+    assert!(
+        harness.query_by_label("col_span").is_some(),
+        "a group opens with its rows shown"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "cell")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("col_span").is_none(),
+        "closing a group takes its rows out of the panel"
+    );
+    assert!(
+        harness.query_by_label("colormap").is_some(),
+        "and leaves every other property where it was"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "cell")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("col_span").is_some(),
+        "opening it again brings them back"
     );
 }
 
