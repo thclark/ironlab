@@ -42,7 +42,7 @@ If you've been asked by the user to explain something, do it in the documentatio
 
 ## Data structure
 
-Before adding any plot type (or any new entity type), always define the core data structure and options FIRST and ask for review. There should be a very clear set of data structures eg in JSONSchema, protobuf or cap'n'proto in a directory somewhere that we can point to.
+Before adding any plot type (or any new entity type), define its core data structure and options first and ask for review. The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model, as recorded in [ADR 0001](docs/adrs/0001-retained-figure-ir-and-protobuf-wire-format.md); the Protocol Buffers definition and the JSON Schema are generated from those types and never committed. The structure to define and review is therefore the IR type, together with its entry in the [figure schema reference](docs/reference/figure-schema.md).
 
 ## Development Cycle
 
