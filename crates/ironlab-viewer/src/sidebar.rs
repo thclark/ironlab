@@ -107,13 +107,17 @@ const COMBO_WIDTH: f32 = 150.0;
 /// The narrowest a combo box of the order or the grouping is drawn, in egui points.
 const COMBO_MIN_WIDTH: f32 = 56.0;
 
-/// The room between the edge of a chip and its words, in egui points: left, top, right and bottom.
-const CHIP_PADDING: egui::Margin = egui::Margin {
-    left: 7,
-    right: 5,
-    top: 2,
-    bottom: 2,
-};
+/// The room between the edge of a chip and its words, in egui points, the same at both ends so that the mark at
+/// the right end of a chip has the room the name at its left end has.
+const CHIP_PADDING: egui::Margin = egui::Margin::symmetric(7, 2);
+
+/// The size of the mark on a chip that says clicking it takes the filter away, in points: a size above the words
+/// of the chip, because the cross is a small glyph and at their size it reads as a speck.
+const REMOVE_MARK_SIZE_PT: f32 = 14.0;
+
+/// The size of the arrow on the control that reverses the order, in points: a size below the caption, because the
+/// arrow comes from the mathematical face, whose arrows are taller than the letters of the interface at one size.
+const ARROW_MARK_SIZE_PT: f32 = 11.0;
 
 /// The room between the edge of a text field and its text, in egui points.
 const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
@@ -1098,10 +1102,22 @@ fn chip(ui: &mut egui::Ui, key: &FacetKey, text: &str) -> egui::Response {
         },
     );
     job.append(
-        &format!("{text} {}", style::REMOVE),
+        text,
         style::ROW_GAP,
         egui::TextFormat {
             font_id: egui::FontId::proportional(style::SMALL_BUTTON_SIZE_PT),
+            color: palette.text,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    // The mark is a size larger than the words and centred on their row, so that it reads as a control rather
+    // than as punctuation.
+    job.append(
+        &format!(" {}", style::REMOVE),
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(REMOVE_MARK_SIZE_PT),
             color: palette.text,
             valign: egui::Align::Center,
             ..Default::default()
@@ -1144,6 +1160,42 @@ fn direction_caption(descending: bool) -> String {
     } else {
         format!("Ascending {}", style::ASCENDING)
     }
+}
+
+/// The caption of the control that reverses the order, laid out with its arrow a size smaller than its word and
+/// centred on the word's row.
+///
+/// The arrow is drawn from the mathematical face, whose arrows stand taller than the interface's letters at one
+/// size; set a size down and centred, it sits beside the word rather than above it.
+fn direction_text(ui: &egui::Ui, descending: bool) -> LayoutJob {
+    let (word, arrow) = if descending {
+        ("Descending", style::DESCENDING)
+    } else {
+        ("Ascending", style::ASCENDING)
+    };
+    let color = ui.visuals().widgets.inactive.fg_stroke.color;
+    let mut job = LayoutJob::default();
+    job.append(
+        word,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::TextStyle::Button.resolve(ui.style()),
+            color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    job.append(
+        &format!(" {arrow}"),
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(ARROW_MARK_SIZE_PT),
+            color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    job
 }
 
 /// The width of a combo box of the order or the grouping: [`COMBO_WIDTH`] when the panel has room for the widest
@@ -1193,11 +1245,14 @@ fn sort_row(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
                     }
                 });
             let descending = browser.browse.sort.descending;
-            if ui
-                .button(direction_caption(descending))
-                .on_hover_text("Reverse the order.")
-                .clicked()
-            {
+            let response = ui
+                .add(egui::Button::new(direction_text(ui, descending)))
+                .on_hover_text("Reverse the order.");
+            let caption = direction_caption(descending);
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone())
+            });
+            if response.clicked() {
                 browser.browse.sort.descending = !descending;
             }
         });
