@@ -114,6 +114,15 @@ fn row_of(title: &str) -> String {
     format!("{title}, ")
 }
 
+/// The text that finds the entry of a parameter in the filter menu, and nothing else.
+///
+/// An entry is labelled by the parameter's name, a comma, and then how many values it takes, which is what tells it
+/// from the same name in a chip, where a colon follows the name, and from the details strip, where the name stands
+/// alone.
+fn parameter_of(name: &str) -> String {
+    format!("{name}, ")
+}
+
 /// Types `query` into the search field.
 ///
 /// The field is found by its role: with the property editor closed and the filter menu shut, the browser's search
@@ -393,7 +402,7 @@ fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
     for parameter in ["rig", "angle", "solver"] {
         assert!(
             harness
-                .query_by_label_contains(&format!("{parameter}\n"))
+                .query_by_label_contains(&parameter_of(parameter))
                 .is_some(),
             "the menu offers {parameter:?}, which divides the collection"
         );
@@ -402,6 +411,70 @@ fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
         harness.query_by_label_contains("axes").is_none(),
         "but not the number of axes, which is one for every figure and divides nothing"
     );
+}
+
+// Why: the design that was approved opens the filters as an accordion within the panel, pushing the order and
+// grouping controls and the list down, rather than as a popup floating over them: a popup shuts as soon as the
+// pointer strays outside it, and a reader choosing values one at a time loses it again and again. Whether the
+// menu is in the panel or over it is a question of geometry, so the geometry is what is checked.
+#[test]
+fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
+    let mut harness = app(campaign());
+    let order_before = harness.get_by_label_contains("Ascending").rect();
+    harness.get_by_label("+ Filter").click();
+    harness.run();
+
+    let panel = panel_rect(&harness).expect("the browser is open");
+    let row = harness.get_by_label_contains(&parameter_of("rig")).rect();
+    assert!(
+        panel.contains_rect(row),
+        "the parameters are offered inside the panel ({panel:?}), not in a popup over it: {row:?}"
+    );
+    let order_after = harness.get_by_label_contains("Ascending").rect();
+    assert!(
+        order_after.top() > order_before.bottom(),
+        "and the order and grouping controls move down below the menu: {order_before:?} then {order_after:?}"
+    );
+    assert!(
+        row.bottom() <= order_after.top(),
+        "the menu sits between the search field and the order controls"
+    );
+
+    harness.get_by_label("+ Filter").click();
+    harness.run();
+    assert!(
+        harness
+            .query_by_label_contains(&parameter_of("rig"))
+            .is_none(),
+        "clicking + Filter again shuts the menu"
+    );
+    assert_eq!(
+        harness.get_by_label_contains("Ascending").rect(),
+        order_before,
+        "and the controls return to where they were"
+    );
+}
+
+// Why: a menu that stays open until it is told to shut needs a control that shuts it, and the control has to be
+// there on the page of values, which is where a reader is when they have finished choosing.
+#[test]
+fn done_shuts_the_menu_and_keeps_what_was_chosen() {
+    let mut harness = app(campaign());
+    harness.get_by_label("+ Filter").click();
+    harness.run();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
+    harness.run();
+    harness.get_by_label_contains("CFD, 2").click();
+    harness.run();
+    harness.get_by_label("Done").click();
+    harness.run();
+
+    assert!(harness.query_by_label("Done").is_none(), "the menu is shut");
+    assert!(
+        harness.query_by_label_contains("rig: CFD").is_some(),
+        "and the value chosen in it is kept as a chip"
+    );
+    assert!(!listed(&harness, "Run 9 lift"), "which narrows the list");
 }
 
 // Why: a count beside a value is what makes the menu worth opening rather than guessing, and a count of zero must
@@ -414,7 +487,7 @@ fn the_menu_counts_what_each_value_would_leave() {
     harness.run();
     harness.get_by_label("+ Filter").click();
     harness.run();
-    harness.get_by_label_contains("rig\n").click();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
     harness.run();
 
     assert!(
@@ -780,12 +853,17 @@ fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
     let mut harness = app(campaign());
     harness.get_by_label("+ Filter").click();
     harness.run();
-    harness.get_by_label_contains("angle\n").click();
+    harness
+        .get_by_label_contains(&parameter_of("angle"))
+        .click();
     harness.run();
 
-    assert!(
-        harness.query_by_label("from").is_some() && harness.query_by_label("to").is_some(),
-        "the two ends of the range are offered"
+    assert_eq!(
+        harness
+            .get_all_by_role(egui::accesskit::Role::SpinButton)
+            .count(),
+        2,
+        "the two ends of the range are offered, as number fields"
     );
     assert!(
         harness.query_by_label_contains("4, 3").is_none(),
@@ -815,8 +893,9 @@ fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
 }
 
 // Why: a range covering the whole parameter keeps every figure, so leaving it on the list would show a chip that
-// narrows nothing and invite the reader to wonder what it is doing. The control that says so has to actually
-// remove the filter rather than widen it to the ends.
+// narrows nothing and invite the reader to wonder what it is doing. There is no control that says "whole range":
+// the ends of the range are the control, and dragging the lower end back to the least value the parameter takes
+// has to remove the filter rather than keep a chip that narrows nothing.
 #[test]
 fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
     let mut harness = app(campaign());
@@ -837,9 +916,25 @@ fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
 
     harness.get_by_label("+ Filter").click();
     harness.run();
-    harness.get_by_label_contains("angle\n2 values").click();
+    harness
+        .get_by_label_contains(&parameter_of("angle"))
+        .click();
     harness.run();
-    harness.get_by_label("Whole range").click();
+    // The lower end is the first number field; clicking it opens it for typing, and what is typed replaces the
+    // value as it is typed. Four degrees is the least angle in the campaign.
+    fn lower_end<'a>(harness: &'a Harness<'_, ViewerApp>) -> egui_kittest::Node<'a> {
+        harness
+            .get_all_by_role(egui::accesskit::Role::SpinButton)
+            .next()
+            .expect("the lower end of the range")
+    }
+    lower_end(&harness).click();
+    harness.run();
+    assert!(
+        lower_end(&harness).is_focused(),
+        "clicking the lower end opens it for typing"
+    );
+    lower_end(&harness).type_text("4");
     harness.run();
 
     assert!(

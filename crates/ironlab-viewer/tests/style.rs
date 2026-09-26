@@ -196,6 +196,16 @@ fn applying_the_style_gives_the_context_the_named_sizes_and_colours() {
         "the caption of a button is ordinary text"
     );
     assert_eq!(configured.visuals.disabled_alpha, style::DISABLED_ALPHA);
+    assert_eq!(
+        configured.visuals.widgets.inactive.weak_bg_fill,
+        style::WIDGET,
+        "the face of a button is the named shade above the panel"
+    );
+    assert_eq!(
+        configured.visuals.faint_bg_color,
+        style::FAINT,
+        "and the stripe of a list is the named one"
+    );
 }
 
 // Why: the text sizes are a matter of legibility rather than of colour, and the viewer must not depend on the theme

@@ -6,6 +6,11 @@
 //! exactly where the property editor puts its explanations: group headings, tooltips, and the reason a value is
 //! shown read-only.
 //!
+//! It also holds every colour and size the interface is drawn in beyond egui's own: the face of a button, the
+//! stripe of a list, the fills of the browser's menu and foot, the surround of the canvas, and the sizes of the
+//! small text that sits beside ordinary text. They are the values of the design that was approved for the figure
+//! browser, named here so that the panel, the toolbar and the strip of details are drawn from one set.
+//!
 //! This module raises every text style by 1.5 pt and lifts the text colours until ordinary text clears the WCAG 2.1
 //! ratio of 4.5:1 against the panel and secondary text clears 3:1, including after egui has dimmed it for a disabled
 //! widget. It does so in one place, as named constants, so that the interface moves as a whole rather than one
@@ -45,6 +50,75 @@ pub const TEXT: Color32 = Color32::from_gray(190);
 /// Grey 150 on [`BACKGROUND`] is a contrast ratio of 5.8:1, comfortably readable while still plainly quieter than
 /// [`TEXT`]. egui's default, which fades ordinary text to 60 % opacity, gives 2.7:1.
 pub const WEAK_TEXT: Color32 = Color32::from_gray(150);
+
+/// The face of a button, a combo box and an unticked checkbox, and the fill of a row of a list under the pointer.
+///
+/// Grey 45, a shade above [`BACKGROUND`], so that a control reads as raised from the panel without competing with
+/// the text on it; egui's grey 60 is kept for the outline of a text field and the lines between panels, which
+/// [`STROKE`] names.
+pub const WIDGET: Color32 = Color32::from_gray(45);
+
+/// The outline of a text field, the line between two panels, and the rule above and below a group heading.
+pub const STROKE: Color32 = Color32::from_gray(60);
+
+/// The fill of every second row of a list, so that the eye can follow one row across.
+///
+/// Grey 36 is faint enough to read as a stripe and not as a selection; egui's own faint fill, five above the
+/// panel, is too faint to follow.
+pub const FAINT: Color32 = Color32::from_gray(36);
+
+/// The fill of a text field: egui's own, named here so that a field drawn by hand matches one egui draws.
+pub const FIELD: Color32 = Color32::from_gray(10);
+
+/// The fill of the filter menu, which opens within the browser: a shade below the panel, so that the menu reads
+/// as a well the parameters sit in rather than as a card laid over the panel.
+pub const MENU_FILL: Color32 = Color32::from_gray(20);
+
+/// The fill of the strip at the foot of the browser that counts what is left of the collection.
+pub const FOOT_FILL: Color32 = Color32::from_gray(25);
+
+/// The fill of the heading of a group in the browser's list.
+pub const GROUP_FILL: Color32 = Color32::from_rgb(32, 32, 34);
+
+/// The surround the canvas draws a figure on: a neutral grey, lighter than the panel, so that the white page of a
+/// figure and the dark panels beside it both read as objects against it.
+pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);
+
+/// The fill of a chip that narrows a parameter: egui's selection fill, named because a chip is drawn by hand.
+pub const CHIP_FILL: Color32 = Color32::from_rgb(0, 92, 128);
+
+/// The outline of a chip that narrows a parameter, a shade lighter than [`CHIP_FILL`].
+pub const CHIP_STROKE: Color32 = Color32::from_rgb(13, 112, 153);
+
+/// The name of the parameter on a chip.
+pub const CHIP_KEY: Color32 = Color32::from_rgb(191, 227, 247);
+
+/// The value on a chip.
+pub const CHIP_TEXT: Color32 = Color32::from_rgb(234, 244, 251);
+
+/// The fill of a chip that narrows the labels: the green of a tag, so that a filter on labels reads as one.
+pub const LABEL_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
+
+/// The outline of a chip that narrows the labels.
+pub const LABEL_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
+
+/// The word "label" on a chip that narrows the labels.
+pub const LABEL_CHIP_KEY: Color32 = Color32::from_rgb(143, 191, 158);
+
+/// The labels on a chip that narrows the labels.
+pub const LABEL_CHIP_TEXT: Color32 = Color32::from_rgb(188, 217, 196);
+
+/// A bar of the histogram above a numeric range, for the figures the range leaves out.
+pub const HISTOGRAM_BAR: Color32 = Color32::from_gray(63);
+
+/// A bar of the histogram above a numeric range, for the figures the range keeps.
+pub const HISTOGRAM_KEPT: Color32 = Color32::from_rgb(47, 110, 140);
+
+/// The second line of a selected row, and the count on it: pale enough to read on the selection fill.
+pub const SELECTED_DETAIL: Color32 = Color32::from_rgb(201, 230, 245);
+
+/// The brightest text, which the tick of a ticked checkbox is drawn in.
+pub const BRIGHT: Color32 = Color32::from_gray(236);
 
 /// The fill of a tag: the frame a label of a figure is drawn in, below the canvas.
 ///
@@ -118,6 +192,7 @@ pub const INTERFACE_CHARACTERS: &[char] = &[
     '↑', // the mark of ascending order, `ASCENDING`
     '↓', // the mark of descending order, `DESCENDING`
     '↺', // the revert control, `REVERT`
+    '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
 ];
 
 /// The name egui knows the interface's last-resort face by.
@@ -172,6 +247,26 @@ pub const MONOSPACE_SIZE_PT: f32 = 14.5;
 /// The size of headings, in points: egui's 18 pt raised by 1.5 pt.
 pub const HEADING_SIZE_PT: f32 = 19.5;
 
+/// The size of the caption of a small button, in points: the buttons of the toolbar and of the figure browser,
+/// which sit among text rather than standing alone and are a size below it.
+pub const SMALL_BUTTON_SIZE_PT: f32 = 12.5;
+
+/// The size of the text of a combo box, in points, between a small button and body text.
+pub const COMBO_SIZE_PT: f32 = 13.5;
+
+/// The size of a count or a name set in monospace beside ordinary text, in points, such as the count on a heading
+/// of the browser's list or the name of the parameter on a chip.
+pub const MONOSPACE_SMALL_SIZE_PT: f32 = 11.5;
+
+/// The size of the monospaced text of a details table, in points.
+pub const DETAIL_SIZE_PT: f32 = 12.0;
+
+/// The room between the caption of a button and its edge, in points, sideways and up and down.
+pub const BUTTON_PADDING: egui::Vec2 = egui::vec2(7.0, 2.0);
+
+/// The room between two controls on one row, in points.
+pub const ROW_GAP: f32 = 6.0;
+
 /// The text styles the viewer installs: the five styles egui defines, each in the font family egui uses for it and
 /// at the size named above.
 #[must_use]
@@ -201,6 +296,21 @@ pub fn text_styles() -> BTreeMap<TextStyle, FontId> {
     .into()
 }
 
+/// Gives `ui` the spacing of the design: small buttons in [`BUTTON_PADDING`], set [`ROW_GAP`] apart on a row, and
+/// nothing between one block and the next, because each block carries its own padding.
+///
+/// It is applied to the toolbar and to the figure browser, which are drawn from the same set of measurements and
+/// must agree with each other; the property editor keeps egui's own spacing.
+pub fn compact(ui: &mut egui::Ui) {
+    let style = ui.style_mut();
+    style.spacing.button_padding = BUTTON_PADDING;
+    style.spacing.item_spacing = egui::vec2(ROW_GAP, 0.0);
+    style.text_styles.insert(
+        TextStyle::Button,
+        FontId::new(SMALL_BUTTON_SIZE_PT, FontFamily::Proportional),
+    );
+}
+
 /// Installs the viewer's text sizes and colours on `ctx`.
 ///
 /// The sizes are given to both themes, because how large text should be is a question of legibility rather than of
@@ -227,5 +337,11 @@ pub fn apply(ctx: &Context) {
         visuals.widgets.inactive.fg_stroke.color = TEXT;
         visuals.weak_text_color = Some(WEAK_TEXT);
         visuals.disabled_alpha = DISABLED_ALPHA;
+        // The face of a button, and the fill of an unticked checkbox: a shade above the panel rather than egui's
+        // grey 60, which is kept for outlines.
+        visuals.widgets.inactive.weak_bg_fill = WIDGET;
+        visuals.widgets.inactive.bg_fill = WIDGET;
+        visuals.faint_bg_color = FAINT;
+        visuals.extreme_bg_color = FIELD;
     });
 }

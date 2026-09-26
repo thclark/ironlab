@@ -43,7 +43,44 @@ use crate::sidebar::{FigureBrowser, figure_browser};
 const WHEEL_ZOOM_RATE: f64 = 0.0036;
 
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
-const CANVAS_MARGIN: f32 = 12.0;
+const CANVAS_MARGIN: f32 = 22.0;
+
+/// The shadow the page of a figure casts on the surround, which is what makes it read as a sheet lying on the
+/// canvas rather than as a white rectangle painted on it.
+///
+/// The design casts it from a rectangle a little smaller than the page, so that the shadow shows only beneath and
+/// beside it; the page is drawn over the rest.
+const PAGE_SHADOW: egui::Shadow = egui::Shadow {
+    offset: [0, 8],
+    blur: 26,
+    spread: 0,
+    color: egui::Color32::from_black_alpha(160),
+};
+
+/// How far inside the page's edge its shadow is cast from, in egui points.
+const PAGE_SHADOW_INSET: f32 = 12.0;
+
+/// The room between the edge of the toolbar and its controls, in egui points.
+const TOOLBAR_PADDING: egui::Margin = egui::Margin {
+    left: 9,
+    right: 9,
+    top: 6,
+    bottom: 6,
+};
+
+/// The room between the edge of the strip of details and its contents, in egui points.
+const DETAILS_PADDING: egui::Margin = egui::Margin {
+    left: 12,
+    right: 12,
+    top: 8,
+    bottom: 12,
+};
+
+/// The room between the tags of a figure and the table of its parameters, in egui points.
+const DETAILS_GAP: f32 = 7.0;
+
+/// The room between the columns and the rows of the table of a figure's parameters, in egui points.
+const DETAILS_SPACING: [f32; 2] = [8.0, 4.0];
 
 /// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
 /// match.
@@ -207,6 +244,7 @@ pub fn toolbar(
     show_properties: &mut bool,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
+    crate::style::compact(ui);
     ui.horizontal(|ui| {
         let has_3d = state.has_3d();
         for (tool, label, hint, enabled) in [
@@ -395,12 +433,20 @@ impl FigurePane {
             scene.warnings.iter().map(Problem::from_scene).collect()
         });
         problems.extend(self.state.problems().iter().cloned());
-        let response = egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(8, 4))
+        let bar = egui::Frame::new()
+            .inner_margin(TOOLBAR_PADDING)
             .show(ui, |ui| {
                 toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
-            })
-            .inner;
+            });
+        // The rule beneath the toolbar, which parts it from the canvas as the browser's rule parts its controls
+        // from its list.
+        let rect = bar.response.rect;
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom(),
+            egui::Stroke::new(1.0, crate::style::STROKE),
+        );
+        let response = bar.inner;
         if response.changed {
             self.invalidate();
         }
@@ -440,10 +486,15 @@ impl FigurePane {
             .iter()
             .map(|(name, value)| (name.clone(), FacetValue::from(value).text()))
             .collect();
+        let frame = egui::Frame::new()
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(DETAILS_PADDING);
         egui::Panel::bottom(egui::Id::new(DETAILS_ID))
             .resizable(false)
             .show_separator_line(true)
+            .frame(frame)
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(crate::style::ROW_GAP, 0.0);
                 egui::ScrollArea::vertical()
                     .id_salt("ironlab_details_scroll")
                     .max_height(DETAILS_MAX_HEIGHT)
@@ -451,21 +502,31 @@ impl FigurePane {
                         ui.set_min_width(ui.available_width());
                         if !labels.is_empty() {
                             ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing =
+                                    egui::Vec2::splat(crate::style::ROW_GAP);
                                 for label in &labels {
                                     tag(ui, label);
                                 }
                             });
+                            ui.add_space(DETAILS_GAP);
                         }
                         if !parameters.is_empty() {
                             egui::Grid::new("ironlab_details_parameters")
                                 .num_columns(2)
-                                .spacing([12.0, 2.0])
+                                .spacing(DETAILS_SPACING)
                                 .show(ui, |ui| {
                                     for (name, value) in &parameters {
                                         ui.label(
-                                            egui::RichText::new(name).monospace().small().weak(),
+                                            egui::RichText::new(name)
+                                                .monospace()
+                                                .size(crate::style::DETAIL_SIZE_PT)
+                                                .weak(),
                                         );
-                                        ui.label(egui::RichText::new(value).monospace().small());
+                                        ui.label(
+                                            egui::RichText::new(value)
+                                                .monospace()
+                                                .size(crate::style::DETAIL_SIZE_PT),
+                                        );
                                         ui.end_row();
                                     }
                                 });
@@ -542,7 +603,7 @@ impl FigurePane {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+        painter.rect_filled(rect, 0.0, crate::style::SURROUND);
 
         let (width_pt, height_pt) = {
             let list = &self.scene(text).display_list;
@@ -565,8 +626,12 @@ impl FigurePane {
         if let Some(background) = premultiplied(scene.display_list.background)
             && background[3] > 0
         {
+            let page = egui::Rect::from_min_size(to_screen.origin, size);
+            painter.add(
+                PAGE_SHADOW.as_shape(page.shrink(PAGE_SHADOW_INSET), egui::CornerRadius::ZERO),
+            );
             painter.rect_filled(
-                egui::Rect::from_min_size(to_screen.origin, size),
+                page,
                 0.0,
                 egui::Color32::from_rgba_premultiplied(
                     background[0],

@@ -4,14 +4,20 @@
 //! is deliberate, and it is the one that survives an unbounded number of parameters:
 //!
 //! - **The controls are small and the list is large.** A panel of checkboxes, one section per parameter, grows with
-//!   the collection until the list of figures starts below the bottom of the window. Here the controls take four
+//!   the collection until the list of figures starts below the bottom of the window. Here the controls take three
 //!   rows whatever the collection holds, and everything below them is the list.
-//! - **Filters are chips, added from a menu.** "Add filter" opens a menu of the parameters worth filtering on, most
-//!   useful first, and then of that parameter's values with the count each would leave. What has been chosen reads
-//!   back as a row of chips, and clicking a chip takes it away.
+//! - **Filters are chips, added from a menu that opens within the panel.** "+ Filter" opens, between the chips and
+//!   the row of order and grouping, a list of the parameters worth filtering on, most useful first, and then of that
+//!   parameter's values with the count each would leave. The menu pushes the controls and the list down rather
+//!   than floating over them, so it stays open while values are chosen one at a time, and "Done" shuts it. What
+//!   has been chosen reads back as a row of chips, and clicking a chip takes it away.
 //! - **The search field is the whole of it for anyone who would rather type.** `rig:CFD angle>=8 -stalled` does what
 //!   three chips do. It is also the only way to ask something the menus do not offer, so the interface never has to
 //!   grow a control for every question.
+//!
+//! The panel is drawn to one set of measurements: each block of the controls sits in [`BLOCK_PADDING`], a row of
+//! the list in [`ROW_PADDING`], and every colour and size comes from [`crate::style`]. They are the measurements of
+//! the design that was approved for the browser, and the panel is meant to look exactly like it.
 //!
 //! The list is drawn with [`egui::ScrollArea::show_rows`], which lays out only the rows on screen, so a collection
 //! of a few hundred figures costs the same per frame as a collection of ten.
@@ -21,7 +27,7 @@
 //! narrows and to what, and carries a cross to say that clicking it takes that away; the control that reverses an
 //! order says "Ascending" or "Descending", and carries the arrow that says which at a glance.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use egui::text::LayoutJob;
 
@@ -29,6 +35,7 @@ use crate::browse::{
     Browse, Constraint, Facet, FacetKey, FacetValue, FigureCard, SortKey, describe_facets,
     has_nothing_to_browse_by,
 };
+use crate::style;
 
 /// The width the browser opens at, in egui points: wide enough for the order and the grouping to share one row and
 /// for a figure's title not to be cut short in the ordinary case.
@@ -40,20 +47,123 @@ pub const MIN_WIDTH: f32 = 220.0;
 /// The identifier of the browser's panel, which is also what a test loads its geometry by.
 pub const PANEL_ID: &str = "ironlab_figure_browser";
 
-/// The width of the menu that "Add filter" opens, in egui points.
-const MENU_WIDTH: f32 = 268.0;
+/// The room around each block of the controls, in egui points: the search field, the row of chips and the row of
+/// order and grouping each sit in their own, so that two blocks are twice this apart.
+const BLOCK_PADDING: egui::Margin = egui::Margin {
+    left: 10,
+    right: 10,
+    top: 8,
+    bottom: 8,
+};
 
-/// The height beyond which a list inside the menu scrolls, in egui points.
-const MENU_LIST_HEIGHT: f32 = 240.0;
+/// The room between the controls and the rule beneath them, and between the rule and the list, in egui points.
+const RULE_MARGIN: i8 = 6;
 
-/// How many values of a facet the menu offers before the rest are reached by typing in its search field.
-const MENU_VALUES: usize = 60;
+/// The room between the menu's frame and the edge of the panel, in egui points: a block's padding sideways, nothing
+/// above because the row of chips has its own padding beneath, and a block's padding below.
+const MENU_MARGIN: egui::Margin = egui::Margin {
+    left: 10,
+    right: 10,
+    top: 0,
+    bottom: 8,
+};
+
+/// The room inside the menu's frame, in egui points.
+const MENU_PADDING: egui::Margin = egui::Margin {
+    left: 10,
+    right: 10,
+    top: 8,
+    bottom: 8,
+};
+
+/// The radius of the corners of the menu's frame, in egui points.
+const MENU_CORNER: u8 = 4;
+
+/// The room between the menu's search field and the list beneath it, in egui points.
+const MENU_FIELD_GAP: f32 = 5.0;
+
+/// The height beyond which the menu's list of parameters scrolls, in egui points.
+const MENU_PARAMETERS_HEIGHT: f32 = 210.0;
+
+/// The height beyond which the menu's list of values scrolls, in egui points.
+const MENU_VALUES_HEIGHT: f32 = 240.0;
+
+/// How many values of a parameter the menu shows before the rest are reached by asking for more.
+const MENU_VALUES: usize = 14;
+
+/// The number of values above which the menu offers a search field for them, because a list that long is faster
+/// to type into than to scroll.
+const MENU_SEARCH_VALUES: usize = 60;
+
+/// The room above the body of the menu's second page, and above its "Done" control, in egui points.
+const MENU_BODY_GAP: (f32, f32) = (2.0, 8.0);
+
+/// The room between the edge of a text field and its text, in egui points.
+const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
+
+/// The size of the text of the menu's search field, in points, which is set in monospace because what is typed
+/// there is the name of a parameter or a value, and reads as data.
+const MENU_FIELD_SIZE_PT: f32 = 13.0;
+
+/// The room between the edge of an entry of the menu's list of parameters and its text, in egui points.
+const ENTRY_PADDING: egui::Vec2 = egui::vec2(7.0, 3.0);
+
+/// The room between the edge of a checkbox row and its contents, in egui points.
+const CHECK_PADDING: egui::Vec2 = egui::vec2(7.0, 2.0);
+
+/// The side of the box of a checkbox, in egui points.
+const CHECK_BOX: f32 = 14.0;
+
+/// The room between the box of a checkbox and its label, in egui points.
+const CHECK_GAP: f32 = 7.0;
+
+/// The opacity a value that would leave nothing is drawn at.
+const FADED: f32 = 0.42;
+
+/// How many bars the histogram above a numeric range has.
+const HISTOGRAM_BINS: usize = 18;
+
+/// The height of the histogram above a numeric range, in egui points.
+const HISTOGRAM_HEIGHT: f32 = 26.0;
+
+/// The room between two bars of the histogram, in egui points.
+const HISTOGRAM_GAP: f32 = 1.0;
+
+/// The room above and below the histogram, in egui points.
+const HISTOGRAM_MARGIN: (f32, f32) = (2.0, 4.0);
 
 /// The room between the edge of a row of the list and its text, in egui points, sideways and up and down.
 const ROW_PADDING: egui::Vec2 = egui::vec2(9.0, 5.0);
 
+/// The room between the two lines of a row of the list, in egui points.
+const LINE_GAP: f32 = 2.0;
+
 /// The width of the bar drawn down the left edge of the row of the figure shown, in egui points.
 const SELECTED_BAR: f32 = 2.0;
+
+/// The size of the text of a group heading, in points.
+const GROUP_HEADING_SIZE_PT: f32 = 12.5;
+
+/// The letter spacing of a group heading, as a fraction of its size: a heading in capitals needs its letters
+/// spread a little to read as a word.
+const GROUP_HEADING_SPACING: f32 = 0.04;
+
+/// The letter spacing of the caption of a control, as a fraction of its size.
+const CAPTION_SPACING: f32 = 0.09;
+
+/// The room around the note shown when nothing matches, in egui points.
+const EMPTY_PADDING: egui::Margin = egui::Margin {
+    left: 12,
+    right: 12,
+    top: 22,
+    bottom: 22,
+};
+
+/// The room between the two lines of the note shown when nothing matches, in egui points.
+const EMPTY_GAP: f32 = 4.0;
+
+/// The room between the edge of the strip at the foot of the panel and its text, in egui points.
+const FOOT_PADDING: egui::Margin = egui::Margin::symmetric(10, 5);
 
 /// The hint shown in the empty search field, which is also where the typed form is taught.
 const SEARCH_HINT: &str = "Search, or rig:CFD angle>=8 -stalled";
@@ -65,7 +175,7 @@ const SEARCH_HINT: &str = "Search, or rig:CFD angle>=8 -stalled";
 /// the page it names is still in `docs/`, so the link cannot rot unnoticed when a page is renamed.
 pub const DESCRIBING_FIGURES_URL: &str = "https://ironlab.org/guides/describing-figures/";
 
-/// What the browser is showing in its "Add filter" menu.
+/// What the browser is showing in its "+ Filter" menu.
 #[derive(Clone, Debug, Default, PartialEq)]
 enum Menu {
     /// The menu is closed.
@@ -74,7 +184,12 @@ enum Menu {
     /// The parameters that can be filtered on, narrowed by what has been typed.
     Parameters { search: String },
     /// The values of one parameter.
-    Values { key: FacetKey, search: String },
+    Values {
+        key: FacetKey,
+        search: String,
+        /// Whether every value is shown, rather than the first [`MENU_VALUES`] of them.
+        all: bool,
+    },
 }
 
 /// The state of the figure browser: what the user has chosen, and where its controls have got to.
@@ -87,7 +202,7 @@ pub struct FigureBrowser {
     pub browse: Browse,
     /// Whether the panel is shown.
     pub open: bool,
-    /// What the "Add filter" menu is showing.
+    /// What the "+ Filter" menu is showing.
     menu: Menu,
     /// The names of the groups the reader has closed.
     closed: BTreeSet<String>,
@@ -146,9 +261,13 @@ pub fn figure_browser(
     if !browser.open {
         return BrowserResponse::default();
     }
+    // The panel has no margin of its own: each block of the controls carries its padding, and the rows of the list
+    // run from edge to edge.
+    let frame = egui::Frame::new().fill(ui.visuals().panel_fill);
     egui::Panel::left(PANEL_ID)
         .default_size(WIDTH)
         .min_size(MIN_WIDTH)
+        .frame(frame)
         .show(ui, |ui| contents(ui, browser, cards, selected))
         .inner
 }
@@ -162,48 +281,142 @@ fn contents(
 ) -> BrowserResponse {
     let facets = describe_facets(cards);
     let results = browser.browse.results(cards);
+    let fill = ui.visuals().panel_fill;
 
-    // The strip at the foot is given its height before the list is drawn, so that the list never takes the room the
-    // strip needs and the strip never moves as the list grows.
-    let foot = ui.spacing().interact_size.y + 2.0 * ui.spacing().button_padding.y;
     egui::Panel::top(egui::Id::new(PANEL_ID).with("controls"))
         .resizable(false)
-        .show(ui, |ui| controls(ui, browser, cards, &facets));
+        .frame(egui::Frame::new().fill(fill).inner_margin(egui::Margin {
+            bottom: RULE_MARGIN,
+            ..egui::Margin::ZERO
+        }))
+        .show(ui, |ui| {
+            style::compact(ui);
+            controls(ui, browser, cards, &facets);
+        });
+    // The strip at the foot is given its height before the list is drawn, so that the list never takes the room the
+    // strip needs and the strip never moves as the list grows.
+    let foot = foot_height(ui);
     egui::Panel::bottom(egui::Id::new(PANEL_ID).with("count"))
         .exact_size(foot)
+        .frame(
+            egui::Frame::new()
+                .fill(style::FOOT_FILL)
+                .inner_margin(FOOT_PADDING),
+        )
         .show(ui, |ui| {
+            style::compact(ui);
             count_strip(ui, browser, results.matched, results.total);
         });
     egui::CentralPanel::default()
+        .frame(egui::Frame::new().fill(fill).inner_margin(egui::Margin {
+            top: RULE_MARGIN,
+            ..egui::Margin::ZERO
+        }))
         .show(ui, |ui| list(ui, browser, cards, &results, selected))
         .inner
 }
 
-/// Draws the search field, the filter chips, and the order and grouping on one row.
+/// The height of the strip at the foot of the panel: room for its "Reset" control, so that the strip is the same
+/// height whether or not the control is shown.
+fn foot_height(ui: &egui::Ui) -> f32 {
+    let caption = ui.fonts_mut(|fonts| {
+        fonts.row_height(&egui::FontId::proportional(style::SMALL_BUTTON_SIZE_PT))
+    });
+    let button = caption + 2.0 * style::BUTTON_PADDING.y;
+    button.max(ui.spacing().interact_size.y) + f32::from(FOOT_PADDING.top + FOOT_PADDING.bottom)
+}
+
+/// Draws one block of the controls in its padding, as wide as the panel.
+fn block<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Frame::new()
+        .inner_margin(BLOCK_PADDING)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add_contents(ui)
+        })
+        .inner
+}
+
+/// Draws the search field, the filter chips and the menu they are added from, and the order and grouping on one row.
 fn controls(
     ui: &mut egui::Ui,
     browser: &mut FigureBrowser,
     cards: &[FigureCard],
     facets: &[Facet],
 ) {
-    let search = egui::TextEdit::singleline(&mut browser.browse.query)
-        .hint_text(SEARCH_HINT)
-        .desired_width(f32::INFINITY);
-    ui.add(search).on_hover_text(
-        "Type words to search the titles, labels and parameters. \
-         A term such as rig:CFD or angle>=8 asks about one parameter, and a leading minus excludes.",
-    );
-
-    if has_nothing_to_browse_by(cards) {
-        tip(ui);
-    }
-
-    ui.horizontal_wrapped(|ui| {
-        add_filter_menu(ui, browser, cards, facets);
-        chips(ui, browser);
+    block(ui, |ui| {
+        text_field(
+            ui,
+            &mut browser.browse.query,
+            SEARCH_HINT,
+            egui::Id::new(PANEL_ID).with("search"),
+            false,
+        )
+        .on_hover_text(
+            "Type words to search the titles, labels and parameters. \
+             A term such as rig:CFD or angle>=8 asks about one parameter, and a leading minus excludes.",
+        );
     });
 
-    order_and_group(ui, browser, facets);
+    if has_nothing_to_browse_by(cards) {
+        block(ui, tip);
+    }
+
+    block(ui, |ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(style::ROW_GAP, style::ROW_GAP);
+        ui.horizontal_wrapped(|ui| {
+            add_filter_button(ui, browser);
+            chips(ui, browser);
+        });
+    });
+
+    if browser.menu != Menu::Closed {
+        menu_frame(ui, browser, cards, facets);
+    }
+
+    block(ui, |ui| order_and_group(ui, browser, facets));
+}
+
+/// Draws a single-line text field as wide as the room it is given: a dark well with an outline, which takes the
+/// selection colour while the field has focus.
+///
+/// The field is drawn by hand rather than by egui's own frame so that a field the panel draws and a field the menu
+/// draws are the same field, and so that its padding and outline are the ones of the design.
+fn text_field(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    hint: &str,
+    id: egui::Id,
+    monospace: bool,
+) -> egui::Response {
+    let focused = ui.memory(|memory| memory.has_focus(id));
+    let stroke = if focused {
+        ui.visuals().selection.stroke
+    } else {
+        egui::Stroke::new(1.0, style::STROKE)
+    };
+    let font = if monospace {
+        egui::FontId::monospace(MENU_FIELD_SIZE_PT)
+    } else {
+        egui::TextStyle::Body.resolve(ui.style())
+    };
+    egui::Frame::new()
+        .fill(style::FIELD)
+        .stroke(stroke)
+        .corner_radius(2)
+        .inner_margin(FIELD_PADDING)
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .id(id)
+                    .hint_text(hint)
+                    .font(font)
+                    .frame(egui::Frame::NONE)
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(f32::INFINITY),
+            )
+        })
+        .inner
 }
 
 /// Draws the note shown when no figure of the collection carries a label or a parameter.
@@ -227,39 +440,57 @@ fn tip(ui: &mut egui::Ui) {
     });
 }
 
-/// Draws the "Add filter" button and the menu it opens.
+/// Draws the "+ Filter" control, which opens the menu when it is shut and shuts it when it is open.
+fn add_filter_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
+    let open = browser.menu != Menu::Closed;
+    let response = ui
+        .button("+ Filter")
+        .on_hover_text("Narrow the list by one of the figures' parameters.");
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, "+ Filter".to_owned())
+    });
+    if response.clicked() {
+        browser.menu = if open {
+            Menu::Closed
+        } else {
+            // Each opening starts at the list of parameters, because the parameter wanted this time is rarely the
+            // one wanted last time, and an empty search field is the fastest way to any of them.
+            Menu::Parameters {
+                search: String::new(),
+            }
+        };
+    }
+}
+
+/// Draws the menu in its frame, between the row of chips and the row of order and grouping.
 ///
-/// The menu has two stages: the parameters worth filtering on, and then the values of the one chosen. Two stages
-/// rather than one keeps the menu the same height whether the collection offers three parameters or three hundred,
-/// and it is what lets the menu show the count each value would leave, which a flat list has no room for.
-fn add_filter_menu(
+/// The menu is a block of the panel rather than a popup, so that it pushes what is beneath it down and stays open
+/// until it is shut: a reader ticking values one at a time keeps their place, where a popup would shut the moment
+/// the pointer strayed outside it.
+fn menu_frame(
     ui: &mut egui::Ui,
     browser: &mut FigureBrowser,
     cards: &[FigureCard],
     facets: &[Facet],
 ) {
-    let response = ui
-        .button("+ Filter")
-        .on_hover_text("Narrow the list by one of the figures' parameters.");
-    if response.clicked() {
-        // Each opening starts at the list of parameters, because the parameter wanted this time is rarely the one
-        // wanted last time, and an empty search field is the fastest way to any of them.
-        browser.menu = Menu::Parameters {
-            search: String::new(),
-        };
-    }
-    let open = egui::Popup::from_toggle_button_response(&response)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .width(MENU_WIDTH)
-        .show(|ui| menu(ui, browser, cards, facets));
-    if open.is_none() {
-        browser.menu = Menu::Closed;
-    }
+    egui::Frame::new()
+        .fill(style::MENU_FILL)
+        .stroke(egui::Stroke::new(1.0, style::STROKE))
+        .corner_radius(MENU_CORNER)
+        .outer_margin(MENU_MARGIN)
+        .inner_margin(MENU_PADDING)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            menu(ui, browser, cards, facets);
+        });
 }
 
-/// Draws whichever stage of the "Add filter" menu is open.
+/// Draws whichever page of the menu is open.
+///
+/// The menu has two pages: the parameters worth filtering on, and then the values of the one chosen. Two pages
+/// rather than one keeps the menu the same height whether the collection offers three parameters or three hundred,
+/// and it is what lets the menu show the count each value would leave, which a flat list has no room for.
 fn menu(ui: &mut egui::Ui, browser: &mut FigureBrowser, cards: &[FigureCard], facets: &[Facet]) {
-    ui.set_max_width(MENU_WIDTH);
     let menu = std::mem::take(&mut browser.menu);
     browser.menu = match menu {
         Menu::Closed | Menu::Parameters { .. } => {
@@ -267,35 +498,42 @@ fn menu(ui: &mut egui::Ui, browser: &mut FigureBrowser, cards: &[FigureCard], fa
                 Menu::Parameters { search } => search,
                 _ => String::new(),
             };
-            parameter_menu(ui, browser, facets, search)
+            parameter_menu(ui, browser, cards.len(), facets, search)
         }
-        Menu::Values { key, search } => match facets.iter().find(|facet| facet.key == key) {
+        Menu::Values { key, search, all } => match facets.iter().find(|facet| facet.key == key) {
             // The collection changed under the menu and the parameter is gone; the list of parameters is the only
             // honest thing to show.
-            None => parameter_menu(ui, browser, facets, String::new()),
-            Some(facet) => value_menu(ui, browser, cards, facet, search),
+            None => parameter_menu(ui, browser, cards.len(), facets, String::new()),
+            Some(facet) => value_menu(ui, browser, cards, facet, search, all),
         },
     };
 }
 
-/// Draws the first stage of the menu: the parameters worth filtering on, most useful first.
+/// Draws the first page of the menu: the parameters worth filtering on, most useful first, each with how many
+/// values it takes and how much of the collection carries it.
 fn parameter_menu(
     ui: &mut egui::Ui,
     browser: &mut FigureBrowser,
+    total: usize,
     facets: &[Facet],
     mut search: String,
 ) -> Menu {
-    ui.add(
-        egui::TextEdit::singleline(&mut search)
-            .hint_text("Which parameter?")
-            .desired_width(ui.available_width()),
+    text_field(
+        ui,
+        &mut search,
+        "Filter on…",
+        egui::Id::new(PANEL_ID).with("parameter_search"),
+        true,
     );
+    ui.add_space(MENU_FIELD_GAP);
     let wanted = search.to_lowercase();
     let mut chosen = None;
     egui::ScrollArea::vertical()
         .id_salt("ironlab_browser_parameters")
-        .max_height(MENU_LIST_HEIGHT)
+        .max_height(MENU_PARAMETERS_HEIGHT)
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
             let mut offered = 0;
             for facet in facets {
                 // A parameter that takes one value divides nothing, so it is never offered: choosing it would leave
@@ -305,20 +543,9 @@ fn parameter_menu(
                 }
                 offered += 1;
                 let held = browser.browse.filter(&facet.key).is_some();
-                let label = facet.key.name().to_owned();
-                let detail = format!(
-                    "{} values, on {} of the figures",
-                    facet.cardinality(),
-                    facet.present
-                );
-                if ui
-                    .add(
-                        egui::Button::selectable(held, two_line(ui, &label, &detail))
-                            .min_size(egui::vec2(ui.available_width(), 0.0)),
-                    )
-                    .on_hover_text(detail)
-                    .clicked()
-                {
+                let coverage = (facet.present * 100 + total.max(1) / 2) / total.max(1);
+                let detail = format!("{} values · {coverage}%", facet.cardinality());
+                if parameter_entry(ui, facet.key.name(), &detail, held) {
                     chosen = Some(facet.key.clone());
                 }
             }
@@ -330,50 +557,160 @@ fn parameter_menu(
         Some(key) => Menu::Values {
             key,
             search: String::new(),
+            all: false,
         },
         None => Menu::Parameters { search },
     }
 }
 
-/// Draws the second stage of the menu: the values of one parameter, with the count each would leave.
+/// Draws one entry of the list of parameters: its name in ordinary text, then how many values it takes and how much
+/// of the collection carries it, in small monospaced text. Returns whether it was clicked.
+///
+/// An entry whose parameter already has a filter is drawn in the selection colour, so that the reader can see at a
+/// glance which parameters the chips came from.
+fn parameter_entry(ui: &mut egui::Ui, name: &str, detail: &str, held: bool) -> bool {
+    let height = ui.text_style_height(&egui::TextStyle::Body) + 2.0 * ENTRY_PADDING.y;
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
+    let label = format!("{name}, {detail}");
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, held, label.clone())
+    });
+    if !ui.is_rect_visible(rect) {
+        return response.clicked();
+    }
+    let visuals = ui.visuals();
+    let (fill, name_color, detail_color) = if held {
+        (
+            visuals.selection.bg_fill,
+            visuals.strong_text_color(),
+            style::SELECTED_DETAIL,
+        )
+    } else if response.hovered() {
+        (
+            style::WIDGET,
+            visuals.text_color(),
+            visuals.weak_text_color(),
+        )
+    } else {
+        (
+            egui::Color32::TRANSPARENT,
+            visuals.text_color(),
+            visuals.weak_text_color(),
+        )
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, fill);
+
+    let mut job = LayoutJob::default();
+    job.append(
+        name,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::TextStyle::Body.resolve(ui.style()),
+            color: name_color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    job.append(
+        detail,
+        4.0,
+        egui::TextFormat {
+            font_id: monospace_count(),
+            color: detail_color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    job.wrap = single_line(rect.width() - 2.0 * ENTRY_PADDING.x);
+    let galley = painter.layout_job(job);
+    painter.galley(
+        egui::pos2(
+            rect.min.x + ENTRY_PADDING.x,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        name_color,
+    );
+    response
+        .on_hover_text("Choose which of its values to keep.")
+        .clicked()
+}
+
+/// Draws the second page of the menu: the values of one parameter, with the count each would leave, and the
+/// controls that go back to the parameters and that shut the menu.
 fn value_menu(
     ui: &mut egui::Ui,
     browser: &mut FigureBrowser,
     cards: &[FigureCard],
     facet: &Facet,
     mut search: String,
+    mut all: bool,
 ) -> Menu {
     let mut back = false;
     ui.horizontal(|ui| {
-        back = ui.button("All parameters").clicked();
-        ui.label(egui::RichText::new(facet.key.name()).strong());
+        back = quiet_button(ui, "Back to all parameters")
+            .on_hover_text("Choose another parameter.")
+            .clicked();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            caption(ui, &facet.key.name().to_uppercase());
+        });
     });
     if back {
         return Menu::Parameters {
             search: String::new(),
         };
     }
+    ui.add_space(MENU_BODY_GAP.0);
 
     if facet.kind.is_numeric() {
-        range_control(ui, browser, facet);
-        return Menu::Values {
-            key: facet.key.clone(),
-            search,
-        };
+        range_control(ui, browser, cards, facet);
+    } else {
+        value_list(ui, browser, cards, facet, &mut search, &mut all);
     }
 
+    ui.add_space(MENU_BODY_GAP.1);
+    if ui
+        .button("Done")
+        .on_hover_text("Shut the menu, keeping what has been chosen.")
+        .clicked()
+    {
+        return Menu::Closed;
+    }
+    Menu::Values {
+        key: facet.key.clone(),
+        search,
+        all,
+    }
+}
+
+/// Draws the values of a parameter as a counted checklist, most figures first.
+fn value_list(
+    ui: &mut egui::Ui,
+    browser: &mut FigureBrowser,
+    cards: &[FigureCard],
+    facet: &Facet,
+    search: &mut String,
+    all: &mut bool,
+) {
     let counts = browser.browse.counts(cards, facet);
     let chosen: Vec<FacetValue> = match browser.browse.filter(&facet.key).map(|f| &f.constraint) {
         Some(Constraint::AnyOf(values)) => values.clone(),
         _ => Vec::new(),
     };
 
-    if facet.cardinality() > MENU_VALUES {
-        ui.add(
-            egui::TextEdit::singleline(&mut search)
-                .hint_text("Which value?")
-                .desired_width(ui.available_width()),
+    if facet.cardinality() > MENU_SEARCH_VALUES {
+        text_field(
+            ui,
+            search,
+            "Which value?",
+            egui::Id::new(PANEL_ID).with("value_search"),
+            true,
         );
+        ui.add_space(MENU_FIELD_GAP);
     }
     let wanted = search.to_lowercase();
 
@@ -385,37 +722,27 @@ fn value_menu(
         .filter(|(value, _)| value.text().to_lowercase().contains(&wanted))
         .collect();
     values.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let shown = if *all { values.len() } else { MENU_VALUES };
 
     let mut toggled = None;
     egui::ScrollArea::vertical()
         .id_salt("ironlab_browser_values")
-        .max_height(MENU_LIST_HEIGHT)
+        .max_height(MENU_VALUES_HEIGHT)
         .show(ui, |ui| {
-            for (value, count) in values.iter().take(MENU_VALUES) {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (value, count) in values.iter().take(shown) {
                 let held = chosen.contains(value);
-                let text = value.text();
-                // A value that would leave nothing is shown rather than hidden, and disabled: a reader reaching for
-                // it learns that the collection has nothing there, where a value that vanished as they reached
-                // would look like a fault.
-                let enabled = held || *count > 0;
-                let mut flag = held;
-                let response = ui.add_enabled(
-                    enabled,
-                    egui::Checkbox::new(&mut flag, two_line(ui, &text, &count.to_string())),
-                );
-                let label = format!("{text}, {count}");
-                let is_enabled = enabled;
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::Checkbox,
-                        is_enabled,
-                        flag,
-                        label.clone(),
-                    )
-                });
-                if response.changed() {
+                if check_row(ui, &value.text(), *count, held) {
                     toggled = Some((*value).clone());
                 }
+            }
+            if values.len() > shown
+                && quiet_button(ui, &format!("{} more…", values.len() - shown))
+                    .on_hover_text("Show every value.")
+                    .clicked()
+            {
+                *all = true;
             }
             if values.is_empty() {
                 ui.label(egui::RichText::new("No value matches.").weak());
@@ -425,18 +752,108 @@ fn value_menu(
     if let Some(value) = toggled {
         browser.browse.toggle(&facet.key, &value);
     }
-    Menu::Values {
-        key: facet.key.clone(),
-        search,
-    }
 }
 
-/// Draws the control of a numeric parameter: the two ends of the range kept.
+/// Draws one value of the checklist: a box, the value, and at the right the number of figures choosing it would
+/// leave. Returns whether it was clicked.
+///
+/// A value that would leave nothing is shown rather than hidden, and faded: a reader reaching for it learns that
+/// the collection has nothing there, where a value that vanished as they reached would look like a fault.
+fn check_row(ui: &mut egui::Ui, text: &str, count: usize, held: bool) -> bool {
+    let enabled = held || count > 0;
+    let height = ui.text_style_height(&egui::TextStyle::Body) + 2.0 * CHECK_PADDING.y;
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
+    let label = format!("{text}, {count}");
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, held, label.clone())
+    });
+    if !ui.is_rect_visible(rect) {
+        return enabled && response.clicked();
+    }
+    let visuals = ui.visuals();
+    let fade = if enabled { 1.0 } else { FADED };
+    let painter = ui.painter();
+    if enabled && response.hovered() {
+        painter.rect_filled(rect, 2.0, style::WIDGET);
+    }
+
+    let box_rect = egui::Rect::from_center_size(
+        egui::pos2(
+            rect.min.x + CHECK_PADDING.x + CHECK_BOX / 2.0,
+            rect.center().y,
+        ),
+        egui::Vec2::splat(CHECK_BOX),
+    );
+    let (fill, stroke) = if held {
+        (visuals.selection.bg_fill, visuals.selection.stroke)
+    } else {
+        (style::WIDGET, egui::Stroke::new(1.0, style::STROKE))
+    };
+    painter.rect(
+        box_rect,
+        2.0,
+        fill.gamma_multiply(fade),
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+    if held {
+        // The tick is painted, as egui paints its own, so that it needs no character the fonts might lack.
+        painter.add(egui::Shape::line(
+            vec![
+                box_rect.min + egui::vec2(3.0, 7.0),
+                box_rect.min + egui::vec2(6.0, 10.0),
+                box_rect.min + egui::vec2(11.0, 4.0),
+            ],
+            egui::Stroke::new(1.5, style::BRIGHT),
+        ));
+    }
+
+    let count = painter.layout_no_wrap(
+        count.to_string(),
+        monospace_count(),
+        visuals.weak_text_color().gamma_multiply(fade),
+    );
+    let count_x = rect.max.x - CHECK_PADDING.x - count.size().x;
+    let count_color = count.job.sections[0].format.color;
+    painter.galley(
+        egui::pos2(count_x, rect.center().y - count.size().y / 2.0),
+        count,
+        count_color,
+    );
+
+    let text_x = box_rect.max.x + CHECK_GAP;
+    let text_color = visuals.text_color().gamma_multiply(fade);
+    let galley = truncated(
+        ui,
+        text,
+        egui::TextStyle::Body.resolve(ui.style()),
+        text_color,
+        count_x - CHECK_GAP - text_x,
+    );
+    painter.galley(
+        egui::pos2(text_x, rect.center().y - galley.size().y / 2.0),
+        galley,
+        text_color,
+    );
+    enabled && response.clicked()
+}
+
+/// Draws the control of a numeric parameter: a histogram of its values, and beneath it the two ends of the range
+/// kept.
 ///
 /// egui's slider carries one value, so a range is two number fields rather than a two-ended slider. They are the
 /// controls the property editor already uses for a number, and they say exactly what they mean, which a pair of
-/// handles on one track does not.
-fn range_control(ui: &mut egui::Ui, browser: &mut FigureBrowser, facet: &Facet) {
+/// handles on one track does not. Widening them to the whole of the parameter takes the filter away, because a
+/// range that keeps everything narrows nothing.
+fn range_control(
+    ui: &mut egui::Ui,
+    browser: &mut FigureBrowser,
+    cards: &[FigureCard],
+    facet: &Facet,
+) {
     let Some((least, most)) = facet.range else {
         ui.label(egui::RichText::new("The parameter holds no number to compare.").weak());
         return;
@@ -445,43 +862,128 @@ fn range_control(ui: &mut egui::Ui, browser: &mut FigureBrowser, facet: &Facet) 
         Some(Constraint::Between { low, high }) => (*low, *high),
         _ => (least, most),
     };
+
+    ui.add_space(HISTOGRAM_MARGIN.0);
+    histogram(
+        ui,
+        &browser.browse.counts(cards, facet),
+        (least, most),
+        (low, high),
+    );
+    ui.add_space(HISTOGRAM_MARGIN.1);
+
     // A step of a thousandth of the span moves the end across the whole range in a drag of reasonable length,
     // whatever the parameter is measured in.
     let speed = ((most - least) / 1000.0).abs().max(f64::MIN_POSITIVE);
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label("from");
+        let ellipsis = ui
+            .painter()
+            .layout_no_wrap("…".to_owned(), monospace_count(), egui::Color32::WHITE)
+            .size()
+            .x;
+        let field = ((ui.available_width() - ellipsis - 2.0 * style::ROW_GAP) / 2.0)
+            .max(ui.spacing().interact_size.x);
+        ui.spacing_mut().interact_size.x = field;
         changed |= ui
             .add(
                 egui::DragValue::new(&mut low)
                     .speed(speed)
                     .range(least..=most),
             )
+            .on_hover_text("The least value kept.")
             .changed();
-        ui.label("to");
+        ui.label(
+            egui::RichText::new("…")
+                .monospace()
+                .size(style::MONOSPACE_SMALL_SIZE_PT)
+                .weak(),
+        );
         changed |= ui
             .add(
                 egui::DragValue::new(&mut high)
                     .speed(speed)
                     .range(least..=most),
             )
+            .on_hover_text("The greatest value kept.")
             .changed();
     });
-    ui.label(egui::RichText::new(format!("{} of the figures carry it", facet.present)).weak());
-    if ui.button("Whole range").clicked() {
-        browser.browse.remove(&facet.key);
-        return;
+    if facet.present < cards.len() {
+        ui.label(
+            egui::RichText::new(format!(
+                "{} of {} figures carry this",
+                facet.present,
+                cards.len()
+            ))
+            .monospace()
+            .size(style::MONOSPACE_SMALL_SIZE_PT)
+            .weak(),
+        );
     }
     if changed {
         browser.browse.set_range(facet, low, high);
     }
 }
 
+/// Paints a histogram of a numeric parameter's values across the room available: one bar per bin from the least
+/// value to the greatest, in the kept colour where the bin's centre lies within the range kept.
+fn histogram(
+    ui: &mut egui::Ui,
+    counts: &BTreeMap<FacetValue, usize>,
+    (least, most): (f64, f64),
+    (low, high): (f64, f64),
+) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), HISTOGRAM_HEIGHT),
+        egui::Sense::hover(),
+    );
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let span = if most > least { most - least } else { 1.0 };
+    let mut tally = [0usize; HISTOGRAM_BINS];
+    for (value, count) in counts {
+        if let Some(number) = value.as_number() {
+            let bin = ((number - least) / span * HISTOGRAM_BINS as f64).floor();
+            // The cast saturates a bin beyond the last, which the greatest value lands in, back to the last.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bin = (bin.max(0.0) as usize).min(HISTOGRAM_BINS - 1);
+            tally[bin] += count;
+        }
+    }
+    let peak = tally.iter().copied().max().unwrap_or(0).max(1);
+    #[allow(clippy::cast_precision_loss)]
+    let bins = HISTOGRAM_BINS as f32;
+    let bar = (rect.width() - (bins - 1.0) * HISTOGRAM_GAP) / bins;
+    let painter = ui.painter();
+    for (index, count) in tally.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let (index_f, count_f, peak_f) = (index as f32, *count as f32, peak as f32);
+        let height = (count_f / peak_f * HISTOGRAM_HEIGHT).round().max(1.0);
+        let x = rect.min.x + index_f * (bar + HISTOGRAM_GAP);
+        let centre = least + (f64::from(index_f) + 0.5) / f64::from(bins) * span;
+        let kept = centre >= low && centre <= high;
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(x, rect.max.y - height),
+                egui::pos2(x + bar, rect.max.y),
+            ),
+            0.0,
+            if kept {
+                style::HISTOGRAM_KEPT
+            } else {
+                style::HISTOGRAM_BAR
+            },
+        );
+    }
+}
+
 /// Draws one chip per filter, and the control that takes them all back.
 ///
-/// A chip names the parameter in small text and what it was narrowed to in ordinary text, and carries
+/// A chip names the parameter in small monospaced text and what it was narrowed to in ordinary text, and carries
 /// [`crate::style::REMOVE`] to say that clicking it takes the filter away. The words are what the chip means; the
-/// mark is there to be found at a glance among several of them.
+/// mark is there to be found at a glance among several of them. A chip on the labels is drawn in the green of a
+/// tag, so that it reads as a filter on labels rather than on a parameter.
 fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let mut remove = None;
     for filter in &browser.browse.filters {
@@ -497,32 +999,46 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
                 crate::browse::number_text(*high)
             ),
         };
+        let (fill, stroke, key_color, text_color) = match filter.key {
+            FacetKey::Labels => (
+                style::LABEL_CHIP_FILL,
+                style::LABEL_CHIP_STROKE,
+                style::LABEL_CHIP_KEY,
+                style::LABEL_CHIP_TEXT,
+            ),
+            FacetKey::Parameter(_) => (
+                style::CHIP_FILL,
+                style::CHIP_STROKE,
+                style::CHIP_KEY,
+                style::CHIP_TEXT,
+            ),
+        };
         let name = filter.key.name();
-        let label = format!("{name}: {text} {}", crate::style::REMOVE);
+        let label = format!("{name}: {text} {}", style::REMOVE);
         let mut job = LayoutJob::default();
         job.append(
             name,
             0.0,
             egui::TextFormat {
-                font_id: monospace_small(ui),
-                color: ui.visuals().selection.stroke.color,
+                font_id: monospace_count(),
+                color: key_color,
                 valign: egui::Align::Center,
                 ..Default::default()
             },
         );
         job.append(
-            &format!(" {text} {}", crate::style::REMOVE),
-            0.0,
+            &format!("{text} {}", style::REMOVE),
+            style::ROW_GAP,
             egui::TextFormat {
-                font_id: egui::TextStyle::Body.resolve(ui.style()),
-                color: ui.visuals().strong_text_color(),
+                font_id: egui::FontId::proportional(style::SMALL_BUTTON_SIZE_PT),
+                color: text_color,
                 valign: egui::Align::Center,
                 ..Default::default()
             },
         );
         let chip = egui::Button::new(job)
-            .fill(ui.visuals().selection.bg_fill)
-            .stroke(ui.visuals().selection.stroke);
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, stroke));
         let response = ui.add(chip).on_hover_text("Click to remove this filter.");
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
@@ -534,13 +1050,12 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     if let Some(key) = remove {
         browser.browse.remove(&key);
     }
-    if !browser.browse.is_unfiltered()
-        && ui
-            .button("Clear")
-            .on_hover_text("Remove every filter and clear the search.")
+    if !browser.browse.filters.is_empty()
+        && quiet_button(ui, "Clear")
+            .on_hover_text("Remove every filter.")
             .clicked()
     {
-        browser.browse.clear();
+        browser.browse.filters.clear();
     }
 }
 
@@ -552,36 +1067,32 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
 fn order_and_group(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
     let descending = browser.browse.sort.descending;
     let direction = if descending {
-        format!("Descending {}", crate::style::DESCENDING)
+        format!("Descending {}", style::DESCENDING)
     } else {
-        format!("Ascending {}", crate::style::ASCENDING)
+        format!("Ascending {}", style::ASCENDING)
     };
     ui.horizontal(|ui| {
         let spacing = ui.spacing().item_spacing.x;
-        let measure = |ui: &egui::Ui, text: &str, style: egui::TextStyle| {
+        let measure = |ui: &egui::Ui, text: &str, font_id: egui::FontId| {
             ui.painter()
-                .layout_no_wrap(
-                    text.to_owned(),
-                    style.resolve(ui.style()),
-                    egui::Color32::WHITE,
-                )
+                .layout_no_wrap(text.to_owned(), font_id, egui::Color32::WHITE)
                 .size()
                 .x
         };
-        let reserved = measure(ui, "SORT", egui::TextStyle::Small)
-            + measure(ui, "GROUP", egui::TextStyle::Small)
-            + measure(ui, &direction, egui::TextStyle::Button)
+        let reserved = measure(ui, "SORT", caption_font())
+            + measure(ui, "GROUP", caption_font())
+            + measure(ui, &direction, egui::TextStyle::Button.resolve(ui.style()))
             + 2.0 * ui.spacing().button_padding.x
             + 6.0 * spacing;
         let box_width = ((ui.available_width() - reserved) / 2.0).max(56.0);
 
-        heading_label(ui, "SORT");
+        caption(ui, "SORT");
         let selected = match &browser.browse.sort.key {
             SortKey::Title => "Title".to_owned(),
             SortKey::Parameter(name) => name.clone(),
         };
         egui::ComboBox::from_id_salt("ironlab_browser_sort")
-            .selected_text(selected)
+            .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
             .width(box_width)
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut browser.browse.sort.key, SortKey::Title, "Title");
@@ -605,13 +1116,13 @@ fn order_and_group(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Fac
             browser.browse.sort.descending = !descending;
         }
 
-        heading_label(ui, "GROUP");
+        caption(ui, "GROUP");
         let selected = match &browser.browse.group {
             None => "None".to_owned(),
             Some(key) => key.name().to_owned(),
         };
         egui::ComboBox::from_id_salt("ironlab_browser_group")
-            .selected_text(selected)
+            .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
             .width(box_width)
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut browser.browse.group, None, "None");
@@ -629,18 +1140,57 @@ fn order_and_group(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Fac
     });
 }
 
-/// Draws the caption of a control: a short word in small capitals, quieter than the control it names.
-fn heading_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(egui::RichText::new(text).small().weak());
+/// Draws the caption of a control: a short word in small capitals, spread a little, quieter than the control it
+/// names.
+fn caption(ui: &mut egui::Ui, text: &str) {
+    let mut job = LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        egui::TextFormat {
+            font_id: caption_font(),
+            color: ui.visuals().weak_text_color(),
+            extra_letter_spacing: CAPTION_SPACING * style::SMALL_SIZE_PT,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    ui.label(job);
 }
 
-/// The small monospaced font, which the second line of a row, the name on a chip and the count on a heading are
-/// set in: the details of a figure read as data beside its title.
-fn monospace_small(ui: &egui::Ui) -> egui::FontId {
-    egui::FontId::new(
-        egui::TextStyle::Small.resolve(ui.style()).size,
-        egui::FontFamily::Monospace,
+/// The font of the caption of a control: small proportional text.
+fn caption_font() -> egui::FontId {
+    egui::FontId::proportional(style::SMALL_SIZE_PT)
+}
+
+/// Draws a quiet button: a caption with no face until the pointer is over it, for a control that must not compete
+/// with the ones beside it.
+fn quiet_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(text).color(ui.visuals().weak_text_color()))
+            .frame_when_inactive(false),
     )
+}
+
+/// The small monospaced font the second line of a row is set in: the details of a figure read as data beside its
+/// title.
+fn monospace_small() -> egui::FontId {
+    egui::FontId::monospace(style::SMALL_SIZE_PT)
+}
+
+/// The monospaced font a count, or the name of a parameter on a chip, is set in beside ordinary text.
+fn monospace_count() -> egui::FontId {
+    egui::FontId::monospace(style::MONOSPACE_SMALL_SIZE_PT)
+}
+
+/// The wrapping that keeps text to one line no wider than `width`, cut short with an ellipsis.
+fn single_line(width: f32) -> egui::text::TextWrapping {
+    egui::text::TextWrapping {
+        max_width: width,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    }
 }
 
 /// Lays out one line of text, cut short with an ellipsis where it would run past `width`.
@@ -651,13 +1201,28 @@ fn truncated(
     color: egui::Color32,
     width: f32,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = LayoutJob::simple_singleline(text.to_owned(), font_id, color);
-    job.wrap = egui::text::TextWrapping {
-        max_width: width,
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('\u{2026}'),
-    };
+    truncated_job(
+        ui,
+        text,
+        egui::TextFormat {
+            font_id,
+            color,
+            ..Default::default()
+        },
+        width,
+    )
+}
+
+/// Lays out one line of text in `format`, cut short with an ellipsis where it would run past `width`.
+fn truncated_job(
+    ui: &egui::Ui,
+    text: &str,
+    format: egui::TextFormat,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::default();
+    job.append(text, 0.0, format);
+    job.wrap = single_line(width);
     ui.painter().layout_job(job)
 }
 
@@ -671,11 +1236,20 @@ fn list(
 ) -> BrowserResponse {
     let mut response = BrowserResponse::default();
     if results.is_empty() {
-        ui.add_space(12.0);
-        ui.vertical_centered(|ui| {
-            ui.label(egui::RichText::new("No figure matches").strong());
-            ui.label(egui::RichText::new("Take away a filter, or clear them all.").weak());
-        });
+        egui::Frame::new()
+            .inner_margin(EMPTY_PADDING)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.vertical_centered(|ui| {
+                    ui.label("No figure matches");
+                    ui.add_space(EMPTY_GAP);
+                    ui.label(
+                        egui::RichText::new("Loosen a filter, or clear them all.")
+                            .size(style::COMBO_SIZE_PT)
+                            .weak(),
+                    );
+                });
+            });
         return response;
     }
 
@@ -687,6 +1261,7 @@ fn list(
         .auto_shrink([false, false])
         .show_rows(ui, height, rows.len(), |ui, range| {
             ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
             for index in range {
                 match &rows[index] {
                     Row::Heading { name, count, open } => {
@@ -718,14 +1293,15 @@ fn list(
     response
 }
 
-/// The height of one row of the list: a line of ordinary text, a line of small text, and the padding above and
-/// below.
+/// The height of one row of the list: a line of ordinary text, a line of small text, the room between them, and
+/// the padding above and below.
 ///
 /// Every row is the same height, headings included, because [`egui::ScrollArea::show_rows`] finds a row by
 /// multiplying rather than by laying out the rows above it.
 fn row_height(ui: &egui::Ui) -> f32 {
     ui.text_style_height(&egui::TextStyle::Body)
-        + ui.text_style_height(&egui::TextStyle::Small)
+        + LINE_GAP
+        + ui.fonts_mut(|fonts| fonts.row_height(&monospace_small()))
         + 2.0 * ROW_PADDING.y
 }
 
@@ -752,7 +1328,7 @@ fn flatten(browser: &FigureBrowser, results: &crate::browse::Results) -> Vec<Row
 }
 
 /// Draws the heading of a group: a band across the list carrying a triangle that says whether the group is open,
-/// the name of the group in small capitals, and how many figures it holds. Returns whether it was clicked.
+/// the name of the group in spaced capitals, and how many figures it holds. Returns whether it was clicked.
 fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32) -> bool {
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
@@ -769,9 +1345,14 @@ fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32)
         return response.clicked();
     }
     let visuals = ui.visuals();
+    let text_color = if response.hovered() {
+        visuals.text_color()
+    } else {
+        visuals.weak_text_color()
+    };
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, visuals.faint_bg_color);
-    let hairline = visuals.widgets.noninteractive.bg_stroke;
+    painter.rect_filled(rect, 0.0, style::GROUP_FILL);
+    let hairline = egui::Stroke::new(1.0, style::STROKE);
     painter.hline(rect.x_range(), rect.top(), hairline);
     painter.hline(rect.x_range(), rect.bottom(), hairline);
 
@@ -799,7 +1380,7 @@ fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32)
 
     let count = painter.layout_no_wrap(
         count.to_string(),
-        monospace_small(ui),
+        monospace_count(),
         visuals.weak_text_color(),
     );
     let count_x = rect.max.x - ROW_PADDING.x - count.size().x;
@@ -810,17 +1391,21 @@ fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32)
     );
 
     let text_x = rect.min.x + ROW_PADDING.x + 16.0;
-    let title = truncated(
+    let title = truncated_job(
         ui,
         &name.to_uppercase(),
-        egui::TextStyle::Small.resolve(ui.style()),
-        visuals.weak_text_color(),
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(GROUP_HEADING_SIZE_PT),
+            color: text_color,
+            extra_letter_spacing: GROUP_HEADING_SPACING * GROUP_HEADING_SIZE_PT,
+            ..Default::default()
+        },
         count_x - text_x - ROW_PADDING.x,
     );
     painter.galley(
         egui::pos2(text_x, rect.center().y - title.size().y / 2.0),
         title,
-        visuals.weak_text_color(),
+        text_color,
     );
     response
         .on_hover_text(if open {
@@ -884,11 +1469,11 @@ fn figure_row(
         (
             visuals.selection.bg_fill,
             visuals.strong_text_color(),
-            visuals.selection.stroke.color,
+            style::SELECTED_DETAIL,
         )
     } else {
         let fill = if response.hovered() {
-            visuals.widgets.hovered.weak_bg_fill
+            style::WIDGET
         } else if striped {
             visuals.faint_bg_color
         } else {
@@ -918,8 +1503,12 @@ fn figure_row(
     let title_height = title.size().y;
     painter.galley(origin, title, title_color);
     if !detail.is_empty() {
-        let detail = truncated(ui, &detail, monospace_small(ui), detail_color, text_width);
-        painter.galley(origin + egui::vec2(0.0, title_height), detail, detail_color);
+        let detail = truncated(ui, &detail, monospace_small(), detail_color, text_width);
+        painter.galley(
+            origin + egui::vec2(0.0, title_height + LINE_GAP),
+            detail,
+            detail_color,
+        );
     }
     response.clicked()
 }
@@ -932,11 +1521,15 @@ fn count_strip(ui: &mut egui::Ui, browser: &mut FigureBrowser, matched: usize, t
         } else {
             format!("{matched} of {total} figures")
         };
-        ui.label(egui::RichText::new(text).monospace().small().weak());
+        ui.label(
+            egui::RichText::new(text)
+                .monospace()
+                .size(style::MONOSPACE_SMALL_SIZE_PT)
+                .weak(),
+        );
         if !browser.browse.is_unfiltered() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button("Reset")
+                if quiet_button(ui, "Reset")
                     .on_hover_text("Remove every filter and clear the search.")
                     .clicked()
                 {
@@ -945,31 +1538,4 @@ fn count_strip(ui: &mut egui::Ui, browser: &mut FigureBrowser, matched: usize, t
             });
         }
     });
-}
-
-/// Lays out a line of ordinary text above a line of quieter, smaller text, which is the shape of every row of the
-/// list and of every entry of the menu.
-fn two_line(ui: &egui::Ui, title: &str, detail: &str) -> LayoutJob {
-    let mut job = LayoutJob::default();
-    job.append(
-        title,
-        0.0,
-        egui::TextFormat {
-            font_id: egui::TextStyle::Body.resolve(ui.style()),
-            color: ui.visuals().text_color(),
-            ..Default::default()
-        },
-    );
-    if !detail.is_empty() {
-        job.append(
-            &format!("\n{detail}"),
-            0.0,
-            egui::TextFormat {
-                font_id: egui::TextStyle::Small.resolve(ui.style()),
-                color: ui.visuals().weak_text_color(),
-                ..Default::default()
-            },
-        );
-    }
-    job
 }

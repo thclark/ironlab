@@ -52,9 +52,13 @@ inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was
 
 ### Filtering
 
-**+ Filter** opens a menu of the parameters worth filtering on, the most useful first, and then of that
-parameter's values with the number of figures each would leave. A parameter that takes the same value on every
-figure divides nothing and is not offered.
+**+ Filter** opens a menu within the panel, between the chips and the row of order and grouping, so that what is
+beneath it moves down and the menu stays open until it is shut. Its first page lists the parameters worth filtering
+on, the most useful first, each with how many values it takes and how much of the collection carries it; typing in
+the field above the list narrows it. Choosing a parameter turns the page to its values, each with the number of
+figures choosing it would leave. **Back to all parameters** turns back, **Done** shuts the menu, and clicking
+**+ Filter** again shuts it too. A parameter that takes the same value on every figure divides nothing and is not
+offered.
 
 Which parameters are worth offering is decided from the collection rather than declared in advance, because the
 parameters are the user's own. A parameter is offered in proportion to how much of the collection carries it and how
@@ -65,12 +69,16 @@ Values within one parameter are alternatives and parameters are cumulative: choo
 the figures from either, while choosing a rig and a solver narrows it to the figures with both. The number beside a
 value is worked out as though that parameter were not filtered at all, so it always says what choosing the value
 would add, and choosing a second value never empties the list. A value that would leave nothing is still shown,
-greyed, rather than disappearing as the reader reaches for it. A parameter holding numbers is narrowed by the two
-ends of a range instead of by a list of values.
+greyed, rather than disappearing as the reader reaches for it. The first fourteen values are shown, and the rest are
+reached by asking for more. A parameter holding numbers is narrowed by the two ends of a range instead of by a list
+of values: two number fields beneath a histogram of the values, which shows in colour how much of the collection the
+range keeps. Widening the ends to the whole of the parameter removes the filter, because a range that keeps every
+figure narrows nothing.
 
-Each filter reads back as a chip below the search field, naming the parameter, what it was narrowed to, and a cross
-(×). Clicking a chip removes that filter. **Clear**, and **Reset** at the foot of the panel, take back every filter and empty
-the search field at once.
+Each filter reads back as a chip beside **+ Filter**, naming the parameter, what it was narrowed to, and a cross
+(×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear** beside the
+chips removes every filter. **Reset**, at the foot of the panel, removes every filter and empties the search field at
+once.
 
 ### Ordering and grouping
 
