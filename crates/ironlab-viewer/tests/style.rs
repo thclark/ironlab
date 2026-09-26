@@ -206,6 +206,10 @@ fn applying_the_style_gives_the_context_the_named_sizes_and_colours() {
         style::FAINT,
         "and the stripe of a list is the named one"
     );
+    assert_eq!(
+        configured.spacing.scroll.fade.strength, 0.0,
+        "a scroll area fades none of its rows: the lists end at a rule, and a fade would darken the last row"
+    );
 }
 
 // Why: the text sizes are a matter of legibility rather than of colour, and the viewer must not depend on the theme

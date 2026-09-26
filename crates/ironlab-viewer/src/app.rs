@@ -478,6 +478,9 @@ impl FigurePane {
             scene.warnings.iter().map(Problem::from_scene).collect()
         });
         problems.extend(self.state.problems().iter().cloned());
+        // Nothing stands between the toolbar, the strip of details and the canvas: each ends where the next
+        // begins, and the rule beneath the toolbar is its last row rather than a line in a gap.
+        ui.spacing_mut().item_spacing.y = 0.0;
         let bar = egui::Frame::new()
             .inner_margin(TOOLBAR_PADDING)
             .show(ui, |ui| {
@@ -488,7 +491,7 @@ impl FigurePane {
         let rect = bar.response.rect;
         ui.painter().hline(
             rect.x_range(),
-            rect.bottom(),
+            rect.bottom() - 0.5,
             egui::Stroke::new(1.0, crate::style::STROKE),
         );
         let response = bar.inner;

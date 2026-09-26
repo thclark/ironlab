@@ -241,7 +241,12 @@ pub fn compact(ui: &mut egui::Ui) {
 /// behind it.
 ///
 pub fn apply(ctx: &Context) {
-    ctx.all_styles_mut(|style| style.text_styles = text_styles());
+    ctx.all_styles_mut(|style| {
+        style.text_styles = text_styles();
+        // egui fades the edges of a scroll area that has more to show, which darkens the last row of a list or
+        // of the strip of details. The interface's lists end at a rule instead, so nothing is faded.
+        style.spacing.scroll.fade.strength = 0.0;
+    });
     ctx.style_mut_of(Theme::Dark, |style| {
         let visuals = &mut style.visuals;
         visuals.panel_fill = BACKGROUND;
