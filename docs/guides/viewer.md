@@ -52,12 +52,12 @@ inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was
 
 ### Filtering
 
-**Edit**, at the right of the **Filters** caption, opens a menu within the panel beneath the caption, so that what
+**Add**, at the right of the **Filters** caption, opens a menu within the panel beneath the caption, so that what
 is beneath it moves down and the menu stays open until it is shut. Its first page lists the parameters worth
 filtering on, the most useful first, each with how many values it takes and how much of the collection carries it;
 typing in the field above the list narrows it. Choosing a parameter turns the page to its values, each with the
 number of figures choosing it would leave. **Back to all parameters** turns back, **Done** shuts the menu, and
-clicking **Edit** again shuts it too. A parameter that takes the same value on every figure divides nothing and is
+the control that opened it, which reads **Close** while the menu is open, shuts it too. A parameter that takes the same value on every figure divides nothing and is
 not offered.
 
 Which parameters are worth offering is decided from the collection rather than declared in advance, because the
@@ -76,8 +76,8 @@ range keeps. Widening the ends to the whole of the parameter removes the filter,
 figure narrows nothing.
 
 Each filter reads back as a chip beneath the menu, where chips can come and go without moving the menu, naming
-the parameter, what it was narrowed to, and a cross (×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all**, which
-appears beside **Edit** while there is a filter and carries the revert mark (↺), removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
+the parameter, what it was narrowed to, and a cross; a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all**, which
+appears beside **Add** while there is a filter and carries a restore mark, removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
 once.
 
 ### Ordering and grouping

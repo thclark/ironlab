@@ -37,6 +37,7 @@ use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, To
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
 use crate::sidebar::{FigureBrowser, figure_browser};
+use crate::widgets::{Control, PanelKind, Role, Spacing, label, surround, text};
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
 /// typical mouse wheel (50 points) zooms by about 20 %.
@@ -45,21 +46,6 @@ const WHEEL_ZOOM_RATE: f64 = 0.0036;
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
 const CANVAS_MARGIN: f32 = 22.0;
 
-/// The shadow the page of a figure casts on the surround, which is what makes it read as a sheet lying on the
-/// canvas rather than as a white rectangle painted on it.
-///
-/// The design casts it from a rectangle a little smaller than the page, so that the shadow shows only beneath and
-/// beside it; the page is drawn over the rest.
-const PAGE_SHADOW: egui::Shadow = egui::Shadow {
-    offset: [0, 8],
-    blur: 26,
-    spread: 0,
-    color: egui::Color32::from_black_alpha(160),
-};
-
-/// How far inside the page's edge its shadow is cast from, in egui points.
-const PAGE_SHADOW_INSET: f32 = 12.0;
-
 /// The room between the edge of the toolbar and its controls, in egui points.
 const TOOLBAR_PADDING: egui::Margin = egui::Margin {
     left: 9,
@@ -67,20 +53,6 @@ const TOOLBAR_PADDING: egui::Margin = egui::Margin {
     top: 6,
     bottom: 6,
 };
-
-/// The room between the edge of the strip of details and its contents, in egui points.
-const DETAILS_PADDING: egui::Margin = egui::Margin {
-    left: 12,
-    right: 12,
-    top: 8,
-    bottom: 12,
-};
-
-/// The room between the tags of a figure and the table of its parameters, in egui points.
-const DETAILS_GAP: f32 = 7.0;
-
-/// The room between the columns and the rows of the table of a figure's parameters, in egui points.
-const DETAILS_SPACING: [f32; 2] = [8.0, 4.0];
 
 /// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
 /// match.
@@ -101,24 +73,6 @@ pub const DETAILS_ID: &str = "ironlab_figure_details";
 /// The height beyond which the strip of details scrolls, in egui points, which is room for a handful of parameters
 /// before the strip starts taking the canvas's room.
 const DETAILS_MAX_HEIGHT: f32 = 150.0;
-
-/// Draws one label of a figure as a tag: a small word in a frame of its own, so that a row of them reads as a set
-/// of words rather than as a sentence.
-fn tag(ui: &mut egui::Ui, label: &str) {
-    egui::Frame::new()
-        .fill(crate::style::TAG_FILL)
-        .stroke(egui::Stroke::new(1.0, crate::style::TAG_STROKE))
-        .corner_radius(2)
-        .inner_margin(egui::Margin::symmetric(4, 1))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(label)
-                    .monospace()
-                    .small()
-                    .color(crate::style::TAG_TEXT),
-            );
-        });
-}
 
 /// How long a notification stays on screen, in seconds.
 const NOTIFICATION_SECONDS: f64 = 5.0;
@@ -274,7 +228,7 @@ pub fn toolbar(
         }
     });
     if two_rows {
-        ui.add_space(crate::style::ROW_GAP);
+        ui.add_space(Spacing::GAP);
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 file_controls(
@@ -294,7 +248,7 @@ pub fn toolbar(
 /// The width a row of buttons with these captions takes, in egui points: each caption in the button font with the
 /// button's padding, the spacing between them, and `separators` separators among them.
 fn buttons_width(ui: &egui::Ui, captions: &[&str], separators: usize) -> f32 {
-    let font_id = egui::TextStyle::Button.resolve(ui.style());
+    let font_id = Role::Control.font();
     let spacing = ui.spacing();
     let buttons: f32 = captions
         .iter()
@@ -303,7 +257,7 @@ fn buttons_width(ui: &egui::Ui, captions: &[&str], separators: usize) -> f32 {
                 .layout_no_wrap((*caption).to_owned(), font_id.clone(), egui::Color32::WHITE)
                 .size()
                 .x
-                + 2.0 * spacing.button_padding.x
+                + 2.0 * Spacing::LARGE_CONTROL_PADDING.x
         })
         .sum();
     #[allow(clippy::cast_precision_loss)]
@@ -340,9 +294,11 @@ fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut T
             has_3d,
         ),
     ] {
-        let button = egui::Button::selectable(state.tool == tool, label);
-        if ui
-            .add_enabled(enabled, button)
+        if Control::button(label)
+            .large()
+            .selected(state.tool == tool)
+            .enabled(enabled)
+            .show(ui)
             .on_hover_text(hint)
             .clicked()
         {
@@ -350,22 +306,27 @@ fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut T
         }
     }
     ui.separator();
-    if ui
-        .add_enabled(state.can_undo(), egui::Button::new("Undo"))
+    if Control::button("Undo")
+        .large()
+        .enabled(state.can_undo())
+        .show(ui)
         .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
         .clicked()
     {
         response.changed |= state.undo();
     }
-    if ui
-        .add_enabled(state.can_redo(), egui::Button::new("Redo"))
+    if Control::button("Redo")
+        .large()
+        .enabled(state.can_redo())
+        .show(ui)
         .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
         .clicked()
     {
         response.changed |= state.redo();
     }
-    if ui
-        .button("Reset")
+    if Control::button("Reset")
+        .large()
+        .show(ui)
         .on_hover_text(
             "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
              you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
@@ -391,15 +352,18 @@ fn file_controls(
         problems_indicator(ui, state.figure(), problems, label);
         ui.separator();
     }
-    if ui
-        .add(egui::Button::selectable(*show_properties, "Properties"))
+    if Control::button("Properties")
+        .large()
+        .selected(*show_properties)
+        .show(ui)
         .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
         .clicked()
     {
         *show_properties = !*show_properties;
     }
-    if ui
-        .button("Save figure…")
+    if Control::button("Save figure…")
+        .large()
+        .show(ui)
         .on_hover_text(
             "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
         )
@@ -407,8 +371,9 @@ fn file_controls(
     {
         response.save_requested = true;
     }
-    if ui
-        .button("Export PDF…")
+    if Control::button("Export PDF…")
+        .large()
+        .show(ui)
         .on_hover_text("Save the figure, as currently shown, to a PDF file.")
         .clicked()
     {
@@ -566,15 +531,12 @@ impl FigurePane {
             .iter()
             .map(|(name, value)| (name.clone(), FacetValue::from(value).text()))
             .collect();
-        let frame = egui::Frame::new()
-            .fill(ui.visuals().panel_fill)
-            .inner_margin(DETAILS_PADDING);
         egui::Panel::bottom(egui::Id::new(DETAILS_ID))
             .resizable(false)
             .show_separator_line(true)
-            .frame(frame)
+            .frame(PanelKind::Details.frame(ui))
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(crate::style::ROW_GAP, 0.0);
+                ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, 0.0);
                 egui::ScrollArea::vertical()
                     .id_salt("ironlab_details_scroll")
                     .max_height(DETAILS_MAX_HEIGHT)
@@ -582,31 +544,21 @@ impl FigurePane {
                         ui.set_min_width(ui.available_width());
                         if !labels.is_empty() {
                             ui.horizontal_wrapped(|ui| {
-                                ui.spacing_mut().item_spacing =
-                                    egui::Vec2::splat(crate::style::ROW_GAP);
-                                for label in &labels {
-                                    tag(ui, label);
+                                ui.spacing_mut().item_spacing = egui::Vec2::splat(Spacing::GAP);
+                                for tag in &labels {
+                                    Control::tag(tag).show(ui);
                                 }
                             });
-                            ui.add_space(DETAILS_GAP);
+                            ui.add_space(Spacing::GAP);
                         }
                         if !parameters.is_empty() {
                             egui::Grid::new("ironlab_details_parameters")
                                 .num_columns(2)
-                                .spacing(DETAILS_SPACING)
+                                .spacing([Spacing::GAP, Spacing::LINE_GAP * 2.0])
                                 .show(ui, |ui| {
                                     for (name, value) in &parameters {
-                                        ui.label(
-                                            egui::RichText::new(name)
-                                                .monospace()
-                                                .size(crate::style::DETAIL_SIZE_PT)
-                                                .weak(),
-                                        );
-                                        ui.label(
-                                            egui::RichText::new(value)
-                                                .monospace()
-                                                .size(crate::style::DETAIL_SIZE_PT),
-                                        );
+                                        label(ui, text(Role::Data, name));
+                                        label(ui, text(Role::Body, value));
                                         ui.end_row();
                                     }
                                 });
@@ -683,7 +635,7 @@ impl FigurePane {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, crate::style::SURROUND);
+        surround(&painter, rect, None);
 
         let (width_pt, height_pt) = {
             let list = &self.scene(text).display_list;
@@ -707,9 +659,7 @@ impl FigurePane {
             && background[3] > 0
         {
             let page = egui::Rect::from_min_size(to_screen.origin, size);
-            painter.add(
-                PAGE_SHADOW.as_shape(page.shrink(PAGE_SHADOW_INSET), egui::CornerRadius::ZERO),
-            );
+            surround(&painter, rect, Some(page));
             painter.rect_filled(
                 page,
                 0.0,

@@ -32,3 +32,15 @@ IronLAB is moving quickly and breaking changes are expected. Pin to an exact ver
 This crate is licensed under the GNU Affero General Public License, either version 3 or (at your option) any later version (`AGPL-3.0-or-later`).
 
 If this conflicts with your use case, please raise an issue on the IronLAB repository and describe what you're trying to do. For commercial projects we can simply arrange a one-off license fee and for non-profit / academic efforts we may waive the fee.
+
+## The widget gallery
+
+Every control of the interface is drawn from the `widgets` module, and the module can be seen on its own, without
+a figure, by running the example:
+
+```bash
+cargo run -p ironlab-viewer --example widgets
+```
+
+It opens a window showing every component in every state, so that the look of the interface can be worked on in
+the abstract and the viewer picks the result up unchanged.

@@ -81,34 +81,35 @@ pub const GROUP_FILL: Color32 = Color32::from_rgb(32, 32, 34);
 /// figure and the dark panels beside it both read as objects against it.
 pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);
 
-/// The fill of a chip that narrows a parameter: egui's selection fill, named because a chip is drawn by hand.
-pub const CHIP_FILL: Color32 = Color32::from_rgb(0, 92, 128);
+/// The fill of a chip that narrows a parameter: a wash of blue, the same construction as [`LABEL_CHIP_FILL`] in
+/// another hue, so that the two kinds of chip read as one kind of thing.
+pub const CHIP_FILL: Color32 = Color32::from_rgb(29, 43, 56);
 
 /// The fill of a chip that narrows a parameter while the pointer is over it.
-pub const CHIP_HOVER: Color32 = Color32::from_rgb(3, 111, 153);
+pub const CHIP_HOVER: Color32 = Color32::from_rgb(36, 56, 74);
 
-/// The outline of a chip that narrows a parameter, a shade lighter than [`CHIP_FILL`].
-pub const CHIP_STROKE: Color32 = Color32::from_rgb(13, 112, 153);
+/// The outline of a chip that narrows a parameter: solid, a shade lighter than its fill.
+pub const CHIP_STROKE: Color32 = Color32::from_rgb(45, 90, 120);
 
 /// The name of the parameter on a chip.
-pub const CHIP_KEY: Color32 = Color32::from_rgb(191, 227, 247);
+pub const CHIP_KEY: Color32 = Color32::from_rgb(143, 196, 230);
 
 /// The value on a chip.
-pub const CHIP_TEXT: Color32 = Color32::from_rgb(234, 244, 251);
+pub const CHIP_TEXT: Color32 = Color32::from_rgb(191, 227, 247);
 
-/// The fill of a chip that narrows the labels: the green of a tag, so that a filter on labels reads as one.
+/// The fill of a chip that narrows the labels, and of a tag beneath the canvas: a wash of green.
 pub const LABEL_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
 
 /// The fill of a chip that narrows the labels while the pointer is over it.
 pub const LABEL_CHIP_HOVER: Color32 = Color32::from_rgb(55, 74, 60);
 
-/// The outline of a chip that narrows the labels.
+/// The outline of a chip that narrows the labels, and of a tag.
 pub const LABEL_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
 
-/// The word "label" on a chip that narrows the labels.
+/// The word "labels" on a chip that narrows the labels.
 pub const LABEL_CHIP_KEY: Color32 = Color32::from_rgb(143, 191, 158);
 
-/// The labels on a chip that narrows the labels.
+/// The labels on a chip that narrows the labels, and the word of a tag.
 pub const LABEL_CHIP_TEXT: Color32 = Color32::from_rgb(188, 217, 196);
 
 /// A bar of the histogram above a numeric range, for the figures the range leaves out.
@@ -123,60 +124,25 @@ pub const SELECTED_DETAIL: Color32 = Color32::from_rgb(201, 230, 245);
 /// The brightest text, which the tick of a ticked checkbox is drawn in.
 pub const BRIGHT: Color32 = Color32::from_gray(236);
 
-/// The fill of a tag: the frame a label of a figure is drawn in, below the canvas.
-///
-/// A dark green, so that a row of tags reads as a set of words and not as a row of buttons, which the greys of the
-/// interface are spent on. The tint is faint enough that a tag is quieter than the text beside it.
-pub const TAG_FILL: Color32 = Color32::from_rgb(35, 48, 31);
-
-/// The outline of a tag, a shade lighter than [`TAG_FILL`], which is what separates two tags side by side.
-pub const TAG_STROKE: Color32 = Color32::from_rgb(51, 69, 44);
-
-/// The text of a tag.
-///
-/// A pale green on [`TAG_FILL`] is a contrast ratio of 6.6:1, above the 4.5:1 asked of body text, so a label reads
-/// as clearly as any other word in the interface.
-pub const TAG_TEXT: Color32 = Color32::from_rgb(155, 191, 166);
-
 /// The opacity at which egui paints a disabled widget.
 ///
 /// egui's 0.5 would leave [`WEAK_TEXT`] in a disabled row at 2.4:1 over the panel; 0.7 leaves it at 3.5:1, and a
 /// disabled control still reads as unmistakably disabled.
 pub const DISABLED_ALPHA: f32 = 0.7;
 
-/// The mark on a control that puts things back as they were: the column of the property editor that takes back
-/// a change to one property, and "Clear all" in the figure browser, which takes every filter away.
+/// The mark on the column of the property editor that takes back a change to one property.
 ///
-/// It is named for the class of control it marks, not for any one of them, because a mark is what says that two
-/// controls are of one kind. In the property editor the control is a column of its own, narrower than any word,
-/// so that one place in the interface is named by the mark alone. The character is listed in
-/// [`INTERFACE_CHARACTERS`], which is checked against the fonts, so it cannot become a character the viewer draws
-/// as an empty box.
+/// The control is a column of its own, narrower than any word, so that one place in the interface is named by
+/// the mark alone. Everywhere else a mark is painted by [`crate::widgets::Icon`] and comes from no font; this one
+/// remains a character, listed in [`INTERFACE_CHARACTERS`] and checked against the fonts, until the property
+/// editor is drawn from the widgets too.
 pub const RESTORE: &str = "↺";
-
-/// The mark on a control that takes something away, such as the chip of a filter in the figure browser.
-///
-/// It augments the words of the control rather than standing in for them: the chip says which parameter it narrows
-/// and to what, and the mark says that clicking it takes that away.
-pub const REMOVE: &str = "×";
-
-/// The mark on the control that opens the filter menu, which is captioned "Edit".
-///
-/// It is the plus sign of ASCII, which every font has, so it is not listed among [`INTERFACE_CHARACTERS`]; it is
-/// named here so that the control and its partner [`COLLAPSE`] are defined together.
-pub const EXPAND: &str = "+";
-
-/// The mark on the control that shuts the filter menu, which is captioned "Edit".
-///
-/// It is the minus sign rather than a hyphen, because a hyphen is narrower than the plus sign it stands opposite
-/// and reads as a dash rather than as the mark's other half.
-pub const COLLAPSE: &str = "−";
 
 /// Every mark the interface draws beside or in place of words, which [`INTERFACE_CHARACTERS`] must hold.
 ///
 /// It exists so that the check is by construction: a mark named here and left out of the list fails a test rather
 /// than waiting to be noticed as an empty box on screen.
-pub const MARKS: &[&str] = &[RESTORE, REMOVE, COLLAPSE];
+pub const MARKS: &[&str] = &[RESTORE];
 
 /// Every character outside ASCII that the viewer's interface draws.
 ///
@@ -189,9 +155,8 @@ pub const MARKS: &[&str] = &[RESTORE, REMOVE, COLLAPSE];
 ///
 /// It may say something a word cannot say in the room available: the restore control of the property editor, which
 /// is a column narrower than any word, the arithmetic of an array's shape, and the punctuation of ordinary prose.
-/// Or it may carry at a glance what the words beside it already spell out: the cross on the chip that removes a
-/// filter, and the signs on the control that opens and shuts the filter menu. A mark of the second kind augments
-/// its words and never replaces them, so the control reads correctly to someone who does not take the mark in.
+/// Every other mark the interface draws is painted as a shape by [`crate::widgets::Icon`] and is no character at
+/// all.
 ///
 /// What a mark may not do is carry alone a meaning that has no words at all. That is what the padlock on a
 /// read-only row and the warning sign on the problems indicator once did, and both are written as words now, as
@@ -199,11 +164,9 @@ pub const MARKS: &[&str] = &[RESTORE, REMOVE, COLLAPSE];
 pub const INTERFACE_CHARACTERS: &[char] = &[
     '—', // em dash, which separates the halves of a heading and the clauses of a sentence
     '…', // ellipsis, which ends the caption of a button that opens a dialogue
-    '×', // the mark of a control that takes something away, `REMOVE`, and the multiplication sign that joins the
-    // lengths of an array's shape
+    '×', // the multiplication sign that joins the lengths of an array's shape
     '↺', // the mark of a control that puts things back, `RESTORE`
     '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
-    '−', // the minus sign on the control that shuts the filter menu, `COLLAPSE`
 ];
 
 /// The size of small text, such as where a problem came from, in points: egui's 9 pt raised by 1.5 pt.
@@ -220,26 +183,6 @@ pub const MONOSPACE_SIZE_PT: f32 = 14.5;
 
 /// The size of headings, in points: egui's 18 pt raised by 1.5 pt.
 pub const HEADING_SIZE_PT: f32 = 19.5;
-
-/// The size of the caption of a small button, in points: the buttons of the toolbar and of the figure browser,
-/// which sit among text rather than standing alone and are a size below it.
-pub const SMALL_BUTTON_SIZE_PT: f32 = 12.5;
-
-/// The size of the text of a combo box, in points, between a small button and body text.
-pub const COMBO_SIZE_PT: f32 = 13.5;
-
-/// The size of a count or a name set in monospace beside ordinary text, in points, such as the count on a heading
-/// of the browser's list or the name of the parameter on a chip.
-pub const MONOSPACE_SMALL_SIZE_PT: f32 = 11.5;
-
-/// The size of the monospaced text of a details table, in points.
-pub const DETAIL_SIZE_PT: f32 = 12.0;
-
-/// The room between the caption of a button and its edge, in points, sideways and up and down.
-pub const BUTTON_PADDING: egui::Vec2 = egui::vec2(7.0, 2.0);
-
-/// The room between two controls on one row, in points.
-pub const ROW_GAP: f32 = 6.0;
 
 /// The text styles the viewer installs: the five styles egui defines, each in the font family egui uses for it and
 /// at the size named above.
@@ -270,19 +213,20 @@ pub fn text_styles() -> BTreeMap<TextStyle, FontId> {
     .into()
 }
 
-/// Gives `ui` the spacing of the design: small buttons in [`BUTTON_PADDING`], set [`ROW_GAP`] apart on a row, and
-/// nothing between one block and the next, because each block carries its own padding.
+/// Gives `ui` the spacing of the widgets: controls in their padding, set a gap apart on a row, and nothing between
+/// one block and the next, because each block carries its own padding.
 ///
 /// It is applied to the toolbar and to the figure browser, which are drawn from the same set of measurements and
 /// must agree with each other; the property editor keeps egui's own spacing.
 pub fn compact(ui: &mut egui::Ui) {
+    use crate::widgets::{Role, Spacing};
     let style = ui.style_mut();
-    style.spacing.button_padding = BUTTON_PADDING;
-    style.spacing.item_spacing = egui::vec2(ROW_GAP, 0.0);
-    style.text_styles.insert(
-        TextStyle::Button,
-        FontId::new(SMALL_BUTTON_SIZE_PT, FontFamily::Proportional),
-    );
+    style.spacing.button_padding = Spacing::CONTROL_PADDING;
+    style.spacing.item_spacing = egui::vec2(Spacing::GAP, 0.0);
+    style.spacing.interact_size.y = Spacing::CONTROL_HEIGHT;
+    style
+        .text_styles
+        .insert(TextStyle::Button, Role::Control.font());
 }
 
 /// Installs the viewer's text sizes and colours on `ctx`.

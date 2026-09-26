@@ -109,9 +109,13 @@ fn listed(harness: &Harness<'_, ViewerApp>, title: &str) -> bool {
     harness.query_by_label_contains(&row_of(title)).is_some()
 }
 
-/// The control that opens and shuts the filter menu, which reads "Edit" beside a mark saying which it will do.
+/// The control that opens and shuts the filter menu: "Add" with a plus while it is shut, "Close" with a minus while
+/// it is open.
 fn edit_filters<'a>(harness: &'a Harness<'_, ViewerApp>) -> egui_kittest::Node<'a> {
-    harness.get_by_label_contains(" Edit")
+    harness
+        .query_by_label("plus Add")
+        .or_else(|| harness.query_by_label("minus Close"))
+        .expect("the control that opens and shuts the filter menu")
 }
 
 /// The text that finds the row of a figure in the list, and nothing else.
@@ -451,7 +455,7 @@ fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
         harness
             .query_by_label_contains(&parameter_of("rig"))
             .is_none(),
-        "clicking Edit again shuts the menu"
+        "clicking the control again shuts the menu"
     );
     assert_eq!(
         harness.get_by_label_contains("Ascending").rect(),
@@ -485,7 +489,7 @@ fn the_chips_sit_beneath_the_menu_so_that_it_holds_still_as_filters_change() {
         chip.top() >= done.bottom(),
         "the chip appears beneath the menu ({done:?}), not above it: {chip:?}"
     );
-    let sort = harness.get_by_label("SORT").rect();
+    let sort = harness.get_by_label("Sort").rect();
     assert!(
         sort.top() >= chip.bottom(),
         "and the order controls stay beneath the chips"
@@ -513,8 +517,8 @@ fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
         clear
             .accesskit_node()
             .label()
-            .is_some_and(|label| label.contains(ironlab_viewer::style::RESTORE)),
-        "the control carries the revert mark beside its words"
+            .is_some_and(|label| label.starts_with("restore")),
+        "the control carries the restore icon before its words"
     );
     let edit = edit_filters(&harness).rect();
     let rect = clear.rect();
@@ -565,9 +569,9 @@ fn a_chip_keeps_its_size_under_the_pointer() {
 #[test]
 fn filters_sort_and_group_each_have_a_captioned_row_with_the_control_at_the_right() {
     let harness = app(campaign());
-    let filters = harness.get_by_label("FILTERS").rect();
-    let sort = harness.get_by_label("SORT").rect();
-    let group = harness.get_by_label("GROUP").rect();
+    let filters = harness.get_by_label("Filters").rect();
+    let sort = harness.get_by_label("Sort").rect();
+    let group = harness.get_by_label("Group").rect();
     assert!(
         filters.bottom() <= sort.top() && sort.bottom() <= group.top(),
         "the three captions come one beneath the other: {filters:?}, {sort:?}, {group:?}"
@@ -974,17 +978,25 @@ fn collect_text_sizes(shape: &egui::Shape, sizes: &mut std::collections::BTreeMa
     }
 }
 
-// Why: a mark that augments words has to actually be on screen beside them, or the decision to list its character
-// bought nothing. The mark is checked where it is drawn, because the chip is the only reason its character is in
-// the style's list at all.
+// Why: a chip has to say what it narrows and what to, and carry the cross that says clicking it takes that away.
+// The words are checked where they are painted, and the cross in the name the chip gives the accessibility tree,
+// because the cross is painted as a shape and is no word at all.
 #[test]
-fn a_chip_carries_the_remove_mark() {
+fn a_chip_names_its_parameter_and_value_and_carries_the_cross() {
     let words = painted_words(true);
     assert!(
-        words.iter().any(|word| word.contains("rig")
-            && word.contains("CFD")
-            && word.contains(ironlab_viewer::style::REMOVE)),
-        "the chip says what it narrows and carries the mark that says clicking it takes that away: {words:?}"
+        words.iter().any(|word| word == "rig") && words.iter().any(|word| word == "CFD"),
+        "the chip paints the parameter and the value it narrows to: {words:?}"
+    );
+    let mut harness = app(campaign());
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
+    assert!(
+        harness.query_by_label("rig: CFD cross").is_some(),
+        "and is named by its parameter, its value and its cross"
     );
 }
 
