@@ -76,8 +76,8 @@ range keeps. Widening the ends to the whole of the parameter removes the filter,
 figure narrows nothing.
 
 Each filter reads back as a chip beneath the menu, where chips can come and go without moving the menu, naming
-the parameter, what it was narrowed to, and a cross (×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear** beside the
-chips removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
+the parameter, what it was narrowed to, and a cross (×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all** beside
+the chips, which carries the revert mark (↺), removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
 once.
 
 ### Ordering and grouping

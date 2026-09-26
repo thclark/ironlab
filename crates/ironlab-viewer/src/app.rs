@@ -245,95 +245,175 @@ pub fn toolbar(
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
     crate::style::compact(ui);
+    let indicator = indicator_label(problems);
+
+    // The file controls are laid out from the right edge inwards, which draws them over the tools when the row has
+    // no room for both groups. They are given a row of their own instead, decided from the width of their captions
+    // rather than from where last frame put them, so that the toolbar never draws one control over another.
+    let history = buttons_width(ui, &["Pan", "Zoom", "Rotate", "Undo", "Redo", "Reset"], 1);
+    let mut file_captions = vec!["Export PDF…", "Save figure…", "Properties"];
+    if let Some(label) = &indicator {
+        file_captions.push(label);
+    }
+    let file = buttons_width(ui, &file_captions, usize::from(indicator.is_some()));
+    let two_rows = history + ui.spacing().item_spacing.x + file > ui.available_width();
+
     ui.horizontal(|ui| {
-        let has_3d = state.has_3d();
-        for (tool, label, hint, enabled) in [
-            (
-                Tool::Pan,
-                "Pan",
-                "Drag to pan 2D axes or move 3D axes. Scroll to zoom.",
-                true,
-            ),
-            (
-                Tool::Zoom,
-                "Zoom",
-                "Drag a rectangle to zoom 2D axes to it. Scroll to zoom.",
-                true,
-            ),
-            (
-                Tool::Rotate,
-                "Rotate",
-                "Drag to rotate 3D axes. Scroll to zoom.",
-                has_3d,
-            ),
-        ] {
-            let button = egui::Button::selectable(state.tool == tool, label);
-            if ui
-                .add_enabled(enabled, button)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                state.tool = tool;
-            }
+        history_controls(ui, state, &mut response);
+        if !two_rows {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                file_controls(
+                    ui,
+                    state,
+                    problems,
+                    indicator.as_deref(),
+                    show_properties,
+                    &mut response,
+                );
+            });
         }
-        ui.separator();
-        if ui
-            .add_enabled(state.can_undo(), egui::Button::new("Undo"))
-            .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
-            .clicked()
-        {
-            response.changed |= state.undo();
-        }
-        if ui
-            .add_enabled(state.can_redo(), egui::Button::new("Redo"))
-            .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
-            .clicked()
-        {
-            response.changed |= state.redo();
-        }
-        if ui
-            .button("Reset")
-            .on_hover_text(
-                "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
-                 you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
-                 use Revert all changes at the foot of the property editor.",
-            )
-            .clicked()
-        {
-            response.changed |= state.reset_view();
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Laid out from the right edge inwards, so the first widget added is the rightmost.
-            if let Some(label) = indicator_label(problems) {
-                problems_indicator(ui, state.figure(), problems, &label);
-                ui.separator();
-            }
-            if ui
-                .add(egui::Button::selectable(*show_properties, "Properties"))
-                .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
-                .clicked()
-            {
-                *show_properties = !*show_properties;
-            }
-            if ui
-                .button("Save figure…")
-                .on_hover_text(
-                    "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
-                )
-                .clicked()
-            {
-                response.save_requested = true;
-            }
-            if ui
-                .button("Export PDF…")
-                .on_hover_text("Save the figure, as currently shown, to a PDF file.")
-                .clicked()
-            {
-                response.export_requested = true;
-            }
-        });
     });
+    if two_rows {
+        ui.add_space(crate::style::ROW_GAP);
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                file_controls(
+                    ui,
+                    state,
+                    problems,
+                    indicator.as_deref(),
+                    show_properties,
+                    &mut response,
+                );
+            });
+        });
+    }
     response
+}
+
+/// The width a row of buttons with these captions takes, in egui points: each caption in the button font with the
+/// button's padding, the spacing between them, and `separators` separators among them.
+fn buttons_width(ui: &egui::Ui, captions: &[&str], separators: usize) -> f32 {
+    let font_id = egui::TextStyle::Button.resolve(ui.style());
+    let spacing = ui.spacing();
+    let buttons: f32 = captions
+        .iter()
+        .map(|caption| {
+            ui.painter()
+                .layout_no_wrap((*caption).to_owned(), font_id.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+                + 2.0 * spacing.button_padding.x
+        })
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    let gaps = (captions.len() + separators).saturating_sub(1) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let separators = separators as f32;
+    buttons + gaps * spacing.item_spacing.x + separators * SEPARATOR_WIDTH
+}
+
+/// The width egui gives a separator drawn across a row, in egui points.
+const SEPARATOR_WIDTH: f32 = 6.0;
+
+/// Draws the tools and the controls that move through the history of the figure: Pan, Zoom and Rotate, then Undo,
+/// Redo and Reset.
+fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut ToolbarResponse) {
+    let has_3d = state.has_3d();
+    for (tool, label, hint, enabled) in [
+        (
+            Tool::Pan,
+            "Pan",
+            "Drag to pan 2D axes or move 3D axes. Scroll to zoom.",
+            true,
+        ),
+        (
+            Tool::Zoom,
+            "Zoom",
+            "Drag a rectangle to zoom 2D axes to it. Scroll to zoom.",
+            true,
+        ),
+        (
+            Tool::Rotate,
+            "Rotate",
+            "Drag to rotate 3D axes. Scroll to zoom.",
+            has_3d,
+        ),
+    ] {
+        let button = egui::Button::selectable(state.tool == tool, label);
+        if ui
+            .add_enabled(enabled, button)
+            .on_hover_text(hint)
+            .clicked()
+        {
+            state.tool = tool;
+        }
+    }
+    ui.separator();
+    if ui
+        .add_enabled(state.can_undo(), egui::Button::new("Undo"))
+        .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
+        .clicked()
+    {
+        response.changed |= state.undo();
+    }
+    if ui
+        .add_enabled(state.can_redo(), egui::Button::new("Redo"))
+        .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
+        .clicked()
+    {
+        response.changed |= state.redo();
+    }
+    if ui
+        .button("Reset")
+        .on_hover_text(
+            "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
+             you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
+             use Revert all changes at the foot of the property editor.",
+        )
+        .clicked()
+    {
+        response.changed |= state.reset_view();
+    }
+}
+
+/// Draws the controls that concern the figure as a file, and the problems indicator when there is one, laid out
+/// from the right edge inwards so that the first widget added is the rightmost.
+fn file_controls(
+    ui: &mut egui::Ui,
+    state: &FigureState,
+    problems: &[Problem],
+    indicator: Option<&str>,
+    show_properties: &mut bool,
+    response: &mut ToolbarResponse,
+) {
+    if let Some(label) = indicator {
+        problems_indicator(ui, state.figure(), problems, label);
+        ui.separator();
+    }
+    if ui
+        .add(egui::Button::selectable(*show_properties, "Properties"))
+        .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
+        .clicked()
+    {
+        *show_properties = !*show_properties;
+    }
+    if ui
+        .button("Save figure…")
+        .on_hover_text(
+            "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
+        )
+        .clicked()
+    {
+        response.save_requested = true;
+    }
+    if ui
+        .button("Export PDF…")
+        .on_hover_text("Save the figure, as currently shown, to a PDF file.")
+        .clicked()
+    {
+        response.export_requested = true;
+    }
 }
 
 /// Draws the problems indicator and, while it is open, the list of problems below it.

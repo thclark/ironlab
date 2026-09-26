@@ -492,6 +492,40 @@ fn the_chips_sit_beneath_the_menu_so_that_it_holds_still_as_filters_change() {
     );
 }
 
+// Why: the control that takes every filter away is a control like Edit, not an afterthought beside the chips, so it
+// is drawn as Edit is and says what it does in full; the revert mark beside its words is the same mark that takes
+// back a change in the property editor, so that taking back reads the same way everywhere.
+#[test]
+fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
+    let mut harness = app(campaign());
+    assert!(
+        harness.query_by_label_contains("Clear all").is_none(),
+        "there is nothing to clear until a filter is chosen"
+    );
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
+
+    let clear = harness.get_by_label_contains("Clear all");
+    assert!(
+        clear
+            .accesskit_node()
+            .label()
+            .is_some_and(|label| label.contains(ironlab_viewer::style::REVERT)),
+        "the control carries the revert mark beside its words"
+    );
+    clear.click();
+    harness.run();
+
+    assert!(
+        harness.state().browser().browse.filters.is_empty(),
+        "and clicking it takes every filter away"
+    );
+    assert!(listed(&harness, "Run 9 lift"));
+}
+
 // Why: a control that grows by a point when the pointer reaches it jitters, and a row of chips jitters as the
 // pointer crosses it. A chip's size is decided by its words, not by whether it is hovered.
 #[test]

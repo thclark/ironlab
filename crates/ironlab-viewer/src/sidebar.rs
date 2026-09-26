@@ -115,9 +115,10 @@ const CHIP_PADDING: egui::Margin = egui::Margin::symmetric(7, 2);
 /// of the chip, because the cross is a small glyph and at their size it reads as a speck.
 const REMOVE_MARK_SIZE_PT: f32 = 14.0;
 
-/// The size of the arrow on the control that reverses the order, in points: a size below the caption, because the
-/// arrow comes from the mathematical face, whose arrows are taller than the letters of the interface at one size.
-const ARROW_MARK_SIZE_PT: f32 = 11.0;
+/// The size of a mark drawn from the mathematical face beside the caption of a control, in points: the arrow on the
+/// control that reverses the order and the revert mark on the control that clears the filters. It is a size below
+/// the caption, because that face stands its arrows taller than the letters of the interface at one size.
+const MARK_SIZE_PT: f32 = 11.0;
 
 /// The room between the edge of a text field and its text, in egui points.
 const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
@@ -1042,12 +1043,22 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     if let Some(key) = remove {
         browser.browse.remove(&key);
     }
-    if !browser.browse.filters.is_empty()
-        && quiet_button(ui, "Clear")
-            .on_hover_text("Remove every filter.")
-            .clicked()
-    {
-        browser.browse.filters.clear();
+    if !browser.browse.filters.is_empty() {
+        let caption = format!("{} Clear all", style::REVERT);
+        let response = ui
+            .add(egui::Button::new(marked_caption(
+                ui,
+                "",
+                style::REVERT,
+                " Clear all",
+            )))
+            .on_hover_text("Remove every filter.");
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone())
+        });
+        if response.clicked() {
+            browser.browse.filters.clear();
+        }
     }
 }
 
@@ -1164,37 +1175,43 @@ fn direction_caption(descending: bool) -> String {
 
 /// The caption of the control that reverses the order, laid out with its arrow a size smaller than its word and
 /// centred on the word's row.
-///
-/// The arrow is drawn from the mathematical face, whose arrows stand taller than the interface's letters at one
-/// size; set a size down and centred, it sits beside the word rather than above it.
 fn direction_text(ui: &egui::Ui, descending: bool) -> LayoutJob {
     let (word, arrow) = if descending {
-        ("Descending", style::DESCENDING)
+        ("Descending ", style::DESCENDING)
     } else {
-        ("Ascending", style::ASCENDING)
+        ("Ascending ", style::ASCENDING)
     };
+    marked_caption(ui, word, arrow, "")
+}
+
+/// The caption of a button that carries a mark from the mathematical face among its words: the words before the
+/// mark, the mark itself, and the words after it, with the mark at [`MARK_SIZE_PT`] and centred on the row of the
+/// words.
+///
+/// That face stands its marks taller than the interface's letters at one size; set a size down and centred, a
+/// mark sits beside its words rather than above them.
+fn marked_caption(ui: &egui::Ui, before: &str, mark: &str, after: &str) -> LayoutJob {
     let color = ui.visuals().widgets.inactive.fg_stroke.color;
+    let words = egui::TextFormat {
+        font_id: egui::TextStyle::Button.resolve(ui.style()),
+        color,
+        valign: egui::Align::Center,
+        ..Default::default()
+    };
+    let marked = egui::TextFormat {
+        font_id: egui::FontId::proportional(MARK_SIZE_PT),
+        color,
+        valign: egui::Align::Center,
+        ..Default::default()
+    };
     let mut job = LayoutJob::default();
-    job.append(
-        word,
-        0.0,
-        egui::TextFormat {
-            font_id: egui::TextStyle::Button.resolve(ui.style()),
-            color,
-            valign: egui::Align::Center,
-            ..Default::default()
-        },
-    );
-    job.append(
-        &format!(" {arrow}"),
-        0.0,
-        egui::TextFormat {
-            font_id: egui::FontId::proportional(ARROW_MARK_SIZE_PT),
-            color,
-            valign: egui::Align::Center,
-            ..Default::default()
-        },
-    );
+    if !before.is_empty() {
+        job.append(before, 0.0, words.clone());
+    }
+    job.append(mark, 0.0, marked);
+    if !after.is_empty() {
+        job.append(after, 0.0, words);
+    }
     job
 }
 
