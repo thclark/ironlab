@@ -1544,6 +1544,7 @@ fn a_data_reference_carries_the_same_kind_of_reason_as_every_other_read_only_row
 // ---------------------------------------------------------------------------------
 
 /// One run of text the panel paints.
+#[derive(Clone, Debug)]
 struct Painted {
     /// The characters painted.
     text: String,
@@ -1871,7 +1872,7 @@ fn state_with_three_changes() -> FigureState {
     state
 }
 
-// Why: the control discards changes of every kind, not only the view ones that Reset view
+// Why: the control discards changes of every kind, not only the view ones that Refit
 // discards; a user who wants the figure back as its program defined it must get exactly
 // that, with the program's own figure untouched.
 #[test]
@@ -2258,48 +2259,127 @@ fn every_property_name_of_one_depth_begins_at_the_same_left_edge() {
 }
 
 // Why: the headings gather thirty-odd properties into the values they belong to, which is
-// the only structure the inspector has. A heading drawn smaller than the properties under
-// it is the hardest text in the panel to read and the least like a heading, and a heading
-// indented as though it were itself a property hides which rows belong to it. It must
-// therefore be read at the body size and sit at the left edge of the rows, with the
-// properties it gathers indented beneath it.
+// the only structure the inspector has. A heading set apart from the rows — larger, in
+// capitals, on a band — hides that structure rather than showing it, because it reads as
+// a section of the panel instead of as a property that happens to hold others. A heading
+// is therefore a row in the same text as every other name, beginning where a property
+// that belongs to no group begins, and it shows what it gathers the way the object tree
+// does: a triangle before its name, and the rows it gathers indented beneath it.
 #[test]
-fn a_group_heading_is_read_at_the_body_size_at_the_left_edge_of_the_rows() {
+fn a_group_heading_is_a_row_in_the_same_text_as_its_members_with_them_indented_beneath_it() {
+    let painted = painted_text(figure_with_artists(), SOLID);
+    let run = |words: &str| {
+        painted
+            .iter()
+            .filter(|run| run.text == words)
+            .min_by(|a, b| a.rect.min.x.total_cmp(&b.rect.min.x))
+            .unwrap_or_else(|| panic!("the inspector paints {words:?}"))
+            .clone()
+    };
+    // The cell of the axes gathers its column and row; the colormap belongs to no group.
+    let heading = run("cell");
+    let alone = run("colormap");
+    let inside = run("col");
+
+    assert!(
+        (heading.rect.min.x - alone.rect.min.x).abs() < 0.5,
+        "a heading begins where a property that belongs to no group begins: the heading \
+         is {:?} and the property is {:?}",
+        heading.rect,
+        alone.rect
+    );
+    assert!(
+        inside.rect.min.x > heading.rect.min.x + 8.0,
+        "a property gathered under a heading is indented below it: {:?} under {:?}",
+        inside.rect,
+        heading.rect
+    );
+    assert!(
+        (heading.rect.height() - alone.rect.height()).abs() < 0.5 && heading.color == alone.color,
+        "a heading is set in the same text as every other name: {} points in {:?} against \
+         {} points in {:?}",
+        heading.rect.height(),
+        heading.color,
+        alone.rect.height(),
+        alone.color
+    );
+}
+
+// Why: a figure of many axes has a long inspector, and the rows a reader is not working
+// on are in the way of the ones they are. A group can therefore be closed from its
+// heading and opened again, as a node of the object tree can, and closing it must take
+// its rows out of the panel altogether rather than leaving them to be tabbed into.
+#[test]
+fn a_group_is_closed_and_opened_again_from_its_heading() {
     let mut harness = panel_harness(figure_with_artists(), Some(SOLID));
     harness.run();
-
-    let heading = name_rect(&harness, "x");
-    let title = name_rect(&harness, "title");
-    let inspector = harness.get_by_label_contains("node 3").rect();
-    let inside = labelled_rects(&harness, "scale")[0];
-
     assert!(
-        (heading.min.x - title.min.x).abs() < 0.5,
-        "a heading begins where a property that belongs to no group begins: the heading \
-         is {heading:?} and the property is {title:?}"
+        harness.query_by_label("col_span").is_some(),
+        "a group opens with its rows shown"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "cell")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("col_span").is_none(),
+        "closing a group takes its rows out of the panel"
     );
     assert!(
-        inside.min.x > heading.min.x + 8.0,
-        "a property gathered under a heading is indented below it: {inside:?} under \
-         {heading:?}"
+        harness.query_by_label("colormap").is_some(),
+        "and leaves every other property where it was"
     );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "cell")
+        .click();
+    harness.run();
     assert!(
-        (heading.height() - inspector.height()).abs() < 0.5,
-        "a heading is drawn at the size of the body text, as the heading of the \
-         inspector is: {} points against {} points",
-        heading.height(),
-        inspector.height()
+        harness.query_by_label("col_span").is_some(),
+        "opening it again brings them back"
+    );
+}
+
+// Why: the parameters are a table beneath the row that names them, and a table of many
+// entries is in the way of every property below it. The row therefore gathers the table
+// as a group gathers its rows, and closing it takes the table out of the panel.
+#[test]
+fn the_parameters_table_is_closed_and_opened_again_from_its_row() {
+    let mut harness = panel_harness(figure_with_artists(), Some(FIGURE));
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_some(),
+        "the parameters open with their table shown"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "parameters")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_none(),
+        "closing the parameters takes the table out of the panel"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "parameters")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_some(),
+        "opening them again brings the table back"
     );
 }
 
 // Why: the controls are compared with one another down the panel — which axis is
 // logarithmic, which plot is hidden — and a column of controls that begins at a different
-// place on every row cannot be compared at a glance. Every control therefore ends at one
-// right edge, whatever it is; a checkbox that carried its own label would sit at the left
-// of its row instead, breaking that column exactly where a property is easiest to change
-// by mistake.
+// place on every row cannot be compared at a glance. Every control therefore begins at
+// one left edge, beside the column of names, whatever it is; a checkbox that carried its
+// own label would sit at the left of its row instead, breaking that column exactly where
+// a property is easiest to change by mistake.
 #[test]
-fn every_control_of_a_node_ends_at_one_right_edge_including_a_checkbox() {
+fn every_control_of_a_node_begins_at_one_left_edge_including_a_checkbox() {
     let mut harness = panel_harness(figure_with_artists(), Some(LINE));
     harness.run();
 
@@ -2312,13 +2392,20 @@ fn every_control_of_a_node_ends_at_one_right_edge_including_a_checkbox() {
         !numbers.is_empty(),
         "the line has numeric properties to line the checkbox up with"
     );
+    let left = numbers[0].min.x;
     for rect in &numbers {
         assert!(
-            (rect.max.x - control.max.x).abs() < 1.0,
-            "the checkbox ends where the numeric controls end: the checkbox is \
-             {control:?} and the number is {rect:?}"
+            (rect.min.x - left).abs() < 0.5,
+            "every number begins at one left edge: {numbers:?}"
         );
     }
+    // A number is typed inside the padding of its field, so the words of a number begin
+    // a little inside the edge the checkbox stands on.
+    assert!(
+        left >= control.min.x && left - control.min.x < 10.0,
+        "the checkbox begins where the numeric controls begin: the checkbox is \
+         {control:?} and the numbers begin at {left}"
+    );
     assert!(
         control.min.x > name_rect(&harness, "visible").max.x,
         "the checkbox is drawn in the control column, to the right of its name"
@@ -2373,8 +2460,10 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
 
     let wide_name = name_rect(&wide, "visible");
     let narrow_name = name_rect(&narrow, "visible");
-    let wide_control = checkbox(&wide, "visible").rect();
-    let narrow_control = checkbox(&narrow, "visible").rect();
+    // A combo box fills the column of controls, so its width is the column's.
+    let wide_control = widget_showing(&wide, egui::accesskit::Role::ComboBox, "Automatic").rect();
+    let narrow_control =
+        widget_showing(&narrow, egui::accesskit::Role::ComboBox, "Automatic").rect();
 
     assert!(
         (narrow_name.width() - wide_name.width()).abs() < 0.5,
@@ -2382,10 +2471,10 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
          {wide_name:?}"
     );
     assert!(
-        narrow_control.max.x - narrow_name.max.x < wide_control.max.x - wide_name.max.x,
+        narrow_control.width() < wide_control.width(),
         "the control column is what gives way: {} points against {} points",
-        narrow_control.max.x - narrow_name.max.x,
-        wide_control.max.x - wide_name.max.x
+        narrow_control.width(),
+        wide_control.width()
     );
 }
 

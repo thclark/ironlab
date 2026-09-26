@@ -735,14 +735,14 @@ impl ParameterKind {
         ParameterKind::String,
     ];
 
-    /// The name of the kind, written for a combo box.
+    /// The name of the kind, written for a combo box as a scientist names a type.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            ParameterKind::Bool => "Yes or no",
-            ParameterKind::Integer => "Whole number",
-            ParameterKind::Number => "Number",
-            ParameterKind::String => "Text",
+            ParameterKind::Bool => "boolean",
+            ParameterKind::Integer => "integer",
+            ParameterKind::Number => "number",
+            ParameterKind::String => "string",
         }
     }
 

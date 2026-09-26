@@ -109,9 +109,27 @@ fn listed(harness: &Harness<'_, ViewerApp>, title: &str) -> bool {
     harness.query_by_label_contains(&row_of(title)).is_some()
 }
 
+/// The control that opens and shuts the filter menu: "Add" with a plus while it is shut, "Close" with a minus while
+/// it is open.
+fn edit_filters<'a>(harness: &'a Harness<'_, ViewerApp>) -> egui_kittest::Node<'a> {
+    harness
+        .query_by_label("plus Add")
+        .or_else(|| harness.query_by_label("minus Close"))
+        .expect("the control that opens and shuts the filter menu")
+}
+
 /// The text that finds the row of a figure in the list, and nothing else.
 fn row_of(title: &str) -> String {
     format!("{title}, ")
+}
+
+/// The text that finds the entry of a parameter in the filter menu, and nothing else.
+///
+/// An entry is labelled by the parameter's name, a comma, and then how many values it takes, which is what tells it
+/// from the same name in a chip, where a colon follows the name, and from the details strip, where the name stands
+/// alone.
+fn parameter_of(name: &str) -> String {
+    format!("{name}, ")
 }
 
 /// Types `query` into the search field.
@@ -337,7 +355,7 @@ fn showing_all_takes_back_everything_that_was_typed_and_chosen() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("Reset").click();
+    harness.get_by_label("Show all").click();
     harness.run();
     assert!(listed(&harness, "Run 9 lift"), "every figure is back");
     assert!(
@@ -387,13 +405,13 @@ fn a_chip_says_what_is_filtered_and_removes_it_when_clicked() {
 #[test]
 fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
     let mut harness = app(campaign());
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
 
     for parameter in ["rig", "angle", "solver"] {
         assert!(
             harness
-                .query_by_label_contains(&format!("{parameter}\n"))
+                .query_by_label_contains(&parameter_of(parameter))
                 .is_some(),
             "the menu offers {parameter:?}, which divides the collection"
         );
@@ -404,6 +422,226 @@ fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
     );
 }
 
+// Why: the design that was approved opens the filters as an accordion within the panel, pushing the order and
+// grouping controls and the list down, rather than as a popup floating over them: a popup shuts as soon as the
+// pointer strays outside it, and a reader choosing values one at a time loses it again and again. Whether the
+// menu is in the panel or over it is a question of geometry, so the geometry is what is checked.
+#[test]
+fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
+    let mut harness = app(campaign());
+    let order_before = harness.get_by_label_contains("Ascending").rect();
+    edit_filters(&harness).click();
+    harness.run();
+
+    let panel = panel_rect(&harness).expect("the browser is open");
+    let row = harness.get_by_label_contains(&parameter_of("rig")).rect();
+    assert!(
+        panel.contains_rect(row),
+        "the parameters are offered inside the panel ({panel:?}), not in a popup over it: {row:?}"
+    );
+    let order_after = harness.get_by_label_contains("Ascending").rect();
+    assert!(
+        order_after.top() > order_before.bottom(),
+        "and the order and grouping controls move down below the menu: {order_before:?} then {order_after:?}"
+    );
+    assert!(
+        row.bottom() <= order_after.top(),
+        "the menu sits between the search field and the order controls"
+    );
+
+    edit_filters(&harness).click();
+    harness.run();
+    assert!(
+        harness
+            .query_by_label_contains(&parameter_of("rig"))
+            .is_none(),
+        "clicking the control again shuts the menu"
+    );
+    assert_eq!(
+        harness.get_by_label_contains("Ascending").rect(),
+        order_before,
+        "and the controls return to where they were"
+    );
+}
+
+// Why: the chips are added and removed while the menu is open, and if they sat above it every tick would move the
+// menu under the pointer. They sit beneath it instead, so the menu holds still while filters come and go.
+#[test]
+fn the_chips_sit_beneath_the_menu_so_that_it_holds_still_as_filters_change() {
+    let mut harness = app(campaign());
+    edit_filters(&harness).click();
+    harness.run();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
+    harness.run();
+    let back_before = harness.get_by_label("Back to all parameters").rect();
+
+    harness.get_by_label_contains("CFD, 2").click();
+    harness.run();
+
+    assert_eq!(
+        harness.get_by_label("Back to all parameters").rect(),
+        back_before,
+        "ticking a value does not move the menu"
+    );
+    let done = harness.get_by_label("Done").rect();
+    let chip = harness.get_by_label_contains("rig: CFD").rect();
+    assert!(
+        chip.top() >= done.bottom(),
+        "the chip appears beneath the menu ({done:?}), not above it: {chip:?}"
+    );
+    let sort = harness.get_by_label("Sort").rect();
+    assert!(
+        sort.top() >= chip.bottom(),
+        "and the order controls stay beneath the chips"
+    );
+}
+
+// Why: the control that takes every filter away is a control like Edit, not an afterthought beside the chips, so it
+// stands beside Edit, is drawn as Edit is and says what it does in full; the revert mark beside its words is the same mark that takes
+// back a change in the property editor, so that taking back reads the same way everywhere.
+#[test]
+fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
+    let mut harness = app(campaign());
+    assert!(
+        harness.query_by_label_contains("Clear all").is_none(),
+        "there is nothing to clear until a filter is chosen"
+    );
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
+
+    let clear = harness.get_by_label_contains("Clear all");
+    assert!(
+        clear
+            .accesskit_node()
+            .label()
+            .is_some_and(|label| label.starts_with("restore")),
+        "the control carries the restore icon before its words"
+    );
+    let edit = edit_filters(&harness).rect();
+    let rect = clear.rect();
+    assert!(
+        (rect.center().y - edit.center().y).abs() < 1.0 && rect.right() <= edit.left(),
+        "and stands on the Filters row, beside Edit: {rect:?} and {edit:?}"
+    );
+    assert!(
+        (rect.height() - edit.height()).abs() < 0.5,
+        "drawn as Edit is drawn: {rect:?} and {edit:?}"
+    );
+    clear.click();
+    harness.run();
+
+    assert!(
+        harness.state().browser().browse.filters.is_empty(),
+        "and clicking it takes every filter away"
+    );
+    assert!(listed(&harness, "Run 9 lift"));
+}
+
+// Why: a control that grows by a point when the pointer reaches it jitters, and a row of chips jitters as the
+// pointer crosses it. A chip's size is decided by its words, not by whether it is hovered.
+#[test]
+fn a_chip_keeps_its_size_under_the_pointer() {
+    let mut harness = app(campaign());
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
+    let before = harness.get_by_label_contains("rig: CFD").rect();
+
+    harness.get_by_label_contains("rig: CFD").hover();
+    harness.run();
+    harness.run();
+
+    assert_eq!(
+        harness.get_by_label_contains("rig: CFD").rect(),
+        before,
+        "the chip is the same size with the pointer over it"
+    );
+}
+
+// Why: the filters, the order and the grouping are three settings of the same list, and each is read the same
+// way: a caption at the left of its row and its control at the right. Two settings sharing a row, or a caption
+// above its control, would be read differently from the third for no reason.
+#[test]
+fn filters_sort_and_group_each_have_a_captioned_row_with_the_control_at_the_right() {
+    let harness = app(campaign());
+    let filters = harness.get_by_label("Filters").rect();
+    let sort = harness.get_by_label("Sort").rect();
+    let group = harness.get_by_label("Group").rect();
+    assert!(
+        filters.bottom() <= sort.top() && sort.bottom() <= group.top(),
+        "the three captions come one beneath the other: {filters:?}, {sort:?}, {group:?}"
+    );
+    assert!(
+        (filters.left() - sort.left()).abs() < 1.0 && (sort.left() - group.left()).abs() < 1.0,
+        "and start at the same edge"
+    );
+
+    let edit = edit_filters(&harness).rect();
+    let combos: Vec<egui::Rect> = harness
+        .get_all_by_role(egui::accesskit::Role::ComboBox)
+        .map(|node| node.rect())
+        .collect();
+    assert_eq!(
+        combos.len(),
+        2,
+        "the order and the grouping are each a combo box"
+    );
+    let panel = panel_rect(&harness).expect("the browser is open");
+    for (caption, control) in [(filters, edit), (sort, combos[0]), (group, combos[1])] {
+        assert!(
+            (control.center().y - caption.center().y).abs() < 2.0,
+            "the control sits on the row of its caption: {caption:?} and {control:?}"
+        );
+        assert!(
+            control.left() > caption.right(),
+            "to the right of it: {caption:?} and {control:?}"
+        );
+    }
+    assert!(
+        (edit.right() - combos[1].right()).abs() < 1.0,
+        "the controls end at one edge: {edit:?} and {:?}",
+        combos[1]
+    );
+    assert!(
+        (combos[0].right() - combos[1].right()).abs() < 1.0,
+        "the two combo boxes too: {:?} and {:?}",
+        combos[0],
+        combos[1]
+    );
+    assert!(
+        panel.right() - combos[1].right() < 40.0,
+        "and that edge is the right of the panel, less its padding: {:?} in {panel:?}",
+        combos[1]
+    );
+}
+
+// Why: a menu that stays open until it is told to shut needs a control that shuts it, and the control has to be
+// there on the page of values, which is where a reader is when they have finished choosing.
+#[test]
+fn done_shuts_the_menu_and_keeps_what_was_chosen() {
+    let mut harness = app(campaign());
+    edit_filters(&harness).click();
+    harness.run();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
+    harness.run();
+    harness.get_by_label_contains("CFD, 2").click();
+    harness.run();
+    harness.get_by_label("Done").click();
+    harness.run();
+
+    assert!(harness.query_by_label("Done").is_none(), "the menu is shut");
+    assert!(
+        harness.query_by_label_contains("rig: CFD").is_some(),
+        "and the value chosen in it is kept as a chip"
+    );
+    assert!(!listed(&harness, "Run 9 lift"), "which narrows the list");
+}
+
 // Why: a count beside a value is what makes the menu worth opening rather than guessing, and a count of zero must
 // still be shown: a value that vanished as the reader reached for it reads as a fault, where a disabled one says
 // plainly that the collection has nothing there.
@@ -412,9 +650,9 @@ fn the_menu_counts_what_each_value_would_leave() {
     let mut harness = app(campaign());
     harness.state_mut().browser_mut().browse.query = "wake".to_owned();
     harness.run();
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
-    harness.get_by_label_contains("rig\n").click();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
     harness.run();
 
     assert!(
@@ -662,10 +900,9 @@ fn collect_painted_text(shape: &egui::Shape, words: &mut Vec<String>) {
     }
 }
 
-// Why: the browser is the first part of the interface to draw a mark beside its words, and the last-resort face
-// that gives it the arrows also draws four and a half thousand other characters. A character left out of the
-// style's list therefore no longer announces itself as an empty box — it simply appears, unchecked, and will be an
-// empty box for whoever builds without that face. This test is what the empty box used to be.
+// Why: the browser draws marks beside its words, and a mark is the kind of character the fonts are most likely to
+// lack. A character the fonts do not have is drawn as an empty box, and only what is painted can say whether every
+// character the browser draws is one the style has had checked against the fonts.
 #[test]
 fn the_browser_paints_no_character_outside_the_listed_ones() {
     let listed = ironlab_viewer::style::INTERFACE_CHARACTERS;
@@ -682,24 +919,168 @@ fn the_browser_paints_no_character_outside_the_listed_ones() {
     }
 }
 
-// Why: a mark that augments words has to actually be on screen beside them, or the decision to add it to the fonts
-// bought nothing. Both marks are checked where they are drawn, because each is the only reason its character is in
-// the style's list at all.
+// Why: the control that reverses the order shares its row with a combo box, and a caption a size smaller than the
+// text beside it reads as a different kind of control. The two are set at one size, which only what is painted can
+// show.
 #[test]
-fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
+fn the_order_control_is_set_at_the_size_of_the_combo_box_beside_it() {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let cards: Vec<ironlab_viewer::browse::FigureCard> = campaign()
+        .into_iter()
+        .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
+        .collect();
+    let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut sizes: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            ironlab_viewer::figure_browser(ui, &mut browser, &cards, 0);
+        });
+        output.textures_delta.clear();
+        sizes.clear();
+        for clipped in &output.shapes {
+            collect_text_sizes(&clipped.shape, &mut sizes);
+        }
+    }
+    let order = sizes
+        .get("Ascending")
+        .copied()
+        .expect("the order control is painted");
+    let combo = sizes
+        .get("Title")
+        .copied()
+        .expect("the combo box is painted");
+    assert!(
+        (order - combo).abs() < 0.01,
+        "the order control's words are set at {order} pt and the combo box's at {combo} pt"
+    );
+}
+
+/// Adds the size of the first word of every run of text in a shape, and in the shapes it holds, to `sizes`.
+fn collect_text_sizes(shape: &egui::Shape, sizes: &mut std::collections::BTreeMap<String, f32>) {
+    match shape {
+        egui::Shape::Text(text) => {
+            if let Some(section) = text.galley.job.sections.first() {
+                sizes.insert(text.galley.text().to_owned(), section.format.font_id.size);
+            }
+        }
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_text_sizes(shape, sizes);
+            }
+        }
+        _ => {}
+    }
+}
+
+// Why: a chip has to say what it narrows and what to, and carry the cross that says clicking it takes that away.
+// The words are checked where they are painted, and the cross in the name the chip gives the accessibility tree,
+// because the cross is painted as a shape and is no word at all.
+#[test]
+fn a_chip_names_its_parameter_and_value_and_carries_the_cross() {
     let words = painted_words(true);
     assert!(
-        words.iter().any(|word| word.contains("rig")
-            && word.contains("CFD")
-            && word.contains(ironlab_viewer::style::REMOVE)),
-        "the chip says what it narrows and carries the mark that says clicking it takes that away: {words:?}"
+        words.iter().any(|word| word == "rig") && words.iter().any(|word| word == "CFD"),
+        "the chip paints the parameter and the value it narrows to: {words:?}"
     );
+    let mut harness = app(campaign());
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
     assert!(
-        words
-            .iter()
-            .any(|word| word == &format!("Ascending {}", ironlab_viewer::style::ASCENDING)),
-        "the order says which way it runs and carries the arrow that shows it: {words:?}"
+        harness.query_by_label("rig: CFD cross").is_some(),
+        "and is named by its parameter, its value and its cross"
     );
+}
+
+// Why: the control that reverses the order shares a row with a combo box, and the triangle beside its word is the
+// combo box's own, turned to point the way the order runs. A typed arrow looked like a different kind of control;
+// the shape has to be painted, and painted the right way up, which only the shapes on screen can show.
+#[test]
+fn the_order_control_carries_a_combo_box_triangle_turned_the_way_the_order_runs() {
+    for descending in [false, true] {
+        let triangles = painted_triangles_with(|browser| {
+            browser.browse.sort.descending = descending;
+        });
+        let up = triangles.iter().filter(|t| t.points_up).count();
+        let down = triangles.iter().filter(|t| !t.points_up).count();
+        if descending {
+            assert_eq!(
+                (up, down),
+                (0, 3),
+                "descending: the order control and the two combo boxes all point down: {triangles:?}"
+            );
+        } else {
+            assert_eq!(
+                (up, down),
+                (1, 2),
+                "ascending: the order control points up and the two combo boxes down: {triangles:?}"
+            );
+        }
+    }
+}
+
+/// A filled triangle painted by the browser, and whether its apex is above its base.
+#[derive(Debug)]
+struct Triangle {
+    points_up: bool,
+}
+
+/// Every filled triangle the browser paints for the campaign, after `configure` has set it up.
+fn painted_triangles_with(
+    configure: impl FnOnce(&mut ironlab_viewer::FigureBrowser),
+) -> Vec<Triangle> {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let cards: Vec<ironlab_viewer::browse::FigureCard> = campaign()
+        .into_iter()
+        .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
+        .collect();
+    let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
+    configure(&mut browser);
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut triangles = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            ironlab_viewer::figure_browser(ui, &mut browser, &cards, 0);
+        });
+        output.textures_delta.clear();
+        triangles.clear();
+        for clipped in &output.shapes {
+            collect_triangles(&clipped.shape, &mut triangles);
+        }
+    }
+    triangles
+}
+
+/// Adds every closed, filled, three-cornered path in a shape, and in the shapes it holds, to `triangles`.
+fn collect_triangles(shape: &egui::Shape, triangles: &mut Vec<Triangle>) {
+    match shape {
+        egui::Shape::Path(path) if path.closed && path.points.len() == 3 => {
+            let mut ys: Vec<f32> = path.points.iter().map(|p| p.y).collect();
+            ys.sort_by(f32::total_cmp);
+            // Two corners share the base's height; the odd one out is the apex.
+            let points_up = (ys[0] - ys[1]).abs() > (ys[1] - ys[2]).abs();
+            triangles.push(Triangle { points_up });
+        }
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_triangles(shape, triangles);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -778,14 +1159,19 @@ fn the_page_the_note_links_to_exists_in_the_documentation() {
 #[test]
 fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
     let mut harness = app(campaign());
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
-    harness.get_by_label_contains("angle\n").click();
+    harness
+        .get_by_label_contains(&parameter_of("angle"))
+        .click();
     harness.run();
 
-    assert!(
-        harness.query_by_label("from").is_some() && harness.query_by_label("to").is_some(),
-        "the two ends of the range are offered"
+    assert_eq!(
+        harness
+            .get_all_by_role(egui::accesskit::Role::SpinButton)
+            .count(),
+        2,
+        "the two ends of the range are offered, as number fields"
     );
     assert!(
         harness.query_by_label_contains("4, 3").is_none(),
@@ -815,8 +1201,9 @@ fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
 }
 
 // Why: a range covering the whole parameter keeps every figure, so leaving it on the list would show a chip that
-// narrows nothing and invite the reader to wonder what it is doing. The control that says so has to actually
-// remove the filter rather than widen it to the ends.
+// narrows nothing and invite the reader to wonder what it is doing. There is no control that says "whole range":
+// the ends of the range are the control, and dragging the lower end back to the least value the parameter takes
+// has to remove the filter rather than keep a chip that narrows nothing.
 #[test]
 fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
     let mut harness = app(campaign());
@@ -835,11 +1222,27 @@ fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
-    harness.get_by_label_contains("angle\n2 values").click();
+    harness
+        .get_by_label_contains(&parameter_of("angle"))
+        .click();
     harness.run();
-    harness.get_by_label("Whole range").click();
+    // The lower end is the first number field; clicking it opens it for typing, and what is typed replaces the
+    // value as it is typed. Four degrees is the least angle in the campaign.
+    fn lower_end<'a>(harness: &'a Harness<'_, ViewerApp>) -> egui_kittest::Node<'a> {
+        harness
+            .get_all_by_role(egui::accesskit::Role::SpinButton)
+            .next()
+            .expect("the lower end of the range")
+    }
+    lower_end(&harness).click();
+    harness.run();
+    assert!(
+        lower_end(&harness).is_focused(),
+        "clicking the lower end opens it for typing"
+    );
+    lower_end(&harness).type_text("4");
     harness.run();
 
     assert!(
