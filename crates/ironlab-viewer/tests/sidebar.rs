@@ -109,6 +109,11 @@ fn listed(harness: &Harness<'_, ViewerApp>, title: &str) -> bool {
     harness.query_by_label_contains(&row_of(title)).is_some()
 }
 
+/// The control that opens and shuts the filter menu, which reads "Edit" beside a mark saying which it will do.
+fn edit_filters<'a>(harness: &'a Harness<'_, ViewerApp>) -> egui_kittest::Node<'a> {
+    harness.get_by_label_contains(" Edit")
+}
+
 /// The text that finds the row of a figure in the list, and nothing else.
 fn row_of(title: &str) -> String {
     format!("{title}, ")
@@ -346,7 +351,7 @@ fn showing_all_takes_back_everything_that_was_typed_and_chosen() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("Reset").click();
+    harness.get_by_label("Show all").click();
     harness.run();
     assert!(listed(&harness, "Run 9 lift"), "every figure is back");
     assert!(
@@ -396,7 +401,7 @@ fn a_chip_says_what_is_filtered_and_removes_it_when_clicked() {
 #[test]
 fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
     let mut harness = app(campaign());
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
 
     for parameter in ["rig", "angle", "solver"] {
@@ -421,7 +426,7 @@ fn the_filter_menu_offers_the_parameters_that_divide_the_collection() {
 fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
     let mut harness = app(campaign());
     let order_before = harness.get_by_label_contains("Ascending").rect();
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
 
     let panel = panel_rect(&harness).expect("the browser is open");
@@ -440,13 +445,13 @@ fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
         "the menu sits between the search field and the order controls"
     );
 
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
     assert!(
         harness
             .query_by_label_contains(&parameter_of("rig"))
             .is_none(),
-        "clicking + Filter again shuts the menu"
+        "clicking Edit again shuts the menu"
     );
     assert_eq!(
         harness.get_by_label_contains("Ascending").rect(),
@@ -455,12 +460,124 @@ fn the_filter_menu_opens_within_the_panel_and_pushes_the_controls_down() {
     );
 }
 
+// Why: the chips are added and removed while the menu is open, and if they sat above it every tick would move the
+// menu under the pointer. They sit beneath it instead, so the menu holds still while filters come and go.
+#[test]
+fn the_chips_sit_beneath_the_menu_so_that_it_holds_still_as_filters_change() {
+    let mut harness = app(campaign());
+    edit_filters(&harness).click();
+    harness.run();
+    harness.get_by_label_contains(&parameter_of("rig")).click();
+    harness.run();
+    let back_before = harness.get_by_label("Back to all parameters").rect();
+
+    harness.get_by_label_contains("CFD, 2").click();
+    harness.run();
+
+    assert_eq!(
+        harness.get_by_label("Back to all parameters").rect(),
+        back_before,
+        "ticking a value does not move the menu"
+    );
+    let done = harness.get_by_label("Done").rect();
+    let chip = harness.get_by_label_contains("rig: CFD").rect();
+    assert!(
+        chip.top() >= done.bottom(),
+        "the chip appears beneath the menu ({done:?}), not above it: {chip:?}"
+    );
+    let sort = harness.get_by_label("SORT").rect();
+    assert!(
+        sort.top() >= chip.bottom(),
+        "and the order controls stay beneath the chips"
+    );
+}
+
+// Why: a control that grows by a point when the pointer reaches it jitters, and a row of chips jitters as the
+// pointer crosses it. A chip's size is decided by its words, not by whether it is hovered.
+#[test]
+fn a_chip_keeps_its_size_under_the_pointer() {
+    let mut harness = app(campaign());
+    harness.state_mut().browser_mut().browse.toggle(
+        &FacetKey::parameter("rig"),
+        &FacetValue::Text("CFD".to_owned()),
+    );
+    harness.run();
+    let before = harness.get_by_label_contains("rig: CFD").rect();
+
+    harness.get_by_label_contains("rig: CFD").hover();
+    harness.run();
+    harness.run();
+
+    assert_eq!(
+        harness.get_by_label_contains("rig: CFD").rect(),
+        before,
+        "the chip is the same size with the pointer over it"
+    );
+}
+
+// Why: the filters, the order and the grouping are three settings of the same list, and each is read the same
+// way: a caption at the left of its row and its control at the right. Two settings sharing a row, or a caption
+// above its control, would be read differently from the third for no reason.
+#[test]
+fn filters_sort_and_group_each_have_a_captioned_row_with_the_control_at_the_right() {
+    let harness = app(campaign());
+    let filters = harness.get_by_label("FILTERS").rect();
+    let sort = harness.get_by_label("SORT").rect();
+    let group = harness.get_by_label("GROUP").rect();
+    assert!(
+        filters.bottom() <= sort.top() && sort.bottom() <= group.top(),
+        "the three captions come one beneath the other: {filters:?}, {sort:?}, {group:?}"
+    );
+    assert!(
+        (filters.left() - sort.left()).abs() < 1.0 && (sort.left() - group.left()).abs() < 1.0,
+        "and start at the same edge"
+    );
+
+    let edit = edit_filters(&harness).rect();
+    let combos: Vec<egui::Rect> = harness
+        .get_all_by_role(egui::accesskit::Role::ComboBox)
+        .map(|node| node.rect())
+        .collect();
+    assert_eq!(
+        combos.len(),
+        2,
+        "the order and the grouping are each a combo box"
+    );
+    let panel = panel_rect(&harness).expect("the browser is open");
+    for (caption, control) in [(filters, edit), (sort, combos[0]), (group, combos[1])] {
+        assert!(
+            (control.center().y - caption.center().y).abs() < 2.0,
+            "the control sits on the row of its caption: {caption:?} and {control:?}"
+        );
+        assert!(
+            control.left() > caption.right(),
+            "to the right of it: {caption:?} and {control:?}"
+        );
+    }
+    assert!(
+        (edit.right() - combos[1].right()).abs() < 1.0,
+        "the controls end at one edge: {edit:?} and {:?}",
+        combos[1]
+    );
+    assert!(
+        (combos[0].right() - combos[1].right()).abs() < 1.0,
+        "the two combo boxes too: {:?} and {:?}",
+        combos[0],
+        combos[1]
+    );
+    assert!(
+        panel.right() - combos[1].right() < 40.0,
+        "and that edge is the right of the panel, less its padding: {:?} in {panel:?}",
+        combos[1]
+    );
+}
+
 // Why: a menu that stays open until it is told to shut needs a control that shuts it, and the control has to be
 // there on the page of values, which is where a reader is when they have finished choosing.
 #[test]
 fn done_shuts_the_menu_and_keeps_what_was_chosen() {
     let mut harness = app(campaign());
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
     harness.get_by_label_contains(&parameter_of("rig")).click();
     harness.run();
@@ -485,7 +602,7 @@ fn the_menu_counts_what_each_value_would_leave() {
     let mut harness = app(campaign());
     harness.state_mut().browser_mut().browse.query = "wake".to_owned();
     harness.run();
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
     harness.get_by_label_contains(&parameter_of("rig")).click();
     harness.run();
@@ -851,7 +968,7 @@ fn the_page_the_note_links_to_exists_in_the_documentation() {
 #[test]
 fn a_numeric_parameter_is_narrowed_by_a_range_rather_than_a_list_of_values() {
     let mut harness = app(campaign());
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
     harness
         .get_by_label_contains(&parameter_of("angle"))
@@ -914,7 +1031,7 @@ fn widening_a_range_to_the_whole_parameter_takes_the_filter_away() {
     harness.run();
     assert!(!listed(&harness, "Run 9 lift"));
 
-    harness.get_by_label("+ Filter").click();
+    edit_filters(&harness).click();
     harness.run();
     harness
         .get_by_label_contains(&parameter_of("angle"))

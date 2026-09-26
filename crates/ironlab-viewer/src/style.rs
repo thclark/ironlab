@@ -87,6 +87,9 @@ pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);
 /// The fill of a chip that narrows a parameter: egui's selection fill, named because a chip is drawn by hand.
 pub const CHIP_FILL: Color32 = Color32::from_rgb(0, 92, 128);
 
+/// The fill of a chip that narrows a parameter while the pointer is over it.
+pub const CHIP_HOVER: Color32 = Color32::from_rgb(3, 111, 153);
+
 /// The outline of a chip that narrows a parameter, a shade lighter than [`CHIP_FILL`].
 pub const CHIP_STROKE: Color32 = Color32::from_rgb(13, 112, 153);
 
@@ -98,6 +101,9 @@ pub const CHIP_TEXT: Color32 = Color32::from_rgb(234, 244, 251);
 
 /// The fill of a chip that narrows the labels: the green of a tag, so that a filter on labels reads as one.
 pub const LABEL_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
+
+/// The fill of a chip that narrows the labels while the pointer is over it.
+pub const LABEL_CHIP_HOVER: Color32 = Color32::from_rgb(55, 74, 60);
 
 /// The outline of a chip that narrows the labels.
 pub const LABEL_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
@@ -160,11 +166,23 @@ pub const ASCENDING: &str = "↑";
 /// The mark on the control that puts a list in descending order, which is captioned "Descending".
 pub const DESCENDING: &str = "↓";
 
+/// The mark on the control that opens the filter menu, which is captioned "Edit".
+///
+/// It is the plus sign of ASCII, which every font has, so it is not listed among [`INTERFACE_CHARACTERS`]; it is
+/// named here so that the control and its partner [`COLLAPSE`] are defined together.
+pub const EXPAND: &str = "+";
+
+/// The mark on the control that shuts the filter menu, which is captioned "Edit".
+///
+/// It is the minus sign rather than a hyphen, because a hyphen is narrower than the plus sign it stands opposite
+/// and reads as a dash rather than as the mark's other half.
+pub const COLLAPSE: &str = "−";
+
 /// Every mark the interface draws beside or in place of words, which [`INTERFACE_CHARACTERS`] must hold.
 ///
 /// It exists so that the check is by construction: a mark named here and left out of the list fails a test rather
 /// than waiting to be noticed as an empty box on screen.
-pub const MARKS: &[&str] = &[REVERT, REMOVE, ASCENDING, DESCENDING];
+pub const MARKS: &[&str] = &[REVERT, REMOVE, ASCENDING, DESCENDING, COLLAPSE];
 
 /// Every character outside ASCII that the viewer's interface draws.
 ///
@@ -193,6 +211,7 @@ pub const INTERFACE_CHARACTERS: &[char] = &[
     '↓', // the mark of descending order, `DESCENDING`
     '↺', // the revert control, `REVERT`
     '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
+    '−', // the minus sign on the control that shuts the filter menu, `COLLAPSE`
 ];
 
 /// The name egui knows the interface's last-resort face by.

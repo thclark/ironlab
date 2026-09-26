@@ -218,7 +218,7 @@ fn pixel_outline(
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ToolbarResponse {
-    /// Whether the toolbar changed the displayed figure (for example through "Reset view" or "Undo").
+    /// Whether the toolbar changed the displayed figure (for example through "Reset" or "Undo").
     pub changed: bool,
     /// Whether "Export PDF…" was clicked; the caller shows the save dialog and writes the file.
     pub export_requested: bool,
@@ -230,7 +230,7 @@ pub struct ToolbarResponse {
 ///
 /// The toolbar has selectable buttons labelled "Pan", "Zoom" and "Rotate" that set [`FigureState::tool`] ("Rotate" is
 /// disabled when the figure has no 3D axes), "Undo" and "Redo" buttons that step through the overlay's history and
-/// are disabled when there is nothing to undo or redo, a "Reset view" button that calls [`FigureState::reset_view`],
+/// are disabled when there is nothing to undo or redo, a "Reset" button that calls [`FigureState::reset_view`],
 /// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
 /// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
 /// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
@@ -291,6 +291,17 @@ pub fn toolbar(
         {
             response.changed |= state.redo();
         }
+        if ui
+            .button("Reset")
+            .on_hover_text(
+                "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
+                 you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
+                 use Revert all changes at the foot of the property editor.",
+            )
+            .clicked()
+        {
+            response.changed |= state.reset_view();
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Laid out from the right edge inwards, so the first widget added is the rightmost.
             if let Some(label) = indicator_label(problems) {
@@ -319,17 +330,6 @@ pub fn toolbar(
                 .clicked()
             {
                 response.export_requested = true;
-            }
-            if ui
-                .button("Reset view")
-            .on_hover_text(
-                "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
-                 you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
-                 use Revert all changes at the foot of the property editor.",
-            )
-                .clicked()
-            {
-                response.changed |= state.reset_view();
             }
         });
     });

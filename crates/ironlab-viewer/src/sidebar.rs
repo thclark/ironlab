@@ -6,11 +6,14 @@
 //! - **The controls are small and the list is large.** A panel of checkboxes, one section per parameter, grows with
 //!   the collection until the list of figures starts below the bottom of the window. Here the controls take three
 //!   rows whatever the collection holds, and everything below them is the list.
-//! - **Filters are chips, added from a menu that opens within the panel.** "+ Filter" opens, between the chips and
-//!   the row of order and grouping, a list of the parameters worth filtering on, most useful first, and then of that
+//! - **Filters are chips, added from a menu that opens within the panel.** "Edit", at the right of the "Filters"
+//!   caption, opens beneath it a list of the parameters worth filtering on, most useful first, and then of that
 //!   parameter's values with the count each would leave. The menu pushes the controls and the list down rather
 //!   than floating over them, so it stays open while values are chosen one at a time, and "Done" shuts it. What
-//!   has been chosen reads back as a row of chips, and clicking a chip takes it away.
+//!   has been chosen reads back as a row of chips beneath the menu, where their coming and going cannot move it,
+//!   and clicking a chip takes it away.
+//! - **Every setting has a row of its own.** The filters, the order and the grouping are each a caption at the left
+//!   of a row and a control at the right, so that the three are read the same way.
 //! - **The search field is the whole of it for anyone who would rather type.** `rig:CFD angle>=8 -stalled` does what
 //!   three chips do. It is also the only way to ask something the menus do not offer, so the interface never has to
 //!   grow a control for every question.
@@ -97,6 +100,20 @@ const MENU_SEARCH_VALUES: usize = 60;
 
 /// The room above the body of the menu's second page, and above its "Done" control, in egui points.
 const MENU_BODY_GAP: (f32, f32) = (2.0, 8.0);
+
+/// The width of the combo boxes of the order and the grouping, in egui points, when the panel has room for it.
+const COMBO_WIDTH: f32 = 150.0;
+
+/// The narrowest a combo box of the order or the grouping is drawn, in egui points.
+const COMBO_MIN_WIDTH: f32 = 56.0;
+
+/// The room between the edge of a chip and its words, in egui points: left, top, right and bottom.
+const CHIP_PADDING: egui::Margin = egui::Margin {
+    left: 7,
+    right: 5,
+    top: 2,
+    bottom: 2,
+};
 
 /// The room between the edge of a text field and its text, in egui points.
 const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
@@ -316,7 +333,7 @@ fn contents(
         .inner
 }
 
-/// The height of the strip at the foot of the panel: room for its "Reset" control, so that the strip is the same
+/// The height of the strip at the foot of the panel: room for its "Show all" control, so that the strip is the same
 /// height whether or not the control is shown.
 fn foot_height(ui: &egui::Ui) -> f32 {
     let caption = ui.fonts_mut(|fonts| {
@@ -363,10 +380,11 @@ fn controls(
     }
 
     block(ui, |ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(style::ROW_GAP, style::ROW_GAP);
-        ui.horizontal_wrapped(|ui| {
-            add_filter_button(ui, browser);
-            chips(ui, browser);
+        ui.horizontal(|ui| {
+            caption(ui, "FILTERS");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                edit_filters_button(ui, browser);
+            });
         });
     });
 
@@ -374,7 +392,15 @@ fn controls(
         menu_frame(ui, browser, cards, facets);
     }
 
-    block(ui, |ui| order_and_group(ui, browser, facets));
+    if !browser.browse.filters.is_empty() {
+        block(ui, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(style::ROW_GAP, style::ROW_GAP);
+            ui.horizontal_wrapped(|ui| chips(ui, browser));
+        });
+    }
+
+    block(ui, |ui| sort_row(ui, browser, facets));
+    block(ui, |ui| group_row(ui, browser, facets));
 }
 
 /// Draws a single-line text field as wide as the room it is given: a dark well with an outline, which takes the
@@ -440,14 +466,20 @@ fn tip(ui: &mut egui::Ui) {
     });
 }
 
-/// Draws the "+ Filter" control, which opens the menu when it is shut and shuts it when it is open.
-fn add_filter_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
+/// Draws the "Edit" control, which opens the menu when it is shut and shuts it when it is open, and carries the mark
+/// that says which it will do: [`crate::style::EXPAND`] when the menu is shut, [`crate::style::COLLAPSE`] when it is
+/// open.
+fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let open = browser.menu != Menu::Closed;
-    let response = ui
-        .button("+ Filter")
-        .on_hover_text("Narrow the list by one of the figures' parameters.");
+    let mark = if open { style::COLLAPSE } else { style::EXPAND };
+    let text = format!("{mark} Edit");
+    let response = ui.button(&text).on_hover_text(if open {
+        "Shut the menu, keeping what has been chosen."
+    } else {
+        "Narrow the list by one of the figures' parameters."
+    });
     response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, "+ Filter".to_owned())
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, text.clone())
     });
     if response.clicked() {
         browser.menu = if open {
@@ -462,7 +494,7 @@ fn add_filter_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     }
 }
 
-/// Draws the menu in its frame, between the row of chips and the row of order and grouping.
+/// Draws the menu in its frame, beneath the "Filters" row and above the chips.
 ///
 /// The menu is a block of the panel rather than a popup, so that it pushes what is beneath it down and stays open
 /// until it is shut: a reader ticking values one at a time keeps their place, where a popup would shut the moment
@@ -999,51 +1031,7 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
                 crate::browse::number_text(*high)
             ),
         };
-        let (fill, stroke, key_color, text_color) = match filter.key {
-            FacetKey::Labels => (
-                style::LABEL_CHIP_FILL,
-                style::LABEL_CHIP_STROKE,
-                style::LABEL_CHIP_KEY,
-                style::LABEL_CHIP_TEXT,
-            ),
-            FacetKey::Parameter(_) => (
-                style::CHIP_FILL,
-                style::CHIP_STROKE,
-                style::CHIP_KEY,
-                style::CHIP_TEXT,
-            ),
-        };
-        let name = filter.key.name();
-        let label = format!("{name}: {text} {}", style::REMOVE);
-        let mut job = LayoutJob::default();
-        job.append(
-            name,
-            0.0,
-            egui::TextFormat {
-                font_id: monospace_count(),
-                color: key_color,
-                valign: egui::Align::Center,
-                ..Default::default()
-            },
-        );
-        job.append(
-            &format!("{text} {}", style::REMOVE),
-            style::ROW_GAP,
-            egui::TextFormat {
-                font_id: egui::FontId::proportional(style::SMALL_BUTTON_SIZE_PT),
-                color: text_color,
-                valign: egui::Align::Center,
-                ..Default::default()
-            },
-        );
-        let chip = egui::Button::new(job)
-            .fill(fill)
-            .stroke(egui::Stroke::new(1.0, stroke));
-        let response = ui.add(chip).on_hover_text("Click to remove this filter.");
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone())
-        });
-        if response.clicked() {
+        if chip(ui, &filter.key, &text).clicked() {
             remove = Some(filter.key.clone());
         }
     }
@@ -1059,84 +1047,191 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     }
 }
 
-/// Draws the order and the grouping on one row: what the order is taken from, which way it runs, and what the list
-/// is grouped by.
+/// The colours a chip is drawn in: its fill, its fill under the pointer, its outline, the name of its parameter and
+/// its value.
+struct ChipPalette {
+    fill: egui::Color32,
+    hover: egui::Color32,
+    stroke: egui::Color32,
+    key: egui::Color32,
+    text: egui::Color32,
+}
+
+/// The colours of the chip of a filter on `key`.
+fn chip_palette(key: &FacetKey) -> ChipPalette {
+    match key {
+        FacetKey::Labels => ChipPalette {
+            fill: style::LABEL_CHIP_FILL,
+            hover: style::LABEL_CHIP_HOVER,
+            stroke: style::LABEL_CHIP_STROKE,
+            key: style::LABEL_CHIP_KEY,
+            text: style::LABEL_CHIP_TEXT,
+        },
+        FacetKey::Parameter(_) => ChipPalette {
+            fill: style::CHIP_FILL,
+            hover: style::CHIP_HOVER,
+            stroke: style::CHIP_STROKE,
+            key: style::CHIP_KEY,
+            text: style::CHIP_TEXT,
+        },
+    }
+}
+
+/// Draws the chip of one filter, and returns its response.
 ///
-/// The two share a row because they are two settings of the same list and neither needs the width of the panel;
-/// the width left after their captions and the direction button is split between the two boxes.
-fn order_and_group(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
-    let descending = browser.browse.sort.descending;
-    let direction = if descending {
+/// The chip is painted rather than built from a button, because a button under the pointer takes egui's hovered
+/// visuals, whose outline and rounding differ from the chip's own and make it change size by a point as the pointer
+/// reaches it. A chip's size is decided by its words alone; the pointer changes its fill and nothing else.
+fn chip(ui: &mut egui::Ui, key: &FacetKey, text: &str) -> egui::Response {
+    let palette = chip_palette(key);
+    let name = key.name();
+    let label = format!("{name}: {text} {}", style::REMOVE);
+    let mut job = LayoutJob::default();
+    job.append(
+        name,
+        0.0,
+        egui::TextFormat {
+            font_id: monospace_count(),
+            color: palette.key,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    job.append(
+        &format!("{text} {}", style::REMOVE),
+        style::ROW_GAP,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(style::SMALL_BUTTON_SIZE_PT),
+            color: palette.text,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    // A chip may wrap onto a second line, but never wider than the row it is in.
+    job.wrap.max_width = ui.max_rect().width() - CHIP_PADDING.sum().x;
+    let galley = ui.painter().layout_job(job);
+    let (rect, response) =
+        ui.allocate_exact_size(galley.size() + CHIP_PADDING.sum(), egui::Sense::click());
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
+    if ui.is_rect_visible(rect) {
+        let fill = if response.hovered() {
+            palette.hover
+        } else {
+            palette.fill
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            2.0,
+            fill,
+            egui::Stroke::new(1.0, palette.stroke),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.min + CHIP_PADDING.left_top(), galley, palette.text);
+    }
+    response.on_hover_text("Click to remove this filter.")
+}
+
+/// The caption of the control that reverses the order, which says which way it runs and carries the arrow that
+/// shows it.
+///
+/// The arrow never stands alone: a mark on its own would leave the control unreadable to anyone who does not take
+/// the mark in.
+fn direction_caption(descending: bool) -> String {
+    if descending {
         format!("Descending {}", style::DESCENDING)
     } else {
         format!("Ascending {}", style::ASCENDING)
-    };
-    ui.horizontal(|ui| {
-        let spacing = ui.spacing().item_spacing.x;
-        let measure = |ui: &egui::Ui, text: &str, font_id: egui::FontId| {
-            ui.painter()
-                .layout_no_wrap(text.to_owned(), font_id, egui::Color32::WHITE)
-                .size()
-                .x
-        };
-        let reserved = measure(ui, "SORT", caption_font())
-            + measure(ui, "GROUP", caption_font())
-            + measure(ui, &direction, egui::TextStyle::Button.resolve(ui.style()))
-            + 2.0 * ui.spacing().button_padding.x
-            + 6.0 * spacing;
-        let box_width = ((ui.available_width() - reserved) / 2.0).max(56.0);
+    }
+}
 
+/// The width of a combo box of the order or the grouping: [`COMBO_WIDTH`] when the panel has room for the widest
+/// row, which is the order's caption, its direction control and its box, and what that row leaves otherwise.
+///
+/// The two rows share one width, whatever each holds, so that their boxes end at one edge.
+fn combo_width(ui: &egui::Ui) -> f32 {
+    let measure = |text: &str, font_id: egui::FontId| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font_id, egui::Color32::WHITE)
+            .size()
+            .x
+    };
+    let button = egui::TextStyle::Button.resolve(ui.style());
+    let direction = measure(&direction_caption(true), button.clone())
+        .max(measure(&direction_caption(false), button))
+        + 2.0 * ui.spacing().button_padding.x;
+    let caption = measure("GROUP", caption_font()).max(measure("SORT", caption_font()));
+    let room = ui.available_width() - caption - direction - 2.0 * ui.spacing().item_spacing.x;
+    room.clamp(COMBO_MIN_WIDTH, COMBO_WIDTH)
+}
+
+/// Draws the row of the order: its caption at the left, and at the right the box that says what the order is taken
+/// from and, beside it, the control that reverses it.
+fn sort_row(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
+    let width = combo_width(ui);
+    ui.horizontal(|ui| {
         caption(ui, "SORT");
-        let selected = match &browser.browse.sort.key {
-            SortKey::Title => "Title".to_owned(),
-            SortKey::Parameter(name) => name.clone(),
-        };
-        egui::ComboBox::from_id_salt("ironlab_browser_sort")
-            .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
-            .width(box_width)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut browser.browse.sort.key, SortKey::Title, "Title");
-                for facet in facets {
-                    if let FacetKey::Parameter(name) = &facet.key {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let selected = match &browser.browse.sort.key {
+                SortKey::Title => "Title".to_owned(),
+                SortKey::Parameter(name) => name.clone(),
+            };
+            egui::ComboBox::from_id_salt("ironlab_browser_sort")
+                .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
+                .width(width)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut browser.browse.sort.key, SortKey::Title, "Title");
+                    for facet in facets {
+                        if let FacetKey::Parameter(name) = &facet.key {
+                            ui.selectable_value(
+                                &mut browser.browse.sort.key,
+                                SortKey::Parameter(name.clone()),
+                                name,
+                            );
+                        }
+                    }
+                });
+            let descending = browser.browse.sort.descending;
+            if ui
+                .button(direction_caption(descending))
+                .on_hover_text("Reverse the order.")
+                .clicked()
+            {
+                browser.browse.sort.descending = !descending;
+            }
+        });
+    });
+}
+
+/// Draws the row of the grouping: its caption at the left, and at the right the box that says what the list is
+/// grouped by.
+fn group_row(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
+    let width = combo_width(ui);
+    ui.horizontal(|ui| {
+        caption(ui, "GROUP");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let selected = match &browser.browse.group {
+                None => "None".to_owned(),
+                Some(key) => key.name().to_owned(),
+            };
+            egui::ComboBox::from_id_salt("ironlab_browser_group")
+                .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
+                .width(width)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut browser.browse.group, None, "None");
+                    for facet in facets {
+                        if facet.cardinality() < 2 {
+                            continue;
+                        }
                         ui.selectable_value(
-                            &mut browser.browse.sort.key,
-                            SortKey::Parameter(name.clone()),
-                            name,
+                            &mut browser.browse.group,
+                            Some(facet.key.clone()),
+                            facet.key.name(),
                         );
                     }
-                }
-            });
-        // The caption says which way the order runs and the arrow shows it. The arrow never stands alone: a mark
-        // on its own would leave the control unreadable to anyone who does not take the mark in.
-        if ui
-            .button(direction)
-            .on_hover_text("Reverse the order.")
-            .clicked()
-        {
-            browser.browse.sort.descending = !descending;
-        }
-
-        caption(ui, "GROUP");
-        let selected = match &browser.browse.group {
-            None => "None".to_owned(),
-            Some(key) => key.name().to_owned(),
-        };
-        egui::ComboBox::from_id_salt("ironlab_browser_group")
-            .selected_text(egui::RichText::new(selected).size(style::COMBO_SIZE_PT))
-            .width(box_width)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut browser.browse.group, None, "None");
-                for facet in facets {
-                    if facet.cardinality() < 2 {
-                        continue;
-                    }
-                    ui.selectable_value(
-                        &mut browser.browse.group,
-                        Some(facet.key.clone()),
-                        facet.key.name(),
-                    );
-                }
-            });
+                });
+        });
     });
 }
 
@@ -1529,7 +1624,7 @@ fn count_strip(ui: &mut egui::Ui, browser: &mut FigureBrowser, matched: usize, t
         );
         if !browser.browse.is_unfiltered() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if quiet_button(ui, "Reset")
+                if quiet_button(ui, "Show all")
                     .on_hover_text("Remove every filter and clear the search.")
                     .clicked()
                 {

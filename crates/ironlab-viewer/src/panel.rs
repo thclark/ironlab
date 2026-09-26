@@ -198,7 +198,7 @@ pub fn revert_all_label(changes: usize) -> String {
 const REVERT_ALL_HINT: &str = "Discard every change you have made to this figure — axis \
      limits, three-dimensional views, hidden plots and every property edited — and show \
      the figure as the program that built it defined it. The figure itself is not \
-     touched. This cannot be undone, unlike Reset view in the toolbar, which discards \
+     touched. This cannot be undone, unlike Reset in the toolbar, which discards \
      only the limits and three-dimensional views and can be undone.";
 
 /// What it says when there is nothing to discard.

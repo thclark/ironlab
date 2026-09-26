@@ -52,13 +52,13 @@ inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was
 
 ### Filtering
 
-**+ Filter** opens a menu within the panel, between the chips and the row of order and grouping, so that what is
-beneath it moves down and the menu stays open until it is shut. Its first page lists the parameters worth filtering
-on, the most useful first, each with how many values it takes and how much of the collection carries it; typing in
-the field above the list narrows it. Choosing a parameter turns the page to its values, each with the number of
-figures choosing it would leave. **Back to all parameters** turns back, **Done** shuts the menu, and clicking
-**+ Filter** again shuts it too. A parameter that takes the same value on every figure divides nothing and is not
-offered.
+**Edit**, at the right of the **Filters** caption, opens a menu within the panel beneath the caption, so that what
+is beneath it moves down and the menu stays open until it is shut. Its first page lists the parameters worth
+filtering on, the most useful first, each with how many values it takes and how much of the collection carries it;
+typing in the field above the list narrows it. Choosing a parameter turns the page to its values, each with the
+number of figures choosing it would leave. **Back to all parameters** turns back, **Done** shuts the menu, and
+clicking **Edit** again shuts it too. A parameter that takes the same value on every figure divides nothing and is
+not offered.
 
 Which parameters are worth offering is decided from the collection rather than declared in advance, because the
 parameters are the user's own. A parameter is offered in proportion to how much of the collection carries it and how
@@ -75,15 +75,16 @@ of values: two number fields beneath a histogram of the values, which shows in c
 range keeps. Widening the ends to the whole of the parameter removes the filter, because a range that keeps every
 figure narrows nothing.
 
-Each filter reads back as a chip beside **+ Filter**, naming the parameter, what it was narrowed to, and a cross
-(×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear** beside the
-chips removes every filter. **Reset**, at the foot of the panel, removes every filter and empties the search field at
+Each filter reads back as a chip beneath the menu, where chips can come and go without moving the menu, naming
+the parameter, what it was narrowed to, and a cross (×); a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear** beside the
+chips removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
 once.
 
 ### Ordering and grouping
 
-**Sort** puts the list in order of the title or of any parameter. The button beside it reverses the order and
-says which way it runs, **Ascending ↑** or **Descending ↓**.
+**Sort** and **Group** each have a row of their own beneath the filters, captioned at the left with the control at
+the right, as the filters are. **Sort** puts the list in order of the title or of any parameter. The button beside
+its box reverses the order and says which way it runs, **Ascending ↑** or **Descending ↓**.
 Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
 comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
 When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows
@@ -133,7 +134,7 @@ The rate is half a degree for each point of pointer travel measured on the figur
 ## Restoring views
 
 - **Double-clicking** an axes discards the changes made to the x, y and z limits and to the three-dimensional view of that axes, so that it shows the view the figure was opened with. Axes linked with it follow the restored limits.
-- **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure shown, unless a text field has keyboard focus or a modifier key is held.
+- **Reset**, in the toolbar beside **Undo** and **Redo**, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure shown, unless a text field has keyboard focus or a modifier key is held.
 
 Neither action changes the visibility of plots, so plots hidden from the legend stay hidden, and neither changes a property edited in the property editor. Both can be undone. To discard every change instead, use [Revert all changes](#taking-changes-back) at the foot of the property editor.
 
@@ -141,7 +142,7 @@ A two-dimensional axes whose limits were automatic receives fixed limits as soon
 
 ## Undo and redo
 
-Every gesture is one step of the history: a drag from press to release, one notch of the wheel, one click on a legend entry, a double-click and Reset view each count as one. A change made in the [property editor](#the-property-editor) is a step in the same way: a drag of a numeric field, a visit to a text field, a choice from a combo box and a revert each count as one.
+Every gesture is one step of the history: a drag from press to release, one notch of the wheel, one click on a legend entry, a double-click and Reset each count as one. A change made in the [property editor](#the-property-editor) is a step in the same way: a drag of a numeric field, a visit to a text field, a choice from a combo box and a revert each count as one.
 
 - **Undo**, in the toolbar or **⌘Z** (**Ctrl+Z** away from macOS), restores the figure to what it was before the most recent gesture.
 - **Redo**, in the toolbar or **⌘⇧Z** (**Ctrl+Shift+Z**), applies the most recently undone gesture again.
@@ -204,7 +205,7 @@ A property you have changed is shown in bold and carries a **↺** control, whic
 
 **Revert all changes**, in the bottom-right corner of the panel, discards every change you have made to this figure — axis limits, three-dimensional views, hidden plots and every property edited — and shows the figure as the program that built it defined it. The control says how many changes it would discard and is disabled when there are none. It is a clean slate rather than a step of the history: **Undo** does nothing after it, because no change is left to take back. The figure the viewer was given is never touched, so what **Revert all changes** restores is exactly that figure.
 
-It is wider than **Reset view** in the toolbar, which discards only the limits and three-dimensional views, keeps hidden plots hidden and every property you have edited, and can itself be undone.
+It is wider than **Reset** in the toolbar, which discards only the limits and three-dimensional views, keeps hidden plots hidden and every property you have edited, and can itself be undone.
 
 ### Parameters
 
@@ -253,7 +254,7 @@ Links apply to limits only. The azimuth, elevation, magnification and position o
 
 **Save figure…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown, with its current limits, three-dimensional views and plot visibility. The format follows the extension of the name given: `.fig` writes the default Protocol Buffers format and `.json` (including `.fig.json`) writes JSON, as described in [saving and loading](getting-started.md#saving-and-loading). A name with any other extension is refused and no file is written.
 
-The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Reset view restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
+The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Reset restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
 
 ## Exporting to PDF
 

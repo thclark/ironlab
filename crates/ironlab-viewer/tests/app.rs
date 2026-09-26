@@ -82,7 +82,7 @@ fn panned_2d_state() -> FigureState {
     state
 }
 
-// Why: "Reset view" is the user's way back after getting lost; the button must be wired to the reset, not merely
+// Why: "Reset" is the user's way back after getting lost; the button must be wired to the reset, not merely
 // drawn.
 #[test]
 fn clicking_reset_view_after_a_pan_restores_the_limits() {
@@ -94,12 +94,31 @@ fn clicking_reset_view_after_a_pan_restores_the_limits() {
     );
     let mut harness = toolbar_harness(state, vec![]);
 
-    harness.get_by_label("Reset view").click();
+    harness.get_by_label("Reset").click();
     harness.run();
 
     let figure = &harness.state().figure;
     assert_eq!(manual_of(figure.figure(), 2, Dimension::X), (0.0, 10.0));
     assert_eq!(manual_of(figure.figure(), 2, Dimension::Y), (0.0, 5.0));
+}
+
+// Why: Reset, Undo and Redo are the three controls that move through the history of the figure, so they belong
+// together, in that they are found in one place and read as one group; Reset among the export controls at the far
+// side of the toolbar reads as something done to the file.
+#[test]
+fn reset_stands_beside_undo_and_redo() {
+    let harness = toolbar_harness(panned_2d_state(), vec![]);
+    let undo = harness.get_by_label("Undo").rect();
+    let redo = harness.get_by_label("Redo").rect();
+    let reset = harness.get_by_label("Reset").rect();
+    assert!(
+        undo.right() <= redo.left() && redo.right() <= reset.left(),
+        "Undo, Redo and Reset come in that order: {undo:?}, {redo:?}, {reset:?}"
+    );
+    assert!(
+        reset.left() - redo.right() < 12.0,
+        "and Reset is next to Redo, not across the toolbar from it: {redo:?} then {reset:?}"
+    );
 }
 
 // Why: rotating a 2D axes is meaningless; the Rotate tool must be unavailable rather than silently doing nothing, and
@@ -402,7 +421,7 @@ fn the_app_shows_one_figure_at_a_time_with_that_figures_toolbar() {
     );
 }
 
-// Why: R is the documented keyboard shortcut for Reset view; it must act on the active figure.
+// Why: R is the documented keyboard shortcut for Reset; it must act on the active figure.
 #[test]
 fn pressing_r_resets_the_view_of_the_active_figure() {
     let mut harness = app_harness(vec![(
