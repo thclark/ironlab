@@ -172,7 +172,7 @@ fn pixel_outline(
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ToolbarResponse {
-    /// Whether the toolbar changed the displayed figure (for example through "Reset" or "Undo").
+    /// Whether the toolbar changed the displayed figure (for example through "Refit" or "Undo").
     pub changed: bool,
     /// Whether "Export PDF…" was clicked; the caller shows the save dialog and writes the file.
     pub export_requested: bool,
@@ -184,7 +184,7 @@ pub struct ToolbarResponse {
 ///
 /// The toolbar has selectable buttons labelled "Pan", "Zoom" and "Rotate" that set [`FigureState::tool`] ("Rotate" is
 /// disabled when the figure has no 3D axes), "Undo" and "Redo" buttons that step through the overlay's history and
-/// are disabled when there is nothing to undo or redo, a "Reset" button that calls [`FigureState::reset_view`],
+/// are disabled when there is nothing to undo or redo, a "Refit" button that calls [`FigureState::reset_view`],
 /// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
 /// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
 /// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
@@ -204,7 +204,7 @@ pub fn toolbar(
     // The file controls are laid out from the right edge inwards, which draws them over the tools when the row has
     // no room for both groups. They are given a row of their own instead, decided from the width of their captions
     // rather than from where last frame put them, so that the toolbar never draws one control over another.
-    let history = buttons_width(ui, &["Pan", "Zoom", "Rotate", "Undo", "Redo", "Reset"], 1);
+    let history = buttons_width(ui, &["Pan", "Zoom", "Rotate", "Refit", "Undo", "Redo"], 1);
     let mut file_captions = vec!["Export PDF…", "Save figure…", "Properties"];
     if let Some(label) = &indicator {
         file_captions.push(label);
@@ -270,8 +270,8 @@ fn buttons_width(ui: &egui::Ui, captions: &[&str], separators: usize) -> f32 {
 /// The width egui gives a separator drawn across a row, in egui points.
 const SEPARATOR_WIDTH: f32 = 6.0;
 
-/// Draws the tools and the controls that move through the history of the figure: Pan, Zoom and Rotate, then Undo,
-/// Redo and Reset.
+/// Draws the tools and the controls that move through the history of the figure: Pan, Zoom, Rotate and Refit,
+/// then Undo and Redo.
 fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut ToolbarResponse) {
     let has_3d = state.has_3d();
     for (tool, label, hint, enabled) in [
@@ -305,6 +305,20 @@ fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut T
             state.tool = tool;
         }
     }
+    // Refit belongs with the tools: like them it acts on the view and nothing else, restoring the fit of every
+    // axes that a pan, a zoom or a rotation moved.
+    if Control::button("Refit")
+        .large()
+        .show(ui)
+        .on_hover_text(
+            "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
+             you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
+             use Revert all changes at the foot of the property editor.",
+        )
+        .clicked()
+    {
+        response.changed |= state.reset_view();
+    }
     ui.separator();
     if Control::button("Undo")
         .large()
@@ -323,18 +337,6 @@ fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut T
         .clicked()
     {
         response.changed |= state.redo();
-    }
-    if Control::button("Reset")
-        .large()
-        .show(ui)
-        .on_hover_text(
-            "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
-             you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
-             use Revert all changes at the foot of the property editor.",
-        )
-        .clicked()
-    {
-        response.changed |= state.reset_view();
     }
 }
 

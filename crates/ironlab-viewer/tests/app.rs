@@ -82,7 +82,7 @@ fn panned_2d_state() -> FigureState {
     state
 }
 
-// Why: "Reset" is the user's way back after getting lost; the button must be wired to the reset, not merely
+// Why: "Refit" is the user's way back after getting lost; the button must be wired to the reset, not merely
 // drawn.
 #[test]
 fn clicking_reset_view_after_a_pan_restores_the_limits() {
@@ -94,7 +94,7 @@ fn clicking_reset_view_after_a_pan_restores_the_limits() {
     );
     let mut harness = toolbar_harness(state, vec![]);
 
-    harness.get_by_label("Reset").click();
+    harness.get_by_label("Refit").click();
     harness.run();
 
     let figure = &harness.state().figure;
@@ -132,7 +132,7 @@ const TOOLBAR_BUTTONS: [&str; 9] = [
     "Rotate",
     "Undo",
     "Redo",
-    "Reset",
+    "Refit",
     "Export PDF…",
     "Save figure…",
     "Properties",
@@ -156,7 +156,7 @@ fn a_narrow_toolbar_puts_its_file_controls_on_a_second_row_rather_than_over_the_
             );
         }
     }
-    let reset = harness.get_by_label("Reset").rect();
+    let reset = harness.get_by_label("Refit").rect();
     let export = harness.get_by_label("Export PDF…").rect();
     assert!(
         export.top() >= reset.bottom(),
@@ -177,22 +177,21 @@ fn a_wide_toolbar_keeps_every_control_on_one_row() {
     );
 }
 
-// Why: Reset, Undo and Redo are the three controls that move through the history of the figure, so they belong
-// together, in that they are found in one place and read as one group; Reset among the export controls at the far
-// side of the toolbar reads as something done to the file.
+// Why: Refit acts on the view and nothing else, as the tools do, so it belongs with them: after Rotate, before the
+// controls that move through the history. Among Undo and Redo it read as a step of the history, which it is not.
 #[test]
-fn reset_stands_beside_undo_and_redo() {
+fn refit_follows_the_tools() {
     let harness = toolbar_harness(panned_2d_state(), vec![]);
+    let rotate = harness.get_by_label("Rotate").rect();
+    let refit = harness.get_by_label("Refit").rect();
     let undo = harness.get_by_label("Undo").rect();
-    let redo = harness.get_by_label("Redo").rect();
-    let reset = harness.get_by_label("Reset").rect();
     assert!(
-        undo.right() <= redo.left() && redo.right() <= reset.left(),
-        "Undo, Redo and Reset come in that order: {undo:?}, {redo:?}, {reset:?}"
+        rotate.right() <= refit.left() && refit.right() <= undo.left(),
+        "Rotate, Refit and Undo come in that order: {rotate:?}, {refit:?}, {undo:?}"
     );
     assert!(
-        reset.left() - redo.right() < 12.0,
-        "and Reset is next to Redo, not across the toolbar from it: {redo:?} then {reset:?}"
+        refit.left() - rotate.right() < 12.0,
+        "and Refit is next to Rotate, with the separator after it: {rotate:?} then {refit:?}"
     );
 }
 
@@ -496,7 +495,7 @@ fn the_app_shows_one_figure_at_a_time_with_that_figures_toolbar() {
     );
 }
 
-// Why: R is the documented keyboard shortcut for Reset; it must act on the active figure.
+// Why: R is the documented keyboard shortcut for Refit; it must act on the active figure.
 #[test]
 fn pressing_r_resets_the_view_of_the_active_figure() {
     let mut harness = app_harness(vec![(

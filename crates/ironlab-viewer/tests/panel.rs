@@ -1871,7 +1871,7 @@ fn state_with_three_changes() -> FigureState {
     state
 }
 
-// Why: the control discards changes of every kind, not only the view ones that Reset
+// Why: the control discards changes of every kind, not only the view ones that Refit
 // discards; a user who wants the figure back as its program defined it must get exactly
 // that, with the program's own figure untouched.
 #[test]
