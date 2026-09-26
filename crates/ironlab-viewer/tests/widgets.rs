@@ -50,13 +50,13 @@ fn a_property_row_offers_its_restore_control_only_while_the_property_is_changed(
     });
 
     assert!(
-        harness.query_by_label("restore visible").is_none(),
+        harness.query_by_label("Revert visible").is_none(),
         "an unchanged property offers nothing to take back"
     );
 
     harness.state_mut().changed = true;
     harness.run();
-    harness.get_by_label("restore visible").click();
+    harness.get_by_label("Revert visible").click();
     harness.run();
     assert!(
         harness.state().restored,

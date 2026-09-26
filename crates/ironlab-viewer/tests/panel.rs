@@ -1544,6 +1544,7 @@ fn a_data_reference_carries_the_same_kind_of_reason_as_every_other_read_only_row
 // ---------------------------------------------------------------------------------
 
 /// One run of text the panel paints.
+#[derive(Clone, Debug)]
 struct Painted {
     /// The characters painted.
     text: String,
@@ -2258,48 +2259,60 @@ fn every_property_name_of_one_depth_begins_at_the_same_left_edge() {
 }
 
 // Why: the headings gather thirty-odd properties into the values they belong to, which is
-// the only structure the inspector has. A heading drawn smaller than the properties under
-// it is the hardest text in the panel to read and the least like a heading, and a heading
-// indented as though it were itself a property hides which rows belong to it. It must
-// therefore be read at the body size and sit at the left edge of the rows, with the
-// properties it gathers indented beneath it.
+// the only structure the inspector has. A heading is a band across the inspector, as the
+// heading of a group in the browser's list is, so it must read as the same kind of thing
+// as the inspector's own heading — the same size, in the same spaced capitals — and it
+// must sit at the left edge of the rows, where a property that belongs to no group is
+// drawn, with the properties it gathers indented beneath it, or the reader cannot see
+// which rows belong to it.
 #[test]
-fn a_group_heading_is_read_at_the_body_size_at_the_left_edge_of_the_rows() {
-    let mut harness = panel_harness(figure_with_artists(), Some(SOLID));
-    harness.run();
-
-    let heading = name_rect(&harness, "x");
-    let title = name_rect(&harness, "title");
-    let inspector = harness.get_by_label_contains("node 3").rect();
-    let inside = labelled_rects(&harness, "scale")[0];
+fn a_group_heading_is_a_band_at_the_left_edge_of_the_rows_read_as_the_inspector_heading_is() {
+    let painted = painted_text(figure_with_artists(), SOLID);
+    let run = |words: &str| {
+        painted
+            .iter()
+            .filter(|run| run.text == words)
+            .min_by(|a, b| a.rect.min.x.total_cmp(&b.rect.min.x))
+            .unwrap_or_else(|| panic!("the inspector paints {words:?}"))
+            .clone()
+    };
+    // The cell of the axes is spelled in capitals, as every heading is; the colormap
+    // belongs to no group, and the column of the cell is gathered under the cell.
+    let heading = run("CELL");
+    let title = run("colormap");
+    let inside = run("col");
+    let inspector = run("AXES");
 
     assert!(
-        (heading.min.x - title.min.x).abs() < 0.5,
+        (heading.rect.min.x - title.rect.min.x).abs() < 0.5,
         "a heading begins where a property that belongs to no group begins: the heading \
-         is {heading:?} and the property is {title:?}"
+         is {:?} and the property is {:?}",
+        heading.rect,
+        title.rect
     );
     assert!(
-        inside.min.x > heading.min.x + 8.0,
-        "a property gathered under a heading is indented below it: {inside:?} under \
-         {heading:?}"
+        inside.rect.min.x > heading.rect.min.x + 8.0,
+        "a property gathered under a heading is indented below it: {:?} under {:?}",
+        inside.rect,
+        heading.rect
     );
     assert!(
-        (heading.height() - inspector.height()).abs() < 0.5,
-        "a heading is drawn at the size of the body text, as the heading of the \
-         inspector is: {} points against {} points",
-        heading.height(),
-        inspector.height()
+        (heading.rect.height() - inspector.rect.height()).abs() < 0.5,
+        "a group heading is set as the heading of the inspector is: {} points against {} \
+         points",
+        heading.rect.height(),
+        inspector.rect.height()
     );
 }
 
 // Why: the controls are compared with one another down the panel — which axis is
 // logarithmic, which plot is hidden — and a column of controls that begins at a different
-// place on every row cannot be compared at a glance. Every control therefore ends at one
-// right edge, whatever it is; a checkbox that carried its own label would sit at the left
-// of its row instead, breaking that column exactly where a property is easiest to change
-// by mistake.
+// place on every row cannot be compared at a glance. Every control therefore begins at
+// one left edge, beside the column of names, whatever it is; a checkbox that carried its
+// own label would sit at the left of its row instead, breaking that column exactly where
+// a property is easiest to change by mistake.
 #[test]
-fn every_control_of_a_node_ends_at_one_right_edge_including_a_checkbox() {
+fn every_control_of_a_node_begins_at_one_left_edge_including_a_checkbox() {
     let mut harness = panel_harness(figure_with_artists(), Some(LINE));
     harness.run();
 
@@ -2312,13 +2325,20 @@ fn every_control_of_a_node_ends_at_one_right_edge_including_a_checkbox() {
         !numbers.is_empty(),
         "the line has numeric properties to line the checkbox up with"
     );
+    let left = numbers[0].min.x;
     for rect in &numbers {
         assert!(
-            (rect.max.x - control.max.x).abs() < 1.0,
-            "the checkbox ends where the numeric controls end: the checkbox is \
-             {control:?} and the number is {rect:?}"
+            (rect.min.x - left).abs() < 0.5,
+            "every number begins at one left edge: {numbers:?}"
         );
     }
+    // A number is typed inside the padding of its field, so the words of a number begin
+    // a little inside the edge the checkbox stands on.
+    assert!(
+        left >= control.min.x && left - control.min.x < 10.0,
+        "the checkbox begins where the numeric controls begin: the checkbox is \
+         {control:?} and the numbers begin at {left}"
+    );
     assert!(
         control.min.x > name_rect(&harness, "visible").max.x,
         "the checkbox is drawn in the control column, to the right of its name"
@@ -2373,8 +2393,10 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
 
     let wide_name = name_rect(&wide, "visible");
     let narrow_name = name_rect(&narrow, "visible");
-    let wide_control = checkbox(&wide, "visible").rect();
-    let narrow_control = checkbox(&narrow, "visible").rect();
+    // A combo box fills the column of controls, so its width is the column's.
+    let wide_control = widget_showing(&wide, egui::accesskit::Role::ComboBox, "Automatic").rect();
+    let narrow_control =
+        widget_showing(&narrow, egui::accesskit::Role::ComboBox, "Automatic").rect();
 
     assert!(
         (narrow_name.width() - wide_name.width()).abs() < 0.5,
@@ -2382,10 +2404,10 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
          {wide_name:?}"
     );
     assert!(
-        narrow_control.max.x - narrow_name.max.x < wide_control.max.x - wide_name.max.x,
+        narrow_control.width() < wide_control.width(),
         "the control column is what gives way: {} points against {} points",
-        narrow_control.max.x - narrow_name.max.x,
-        wide_control.max.x - wide_name.max.x
+        narrow_control.width(),
+        wide_control.width()
     );
 }
 

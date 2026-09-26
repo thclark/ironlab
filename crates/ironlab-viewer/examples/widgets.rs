@@ -555,20 +555,22 @@ impl Gallery {
         }
         const INTERPRETERS: [&str; 2] = ["plain", "LaTeX"];
         Property::new("title")
-            .docs("The title above the axes, and how its source is read.")
+            .docs("The title above the axes.")
             .striped(striped())
             .show(ui, |ui| {
-                let combo_width = 72.0;
-                let field_width = ui.available_width() - combo_width - Spacing::GAP;
-                ui.scope(|ui| {
-                    ui.set_max_width(field_width);
-                    field(ui, &mut editor.title, "empty", egui::Id::new("g_title"));
-                });
+                field(ui, &mut editor.title, "empty", egui::Id::new("g_title"));
+            });
+        Property::new("interpreter")
+            .depth(1)
+            .docs("How the source of the title is read.")
+            .striped(striped())
+            .show(ui, |ui| {
+                let width = ui.available_width();
                 combo(
                     ui,
                     "g_interpreter",
                     INTERPRETERS[editor.interpreter],
-                    combo_width,
+                    width,
                     |ui| {
                         for (index, name) in INTERPRETERS.iter().enumerate() {
                             if choice(ui, name, editor.interpreter == index, None).clicked() {

@@ -269,29 +269,6 @@ fn the_fonts_have_every_character_the_interface_draws() {
     });
 }
 
-// Why: the list is what the code draws from and what the fonts are checked against, so a character used in the
-// interface but left out of it would never be checked. Every mark the interface draws is named in `MARKS`, so the
-// two lists can be held together by construction rather than by someone remembering to add to both.
-#[test]
-fn every_mark_the_interface_draws_is_one_of_the_listed_characters() {
-    assert!(
-        style::MARKS.contains(&style::RESTORE),
-        "the revert control is a mark, and must be named among them"
-    );
-    for mark in style::MARKS {
-        let characters: Vec<char> = mark.chars().collect();
-        assert_eq!(
-            characters.len(),
-            1,
-            "the mark {mark:?} is more than one character, so it is a word and does not belong here"
-        );
-        assert!(
-            style::INTERFACE_CHARACTERS.contains(&characters[0]),
-            "the mark {mark:?} is not in the list the fonts are checked against"
-        );
-    }
-}
-
 // Why: a problem is the one line of the interface that must be read before anything else on the panel, so it is
 // drawn in a colour of its own; but a colour chosen for warmth rather than for contrast would be the least legible
 // text on the panel exactly where legibility matters most. egui's own error colour is pure red, which clears the

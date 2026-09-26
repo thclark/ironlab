@@ -659,11 +659,22 @@ impl<'a> Control<'a> {
         let label = self.label();
         let (enabled, selected) = (self.enabled, self.selected);
         let kind = self.kind;
-        response.widget_info(|| egui::WidgetInfo::selected(kind, enabled, selected, label.clone()));
+        let shown = (kind == egui::WidgetType::ComboBox).then(|| self.words.words.to_owned());
+        response.widget_info(|| egui::WidgetInfo {
+            current_text_value: shown.clone(),
+            ..egui::WidgetInfo::selected(kind, enabled, selected, label.clone())
+        });
         if ui.is_rect_visible(rect) {
             self.paint(ui, &response, rect, words, datum);
         }
         response
+    }
+
+    /// The height of a regular control carrying an icon, which is the height of every control on a row of them.
+    #[must_use]
+    pub fn height(ui: &Ui) -> f32 {
+        let words = ui.fonts_mut(|fonts| fonts.row_height(&Role::Control.font()));
+        (words.max(Icon::SLOT) + 2.0 * Spacing::CONTROL_PADDING.y).max(Spacing::CONTROL_HEIGHT)
     }
 
     /// The one frame rule: the fill and outline of the state, on the rectangle exactly, and everything on it in
@@ -880,6 +891,9 @@ pub struct Row<'a> {
     pub state: RowState,
     /// How many levels of nesting the row stands in from the edge, each one [`Spacing::INDENT`].
     pub depth: usize,
+    /// Whether the row is read and not clicked: the heading of a group of properties, which gathers the rows
+    /// beneath it and does nothing itself.
+    pub passive: bool,
     /// What the row is called in the accessibility tree when its title and detail do not say enough, such as a
     /// heading whose trailing count needs its unit.
     pub spoken: Option<String>,
@@ -895,8 +909,17 @@ impl<'a> Row<'a> {
             leading: Leading::None,
             state: RowState::default(),
             depth: 0,
+            passive: false,
             spoken: None,
         }
+    }
+
+    /// Makes the row one that is read and not clicked: a label in the accessibility tree, with no fill under the
+    /// pointer.
+    #[must_use]
+    pub fn passive(mut self) -> Self {
+        self.passive = true;
+        self
     }
 
     /// Sets the row in from the edge by `depth` levels of nesting.
@@ -938,7 +961,7 @@ impl<'a> Row<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, height: f32) -> Response {
-        let sense = if self.state.faded {
+        let sense = if self.state.faded || self.passive {
             Sense::hover()
         } else {
             Sense::click()
@@ -948,10 +971,16 @@ impl<'a> Row<'a> {
         let label = self.label();
         let (enabled, selected) = (!self.state.faded, self.state.selected);
         let kind = match self.leading {
+            _ if self.passive => egui::WidgetType::Label,
             Leading::Check { .. } => egui::WidgetType::Checkbox,
             _ => egui::WidgetType::SelectableLabel,
         };
-        response.widget_info(|| egui::WidgetInfo::selected(kind, enabled, selected, label.clone()));
+        if self.passive {
+            response.widget_info(|| egui::WidgetInfo::labeled(kind, enabled, label.clone()));
+        } else {
+            response
+                .widget_info(|| egui::WidgetInfo::selected(kind, enabled, selected, label.clone()));
+        }
         if ui.is_rect_visible(rect) {
             self.paint(ui, &response, rect);
         }
@@ -977,7 +1006,7 @@ impl<'a> Row<'a> {
         } else {
             1.0
         };
-        let hovered = response.hovered() && !self.state.faded;
+        let hovered = response.hovered() && !self.state.faded && !self.passive;
         let (fill, mut title_color, data_color) = if self.state.selected {
             (
                 visuals.selection.bg_fill,
@@ -1195,7 +1224,7 @@ impl<'a> Property<'a> {
     pub fn show<R>(self, ui: &mut Ui, control: impl FnOnce(&mut Ui) -> R) -> PropertyResponse<R> {
         let height = Self::height(ui);
         let width = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+        let (rect, allocated) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
         let visible = ui.is_rect_visible(rect);
         if visible && self.striped {
             ui.painter()
@@ -1224,13 +1253,17 @@ impl<'a> Property<'a> {
         );
 
         // The name: set in by its depth, cut short to what is left of its column, and a label in the accessibility
-        // tree so that it can be found and hovered.
+        // tree so that it can be found and hovered. It takes its identity from the row's place in the panel rather
+        // than from its words, because three axes each have a scale.
         #[allow(clippy::cast_precision_loss)]
         let indent =
             (self.depth as f32 * Spacing::INDENT).min(Spacing::NAME_COLUMN - Spacing::NAME_MIN);
         let name = ui.interact(
-            name_rect,
-            ui.id().with(("property", self.name, self.depth)),
+            Rect::from_min_max(
+                egui::pos2(name_rect.min.x + indent, name_rect.min.y),
+                name_rect.max,
+            ),
+            allocated.id.with("name"),
             Sense::hover(),
         );
         let words = self.name.to_owned();
@@ -1279,7 +1312,7 @@ impl<'a> Property<'a> {
                     |ui| {
                         Control::new(text(Role::Control, ""), Face::Quiet)
                             .before(Icon::Restore)
-                            .spoken(format!("restore {}", self.name))
+                            .spoken(format!("Revert {}", self.name))
                             .show(ui)
                             .clicked()
                     },

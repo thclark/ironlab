@@ -7,9 +7,10 @@
 //! shown read-only.
 //!
 //! It also holds every colour and size the interface is drawn in beyond egui's own: the face of a button, the
-//! stripe of a list, the fills of the browser's menu and foot, the surround of the canvas, and the sizes of the
-//! small text that sits beside ordinary text. They are the values of the design that was approved for the figure
-//! browser, named here so that the panel, the toolbar and the strip of details are drawn from one set.
+//! stripe of a list, the fills of the browser's menu and the panel's foot, the surround of the canvas, the colour
+//! of a problem, and the sizes of the small text that sits beside ordinary text. They are the values of the design
+//! that was approved for the figure browser, named here so that the browser, the property editor, the toolbar and
+//! the strip of details are drawn from one set.
 //!
 //! This module raises every text style by 1.5 pt and lifts the text colours until ordinary text clears the WCAG 2.1
 //! ratio of 4.5:1 against the panel and secondary text clears 3:1, including after egui has dimmed it for a disabled
@@ -136,20 +137,6 @@ pub const BRIGHT: Color32 = Color32::from_gray(236);
 /// disabled control still reads as unmistakably disabled.
 pub const DISABLED_ALPHA: f32 = 0.7;
 
-/// The mark on the column of the property editor that takes back a change to one property.
-///
-/// The control is a column of its own, narrower than any word, so that one place in the interface is named by
-/// the mark alone. Everywhere else a mark is painted by [`crate::widgets::Icon`] and comes from no font; this one
-/// remains a character, listed in [`INTERFACE_CHARACTERS`] and checked against the fonts, until the property
-/// editor is drawn from the widgets too.
-pub const RESTORE: &str = "↺";
-
-/// Every mark the interface draws beside or in place of words, which [`INTERFACE_CHARACTERS`] must hold.
-///
-/// It exists so that the check is by construction: a mark named here and left out of the list fails a test rather
-/// than waiting to be noticed as an empty box on screen.
-pub const MARKS: &[&str] = &[RESTORE];
-
 /// Every character outside ASCII that the viewer's interface draws.
 ///
 /// egui loads four fonts, and between them they cover far less than Unicode: a character they do not have is drawn
@@ -157,21 +144,17 @@ pub const MARKS: &[&str] = &[RESTORE];
 /// draws only characters that are known to be covered, and this is the list of them, shared by the code that draws
 /// them and by the test that checks the fonts have them.
 ///
-/// The list is short on purpose, and a mark earns its place in one of two ways.
-///
-/// It may say something a word cannot say in the room available: the restore control of the property editor, which
-/// is a column narrower than any word, the arithmetic of an array's shape, and the punctuation of ordinary prose.
-/// Every other mark the interface draws is painted as a shape by [`crate::widgets::Icon`] and is no character at
-/// all.
+/// The list is short on purpose. A character earns its place by saying something a word cannot say in the room
+/// available: the arithmetic of an array's shape, and the punctuation of ordinary prose. Every mark the interface
+/// draws beside words is painted as a shape by [`crate::widgets::Icon`] and is no character at all.
 ///
 /// What a mark may not do is carry alone a meaning that has no words at all. That is what the padlock on a
 /// read-only row and the warning sign on the problems indicator once did, and both are written as words now, as
 /// are the Command and Shift keys of a shortcut.
 pub const INTERFACE_CHARACTERS: &[char] = &[
-    '—', // em dash, which separates the halves of a heading and the clauses of a sentence
-    '…', // ellipsis, which ends the caption of a button that opens a dialogue
+    '—', // em dash, which separates the clauses of a sentence
+    '…', // ellipsis, which ends the caption of a button that opens a dialogue, and cuts short a run of text
     '×', // the multiplication sign that joins the lengths of an array's shape
-    '↺', // the mark of a control that puts things back, `RESTORE`
     '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
 ];
 
@@ -222,8 +205,8 @@ pub fn text_styles() -> BTreeMap<TextStyle, FontId> {
 /// Gives `ui` the spacing of the widgets: controls in their padding, set a gap apart on a row, and nothing between
 /// one block and the next, because each block carries its own padding.
 ///
-/// It is applied to the toolbar and to the figure browser, which are drawn from the same set of measurements and
-/// must agree with each other; the property editor keeps egui's own spacing.
+/// It is applied to the toolbar, the figure browser and the property editor, which are drawn from the same set of
+/// measurements and must agree with each other.
 pub fn compact(ui: &mut egui::Ui) {
     use crate::widgets::{Role, Spacing};
     let style = ui.style_mut();
