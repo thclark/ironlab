@@ -31,6 +31,10 @@ krilla = { version = "0.8.2", default-features = false }
 lyon = "1.0.19"
 egui = "0.36.2"
 eframe = "0.36.2"
+# egui's own maths and colour crates, which the viewer's engine modules take in place of egui so that a host without egui
+# can link them; they move in step with egui.
+emath = "0.36.2"
+ecolor = "0.36.2"
 egui_kittest = "0.36.2"
 # The version egui-wgpu 0.36.2 builds against, with the features it enables, so that feature unification adds nothing.
 wgpu = { version = "30.0.1", features = ["webgl", "fragile-send-sync-non-atomic-wasm"] }

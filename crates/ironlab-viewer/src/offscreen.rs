@@ -16,7 +16,7 @@
 //! # Pipeline
 //!
 //! 1. A wgpu instance is created from [`instance_descriptor`], which mirrors
-//!    `egui_wgpu::WgpuSetupCreateNew::without_display_handle`, an adapter is requested by [`request_adapter`] with
+//!    `WgpuSetupCreateNew::without_display_handle` of eframe's wgpu integration, an adapter is requested by [`request_adapter`] with
 //!    no compatible surface, and a device and queue are requested from it by [`request_device`]. The backends
 //!    honour the `WGPU_BACKEND` environment variable, as `without_display_handle` does, and there is no fallback to
 //!    other backends when it is set. Failure to find an adapter is reported as [`RenderError::NoAdapter`], never as
@@ -296,7 +296,7 @@ impl OffscreenRenderer {
             1.0,
             ScreenTransform {
                 scale,
-                origin: egui::Pos2::ZERO,
+                origin: emath::Pos2::ZERO,
             },
         );
         self.render_list_async(&list, &viewport, background).await
@@ -544,7 +544,7 @@ pub fn figure_pass(
 }
 
 /// The instance descriptor every IronLAB device is created from, mirroring
-/// `egui_wgpu::WgpuSetupCreateNew::without_display_handle` so that a headless device and the viewer's window are
+/// `WgpuSetupCreateNew::without_display_handle` of eframe's wgpu integration so that a headless device and the viewer's window are
 /// created alike: the backends named by `WGPU_BACKEND` or else the primary backends and GL, the instance flags of
 /// the build configuration overridden by the environment, and the backend options of the environment.
 #[must_use]
@@ -560,7 +560,7 @@ pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
 }
 
 /// The power preference an adapter is requested with: the one named by `WGPU_POWER_PREF`, or else high performance,
-/// as `egui_wgpu::WgpuSetupCreateNew::without_display_handle` chooses.
+/// as `WgpuSetupCreateNew::without_display_handle` of eframe's wgpu integration chooses.
 #[must_use]
 pub fn power_preference() -> wgpu::PowerPreference {
     wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance)

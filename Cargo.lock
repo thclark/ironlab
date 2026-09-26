@@ -1880,10 +1880,12 @@ name = "ironlab-viewer"
 version = "0.9.1"
 dependencies = [
  "bytemuck",
+ "ecolor",
  "eframe",
  "egui",
  "egui-wgpu",
  "egui_kittest",
+ "emath",
  "image",
  "ironlab-ir",
  "ironlab-pdf",
