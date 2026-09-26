@@ -438,13 +438,22 @@ fn property_row(
         .striped(stripe.next())
         .docs(row.docs);
     if matches!(row.editor, Editor::Parameters) {
-        // The parameters are edited in a table of their own below the row that names
-        // them, which is too wide for the column of controls. The row itself keeps the
-        // columns of every other row, so that the control that takes the parameters back
-        // stands where every other revert control stands.
-        let response = property.show(ui, |_| ());
+        // The parameters are edited in a table of their own beneath the row that names
+        // them, which is too wide for the column of controls. The row gathers the table
+        // as a group gathers its rows: it opens and closes from its name, and the table is
+        // indented beneath it. The row itself keeps the columns of every other row, so
+        // that the control that takes the parameters back stands where every other revert
+        // control stands.
+        let id = ui.make_persistent_id(("ironlab_group", node.0, &name));
+        let open = ui.ctx().data_mut(|data| *data.get_temp_mut_or(id, true));
+        let response = property.disclosure(open).show(ui, |_| ());
+        if response.name.clicked() {
+            ui.ctx().data_mut(|data| data.insert_temp(id, !open));
+        }
         let mut changed = response.restore && state.revert(node, &row.path);
-        changed |= parameters_editor(ui, panel, state);
+        if open {
+            changed |= parameters_editor(ui, panel, state);
+        }
         return changed;
     }
     let response = property.show(ui, |ui| {
@@ -920,80 +929,96 @@ fn parameters_editor(
 
     let mut remove = None;
     let mut active: Option<egui::Id> = None;
-    crate::widgets::block(ui, |ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, Spacing::GAP);
-        for (index, row) in draft.rows_mut().iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                let shared = (ui.available_width()
-                    - PARAMETER_KIND_WIDTH
-                    - Spacing::restore_column()
-                    - 3.0 * Spacing::GAP)
-                    / 2.0;
-                let name = ui
-                    .scope(|ui| {
+    // The table stands where the rows a group gathers stand: one indent in from the
+    // names, with the guide line of a gathered row down its left.
+    #[allow(clippy::cast_possible_truncation)]
+    let table = egui::Frame::new()
+        .inner_margin(egui::Margin {
+            left: (Spacing::INSET + 2.0 * Spacing::INDENT) as i8,
+            right: Spacing::INSET as i8,
+            top: Spacing::LINE_GAP as i8,
+            bottom: Spacing::BLOCK_Y as i8,
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, Spacing::GAP);
+            for (index, row) in draft.rows_mut().iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    let shared = (ui.available_width()
+                        - PARAMETER_KIND_WIDTH
+                        - Spacing::restore_column()
+                        - 3.0 * Spacing::GAP)
+                        / 2.0;
+                    let name = ui
+                        .scope(|ui| {
+                            ui.set_max_width(shared);
+                            field(
+                                ui,
+                                &mut row.name,
+                                "name",
+                                egui::Id::new(("ironlab_parameter_name", index)),
+                            )
+                        })
+                        .inner;
+                    if name.has_focus() {
+                        active = Some(name.id);
+                    }
+                    combo(
+                        ui,
+                        ("ironlab_parameter_kind", index),
+                        row.kind.label(),
+                        PARAMETER_KIND_WIDTH,
+                        |ui| {
+                            for kind in ParameterKind::ALL {
+                                if choice(ui, kind.label(), row.kind == kind, None).clicked() {
+                                    row.kind = kind;
+                                }
+                            }
+                        },
+                    );
+                    ui.scope(|ui| {
                         ui.set_max_width(shared);
-                        field(
-                            ui,
-                            &mut row.name,
-                            "name",
-                            egui::Id::new(("ironlab_parameter_name", index)),
-                        )
-                    })
-                    .inner;
-                if name.has_focus() {
-                    active = Some(name.id);
-                }
-                combo(
-                    ui,
-                    ("ironlab_parameter_kind", index),
-                    row.kind.label(),
-                    PARAMETER_KIND_WIDTH,
-                    |ui| {
-                        for kind in ParameterKind::ALL {
-                            if choice(ui, kind.label(), row.kind == kind, None).clicked() {
-                                row.kind = kind;
+                        if row.kind == ParameterKind::Bool {
+                            checkbox(ui, &mut row.flag, &row.name);
+                        } else {
+                            let value = field(
+                                ui,
+                                &mut row.text,
+                                "value",
+                                egui::Id::new(("ironlab_parameter_value", index)),
+                            );
+                            if value.has_focus() {
+                                active = Some(value.id);
                             }
                         }
-                    },
-                );
-                ui.scope(|ui| {
-                    ui.set_max_width(shared);
-                    if row.kind == ParameterKind::Bool {
-                        checkbox(ui, &mut row.flag, &row.name);
-                    } else {
-                        let value = field(
-                            ui,
-                            &mut row.text,
-                            "value",
-                            egui::Id::new(("ironlab_parameter_value", index)),
-                        );
-                        if value.has_focus() {
-                            active = Some(value.id);
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let response = Control::new(text(Role::Control, ""), Face::Quiet)
+                            .before(Icon::Cross)
+                            .spoken(format!("Remove {}", row.name))
+                            .show(ui);
+                        if hint(response, "Remove this parameter.").clicked() {
+                            remove = Some(index);
                         }
-                    }
+                    });
                 });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let response = Control::new(text(Role::Control, ""), Face::Quiet)
-                        .before(Icon::Cross)
-                        .spoken(format!("Remove {}", row.name))
-                        .show(ui);
-                    if hint(response, "Remove this parameter.").clicked() {
-                        remove = Some(index);
-                    }
-                });
-            });
-        }
-        let add = Control::button("Add parameter")
-            .before(Icon::Plus)
-            .spoken("Add parameter")
-            .show(ui);
-        if hint(add, "Add a named value that describes the figure.").clicked() {
-            draft.add();
-        }
-        if let Some(words) = &panel.parameters_problem {
-            problem(ui, words);
-        }
-    });
+            }
+            let add = Control::button("Add parameter")
+                .before(Icon::Plus)
+                .spoken("Add parameter")
+                .show(ui);
+            if hint(add, "Add a named value that describes the figure.").clicked() {
+                draft.add();
+            }
+            if let Some(words) = &panel.parameters_problem {
+                problem(ui, words);
+            }
+        });
+    ui.painter().vline(
+        table.response.rect.min.x + Spacing::INSET + Spacing::INDENT / 2.0,
+        table.response.rect.y_range(),
+        egui::Stroke::new(1.0, crate::style::STROKE),
+    );
     if let Some(index) = remove {
         draft.remove(index);
     }

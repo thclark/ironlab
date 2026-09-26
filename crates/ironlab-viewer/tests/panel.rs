@@ -2341,6 +2341,37 @@ fn a_group_is_closed_and_opened_again_from_its_heading() {
     );
 }
 
+// Why: the parameters are a table beneath the row that names them, and a table of many
+// entries is in the way of every property below it. The row therefore gathers the table
+// as a group gathers its rows, and closing it takes the table out of the panel.
+#[test]
+fn the_parameters_table_is_closed_and_opened_again_from_its_row() {
+    let mut harness = panel_harness(figure_with_artists(), Some(FIGURE));
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_some(),
+        "the parameters open with their table shown"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "parameters")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_none(),
+        "closing the parameters takes the table out of the panel"
+    );
+
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "parameters")
+        .click();
+    harness.run();
+    assert!(
+        harness.query_by_label("Add parameter").is_some(),
+        "opening them again brings the table back"
+    );
+}
+
 // Why: the controls are compared with one another down the panel — which axis is
 // logarithmic, which plot is hidden — and a column of controls that begins at a different
 // place on every row cannot be compared at a glance. Every control therefore begins at

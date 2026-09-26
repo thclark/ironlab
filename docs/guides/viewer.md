@@ -210,7 +210,7 @@ It is wider than **Refit** in the toolbar, which discards only the limits and th
 
 ### Parameters
 
-The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table, in which an entry can be added, renamed, given another kind (boolean, integer, number or string), changed and removed. The whole table is committed together, so a change to it is one step of the history.
+The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table beneath the row that names them, which opens and closes the table as a value that holds other values does; in the table an entry can be added, renamed, given another kind (boolean, integer, number or string), changed and removed. The whole table is committed together, so a change to it is one step of the history.
 
 While the table cannot be committed — an entry has no name, two entries share a name, or a number has not been typed in full — the reason is shown below it and the figure keeps the parameters it had. Typing is never interrupted; the change reaches the figure as soon as the table makes sense again.
 
