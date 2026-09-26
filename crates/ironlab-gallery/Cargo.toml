@@ -20,6 +20,7 @@ path = "src/main.rs"
 ironlab.workspace = true
 ironlab-viewer.workspace = true
 ironlab-pdf.workspace = true
+ironlab-canvas.workspace = true
 ironlab-text.workspace = true
 image.workspace = true
 clap.workspace = true

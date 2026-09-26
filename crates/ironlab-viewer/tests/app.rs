@@ -7,12 +7,13 @@ use std::sync::Arc;
 use common::*;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use ironlab_canvas::interaction::{PixelDatatip, PixelValue};
+use ironlab_canvas::{FigureState, Origin, Problem, Tool, pixel_datatip_text};
 use ironlab_ir::{Dimension, NodeId};
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::HitMap;
-use ironlab_viewer::interaction::{PixelDatatip, PixelValue};
-use ironlab_viewer::{FigureState, Origin, Problem, Tool, ViewerApp, pixel_datatip_text, toolbar};
+use ironlab_viewer::{ViewerApp, toolbar};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 

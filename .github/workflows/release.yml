@@ -87,8 +87,9 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         # Cargo works out the order from the dependency graph and waits for each crate to reach the index before
-        # starting the next, so the six are published as ironlab-ir, ironlab-text, ironlab-scene, ironlab-pdf,
-        # ironlab-viewer and finally ironlab. `--locked` publishes the dependency versions recorded in Cargo.lock.
+        # starting the next, so the seven are published as ironlab-ir, ironlab-text, ironlab-scene, ironlab-pdf,
+        # ironlab-canvas, ironlab-viewer and finally ironlab. `--locked` publishes the dependency versions recorded in
+        # Cargo.lock.
         # `ironlab-gallery` sets `publish = false` and is skipped.
         #
         # If this fails part way through, do not simply re-run the job: `--workspace` refuses outright when any member

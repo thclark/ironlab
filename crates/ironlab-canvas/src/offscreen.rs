@@ -1,4 +1,4 @@
-//! Headless rendering of figures through the viewer's own pipelines.
+//! Headless rendering of figures through the canvas's own pipelines.
 //!
 //! [`render_offscreen`] compiles a figure, tessellates its display list with [`crate::canvas::tessellate`] for
 //! `dpi / 72` pixels per point, and draws the list with a [`GpuPainter`] into an offscreen texture. No window or
@@ -56,6 +56,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
 use ironlab_ir::Figure;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;

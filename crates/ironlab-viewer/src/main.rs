@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use ironlab_viewer::files::read_figure;
+use ironlab_canvas::files::read_figure;
 
 const USAGE: &str = "\
 usage: ironlab-viewer FIGURE.fig [FIGURE.fig ...]

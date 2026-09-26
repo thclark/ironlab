@@ -1,0 +1,43 @@
+[package]
+name = "ironlab-canvas"
+description = "The figure canvas of IronLAB: one draw list per figure, drawn by its own wgpu pipelines on screen, offscreen and into PDF rasters."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["plotting", "wgpu", "canvas", "figures", "ironlab"]
+categories = ["visualization", "rendering", "science"]
+
+[lints]
+workspace = true
+
+[dependencies]
+ironlab-ir.workspace = true
+ironlab-text.workspace = true
+ironlab-scene.workspace = true
+ironlab-pdf.workspace = true
+# wgpu is pinned in the workspace to the version egui-wgpu builds against, so that the egui host hands the device and
+# render pass of its window to these pipelines without a conversion; a drift between the two fails to compile in the
+# host's paint callback, which is the guard wanted.
+wgpu.workspace = true
+# The vertex layout of the pipelines is cast to bytes with bytemuck, as egui's is.
+bytemuck = { version = "1.25.2", features = ["derive"] }
+emath.workspace = true
+ecolor.workspace = true
+kurbo.workspace = true
+lyon.workspace = true
+# A JSON figure file that is not UTF-8 is reported as the IR's JSON error, built from the decoding failure through
+# serde's error trait.
+serde.workspace = true
+thiserror.workspace = true
+
+# The blocking wrappers over the awaited renderer drive it with pollster; a browser host awaits it instead.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "1.0.1"
+
+[dev-dependencies]
+image.workspace = true

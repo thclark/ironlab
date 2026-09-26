@@ -5,7 +5,8 @@
 //! 1. [`nesting_depth`] estimates how deeply the source nests. `latex-rust`
 //!    parses and lays out recursively, so source above [`MAX_NESTING`] is
 //!    rejected before it reaches the parser. The remaining stages run on a
-//!    helper thread with a large stack, independent of the caller's stack.
+//!    helper thread with a large stack, independent of the caller's stack,
+//!    except on WebAssembly, whose one thread the linker gives a large stack.
 //! 2. [`propagate_font_styles`] restates the style of each font group (such
 //!    as `\mathrm{…}`) on every letter inside it, and `latex_rust::parse`
 //!    builds the math AST.
@@ -33,11 +34,13 @@ use crate::{FontId, GlyphRun, PositionedGlyph, SegmentLayout, TextItem};
 /// [`typeset`] additionally runs `latex-rust` on a thread with a large stack.
 pub(crate) const MAX_NESTING: usize = 24;
 
-/// Stack size of the thread on which each math segment is typeset.
+/// Stack size of the thread on which each math segment is typeset natively.
 ///
 /// The memory is reserved address space that the operating system commits
 /// only as the stack grows, so a generous size costs little. Together with
 /// [`MAX_NESTING`] it keeps admitted math far from overflowing in any build.
+/// WebAssembly has no such thread; see [`on_typeset_stack`].
+#[cfg(not(target_arch = "wasm32"))]
 const TYPESET_STACK_BYTES: usize = 64 * 1024 * 1024;
 
 /// Hard bound on AST depth for [`rewrite`], which recurses. The nesting guard
@@ -82,17 +85,28 @@ pub(crate) fn typeset(
     // with a large stack, so that the stack consumed does not depend on how
     // deep the caller's own stack already is (for example inside a GUI
     // framework in an unoptimised build). Only the flat result crosses back.
+    on_typeset_stack(|| typeset_nested(inner, size_pt, font, params, faces))?
+}
+
+/// Runs `typeset` on a thread with [`TYPESET_STACK_BYTES`] of stack, so that
+/// the stack it uses does not depend on the caller's, and returns what it
+/// returned.
+///
+/// # Errors
+///
+/// Returns a description of the problem if the thread could not be started or
+/// `typeset` panicked on it.
+#[cfg(not(target_arch = "wasm32"))]
+fn on_typeset_stack<T: Send>(typeset: impl FnOnce() -> T + Send) -> Result<T, String> {
     let spawned = std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("ironlab-text-math".to_owned())
             .stack_size(TYPESET_STACK_BYTES)
-            .spawn_scoped(scope, || {
-                typeset_nested(inner, size_pt, font, params, faces)
-            })
+            .spawn_scoped(scope, typeset)
             .map(|handle| handle.join())
     });
     match spawned {
-        Ok(Ok(result)) => result,
+        Ok(Ok(result)) => Ok(result),
         // latex-rust reports unsupported input as errors; a panic would be a
         // bug in it, which must still not take the figure down with it.
         Ok(Err(_)) => Err(
@@ -104,6 +118,15 @@ pub(crate) fn typeset(
              ({error}), so it is shown as plain text."
         )),
     }
+}
+
+/// Runs `typeset` directly: WebAssembly has one thread, whose stack the linker
+/// sizes (the workspace's `.cargo/config.toml` asks for 8 MiB), and cannot
+/// spawn another. A panic cannot be caught there either, as unwinding is
+/// unsupported, so none is.
+#[cfg(target_arch = "wasm32")]
+fn on_typeset_stack<T: Send>(typeset: impl FnOnce() -> T + Send) -> Result<T, String> {
+    Ok(typeset())
 }
 
 /// Parses, rewrites, lays out and walks the math source `inner`.

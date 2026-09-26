@@ -24,8 +24,15 @@ use common::{
     figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required, image_sample, rasterise,
     rendered_or_skip, rgb_of, scale_then_translate, tools_available,
 };
-use egui_wgpu::wgpu;
 use image::RgbImage;
+use ironlab_canvas::offscreen::{
+    create_device, create_device_async, figure_pass, new_instance, request_adapter, request_device,
+};
+use ironlab_canvas::{
+    DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
+    RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
+    render_display_list_offscreen, render_offscreen,
+};
 use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
 use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
@@ -33,14 +40,6 @@ use ironlab_scene::display::{
     MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
-use ironlab_viewer::offscreen::{
-    create_device, create_device_async, figure_pass, new_instance, request_adapter, request_device,
-};
-use ironlab_viewer::{
-    DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
-    RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
-    render_display_list_offscreen, render_offscreen,
-};
 
 fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
     let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
@@ -3870,7 +3869,7 @@ const PAINTER_CONFIG: GpuConfig = GpuConfig {
 /// The mapping of figure points onto pixels one to one, from the top-left corner.
 const ONE_TO_ONE: ScreenTransform = ScreenTransform {
     scale: 1.0,
-    origin: egui::Pos2::ZERO,
+    origin: emath::Pos2::ZERO,
 };
 
 /// A viewport of a 100 by 100 pixel target at one pixel per point, drawn whole and mapped by `to_screen`.
@@ -4002,11 +4001,11 @@ fn a_changed_mapping_rewrites_the_mapping_uniform_and_nothing_else() {
 
     let scaled = ScreenTransform {
         scale: 2.0,
-        origin: egui::Pos2::ZERO,
+        origin: emath::Pos2::ZERO,
     };
     let moved = ScreenTransform {
         scale: 2.0,
-        origin: egui::pos2(3.5, -7.25),
+        origin: emath::pos2(3.5, -7.25),
     };
     for (what, target, writes) in [
         ("a different scale", viewport(scaled), 1),
@@ -4025,7 +4024,7 @@ fn a_changed_mapping_rewrites_the_mapping_uniform_and_nothing_else() {
         (
             "a different clip and nothing else",
             Viewport {
-                clip: egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(20.0, 20.0)),
+                clip: emath::Rect::from_min_size(emath::pos2(10.0, 10.0), emath::vec2(20.0, 20.0)),
                 ..Viewport::whole([200, 150], 2.0, moved)
             },
             0,
@@ -4299,10 +4298,10 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
     let list = quad_list(RED_PX, None);
     let at = |x: f32, y: f32| ScreenTransform {
         scale: 1.0,
-        origin: egui::pos2(x, y),
+        origin: emath::pos2(x, y),
     };
     let clipped_to = |x: f32, y: f32, width: f32, height: f32| Viewport {
-        clip: egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height)),
+        clip: emath::Rect::from_min_size(emath::pos2(x, y), emath::vec2(width, height)),
         ..viewport(ONE_TO_ONE)
     };
     // Half of the four samples of a pixel lie either side of an edge at its middle, so a half-covered pixel is
@@ -4462,7 +4461,7 @@ fn busy_page() -> DisplayList {
 fn half_pixel_viewport() -> Viewport {
     viewport(ScreenTransform {
         scale: 1.0,
-        origin: egui::pos2(0.5, 0.0),
+        origin: emath::pos2(0.5, 0.0),
     })
 }
 
