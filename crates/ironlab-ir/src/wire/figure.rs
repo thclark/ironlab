@@ -33,6 +33,10 @@ proto_file! {
         /// collections of figures, keyed by name and written in ascending order of the
         /// UTF-8 bytes of the name.
         map<string, message Parameter> parameters = 13;
+        /// Free words that describe the figure, used to filter and group collections of
+        /// figures, written in the order they were given. A label is never empty, and no
+        /// label occurs twice in one figure.
+        repeated string labels = 14;
     }
 
     /// The physical size of a figure.

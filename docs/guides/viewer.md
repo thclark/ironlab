@@ -1,10 +1,102 @@
 # Using the viewer
 
-The IronLAB viewer is a desktop window that shows figures as tabs and lets them be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer).
+The IronLAB viewer is a desktop window that shows one figure at a time and lets it be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side is how the others are reached: it narrows them down to the one to look at.
 
-Each tab has a toolbar above a canvas. The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the tab. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
+The figure has a toolbar above a canvas, and beneath the canvas a strip of [details](#details). The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the window. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
 
 Every interaction described on this page changes the figure by setting a property of it — an axis limit, a three-dimensional view or the visibility of a plot — exactly as setting that property from the Rust API would. The viewer keeps the figure as it was opened, called the source, and the changes made to it, called the overlay, apart: what the canvas draws, what **Export PDF…** writes and what **Save figure…** writes is the source with the overlay applied. Because each change is a value of its own, any of them can be undone, and a view is restored by discarding the changes made to it rather than by copying an earlier figure back. The reasons for this design are recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md).
+
+## The figure browser
+
+When the viewer opens more than one figure, a browser appears down the left-hand side. It narrows the open figures
+down to the one to look at, and clicking a figure in its list shows that figure; the row of the figure shown is
+marked in the selection colour, and every row shows the figure's labels beneath its title, or the value the list is
+ordered by. Dragging the browser's edge past its narrowest width shuts it, leaving a handle to drag it open again. A
+viewer holding a single figure has nothing to browse, and opens without it.
+
+The browser is built around the [labels and parameters](describing-figures.md) of a figure, which exist so that a collection of figures can be sorted,
+filtered and searched. It offers exactly what the figures carry and nothing else: the viewer works out no
+properties of its own, because the program that built the figures is the only thing that knows which of their
+properties matter. A collection whose figures carry no labels and no parameters can still be searched by title and
+listed, but there is nothing to filter it by until its author says what there should be.
+
+When no figure of a collection carries a label or a parameter, there is nothing to narrow it by, and the browser
+says so rather than offering an empty menu: it explains that descriptions are added where the figures are built,
+and links to [describing figures](describing-figures.md). The figures are still listed and can still be searched by
+title.
+
+An empty label, or one a figure carries twice, is shown once and reported in the problems list: neither is possible
+in a figure IronLAB wrote, but a file written by another program can carry either.
+
+### Searching
+
+The field at the top of the browser searches the titles, the labels and the parameters. Typing `surface` leaves the
+figures that mention it anywhere; the list narrows as each character is typed.
+
+A word can also ask about one parameter, which is how a search becomes precise:
+
+| Typed | Meaning |
+| --- | --- |
+| `surface` | the figure mentions "surface" anywhere |
+| `-stalled` | it does not mention "stalled" |
+| `rig:CFD` | its `rig` parameter contains "CFD", ignoring case |
+| `rig=CFD` | its `rig` parameter is exactly "CFD", ignoring case |
+| `angle>=8` | its `angle` parameter is 8 or more, and `>`, `<` and `<=` compare in the same way |
+| `label:piv` | one of its labels contains "piv" |
+
+Words are cumulative: every one of them must hold. A word only asks about a parameter when the collection has one
+of that name, so a colon in a title, a file path or a web address searches rather than asking about a parameter
+that does not exist. A figure that does not carry the parameter a word asks about is left out, so `solver:LES`
+finds the computed runs and leaves the measured ones out, which is what asking about a solver means. Underscores
+inside a typed number are separators, so `mesh_cells>=2_000_000` reads as it was written in the code that set it.
+
+### Filtering
+
+**Add**, at the right of the **Filters** caption, opens a menu within the panel beneath the caption, so that what
+is beneath it moves down and the menu stays open until it is shut. Its first page lists the parameters worth
+filtering on, the most useful first, each with how many values it takes and how much of the collection carries it;
+typing in the field above the list narrows it. Choosing a parameter turns the page to its values, each with the
+number of figures choosing it would leave. **Back to all parameters** turns back, **Done** shuts the menu, and
+the control that opened it, which reads **Close** while the menu is open, shuts it too. A parameter that takes the same value on every figure divides nothing and is
+not offered.
+
+Which parameters are worth offering is decided from the collection rather than declared in advance, because the
+parameters are the user's own. A parameter is offered in proportion to how much of the collection carries it and how
+evenly it divides what it covers, and a parameter with a different value on nearly every figure — a run number, a
+note — is treated as something to search for rather than something to filter by.
+
+Values within one parameter are alternatives and parameters are cumulative: choosing two rigs widens the result to
+the figures from either, while choosing a rig and a solver narrows it to the figures with both. The number beside a
+value is worked out as though that parameter were not filtered at all, so it always says what choosing the value
+would add, and choosing a second value never empties the list. A value that would leave nothing is still shown,
+greyed, rather than disappearing as the reader reaches for it. The first fourteen values are shown, and the rest are
+reached by asking for more. A parameter holding numbers is narrowed by the two ends of a range instead of by a list
+of values: two number fields beneath a histogram of the values, which shows in colour how much of the collection the
+range keeps. Widening the ends to the whole of the parameter removes the filter, because a range that keeps every
+figure narrows nothing.
+
+Each filter reads back as a chip beneath the menu, where chips can come and go without moving the menu, naming
+the parameter, what it was narrowed to, and a cross; a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all**, which
+appears beside **Add** while there is a filter and carries a restore mark, removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
+once.
+
+### Ordering and grouping
+
+**Sort** and **Group** each have a row of their own beneath the filters, captioned at the left with the control at
+the right, as the filters are. **Sort** puts the list in order of the title or of any parameter. The button beside
+its box reverses the order and says which way it runs, **Ascending** or **Descending**, with the triangle of a
+combo box beside the word pointing up or down to match.
+Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
+comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
+When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows
+the figure's labels.
+
+**Group** breaks the list into runs under a heading that names the value the figures share and counts them.
+Clicking a heading closes the group. Grouping by labels lists a figure under each of the labels it carries, because
+that is how browsing by labels is meant to read. The figures the grouping does not apply to are gathered last, under
+"not set" or "no labels".
+
+The foot of the panel says how much of the collection is left, such as "12 of 26 figures".
 
 ## Tools
 
@@ -43,7 +135,7 @@ The rate is half a degree for each point of pointer travel measured on the figur
 ## Restoring views
 
 - **Double-clicking** an axes discards the changes made to the x, y and z limits and to the three-dimensional view of that axes, so that it shows the view the figure was opened with. Axes linked with it follow the restored limits.
-- **Reset view**, in the toolbar, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure in the visible tab, unless a text field has keyboard focus or a modifier key is held.
+- **Refit**, in the toolbar after **Rotate**, discards the limit and three-dimensional view changes of every axes of the figure. Pressing **R** does the same for the figure shown, unless a text field has keyboard focus or a modifier key is held.
 
 Neither action changes the visibility of plots, so plots hidden from the legend stay hidden, and neither changes a property edited in the property editor. Both can be undone. To discard every change instead, use [Revert all changes](#taking-changes-back) at the foot of the property editor.
 
@@ -51,7 +143,7 @@ A two-dimensional axes whose limits were automatic receives fixed limits as soon
 
 ## Undo and redo
 
-Every gesture is one step of the history: a drag from press to release, one notch of the wheel, one click on a legend entry, a double-click and Reset view each count as one. A change made in the [property editor](#the-property-editor) is a step in the same way: a drag of a numeric field, a visit to a text field, a choice from a combo box and a revert each count as one.
+Every gesture is one step of the history: a drag from press to release, one notch of the wheel, one click on a legend entry, a double-click and Refit each count as one. A change made in the [property editor](#the-property-editor) is a step in the same way: a drag of a numeric field, a visit to a text field, a choice from a combo box and a revert each count as one.
 
 - **Undo**, in the toolbar or **⌘Z** (**Ctrl+Z** away from macOS), restores the figure to what it was before the most recent gesture.
 - **Redo**, in the toolbar or **⌘⇧Z** (**Ctrl+Shift+Z**), applies the most recently undone gesture again.
@@ -72,9 +164,17 @@ Very large series are thinned to what the plot can resolve before they are drawn
 
 Resting the pointer over an image (see [images](getting-started.md#images)) outlines the pixel under it and shows the name of the image, the row and column of the pixel in the array you supplied, the x and y coordinates of the pixel's centre, and what the array holds there. A colour-mapped image shows the value of the pixel; a colour-indexed image shows the index as stored, so a floating-point index is not truncated to the entry it takes; and a true-colour image shows the red, green, blue and alpha components in the units the array stores them, bytes from 0 to 255 or fractions from 0 to 1. The row and column are the indices you would use to find the pixel in your own array, whichever way its [pixel ranges](../reference/figure-schema.md#image-placement) run, and the coordinates are those of the pixel's centre from its placement rather than of the pointer, so every position within one pixel reads the same. A pixel is read whatever colour it was painted: one left transparent by an [out-of-range policy](../reference/figure-schema.md#out-of-range-policies), or one holding NaN, still reports what it holds. A point of a line or a scatter within reach of the pointer is read in preference to the pixel beneath it, because it is small and drawn over the image, so pointing at it means the point; moving the pointer out of reach of the point reads the pixel. A pixel smaller on screen than the ring drawn around a point is ringed at its centre instead of outlined, so the mark stays visible however fine the image. Images on the floor or a wall of a three-dimensional axes have no datatips for now, because the viewer cannot yet pick in three dimensions ([issue #1](https://github.com/thclark/ironlab/issues/1)).
 
+## Details
+
+Beneath the canvas, a strip says what the figure carries: its [labels](describing-figures.md) as a row of tags, then
+its parameters as a table in ascending order of name. It is the same information the property editor edits, shown
+where it can be read at a glance beside the figure it describes, because it is what the browser narrows a
+collection by and a reader choosing between figures wants to see it without opening an editor. A figure that
+carries nothing has no strip, and keeps the whole height for its canvas.
+
 ## The property editor
 
-**Properties**, in the toolbar, opens a panel on the right of the tab; it is closed when a figure is opened, so the canvas has the whole tab until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
+**Properties**, in the toolbar, opens a panel on the right of the figure; it is closed when a figure is opened, so the canvas has the whole width until the panel is asked for. The panel edits the figure you are looking at: select an object, change one of its properties, and the canvas redraws at once.
 
 The panel has three parts: the objects of the figure at the top, the properties of the selected object below, and the control that takes back every change at the foot. The foot is a strip of the same height whatever it says, and the object tree and the properties divide the rest of the panel: the boundary between them can be dragged, and the tree is held short of the point at which the properties would have no room, so that the properties of the selected object can always be reached. Both the tree and the properties scroll within the height they are given.
 
@@ -86,13 +186,13 @@ Clicking a row selects that object and shows its properties below. Clicking insi
 
 ### Changing a property
 
-The properties of the selected object are gathered under the value they belong to — the scale, limits and grid lines of the x axis appear together under "x" — and each row carries the control that suits what it holds: a checkbox, a number that is dragged or typed into, a text field with a choice of LaTeX or literal, a colour picker, or a combo box of the values the property can take. What each property means is described in the [figure schema](../reference/figure-schema.md), and hovering over the name of a property shows the same explanation.
+The properties of the selected object are gathered under the value they belong to — the scale, limits and grid lines of the x axis appear together under "x" — and each row carries the control that suits what it holds: a checkbox, a number that is dragged or typed into, a text field with a row beneath it that says whether the text is read as LaTeX or literally, a colour swatch that opens a picker, or a combo box of the values the property can take. What each property means is described in the [figure schema](../reference/figure-schema.md), and hovering over the name of a property shows the same explanation.
 
-A value that holds other values, such as the x axis or the style of a line, is a heading carrying its name alone, and the values it holds are the rows beneath it. The heading is never a value in itself, because everything it holds is already on screen below it.
+A value that holds other values, such as the x axis or the style of a line, is a row carrying its name alone, in the same text as every other name, with a triangle before it that opens and closes the values it holds, as a node of the object tree does; those values are indented beneath it with a fine line down their left. The row is never a value in itself, because everything it holds is already on screen below it.
 
 The properties are ordered alphabetically by the name you read, so that a property can be found by its name rather than by learning where the figure schema happens to list it. The headings and the properties that belong to no heading are ordered together as one list, because both are read at the left edge of the panel; the rows gathered under a heading are ordered among themselves. Letter case is ignored. The object tree above is not ordered this way: it stays in drawing order, which is what tells you which plot is drawn over which.
 
-Every row is laid out in the same three columns, so that the panel is read down them rather than along each row. The name of the property is at the left, indented by how deeply the property is nested, so that a heading and a property that belongs to no group share a left edge and the properties gathered under a heading are indented beneath it. The control is at the right of the column beside the names, so that the controls of an object line up with one another whatever they are. The control that takes back a change to one property occupies a column of its own at the far right, which is kept clear on every row, so that no control moves sideways when the property it changes becomes one the user has changed.
+Every row is laid out in the same three columns, so that the panel is read down them rather than along each row. The name of the property is at the left, indented by how deeply the property is nested, so that a heading and a property that belongs to no group share a left edge and the properties gathered under a heading are indented beneath it. The control begins at the left of the column beside the names, so that the controls of an object line up with one another whatever they are, and a field or a combo box fills the column. The control that takes back a change to one property occupies a column of its own at the far right, which is kept clear on every row, so that no control moves sideways when the property it changes becomes one the user has changed.
 
 A property that is absent, such as an axes with no title, is shown as "unset" with a control that gives it a value. The pixel ranges of an image are unset while its pixel centres lie at 0, 1, …; setting one gives it the range from 0 to 1, whose first and last centres are then typed in. A property that the figure does not use in the state the object is in is not shown until it applies: the bounds of manual limits appear once the limits are manual, the camera of an axes once the axes is three-dimensional, and the label, scale, limits and grid lines of the z axis once the axes is three-dimensional, because a two-dimensional axes ignores its z axis. None of this is an error, and each row returns as soon as the property applies again.
 
@@ -102,17 +202,29 @@ A change the figure cannot accept — limits that are not increasing, or a proje
 
 ### Taking changes back
 
-A property you have changed is shown in bold and carries a **↺** control, which takes back that one change and shows the figure's own value again. Reverting one property never disturbs another, and is itself a step of the history.
+A property you have changed is named in the colour that marks your own choices everywhere in the viewer, the blue of a filter chip, and carries a revert control at the right of its row, which takes back that one change and shows the figure's own value again. Reverting one property never disturbs another, and is itself a step of the history.
 
 **Revert all changes**, in the bottom-right corner of the panel, discards every change you have made to this figure — axis limits, three-dimensional views, hidden plots and every property edited — and shows the figure as the program that built it defined it. The control says how many changes it would discard and is disabled when there are none. It is a clean slate rather than a step of the history: **Undo** does nothing after it, because no change is left to take back. The figure the viewer was given is never touched, so what **Revert all changes** restores is exactly that figure.
 
-It is wider than **Reset view** in the toolbar, which discards only the limits and three-dimensional views, keeps hidden plots hidden and every property you have edited, and can itself be undone.
+It is wider than **Refit** in the toolbar, which discards only the limits and three-dimensional views, keeps hidden plots hidden and every property you have edited, and can itself be undone.
 
 ### Parameters
 
-The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table, in which an entry can be added, renamed, given another kind (yes or no, whole number, number or text), changed and removed. The whole table is committed together, so a change to it is one step of the history.
+The properties of the figure include its **parameters**: the named values that describe it, which are what make a collection of figures sortable and searchable (see [parameters](getting-started.md#parameters) and the [figure schema](../reference/figure-schema.md#parameters)). They are edited as a small table beneath the row that names them, which opens and closes the table as a value that holds other values does; in the table an entry can be added, renamed, given another kind (boolean, integer, number or string), changed and removed. The whole table is committed together, so a change to it is one step of the history.
 
 While the table cannot be committed — an entry has no name, two entries share a name, or a number has not been typed in full — the reason is shown below it and the figure keeps the parameters it had. Typing is never interrupted; the change reaches the figure as soon as the table makes sense again.
+
+### Labels
+
+The properties of the figure also include its **labels**: the free words that describe it, which are what the
+[figure browser](#the-figure-browser) filters and groups by (see [labels](getting-started.md#labels) and the
+[figure schema](../reference/figure-schema.md#labels)). They are edited as one text field holding them separated by
+commas, because they are short words and there are a handful of them. The spaces around a word are trimmed and an
+empty word is dropped, so a trailing comma while typing never makes a label of nothing.
+
+A label added twice is refused, and the reason appears in the problems list. The labels the browser reads off the
+figure itself are not shown here and cannot be edited, because they are not part of the figure: they are worked out
+from what it draws each time it is opened.
 
 ### What the editor does not change
 
@@ -143,7 +255,7 @@ Links apply to limits only. The azimuth, elevation, magnification and position o
 
 **Save figure…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown, with its current limits, three-dimensional views and plot visibility. The format follows the extension of the name given: `.fig` writes the default Protocol Buffers format and `.json` (including `.fig.json`) writes JSON, as described in [saving and loading](getting-started.md#saving-and-loading). A name with any other extension is refused and no file is written.
 
-The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Reset view restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
+The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Refit restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
 
 ## Exporting to PDF
 

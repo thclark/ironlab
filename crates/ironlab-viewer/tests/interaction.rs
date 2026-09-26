@@ -658,7 +658,7 @@ fn double_click_restores_the_view_of_a_3d_axes() {
     assert_eq!(view_of(state.figure(), 2), view_of(state.source(), 2));
 }
 
-// Why: Reset view undoes navigation, not content choices; a user who hid a series should not see it reappear because
+// Why: Refit undoes navigation, not content choices; a user who hid a series should not see it reappear because
 // they reset the zoom. The changed flag drives recompilation, so a no-op reset must report no change.
 #[test]
 fn reset_view_restores_limits_and_views_but_keeps_visibility() {
@@ -907,7 +907,7 @@ fn a_gesture_after_an_undo_clears_the_redo_history() {
     assert!(!state.redo());
 }
 
-// Why: Reset view and double-click throw away every view change at once, which is exactly the action a user is most
+// Why: Refit and double-click throw away every view change at once, which is exactly the action a user is most
 // likely to regret; each must be one undo step of its own.
 #[test]
 fn resetting_a_view_is_one_undo_step() {

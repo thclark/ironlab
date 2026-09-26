@@ -1,6 +1,6 @@
 //! Structural validation of figures.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artist::{
     Artist, Contour, ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange,
@@ -87,6 +87,13 @@ pub enum IssueKind {
     /// A figure parameter has an empty name, or is a number that is not finite (which
     /// JSON cannot represent).
     InvalidParameter,
+    /// A figure label is empty, or occurs more than once.
+    ///
+    /// An empty label describes nothing and cannot be chosen in the viewer, and a label
+    /// repeated is a label that says no more than it did the first time; both are
+    /// mistakes in the code that built the figure rather than choices it could have
+    /// meant, so both are errors.
+    InvalidLabel,
     /// The placement of an image cannot be drawn: a pixel centre or the offset of its
     /// plane is not finite, or the centres of the first and last pixels along an axis
     /// coincide although the image has more than one pixel along that axis.
@@ -113,7 +120,8 @@ impl Figure {
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), links to
     /// identifiers that are not axes, duplicate node identifiers, cells outside the tile
     /// layout, a non-positive figure size or font size, invalid manual limits, invalid
-    /// contour levels, parameters with an empty name or a non-finite number, an image
+    /// contour levels, parameters with an empty name or a non-finite number, labels that
+    /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
     /// last centres coincide along an axis of more than one pixel, and pixels of a
     /// colour-indexed or colour-mapped image that fall in a category whose out-of-range
@@ -188,8 +196,8 @@ impl Validator<'_> {
         });
     }
 
-    /// Checks the figure-level properties, the parameters, the data table, node
-    /// identifiers and links.
+    /// Checks the figure-level properties, the parameters, the labels, the data table,
+    /// node identifiers and links.
     fn check_figure(&mut self) {
         let figure = self.figure;
         let sizes = [
@@ -222,6 +230,28 @@ impl Validator<'_> {
                     Some(figure.id),
                     IssueKind::InvalidParameter,
                     format!("the parameter {name:?} is the number {value}, which is not finite"),
+                );
+            }
+        }
+
+        // Labels are compared exactly, so labels differing only in case are distinct and
+        // neither is a repeat of the other.
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        for (index, label) in figure.labels.iter().enumerate() {
+            if label.is_empty() {
+                // An empty label has no text to name it by, so it is named by where it
+                // is: a figure carrying twenty labels would otherwise report a fault the
+                // reader cannot find.
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidLabel,
+                    format!("the label in position {} is empty", index + 1),
+                );
+            } else if !seen.insert(label.as_str()) {
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidLabel,
+                    format!("the label {label:?} occurs more than once"),
                 );
             }
         }

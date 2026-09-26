@@ -6,6 +6,12 @@
 //! exactly where the property editor puts its explanations: group headings, tooltips, and the reason a value is
 //! shown read-only.
 //!
+//! It also holds every colour and size the interface is drawn in beyond egui's own: the face of a button, the
+//! stripe of a list, the fills of the browser's menu and the panel's foot, the surround of the canvas, the colour
+//! of a problem, and the sizes of the small text that sits beside ordinary text. They are the values of the design
+//! that was approved for the figure browser, named here so that the browser, the property editor, the toolbar and
+//! the strip of details are drawn from one set.
+//!
 //! This module raises every text style by 1.5 pt and lifts the text colours until ordinary text clears the WCAG 2.1
 //! ratio of 4.5:1 against the panel and secondary text clears 3:1, including after egui has dimmed it for a disabled
 //! widget. It does so in one place, as named constants, so that the interface moves as a whole rather than one
@@ -17,15 +23,15 @@
 //!
 //! It also holds [`INTERFACE_CHARACTERS`], every character outside ASCII that the interface draws. A character the
 //! loaded fonts do not have is drawn as an empty box, so the interface draws only characters that are known to be
-//! covered, and the list is what the code draws from and what the test checks against the fonts.
+//! covered, and the list is what the code draws from and what the test checks against the fonts. egui's own fonts
+//! carry every character on the list, so the viewer installs no font of its own.
 //!
 //! Nothing here reaches the figure. The text of a figure — its titles, axis labels, tick labels and legends — is
 //! typeset by `ironlab-text` and drawn from the scene display list, in the sizes and colours the figure itself
 //! carries. This style covers only the interface around it.
 
-use std::collections::BTreeMap;
-
 use egui::{Color32, Context, FontFamily, FontId, TextStyle, Theme};
+use std::collections::BTreeMap;
 
 /// The background the interface is drawn on, and the colour every contrast ratio here is measured against.
 ///
@@ -43,18 +49,93 @@ pub const TEXT: Color32 = Color32::from_gray(190);
 /// [`TEXT`]. egui's default, which fades ordinary text to 60 % opacity, gives 2.7:1.
 pub const WEAK_TEXT: Color32 = Color32::from_gray(150);
 
+/// The face of a button, a combo box and an unticked checkbox, and the fill of a row of a list under the pointer.
+///
+/// Grey 45, a shade above [`BACKGROUND`], so that a control reads as raised from the panel without competing with
+/// the text on it; egui's grey 60 is kept for the outline of a text field and the lines between panels, which
+/// [`STROKE`] names.
+pub const WIDGET: Color32 = Color32::from_gray(45);
+
+/// The outline of a text field, the line between two panels, and the rule above and below a group heading.
+pub const STROKE: Color32 = Color32::from_gray(60);
+
+/// The fill of every second row of a list, so that the eye can follow one row across.
+///
+/// Grey 36 is faint enough to read as a stripe and not as a selection; egui's own faint fill, five above the
+/// panel, is too faint to follow.
+pub const FAINT: Color32 = Color32::from_gray(36);
+
+/// The fill of a text field: egui's own, named here so that a field drawn by hand matches one egui draws.
+pub const FIELD: Color32 = Color32::from_gray(10);
+
+/// The fill of the filter menu, which opens within the browser: a shade below the panel, so that the menu reads
+/// as a well the parameters sit in rather than as a card laid over the panel.
+pub const MENU_FILL: Color32 = Color32::from_gray(20);
+
+/// The fill of the strip at the foot of the browser that counts what is left of the collection.
+pub const FOOT_FILL: Color32 = Color32::from_gray(25);
+
+/// The fill of the heading of a group in the browser's list.
+pub const GROUP_FILL: Color32 = Color32::from_rgb(32, 32, 34);
+
+/// The colour of a problem: the reason a draft of the parameters cannot be committed, or a change was refused.
+///
+/// A warm, desaturated red at a contrast ratio of 7.4:1 on [`BACKGROUND`], so that the line is the first thing
+/// read on the panel without glaring as egui's pure red does.
+pub const PROBLEM: Color32 = Color32::from_rgb(229, 146, 128);
+
+/// The surround the canvas draws a figure on: a neutral grey, lighter than the panel, so that the white page of a
+/// figure and the dark panels beside it both read as objects against it.
+pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);
+
+/// The fill of a chip that narrows a parameter: a wash of blue, the same construction as [`LABEL_CHIP_FILL`] in
+/// another hue, so that the two kinds of chip read as one kind of thing.
+pub const CHIP_FILL: Color32 = Color32::from_rgb(29, 43, 56);
+
+/// The fill of a chip that narrows a parameter while the pointer is over it.
+pub const CHIP_HOVER: Color32 = Color32::from_rgb(36, 56, 74);
+
+/// The outline of a chip that narrows a parameter: solid, a shade lighter than its fill.
+pub const CHIP_STROKE: Color32 = Color32::from_rgb(45, 90, 120);
+
+/// The name of the parameter on a chip.
+pub const CHIP_KEY: Color32 = Color32::from_rgb(143, 196, 230);
+
+/// The value on a chip.
+pub const CHIP_TEXT: Color32 = Color32::from_rgb(191, 227, 247);
+
+/// The fill of a chip that narrows the labels, and of a tag beneath the canvas: a wash of green.
+pub const LABEL_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
+
+/// The fill of a chip that narrows the labels while the pointer is over it.
+pub const LABEL_CHIP_HOVER: Color32 = Color32::from_rgb(55, 74, 60);
+
+/// The outline of a chip that narrows the labels, and of a tag.
+pub const LABEL_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
+
+/// The word "labels" on a chip that narrows the labels.
+pub const LABEL_CHIP_KEY: Color32 = Color32::from_rgb(143, 191, 158);
+
+/// The labels on a chip that narrows the labels, and the word of a tag.
+pub const LABEL_CHIP_TEXT: Color32 = Color32::from_rgb(188, 217, 196);
+
+/// A bar of the histogram above a numeric range, for the figures the range leaves out.
+pub const HISTOGRAM_BAR: Color32 = Color32::from_gray(63);
+
+/// A bar of the histogram above a numeric range, for the figures the range keeps.
+pub const HISTOGRAM_KEPT: Color32 = Color32::from_rgb(47, 110, 140);
+
+/// The second line of a selected row, and the count on it: pale enough to read on the selection fill.
+pub const SELECTED_DETAIL: Color32 = Color32::from_rgb(201, 230, 245);
+
+/// The brightest text, which the tick of a ticked checkbox is drawn in.
+pub const BRIGHT: Color32 = Color32::from_gray(236);
+
 /// The opacity at which egui paints a disabled widget.
 ///
 /// egui's 0.5 would leave [`WEAK_TEXT`] in a disabled row at 2.4:1 over the panel; 0.7 leaves it at 3.5:1, and a
 /// disabled control still reads as unmistakably disabled.
 pub const DISABLED_ALPHA: f32 = 0.7;
-
-/// The character that marks the control which takes back a change to one property.
-///
-/// The control is a column of its own, narrower than any word, so this one place in the interface is named by a
-/// character rather than by what it does. The character is listed in [`INTERFACE_CHARACTERS`], which is checked
-/// against the fonts, so it cannot become a character the viewer draws as an empty box.
-pub const REVERT: &str = "↺";
 
 /// Every character outside ASCII that the viewer's interface draws.
 ///
@@ -63,16 +144,18 @@ pub const REVERT: &str = "↺";
 /// draws only characters that are known to be covered, and this is the list of them, shared by the code that draws
 /// them and by the test that checks the fonts have them.
 ///
-/// The list is short on purpose. A symbol is used only where it says something a word cannot say in the room
-/// available: the revert control, the arithmetic of an array's shape, and the punctuation of ordinary prose. Every
-/// other mark the interface once carried — a padlock on a read-only row, a warning sign on the problems indicator,
-/// a cross on a remove button, the Command and Shift keys in a shortcut — is written as a word instead, which reads
-/// the same in every font.
+/// The list is short on purpose. A character earns its place by saying something a word cannot say in the room
+/// available: the arithmetic of an array's shape, and the punctuation of ordinary prose. Every mark the interface
+/// draws beside words is painted as a shape by [`crate::widgets::Icon`] and is no character at all.
+///
+/// What a mark may not do is carry alone a meaning that has no words at all. That is what the padlock on a
+/// read-only row and the warning sign on the problems indicator once did, and both are written as words now, as
+/// are the Command and Shift keys of a shortcut.
 pub const INTERFACE_CHARACTERS: &[char] = &[
-    '—', // em dash, which separates the halves of a heading and the clauses of a sentence
-    '…', // ellipsis, which ends the caption of a button that opens a dialogue
-    '×', // multiplication sign, which joins the lengths of an array's shape
-    '↺', // the revert control, `REVERT`
+    '—', // em dash, which separates the clauses of a sentence
+    '…', // ellipsis, which ends the caption of a button that opens a dialogue, and cuts short a run of text
+    '×', // the multiplication sign that joins the lengths of an array's shape
+    '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
 ];
 
 /// The size of small text, such as where a problem came from, in points: egui's 9 pt raised by 1.5 pt.
@@ -119,6 +202,22 @@ pub fn text_styles() -> BTreeMap<TextStyle, FontId> {
     .into()
 }
 
+/// Gives `ui` the spacing of the widgets: controls in their padding, set a gap apart on a row, and nothing between
+/// one block and the next, because each block carries its own padding.
+///
+/// It is applied to the toolbar, the figure browser and the property editor, which are drawn from the same set of
+/// measurements and must agree with each other.
+pub fn compact(ui: &mut egui::Ui) {
+    use crate::widgets::{Role, Spacing};
+    let style = ui.style_mut();
+    style.spacing.button_padding = Spacing::CONTROL_PADDING;
+    style.spacing.item_spacing = egui::vec2(Spacing::GAP, 0.0);
+    style.spacing.interact_size.y = Spacing::CONTROL_HEIGHT;
+    style
+        .text_styles
+        .insert(TextStyle::Button, Role::Control.font());
+}
+
 /// Installs the viewer's text sizes and colours on `ctx`.
 ///
 /// The sizes are given to both themes, because how large text should be is a question of legibility rather than of
@@ -129,8 +228,14 @@ pub fn text_styles() -> BTreeMap<TextStyle, FontId> {
 /// Weak text is given a colour of its own rather than egui's fade of the ordinary text colour, so that what the
 /// constants promise is what is painted: a fade leaves the colour on screen depending on whatever happens to be
 /// behind it.
+///
 pub fn apply(ctx: &Context) {
-    ctx.all_styles_mut(|style| style.text_styles = text_styles());
+    ctx.all_styles_mut(|style| {
+        style.text_styles = text_styles();
+        // egui fades the edges of a scroll area that has more to show, which darkens the last row of a list or
+        // of the strip of details. The interface's lists end at a rule instead, so nothing is faded.
+        style.spacing.scroll.fade.strength = 0.0;
+    });
     ctx.style_mut_of(Theme::Dark, |style| {
         let visuals = &mut style.visuals;
         visuals.panel_fill = BACKGROUND;
@@ -141,5 +246,11 @@ pub fn apply(ctx: &Context) {
         visuals.widgets.inactive.fg_stroke.color = TEXT;
         visuals.weak_text_color = Some(WEAK_TEXT);
         visuals.disabled_alpha = DISABLED_ALPHA;
+        // The face of a button, and the fill of an unticked checkbox: a shade above the panel rather than egui's
+        // grey 60, which is kept for outlines.
+        visuals.widgets.inactive.weak_bg_fill = WIDGET;
+        visuals.widgets.inactive.bg_fill = WIDGET;
+        visuals.faint_bg_color = FAINT;
+        visuals.extreme_bg_color = FIELD;
     });
 }

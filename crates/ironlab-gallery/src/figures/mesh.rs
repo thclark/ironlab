@@ -11,7 +11,15 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"Mesh of $\ln(1 + |z_3|)$");
+        .title(r"Mesh of $\ln(1 + |z_3|)$")
+        .label("surface")
+        .label("colormap")
+        .label("depth")
+        .label("wireframe")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1023)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.mesh(&x, &y, &z).edge_width(0.6);
     ax.colormap(Colormap::Plasma)

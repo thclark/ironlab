@@ -114,6 +114,37 @@ impl Figure {
         &self.ir.parameters
     }
 
+    /// Adds a label describing the figure, keeping the labels it already has.
+    ///
+    /// A label is what a parameter cannot be: a figure carries any number of them, and
+    /// none of them is a name with a value under it. "surface" and "3d" are labels; the
+    /// Reynolds number is a parameter. Like parameters, labels do not affect drawing;
+    /// they are saved with the figure so that collections of figures can be filtered and
+    /// grouped by them.
+    ///
+    /// Labels are compared exactly, so labels differing only in case are distinct. A
+    /// label that is empty, or one added twice, is reported by
+    /// [`validate`](Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let fig = Figure::new().label("surface").label("3d");
+    /// assert_eq!(fig.labels(), ["surface", "3d"]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    #[must_use]
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.ir.labels.push(label.into());
+        self
+    }
+
+    /// Returns the labels of the figure, in the order they were given.
+    #[must_use]
+    pub fn labels(&self) -> &[String] {
+        &self.ir.labels
+    }
+
     /// Returns the axes that occupies the tile at a zero-based row and column,
     /// creating a two-dimensional axes in that single tile if no axes occupies it.
     ///

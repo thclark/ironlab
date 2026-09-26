@@ -33,7 +33,16 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(240.0, 92.0)
         .tiles(1, 3)
-        .title("One photograph, three placements");
+        .title("One photograph, three placements")
+        .label("image")
+        .label("subplots")
+        .label("comparison")
+        .label("orientation")
+        .label("placement")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 589_824)
+        .parameter("has_legend", false);
 
     // The default placement puts the centre of the pixel in row r and column c at (c, r). Row 0, the top of the
     // photograph, therefore lies at the bottom of the image.

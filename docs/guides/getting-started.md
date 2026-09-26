@@ -341,6 +341,28 @@ assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(2_400_000));
 
 Setting a parameter again with the same name replaces its value. `fig.parameters()` returns every parameter in ascending order of name. Each value keeps its kind when the figure is saved in either format, so the number `3900.0` never reloads as an integer; how parameters are stored is described in the [figure schema reference](../reference/figure-schema.md#parameters).
 
+Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by; when to reach for a parameter rather than a label is covered in [describing figures](describing-figures.md). It also reads a few parameters and a set of labels off each figure itself, so a collection is worth browsing before any figure has been given a parameter of its own.
+
+## Labels
+
+A label is a free word describing a figure, such as `surface` or `piv`. Labels are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. The Reynolds number is a parameter; `wake` is a label.
+
+```rust
+let fig = Figure::new()
+    .title("Wake behind a cylinder")
+    .label("wake")
+    .label("piv")
+    .parameter("reynolds_number", 3900.0);
+
+assert_eq!(fig.labels(), ["wake", "piv"]);
+```
+
+Labels are kept in the order they were given. A label must not be empty, and adding the same label twice is an error, which [`validate`](#validating-a-figure) reports; labels are compared exactly, so `Surface` and `surface` are distinct labels.
+
+Labels, with parameters, are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and between them they are the whole of what it has to work with (see [describing figures](describing-figures.md)): the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Label a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `surface`, if those are words anyone would search by. Which of them belong in a label and which in a parameter is covered in [describing figures](describing-figures.md).
+
+A label need not be shared with another figure to be worth adding. The browser lists every label it finds, with the number of figures behind each, so a label carried by a single figure is how that figure is found rather than a label wasted: the list of labels is itself what tells a reader what the collection can be narrowed by.
+
 ## Validating a figure
 
 The builder never panics because of inconsistent input, such as arrays of different lengths or an axes placed outside the tile layout. Such problems are found by `validate`, which returns a report of errors and warnings:

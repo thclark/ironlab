@@ -11,7 +11,14 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title(r"Isolines of $\ln(1 + |z_3|)$");
+        .title(r"Isolines of $\ln(1 + |z_3|)$")
+        .label("contour")
+        .label("basics")
+        .label("levels")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 14_883)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contour(&x, &y, &z).levels(12).line_width(1.0);
     ax.xlabel("$x$").ylabel("$y$");

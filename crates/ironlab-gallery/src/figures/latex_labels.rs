@@ -10,7 +10,15 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"Resonance of a damped oscillator with $\omega_0 = 10\,\mathrm{rad\,s^{-1}}$");
+        .title(r"Resonance of a damped oscillator with $\omega_0 = 10\,\mathrm{rad\,s^{-1}}$")
+        .label("line")
+        .label("legend")
+        .label("latex")
+        .label("signals")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 4)
+        .parameter("data_points", 2008)
+        .parameter("has_legend", true);
     let mut ax = fig.axes(0, 0);
     // One curve per damping ratio ζ: the lighter the damping, the higher and sharper the resonance peak at ω = ω₀.
     for zeta in [0.1, 0.2, 0.5, 1.0] {

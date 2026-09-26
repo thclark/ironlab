@@ -29,6 +29,7 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 - **Numeric arrays.** An array is a `repeated uint64 shape`, an `NdArrayElement element` that names the type of its values, and one of two payloads: a packed `repeated double values` holds 64-bit floating-point values, in which NaN and infinities are stored natively as IEEE 754 values, and a `bytes u8_values` holds 8-bit unsigned integers, one byte per value. The encoder writes the element of every array and leaves the other payload empty. A reader takes an unspecified element as `ND_ARRAY_ELEMENT_F64`, which is what every file written before the element existed holds, and an array whose payloads disagree with its element (values in the other payload, or in both) is rejected with an error.
 - **Data table.** The `data` of a figure is a `map<uint64, NdArray>` keyed by DataId, written in ascending order of key.
 - **Parameters.** The `parameters` of a figure are a `map<string, Parameter>` keyed by name, written in ascending order of the UTF-8 bytes of the name, so that a figure always encodes to the same bytes.
+- **Labels.** The `labels` of a figure are a `repeated string`, written in the order the figure carries them rather than sorted, because that order is part of the figure's value and is the order the viewer lists them in.
 - **Colours.** A Color is a message of four `float` components, `r`, `g`, `b` and `a`, each from 0 to 1, stored at the full precision of the model.
 - **Absent values.** An absent message, an absent field with presence, an unset oneof and an `_UNSPECIFIED` enum value take the default of their context in the model. For example, an absent line colour of a contour is colormapped, whereas an absent line colour of a line is automatic. The encoder writes every field that has a value, so a file written by IronLAB never relies on these defaults.
 - **Required values.** A value that has no default in the model, namely the kind of an artist, the dimension of an axis link, and the kind of a parameter together with its value when it is a boolean, an integer or a number, makes decoding fail with an error when it is absent or unspecified.
@@ -44,7 +45,7 @@ The JSON encoding follows these conventions.
 
 - **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. A [parameter](#parameters), whose forms are single values, holds its value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
 - **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value. The one exception is the `parameters` of a figure, which are omitted when the figure has none.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters` and the `labels` of a figure, each of which is omitted when the figure has none.
 - **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
 - **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array of floating-point values, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Data arrays.** An array of 8-bit values carries `"element": "u8"` and writes its values as integers. An array of floating-point values has no `element` property, and an `element` of `null` or `"f64"` is read in the same way, so a file written before the element existed still loads. Under `"u8"`, every value must be an integer from 0 to 255: a whole number written with a fraction, such as `1.0`, is accepted as the byte it denotes, and `null`, a fraction, a number outside the range, a string and any other element name are refused.
@@ -95,6 +96,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
 | `provenance` | Provenance | A record of the software that wrote the figure; see [provenance](#provenance). |
 | `parameters` | map | Named values that describe the figure, used to sort, filter and search collections of figures; see [parameters](#parameters). Omitted from JSON when the figure has none. |
+| `labels` | array of string | Free words that describe the figure, used to filter and group collections of figures; see [labels](#labels). Omitted from JSON when the figure has none. |
 
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
@@ -400,7 +402,7 @@ A parameter takes one of four forms:
 | `{"type": "number", "value": 100000.0}` | `number_value` (ParameterNumber) | A double-precision floating-point number, which must be finite. |
 | `{"type": "string", "value": "k–ω SST"}` | `string_value` (ParameterString) | A string, which may be empty. |
 
-Parameters are edited in the viewer's [property editor](../guides/viewer.md#parameters) as well as through the API.
+Parameters are edited in the viewer's [property editor](../guides/viewer.md#parameters) as well as through the API, and are what its [figure browser](../guides/viewer.md#the-figure-browser) filters, orders and groups a collection of figures by.
 
 The form is stated explicitly because JSON has a single number type: without it, the number `3.0` would reload as the integer `3`. A JavaScript program reads a JSON integer as a double, which holds integers exactly only up to 2<sup>53</sup> in magnitude, so a larger integer parameter is exact only in readers that parse JSON integers as 64-bit integers. A parameter name must not be empty; it may contain any other Unicode text, and names that differ only in case are distinct.
 
@@ -411,6 +413,20 @@ The form is stated explicitly because JSON has a single number type: without it,
   "solver": { "type": "string", "value": "k–ω SST" }
 }
 ```
+
+## Labels
+
+A **label** is a free word that describes a figure, such as `surface` or `piv`. Labels are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. Like parameters, they do not affect drawing; they are stored with the figure so that collections of figures can be filtered and grouped by them.
+
+The `labels` of a figure are an array of strings, kept in the order they were given, because that order is part of the figure's value and is the order the viewer lists them in. It is the one collection in the schema that is not sorted on writing.
+
+A label must not be empty, and no label may occur twice in one figure. Labels are compared exactly, so `Surface` and `surface` are two distinct labels and neither is a repeat of the other. Both rules are reported by [validation](#validation), and the JSON Schema states them as well, as `minLength` on the items of the array and `uniqueItems` on the array itself, so a program generating figures from the schema is stopped before it writes one. The Protocol Buffers schema cannot express either rule, so a file in that encoding may carry an empty or repeated label; the viewer reports it and shows the labels once each, rather than altering the file.
+
+```json
+"labels": ["surface", "3d", "piv"]
+```
+
+Labels are edited in the viewer's [property editor](../guides/viewer.md#labels) as well as through the API, and are what the [figure browser](../guides/viewer.md#the-figure-browser) filters and groups a collection of figures by.
 
 ## Validation
 
@@ -477,7 +493,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.3.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.3.1`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
 
@@ -491,6 +507,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.3.1** added the [labels](#labels) of a figure. It is a patch version because a reader of version 0.3.0 that ignores labels still draws the figure correctly, so files are exchanged in both directions between the two.
 - **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
 - **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
 - **0.1.0** was the first version.

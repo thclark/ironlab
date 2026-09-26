@@ -11,6 +11,29 @@ use ironlab_viewer::style;
 /// The contrast ratio WCAG 2.1 asks of ordinary body text.
 const READABLE: f64 = 4.5;
 
+/// A character the fonts certainly do not have, which shows what a real gap looks like: it is drawn as the
+/// replacement box, and a character is covered exactly when it is drawn as something else.
+const MISSING: char = '\u{2B6E}';
+
+/// Whether `family` draws `character` as a glyph of its own rather than as the replacement box.
+///
+/// It is decided by laying the character out and comparing where in the glyph atlas it was drawn from with where
+/// the box is drawn from, because that is what reaches the screen. egui's `has_glyph` answers a different
+/// question — whether the face that owns the character differs from the face that owns the box — and in a family
+/// whose first face owns both, which the monospaced family is, it says "no" for every character that face has.
+fn draws(
+    fonts: &mut egui::epaint::text::FontsView<'_>,
+    family: &FontFamily,
+    character: char,
+) -> bool {
+    let font = FontId::new(style::BODY_SIZE_PT, family.clone());
+    let mut atlas_rect = |c: char| {
+        let galley = fonts.layout_no_wrap(c.to_string(), font.clone(), Color32::WHITE);
+        galley.rows[0].glyphs[0].uv_rect.min
+    };
+    atlas_rect(character) != atlas_rect(MISSING)
+}
+
 /// The contrast ratio WCAG 2.1 asks of large text, which is the least that text meant to be read but not
 /// emphasised should have.
 const SECONDARY: f64 = 3.0;
@@ -173,6 +196,20 @@ fn applying_the_style_gives_the_context_the_named_sizes_and_colours() {
         "the caption of a button is ordinary text"
     );
     assert_eq!(configured.visuals.disabled_alpha, style::DISABLED_ALPHA);
+    assert_eq!(
+        configured.visuals.widgets.inactive.weak_bg_fill,
+        style::WIDGET,
+        "the face of a button is the named shade above the panel"
+    );
+    assert_eq!(
+        configured.visuals.faint_bg_color,
+        style::FAINT,
+        "and the stripe of a list is the named one"
+    );
+    assert_eq!(
+        configured.spacing.scroll.fade.strength, 0.0,
+        "a scroll area fades none of its rows: the lists end at a rule, and a fade would darken the last row"
+    );
 }
 
 // Why: the text sizes are a matter of legibility rather than of colour, and the viewer must not depend on the theme
@@ -200,31 +237,29 @@ fn the_fonts_have_every_character_the_interface_draws() {
     let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
 
-    // Every text style of the interface but the monospaced one is proportional, and the viewer draws no monospaced
-    // text, so the proportional family is the family every character reaches the screen through.
-    let families: Vec<FontFamily> = style::text_styles()
+    // The interface draws proportional text everywhere and monospaced text where a figure's details are shown as
+    // data, so both families are checked: a character is only safe when every family it might be set in has it.
+    let mut families: Vec<FontFamily> = style::text_styles()
         .values()
         .map(|font| font.family.clone())
-        .filter(|family| *family == FontFamily::Proportional)
         .collect();
+    families.sort_by_key(|family| format!("{family:?}"));
+    families.dedup();
     assert!(
         !families.is_empty(),
         "the interface draws proportional text, so there is a family to check"
     );
 
     ctx.fonts_mut(|fonts| {
-        // A character the fonts certainly do not have, which shows that the check answers "no" for a real gap
-        // rather than answering "yes" to everything.
-        const MISSING: char = '\u{2B6E}';
         for family in &families {
-            let font = FontId::new(style::BODY_SIZE_PT, family.clone());
+            // A character the fonts have and one they lack must come out differently, or the check proves nothing.
             assert!(
-                !fonts.has_glyph(&font, MISSING),
-                "the check must report a character the fonts lack, or it proves nothing"
+                draws(fonts, family, 'a') && !draws(fonts, family, MISSING),
+                "the check must tell a character the fonts have from one they lack"
             );
             for character in style::INTERFACE_CHARACTERS {
                 assert!(
-                    fonts.has_glyph(&font, *character),
+                    draws(fonts, family, *character),
                     "the interface draws {character:?} (U+{:04X}), which the fonts of the {family:?} family \
                      cannot draw and would show as an empty box",
                     *character as u32
@@ -234,16 +269,22 @@ fn the_fonts_have_every_character_the_interface_draws() {
     });
 }
 
-// Why: the list is what the code draws from and what the fonts are checked against, so a character used in the
-// interface but left out of it would never be checked. The revert control is the one character the interface draws
-// on its own, so it must be in the list by construction rather than by someone remembering to add it.
+// Why: a problem is the one line of the interface that must be read before anything else on the panel, so it is
+// drawn in a colour of its own; but a colour chosen for warmth rather than for contrast would be the least legible
+// text on the panel exactly where legibility matters most. egui's own error colour is pure red, which clears the
+// ratio and glares, so the viewer's colour is asked to clear the ratio asked of body text and to be plainly not the
+// ordinary text colour.
 #[test]
-fn the_revert_control_is_one_of_the_listed_characters() {
-    let revert: Vec<char> = style::REVERT.chars().collect();
-    assert_eq!(revert.len(), 1, "the revert control is one character");
+fn problem_text_is_readable_against_the_panel_and_distinct_from_ordinary_text() {
+    let ratio = contrast_ratio(style::PROBLEM, style::BACKGROUND);
     assert!(
-        style::INTERFACE_CHARACTERS.contains(&revert[0]),
-        "the revert control {:?} is not in the list the fonts are checked against",
-        style::REVERT
+        ratio >= READABLE,
+        "problem text has a contrast ratio of {ratio:.2}:1 against the panel, below the {READABLE}:1 asked of body \
+         text"
+    );
+    assert_ne!(
+        style::PROBLEM,
+        style::TEXT,
+        "a problem is not drawn in the colour of ordinary text"
     );
 }

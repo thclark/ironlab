@@ -11,7 +11,14 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title(r"Isolines of $\ln(1 + |z_3|)$ at their levels");
+        .title(r"Isolines of $\ln(1 + |z_3|)$ at their levels")
+        .label("contour")
+        .label("colormap")
+        .label("levels")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 1)
+        .parameter("data_points", 6723)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.contour3(&x, &y, &z).levels(20).line_width(1.0);
     ax.colormap(Colormap::Cividis)

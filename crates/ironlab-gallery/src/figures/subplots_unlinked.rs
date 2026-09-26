@@ -12,7 +12,19 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 120.0)
         .tiles(2, 2)
-        .title("Independent axes");
+        .title("Independent axes")
+        .label("contour")
+        .label("line")
+        .label("scatter")
+        .label("subplots")
+        .label("log")
+        .label("basics")
+        .label("interaction")
+        .label("linked-axes")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 4)
+        .parameter("data_points", 7265)
+        .parameter("has_legend", false);
 
     let t = linspace(0.0, 2.0 * PI, 101);
     let wave: Vec<f64> = t.iter().map(|t| (3.0 * t).sin() * t.cos()).collect();

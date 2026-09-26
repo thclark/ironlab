@@ -11,7 +11,15 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
         .tiles(2, 3)
-        .title("Axes linked in rows, columns and arbitrary pairs");
+        .title("Axes linked in rows, columns and arbitrary pairs")
+        .label("line")
+        .label("subplots")
+        .label("interaction")
+        .label("linked-axes")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 6)
+        .parameter("data_points", 2412)
+        .parameter("has_legend", false);
 
     // Each tile plots a sine wave of a different frequency: 0.5, 1, 1.5, ... from left to right and top to bottom.
     let t = linspace(0.0, 4.0 * PI, 201);

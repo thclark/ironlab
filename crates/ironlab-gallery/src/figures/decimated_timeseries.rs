@@ -101,7 +101,18 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 120.0)
         .tiles(2, 1)
-        .title("A vibration record and a window into it");
+        .title("A vibration record and a window into it")
+        .label("line")
+        .label("subplots")
+        .label("comparison")
+        .label("decimation")
+        .label("export")
+        .label("interaction")
+        .label("signals")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 2)
+        .parameter("data_points", 400_000)
+        .parameter("has_legend", false);
 
     let mut overview = fig.axes(0, 0);
     overview.plot(&t, &acceleration);

@@ -10,7 +10,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::single_line_figure;
+use common::{raw_fields, read_varint, single_line_figure};
 use ironlab_ir::*;
 use prost::Message;
 use serde_json::{Value, json};
@@ -190,59 +190,22 @@ fn parameters_are_written_in_ascending_order_of_name() {
 }
 
 /// Returns the names of the parameter map entries (field 13 of `Figure`) in the order in
-/// which they appear in the bytes, by walking the top-level fields without the wire
-/// types.
-fn raw_parameter_names(mut bytes: &[u8]) -> Vec<String> {
-    fn varint(bytes: &mut &[u8]) -> u64 {
-        let mut value = 0;
-        for shift in (0..64).step_by(7) {
-            let byte = bytes[0];
-            *bytes = &bytes[1..];
-            value |= u64::from(byte & 0x7f) << shift;
-            if byte & 0x80 == 0 {
-                break;
-            }
-        }
-        value
-    }
-    let mut names = Vec::new();
-    while !bytes.is_empty() {
-        let key = varint(&mut bytes);
-        let (number, wire_type) = (key >> 3, key & 7);
-        let payload: &[u8] = match wire_type {
-            0 => {
-                varint(&mut bytes);
-                continue;
-            }
-            1 => {
-                bytes = &bytes[8..];
-                continue;
-            }
-            5 => {
-                bytes = &bytes[4..];
-                continue;
-            }
-            2 => {
-                let len = varint(&mut bytes) as usize;
-                let (payload, rest) = bytes.split_at(len);
-                bytes = rest;
-                payload
-            }
-            other => panic!("unexpected wire type {other}"),
-        };
-        if number == 13 {
-            let mut entry = payload;
-            let key = varint(&mut entry);
+/// which they appear in the bytes.
+fn raw_parameter_names(bytes: &[u8]) -> Vec<String> {
+    raw_fields(bytes, 13)
+        .iter()
+        .map(|entry| {
+            let mut entry = entry.as_slice();
+            let key = read_varint(&mut entry);
             assert_eq!(
                 key,
                 (1 << 3) | 2,
                 "the name is the first field of the entry"
             );
-            let len = varint(&mut entry) as usize;
-            names.push(String::from_utf8(entry[..len].to_vec()).unwrap());
-        }
-    }
-    names
+            let len = read_varint(&mut entry) as usize;
+            String::from_utf8(entry[..len].to_vec()).expect("a name is UTF-8")
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------------

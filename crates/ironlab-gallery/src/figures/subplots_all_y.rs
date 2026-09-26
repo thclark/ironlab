@@ -26,7 +26,16 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 80.0)
         .tiles(1, 3)
-        .title("Temperature profiles");
+        .title("Temperature profiles")
+        .label("line")
+        .label("subplots")
+        .label("comparison")
+        .label("interaction")
+        .label("linked-axes")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 3)
+        .parameter("data_points", 486)
+        .parameter("has_legend", false);
     for (col, name, surface_temperature_c, thermocline_depth_m) in sites {
         let temperature: Vec<f64> = depth_m
             .iter()

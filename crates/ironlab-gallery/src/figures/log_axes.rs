@@ -8,7 +8,18 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 60.0)
         .tiles(1, 3)
-        .title("Logarithmic axes");
+        .title("Logarithmic axes")
+        .label("line")
+        .label("subplots")
+        .label("legend")
+        .label("log")
+        .label("comparison")
+        .label("dashes")
+        .label("signals")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 6)
+        .parameter("data_points", 712)
+        .parameter("has_legend", true);
 
     // Power laws are straight lines on log-log axes, with slopes equal to their exponents.
     let x = logspace(-1.0, 2.0, 61);

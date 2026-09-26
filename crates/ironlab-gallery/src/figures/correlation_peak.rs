@@ -32,7 +32,15 @@ fn section(ax: &mut AxesMut<'_>, plane: ImagePlane, lo: f64, hi: f64, at: impl F
 pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
-        .title("Cross-correlation volume with its peak at the centre");
+        .title("Cross-correlation volume with its peak at the centre")
+        .label("image")
+        .label("colormap")
+        .label("depth")
+        .label("placement")
+        .parameter("dimensionality", "3D")
+        .parameter("artists", 4)
+        .parameter("data_points", 40_804)
+        .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     // The floor lies on a face of the box, so it is painted behind everything else. The three planes through the
     // dominant peak cross there, and each carries the plane of its depth, so the depth buffer shows each of them in

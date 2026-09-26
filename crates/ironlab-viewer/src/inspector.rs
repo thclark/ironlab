@@ -211,6 +211,8 @@ pub enum Editor {
     Color,
     /// A list of numbers, typed as text.
     Numbers,
+    /// A list of words, typed as text: the labels of the figure.
+    Words,
     /// The named parameters of the figure, which have an editor of their own.
     Parameters,
     /// A reference to a data array, shown read-only with the shape of the array it
@@ -502,6 +504,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::String
         | ValueType::DataId
         | ValueType::Doubles
+        | ValueType::Strings
         | ValueType::Text
         | ValueType::Interpreter
         | ValueType::FontSetId
@@ -559,6 +562,7 @@ fn editor_for(
         ValueType::Text => Editor::RichText,
         ValueType::Color => Editor::Color,
         ValueType::Doubles => Editor::Numbers,
+        ValueType::Strings => Editor::Words,
         ValueType::Parameters => Editor::Parameters,
         ValueType::Links => Editor::ReadOnly {
             reason: LINKS_REASON,
@@ -731,14 +735,14 @@ impl ParameterKind {
         ParameterKind::String,
     ];
 
-    /// The name of the kind, written for a combo box.
+    /// The name of the kind, written for a combo box as a scientist names a type.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            ParameterKind::Bool => "Yes or no",
-            ParameterKind::Integer => "Whole number",
-            ParameterKind::Number => "Number",
-            ParameterKind::String => "Text",
+            ParameterKind::Bool => "boolean",
+            ParameterKind::Integer => "integer",
+            ParameterKind::Number => "number",
+            ParameterKind::String => "string",
         }
     }
 

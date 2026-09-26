@@ -14,7 +14,15 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
-        .title("Julia field sampled on a sunflower spiral");
+        .title("Julia field sampled on a sunflower spiral")
+        .label("scatter")
+        .label("basics")
+        .label("colormap")
+        .label("markers")
+        .parameter("dimensionality", "2D")
+        .parameter("artists", 1)
+        .parameter("data_points", 1600)
+        .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.scatter(&x, &y)
         .colors(&field_value)
