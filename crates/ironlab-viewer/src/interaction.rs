@@ -50,7 +50,7 @@
 //! - **Click** on a legend entry sets `visible` on its artist and selects it; a click elsewhere inside an axes
 //!   selects that axes and changes nothing. The selection is what the property editor shows, and no gesture
 //!   changes it.
-//! - **Reset view** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
+//! - **Refit** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
 //!   about content rather than about the view.
 //! - **Datatips** change nothing: [`FigureState::tip_at`] names the drawn point nearest the pointer within
 //!   [`DATATIP_RADIUS_POINTS`] or, when there is none, the pixel of the image under it, each read from the user's

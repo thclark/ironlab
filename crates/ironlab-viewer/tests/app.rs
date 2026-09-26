@@ -82,7 +82,7 @@ fn panned_2d_state() -> FigureState {
     state
 }
 
-// Why: "Reset view" is the user's way back after getting lost; the button must be wired to the reset, not merely
+// Why: "Refit" is the user's way back after getting lost; the button must be wired to the reset, not merely
 // drawn.
 #[test]
 fn clicking_reset_view_after_a_pan_restores_the_limits() {
@@ -94,12 +94,105 @@ fn clicking_reset_view_after_a_pan_restores_the_limits() {
     );
     let mut harness = toolbar_harness(state, vec![]);
 
-    harness.get_by_label("Reset view").click();
+    harness.get_by_label("Refit").click();
     harness.run();
 
     let figure = &harness.state().figure;
     assert_eq!(manual_of(figure.figure(), 2, Dimension::X), (0.0, 10.0));
     assert_eq!(manual_of(figure.figure(), 2, Dimension::Y), (0.0, 5.0));
+}
+
+/// A toolbar harness `width` points wide, for testing how the toolbar lays itself out in the room it is given.
+fn toolbar_harness_of_width(width: f32) -> Harness<'static, ToolbarHarnessState> {
+    Harness::builder()
+        .with_size(egui::vec2(width, 120.0))
+        .build_ui_state(
+            |ui, state: &mut ToolbarHarnessState| {
+                toolbar(
+                    ui,
+                    &mut state.figure,
+                    &state.problems,
+                    &mut state.show_properties,
+                );
+            },
+            ToolbarHarnessState {
+                figure: FigureState::new(figure_with(vec![axes_2d(2)], vec![])),
+                problems: vec![],
+                export_requested: false,
+                save_requested: false,
+                show_properties: false,
+            },
+        )
+}
+
+/// The captions of every button of the toolbar, in the order they are drawn.
+const TOOLBAR_BUTTONS: [&str; 9] = [
+    "Pan",
+    "Zoom",
+    "Rotate",
+    "Undo",
+    "Redo",
+    "Refit",
+    "Export PDF…",
+    "Save figure…",
+    "Properties",
+];
+
+// Why: the file controls are laid out from the right edge inwards, and a window narrower than both groups together
+// used to draw them over the tools rather than beside them, leaving Zoom half under Export. A control that cannot
+// have its own room on the row takes the next row instead; it must never be drawn over another.
+#[test]
+fn a_narrow_toolbar_puts_its_file_controls_on_a_second_row_rather_than_over_the_tools() {
+    let harness = toolbar_harness_of_width(420.0);
+    let rects: Vec<(&str, egui::Rect)> = TOOLBAR_BUTTONS
+        .iter()
+        .map(|caption| (*caption, harness.get_by_label(caption).rect()))
+        .collect();
+    for (index, (first, one)) in rects.iter().enumerate() {
+        for (second, other) in &rects[index + 1..] {
+            assert!(
+                !one.intersects(*other),
+                "{first} ({one:?}) is drawn over {second} ({other:?})"
+            );
+        }
+    }
+    let reset = harness.get_by_label("Refit").rect();
+    let export = harness.get_by_label("Export PDF…").rect();
+    assert!(
+        export.top() >= reset.bottom(),
+        "the file controls take a second row beneath the tools: {reset:?} then {export:?}"
+    );
+}
+
+// Why: the second row is for a toolbar that needs it. A window with room for both groups keeps them on one row,
+// as they have always been, so that the toolbar does not grow taller for nothing.
+#[test]
+fn a_wide_toolbar_keeps_every_control_on_one_row() {
+    let harness = toolbar_harness_of_width(900.0);
+    let pan = harness.get_by_label("Pan").rect();
+    let properties = harness.get_by_label("Properties").rect();
+    assert!(
+        (pan.center().y - properties.center().y).abs() < 1.0,
+        "the tools and the file controls share a row: {pan:?} and {properties:?}"
+    );
+}
+
+// Why: Refit acts on the view and nothing else, as the tools do, so it belongs with them: after Rotate, before the
+// controls that move through the history. Among Undo and Redo it read as a step of the history, which it is not.
+#[test]
+fn refit_follows_the_tools() {
+    let harness = toolbar_harness(panned_2d_state(), vec![]);
+    let rotate = harness.get_by_label("Rotate").rect();
+    let refit = harness.get_by_label("Refit").rect();
+    let undo = harness.get_by_label("Undo").rect();
+    assert!(
+        rotate.right() <= refit.left() && refit.right() <= undo.left(),
+        "Rotate, Refit and Undo come in that order: {rotate:?}, {refit:?}, {undo:?}"
+    );
+    assert!(
+        refit.left() - rotate.right() < 12.0,
+        "and Refit is next to Rotate, with the separator after it: {rotate:?} then {refit:?}"
+    );
 }
 
 // Why: rotating a 2D axes is meaningless; the Rotate tool must be unavailable rather than silently doing nothing, and
@@ -402,7 +495,7 @@ fn the_app_shows_one_figure_at_a_time_with_that_figures_toolbar() {
     );
 }
 
-// Why: R is the documented keyboard shortcut for Reset view; it must act on the active figure.
+// Why: R is the documented keyboard shortcut for Refit; it must act on the active figure.
 #[test]
 fn pressing_r_resets_the_view_of_the_active_figure() {
     let mut harness = app_harness(vec![(

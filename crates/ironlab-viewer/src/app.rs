@@ -37,13 +37,22 @@ use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, To
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
 use crate::sidebar::{FigureBrowser, figure_browser};
+use crate::widgets::{Control, PanelKind, Role, Spacing, label, surround, text};
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
 /// typical mouse wheel (50 points) zooms by about 20 %.
 const WHEEL_ZOOM_RATE: f64 = 0.0036;
 
 /// The smallest gap, in egui points, between the figure and the edges of its canvas.
-const CANVAS_MARGIN: f32 = 12.0;
+const CANVAS_MARGIN: f32 = 22.0;
+
+/// The room between the edge of the toolbar and its controls, in egui points.
+const TOOLBAR_PADDING: egui::Margin = egui::Margin {
+    left: 9,
+    right: 9,
+    top: 6,
+    bottom: 6,
+};
 
 /// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
 /// match.
@@ -64,24 +73,6 @@ pub const DETAILS_ID: &str = "ironlab_figure_details";
 /// The height beyond which the strip of details scrolls, in egui points, which is room for a handful of parameters
 /// before the strip starts taking the canvas's room.
 const DETAILS_MAX_HEIGHT: f32 = 150.0;
-
-/// Draws one label of a figure as a tag: a small word in a frame of its own, so that a row of them reads as a set
-/// of words rather than as a sentence.
-fn tag(ui: &mut egui::Ui, label: &str) {
-    egui::Frame::new()
-        .fill(crate::style::TAG_FILL)
-        .stroke(egui::Stroke::new(1.0, crate::style::TAG_STROKE))
-        .corner_radius(2)
-        .inner_margin(egui::Margin::symmetric(4, 1))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(label)
-                    .monospace()
-                    .small()
-                    .color(crate::style::TAG_TEXT),
-            );
-        });
-}
 
 /// How long a notification stays on screen, in seconds.
 const NOTIFICATION_SECONDS: f64 = 5.0;
@@ -181,7 +172,7 @@ fn pixel_outline(
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ToolbarResponse {
-    /// Whether the toolbar changed the displayed figure (for example through "Reset view" or "Undo").
+    /// Whether the toolbar changed the displayed figure (for example through "Refit" or "Undo").
     pub changed: bool,
     /// Whether "Export PDF…" was clicked; the caller shows the save dialog and writes the file.
     pub export_requested: bool,
@@ -193,7 +184,7 @@ pub struct ToolbarResponse {
 ///
 /// The toolbar has selectable buttons labelled "Pan", "Zoom" and "Rotate" that set [`FigureState::tool`] ("Rotate" is
 /// disabled when the figure has no 3D axes), "Undo" and "Redo" buttons that step through the overlay's history and
-/// are disabled when there is nothing to undo or redo, a "Reset view" button that calls [`FigureState::reset_view`],
+/// are disabled when there is nothing to undo or redo, a "Refit" button that calls [`FigureState::reset_view`],
 /// "Export PDF…" and "Save figure…" buttons, a "Properties" button that opens and closes the property editor through
 /// `show_properties`, and, when `problems` is not empty, a problems indicator whose label contains the number of
 /// problems (for example "2 problems") and which opens the list of [`problems_list`] when it is clicked.
@@ -207,95 +198,189 @@ pub fn toolbar(
     show_properties: &mut bool,
 ) -> ToolbarResponse {
     let mut response = ToolbarResponse::default();
+    crate::style::compact(ui);
+    let indicator = indicator_label(problems);
+
+    // The file controls are laid out from the right edge inwards, which draws them over the tools when the row has
+    // no room for both groups. They are given a row of their own instead, decided from the width of their captions
+    // rather than from where last frame put them, so that the toolbar never draws one control over another.
+    let history = buttons_width(ui, &["Pan", "Zoom", "Rotate", "Refit", "Undo", "Redo"], 1);
+    let mut file_captions = vec!["Export PDF…", "Save figure…", "Properties"];
+    if let Some(label) = &indicator {
+        file_captions.push(label);
+    }
+    let file = buttons_width(ui, &file_captions, usize::from(indicator.is_some()));
+    let two_rows = history + ui.spacing().item_spacing.x + file > ui.available_width();
+
     ui.horizontal(|ui| {
-        let has_3d = state.has_3d();
-        for (tool, label, hint, enabled) in [
-            (
-                Tool::Pan,
-                "Pan",
-                "Drag to pan 2D axes or move 3D axes. Scroll to zoom.",
-                true,
-            ),
-            (
-                Tool::Zoom,
-                "Zoom",
-                "Drag a rectangle to zoom 2D axes to it. Scroll to zoom.",
-                true,
-            ),
-            (
-                Tool::Rotate,
-                "Rotate",
-                "Drag to rotate 3D axes. Scroll to zoom.",
-                has_3d,
-            ),
-        ] {
-            let button = egui::Button::selectable(state.tool == tool, label);
-            if ui
-                .add_enabled(enabled, button)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                state.tool = tool;
-            }
+        history_controls(ui, state, &mut response);
+        if !two_rows {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                file_controls(
+                    ui,
+                    state,
+                    problems,
+                    indicator.as_deref(),
+                    show_properties,
+                    &mut response,
+                );
+            });
         }
-        ui.separator();
-        if ui
-            .add_enabled(state.can_undo(), egui::Button::new("Undo"))
-            .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
-            .clicked()
-        {
-            response.changed |= state.undo();
-        }
-        if ui
-            .add_enabled(state.can_redo(), egui::Button::new("Redo"))
-            .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
-            .clicked()
-        {
-            response.changed |= state.redo();
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Laid out from the right edge inwards, so the first widget added is the rightmost.
-            if let Some(label) = indicator_label(problems) {
-                problems_indicator(ui, state.figure(), problems, &label);
-                ui.separator();
-            }
-            if ui
-                .add(egui::Button::selectable(*show_properties, "Properties"))
-                .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
-                .clicked()
-            {
-                *show_properties = !*show_properties;
-            }
-            if ui
-                .button("Save figure…")
-                .on_hover_text(
-                    "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
-                )
-                .clicked()
-            {
-                response.save_requested = true;
-            }
-            if ui
-                .button("Export PDF…")
-                .on_hover_text("Save the figure, as currently shown, to a PDF file.")
-                .clicked()
-            {
-                response.export_requested = true;
-            }
-            if ui
-                .button("Reset view")
-            .on_hover_text(
-                "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
-                 you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
-                 use Revert all changes at the foot of the property editor.",
-            )
-                .clicked()
-            {
-                response.changed |= state.reset_view();
-            }
-        });
     });
+    if two_rows {
+        ui.add_space(Spacing::GAP);
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                file_controls(
+                    ui,
+                    state,
+                    problems,
+                    indicator.as_deref(),
+                    show_properties,
+                    &mut response,
+                );
+            });
+        });
+    }
     response
+}
+
+/// The width a row of buttons with these captions takes, in egui points: each caption in the button font with the
+/// button's padding, the spacing between them, and `separators` separators among them.
+fn buttons_width(ui: &egui::Ui, captions: &[&str], separators: usize) -> f32 {
+    let font_id = Role::Control.font();
+    let spacing = ui.spacing();
+    let buttons: f32 = captions
+        .iter()
+        .map(|caption| {
+            ui.painter()
+                .layout_no_wrap((*caption).to_owned(), font_id.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+                + 2.0 * Spacing::LARGE_CONTROL_PADDING.x
+        })
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    let gaps = (captions.len() + separators).saturating_sub(1) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let separators = separators as f32;
+    buttons + gaps * spacing.item_spacing.x + separators * SEPARATOR_WIDTH
+}
+
+/// The width egui gives a separator drawn across a row, in egui points.
+const SEPARATOR_WIDTH: f32 = 6.0;
+
+/// Draws the tools and the controls that move through the history of the figure: Pan, Zoom, Rotate and Refit,
+/// then Undo and Redo.
+fn history_controls(ui: &mut egui::Ui, state: &mut FigureState, response: &mut ToolbarResponse) {
+    let has_3d = state.has_3d();
+    for (tool, label, hint, enabled) in [
+        (
+            Tool::Pan,
+            "Pan",
+            "Drag to pan 2D axes or move 3D axes. Scroll to zoom.",
+            true,
+        ),
+        (
+            Tool::Zoom,
+            "Zoom",
+            "Drag a rectangle to zoom 2D axes to it. Scroll to zoom.",
+            true,
+        ),
+        (
+            Tool::Rotate,
+            "Rotate",
+            "Drag to rotate 3D axes. Scroll to zoom.",
+            has_3d,
+        ),
+    ] {
+        if Control::button(label)
+            .large()
+            .selected(state.tool == tool)
+            .enabled(enabled)
+            .show(ui)
+            .on_hover_text(hint)
+            .clicked()
+        {
+            state.tool = tool;
+        }
+    }
+    // Refit belongs with the tools: like them it acts on the view and nothing else, restoring the fit of every
+    // axes that a pan, a zoom or a rotation moved.
+    if Control::button("Refit")
+        .large()
+        .show(ui)
+        .on_hover_text(
+            "Restore the limits and 3D views of every axes (R), keeping hidden plots hidden and every property \
+             you have edited. Double-click an axes to restore only that axes. To discard every change instead, \
+             use Revert all changes at the foot of the property editor.",
+        )
+        .clicked()
+    {
+        response.changed |= state.reset_view();
+    }
+    ui.separator();
+    if Control::button("Undo")
+        .large()
+        .enabled(state.can_undo())
+        .show(ui)
+        .on_hover_text("Undo the last change (Cmd+Z, Ctrl+Z).")
+        .clicked()
+    {
+        response.changed |= state.undo();
+    }
+    if Control::button("Redo")
+        .large()
+        .enabled(state.can_redo())
+        .show(ui)
+        .on_hover_text("Redo the last undone change (Cmd+Shift+Z, Ctrl+Shift+Z).")
+        .clicked()
+    {
+        response.changed |= state.redo();
+    }
+}
+
+/// Draws the controls that concern the figure as a file, and the problems indicator when there is one, laid out
+/// from the right edge inwards so that the first widget added is the rightmost.
+fn file_controls(
+    ui: &mut egui::Ui,
+    state: &FigureState,
+    problems: &[Problem],
+    indicator: Option<&str>,
+    show_properties: &mut bool,
+    response: &mut ToolbarResponse,
+) {
+    if let Some(label) = indicator {
+        problems_indicator(ui, state.figure(), problems, label);
+        ui.separator();
+    }
+    if Control::button("Properties")
+        .large()
+        .selected(*show_properties)
+        .show(ui)
+        .on_hover_text("Show or hide the property editor, which lists the objects of the figure and their properties.")
+        .clicked()
+    {
+        *show_properties = !*show_properties;
+    }
+    if Control::button("Save figure…")
+        .large()
+        .show(ui)
+        .on_hover_text(
+            "Save the figure, as currently shown, to a .fig (Protocol Buffers) or .json file.",
+        )
+        .clicked()
+    {
+        response.save_requested = true;
+    }
+    if Control::button("Export PDF…")
+        .large()
+        .show(ui)
+        .on_hover_text("Save the figure, as currently shown, to a PDF file.")
+        .clicked()
+    {
+        response.export_requested = true;
+    }
 }
 
 /// Draws the problems indicator and, while it is open, the list of problems below it.
@@ -395,12 +480,23 @@ impl FigurePane {
             scene.warnings.iter().map(Problem::from_scene).collect()
         });
         problems.extend(self.state.problems().iter().cloned());
-        let response = egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(8, 4))
+        // Nothing stands between the toolbar, the strip of details and the canvas: each ends where the next
+        // begins, and the rule beneath the toolbar is its last row rather than a line in a gap.
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let bar = egui::Frame::new()
+            .inner_margin(TOOLBAR_PADDING)
             .show(ui, |ui| {
                 toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
-            })
-            .inner;
+            });
+        // The rule beneath the toolbar, which parts it from the canvas as the browser's rule parts its controls
+        // from its list.
+        let rect = bar.response.rect;
+        ui.painter().hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            egui::Stroke::new(1.0, crate::style::STROKE),
+        );
+        let response = bar.inner;
         if response.changed {
             self.invalidate();
         }
@@ -443,7 +539,9 @@ impl FigurePane {
         egui::Panel::bottom(egui::Id::new(DETAILS_ID))
             .resizable(false)
             .show_separator_line(true)
+            .frame(PanelKind::Details.frame(ui))
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, 0.0);
                 egui::ScrollArea::vertical()
                     .id_salt("ironlab_details_scroll")
                     .max_height(DETAILS_MAX_HEIGHT)
@@ -451,21 +549,21 @@ impl FigurePane {
                         ui.set_min_width(ui.available_width());
                         if !labels.is_empty() {
                             ui.horizontal_wrapped(|ui| {
-                                for label in &labels {
-                                    tag(ui, label);
+                                ui.spacing_mut().item_spacing = egui::Vec2::splat(Spacing::GAP);
+                                for tag in &labels {
+                                    Control::tag(tag).show(ui);
                                 }
                             });
+                            ui.add_space(Spacing::GAP);
                         }
                         if !parameters.is_empty() {
                             egui::Grid::new("ironlab_details_parameters")
                                 .num_columns(2)
-                                .spacing([12.0, 2.0])
+                                .spacing([Spacing::GAP, Spacing::LINE_GAP * 2.0])
                                 .show(ui, |ui| {
                                     for (name, value) in &parameters {
-                                        ui.label(
-                                            egui::RichText::new(name).monospace().small().weak(),
-                                        );
-                                        ui.label(egui::RichText::new(value).monospace().small());
+                                        label(ui, text(Role::Data, name));
+                                        label(ui, text(Role::Body, value));
                                         ui.end_row();
                                     }
                                 });
@@ -542,7 +640,7 @@ impl FigurePane {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+        surround(&painter, rect, None);
 
         let (width_pt, height_pt) = {
             let list = &self.scene(text).display_list;
@@ -565,8 +663,10 @@ impl FigurePane {
         if let Some(background) = premultiplied(scene.display_list.background)
             && background[3] > 0
         {
+            let page = egui::Rect::from_min_size(to_screen.origin, size);
+            surround(&painter, rect, Some(page));
             painter.rect_filled(
-                egui::Rect::from_min_size(to_screen.origin, size),
+                page,
                 0.0,
                 egui::Color32::from_rgba_premultiplied(
                     background[0],

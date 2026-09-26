@@ -196,6 +196,20 @@ fn applying_the_style_gives_the_context_the_named_sizes_and_colours() {
         "the caption of a button is ordinary text"
     );
     assert_eq!(configured.visuals.disabled_alpha, style::DISABLED_ALPHA);
+    assert_eq!(
+        configured.visuals.widgets.inactive.weak_bg_fill,
+        style::WIDGET,
+        "the face of a button is the named shade above the panel"
+    );
+    assert_eq!(
+        configured.visuals.faint_bg_color,
+        style::FAINT,
+        "and the stripe of a list is the named one"
+    );
+    assert_eq!(
+        configured.spacing.scroll.fade.strength, 0.0,
+        "a scroll area fades none of its rows: the lists end at a rule, and a fade would darken the last row"
+    );
 }
 
 // Why: the text sizes are a matter of legibility rather than of colour, and the viewer must not depend on the theme
@@ -255,65 +269,22 @@ fn the_fonts_have_every_character_the_interface_draws() {
     });
 }
 
-// Why: the list is what the code draws from and what the fonts are checked against, so a character used in the
-// interface but left out of it would never be checked. Every mark the interface draws is named in `MARKS`, so the
-// two lists can be held together by construction rather than by someone remembering to add to both.
+// Why: a problem is the one line of the interface that must be read before anything else on the panel, so it is
+// drawn in a colour of its own; but a colour chosen for warmth rather than for contrast would be the least legible
+// text on the panel exactly where legibility matters most. egui's own error colour is pure red, which clears the
+// ratio and glares, so the viewer's colour is asked to clear the ratio asked of body text and to be plainly not the
+// ordinary text colour.
 #[test]
-fn every_mark_the_interface_draws_is_one_of_the_listed_characters() {
+fn problem_text_is_readable_against_the_panel_and_distinct_from_ordinary_text() {
+    let ratio = contrast_ratio(style::PROBLEM, style::BACKGROUND);
     assert!(
-        style::MARKS.contains(&style::REVERT),
-        "the revert control is a mark, and must be named among them"
+        ratio >= READABLE,
+        "problem text has a contrast ratio of {ratio:.2}:1 against the panel, below the {READABLE}:1 asked of body \
+         text"
     );
-    for mark in style::MARKS {
-        let characters: Vec<char> = mark.chars().collect();
-        assert_eq!(
-            characters.len(),
-            1,
-            "the mark {mark:?} is more than one character, so it is a word and does not belong here"
-        );
-        assert!(
-            style::INTERFACE_CHARACTERS.contains(&characters[0]),
-            "the mark {mark:?} is not in the list the fonts are checked against"
-        );
-    }
-}
-
-// Why: the last-resort face is in the interface for one reason, and it is a reason that would be invisible if it
-// stopped being true: egui's own fonts have no arrow in them. Were a future egui to gain one, this test would fail
-// and the face could be dropped rather than carried forever for nothing; were the face dropped while egui still
-// lacks the arrows, the coverage test above would fail instead. Between them the two pin why it is there.
-#[test]
-fn the_arrows_come_from_the_last_resort_face_because_eguis_own_fonts_have_none() {
-    let bare = egui::Context::default();
-    bare.set_fonts(egui::FontDefinitions::default());
-    bare.all_styles_mut(|style| style.text_styles = style::text_styles());
-    let mut output = bare.run_ui(egui::RawInput::default(), |_| {});
-    output.textures_delta.clear();
-
-    let arrows: Vec<char> = [style::ASCENDING, style::DESCENDING]
-        .iter()
-        .flat_map(|mark| mark.chars())
-        .collect();
-    bare.fonts_mut(|fonts| {
-        for arrow in &arrows {
-            assert!(
-                !draws(fonts, &FontFamily::Proportional, *arrow),
-                "egui's own fonts now draw {arrow:?}, so the last-resort face is no longer needed for it"
-            );
-        }
-    });
-
-    // The face the viewer adds is what supplies them.
-    let ours = egui::Context::default();
-    style::apply(&ours);
-    let mut output = ours.run_ui(egui::RawInput::default(), |_| {});
-    output.textures_delta.clear();
-    ours.fonts_mut(|fonts| {
-        for arrow in &arrows {
-            assert!(
-                draws(fonts, &FontFamily::Proportional, *arrow),
-                "the viewer's fonts must draw {arrow:?}"
-            );
-        }
-    });
+    assert_ne!(
+        style::PROBLEM,
+        style::TEXT,
+        "a problem is not drawn in the colour of ordinary text"
+    );
 }

@@ -44,6 +44,7 @@ pub mod panel;
 pub mod problems;
 pub mod sidebar;
 pub mod style;
+pub mod widgets;
 
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use browse::{
