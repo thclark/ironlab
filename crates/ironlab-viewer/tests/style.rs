@@ -291,3 +291,23 @@ fn every_mark_the_interface_draws_is_one_of_the_listed_characters() {
         );
     }
 }
+
+// Why: a problem is the one line of the interface that must be read before anything else on the panel, so it is
+// drawn in a colour of its own; but a colour chosen for warmth rather than for contrast would be the least legible
+// text on the panel exactly where legibility matters most. egui's own error colour is pure red, which clears the
+// ratio and glares, so the viewer's colour is asked to clear the ratio asked of body text and to be plainly not the
+// ordinary text colour.
+#[test]
+fn problem_text_is_readable_against_the_panel_and_distinct_from_ordinary_text() {
+    let ratio = contrast_ratio(style::PROBLEM, style::BACKGROUND);
+    assert!(
+        ratio >= READABLE,
+        "problem text has a contrast ratio of {ratio:.2}:1 against the panel, below the {READABLE}:1 asked of body \
+         text"
+    );
+    assert_ne!(
+        style::PROBLEM,
+        style::TEXT,
+        "a problem is not drawn in the colour of ordinary text"
+    );
+}

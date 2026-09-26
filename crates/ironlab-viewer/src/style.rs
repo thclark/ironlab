@@ -77,6 +77,12 @@ pub const FOOT_FILL: Color32 = Color32::from_gray(25);
 /// The fill of the heading of a group in the browser's list.
 pub const GROUP_FILL: Color32 = Color32::from_rgb(32, 32, 34);
 
+/// The colour of a problem: the reason a draft of the parameters cannot be committed, or a change was refused.
+///
+/// A warm, desaturated red at a contrast ratio of 7.4:1 on [`BACKGROUND`], so that the line is the first thing
+/// read on the panel without glaring as egui's pure red does.
+pub const PROBLEM: Color32 = Color32::from_rgb(229, 146, 128);
+
 /// The surround the canvas draws a figure on: a neutral grey, lighter than the panel, so that the white page of a
 /// figure and the dark panels beside it both read as objects against it.
 pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);

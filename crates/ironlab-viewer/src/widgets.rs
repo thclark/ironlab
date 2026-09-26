@@ -5,11 +5,14 @@
 //!
 //! - **Four roles of text at three sizes** ([`Role`]). Words are set in the proportional face, data in the
 //!   monospaced one, and the scale has three steps: body, control, and label. Nothing names a size of its own.
-//! - **One icon vocabulary** ([`Icon`]), painted rather than typed: eight shapes at one size and one stroke, in
-//!   the colour of the text they stand beside. No mark depends on a font.
+//! - **One icon vocabulary** ([`Icon`]), painted rather than typed: a handful of shapes at one size and one
+//!   stroke, in the colour of the text they stand beside. No mark depends on a font.
 //! - **Three components** ([`Control`], [`Row`], [`field`]) and the frames they sit in. A button, a chip, a tag,
-//!   a tool and the control that reverses an order are one control; a row of the list, a heading, a menu entry
-//!   and a checkbox are one row.
+//!   a tool, a colour swatch and the control that reverses an order are one control; a row of the list, a
+//!   heading, a menu entry, a choice and a checkbox are one row; a field of words and a field of a number are one
+//!   field.
+//! - **One row for every property** ([`Property`]): a name, a control and a place for the restore control, in
+//!   three columns that every row shares, so that the property editor is read down its columns.
 //! - **Colour applied when painting, never when laying out.** Every galley is laid out in the placeholder colour
 //!   and painted with the colour of the widget's state, so hover, disabled and selected follow from one rule.
 //! - **One spacing table** ([`Spacing`]). Blocks and rows share a horizontal inset, so text in a row and text in a
@@ -142,6 +145,8 @@ pub enum Icon {
     Box {
         ticked: bool,
     },
+    /// A square of one colour: the colour a property holds, on the control that opens its picker.
+    Swatch(Color32),
 }
 
 impl Icon {
@@ -164,6 +169,7 @@ impl Icon {
             Self::Tick => "tick",
             Self::Box { ticked: true } => "ticked",
             Self::Box { ticked: false } => "unticked",
+            Self::Swatch(_) => "swatch",
         }
     }
 
@@ -250,6 +256,34 @@ impl Icon {
                     Self::Tick.paint(painter, slot, style::BRIGHT);
                 }
             }
+            Self::Swatch(fill) => {
+                // The colour is shown as it is, with the outline every control has, so that a colour close to the
+                // panel is still seen to be there. A colour with transparency is drawn over a chequer, because a
+                // wash over the panel would read as a darker opaque colour.
+                if fill.a() < 255 {
+                    let half = slot.width() / 2.0;
+                    let light = Color32::from_gray(90);
+                    let dark = Color32::from_gray(50);
+                    painter.rect_filled(slot, Spacing::RADIUS, dark);
+                    painter.rect_filled(
+                        Rect::from_min_size(slot.min, Vec2::splat(half)),
+                        0.0,
+                        light,
+                    );
+                    painter.rect_filled(
+                        Rect::from_min_size(slot.center(), Vec2::splat(half)),
+                        0.0,
+                        light,
+                    );
+                }
+                painter.rect(
+                    slot,
+                    Spacing::RADIUS,
+                    fill,
+                    Stroke::new(1.0, style::STROKE),
+                    StrokeKind::Inside,
+                );
+            }
         }
     }
 }
@@ -286,6 +320,24 @@ impl Spacing {
     pub const RADIUS: u8 = 2;
     /// The rounding of a well.
     pub const WELL_RADIUS: u8 = 4;
+    /// The width of the column of names in a property row. Every name is drawn within it and every control begins
+    /// where it ends, so that the controls of a node form one column however deeply their properties are nested.
+    pub const NAME_COLUMN: f32 = 104.0;
+    /// The indent of one level of nesting: in a tree, and among the properties of a group.
+    pub const INDENT: f32 = 12.0;
+    /// The least width the column of names keeps for its words, however deep the indent.
+    pub const NAME_MIN: f32 = 32.0;
+    /// The least width the column of controls keeps when the panel is too narrow to give every column its share.
+    /// The room a narrow panel needs is taken from the controls, which are still the same controls in less room,
+    /// rather than from the names, which are what make a row findable at all.
+    pub const CONTROL_MIN: f32 = 56.0;
+
+    /// The width of the column at the right of every property row that holds the restore control: the control
+    /// itself, which is one icon in a control's padding.
+    #[must_use]
+    pub fn restore_column() -> f32 {
+        Icon::SLOT + 2.0 * Self::CONTROL_PADDING.x
+    }
 
     /// A margin of `x` sideways and `y` above and below, in the whole points egui frames take.
     #[allow(clippy::cast_possible_truncation)]
@@ -453,6 +505,9 @@ pub struct Control<'a> {
     kind: egui::WidgetType,
     /// A width the control is given rather than takes from its words, as a combo box is.
     width: Option<f32>,
+    /// What the control is called in the accessibility tree when its words do not say enough: a control that is an
+    /// icon alone.
+    spoken: Option<String>,
 }
 
 impl<'a> Control<'a> {
@@ -476,6 +531,7 @@ impl<'a> Control<'a> {
             clickable: true,
             kind: egui::WidgetType::Button,
             width: None,
+            spoken: None,
         }
     }
 
@@ -538,9 +594,20 @@ impl<'a> Control<'a> {
         self
     }
 
-    /// The label of the control for the accessibility tree: its datum, its words, and the name of its icons.
+    /// Names the control in the accessibility tree, for a control whose words do not say enough.
+    #[must_use]
+    pub fn spoken(mut self, spoken: impl Into<String>) -> Self {
+        self.spoken = Some(spoken.into());
+        self
+    }
+
+    /// The label of the control for the accessibility tree: what it was told to say, or else its datum, its words,
+    /// and the name of its icons.
     #[must_use]
     pub fn label(&self) -> String {
+        if let Some(spoken) = &self.spoken {
+            return spoken.clone();
+        }
         let mut parts = Vec::new();
         if let Some(icon) = self.leading {
             parts.push(icon.name().to_owned());
@@ -711,7 +778,11 @@ pub fn combo<R>(
     egui::Popup::menu(&response)
         .id(salt)
         .width(width)
-        .show(add_contents)
+        .show(|ui| {
+            // The menu is a list of rows, each carrying its own padding, so nothing stands between them.
+            ui.spacing_mut().item_spacing.y = 0.0;
+            add_contents(ui)
+        })
         .map(|inner| inner.inner)
 }
 
@@ -793,7 +864,10 @@ pub struct RowState {
     pub selected: bool,
     pub striped: bool,
     pub band: bool,
+    /// The row is greyed and cannot be clicked: a value the filters leave nothing of.
     pub faded: bool,
+    /// The row is greyed and can still be clicked: a plot that is hidden, which is selected to be shown again.
+    pub dimmed: bool,
 }
 
 /// A row of a list or a menu. The rows of the figure list, the headings of its groups, the entries of the menu
@@ -804,6 +878,8 @@ pub struct Row<'a> {
     pub detail: Detail<'a>,
     pub leading: Leading,
     pub state: RowState,
+    /// How many levels of nesting the row stands in from the edge, each one [`Spacing::INDENT`].
+    pub depth: usize,
     /// What the row is called in the accessibility tree when its title and detail do not say enough, such as a
     /// heading whose trailing count needs its unit.
     pub spoken: Option<String>,
@@ -818,8 +894,16 @@ impl<'a> Row<'a> {
             detail,
             leading: Leading::None,
             state: RowState::default(),
+            depth: 0,
             spoken: None,
         }
+    }
+
+    /// Sets the row in from the edge by `depth` levels of nesting.
+    #[must_use]
+    pub fn indent(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
     }
 
     #[must_use]
@@ -894,7 +978,7 @@ impl<'a> Row<'a> {
             1.0
         };
         let hovered = response.hovered() && !self.state.faded;
-        let (fill, title_color, data_color) = if self.state.selected {
+        let (fill, mut title_color, data_color) = if self.state.selected {
             (
                 visuals.selection.bg_fill,
                 visuals.strong_text_color(),
@@ -925,6 +1009,9 @@ impl<'a> Row<'a> {
                 visuals.weak_text_color(),
             )
         };
+        if self.state.dimmed && !self.state.selected {
+            title_color = visuals.weak_text_color();
+        }
         let (title_color, data_color) = (
             title_color.gamma_multiply(fade),
             data_color.gamma_multiply(fade),
@@ -944,7 +1031,8 @@ impl<'a> Row<'a> {
             );
         }
 
-        let mut x = rect.min.x + Spacing::INSET;
+        #[allow(clippy::cast_precision_loss)]
+        let mut x = rect.min.x + Spacing::INSET + self.depth as f32 * Spacing::INDENT;
         let slot = |x: f32| {
             Rect::from_center_size(
                 egui::pos2(x + Icon::SLOT / 2.0, rect.center().y),
@@ -1003,6 +1091,453 @@ impl<'a> Row<'a> {
             }
         }
     }
+}
+
+// =====================================================================================================================
+// The property editor
+// =====================================================================================================================
+
+/// A heading: words that name what follows, in spaced capitals, with a datum at the right of the same line when
+/// there is one to give — the count of what follows, or the name of the node whose properties follow.
+///
+/// The words are read as they were written, not in the capitals they are spelled in, and the datum is read as a
+/// label of its own.
+pub fn heading(ui: &mut Ui, words: &str, datum: Option<&str>) -> Response {
+    block(ui, |ui| {
+        ui.horizontal(|ui| {
+            let response = label(ui, text(Role::Label, words));
+            if let Some(datum) = datum {
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    label(ui, text(Role::Data, datum));
+                });
+            }
+            response
+        })
+        .inner
+    })
+}
+
+/// A row of the property editor: the name of a property, a control that changes it, and a place for the control
+/// that takes the change back.
+///
+/// Every row is laid out in the same three columns, so that a panel of them is read down the columns: the name at
+/// the left, set in by how deeply the property is nested; the control in the column beside it, so that the controls
+/// of a node line up with one another; and the restore control in a column of its own at the right, which is
+/// reserved whether or not the row is changed, so that no control shifts sideways when a property becomes changed.
+///
+/// A property the reader has changed is marked by its name, drawn in the colour a chip draws the name of what it
+/// narrows: the one colour the interface uses for what the reader has chosen.
+#[derive(Clone, Debug)]
+pub struct Property<'a> {
+    name: &'a str,
+    depth: usize,
+    changed: bool,
+    striped: bool,
+    docs: Option<&'a str>,
+}
+
+/// What a property row reports: what its control returned, whether its restore control was clicked, and the
+/// response of its name, which a tooltip may be hung on.
+#[derive(Debug)]
+pub struct PropertyResponse<R> {
+    pub inner: R,
+    pub restore: bool,
+    pub name: Response,
+}
+
+impl<'a> Property<'a> {
+    #[must_use]
+    pub fn new(name: &'a str) -> Self {
+        Self {
+            name,
+            depth: 0,
+            changed: false,
+            striped: false,
+            docs: None,
+        }
+    }
+
+    /// How deeply the property is nested beneath the group it belongs to.
+    #[must_use]
+    pub fn depth(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    /// Whether the reader has changed the property, which marks its name and offers the restore control.
+    #[must_use]
+    pub fn changed(mut self, changed: bool) -> Self {
+        self.changed = changed;
+        self
+    }
+
+    /// Whether the row is one of the every-second rows drawn on the stripe.
+    #[must_use]
+    pub fn striped(mut self, striped: bool) -> Self {
+        self.striped = striped;
+        self
+    }
+
+    /// What the property means, shown when its name is hovered.
+    #[must_use]
+    pub fn docs(mut self, docs: &'a str) -> Self {
+        self.docs = Some(docs);
+        self
+    }
+
+    /// The height of every property row: a field, which is the tallest control a row holds, and a line's gap
+    /// above and below it.
+    #[must_use]
+    pub fn height(ui: &Ui) -> f32 {
+        field_height(ui) + 2.0 * Spacing::LINE_GAP
+    }
+
+    pub fn show<R>(self, ui: &mut Ui, control: impl FnOnce(&mut Ui) -> R) -> PropertyResponse<R> {
+        let height = Self::height(ui);
+        let width = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+        let visible = ui.is_rect_visible(rect);
+        if visible && self.striped {
+            ui.painter()
+                .rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
+        }
+
+        // The columns: the name takes its width, the restore control takes its width, and the control takes what is
+        // left, down to the least it keeps.
+        let restore_width = Spacing::restore_column();
+        let room = width - 2.0 * Spacing::INSET - 2.0 * Spacing::GAP;
+        let control_width = (room - Spacing::NAME_COLUMN - restore_width).max(Spacing::CONTROL_MIN);
+        let name_rect = Rect::from_min_size(
+            egui::pos2(rect.min.x + Spacing::INSET, rect.min.y),
+            egui::vec2(Spacing::NAME_COLUMN, height),
+        );
+        let control_rect = Rect::from_min_size(
+            egui::pos2(
+                name_rect.max.x + Spacing::GAP,
+                rect.min.y + Spacing::LINE_GAP,
+            ),
+            egui::vec2(control_width, height - 2.0 * Spacing::LINE_GAP),
+        );
+        let restore_rect = Rect::from_min_size(
+            egui::pos2(control_rect.max.x + Spacing::GAP, rect.min.y),
+            egui::vec2(restore_width, height),
+        );
+
+        // The name: set in by its depth, cut short to what is left of its column, and a label in the accessibility
+        // tree so that it can be found and hovered.
+        #[allow(clippy::cast_precision_loss)]
+        let indent =
+            (self.depth as f32 * Spacing::INDENT).min(Spacing::NAME_COLUMN - Spacing::NAME_MIN);
+        let name = ui.interact(
+            name_rect,
+            ui.id().with(("property", self.name, self.depth)),
+            Sense::hover(),
+        );
+        let words = self.name.to_owned();
+        name.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words.clone())
+        });
+        if visible {
+            let color = if self.changed {
+                style::CHIP_KEY
+            } else {
+                ui.visuals().weak_text_color()
+            };
+            let galley = text(Role::Data, self.name).galley(ui, Spacing::NAME_COLUMN - indent);
+            ui.painter().galley(
+                egui::pos2(
+                    name_rect.min.x + indent,
+                    name_rect.center().y - galley.size().y / 2.0,
+                ),
+                galley,
+                color,
+            );
+        }
+        let name = match self.docs {
+            Some(docs) => hint(name, docs),
+            None => name,
+        };
+
+        let inner = ui
+            .scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(control_rect)
+                    .layout(egui::Layout::left_to_right(Align::Center)),
+                |ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(Spacing::GAP, 0.0);
+                    control(ui)
+                },
+            )
+            .inner;
+
+        let restore = self.changed
+            && ui
+                .scope_builder(
+                    egui::UiBuilder::new().max_rect(restore_rect).layout(
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    ),
+                    |ui| {
+                        Control::new(text(Role::Control, ""), Face::Quiet)
+                            .before(Icon::Restore)
+                            .spoken(format!("restore {}", self.name))
+                            .show(ui)
+                            .clicked()
+                    },
+                )
+                .inner;
+
+        PropertyResponse {
+            inner,
+            restore,
+            name,
+        }
+    }
+}
+
+/// A checkbox on its own, in the column of controls: the box of a checked row, without a row. It is named in the
+/// accessibility tree by `spoken`, the name of what it changes, because it carries no caption of its own.
+pub fn checkbox(ui: &mut Ui, ticked: &mut bool, spoken: &str) -> Response {
+    let (rect, mut response) =
+        ui.allocate_exact_size(Vec2::splat(Spacing::CONTROL_HEIGHT), Sense::click());
+    if response.clicked() {
+        *ticked = !*ticked;
+        response.mark_changed();
+    }
+    let (enabled, state, words) = (ui.is_enabled(), *ticked, spoken.to_owned());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, state, words.clone())
+    });
+    if ui.is_rect_visible(rect) {
+        let slot = Rect::from_center_size(rect.center(), Vec2::splat(Icon::SLOT));
+        let painter = ui.painter();
+        Icon::Box { ticked: *ticked }.paint(painter, slot, ui.visuals().text_color());
+        if response.hovered() && !*ticked {
+            painter.rect_stroke(
+                slot,
+                Spacing::RADIUS,
+                Stroke::new(1.0, ui.visuals().weak_text_color()),
+                StrokeKind::Inside,
+            );
+        }
+    }
+    response
+}
+
+/// How a number field behaves: how far a point of pointer travel moves the value, the range the value is held to,
+/// and whether it is held to whole numbers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Number {
+    pub speed: f64,
+    pub range: Option<(f64, f64)>,
+    pub integer: bool,
+}
+
+impl Number {
+    /// A real number, moved by `speed` per point of pointer travel.
+    #[must_use]
+    pub fn real(speed: f64) -> Self {
+        Self {
+            speed,
+            range: None,
+            integer: false,
+        }
+    }
+
+    /// A whole number, moved by one per point of pointer travel.
+    #[must_use]
+    pub fn integer() -> Self {
+        Self {
+            speed: 1.0,
+            range: None,
+            integer: true,
+        }
+    }
+
+    /// Holds the value between `low` and `high`, inclusive.
+    #[must_use]
+    pub fn range(mut self, low: f64, high: f64) -> Self {
+        self.range = Some((low, high));
+        self
+    }
+}
+
+/// The height of a field: a line of body text in the field's padding.
+fn field_height(ui: &Ui) -> f32 {
+    ui.fonts_mut(|fonts| fonts.row_height(&Role::Body.font())) + 2.0 * Spacing::FIELD_PADDING.y
+}
+
+/// The outline of a field: the selection colour while it is being edited, the stroke colour otherwise.
+fn field_stroke(ui: &Ui, editing: bool) -> Stroke {
+    if editing {
+        ui.visuals().selection.stroke
+    } else {
+        Stroke::new(1.0, style::STROKE)
+    }
+}
+
+/// A number field as wide as the room it is given: a field that is dragged to change its value or clicked to type
+/// one, drawn in the frame of every other field so that a row of numbers and a row of words read as one kind of
+/// thing. A value typed beyond the range is held to it, and a fraction typed into a whole-number field is rounded.
+pub fn number(ui: &mut Ui, value: &mut f64, format: Number, id: egui::Id) -> Response {
+    let mut frame = egui::Frame::new()
+        .fill(style::FIELD)
+        .corner_radius(Spacing::RADIUS)
+        .inner_margin(Spacing::margin(
+            Spacing::FIELD_PADDING.x,
+            Spacing::FIELD_PADDING.y,
+        ))
+        .begin(ui);
+    let response = {
+        let ui = &mut frame.content_ui;
+        ui.set_width(ui.available_width());
+        // The drag value is drawn as words in the field rather than as the button egui makes of it: no face, no
+        // outline, no padding of its own, and the body font of every field.
+        let widgets = &mut ui.visuals_mut().widgets;
+        for state in [
+            &mut widgets.inactive,
+            &mut widgets.hovered,
+            &mut widgets.active,
+            &mut widgets.open,
+        ] {
+            state.weak_bg_fill = Color32::TRANSPARENT;
+            state.bg_fill = Color32::TRANSPARENT;
+            state.bg_stroke = Stroke::NONE;
+            state.expansion = 0.0;
+        }
+        ui.style_mut().drag_value_text_style = egui::TextStyle::Body;
+        ui.style_mut()
+            .text_styles
+            .insert(egui::TextStyle::Body, Role::Body.font());
+        ui.spacing_mut().button_padding = Vec2::ZERO;
+        let mut drag = egui::DragValue::new(value).speed(format.speed);
+        if let Some((low, high)) = format.range {
+            drag = drag.range(low..=high);
+        }
+        if format.integer {
+            drag = drag.fixed_decimals(0);
+        }
+        // The drag value takes an id of its own from the ui, so it is drawn under `id` to keep that stable
+        // whatever is drawn around it.
+        let response = ui.push_id(id, |ui| ui.add(drag)).inner;
+        if format.integer {
+            *value = value.round();
+        }
+        response
+    };
+    frame.frame.stroke = field_stroke(ui, response.has_focus() || response.dragged());
+    frame.end(ui);
+    response
+}
+
+/// The hex of a colour as a scientist writes it: `#RRGGBB`, and `#RRGGBBAA` when the colour is not opaque, so that
+/// an alpha is never hidden.
+#[must_use]
+pub fn hex(color: Color32) -> String {
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    if a == 255 {
+        format!("#{r:02X}{g:02X}{b:02X}")
+    } else {
+        format!("#{r:02X}{g:02X}{b:02X}{a:02X}")
+    }
+}
+
+/// A colour: a control carrying a swatch of it and its hex, which opens egui's picker beneath it when clicked. The
+/// response is marked changed when the picker changes the colour.
+pub fn swatch(ui: &mut Ui, color: &mut Color32, id: egui::Id) -> Response {
+    let words = hex(*color);
+    let mut response = Control::new(text(Role::Data, &words), Face::Raised)
+        .before(Icon::Swatch(*color))
+        .show(ui);
+    let picked = egui::Popup::menu(&response)
+        .id(id.with("picker"))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            egui::color_picker::color_picker_color32(
+                ui,
+                color,
+                egui::color_picker::Alpha::OnlyBlend,
+            )
+        })
+        .is_some_and(|inner| inner.inner);
+    if picked {
+        response.mark_changed();
+    }
+    response
+}
+
+/// A value that is read and not changed: quiet text, cut short to the room it has, standing where a control would.
+/// What it is and why it cannot be changed are hung on it with [`hint`].
+pub fn readout(ui: &mut Ui, text: Text<'_>) -> Response {
+    let galley = text.galley(ui, ui.available_width());
+    let height = galley.size().y.max(Spacing::CONTROL_HEIGHT);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::hover());
+    let words = text.words.to_owned();
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words.clone()));
+    if ui.is_rect_visible(rect) {
+        ui.painter().galley(
+            egui::pos2(rect.min.x, rect.center().y - galley.size().y / 2.0),
+            galley,
+            ui.visuals().weak_text_color(),
+        );
+    }
+    response
+}
+
+/// One choice in the menu of a combo box: a row that is marked when it is the one chosen, and greyed with the
+/// reason on hover when the figure would not act on it, so that a reader sees the value exists and reads what
+/// would make it available.
+pub fn choice(ui: &mut Ui, words: &str, selected: bool, unavailable: Option<&str>) -> Response {
+    let height = Row::height(ui, false);
+    let response = Row::new(text(Role::Body, words), Detail::None)
+        .state(RowState {
+            selected,
+            faded: unavailable.is_some(),
+            ..RowState::default()
+        })
+        .show(ui, height);
+    match unavailable {
+        Some(reason) => hint(response, reason),
+        None => response,
+    }
+}
+
+/// A problem: the sentence that says why something cannot be done, in the problem colour, wrapped to the room it
+/// has because it must be read whole.
+pub fn problem(ui: &mut Ui, words: &str) -> Response {
+    let mut job = LayoutJob::default();
+    job.append(words, 0.0, Role::Control.format());
+    job.wrap = egui::text::TextWrapping::wrap_at_width(ui.available_width());
+    let galley = ui.painter().layout_job(job);
+    let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
+    let spoken = words.to_owned();
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, spoken.clone()));
+    if ui.is_rect_visible(rect) {
+        ui.painter().galley(rect.min, galley, style::PROBLEM);
+    }
+    response
+}
+
+/// The width a tooltip wraps at: about sixty characters of control text, which is a sentence or two.
+const HINT_WIDTH: f32 = 260.0;
+
+/// Hangs `words` on a widget, to be shown while it is hovered: what a property means, why a value cannot be changed,
+/// what a control does. It is the one tooltip of the interface, so every explanation is set the same way.
+pub fn hint(response: Response, words: &str) -> Response {
+    let words = words.to_owned();
+    response.on_hover_ui(move |ui| {
+        ui.set_max_width(HINT_WIDTH);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(words)
+                    .font(Role::Control.font())
+                    .color(ui.visuals().text_color()),
+            )
+            .wrap(),
+        );
+    })
 }
 
 // =====================================================================================================================
