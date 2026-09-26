@@ -5,10 +5,11 @@
 //! below, both built by [`crate::inspector`] from the figure that is already composed, so
 //! that drawing the panel neither recomposes the overlay nor recompiles the scene.
 //!
-//! Everything here is drawn from [`crate::widgets`], as the figure browser is: the tree is
-//! rows, the inspector is a heading and a property row for every property, every control
-//! in a row is the widget of its kind, and the panel names no size, colour or padding of
-//! its own beyond the share of its height each part takes.
+//! The inspector and the foot are drawn from [`crate::widgets`], as the figure browser is:
+//! a heading and a property row for every property, every control in a row the widget of
+//! its kind, and no size, colour or padding of the panel's own beyond the share of its
+//! height each part takes. The object tree keeps egui's own collapsing headers and
+//! selectable labels beneath a heading of the same kind as the inspector's.
 //!
 //! A change made in the panel is committed through [`FigureState::try_record`], which
 //! records it in the overlay exactly as a gesture does, or refuses it and reports the
@@ -25,6 +26,7 @@
 //! from what it holds, so neither a long tree nor a long label in the foot can cover the
 //! properties.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
@@ -39,9 +41,8 @@ use crate::inspector::{
 };
 use crate::interaction::FigureState;
 use crate::widgets::{
-    Control, Detail, Face, Icon, Leading, Number, PanelKind, Property, Role, Row, RowState,
-    Spacing, checkbox, choice, combo, field, heading, hint, note, number, problem, readout, swatch,
-    text,
+    Control, Detail, Face, Icon, Number, PanelKind, Property, Role, Row, RowState, Spacing,
+    checkbox, choice, combo, field, heading, hint, note, number, problem, readout, swatch, text,
 };
 
 /// The identifier egui lays the object tree out under. It is named here so that the
@@ -243,29 +244,29 @@ fn footer(ui: &mut egui::Ui, state: &mut FigureState) -> bool {
 // The object tree
 // ---------------------------------------------------------------------------------
 
-/// Draws the figure, its axes and their artists as a collapsible tree of rows, and
-/// selects the node whose row is clicked.
+/// Draws the figure, its axes and their artists as a collapsible tree, and selects the
+/// node whose row is clicked.
 ///
-/// A row that has rows beneath it carries a disclosure triangle; clicking the triangle
-/// opens or closes it, and clicking anywhere else on the row selects the node. A hidden
-/// plot is drawn dimmed and can still be selected, which is how it is shown again.
+/// The tree is drawn as it always was, with egui's own collapsing headers and selectable
+/// labels in the context's own spacing, beneath the heading the rest of the panel shares.
 fn object_tree(ui: &mut egui::Ui, state: &mut FigureState) {
     heading(ui, "Objects", None);
     let rows = tree_rows(state.figure());
     let selection = state.selection();
-    let mut clicked = None;
+    let clicked: Cell<Option<NodeId>> = Cell::new(None);
     egui::ScrollArea::vertical()
         .id_salt("ironlab_object_tree_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            let height = Row::height(ui, false);
+            // The context's own style, before the panel compacted it for the widgets.
+            let theme = ui.ctx().theme();
+            *ui.style_mut() = (*ui.ctx().style_of(theme)).clone();
             let mut index = 0;
             while index < rows.len() {
-                index = subtree(ui, &rows, index, selection, height, &mut clicked);
+                index = subtree(ui, &rows, index, selection, &clicked);
             }
         });
-    if let Some(node) = clicked {
+    if let Some(node) = clicked.get() {
         state.select(Some(node));
     }
 }
@@ -276,63 +277,49 @@ fn subtree(
     rows: &[TreeRow],
     index: usize,
     selection: Option<NodeId>,
-    height: f32,
-    clicked: &mut Option<NodeId>,
+    clicked: &Cell<Option<NodeId>>,
 ) -> usize {
     let row = &rows[index];
     let end = rows[index + 1..]
         .iter()
         .position(|other| other.depth <= row.depth)
         .map_or(rows.len(), |offset| index + 1 + offset);
-    let has_children = index + 1 < end;
+    if index + 1 == end {
+        tree_label(ui, row, selection, clicked);
+        return index + 1;
+    }
     let id = ui.make_persistent_id(("ironlab_tree", row.node.0));
-    let open = has_children && ui.ctx().data_mut(|data| *data.get_temp_mut_or(id, true));
-    let leading = if has_children {
-        Leading::Disclosure { open }
-    } else {
-        Leading::None
-    };
-    let response = Row::new(text(Role::Body, &row.label), Detail::None)
-        .leading(leading)
-        .indent(row.depth)
-        .state(RowState {
-            selected: selection == Some(row.node),
-            dimmed: row.dimmed,
-            ..RowState::default()
-        })
-        .show(ui, height);
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+        .show_header(ui, |ui| tree_label(ui, row, selection, clicked))
+        .body(|ui| {
+            let mut next = index + 1;
+            while next < end {
+                next = subtree(ui, rows, next, selection, clicked);
+            }
+        });
+    end
+}
+
+/// Draws one selectable row of the tree.
+fn tree_label(
+    ui: &mut egui::Ui,
+    row: &TreeRow,
+    selection: Option<NodeId>,
+    clicked: &Cell<Option<NodeId>>,
+) {
+    let mut text = egui::RichText::new(&row.label);
+    if row.dimmed {
+        text = text.color(ui.visuals().weak_text_color());
+    }
+    let response = ui.selectable_label(selection == Some(row.node), text);
     let response = if row.dimmed {
-        hint(response, "This plot is hidden.")
+        response.on_hover_text("This plot is hidden.")
     } else {
         response
     };
     if response.clicked() {
-        // A click on the triangle opens or closes the rows beneath; a click anywhere else
-        // on the row selects the node.
-        #[allow(clippy::cast_precision_loss)]
-        let triangle = response.rect.min.x
-            + Spacing::INSET
-            + row.depth as f32 * Spacing::INDENT
-            + Icon::SLOT
-            + Spacing::GAP;
-        let on_triangle = has_children
-            && response
-                .interact_pointer_pos()
-                .is_some_and(|pointer| pointer.x < triangle);
-        if on_triangle {
-            ui.ctx().data_mut(|data| data.insert_temp(id, !open));
-        } else {
-            *clicked = Some(row.node);
-        }
+        clicked.set(Some(row.node));
     }
-    if !open {
-        return end;
-    }
-    let mut next = index + 1;
-    while next < end {
-        next = subtree(ui, rows, next, selection, height, clicked);
-    }
-    end
 }
 
 // ---------------------------------------------------------------------------------
