@@ -8,13 +8,20 @@ to ten minutes after a deploy a browser can combine the new HTML with a styleshe
 it cached from the previous one.
 
 The gallery makes this matter more than it would elsewhere: every release renders
-each figure again under the same file name, so a cached ``surf.png`` or
-``surf.pdf`` can outlive the figure it shows.
+each figure again under the same file name, so a cached ``surf.png``,
+``surf.pdf`` or ``surf.fig`` can outlive the figure it shows.
 
 This rewrites every ``href``/``src`` in the built HTML that resolves to a
-stylesheet, script, image, font or PDF inside the site to ``...?v=<hash>``, the
-first eight hex digits of the file's SHA-256. A changed file gets a new URL; an
-unchanged one keeps its URL and its cache entry.
+stylesheet, script, image, font, PDF, figure file or WebAssembly module inside
+the site to ``...?v=<hash>``, the first eight hex digits of the file's SHA-256. A
+changed file gets a new URL; an unchanged one keeps its URL and its cache entry.
+
+Only references written in the HTML are stamped. The browser bundle's own
+references, from ``embed/ironlab.js`` to ``ironlab_core.js`` and from there to
+``ironlab_core_bg.wasm``, are stamped by scripts/build-web.sh with the hash of
+the module, inside ``ironlab.js``, so the HTML's reference to ``ironlab.js`` is
+the only one of the bundle's this script needs to stamp: a changed module
+changes ``ironlab.js`` and therefore its hash here.
 
 Usage:
 
@@ -37,7 +44,22 @@ from urllib.parse import unquote
 
 HREF = re.compile(r'((?:href|src)=")([^"]+)(")')
 SKIP_PREFIXES = ("http://", "https://", "//", "#", "mailto:", "data:", "javascript:")
-ASSET_SUFFIXES = (".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".pdf")
+ASSET_SUFFIXES = (
+    ".css",
+    ".js",
+    ".svg",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".pdf",
+    ".fig",
+    ".wasm",
+)
 
 
 def resolve(site_dir: str, page: str, link: str) -> str:

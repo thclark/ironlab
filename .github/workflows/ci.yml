@@ -159,6 +159,8 @@ jobs:
         with:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@v2
+      # The site serves the browser bundle at /embed/ and the gallery pages load it, so the docs build compiles it.
+      - uses: ./.github/actions/setup-web
       - uses: astral-sh/setup-uv@v6
       - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - run: scripts/build-docs.sh

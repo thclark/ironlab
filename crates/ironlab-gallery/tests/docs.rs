@@ -83,7 +83,17 @@ fn escaped_link_text(title: &str) -> String {
     title.replace('[', "\\[").replace(']', "\\]")
 }
 
-/// Checks that every link and image target in every generated page resolves to a generated file.
+/// The hand-written documentation directory of the repository, `docs/`, which the generated gallery is published
+/// under at `docs/gallery/`.
+fn repository_docs_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs")
+}
+
+/// Checks that every link and image target in every generated page resolves to a file.
+///
+/// Zensical resolves Markdown links and the `href` and `src` attributes of raw HTML alike against the page's source
+/// file, so a target is a file of the gallery directory, or, when it climbs out of it with `../`, a hand-written
+/// page of the repository's `docs/` directory.
 fn assert_links_resolve(out_dir: &Path, pages: &[&str]) {
     let mut broken = Vec::new();
     for page in pages {
@@ -92,7 +102,11 @@ fn assert_links_resolve(out_dir: &Path, pages: &[&str]) {
         assert!(!targets.is_empty(), "{page} has no links");
         for target in targets.iter().filter(|t| !is_external(t)) {
             let path = target.split('#').next().unwrap_or_default();
-            if !out_dir.join(path).is_file() {
+            let file = match path.strip_prefix("../") {
+                Some(outside) => repository_docs_dir().join(outside),
+                None => out_dir.join(path),
+            };
+            if !file.is_file() {
                 broken.push(format!("{page}: {target}"));
             }
         }
@@ -231,18 +245,69 @@ fn each_page_embeds_the_exact_source_in_a_rust_fence() {
             "the page of {} does not show its exact source",
             entry.slug
         );
-        assert!(
-            page.contains(&format!(
-                "[![{}]({}.png)]({}.pdf)",
-                escaped_link_text(entry.title),
-                entry.slug,
-                entry.slug
-            )),
-            "the page of {} does not show its own image linked to its own PDF",
-            entry.slug
-        );
     }
     assert!(read(&out.join("first.md")).contains(synthetic_entries()[0].description));
+}
+
+/// WHY: an entry page shows its figure live, drawn in the browser by `<ironlab-figure>`, with the still image linked
+/// to the PDF as the content the element falls back to. The block is HTML that Python-Markdown must pass through
+/// verbatim: with the `markdown` attribute the element would be processed as Markdown and, being unknown to the
+/// parser, wrapped in a paragraph. Its URLs are relative to the source file, because zensical rewrites the attributes
+/// of raw HTML exactly as it rewrites Markdown links, so a URL that climbed out of the gallery directory would land
+/// one level too high in the built site. The exact block is asserted so that none of this can drift.
+#[test]
+fn each_page_embeds_its_live_figure_over_its_image_and_pdf() {
+    let out = generate_synthetic("docs-live");
+    let entries = synthetic_entries();
+    let page = read(&out.join("first.md"));
+    let expected = "<div class=\"ironlab-figure\">\n\
+                    <ironlab-figure src=\"first.fig\" name=\"first\" alt=\"First [entry]\">\n\
+                    <a href=\"first.pdf\"><img alt=\"First [entry]\" src=\"first.png\"></a>\n\
+                    </ironlab-figure>\n\
+                    </div>\n";
+    assert!(
+        page.contains(expected),
+        "the page of first does not embed its live figure over its image and PDF:\n{page}"
+    );
+    assert!(
+        !page.contains("<div class=\"ironlab-figure\" markdown>"),
+        "the figure block must not carry the markdown attribute"
+    );
+    assert!(
+        page.contains("[embed a figure of your own](../guides/embedding.md)"),
+        "the page does not point at the embedding guide"
+    );
+    assert!(
+        page.contains(&format!("[Download the PDF]({}.pdf)", entries[0].slug)),
+        "the page does not link the PDF as a Markdown link"
+    );
+    let index = read(&out.join("index.md"));
+    assert!(
+        !index.contains("<ironlab-figure"),
+        "the index keeps static thumbnails, because a grid of live figures would exhaust the browser's contexts"
+    );
+}
+
+/// WHY: the element's `alt` is an HTML attribute, so a title holding a quote or an ampersand must be escaped for an
+/// attribute, or the markup breaks at the first quote.
+#[test]
+fn the_alt_of_the_live_figure_is_escaped_for_an_attribute() {
+    let entry = GalleryEntry {
+        slug: "quoted",
+        title: "Say \"hi\" & <wave>",
+        description: "A title with characters that HTML attributes cannot hold literally.",
+        source: "pub fn figure() -> Figure {\n    Figure::new()\n}\n",
+        build: first,
+    };
+    let page = entry_markdown(&entry);
+    assert!(
+        page.contains("alt=\"Say &quot;hi&quot; &amp; &lt;wave&gt;\""),
+        "the alt attribute is not escaped:\n{page}"
+    );
+    assert!(
+        !page.contains("alt=\"Say \"hi\""),
+        "a quote in the title ends the attribute early"
+    );
 }
 
 /// WHY: a reader who copies an example that uses `crate::fields` needs to find those functions, but a page whose code
@@ -318,6 +383,58 @@ fn stylesheet_is_written_beside_the_gallery_directory() {
     assert!(GALLERY_CSS.contains(".card"));
 }
 
+/// WHY: the element colours its chrome from `--ironlab-*` tokens whose defaults follow the reader's system colour
+/// scheme, not the site's, so a light site read on a dark desktop would carry a dark figurebar unless the site maps
+/// its own scheme onto every token. The mapping must cover the light scheme (the body of a site without a palette
+/// toggle carries no scheme attribute) and the slate scheme, and it must name every token the element declares: a
+/// token left out keeps the element's own default and clashes with the rest.
+#[test]
+fn the_stylesheet_maps_both_site_colour_schemes_onto_every_token_of_the_element() {
+    const TOKENS: [&str; 13] = [
+        "--ironlab-bg",
+        "--ironlab-text",
+        "--ironlab-weak",
+        "--ironlab-widget",
+        "--ironlab-widget-hover",
+        "--ironlab-stroke",
+        "--ironlab-accent",
+        "--ironlab-accent-text",
+        "--ironlab-selection",
+        "--ironlab-problem",
+        "--ironlab-canvas-bg",
+        "--ironlab-font",
+        "--ironlab-mono",
+    ];
+    let block = |selector: &str| -> String {
+        let start = GALLERY_CSS
+            .find(selector)
+            .unwrap_or_else(|| panic!("the stylesheet has no rule {selector}"));
+        let rest = &GALLERY_CSS[start..];
+        let end = rest.find('}').expect("the rule is closed");
+        rest[..end].to_owned()
+    };
+    for selector in [
+        "body:not([data-md-color-scheme=\"slate\"]) ironlab-figure {",
+        "body[data-md-color-scheme=\"slate\"] ironlab-figure {",
+    ] {
+        let rule = block(selector);
+        for token in TOKENS {
+            assert!(
+                rule.contains(&format!("{token}:")),
+                "{selector} does not map {token}"
+            );
+        }
+        assert!(
+            rule.contains("var(--md-"),
+            "{selector} does not take its colours from the theme"
+        );
+    }
+    assert!(
+        GALLERY_CSS.contains(".ironlab-figure ironlab-figure {"),
+        "the element is not given a block box of its own"
+    );
+}
+
 /// WHY: the entry page shows a full-resolution image and the index a thumbnail at a lower resolution that is still
 /// sharp at its displayed width, so that the index stays light while each page is sharp; each asset must be rendered
 /// from its own figure at the right resolution.
@@ -347,6 +464,11 @@ fn assets_are_rendered_from_their_figure_at_the_configured_resolutions() {
             FakeRenderer::pdf_bytes(&figure),
             "{slug}.pdf is not the export of its figure"
         );
+        assert_eq!(
+            fs::read(out.join(format!("{slug}.fig"))).unwrap(),
+            figure.to_protobuf(),
+            "{slug}.fig is not the Protocol Buffers encoding of its figure, which the live figure loads"
+        );
     }
 }
 
@@ -362,6 +484,7 @@ fn stale_files_are_removed_and_the_keep_file_is_preserved() {
         "renamed.png",
         "renamed-thumb.png",
         "renamed.pdf",
+        "renamed.fig",
         "notes.txt",
     ] {
         fs::write(out.join(stale), "stale").unwrap();
@@ -480,8 +603,8 @@ fn the_real_gallery_generates_complete_pages() {
     );
     assert_eq!(
         report.assets.len(),
-        entries.len() * 3,
-        "a PNG, a thumbnail and a PDF per entry"
+        entries.len() * 4,
+        "a PNG, a thumbnail, a PDF and a .fig file per entry"
     );
 
     let index = read(&out.join("index.md"));

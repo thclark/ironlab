@@ -405,7 +405,7 @@ let fig = Figure::load("pressure.fig.json")?;
 
 Extensions are matched without regard to case. Any other extension, or none, makes `save` and `load` fail with `Error::UnsupportedFormat`, without writing or reading a file. `save_json` and `load_json` write and read JSON whatever the extension, and `to_protobuf` and `from_protobuf` convert a figure to and from the bytes of a `.fig` file, for example to send it to another process.
 
-A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. The viewer writes the same two formats, in the same way, with its [Save figure…](viewer.md#saving-the-figure) button. A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
+A figure is saved even if it has validation errors, so that it can be inspected or repaired later. Loading fails with `Error::Ir` if the file declares an incompatible schema version or does not describe a figure in the format of its extension. The viewer writes the same two formats, in the same way, with its [Save figure…](viewer.md#saving-the-figure) button, and the `<ironlab-figure>` element reads both to show a figure live in a web page, as described in [embedding figures in a web page](embedding.md). A loaded figure can be extended with the same builder methods as a new one. Properties that the builder does not cover are reached through `fig.ir_mut()`, which returns the underlying figure model.
 
 ## Exporting PDF
 
@@ -507,7 +507,7 @@ Set the size of the figure to the size it should have on the printed page, for e
 \end{figure}
 ```
 
-Including the figure unscaled keeps text at the font size set in IronLAB, so a 9 pt label is 9 pt on the page. Passing `width=` or `scale=` to `\includegraphics` rescales the text and line widths with the rest of the figure. The PDF works with pdfLaTeX, XeLaTeX and LuaLaTeX, none of which need the `--shell-escape` option to include it.
+Including the figure unscaled keeps text at the font size set in IronLAB, so a 9 pt label is 9 pt on the page. Passing `width=` or `scale=` to `\includegraphics` rescales the text and line widths with the rest of the figure. The PDF works with pdfLaTeX, XeLaTeX and LuaLaTeX, none of which need the `--shell-escape` option to include it. A publication that is also read on the web can carry the figure itself beside the PDF, so that a reader explores it and exports the same PDF from the page; see [embedding figures in a web page](embedding.md).
 
 ## Running without a graphics device
 
@@ -532,9 +532,11 @@ The `WGPU_BACKEND` environment variable selects a backend (`vulkan`, `metal`, `d
 
 With no adapter at all, an export that only needs to verify a three-dimensional axes still succeeds: the axes is written back to front and the report carries an `Unverified` warning whose message names the missing adapter and the remedy. An export that must draw an image, because the options force one or a dense surface needs one, fails with the same message rather than writing something else.
 
+In the browser the graphics device is the browser's own, through WebGPU or, failing that, WebGL2, and a figure [embedded in a web page](embedding.md) needs one of the two: without either, the page keeps the still image the author placed in the element instead of drawing the live figure. The live figures of the [gallery](../gallery/index.md) need one of them for the same reason.
+
 ## Opening the viewer
 
-There are three ways to open figures in the interactive viewer, whose controls are described in [using the viewer](viewer.md).
+There are three ways to open figures in the interactive viewer, whose controls are described in [using the viewer](viewer.md). When more than one figure is open, the viewer shows one at a time and its [figure browser](viewer.md#the-figure-browser) narrows the collection down to the one to look at.
 
 - **From a program.** `fig.show()` opens the figure in a window and blocks until the window is closed. It consumes the figure; save or export it first if it is needed afterwards. On macOS the window must be opened from the main thread, so `show` is called from `main` or code that `main` calls directly.
 
@@ -542,13 +544,13 @@ There are three ways to open figures in the interactive viewer, whose controls a
     fig.show()?;
     ```
 
-- **From saved files.** The viewer binary opens one or more `.fig` or `.json` files, one tab per file, choosing the format of each file from its extension:
+- **From saved files.** The viewer binary opens one or more `.fig` or `.json` files, choosing the format of each file from its extension:
 
     ```sh
     cargo run -p ironlab-viewer -- pressure.fig velocity.fig.json
     ```
 
-- **From the gallery.** The gallery binary opens every example figure, one tab per figure, or only the figures whose slugs are given:
+- **From the gallery.** The gallery binary opens every example figure, or only the figures whose slugs are given:
 
     ```sh
     cargo run -p ironlab-gallery -- view
@@ -556,3 +558,5 @@ There are three ways to open figures in the interactive viewer, whose controls a
     ```
 
 The gallery binary also writes the PDF, `.fig` file, `.fig.json` file and PNG image of every example into a directory with `cargo run -p ironlab-gallery -- export <dir>`.
+
+A saved figure can also be shown live in a web page, where a reader explores it with the viewer's own gestures without installing anything, as described in [embedding figures in a web page](embedding.md).

@@ -45,6 +45,8 @@ jobs:
         with:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@v2
+      # The site serves the browser bundle at /embed/ and the gallery pages load it, so the docs build compiles it.
+      - uses: ./.github/actions/setup-web
       - uses: astral-sh/setup-uv@v6
       # The gallery images are rendered offscreen through wgpu; lavapipe provides a software Vulkan adapter.
       - name: Install a software Vulkan adapter
