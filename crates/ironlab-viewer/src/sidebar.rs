@@ -10,8 +10,8 @@
 //!   caption, opens beneath it a list of the parameters worth filtering on, most useful first, and then of that
 //!   parameter's values with the count each would leave. The menu pushes the controls and the list down rather
 //!   than floating over them, so it stays open while values are chosen one at a time, and "Done" shuts it. What
-//!   has been chosen reads back as a row of chips beneath the menu, where their coming and going cannot move it,
-//!   and clicking a chip takes it away.
+//!   has been chosen reads back as a row of chips beneath the menu, where their coming and going cannot move it;
+//!   clicking a chip takes it away, and "Clear all", beside "Edit", takes every one away.
 //! - **Every setting has a row of its own.** The filters, the order and the grouping are each a caption at the left
 //!   of a row and a control at the right, so that the three are read the same way.
 //! - **The search field is the whole of it for anyone who would rather type.** `rig:CFD angle>=8 -stalled` does what
@@ -115,10 +115,11 @@ const CHIP_PADDING: egui::Margin = egui::Margin::symmetric(7, 2);
 /// of the chip, because the cross is a small glyph and at their size it reads as a speck.
 const REMOVE_MARK_SIZE_PT: f32 = 14.0;
 
-/// The size of a mark drawn from the mathematical face beside the caption of a control, in points: the arrow on the
-/// control that reverses the order and the revert mark on the control that clears the filters. It is a size below
-/// the caption, because that face stands its arrows taller than the letters of the interface at one size.
-const MARK_SIZE_PT: f32 = 11.0;
+/// How far below the size of its words a mark beside the caption of a control is set, in points: the arrow on the
+/// control that reverses the order, and the marks on the controls of the "Filters" row. The arrow comes from the
+/// mathematical face, which stands its arrows taller than the letters of the interface at one size, and the other
+/// marks follow it so that every button's mark sits alike beside its words.
+const MARK_STEP_PT: f32 = 1.5;
 
 /// The room between the edge of a text field and its text, in egui points.
 const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
@@ -388,7 +389,10 @@ fn controls(
         ui.horizontal(|ui| {
             caption(ui, "FILTERS");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Laid out from the right edge inwards: Edit at the edge, and Clear all beside it when there is
+                // anything to clear.
                 edit_filters_button(ui, browser);
+                clear_all_button(ui, browser);
             });
         });
     });
@@ -477,12 +481,12 @@ fn tip(ui: &mut egui::Ui) {
 fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let open = browser.menu != Menu::Closed;
     let mark = if open { style::COLLAPSE } else { style::EXPAND };
-    let text = format!("{mark} Edit");
-    let response = ui.button(&text).on_hover_text(if open {
+    let response = marked_button(ui, mark, "Edit").on_hover_text(if open {
         "Shut the menu, keeping what has been chosen."
     } else {
         "Narrow the list by one of the figures' parameters."
     });
+    let text = format!("{mark} Edit");
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, text.clone())
     });
@@ -1015,7 +1019,7 @@ fn histogram(
     }
 }
 
-/// Draws one chip per filter, and the control that takes them all back.
+/// Draws one chip per filter.
 ///
 /// A chip names the parameter in small monospaced text and what it was narrowed to in ordinary text, and carries
 /// [`crate::style::REMOVE`] to say that clicking it takes the filter away. The words are what the chip means; the
@@ -1043,23 +1047,34 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     if let Some(key) = remove {
         browser.browse.remove(&key);
     }
-    if !browser.browse.filters.is_empty() {
-        let caption = format!("{} Clear all", style::REVERT);
-        let response = ui
-            .add(egui::Button::new(marked_caption(
-                ui,
-                "",
-                style::REVERT,
-                " Clear all",
-            )))
-            .on_hover_text("Remove every filter.");
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone())
-        });
-        if response.clicked() {
-            browser.browse.filters.clear();
-        }
+}
+
+/// Draws the control that takes every filter away, beside "Edit" on the "Filters" row, when there is a filter to
+/// take away. It is drawn by the same hand as "Edit", with [`crate::style::REVERT`] before its words.
+fn clear_all_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
+    if browser.browse.filters.is_empty() {
+        return;
     }
+    let response =
+        marked_button(ui, style::REVERT, "Clear all").on_hover_text("Remove every filter.");
+    let caption = format!("{} Clear all", style::REVERT);
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone()));
+    if response.clicked() {
+        browser.browse.filters.clear();
+    }
+}
+
+/// Draws a button of the "Filters" row: a mark, then its caption, the mark set a size down and centred on the
+/// caption's row so that the marks of the row's buttons all sit alike beside their words.
+fn marked_button(ui: &mut egui::Ui, mark: &str, text: &str) -> egui::Response {
+    ui.add(egui::Button::new(marked_caption(
+        ui,
+        egui::TextStyle::Button.resolve(ui.style()),
+        "",
+        mark,
+        &format!(" {text}"),
+    )))
 }
 
 /// The colours a chip is drawn in: its fill, its fill under the pointer, its outline, the name of its parameter and
@@ -1181,25 +1196,37 @@ fn direction_text(ui: &egui::Ui, descending: bool) -> LayoutJob {
     } else {
         ("Ascending ", style::ASCENDING)
     };
-    marked_caption(ui, word, arrow, "")
+    // The caption is set at the size of the combo box beside it, which shares its row.
+    marked_caption(
+        ui,
+        egui::FontId::proportional(style::COMBO_SIZE_PT),
+        word,
+        arrow,
+        "",
+    )
 }
 
-/// The caption of a button that carries a mark from the mathematical face among its words: the words before the
-/// mark, the mark itself, and the words after it, with the mark at [`MARK_SIZE_PT`] and centred on the row of the
-/// words.
+/// The caption of a button that carries a mark among its words: the words before the mark, the mark itself, and
+/// the words after it, the words in `font_id` and the mark [`MARK_STEP_PT`] smaller and centred on their row.
 ///
-/// That face stands its marks taller than the interface's letters at one size; set a size down and centred, a
-/// mark sits beside its words rather than above them.
-fn marked_caption(ui: &egui::Ui, before: &str, mark: &str, after: &str) -> LayoutJob {
+/// The mathematical face stands its marks taller than the interface's letters at one size; set a step down and
+/// centred, a mark sits beside its words rather than above them.
+fn marked_caption(
+    ui: &egui::Ui,
+    font_id: egui::FontId,
+    before: &str,
+    mark: &str,
+    after: &str,
+) -> LayoutJob {
     let color = ui.visuals().widgets.inactive.fg_stroke.color;
-    let words = egui::TextFormat {
-        font_id: egui::TextStyle::Button.resolve(ui.style()),
+    let marked = egui::TextFormat {
+        font_id: egui::FontId::proportional(font_id.size - MARK_STEP_PT),
         color,
         valign: egui::Align::Center,
         ..Default::default()
     };
-    let marked = egui::TextFormat {
-        font_id: egui::FontId::proportional(MARK_SIZE_PT),
+    let words = egui::TextFormat {
+        font_id,
         color,
         valign: egui::Align::Center,
         ..Default::default()
@@ -1226,9 +1253,9 @@ fn combo_width(ui: &egui::Ui) -> f32 {
             .size()
             .x
     };
-    let button = egui::TextStyle::Button.resolve(ui.style());
-    let direction = measure(&direction_caption(true), button.clone())
-        .max(measure(&direction_caption(false), button))
+    let font = egui::FontId::proportional(style::COMBO_SIZE_PT);
+    let direction = measure(&direction_caption(true), font.clone())
+        .max(measure(&direction_caption(false), font))
         + 2.0 * ui.spacing().button_padding.x;
     let caption = measure("GROUP", caption_font()).max(measure("SORT", caption_font()));
     let room = ui.available_width() - caption - direction - 2.0 * ui.spacing().item_spacing.x;

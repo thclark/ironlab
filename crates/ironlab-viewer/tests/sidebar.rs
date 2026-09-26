@@ -493,7 +493,7 @@ fn the_chips_sit_beneath_the_menu_so_that_it_holds_still_as_filters_change() {
 }
 
 // Why: the control that takes every filter away is a control like Edit, not an afterthought beside the chips, so it
-// is drawn as Edit is and says what it does in full; the revert mark beside its words is the same mark that takes
+// stands beside Edit, is drawn as Edit is and says what it does in full; the revert mark beside its words is the same mark that takes
 // back a change in the property editor, so that taking back reads the same way everywhere.
 #[test]
 fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
@@ -515,6 +515,16 @@ fn clear_all_takes_every_filter_away_and_carries_the_revert_mark() {
             .label()
             .is_some_and(|label| label.contains(ironlab_viewer::style::REVERT)),
         "the control carries the revert mark beside its words"
+    );
+    let edit = edit_filters(&harness).rect();
+    let rect = clear.rect();
+    assert!(
+        (rect.center().y - edit.center().y).abs() < 1.0 && rect.right() <= edit.left(),
+        "and stands on the Filters row, beside Edit: {rect:?} and {edit:?}"
+    );
+    assert!(
+        (rect.height() - edit.height()).abs() < 0.5,
+        "drawn as Edit is drawn: {rect:?} and {edit:?}"
     );
     clear.click();
     harness.run();
@@ -903,6 +913,65 @@ fn the_browser_paints_no_character_outside_the_listed_ones() {
                 );
             }
         }
+    }
+}
+
+// Why: the control that reverses the order shares its row with a combo box, and a caption a size smaller than the
+// text beside it reads as a different kind of control. The two are set at one size, which only what is painted can
+// show.
+#[test]
+fn the_order_control_is_set_at_the_size_of_the_combo_box_beside_it() {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let cards: Vec<ironlab_viewer::browse::FigureCard> = campaign()
+        .into_iter()
+        .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
+        .collect();
+    let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut sizes: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            ironlab_viewer::figure_browser(ui, &mut browser, &cards, 0);
+        });
+        output.textures_delta.clear();
+        sizes.clear();
+        for clipped in &output.shapes {
+            collect_text_sizes(&clipped.shape, &mut sizes);
+        }
+    }
+    let order = sizes
+        .get("Ascending ↑")
+        .copied()
+        .expect("the order control is painted");
+    let combo = sizes
+        .get("Title")
+        .copied()
+        .expect("the combo box is painted");
+    assert!(
+        (order - combo).abs() < 0.01,
+        "the order control's words are set at {order} pt and the combo box's at {combo} pt"
+    );
+}
+
+/// Adds the size of the first word of every run of text in a shape, and in the shapes it holds, to `sizes`.
+fn collect_text_sizes(shape: &egui::Shape, sizes: &mut std::collections::BTreeMap<String, f32>) {
+    match shape {
+        egui::Shape::Text(text) => {
+            if let Some(section) = text.galley.job.sections.first() {
+                sizes.insert(text.galley.text().to_owned(), section.format.font_id.size);
+            }
+        }
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_text_sizes(shape, sizes);
+            }
+        }
+        _ => {}
     }
 }
 
