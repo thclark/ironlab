@@ -8,11 +8,14 @@
 //!
 //! # The raster comes from the viewer's renderer
 //!
-//! This crate never rasterises anything itself. The caller supplies a [`Rasteriser`], and the only implementation is
-//! the viewer's headless GPU renderer (`ironlab_viewer::offscreen::OffscreenRenderer`), which tessellates and draws a
-//! display list exactly as the interactive canvas does. The exported image is therefore the picture the user
-//! inspected on screen, at print resolution, rather than the output of a second rasteriser that would drift from it.
-//! Without a rasteriser, dense content is drawn as vector geometry whatever the policy says.
+//! This crate never rasterises anything itself. The caller either supplies a [`Rasteriser`], which the exporter
+//! calls as it walks the display list, or takes the two-phase form of [`crate::twophase`], in which the exporter
+//! records the renders it needs, the caller performs them, and the exporter replays the images into the same walk.
+//! The viewer takes the two-phase form, rendering each request with its headless GPU renderer
+//! (`ironlab_viewer::offscreen::OffscreenRenderer`), which tessellates and draws a display list exactly as the
+//! interactive canvas does. The exported image is therefore the picture the user inspected on screen, at print
+//! resolution, rather than the output of a second rasteriser that would drift from it. Without a rasteriser, dense
+//! content is drawn as vector geometry whatever the policy says.
 //!
 //! # Three-dimensional axes
 //!
