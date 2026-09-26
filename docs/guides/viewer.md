@@ -84,7 +84,8 @@ once.
 
 **Sort** and **Group** each have a row of their own beneath the filters, captioned at the left with the control at
 the right, as the filters are. **Sort** puts the list in order of the title or of any parameter. The button beside
-its box reverses the order and says which way it runs, **Ascending ↑** or **Descending ↓**.
+its box reverses the order and says which way it runs, **Ascending** or **Descending**, with the triangle of a
+combo box beside the word pointing up or down to match.
 Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
 comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
 When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows

@@ -896,10 +896,9 @@ fn collect_painted_text(shape: &egui::Shape, words: &mut Vec<String>) {
     }
 }
 
-// Why: the browser is the first part of the interface to draw a mark beside its words, and the last-resort face
-// that gives it the arrows also draws four and a half thousand other characters. A character left out of the
-// style's list therefore no longer announces itself as an empty box — it simply appears, unchecked, and will be an
-// empty box for whoever builds without that face. This test is what the empty box used to be.
+// Why: the browser draws marks beside its words, and a mark is the kind of character the fonts are most likely to
+// lack. A character the fonts do not have is drawn as an empty box, and only what is painted can say whether every
+// character the browser draws is one the style has had checked against the fonts.
 #[test]
 fn the_browser_paints_no_character_outside_the_listed_ones() {
     let listed = ironlab_viewer::style::INTERFACE_CHARACTERS;
@@ -945,7 +944,7 @@ fn the_order_control_is_set_at_the_size_of_the_combo_box_beside_it() {
         }
     }
     let order = sizes
-        .get("Ascending ↑")
+        .get("Ascending")
         .copied()
         .expect("the order control is painted");
     let combo = sizes
@@ -975,11 +974,11 @@ fn collect_text_sizes(shape: &egui::Shape, sizes: &mut std::collections::BTreeMa
     }
 }
 
-// Why: a mark that augments words has to actually be on screen beside them, or the decision to add it to the fonts
-// bought nothing. Both marks are checked where they are drawn, because each is the only reason its character is in
+// Why: a mark that augments words has to actually be on screen beside them, or the decision to list its character
+// bought nothing. The mark is checked where it is drawn, because the chip is the only reason its character is in
 // the style's list at all.
 #[test]
-fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
+fn a_chip_carries_the_remove_mark() {
     let words = painted_words(true);
     assert!(
         words.iter().any(|word| word.contains("rig")
@@ -987,12 +986,89 @@ fn a_chip_carries_the_remove_mark_and_the_order_carries_its_arrow() {
             && word.contains(ironlab_viewer::style::REMOVE)),
         "the chip says what it narrows and carries the mark that says clicking it takes that away: {words:?}"
     );
-    assert!(
-        words
-            .iter()
-            .any(|word| word == &format!("Ascending {}", ironlab_viewer::style::ASCENDING)),
-        "the order says which way it runs and carries the arrow that shows it: {words:?}"
-    );
+}
+
+// Why: the control that reverses the order shares a row with a combo box, and the triangle beside its word is the
+// combo box's own, turned to point the way the order runs. A typed arrow looked like a different kind of control;
+// the shape has to be painted, and painted the right way up, which only the shapes on screen can show.
+#[test]
+fn the_order_control_carries_a_combo_box_triangle_turned_the_way_the_order_runs() {
+    for descending in [false, true] {
+        let triangles = painted_triangles_with(|browser| {
+            browser.browse.sort.descending = descending;
+        });
+        let up = triangles.iter().filter(|t| t.points_up).count();
+        let down = triangles.iter().filter(|t| !t.points_up).count();
+        if descending {
+            assert_eq!(
+                (up, down),
+                (0, 3),
+                "descending: the order control and the two combo boxes all point down: {triangles:?}"
+            );
+        } else {
+            assert_eq!(
+                (up, down),
+                (1, 2),
+                "ascending: the order control points up and the two combo boxes down: {triangles:?}"
+            );
+        }
+    }
+}
+
+/// A filled triangle painted by the browser, and whether its apex is above its base.
+#[derive(Debug)]
+struct Triangle {
+    points_up: bool,
+}
+
+/// Every filled triangle the browser paints for the campaign, after `configure` has set it up.
+fn painted_triangles_with(
+    configure: impl FnOnce(&mut ironlab_viewer::FigureBrowser),
+) -> Vec<Triangle> {
+    let ctx = egui::Context::default();
+    ironlab_viewer::style::apply(&ctx);
+    ctx.set_theme(egui::Theme::Dark);
+    let cards: Vec<ironlab_viewer::browse::FigureCard> = campaign()
+        .into_iter()
+        .map(|(title, figure)| ironlab_viewer::browse::FigureCard::of(title, &figure))
+        .collect();
+    let mut browser = ironlab_viewer::FigureBrowser::for_collection(cards.len());
+    configure(&mut browser);
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, WINDOW)),
+        ..egui::RawInput::default()
+    };
+    let mut triangles = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(input.clone(), |ui| {
+            ironlab_viewer::figure_browser(ui, &mut browser, &cards, 0);
+        });
+        output.textures_delta.clear();
+        triangles.clear();
+        for clipped in &output.shapes {
+            collect_triangles(&clipped.shape, &mut triangles);
+        }
+    }
+    triangles
+}
+
+/// Adds every closed, filled, three-cornered path in a shape, and in the shapes it holds, to `triangles`.
+fn collect_triangles(shape: &egui::Shape, triangles: &mut Vec<Triangle>) {
+    match shape {
+        egui::Shape::Path(path) if path.closed && path.points.len() == 3 => {
+            let mut ys: Vec<f32> = path.points.iter().map(|p| p.y).collect();
+            ys.sort_by(f32::total_cmp);
+            // Two corners share the base's height; the odd one out is the apex.
+            let points_up = (ys[0] - ys[1]).abs() > (ys[1] - ys[2]).abs();
+            triangles.push(Triangle { points_up });
+        }
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_triangles(shape, triangles);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ---------------------------------------------------------------------------------

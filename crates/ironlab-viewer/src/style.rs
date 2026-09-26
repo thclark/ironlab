@@ -22,18 +22,15 @@
 //!
 //! It also holds [`INTERFACE_CHARACTERS`], every character outside ASCII that the interface draws. A character the
 //! loaded fonts do not have is drawn as an empty box, so the interface draws only characters that are known to be
-//! covered, and the list is what the code draws from and what the test checks against the fonts. Because egui's own
-//! fonts carry no arrow of any kind, [`font_definitions`] adds the mathematical face that `ironlab-text` already
-//! compiles into the binary as the last resort of every family.
+//! covered, and the list is what the code draws from and what the test checks against the fonts. egui's own fonts
+//! carry every character on the list, so the viewer installs no font of its own.
 //!
 //! Nothing here reaches the figure. The text of a figure — its titles, axis labels, tick labels and legends — is
 //! typeset by `ironlab-text` and drawn from the scene display list, in the sizes and colours the figure itself
 //! carries. This style covers only the interface around it.
 
+use egui::{Color32, Context, FontFamily, FontId, TextStyle, Theme};
 use std::collections::BTreeMap;
-use std::sync::Arc;
-
-use egui::{Color32, Context, FontData, FontDefinitions, FontFamily, FontId, TextStyle, Theme};
 
 /// The background the interface is drawn on, and the colour every contrast ratio here is measured against.
 ///
@@ -163,12 +160,6 @@ pub const RESTORE: &str = "↺";
 /// and to what, and the mark says that clicking it takes that away.
 pub const REMOVE: &str = "×";
 
-/// The mark on the control that puts a list in ascending order, which is captioned "Ascending".
-pub const ASCENDING: &str = "↑";
-
-/// The mark on the control that puts a list in descending order, which is captioned "Descending".
-pub const DESCENDING: &str = "↓";
-
 /// The mark on the control that opens the filter menu, which is captioned "Edit".
 ///
 /// It is the plus sign of ASCII, which every font has, so it is not listed among [`INTERFACE_CHARACTERS`]; it is
@@ -185,7 +176,7 @@ pub const COLLAPSE: &str = "−";
 ///
 /// It exists so that the check is by construction: a mark named here and left out of the list fails a test rather
 /// than waiting to be noticed as an empty box on screen.
-pub const MARKS: &[&str] = &[RESTORE, REMOVE, ASCENDING, DESCENDING, COLLAPSE];
+pub const MARKS: &[&str] = &[RESTORE, REMOVE, COLLAPSE];
 
 /// Every character outside ASCII that the viewer's interface draws.
 ///
@@ -196,11 +187,11 @@ pub const MARKS: &[&str] = &[RESTORE, REMOVE, ASCENDING, DESCENDING, COLLAPSE];
 ///
 /// The list is short on purpose, and a mark earns its place in one of two ways.
 ///
-/// It may say something a word cannot say in the room available: the revert control, which is a column narrower
-/// than any word, the arithmetic of an array's shape, and the punctuation of ordinary prose. Or it may carry at a
-/// glance what the words beside it already spell out: the cross on the chip that removes a filter, and the arrows
-/// on the control that reverses an order. A mark of the second kind augments its words and never replaces them, so
-/// the control reads correctly to someone who does not take the mark in.
+/// It may say something a word cannot say in the room available: the restore control of the property editor, which
+/// is a column narrower than any word, the arithmetic of an array's shape, and the punctuation of ordinary prose.
+/// Or it may carry at a glance what the words beside it already spell out: the cross on the chip that removes a
+/// filter, and the signs on the control that opens and shuts the filter menu. A mark of the second kind augments
+/// its words and never replaces them, so the control reads correctly to someone who does not take the mark in.
 ///
 /// What a mark may not do is carry alone a meaning that has no words at all. That is what the padlock on a
 /// read-only row and the warning sign on the problems indicator once did, and both are written as words now, as
@@ -210,49 +201,10 @@ pub const INTERFACE_CHARACTERS: &[char] = &[
     '…', // ellipsis, which ends the caption of a button that opens a dialogue
     '×', // the mark of a control that takes something away, `REMOVE`, and the multiplication sign that joins the
     // lengths of an array's shape
-    '↑', // the mark of ascending order, `ASCENDING`
-    '↓', // the mark of descending order, `DESCENDING`
     '↺', // the mark of a control that puts things back, `RESTORE`
     '·', // the middle dot that separates two facts about a parameter in the filter menu, such as "8 values · 100%"
     '−', // the minus sign on the control that shuts the filter menu, `COLLAPSE`
 ];
-
-/// The name egui knows the interface's last-resort face by.
-///
-/// It is prefixed, because the name shares a namespace with egui's own four fonts.
-pub const FALLBACK_FONT: &str = "ironlab_fallback";
-
-/// The fonts the viewer installs: egui's own, with a last-resort face added to the end of every family.
-///
-/// egui's four fonts carry no arrow at all — not `↑`, not `▲`, not an arrowhead — so a control that shows the
-/// direction of an order has nothing to draw it with, and neither has STIX Two Text, whose 1281 characters are the
-/// text of a figure rather than its symbols. Rather than bundle a fifth font for two glyphs, the interface falls
-/// back on STIX Two Math, which `ironlab-text` already compiles into the binary to typeset the mathematics of a
-/// figure, and which carries every character of [`INTERFACE_CHARACTERS`].
-///
-/// The face is added last in each family, so it is reached only for a character the other fonts lack: nothing egui
-/// draws today changes shape. It does mean a character left out of [`INTERFACE_CHARACTERS`] may now be drawn rather
-/// than showing as an empty box, so the tests of what the interface paints, rather than the box, are what keep the
-/// list honest.
-///
-/// Whether a family has a character is checked by laying the character out, not by asking egui's `has_glyph`.
-/// That method compares the face that owns the character with the face that owns the replacement box, and in the
-/// monospaced family those are one face, Hack, for every character Hack has — so it answers "no" for characters
-/// that draw perfectly well.
-#[must_use]
-pub fn font_definitions() -> FontDefinitions {
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        FALLBACK_FONT.to_owned(),
-        Arc::new(FontData::from_static(ironlab_text::font_bytes(
-            ironlab_text::FontId::Math,
-        ))),
-    );
-    for family in fonts.families.values_mut() {
-        family.push(FALLBACK_FONT.to_owned());
-    }
-    fonts
-}
 
 /// The size of small text, such as where a problem came from, in points: egui's 9 pt raised by 1.5 pt.
 pub const SMALL_SIZE_PT: f32 = 10.5;
@@ -344,10 +296,7 @@ pub fn compact(ui: &mut egui::Ui) {
 /// constants promise is what is painted: a fade leaves the colour on screen depending on whatever happens to be
 /// behind it.
 ///
-/// The fonts of [`font_definitions`] are installed here too, so that everything the interface needs in order to
-/// draw as this module describes arrives in one call.
 pub fn apply(ctx: &Context) {
-    ctx.set_fonts(font_definitions());
     ctx.all_styles_mut(|style| style.text_styles = text_styles());
     ctx.style_mut_of(Theme::Dark, |style| {
         let visuals = &mut style.visuals;

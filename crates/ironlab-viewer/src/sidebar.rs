@@ -27,8 +27,9 @@
 //!
 //! Every mark drawn here is one of [`crate::style::MARKS`], which [`crate::style::INTERFACE_CHARACTERS`] promises
 //! the fonts carry, and each augments words rather than standing in for them: a chip says which parameter it
-//! narrows and to what, and carries a cross to say that clicking it takes that away; the control that reverses an
-//! order says "Ascending" or "Descending", and carries the arrow that says which at a glance.
+//! narrows and to what, and carries a cross to say that clicking it takes that away. The control that reverses
+//! an order says "Ascending" or "Descending", and beside the word carries the triangle of a combo box, turned to
+//! point the way the order runs; it is painted, as the combo box paints its own, and is no character at all.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -115,10 +116,9 @@ const CHIP_PADDING: egui::Margin = egui::Margin::symmetric(7, 2);
 /// of the chip, because the cross is a small glyph and at their size it reads as a speck.
 const REMOVE_MARK_SIZE_PT: f32 = 14.0;
 
-/// How far below the size of its words the arrow on the control that reverses the order is set, in points. The
-/// arrow comes from the mathematical face, which stands its arrows taller than the letters of the interface at one
-/// size.
-const MARK_STEP_PT: f32 = 1.5;
+/// How far below the size of its words the mark on "Clear all" is set, in points: the circling arrow is a tall
+/// glyph, and at the size of the words it stands above them rather than beside them.
+const CLEAR_ALL_MARK_STEP_PT: f32 = 2.0;
 
 /// The room between the edge of a text field and its text, in egui points.
 const FIELD_PADDING: egui::Margin = egui::Margin::symmetric(7, 4);
@@ -390,8 +390,8 @@ fn controls(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Laid out from the right edge inwards: Edit at the edge, and Clear all beside it when there is
                 // anything to clear.
-                edit_filters_button(ui, browser);
-                clear_all_button(ui, browser);
+                let edit = edit_filters_button(ui, browser);
+                clear_all_button(ui, browser, edit.rect.height());
             });
         });
     });
@@ -477,7 +477,7 @@ fn tip(ui: &mut egui::Ui) {
 /// Draws the "Edit" control, which opens the menu when it is shut and shuts it when it is open, and carries the mark
 /// that says which it will do: [`crate::style::EXPAND`] when the menu is shut, [`crate::style::COLLAPSE`] when it is
 /// open.
-fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
+fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) -> egui::Response {
     let open = browser.menu != Menu::Closed;
     let mark = if open { style::COLLAPSE } else { style::EXPAND };
     let text = format!("{mark} Edit");
@@ -500,6 +500,7 @@ fn edit_filters_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
             }
         };
     }
+    response
 }
 
 /// Draws the menu in its frame, beneath the "Filters" row and above the chips.
@@ -1049,13 +1050,39 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
 }
 
 /// Draws the control that takes every filter away, beside "Edit" on the "Filters" row, when there is a filter to
-/// take away. It is the same button as "Edit", with [`crate::style::RESTORE`] before its words.
-fn clear_all_button(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
+/// take away. It is the same button as "Edit", `height` tall as "Edit" is, with [`crate::style::RESTORE`] before
+/// its words and set two points smaller than them.
+fn clear_all_button(ui: &mut egui::Ui, browser: &mut FigureBrowser, height: f32) {
     if browser.browse.filters.is_empty() {
         return;
     }
+    let font_id = egui::TextStyle::Button.resolve(ui.style());
+    let color = ui.visuals().widgets.inactive.fg_stroke.color;
+    let mut caption = LayoutJob::default();
+    caption.append(
+        style::RESTORE,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(font_id.size - CLEAR_ALL_MARK_STEP_PT),
+            color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    caption.append(
+        " Clear all",
+        0.0,
+        egui::TextFormat {
+            font_id,
+            color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    // A caption of two sizes lays out a point shorter than one line of the button font, so the button is given
+    // `height`, which is the height "Edit" was just drawn at, and the two stand level.
     if ui
-        .button(format!("{} Clear all", style::RESTORE))
+        .add(egui::Button::new(caption).min_size(egui::vec2(0.0, height)))
         .on_hover_text("Remove every filter.")
         .clicked()
     {
@@ -1161,71 +1188,85 @@ fn chip(ui: &mut egui::Ui, key: &FacetKey, text: &str) -> egui::Response {
     response.on_hover_text("Click to remove this filter.")
 }
 
-/// The caption of the control that reverses the order, which says which way it runs and carries the arrow that
-/// shows it.
-///
-/// The arrow never stands alone: a mark on its own would leave the control unreadable to anyone who does not take
-/// the mark in.
-fn direction_caption(descending: bool) -> String {
+/// The word on the control that reverses the order, which says which way it runs.
+fn direction_word(descending: bool) -> &'static str {
     if descending {
-        format!("Descending {}", style::DESCENDING)
+        "Descending"
     } else {
-        format!("Ascending {}", style::ASCENDING)
+        "Ascending"
     }
 }
 
-/// The caption of the control that reverses the order, laid out with its arrow a size smaller than its word and
-/// centred on the word's row.
-fn direction_text(ui: &egui::Ui, descending: bool) -> LayoutJob {
-    let (word, arrow) = if descending {
-        ("Descending ", style::DESCENDING)
-    } else {
-        ("Ascending ", style::ASCENDING)
-    };
-    // The caption is set at the size of the combo box beside it, which shares its row.
-    marked_caption(
-        ui,
-        egui::FontId::proportional(style::COMBO_SIZE_PT),
-        word,
-        arrow,
-        "",
-    )
-}
-
-/// The caption of a button that carries a mark among its words: the words before the mark, the mark itself, and
-/// the words after it, the words in `font_id` and the mark [`MARK_STEP_PT`] smaller and centred on their row.
+/// Draws the control that reverses the order: its word, and beside it the triangle a combo box carries, pointing
+/// up for ascending and down for descending.
 ///
-/// The mathematical face stands its marks taller than the interface's letters at one size; set a step down and
-/// centred, a mark sits beside its words rather than above them.
-fn marked_caption(
-    ui: &egui::Ui,
-    font_id: egui::FontId,
-    before: &str,
-    mark: &str,
-    after: &str,
-) -> LayoutJob {
-    let color = ui.visuals().widgets.inactive.fg_stroke.color;
-    let marked = egui::TextFormat {
-        font_id: egui::FontId::proportional(font_id.size - MARK_STEP_PT),
-        color,
-        valign: egui::Align::Center,
-        ..Default::default()
-    };
-    let words = egui::TextFormat {
-        font_id,
-        color,
-        valign: egui::Align::Center,
-        ..Default::default()
-    };
-    let mut job = LayoutJob::default();
-    if !before.is_empty() {
-        job.append(before, 0.0, words.clone());
+/// It is drawn as egui draws the button of a combo box, with the same face, padding, icon and text size, because
+/// it shares a row with one and the two must read as a pair. The triangle is painted rather than typed, so that it
+/// is the very shape the combo box draws and needs no character the fonts might lack.
+fn direction_button(ui: &mut egui::Ui, descending: bool) -> egui::Response {
+    let padding = ui.spacing().button_padding;
+    let icon = egui::Vec2::splat(ui.spacing().icon_width);
+    let icon_spacing = ui.spacing().icon_spacing;
+    let galley = ui.painter().layout_no_wrap(
+        direction_word(descending).to_owned(),
+        egui::FontId::proportional(style::COMBO_SIZE_PT),
+        egui::Color32::WHITE,
+    );
+    let inner = egui::vec2(
+        galley.size().x + icon_spacing + icon.x,
+        galley.size().y.max(icon.y),
+    );
+    let size = (inner + 2.0 * padding).max(egui::vec2(0.0, ui.spacing().interact_size.y));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            true,
+            direction_word(descending).to_owned(),
+        )
+    });
+    if !ui.is_rect_visible(rect) {
+        return response;
     }
-    job.append(mark, 0.0, marked);
-    if !after.is_empty() {
-        job.append(after, 0.0, words);
-    }
-    job
+    let visuals = ui.style().interact(&response);
+    let painter = ui.painter();
+    painter.rect(
+        rect.expand(visuals.expansion),
+        visuals.corner_radius,
+        visuals.weak_bg_fill,
+        visuals.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+    let inner_rect = rect.shrink2(padding);
+    let text_rect = egui::Align2::LEFT_CENTER.align_size_within_rect(galley.size(), inner_rect);
+    painter.galley(text_rect.min, galley, visuals.text_color());
+    // The triangle is the one egui paints on a combo box: the icon's rectangle narrowed to seven tenths and
+    // shortened to forty-five hundredths, filled between its two upper corners and the middle of its base, or
+    // turned over for ascending.
+    let icon_rect = egui::Align2::RIGHT_CENTER.align_size_within_rect(icon, inner_rect);
+    let triangle = egui::Rect::from_center_size(
+        icon_rect.center(),
+        egui::vec2(icon_rect.width() * 0.7, icon_rect.height() * 0.45),
+    );
+    let points = if descending {
+        vec![
+            triangle.left_top(),
+            triangle.right_top(),
+            triangle.center_bottom(),
+        ]
+    } else {
+        vec![
+            triangle.left_bottom(),
+            triangle.right_bottom(),
+            triangle.center_top(),
+        ]
+    };
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        visuals.fg_stroke.color,
+        egui::Stroke::NONE,
+    ));
+    response
 }
 
 /// The width of a combo box of the order or the grouping: [`COMBO_WIDTH`] when the panel has room for the widest
@@ -1240,8 +1281,10 @@ fn combo_width(ui: &egui::Ui) -> f32 {
             .x
     };
     let font = egui::FontId::proportional(style::COMBO_SIZE_PT);
-    let direction = measure(&direction_caption(true), font.clone())
-        .max(measure(&direction_caption(false), font))
+    let direction = measure(direction_word(true), font.clone())
+        .max(measure(direction_word(false), font))
+        + ui.spacing().icon_spacing
+        + ui.spacing().icon_width
         + 2.0 * ui.spacing().button_padding.x;
     let caption = measure("GROUP", caption_font()).max(measure("SORT", caption_font()));
     let room = ui.available_width() - caption - direction - 2.0 * ui.spacing().item_spacing.x;
@@ -1275,14 +1318,10 @@ fn sort_row(ui: &mut egui::Ui, browser: &mut FigureBrowser, facets: &[Facet]) {
                     }
                 });
             let descending = browser.browse.sort.descending;
-            let response = ui
-                .add(egui::Button::new(direction_text(ui, descending)))
-                .on_hover_text("Reverse the order.");
-            let caption = direction_caption(descending);
-            response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, caption.clone())
-            });
-            if response.clicked() {
+            if direction_button(ui, descending)
+                .on_hover_text("Reverse the order.")
+                .clicked()
+            {
                 browser.browse.sort.descending = !descending;
             }
         });
