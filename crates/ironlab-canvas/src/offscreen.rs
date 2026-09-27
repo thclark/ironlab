@@ -93,6 +93,58 @@ impl RenderedImage {
             self.rgba[i + 3],
         ]
     }
+
+    /// Encodes the image as a PNG file of eight bits per channel with an alpha channel, so that a figure with a
+    /// transparent background stays transparent.
+    ///
+    /// The pixels are written as they are, without scaling or recolouring, so the file decodes to exactly `rgba`
+    /// at `width` by `height`. This is the one PNG encoder of the workspace: the facade's PNG export and the gallery
+    /// both write their files through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PngError::BufferLength`] when `rgba` does not hold `width · height · 4` bytes, and
+    /// [`PngError::Encode`] when the encoder fails.
+    pub fn to_png(&self) -> Result<Vec<u8>, PngError> {
+        use image::ImageEncoder as _;
+
+        let expected = u64::from(self.width) * u64::from(self.height) * 4;
+        if self.rgba.len() as u64 != expected {
+            return Err(PngError::BufferLength {
+                width: self.width,
+                height: self.height,
+                expected,
+                found: self.rgba.len(),
+            });
+        }
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes).write_image(
+            &self.rgba,
+            self.width,
+            self.height,
+            image::ExtendedColorType::Rgba8,
+        )?;
+        Ok(bytes)
+    }
+}
+
+/// A failure to encode a [`RenderedImage`] as a PNG file.
+#[derive(Debug, thiserror::Error)]
+pub enum PngError {
+    /// The pixel buffer does not hold `width · height · 4` bytes, so the image is inconsistent and cannot be written;
+    /// the encoder itself would panic on such a buffer, so it is checked first.
+    #[error(
+        "cannot encode a {width}×{height} image as a PNG: it needs {expected} RGBA bytes, but {found} were given"
+    )]
+    BufferLength {
+        width: u32,
+        height: u32,
+        expected: u64,
+        found: usize,
+    },
+    /// The encoder failed, which for an encoder writing to memory does not happen in practice.
+    #[error("cannot encode the image as a PNG: {0}")]
+    Encode(#[from] image::ImageError),
 }
 
 /// A failure to render offscreen.

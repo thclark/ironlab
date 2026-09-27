@@ -36,7 +36,7 @@ The [getting started guide](guides/getting-started.md) explains each step and ev
 ## Map of the documentation
 
 - **Guides** explain how to use IronLAB.
-    - [Getting started](guides/getting-started.md) covers building figures with the Rust API, saving and loading them, exporting PDF for LaTeX documents and opening the viewer.
+    - [Getting started](guides/getting-started.md) covers building figures with the Rust API, saving and loading them, exporting PDF for LaTeX documents and PNG for slides and web pages, and opening the viewer.
     - [Using the viewer](guides/viewer.md) describes the viewer's tools, gestures and keyboard shortcuts, and how to edit a figure live in its property editor.
     - [Embedding figures in a web page](guides/embedding.md) explains how a publication or a site carries a live figure, with the bundle, the element, its API and its theming.
 - **[Gallery](gallery/index.md)** shows every example figure live in the page, with the exact source code that produced it.

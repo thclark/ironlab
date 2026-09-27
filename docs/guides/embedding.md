@@ -45,9 +45,10 @@ The element reads the files that `Figure::save` writes, in either encoding descr
 ```rust
 fig.save("pressure.fig")?;
 fig.export_pdf("pressure.pdf")?;
+fig.export_png("pressure.png")?;
 ```
 
-For the [fallback content](#fallback-content) a page also wants a PNG of the figure and the PDF that `export_pdf` writes. The gallery's `export` command shows the complete set: `cargo run -p ironlab-gallery -- export <directory>` writes, for every gallery figure, its PDF, its `.fig` file, its `.fig.json` file and a PNG image rendered by IronLAB's own renderer at the resolution given by `--dpi`, into one directory ready to be served. A program of your own renders a PNG in the same way through `render_offscreen` in the `ironlab-canvas` crate, which returns the pixels of the figure at a resolution for the program to encode, or converts the exported PDF with any PDF tool.
+For the [fallback content](#fallback-content) a page also wants the PDF that `export_pdf` writes and a PNG of the figure, which `export_png` writes as the renderer draws it; see [exporting PNG](getting-started.md#exporting-png) for the resolution. The gallery's `export` command shows the complete set: `cargo run -p ironlab-gallery -- export <directory>` writes, for every gallery figure, its PDF, its `.fig` file, its `.fig.json` file and its PNG image at the resolution given by `--dpi`, into one directory ready to be served.
 
 A figure file is what the author saved, so anything the author wants a reader to be able to do with it, such as restore the view with **Refit**, is defined by that file. The reader's changes are never written back to it.
 
@@ -79,7 +80,7 @@ A figure begins loading only when its element comes within 200 pixels of the vie
 
 Whatever the element contains is shown until the figure's first frame is drawn and is then hidden behind the live figure. It is kept, with a status line beneath it saying why, when the browser offers neither WebGPU nor WebGL2, when the figure file cannot be fetched or read, or when the graphics device fails; and it is all a reader sees when the script is blocked or fails to load. The element therefore enhances a page that already works without it, and a reader without a graphics device, a reader who prints the page and a search engine all see the fallback.
 
-The pattern above, a PNG of the figure linking to its PDF, is the one the gallery uses and the one to copy: the PNG is the figure as the engine drew it, and the PDF is the vector figure at full quality. The `alt` text of the image should say what the figure shows, as the element's `alt` does. The element works without any fallback too.
+The pattern above, a PNG of the figure linking to its PDF, is the one the gallery uses and the one to copy: the PNG is the figure as the engine drew it, written by [`export_png`](getting-started.md#exporting-png), and the PDF is the vector figure at full quality. The `alt` text of the image should say what the figure shows, as the element's `alt` does. The element works without any fallback too.
 
 ## Reading a figure
 

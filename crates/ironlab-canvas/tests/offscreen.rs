@@ -4819,3 +4819,62 @@ fn pump_can_be_called_repeatedly_before_and_after_a_render_without_harm() {
         .expect("the renderer draws after being pumped again");
     assert_identical(&image, &again, "a render after pumping");
 }
+
+// Why: `RenderedImage::to_png` is the one PNG encoder of the workspace, used by the facade's `export_png` and by the
+// gallery, so the file it writes must decode to exactly the pixels that were rendered, at the rendered size, with
+// the alpha channel kept: a figure with a transparent background is transparent outside its axes, and a PNG that
+// flattened it would put an opaque backdrop behind every figure on a dark page.
+#[test]
+fn a_rendered_image_encodes_as_a_png_that_decodes_to_the_same_pixels() {
+    let mut figure = figure_with_surface(true);
+    figure.background = ironlab_ir::Color::rgba(0.0, 0.0, 0.0, 0.0);
+    let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
+        return;
+    };
+
+    let bytes = image.to_png().expect("the image encodes");
+    assert!(
+        bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "the bytes carry the PNG signature"
+    );
+    let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+        .expect("the PNG decodes");
+    assert_eq!(
+        decoded.color(),
+        image::ColorType::Rgba8,
+        "the PNG keeps the alpha channel"
+    );
+    let decoded = decoded.to_rgba8();
+    assert_eq!(decoded.dimensions(), (image.width, image.height));
+    assert_eq!(decoded.into_raw(), image.rgba);
+    assert_eq!(
+        image.pixel(0, 0)[3],
+        0,
+        "the corner of a figure with a transparent background is transparent"
+    );
+    assert!(
+        image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] == 255),
+        "the drawn artists are opaque"
+    );
+}
+
+// Why: a pixel buffer that does not match the stated size must be reported as an error, not written as a corrupt
+// file and not a panic inside the encoder.
+#[test]
+fn a_rendered_image_whose_buffer_does_not_match_its_size_does_not_encode() {
+    let image = RenderedImage {
+        width: 4,
+        height: 4,
+        rgba: vec![0; 10],
+    };
+    let error = image.to_png().expect_err("a short buffer is refused");
+    assert!(
+        error.to_string().contains("PNG"),
+        "the message says what failed: {error}"
+    );
+}
