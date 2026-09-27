@@ -1819,6 +1819,7 @@ name = "ironlab"
 version = "0.9.1"
 dependencies = [
  "eframe",
+ "image",
  "ironlab-canvas",
  "ironlab-ir",
  "ironlab-pdf",

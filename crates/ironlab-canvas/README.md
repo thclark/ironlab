@@ -10,7 +10,7 @@ Nothing in the crate depends on a user interface toolkit. The egui viewer, [`iro
 
 IronLAB is a Cargo workspace. `ironlab-canvas` depends on `ironlab-ir`, `ironlab-text`, `ironlab-scene` and `ironlab-pdf`, and `ironlab-viewer` and `ironlab-web` depend on it. Every PDF export in the project goes through this crate, because it is the crate that supplies the renderer the PDF backend asks for.
 
-Most users should depend on the [`ironlab`](https://crates.io/crates/ironlab) facade crate, whose `export_pdf` operation uses this crate and whose `show` operation opens the viewer. Depend on `ironlab-canvas` directly only when you need this layer on its own, for instance to draw figures in an application of your own or to render figures offscreen.
+Most users should depend on the [`ironlab`](https://crates.io/crates/ironlab) facade crate, whose `export_pdf` and `export_png` operations use this crate and whose `show` operation opens the viewer. Depend on `ironlab-canvas` directly only when you need this layer on its own, for instance to draw figures in an application of your own or to render figures offscreen.
 
 ## Documentation
 

@@ -8,7 +8,8 @@ use common::image_figure;
 use ironlab::ir::IssueKind;
 use ironlab::prelude::*;
 use ironlab::{
-    DepthPolicy, ExportReport, ExportWarning, ExportWarningKind, SceneWarning, UnverifiedCause,
+    DEFAULT_PNG_DPI, DepthPolicy, ExportReport, ExportWarning, ExportWarningKind, RenderError,
+    SceneWarning, UnverifiedCause,
 };
 
 /// Returns a path in Cargo's per-crate temporary directory, unique to the test.
@@ -581,4 +582,154 @@ fn show_refuses_an_invalid_figure_without_opening_a_window() {
 fn error_is_thread_safe_and_boxable() {
     fn assert_thread_safe<E: std::error::Error + Send + Sync + 'static>() {}
     assert_thread_safe::<Error>();
+}
+
+/// Unwraps what a PNG export returns: `None`, skipping the test, when no graphics adapter
+/// is available and the environment variable `IRONLAB_REQUIRE_GPU` is not set (as the
+/// canvas tests do), and a panic on any other error.
+fn png_or_skip<T>(result: Result<T, Error>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(Error::Render(RenderError::NoAdapter(message)))
+            if std::env::var_os("IRONLAB_REQUIRE_GPU").is_none() =>
+        {
+            eprintln!(
+                "skipping: no graphics adapter ({message}); set IRONLAB_REQUIRE_GPU to make this a failure"
+            );
+            None
+        }
+        Err(error) => panic!("PNG export failed: {error}"),
+    }
+}
+
+/// The size in pixels of a PNG file.
+fn png_size(path: &PathBuf) -> (u32, u32) {
+    let bytes = std::fs::read(path).unwrap();
+    assert!(
+        bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "{} does not start with the PNG signature",
+        path.display()
+    );
+    image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+        .expect("the PNG decodes")
+        .to_rgba8()
+        .dimensions()
+}
+
+/// The size in pixels of a figure of `width_mm` by `height_mm` rendered at `dpi`, as the
+/// documentation states it: the size in points scaled by `dpi / 72` and rounded.
+fn pixels(width_mm: f64, height_mm: f64, dpi: f64) -> (u32, u32) {
+    let px = |mm: f64| (mm / 25.4 * 72.0 * dpi / 72.0).round() as u32;
+    (px(width_mm), px(height_mm))
+}
+
+// WHY: a PNG is placed in a slide or a page at a physical size, so the pixel size must
+// follow from the figure size and the resolution by the documented rule (the size in
+// points scaled by dpi / 72 and rounded, so that PNG and PDF agree on physical size to
+// within half a pixel), and the default resolution must be the documented constant.
+#[test]
+fn export_png_writes_an_image_of_the_figure_s_size_at_the_resolution_asked() {
+    let fig = sample_figure().size_mm(160.0, 100.0);
+
+    let path = fresh("size_72.png");
+    if png_or_skip(fig.export_png_with(&path, 72.0)).is_none() {
+        return;
+    }
+    // 160 mm is 453.54 pt and 100 mm is 283.46 pt.
+    assert_eq!(png_size(&path), (454, 283));
+    assert_eq!(png_size(&path), pixels(160.0, 100.0, 72.0));
+
+    let path = fresh("size_150.png");
+    fig.export_png_with(&path, 150.0).unwrap();
+    assert_eq!(png_size(&path), pixels(160.0, 100.0, 150.0));
+
+    let path = fresh("size_default.png");
+    fig.export_png(&path).unwrap();
+    assert_eq!(DEFAULT_PNG_DPI, 150.0, "the documented default resolution");
+    assert_eq!(png_size(&path), pixels(160.0, 100.0, DEFAULT_PNG_DPI));
+}
+
+// WHY: ADR 0012 applies to every export: a program learns from the call itself what was
+// left off the image, so the report must carry the validation warnings of the figure and
+// the warnings the scene compiler raised while drawing it, each naming the artist, and the
+// image must still be written. Nothing in a PNG is rasterised selectively, because the
+// whole image is the render, so the export list must be empty. An invalid figure is
+// refused with its validation report before anything is drawn, and leaves no file behind.
+#[test]
+fn export_png_reports_validation_and_scene_warnings_and_no_export_warnings() {
+    let path = fresh("undrawn_surface.png");
+    let (fig, surface) = figure_with_an_undrawn_surface();
+    let Some(report) = png_or_skip(fig.export_png(&path)) else {
+        return;
+    };
+
+    let kinds: Vec<(IssueKind, Option<NodeId>)> = report
+        .validation
+        .iter()
+        .map(|issue| (issue.kind, issue.node))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![(IssueKind::NothingToDraw, Some(surface))],
+        "the validation warnings name the surface and nothing else: {:?}",
+        report.validation
+    );
+    assert_eq!(
+        report
+            .scene
+            .iter()
+            .filter(|warning| warning.node == Some(surface))
+            .count(),
+        1,
+        "one compiler warning names the surface: {:?}",
+        report.scene
+    );
+    assert!(
+        report
+            .scene
+            .iter()
+            .all(|warning| warning.node == Some(surface)),
+        "no compiler warning concerns anything else: {:?}",
+        report.scene
+    );
+    assert_eq!(
+        report.export,
+        vec![],
+        "a PNG export raises no export warnings"
+    );
+    assert!(path.exists(), "the image was written");
+
+    let complete = fresh("complete.png");
+    let report = sample_figure().export_png(&complete).unwrap();
+    assert_eq!(report, ExportReport::default(), "nothing was left out");
+
+    let invalid = temp_path("invalid.png");
+    let _ = std::fs::remove_file(&invalid);
+    let mut fig = Figure::new();
+    fig.axes(0, 0).plot([0.0, 1.0, 2.0], [0.0]);
+    let error = fig.export_png(&invalid).unwrap_err();
+    assert!(
+        matches!(error, Error::Invalid(ref report) if !report.is_valid()),
+        "expected Error::Invalid, found {error:?}"
+    );
+    assert!(!invalid.exists(), "no partial file is left behind");
+}
+
+// WHY: the facade adds nothing to the image: `export_png` is the offscreen renderer's
+// picture of the figure, encoded, so that the PNG a program writes is the picture the
+// viewer and the gallery show. Comparing the file byte for byte with the direct render
+// pins that no scaling, recolouring or re-encoding happens in between.
+#[test]
+fn export_png_draws_what_the_offscreen_renderer_draws() {
+    let fig = sample_figure();
+    let path = fresh("as_rendered.png");
+    if png_or_skip(fig.export_png_with(&path, 96.0)).is_none() {
+        return;
+    }
+    let text = ironlab_text::TextEngine::new();
+    let expected = ironlab_canvas::render_offscreen(fig.ir(), &text, 96.0)
+        .unwrap()
+        .to_png()
+        .unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), expected);
 }

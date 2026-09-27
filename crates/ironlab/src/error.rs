@@ -30,6 +30,17 @@ pub enum Error {
     #[error(transparent)]
     Export(#[from] ironlab_canvas::ExportError),
 
+    /// The figure could not be rendered as an image: no graphics adapter is available, the
+    /// adapter refused to create a device, the image is empty or larger than the adapter
+    /// can draw, or the pixels could not be read back. The message of a missing adapter
+    /// names the software adapters that serve on a machine without a graphics device.
+    #[error(transparent)]
+    Render(#[from] ironlab_canvas::RenderError),
+
+    /// The rendered image could not be encoded as a PNG file.
+    #[error(transparent)]
+    Png(#[from] ironlab_canvas::PngError),
+
     /// The interactive viewer could not be started or failed while running.
     #[error("viewer failed: {0}")]
     Viewer(#[from] eframe::Error),

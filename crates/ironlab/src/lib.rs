@@ -9,7 +9,7 @@
 //! Each plotting function returns a handle whose chained setters change the properties
 //! of the new plot, in the way that MATLAB name–value arguments do. The figure can then
 //! be shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported
-//! to PDF.
+//! to PDF or PNG.
 //!
 //! Every call writes directly to the retained figure IR of the [`ir`] crate, which is
 //! the single source of truth for what is drawn. Builder calls never panic because of
@@ -108,12 +108,25 @@ pub use ironlab_pdf::{DepthPolicy, RasterOptions, RasterPolicy};
 /// naming the node and the reason. See [`ExportReport`].
 pub use ironlab_pdf::{ExportWarning, ExportWarningKind, UnverifiedCause};
 
+/// Why a figure could not be rendered as an image, carried by [`Error::Render`], and why a
+/// rendered image could not be encoded, carried by [`Error::Png`]. See
+/// [`Figure::export_png`].
+pub use ironlab_canvas::{PngError, RenderError};
+
+/// The resolution, in dots per inch, at which [`Figure::export_png`] writes a figure.
+///
+/// At 150 dots per inch a figure the width of a text column (about 160 mm) is about 950
+/// pixels wide, which is sharp on a slide and on a web page shown at its physical size, and
+/// is the resolution of the figure images in the documentation gallery.
+pub const DEFAULT_PNG_DPI: f64 = 150.0;
+
 /// A problem the scene compiler found while drawing a figure that did not prevent the
 /// figure from being drawn, naming the node it concerns. See [`ExportReport`].
 pub use ironlab_scene::SceneWarning;
 
 /// What an export left off the page, and what reached it other than as vectors, returned
-/// by [`Figure::export_pdf`] and [`Figure::export_pdf_with`].
+/// by [`Figure::export_pdf`], [`Figure::export_pdf_with`], [`Figure::export_png`] and
+/// [`Figure::export_png_with`].
 ///
 /// A warning never refuses a figure, so the page is written whatever the report holds;
 /// the report tells a program what the page does not show. All three lists are empty for
@@ -135,7 +148,9 @@ pub struct ExportReport {
     pub scene: Vec<SceneWarning>,
     /// The warnings of the exporter: content drawn as an image because of the depth of
     /// its artists, its size or the options, and three-dimensional axes drawn back to
-    /// front without being verified. Each names the node it concerns and the reason.
+    /// front without being verified. Each names the node it concerns and the reason. A
+    /// PNG export leaves this list empty, because the whole image is the render and
+    /// nothing in it is rasterised selectively.
     pub export: Vec<ExportWarning>,
 }
 

@@ -34,10 +34,10 @@ lyon.workspace = true
 # serde's error trait.
 serde.workspace = true
 thiserror.workspace = true
+# A rendered image encodes itself as a PNG; the workspace enables only the png feature, which is pure Rust and so
+# builds for the browser like the rest of the crate.
+image.workspace = true
 
 # The blocking wrappers over the awaited renderer drive it with pollster; a browser host awaits it instead.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "1.0.1"
-
-[dev-dependencies]
-image.workspace = true

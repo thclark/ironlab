@@ -57,7 +57,7 @@ pub use interaction::{
     DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,
     ROTATE_DEGREES_PER_POINT, Tip, Tool,
 };
-pub use offscreen::{OffscreenRenderer, RenderError, RenderedImage};
+pub use offscreen::{OffscreenRenderer, PngError, RenderError, RenderedImage};
 #[cfg(not(target_arch = "wasm32"))]
 pub use offscreen::{render_display_list_offscreen, render_offscreen, with_shared_renderer};
 pub use problems::{Origin, Problem};

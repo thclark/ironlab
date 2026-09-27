@@ -27,3 +27,5 @@ thiserror.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The PNG export tests decode what was written.
+image.workspace = true
