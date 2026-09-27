@@ -160,7 +160,7 @@ The element colours its chrome, meaning the figurebar, the datatips, the rubber 
 | `--ironlab-selection` | The edge of the rubber band, the datatip's marker and the focus ring. |
 | `--ironlab-problem` | The problems indicator. |
 | `--ironlab-canvas-bg` | The backdrop behind a figure whose background is transparent. |
-| `--ironlab-frame` | The line around the figure. |
+| `--ironlab-frame` | The line around the whole element, figurebar and figure together. Transparent unless a page sets it. |
 | `--ironlab-font` | The typeface of the panels. |
 | `--ironlab-mono` | The monospaced typeface of a datatip's values. |
 
