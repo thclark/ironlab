@@ -98,6 +98,48 @@ jobs:
         # time instead, with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
         run: cargo publish --workspace --locked
 
+  bundle:
+    # The browser bundle is a release asset rather than a crate. A publication that hosts its own interactive figures
+    # downloads `ironlab-web-<version>.tar.gz` from the release and unpacks it beside its pages, and a figure embedded
+    # that way keeps working whatever ironlab.org later serves at /embed/. The archive holds the contents of `dist/`
+    # exactly as scripts/build-web.sh assembles them, with no enclosing directory, so that `tar -xzf` into the chosen
+    # directory is the whole installation. A checksum file sits beside it for a host that verifies what it deploys.
+    needs: release
+    # An empty version means the merge left the version alone, so no tag was created and there is nothing to attach to.
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      # Job permissions replace the workflow's rather than adding to them. Uploading an asset writes the release, which
+      # is repository contents; nothing else is needed.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Bundle exactly what was tagged, rather than whatever main has reached by the time this job starts.
+          ref: ${{ needs.release.outputs.version }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web
+      - uses: ./.github/actions/setup-web
+      - name: Build the bundle
+        run: scripts/build-web.sh
+      - name: Attach the bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+        # `--clobber` replaces an asset of the same name, so that re-running this job after a transient failure
+        # succeeds rather than stopping at an asset the failed run had already uploaded. The release itself is never
+        # recreated here; only the `release` job creates one, and only once.
+        run: |
+          set -euo pipefail
+          archive="ironlab-web-$VERSION.tar.gz"
+          tar -czf "$archive" -C dist .
+          sha256sum "$archive" > "$archive.sha256"
+          gh release upload "$VERSION" "$archive" "$archive.sha256" --clobber
+
   docs:
     # The published site describes a released version, so it is rebuilt from the tag rather than from whatever main has
     # reached by now. This runs alongside publication rather than after it, the two being independent: a registry that

@@ -113,6 +113,8 @@ and the trunk is later promoted to `main` in one PR that carries the bump.
 
 Releases are tagged automatically. When a PR merges into `main`, the resulting push to `main` starts `.github/workflows/release.yml`, which reads the workspace version, tags the pushed commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.
 
+The release also carries the browser bundle. A job builds it from the tag with `scripts/build-web.sh` and attaches it to the release as `ironlab-web-<version>.tar.gz`, with a `.sha256` checksum beside it, so that a publication can host its own interactive figures at a version that never changes, as [embedding figures in a web page](../guides/embedding.md) describes. The archive holds the contents of the bundle directory with no enclosing directory, and uploading replaces an asset of the same name, so a job re-run after a transient failure succeeds.
+
 ### Publication to crates.io
 
 The same workflow then publishes the workspace to [crates.io](https://crates.io/crates/ironlab), from the tag it has just created. A merge that released nothing publishes nothing, because the publish job runs only when the tagging step reports a version it actually tagged.
