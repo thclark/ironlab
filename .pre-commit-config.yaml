@@ -52,6 +52,18 @@ repos:
         args:
           - --maximum-body-line-length=2000
 
+  # A contributor is a person who takes responsibility for the code, so no commit may name an AI assistant as an
+  # author (see CLAUDE.md). `always_run` is needed because the top-level `exclude` filters out the message file under
+  # .git/; the script then reads COMMIT_EDITMSG itself.
+  - repo: local
+    hooks:
+      - id: check-commit-message-attribution
+        name: Check commit message carries no AI attribution
+        entry: python3 scripts/check-commit-message-attribution.py
+        language: system
+        stages: [commit-msg]
+        always_run: true
+
   # Completed last, allowing all others to run mid-rebase
   # or in detached head state if required
   - repo: https://github.com/windpioneers/pre-commit-hooks
