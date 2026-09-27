@@ -18,8 +18,9 @@ The bundle is a directory of static files assembled by `scripts/build-web.sh` in
 | `README.md` | A summary of this page. |
 | `LICENSE` | The licence under which the bundle is distributed. |
 
-There are three ways to obtain it.
+There are four ways to obtain it.
 
+- Every [release of IronLAB on GitHub](https://github.com/thclark/ironlab/releases) attaches the bundle as `ironlab-web-<version>.tar.gz`, with a `.sha256` checksum beside it. The archive holds the files above with no enclosing directory, so unpacking it into the directory of your choice is the whole installation. This is the way for a publication: the version is pinned by the file you unpacked.
 - [ironlab.org](https://ironlab.org) serves the bundle of the current release at `https://ironlab.org/embed/ironlab.js`, `https://ironlab.org/embed/ironlab_core.js`, `https://ironlab.org/embed/ironlab_core_bg.wasm` and `https://ironlab.org/embed/ironlab.css`. These URLs exist for the site's own gallery pages, and anyone content to track the current version may load the script and the stylesheet from them. A publication should not: its figures must open in ten years exactly as they open today, and a file served from ironlab.org changes with every release.
 - Every run of the `web` job of the repository's continuous integration attaches the bundle it built to the run as an artefact named `ironlab-web`, which can be downloaded from the run's page on GitHub.
 - A checkout of the repository builds it with `scripts/build-web.sh`, whose `--help` names the tools it needs.
