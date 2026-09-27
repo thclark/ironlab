@@ -19,7 +19,7 @@ Two classes, documented in the crate's own Rust documentation (`cargo doc --no-d
 scripts/build-web.sh
 ```
 
-The script compiles the crate for `wasm32-unknown-unknown` in the size-tuned `web` profile of the root `Cargo.toml`, generates the bindings with `wasm-bindgen`, shrinks the module with `wasm-opt`, inlines the shadow stylesheet into the loader, and assembles `dist/`. It checks for every tool it needs and prints the command that installs a missing one: the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` at exactly the version of the `wasm-bindgen` crate in `Cargo.lock`, `binaryen` for `wasm-opt`, `jq` and `python3`. `--no-opt` skips `wasm-opt` for a quick local build, and `--out DIR` chooses the output directory.
+The script compiles the crate for `wasm32-unknown-unknown` in the size-tuned `web` profile of the root `Cargo.toml`, generates the bindings with `wasm-bindgen`, shrinks the module with `wasm-opt`, inlines the shadow stylesheet into the loader, assembles `dist/`, and initialises the assembled module in Node to prove that the optimised module still loads. It checks for every tool it needs and prints the command that installs a missing one: the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` at exactly the version of the `wasm-bindgen` crate in `Cargo.lock`, `binaryen` for `wasm-opt` (version 117 or later, because version 108, which Ubuntu 24.04 packages, produces a module that cannot initialise), `jq`, `python3` and `node`. `--no-opt` skips `wasm-opt` for a quick local build, and `--out DIR` chooses the output directory.
 
 ## Running the tests
 
