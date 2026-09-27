@@ -7,14 +7,14 @@
 mod common;
 
 use common::*;
+use ironlab_canvas::interaction::{MIN_BOX_ZOOM_POINTS, PixelDatatip, PixelValue, Tip};
+use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 use ironlab_ir::{
     Artist, Axes, Color, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage, Limits,
     Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit};
-use ironlab_viewer::interaction::{MIN_BOX_ZOOM_POINTS, PixelDatatip, PixelValue, Tip};
-use ironlab_viewer::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 

@@ -10,9 +10,9 @@ use std::fs;
 
 use common::{FakeRenderer, temp_dir};
 use ironlab::Figure;
+use ironlab_canvas::RenderedImage;
 use ironlab_gallery::docs::encode_png;
 use ironlab_gallery::{GalleryEntry, export_entries};
-use ironlab_viewer::RenderedImage;
 
 fn titled() -> Figure {
     Figure::new().size_mm(80.0, 50.0).title("Exported figure")

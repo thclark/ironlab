@@ -1,4 +1,4 @@
-//! What the viewer has to tell the user about a figure it cannot draw as asked.
+//! What a host has to tell the user about a figure it cannot draw as asked.
 //!
 //! Three quite different things go wrong, and the user needs to tell them apart before
 //! they can act:

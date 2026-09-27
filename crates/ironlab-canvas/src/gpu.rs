@@ -4,9 +4,10 @@
 //! for fills, glyphs and image tiles, and stroked polylines as [`Segment`]s in the item space of their paths, each
 //! vertex or segment end with a depth `z` in `[0, 1]` (0 the nearest), cut into [`Draw`]s that each name a
 //! texture, a clip rectangle, a depth group and the node they draw. A [`GpuPainter`] draws such lists with
-//! pipelines of its own, inside the window's render pass (through the paint callback of the `callback` module) and
-//! inside the offscreen renderer's own pass for the gallery and the PDF exporter, so that every route to pixels
-//! shares the shaders in `gpu.wgsl`, and nothing here needs a window or an interface toolkit.
+//! pipelines of its own, inside the window's render pass (through a paint callback of the host, such as the
+//! `GpuCallback` of `ironlab-viewer`) and inside the offscreen renderer's own pass for the gallery and the PDF
+//! exporter, so that every route to pixels shares the shaders in `gpu.wgsl`, and nothing here needs a window or an
+//! interface toolkit.
 //!
 //! # Drawing
 //!

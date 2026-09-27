@@ -117,7 +117,7 @@ Releases are tagged automatically. When a PR merges into `main`, the resulting p
 
 The same workflow then publishes the workspace to [crates.io](https://crates.io/crates/ironlab), from the tag it has just created. A merge that released nothing publishes nothing, because the publish job runs only when the tagging step reports a version it actually tagged.
 
-Publication is ordered by Cargo from the dependency graph — `ironlab-ir`, `ironlab-text`, `ironlab-scene`, `ironlab-pdf`, `ironlab-viewer`, then `ironlab` — and each crate reaches the index before the next begins. `ironlab-gallery` is never published, because it sets `publish = false`.
+Publication is ordered by Cargo from the dependency graph — `ironlab-ir`, `ironlab-text`, `ironlab-scene`, `ironlab-pdf`, `ironlab-canvas`, `ironlab-viewer`, then `ironlab` — and each crate reaches the index before the next begins. `ironlab-gallery` is never published, because it sets `publish = false`.
 
 No crates.io credential is stored in this repository. The job proves its identity to crates.io with an OpenID Connect token issued by GitHub, which crates.io accepts because each crate names this repository and this workflow as a trusted publisher, and exchanges for a token that expires after thirty minutes and is revoked when the job ends. A consequence worth knowing is that trusted publishing cannot claim a crate that does not yet exist: the first publication of a **new** crate must be done by hand with a scoped API token, after which that crate is configured as a trusted publisher like the others.
 

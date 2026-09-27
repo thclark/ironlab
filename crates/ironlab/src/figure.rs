@@ -503,7 +503,7 @@ impl Figure {
             raster,
             ..ironlab_pdf::PdfOptions::for_figure(&self.ir)
         };
-        let exported = ironlab_viewer::export_pdf(&self.ir, text, &options)?;
+        let exported = ironlab_canvas::export_pdf(&self.ir, text, &options)?;
         std::fs::write(path, exported.bytes)?;
         Ok(ExportReport {
             validation: validation.warnings,
