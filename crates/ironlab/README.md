@@ -10,7 +10,7 @@ IronLAB is moving quickly and breaking changes are expected. Pin to an exact ver
 
 ## Where this crate sits
 
-IronLAB is a Cargo workspace, and this crate is its facade. It writes directly to the retained figure model of `ironlab-ir`, and depends on `ironlab-text` for typesetting, `ironlab-scene` for layout and geometry, `ironlab-pdf` for export and `ironlab-viewer` for the interactive window. This is the crate to depend on: the others are useful directly only when a particular layer is needed on its own.
+IronLAB is a Cargo workspace, and this crate is its facade. It writes directly to the retained figure model of `ironlab-ir`, and depends on `ironlab-text` for typesetting, `ironlab-scene` for layout and geometry, `ironlab-pdf` and `ironlab-canvas` for export and `ironlab-viewer` for the interactive window. This is the crate to depend on: the others are useful directly only when a particular layer is needed on its own.
 
 ## Licence
 

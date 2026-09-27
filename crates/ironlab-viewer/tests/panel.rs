@@ -10,17 +10,18 @@ mod common;
 use common::*;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use ironlab_canvas::inspector::{
+    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit,
+    is_shown, kind_name, property_groups, read_only_reason, tree_rows,
+};
+use ironlab_canvas::{FigureState, Origin};
 use ironlab_ir::{
     Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Projection, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit};
-use ironlab_viewer::inspector::{
-    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, commit,
-    is_shown, kind_name, property_groups, read_only_reason, tree_rows,
-};
 use ironlab_viewer::panel::{FOOTER_ID, OBJECT_TREE_ID, revert_all_label};
-use ironlab_viewer::{FigureState, Origin, PropertyPanel, property_panel};
+use ironlab_viewer::{PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 

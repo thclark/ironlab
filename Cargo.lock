@@ -1803,6 +1803,7 @@ name = "ironlab"
 version = "0.9.1"
 dependencies = [
  "eframe",
+ "ironlab-canvas",
  "ironlab-ir",
  "ironlab-pdf",
  "ironlab-scene",
@@ -1813,12 +1814,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironlab-canvas"
+version = "0.9.1"
+dependencies = [
+ "bytemuck",
+ "ecolor",
+ "emath",
+ "image",
+ "ironlab-ir",
+ "ironlab-pdf",
+ "ironlab-scene",
+ "ironlab-text",
+ "kurbo",
+ "lyon",
+ "pollster 1.0.1",
+ "serde",
+ "thiserror 2.0.20",
+ "wgpu",
+]
+
+[[package]]
 name = "ironlab-gallery"
 version = "0.9.1"
 dependencies = [
  "clap",
  "image",
  "ironlab",
+ "ironlab-canvas",
  "ironlab-ir",
  "ironlab-pdf",
  "ironlab-scene",
@@ -1879,24 +1901,16 @@ dependencies = [
 name = "ironlab-viewer"
 version = "0.9.1"
 dependencies = [
- "bytemuck",
- "ecolor",
  "eframe",
  "egui",
  "egui-wgpu",
  "egui_kittest",
- "emath",
- "image",
+ "ironlab-canvas",
  "ironlab-ir",
  "ironlab-pdf",
  "ironlab-scene",
  "ironlab-text",
- "kurbo",
- "lyon",
- "pollster 1.0.1",
  "rfd",
- "serde_json",
- "thiserror 2.0.20",
  "wgpu",
 ]
 

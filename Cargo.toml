@@ -16,6 +16,7 @@ ironlab-ir = { path = "crates/ironlab-ir", version = "0.9.1" }
 ironlab-text = { path = "crates/ironlab-text", version = "0.9.1" }
 ironlab-scene = { path = "crates/ironlab-scene", version = "0.9.1" }
 ironlab-pdf = { path = "crates/ironlab-pdf", version = "0.9.1" }
+ironlab-canvas = { path = "crates/ironlab-canvas", version = "0.9.1" }
 ironlab-viewer = { path = "crates/ironlab-viewer", version = "0.9.1" }
 ironlab = { path = "crates/ironlab", version = "0.9.1" }
 

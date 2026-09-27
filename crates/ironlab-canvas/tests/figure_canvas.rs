@@ -13,15 +13,15 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use egui::{Pos2, Rect, pos2, vec2};
-use ironlab_ir::{Dimension, FigureSize, NodeId, Value};
-use ironlab_scene::display::Point;
-use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
-use ironlab_viewer::{
+use emath::{Pos2, Rect, pos2, vec2};
+use ironlab_canvas::{
     CANVAS_MARGIN, Callout, Cursor, DATATIP_RING_POINTS, FigureCanvas, Fit, Gesture, MAX_TILE_SIDE,
     Marker, Origin, Pointer, REBUILD_RATIO, Tip, Tool, WHEEL_ZOOM_RATE, datatip_text,
     pixel_datatip_text, wheel_factor,
 };
+use ironlab_ir::{Dimension, FigureSize, NodeId, Value};
+use ironlab_scene::display::Point;
+use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
 
 /// The area the kittest twins fit their figure into: a 900 × 600 harness. It is placed away from the origin so that
 /// a test which forgot the area's position would fail.

@@ -2,7 +2,7 @@
 //!
 //! The panel is hidden until the toolbar's **Properties** button opens it. It shows the
 //! object tree of the displayed figure at the top and the properties of the selected node
-//! below, both built by [`crate::inspector`] from the figure that is already composed, so
+//! below, both built by [`ironlab_canvas::inspector`] from the figure that is already composed, so
 //! that drawing the panel neither recomposes the overlay nor recompiles the scene.
 //!
 //! The inspector and the foot are drawn from [`crate::widgets`], as the figure browser is:
@@ -37,15 +37,15 @@ use ironlab_ir::{
     View3d, choices,
 };
 
-use crate::inspector::{
-    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, TreeRow,
-    commit, kind_name, property_groups, read_only_label, shape_label, tree_rows,
-};
-use crate::interaction::FigureState;
 use crate::widgets::{
     Control, Face, Icon, Number, PanelKind, Property, Role, Spacing, checkbox, choice, combo,
     field, heading, hint, note, number, problem, readout, swatch, text,
 };
+use ironlab_canvas::inspector::{
+    DATA_REASON, Editor, ParameterKind, ParametersDraft, PropertyGroup, PropertyRow, TreeRow,
+    commit, kind_name, property_groups, read_only_label, shape_label, tree_rows,
+};
+use ironlab_canvas::interaction::FigureState;
 
 /// The identifier egui lays the object tree out under. It is named here so that the
 /// space the tree is given can be measured.

@@ -10,7 +10,7 @@
 //! conversion of gestures into figure-space calls on [`FigureState`]. The pane forwards the gestures egui decides
 //! from the canvas's response (a hover, a wheel notch, the start, moves and end of a drag, a click and a double
 //! click), then draws what the controller reports: the page background inside the fit, the draw list through the
-//! viewer's own pipelines ([`crate::gpu`]) by a paint callback ([`GpuCallback`]) in the figure's place among egui's
+//! viewer's own pipelines ([`ironlab_canvas::gpu`]) by a paint callback ([`GpuCallback`]) in the figure's place among egui's
 //! shapes, relying on 4× MSAA for anti-aliasing, and the cursor, callout and rubber band with egui's painter.
 //!
 //! Each figure also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar
@@ -19,8 +19,8 @@
 //! Everything shown, exported and saved is the displayed figure of [`FigureState`]: the source figure with the user's
 //! overlay applied. Pressing `R` resets the view of the active figure, and ⌘Z and ⌘⇧Z (Ctrl+Z and Ctrl+Shift+Z away
 //! from macOS) undo and redo its gestures. "Export PDF…" writes the displayed figure with
-//! [`crate::export::write_pdf`], which rasterises the dense parts of the figure through the viewer's own renderer,
-//! and "Save figure…" writes it as a figure file with [`crate::files::write_figure`],
+//! [`ironlab_canvas::export::write_pdf`], which rasterises the dense parts of the figure through the viewer's own renderer,
+//! and "Save figure…" writes it as a figure file with [`ironlab_canvas::files::write_figure`],
 //! after which the overlay is folded into the source because the viewer owns it. Both open a native save dialog and
 //! report the outcome in a notification.
 
@@ -31,14 +31,14 @@ use ironlab_text::TextEngine;
 
 use crate::browse::{FacetValue, FigureCard};
 use crate::callback::GpuCallback;
-use crate::canvas::MAX_TILE_SIDE;
-use crate::figure_canvas::{Callout, Cursor, FigureCanvas, Marker, wheel_factor};
-use crate::gpu::{DEPTH_FORMAT, DrawList, GpuConfig, GpuPainter};
-use crate::interaction::{FigureState, Tool};
 use crate::panel::PropertyPanel;
-use crate::problems::{Problem, indicator_label};
 use crate::sidebar::{FigureBrowser, figure_browser};
 use crate::widgets::{Control, PanelKind, Role, Spacing, label, surround, text};
+use ironlab_canvas::canvas::MAX_TILE_SIDE;
+use ironlab_canvas::figure_canvas::{Callout, Cursor, FigureCanvas, Marker, wheel_factor};
+use ironlab_canvas::gpu::{DEPTH_FORMAT, DrawList, GpuConfig, GpuPainter};
+use ironlab_canvas::interaction::{FigureState, Tool};
+use ironlab_canvas::problems::{Problem, indicator_label};
 
 /// The room between the edge of the toolbar and its controls, in egui points.
 const TOOLBAR_PADDING: egui::Margin = egui::Margin {
@@ -446,14 +446,14 @@ impl FigurePane {
     /// Asks for a destination and writes the displayed figure as a PDF there. Returns a notification of the outcome,
     /// or `None` when the user cancelled the dialog.
     fn export(&self, text: &TextEngine, now: f64) -> Option<Notification> {
-        let stem = crate::files::figure_stem(&self.title);
+        let stem = ironlab_canvas::files::figure_stem(&self.title);
         let path = rfd::FileDialog::new()
             .add_filter("PDF", &["pdf"])
             .set_file_name(format!("{stem}.pdf"))
             .save_file()?;
         let figure = self.canvas.state().figure();
         Some(
-            match crate::export::write_pdf(
+            match ironlab_canvas::export::write_pdf(
                 figure,
                 text,
                 &ironlab_pdf::PdfOptions::for_figure(figure),
@@ -480,13 +480,13 @@ impl FigurePane {
     /// The figure written becomes the source of the tab and the overlay is emptied, because the viewer owns the source
     /// of the figures it opens. Returns a notification of the outcome, or `None` when the user cancelled the dialog.
     fn save(&mut self, now: f64) -> Option<Notification> {
-        let stem = crate::files::figure_stem(&self.title);
+        let stem = ironlab_canvas::files::figure_stem(&self.title);
         let path = rfd::FileDialog::new()
             .add_filter("Figure", &["fig", "json"])
             .set_file_name(format!("{stem}.fig"))
             .save_file()?;
         Some(
-            match crate::files::write_figure(&path, self.canvas.state().figure()) {
+            match ironlab_canvas::files::write_figure(&path, self.canvas.state().figure()) {
                 Ok(()) => {
                     // Folding the overlay leaves the displayed figure as it is, so the scene is kept.
                     self.canvas.edit(|state| {

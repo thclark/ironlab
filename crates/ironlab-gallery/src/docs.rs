@@ -25,8 +25,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ironlab_canvas::RenderedImage;
 use ironlab_text::TextEngine;
-use ironlab_viewer::RenderedImage;
 
 use crate::error::GalleryError;
 use crate::fields::FIELDS_SOURCE;
@@ -168,14 +168,14 @@ impl IronlabRenderer {
 
 impl Renderer for IronlabRenderer {
     fn png(&self, figure: &ironlab::ir::Figure, dpi: f64) -> Result<Vec<u8>, GalleryError> {
-        let image = ironlab_viewer::render_offscreen(figure, &self.text, dpi)
+        let image = ironlab_canvas::render_offscreen(figure, &self.text, dpi)
             .map_err(|error| GalleryError::Render(error.to_string()))?;
         encode_png(&image)
     }
 
     fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<ExportedPdf, GalleryError> {
         let options = ironlab_pdf::PdfOptions::for_figure(figure);
-        let exported = ironlab_viewer::export_pdf(figure, &self.text, &options)
+        let exported = ironlab_canvas::export_pdf(figure, &self.text, &options)
             .map_err(|error| GalleryError::Pdf(error.to_string()))?;
         Ok(ExportedPdf {
             bytes: exported.bytes,

@@ -20,6 +20,7 @@ ironlab-ir.workspace = true
 ironlab-text.workspace = true
 ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
+ironlab-canvas.workspace = true
 ironlab-viewer.workspace = true
 eframe.workspace = true
 thiserror.workspace = true

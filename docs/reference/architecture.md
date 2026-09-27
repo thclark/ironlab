@@ -12,13 +12,16 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 | `ironlab-text` | Text: the bundled STIX Two fonts, shaping of plain text with HarfRust, typesetting of LaTeX mathematics with latex-rust, the memo of resolved text layouts, and the cache of glyph outlines. |
 | `ironlab-scene` | The scene compiler: layout of tiles, axes, titles, labels and legends; tick generation; automatic limits; colormaps; contour extraction; quiver scaling; the placement and colouring of the pixels of images; three-dimensional projection and depth sorting. Its output is a display list and a hit map. |
 | `ironlab-pdf` | The PDF backend: draws a display list onto a single PDF page with krilla, embedding subset fonts and real text. |
-| `ironlab-viewer` | The interactive viewer: an eframe application showing one figure at a time, chosen in a browser that narrows a collection by its labels and parameters, with a toolbar, the canvas that turns a display list into one draw list and draws it through the viewer's own wgpu pipelines, the interaction state machine, the property editor, an offscreen renderer that draws a figure into an image without a window through the same pipelines, and the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
+| `ironlab-canvas` | The figure canvas, which every host draws a figure with: the canvas that turns a display list into one draw list and draws it through its own wgpu pipelines, the interaction state machine, the logic of the property editor and of the problems a figure reports, an offscreen renderer that draws a figure into an image without a window through the same pipelines, PDF export through that renderer, and the encoding and decoding of `.fig` and JSON figure files. It depends on no user interface toolkit and builds for the browser. |
+| `ironlab-viewer` | The interactive viewer: an eframe application showing one figure at a time, chosen in a browser that narrows a collection by its labels and parameters, with a toolbar and the property editor. It is the egui host of `ironlab-canvas`, drawing each figure through the canvas crate's pipelines inside the window's render pass, and it ships the `ironlab-viewer` binary, which opens `.fig` and JSON files. |
 | `ironlab` | The facade: the MATLAB-flavoured builder API, and the `show`, `save`, `load` and `export_pdf` operations described in [getting started](../guides/getting-started.md). `export_pdf` returns a report of the validation warnings and the scene warnings of the figure, so that a program learns what was left off the page. |
 | `ironlab-gallery` | The example figures, each written against the facade API, and the `gallery` binary that views them, exports them and generates the documentation [gallery](../gallery/index.md). |
 
-The dependencies run in one direction. `ironlab-ir` and `ironlab-text` depend on no other IronLAB crate; `ironlab-scene` depends on both of them; `ironlab-pdf` depends on `ironlab-scene`; `ironlab-viewer` depends on `ironlab-scene` and on `ironlab-pdf`, which it uses to export; the facade depends on every crate above it; and the gallery depends on the facade, the viewer and the PDF backend.
+The dependencies run in one direction. `ironlab-ir` and `ironlab-text` depend on no other IronLAB crate; `ironlab-scene` depends on both of them; `ironlab-pdf` depends on `ironlab-scene`; `ironlab-canvas` depends on `ironlab-scene` and on `ironlab-pdf`, which it uses to export; `ironlab-viewer` depends on `ironlab-canvas`; the facade depends on every crate above it; and the gallery depends on the facade, the canvas, the viewer and the PDF backend.
 
-`ironlab-pdf` therefore cannot reach the viewer's renderer, and does not try to: it records the renders an export needs, as display lists with a resolution, and the viewer performs them and hands the images back for the exporter to embed. Every export in the project goes through `ironlab_viewer::export_pdf`, which renders those requests through the offscreen renderer, so the raster fallback described under [the backends](#the-backends) is always available and never duplicated.
+`ironlab-pdf` therefore cannot reach the canvas crate's renderer, and does not try to: it records the renders an export needs, as display lists with a resolution, and the canvas crate performs them and hands the images back for the exporter to embed. Every export in the project goes through `ironlab_canvas::export_pdf`, which renders those requests through the offscreen renderer, so the raster fallback described under [the backends](#the-backends) is always available and never duplicated.
+
+The split between `ironlab-canvas` and `ironlab-viewer` is enforced by the compiler rather than by convention: the canvas crate is built for `wasm32-unknown-unknown` in continuous integration, which fails if anything in it comes to depend on egui, eframe, a file dialog or any other native-only crate, so a browser host is guaranteed to draw figures with the same code as the desktop viewer.
 
 ## One path to pixels
 
@@ -38,11 +41,11 @@ Every drawing of a figure, whether on screen, in an offscreen image or on a PDF 
                                      │
                ┌─────────────────────┼──────────────────────┐
                ▼                     ▼                      ▼
-     ironlab-viewer canvas   ironlab-viewer offscreen   ironlab-pdf
+     ironlab-canvas canvas   ironlab-canvas offscreen   ironlab-pdf
      lyon → one draw list    same list → image          krilla → PDF page
      → wgpu pipelines        (gallery images, tests,    (export; lists the
-     (interactive window)    the exporter's rasters)    rasters it needs, which
-                                                        the viewer renders)
+     (hosted by the viewer)  the exporter's rasters)    rasters it needs, which
+                                                        the canvas renders)
 ```
 
 The scene compiler is the only place in which geometry is computed. Tick positions, text placement, contour lines, arrow shapes, the placement and colours of the pixels of images, projection and the order in which three-dimensional faces are painted are all decided there, once. The backends are deliberately simple consumers: they draw the items of the display list in order and make no decisions of their own. Because the screen and the PDF receive identical geometry, they cannot disagree about what a figure looks like. This rule, and the choice of an egui-mesh canvas for now with custom GPU pipelines later, are recorded in [ADR 0003](../adrs/0003-shared-scene-compiler-and-display-list.md).
@@ -134,7 +137,7 @@ The figure model stores every piece of text as its source string with an interpr
 
 1. With the LaTeX interpreter, the source is split into plain segments and mathematics segments delimited by `$…$`. With no interpreter, the whole source is one plain segment.
 2. Plain segments are shaped with HarfRust against STIX Two Text.
-3. Mathematics segments are parsed and laid out by latex-rust against STIX Two Math. Before layout, hyphens are replaced by minus signs and unstyled letters by their mathematical italic forms, as TeX does. Layout runs on a helper thread with a large stack, and deeply nested input is rejected before it reaches the parser, so that no input can overflow a stack.
+3. Mathematics segments are parsed and laid out by latex-rust against STIX Two Math. Before layout, hyphens are replaced by minus signs and unstyled letters by their mathematical italic forms, as TeX does. Layout runs on a helper thread with a large stack (in the browser, which has one thread, the linker gives that thread a large stack instead), and deeply nested input is rejected before it reaches the parser, so that no input can overflow a stack.
 4. The resulting box tree is converted into positioned glyphs and rules in points, and the segments are placed on a shared baseline.
 
 Resolved layouts are memoised in memory, keyed on the source, the interpreter and the size, so each distinct label is typeset once per process. Mathematics that cannot be typeset is drawn as its raw source in the text font, and a warning is recorded, so a label never prevents a figure from being drawn. Glyph identifiers always refer to the bundled font files that both backends draw with. The reasons for embedding a typesetter, and for storing source rather than glyphs, are recorded in [ADR 0005](../adrs/0005-embedded-latex-math-with-latex-rust.md).

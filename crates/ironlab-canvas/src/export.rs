@@ -1,14 +1,14 @@
-//! PDF export through the viewer's own renderer.
+//! PDF export through the canvas's own renderer.
 //!
 //! [`ironlab_pdf`] writes vector geometry and text, and needs an image for the parts of a figure that are too dense
 //! to be worth writing as vector paths, and two renders of each three-dimensional axes to verify its painter's
 //! order. This module supplies those images in the exporter's two-phase form
 //! ([`ironlab_pdf::twophase`]): [`export_display_list`] asks the exporter which renders the page needs, performs
-//! each through the viewer's headless renderer, and hands the images back for the exporter to embed. The pixels in
-//! a PDF therefore come from the same device, the same tessellation and the same shaders that draw the interactive
-//! canvas; there is no second rasteriser, and nothing that can drift from what the user inspected on screen. The
-//! renders are awaited rather than blocked on, so the same export runs on the desktop and in a browser, and both
-//! write the bytes a single pass with the renderer inside the exporter's walk would have written.
+//! each through the offscreen renderer of [`crate::offscreen`], and hands the images back for the exporter to embed.
+//! The pixels in a PDF therefore come from the same device, the same tessellation and the same shaders that draw the
+//! interactive canvas; there is no second rasteriser, and nothing that can drift from what the user inspected on
+//! screen. The renders are awaited rather than blocked on, so the same export runs on the desktop and in a browser,
+//! and both write the bytes a single pass with the renderer inside the exporter's walk would have written.
 //!
 //! [`export_pdf`] and [`write_pdf`] are the export path the whole project uses: the viewer's "Export PDF…" command,
 //! the `ironlab` crate's [`Figure::export_pdf`](../../ironlab/struct.Figure.html) and the documentation gallery.
@@ -21,14 +21,18 @@
 //! adapter as the remedy. Only a figure that must be rasterised needs an adapter, and when none is available that
 //! is reported as [`ExportError::Render`] rather than quietly exported as something else.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
+#[cfg(not(target_arch = "wasm32"))]
 use ironlab_ir::Figure;
+#[cfg(not(target_arch = "wasm32"))]
+use ironlab_pdf::Exported;
 use ironlab_pdf::raster::{Need, needs_rasteriser};
 use ironlab_pdf::{
-    ExportWarning, ExportWarningKind, Exported, PdfError, PdfOptions, RasterImage, Rendered,
-    UnverifiedCause,
+    ExportWarning, ExportWarningKind, PdfError, PdfOptions, RasterImage, Rendered, UnverifiedCause,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;

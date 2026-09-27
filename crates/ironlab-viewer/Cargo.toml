@@ -22,29 +22,18 @@ path = "src/main.rs"
 [dependencies]
 ironlab-ir.workspace = true
 ironlab-text.workspace = true
-ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
+ironlab-canvas.workspace = true
 egui.workspace = true
 eframe.workspace = true
-emath.workspace = true
-ecolor.workspace = true
-# wgpu is a direct dependency, pinned in the workspace to the version egui-wgpu builds against, so that the offscreen
-# renderer can be awaited by a host that never links egui-wgpu. A drift between the two would fail to compile at
-# `GpuCallback`, whose `egui_wgpu::CallbackTrait` methods take this crate's wgpu types, which is the guard wanted.
+# wgpu is a direct dependency, pinned in the workspace to the version egui-wgpu builds against, because `GpuCallback`
+# hands the device and render pass egui-wgpu gives it to the pipelines of `ironlab-canvas`, which take the workspace's
+# wgpu types. A drift between the two would fail to compile there, which is the guard wanted.
 wgpu.workspace = true
 egui-wgpu = "0.36.2"
-# The vertex layout of the viewer's own pipelines is cast to bytes with bytemuck, as egui's is.
-bytemuck = { version = "1.25.2", features = ["derive"] }
-kurbo.workspace = true
-lyon.workspace = true
 rfd.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-
-# The blocking wrappers over the awaited renderer drive it with pollster; a browser host awaits it instead.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pollster = "1.0.1"
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe"] }
-image.workspace = true
+# The tests of the window build their hit maps and scene warnings by hand rather than compiling a figure.
+ironlab-scene.workspace = true

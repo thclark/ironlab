@@ -28,7 +28,7 @@ pub enum Error {
     /// The PDF exporter could not produce the document, or the figure has content that
     /// must be rasterised and no graphics adapter is available to render it.
     #[error(transparent)]
-    Export(#[from] ironlab_viewer::ExportError),
+    Export(#[from] ironlab_canvas::ExportError),
 
     /// The interactive viewer could not be started or failed while running.
     #[error("viewer failed: {0}")]

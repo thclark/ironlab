@@ -2,13 +2,13 @@
 
 The interactive egui viewer for [IronLAB](https://ironlab.org) figures, an interactive plotting tool for scientific computing in Rust.
 
-The viewer is an eframe application that shows one or more figures, one at a time with a browser to choose between them, in which axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a property editor. It is a deliberately simple consumer of the scene compiler: it tessellates the display list into egui meshes with lyon and turns every gesture into a typed edit of the figure model, recorded in a view overlay rather than applied to the figure it was given. Undo, redo, saving and PDF export all act on that overlay, so what is exported is exactly what is on screen. The crate also provides an offscreen renderer that draws a figure into an image without a window, which the documentation gallery and the tests use, and which the PDF exporter calls to rasterise dense content.
+The viewer is an eframe application that shows one or more figures, one at a time with a browser to choose between them, in which axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a property editor. It is the egui host of the figure canvas, [`ironlab-canvas`](https://crates.io/crates/ironlab-canvas), which draws each figure through its own wgpu pipelines inside the window's render pass and turns every gesture into a typed edit of the figure model, recorded in a view overlay rather than applied to the figure it was given. Undo, redo, saving and PDF export all act on that overlay, so what is exported is exactly what is on screen. The offscreen renderer that draws a figure into an image without a window, and the PDF export that rasterises dense content through it, live in `ironlab-canvas`; this crate adds the window, the toolbar, the figure browser and the property editor around them.
 
 ## Where this crate sits
 
-IronLAB is a Cargo workspace. `ironlab-viewer` sits at the top of the library stack and depends on `ironlab-ir`, `ironlab-text`, `ironlab-scene` and `ironlab-pdf`. Every PDF export in the project goes through this crate, because it is the crate that supplies the renderer the PDF backend asks for.
+IronLAB is a Cargo workspace. `ironlab-viewer` sits at the top of the library stack and depends on `ironlab-canvas`, `ironlab-ir`, `ironlab-text` and `ironlab-pdf`. It is the only crate of the workspace that links egui, eframe and egui-wgpu.
 
-Most users should depend on the [`ironlab`](https://crates.io/crates/ironlab) facade crate, whose `show` operation opens this viewer. Depend on `ironlab-viewer` directly only when you need this layer on its own, for instance to embed the canvas in an application of your own or to render figures offscreen.
+Most users should depend on the [`ironlab`](https://crates.io/crates/ironlab) facade crate, whose `show` operation opens this viewer. Depend on `ironlab-viewer` directly only when you need this layer on its own, for instance to embed the viewer's panels in an egui application of your own; to draw figures without egui or to render them offscreen, depend on `ironlab-canvas` instead.
 
 ## The viewer binary
 

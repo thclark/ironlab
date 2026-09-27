@@ -9,14 +9,14 @@
 //! on the state, recompiling the scene after every change so that the next gesture and the same frame's drawing see
 //! the figure as it now is. The host then draws in this order: its surround and the page
 //! [`background`](FigureCanvas::background) inside the [`fit`](FigureCanvas::fit), the
-//! [`draw_list`](FigureCanvas::draw_list) through the viewer's own pipelines, and the chrome reported by
+//! [`draw_list`](FigureCanvas::draw_list) through the pipelines of [`crate::gpu`], and the chrome reported by
 //! [`cursor`](FigureCanvas::cursor), [`callout`](FigureCanvas::callout) and
 //! [`rubber_band`](FigureCanvas::rubber_band).
 //!
-//! The figure pane of [`crate::app`] is the egui host: it forwards the gestures egui decides from its response and
-//! draws the reported chrome with egui's painter. A host without egui, such as a browser page, has only raw pointer
-//! events; [`Pointer`] turns those into the same [`Gesture`]s by egui's rules and thresholds, so that both hosts tell
-//! a press, a drag and a click apart in the same way and the figure behaves alike in each.
+//! The figure pane of the egui viewer, `ironlab-viewer`, is the egui host: it forwards the gestures egui decides
+//! from its response and draws the reported chrome with egui's painter. A host without egui, such as a browser page,
+//! has only raw pointer events; [`Pointer`] turns those into the same [`Gesture`]s by egui's rules and thresholds, so
+//! that both hosts tell a press, a drag and a click apart in the same way and the figure behaves alike in each.
 
 use std::sync::Arc;
 

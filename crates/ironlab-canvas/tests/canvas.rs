@@ -18,7 +18,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use common::{TEXT, assert_close, depth_group, figure_with_surface, glyph_h, scale_then_translate};
-use egui::Color32;
+use ecolor::Color32;
+use ironlab_canvas::canvas::{MAX_TILE_SIDE, Resolution, SCREEN_TOLERANCE, tessellate};
+use ironlab_canvas::gpu::{
+    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu,
+    MarkerVertex, Segment, StrokeParams, TileKey, Vertex,
+};
 use ironlab_ir::NodeId;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageItem, Item, ItemKind, LineCap,
@@ -26,11 +31,6 @@ use ironlab_scene::display::{
     Stroke, Transform,
 };
 use ironlab_text::TextItem;
-use ironlab_viewer::canvas::{MAX_TILE_SIDE, Resolution, SCREEN_TOLERANCE, tessellate};
-use ironlab_viewer::gpu::{
-    Draw, DrawKind, DrawList, JOIN_AT_END, JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu,
-    MarkerVertex, Segment, StrokeParams, TileKey, Vertex,
-};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Display-list fixtures
@@ -577,35 +577,35 @@ fn draw_area(list: &DrawList, draw: &Draw) -> f64 {
 }
 
 /// The bounding box, in figure points, of every vertex referenced by `triangles`.
-fn bounds_of(triangles: impl Iterator<Item = [Vertex; 3]>) -> egui::Rect {
-    let mut rect = egui::Rect::NOTHING;
+fn bounds_of(triangles: impl Iterator<Item = [Vertex; 3]>) -> emath::Rect {
+    let mut rect = emath::Rect::NOTHING;
     for triangle in triangles {
         for v in triangle {
-            rect.extend_with(egui::pos2(v.pos[0], v.pos[1]));
+            rect.extend_with(emath::pos2(v.pos[0], v.pos[1]));
         }
     }
     rect
 }
 
 /// The bounding box of every vertex referenced by a triangle of a list.
-fn bbox(list: &DrawList) -> egui::Rect {
+fn bbox(list: &DrawList) -> emath::Rect {
     bounds_of(triangles(list))
 }
 
 /// The bounding box of every vertex referenced by a triangle of one draw.
-fn draw_bbox(list: &DrawList, draw: &Draw) -> egui::Rect {
+fn draw_bbox(list: &DrawList, draw: &Draw) -> emath::Rect {
     bounds_of(triangles_in(list, draw))
 }
 
 /// The rectangle from `(x0, y0)` to `(x1, y1)` in figure points, as an expected bounding box.
-fn bounds(x0: f32, y0: f32, x1: f32, y1: f32) -> egui::Rect {
-    egui::Rect::from_min_max(egui::pos2(x0, y0), egui::pos2(x1, y1))
+fn bounds(x0: f32, y0: f32, x1: f32, y1: f32) -> emath::Rect {
+    emath::Rect::from_min_max(emath::pos2(x0, y0), emath::pos2(x1, y1))
 }
 
 /// Asserts that every edge of `actual` lies within `tolerance` of the same edge of `expected`, naming `what` was
 /// measured when one does not.
 #[track_caller]
-fn assert_rect_close(actual: egui::Rect, expected: egui::Rect, tolerance: f32, what: &str) {
+fn assert_rect_close(actual: emath::Rect, expected: emath::Rect, tolerance: f32, what: &str) {
     let ok = (actual.min.x - expected.min.x).abs() <= tolerance
         && (actual.min.y - expected.min.y).abs() <= tolerance
         && (actual.max.x - expected.max.x).abs() <= tolerance

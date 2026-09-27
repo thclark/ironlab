@@ -24,6 +24,10 @@ use common::{
     tools_available,
 };
 use image::RgbImage;
+use ironlab_canvas::{
+    ExportError, OffscreenRenderer, RenderError, render_display_list_offscreen,
+    with_shared_renderer,
+};
 use ironlab_ir::{
     Artist, Axes, Axis, Cell, Color, ColorSpec, DataId, Figure, Grid, Limits, Line, NdArray,
     NodeId, Projection, Surface, Text, TileLayout, View3d,
@@ -34,10 +38,6 @@ use ironlab_pdf::{
 };
 use ironlab_scene::display::{DisplayList, Rect};
 use ironlab_text::TextEngine;
-use ironlab_viewer::{
-    ExportError, OffscreenRenderer, RenderError, render_display_list_offscreen,
-    with_shared_renderer,
-};
 
 /// The side of the grid of the dense surface. It has 139 × 139 = 19 321 faces, comfortably above the default
 /// threshold, so the default settings rasterise it without being told to.
@@ -209,12 +209,12 @@ fn vector_and_raster_pages(
     figure: &Figure,
     dpi: f64,
 ) -> Option<(RgbImage, RgbImage)> {
-    let vector = exported_or_skip(ironlab_viewer::export_pdf(
+    let vector = exported_or_skip(ironlab_canvas::export_pdf(
         figure,
         &TEXT,
         &options(RasterPolicy::Never, dpi),
     ))?;
-    let raster = exported_or_skip(ironlab_viewer::export_pdf(
+    let raster = exported_or_skip(ironlab_canvas::export_pdf(
         figure,
         &TEXT,
         &options(RasterPolicy::Always, dpi),
@@ -300,7 +300,7 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
     let ws = Workspace::new("furniture");
     let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColorSpec::default());
     // The default options, with no policy set, to show that a dense surface rasterises without being asked.
-    let Some(exported) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(exported) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &PdfOptions::for_figure(&figure),
@@ -332,7 +332,7 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
 #[test]
 fn a_figure_with_nothing_dense_exports_without_a_renderer() {
     let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
-    let exported = ironlab_viewer::export_pdf(&figure, &TEXT, &PdfOptions::default())
+    let exported = ironlab_canvas::export_pdf(&figure, &TEXT, &PdfOptions::default())
         .expect("a figure with no dense content exports without any renderer");
 
     assert!(
@@ -390,7 +390,7 @@ fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_dr
     // pixels and a boundary placed a device pixel apart by the two rasterisers is a small part of every block.
     let dpi = 288.0;
     // An image is never dense, so the export needs no renderer; only the comparison does.
-    let Some(rendered) = exported_or_skip(ironlab_viewer::export::render_display_list(
+    let Some(rendered) = exported_or_skip(ironlab_canvas::export::render_display_list(
         &scene.display_list,
         &TEXT,
         &PdfOptions::for_figure(&figure),
@@ -538,14 +538,14 @@ fn a_height_field_under_the_default_policy_stays_vector_and_matches_its_depth_te
         |x, y| 0.5 + 0.3 * (std::f64::consts::TAU * x).sin() * (std::f64::consts::TAU * y).cos(),
     );
     let dpi = 300.0;
-    let Some(vector) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(vector) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Auto, dpi),
     )) else {
         return;
     };
-    let Some(raster) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(raster) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Raster, dpi),
@@ -594,14 +594,14 @@ fn crossing_surfaces_under_the_default_policy_are_embedded_and_reported() {
     let ws = Workspace::new("crossing");
     let figure = crossing_planes_figure();
     let dpi = 300.0;
-    let Some(auto) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(auto) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Auto, dpi),
     )) else {
         return;
     };
-    let Some(vector) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(vector) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Vector, dpi),
@@ -674,7 +674,7 @@ fn crossing_surfaces_under_the_default_policy_are_embedded_and_reported() {
 #[test]
 fn a_two_dimensional_figure_reports_nothing_from_the_exporter() {
     let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
-    let exported = ironlab_viewer::export_pdf(&figure, &TEXT, &PdfOptions::default())
+    let exported = ironlab_canvas::export_pdf(&figure, &TEXT, &PdfOptions::default())
         .expect("a two-dimensional figure exports without a renderer");
     assert!(
         exported.export.is_empty(),
@@ -699,7 +699,7 @@ fn a_dense_surface_in_an_axes_drawn_as_vectors_is_rasterised_for_its_size_with_b
         },
         ColorSpec::None,
     );
-    let Some(exported) = exported_or_skip(ironlab_viewer::export_pdf(
+    let Some(exported) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::default(), DepthPolicy::Vector, 300.0),
@@ -886,7 +886,7 @@ fn the_two_phase_export_is_byte_identical_to_a_single_pass_through_the_same_rend
         DepthPolicy::Auto,
         300.0,
     );
-    let Some(two_phase) = exported_or_skip(ironlab_viewer::export_pdf(&figure, &TEXT, &options))
+    let Some(two_phase) = exported_or_skip(ironlab_canvas::export_pdf(&figure, &TEXT, &options))
     else {
         return;
     };
@@ -952,7 +952,7 @@ fn the_two_phase_export_is_byte_identical_to_a_single_pass_through_the_same_rend
 #[test]
 fn a_three_dimensional_figure_exports_without_an_adapter() {
     let figure = crossing_planes_figure();
-    let exported = ironlab_viewer::export_pdf(
+    let exported = ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Vector, 300.0),
@@ -1003,7 +1003,7 @@ fn no_adapter_export_probe() {
         return;
     }
     let figure = crossing_planes_figure();
-    let auto = ironlab_viewer::export_pdf(
+    let auto = ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Auto, 300.0),
@@ -1024,7 +1024,7 @@ fn no_adapter_export_probe() {
         "the message names the missing adapter: {}",
         auto.export[0].message
     );
-    let forced = ironlab_viewer::export_pdf(
+    let forced = ironlab_canvas::export_pdf(
         &figure,
         &TEXT,
         &depth_options(RasterPolicy::Never, DepthPolicy::Raster, 300.0),
