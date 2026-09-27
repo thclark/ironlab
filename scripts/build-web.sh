@@ -97,7 +97,9 @@ case "$profile" in
   bench) profile_dir=release ;;
   *) profile_dir=$profile ;;
 esac
-module="target/wasm32-unknown-unknown/$profile_dir/ironlab_web.wasm"
+# Cargo writes under CARGO_TARGET_DIR when it is set, as a worktree sharing a build directory does.
+target="${CARGO_TARGET_DIR:-target}"
+module="$target/wasm32-unknown-unknown/$profile_dir/ironlab_web.wasm"
 
 echo "==> Compiling ironlab-web for wasm32-unknown-unknown ($profile profile)"
 cargo build --locked --profile "$profile" --target wasm32-unknown-unknown -p ironlab-web
@@ -105,7 +107,7 @@ cargo build --locked --profile "$profile" --target wasm32-unknown-unknown -p iro
 
 # The bindings are regenerated from scratch each time, so that a file wasm-bindgen no longer writes cannot survive
 # from an earlier run and be copied into the bundle.
-bindgen=target/web-bindgen
+bindgen="$target/web-bindgen"
 echo "==> Generating the JavaScript bindings with wasm-bindgen $installed"
 rm -rf "$bindgen"
 wasm-bindgen --target web --out-dir "$bindgen" --out-name ironlab_core "$module"
