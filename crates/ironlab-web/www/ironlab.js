@@ -27,6 +27,7 @@ const LINE_HEIGHT_PX = 16;
 const DATATIP_OFFSET = 14;
 
 const STATUS_NO_GPU = "This figure needs WebGPU or WebGL2 to be interactive.";
+const STATUS_NO_ENGINE = "The figure engine could not be started";
 const HINT_WHEEL = "Click to zoom with the wheel";
 
 const MIME = {
@@ -45,16 +46,33 @@ const CURSORS = { pan: "grab", zoom: "crosshair", rotate: "move" };
 let sessionPromise = null;
 
 /**
+ * The reason a session could not be created when the wasm module itself failed to load or initialise, as opposed to
+ * the browser offering no graphics device. The two are told apart because the first is a fault of the bundle or of
+ * the server that hosts it, and reporting it as a missing graphics device sends its reader looking in the wrong place.
+ */
+class EngineError extends Error {
+  constructor(cause) {
+    super(messageOf(cause), { cause });
+    this.name = "EngineError";
+  }
+}
+
+/**
  * The page's one `Session`, created on first use. `init` runs once and `Session.create()` runs once; a rejection is
- * remembered, so that after the first failure every element shows its fallback at once instead of trying again.
+ * remembered, so that after the first failure every element shows its fallback at once instead of trying again. A
+ * failure of `init` rejects with an `EngineError`; a failure of `Session.create()` rejects with its own error.
  * @returns {Promise<Session>}
  */
 export function session() {
   if (sessionPromise === null) {
     sessionPromise = (async () => {
-      await init({
-        module_or_path: new URL("ironlab_core_bg.wasm?v=__IRONLAB_BUILD__", import.meta.url),
-      });
+      try {
+        await init({
+          module_or_path: new URL("ironlab_core_bg.wasm?v=__IRONLAB_BUILD__", import.meta.url),
+        });
+      } catch (error) {
+        throw new EngineError(error);
+      }
       return Session.create();
     })();
   }
@@ -535,7 +553,10 @@ export class IronlabFigure extends HTMLElement {
       try {
         gpu = await session();
       } catch (error) {
-        this.#fallback(STATUS_NO_GPU, error);
+        this.#fallback(
+          error instanceof EngineError ? `${STATUS_NO_ENGINE}: ${error.message}` : STATUS_NO_GPU,
+          error,
+        );
         return;
       }
       if (!this.isConnected) return;
