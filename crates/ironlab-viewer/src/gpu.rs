@@ -52,10 +52,9 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
-use egui_wgpu::wgpu;
-use egui_wgpu::wgpu::util::DeviceExt;
 use ironlab_ir::NodeId;
 use ironlab_scene::display::{Point, Rect};
+use wgpu::util::DeviceExt;
 
 use crate::canvas::ScreenTransform;
 
