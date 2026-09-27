@@ -128,7 +128,7 @@ Publication is ordered by Cargo from the dependency graph — `ironlab-ir`, `iro
 
 No crates.io credential is stored in this repository. The job proves its identity to crates.io with an OpenID Connect token issued by GitHub, which crates.io accepts because each crate names this repository and this workflow as a trusted publisher, and exchanges for a token that expires after thirty minutes and is revoked when the job ends. A consequence worth knowing is that trusted publishing cannot claim a crate that does not yet exist: the first publication of a **new** crate must be done by hand with a scoped API token, after which that crate is configured as a trusted publisher like the others.
 
-If publication fails part way through, do not re-run the job. `cargo publish --workspace` refuses outright when any member of the workspace is already on the registry rather than stepping over it, so a re-run fails on the first crate that succeeded. Publish what remains one crate at a time with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
+`cargo publish --workspace` refuses outright when any selected crate is already on the registry, and Cargo has no flag to step over one instead. The job therefore uses `cargo info` to find the crates whose version is already on crates.io and passes each of them to `--exclude`. A publication that fails part way through is recovered by re-running the failed job, which publishes only the crates that remain.
 
 Publication is irreversible. A version can be yanked, which stops new dependency resolution against it, but it can never be deleted, and a crate name is never released once taken.
 
