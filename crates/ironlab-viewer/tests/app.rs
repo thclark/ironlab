@@ -11,9 +11,8 @@ use ironlab_ir::{Dimension, NodeId};
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::HitMap;
-use ironlab_viewer::app::pixel_datatip_text;
 use ironlab_viewer::interaction::{PixelDatatip, PixelValue};
-use ironlab_viewer::{FigureState, Origin, Problem, Tool, ViewerApp, toolbar};
+use ironlab_viewer::{FigureState, Origin, Problem, Tool, ViewerApp, pixel_datatip_text, toolbar};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
@@ -714,37 +713,6 @@ fn a_dropped_overlay_entry_is_reported_by_the_problems_indicator() {
     assert!(harness.query_by_label_contains("1 problem").is_some());
 }
 
-/// A figure of one axes holding a scatter of `n` points spread over the whole plot, so that any position inside the
-/// plot rectangle is close to a drawn marker.
-fn figure_with_dense_scatter(n: usize) -> ironlab_ir::Figure {
-    use ironlab_ir::{Artist, Axes, DataId, Figure, NdArray, NodeId, Scatter, Text};
-
-    let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
-    let y: Vec<f64> = (0..n)
-        .map(|i| ((i as u64).wrapping_mul(2_654_435_761) % 10_000) as f64 / 10_000.0)
-        .collect();
-    let (xi, yi) = (DataId(0), DataId(1));
-    Figure {
-        id: NodeId(1),
-        data: std::collections::BTreeMap::from([
-            (xi, NdArray::vector(x)),
-            (yi, NdArray::vector(y)),
-        ]),
-        axes: vec![Axes {
-            id: NodeId(2),
-            artists: vec![Artist::Scatter(Scatter {
-                id: NodeId(3),
-                display_name: Some(Text::plain("Samples")),
-                x: xi,
-                y: yi,
-                ..Scatter::default()
-            })],
-            ..Axes::default()
-        }],
-        ..Figure::new()
-    }
-}
-
 // Why: the datatip logic is tested in figure space, so the canvas glue — converting the pointer position, reading the
 // hit map of the current compilation and showing the result — is otherwise untested. Hovering over a dense series must
 // name a point of it, and hovering where the figure draws nothing must say nothing.
@@ -777,27 +745,15 @@ fn hovering_over_a_dense_series_reads_the_point_under_the_pointer() {
     );
 }
 
-/// A figure of one axes holding a 4 × 4 colour-mapped image named "Temperature" that fills the axes, so that any
-/// position inside the plot rectangle lies over a pixel and no drawn point is anywhere near it.
-fn figure_with_named_image() -> ironlab_ir::Figure {
-    use ironlab_ir::{Artist, Text};
-
-    let mut figure = figure_with_mapped_image(4, 4);
-    match figure.artist_mut(NodeId(3)) {
-        Some(Artist::MappedImage(image)) => {
-            image.display_name = Some(Text::plain("Temperature"));
-        }
-        other => panic!("node 3 is the mapped image, not {other:?}"),
-    }
-    figure
-}
-
 // Why: the pixel datatip is tested in figure space, so the canvas glue for images — asking for a pixel where no
 // point is within reach, and showing what it says — is otherwise untested. Hovering over an image must name the
 // pixel and the image it belongs to, and hovering where the figure draws nothing must say nothing.
 #[test]
 fn hovering_over_an_image_reads_the_pixel_under_the_pointer() {
-    let mut harness = app_harness(vec![("image.fig".to_owned(), figure_with_named_image())]);
+    let mut harness = app_harness(vec![(
+        "image.fig".to_owned(),
+        figure_with_named_image(4, 4),
+    )]);
     harness.run();
 
     harness.hover_at(CANVAS_CENTRE);

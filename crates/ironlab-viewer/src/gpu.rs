@@ -4,18 +4,18 @@
 //! for fills, glyphs and image tiles, and stroked polylines as [`Segment`]s in the item space of their paths, each
 //! vertex or segment end with a depth `z` in `[0, 1]` (0 the nearest), cut into [`Draw`]s that each name a
 //! texture, a clip rectangle, a depth group and the node they draw. A [`GpuPainter`] draws such lists with
-//! pipelines of its own, inside egui's render pass in the interactive window (through [`GpuCallback`], an
-//! [`egui_wgpu::CallbackTrait`]) and inside the offscreen renderer's own pass for the gallery and the PDF exporter,
-//! so that every route to pixels shares the shaders in `gpu.wgsl`, and nothing here needs a window.
+//! pipelines of its own, inside the window's render pass (through the paint callback of the `callback` module) and
+//! inside the offscreen renderer's own pass for the gallery and the PDF exporter, so that every route to pixels
+//! shares the shaders in `gpu.wgsl`, and nothing here needs a window or an interface toolkit.
 //!
 //! # Drawing
 //!
 //! The vertex shaders map figure points to screen points through a [`Viewport`]'s mapping, held in a uniform per
-//! list, and screen points to clip space from the target's size in points, exactly as egui maps its own meshes, so
-//! that the interface and the figure land on the same pixel grid. The fragment shader of triangles multiplies the
+//! list, and screen points to clip space from the target's size in points, exactly as the interface's own meshes
+//! are mapped, so that the interface and the figure land on the same pixel grid. The fragment shader of triangles multiplies the
 //! vertex colour by a nearest-sampled texture: a 1 × 1 white texture for solid geometry, or a tile of an image,
-//! held as premultiplied gamma-space bytes. The blend state is egui's premultiplied one, so that the figure
-//! composites over the interface as egui's own shapes do.
+//! held as premultiplied gamma-space bytes. The blend state is the interface's premultiplied one, so that the
+//! figure composites over the interface as its own shapes do.
 //!
 //! The markers of an artist are one instanced draw: the outline of the marker, tessellated once in unit space with
 //! its edge's offsets recorded per vertex, is drawn once per instance at the instance's centre, size, depth and
@@ -36,7 +36,7 @@
 //! clear lies at `1 - (k + 1) · 2⁻²⁰`, so later strokes pass over earlier ones while the parts of one stroke that
 //! overlap, on the inner side of a turn or under a round join, take its colour exactly once, as a stroke does in
 //! PDF. The depth buffer is cleared at the start of every list and whenever the depth group changes. Every draw is
-//! clipped by the scissor rectangle of its clip, rounded to whole pixels as egui rounds its own.
+//! clipped by the scissor rectangle of its clip, rounded to whole pixels as the interface rounds its own.
 //!
 //! # Caches and uploads
 //!
@@ -65,7 +65,7 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 ///
 /// `pos` is in figure points; `z` is the depth in `[0, 1]` with 0 the nearest, normalised over the vertex's depth
 /// group and 0 outside any group; `uv` is the texture coordinate; and `color` is premultiplied sRGB, as
-/// [`egui::Color32`] is.
+/// [`ecolor::Color32`] is.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -345,7 +345,7 @@ pub struct Viewport {
     /// Figure points to screen points.
     pub to_screen: ScreenTransform,
     /// The rectangle in screen points that bounds every draw: the canvas on screen, the whole image offscreen.
-    pub clip: egui::Rect,
+    pub clip: emath::Rect,
 }
 
 impl Viewport {
@@ -357,24 +357,13 @@ impl Viewport {
             size_px,
             pixels_per_point,
             to_screen,
-            clip: egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(
+            clip: emath::Rect::from_min_size(
+                emath::Pos2::ZERO,
+                emath::vec2(
                     width as f32 / pixels_per_point,
                     height as f32 / pixels_per_point,
                 ),
             ),
-        }
-    }
-
-    /// The viewport of an egui paint callback: the whole target, clipped to the painter's clip rectangle.
-    #[must_use]
-    pub fn from_callback(info: &egui::PaintCallbackInfo, to_screen: ScreenTransform) -> Self {
-        Self {
-            size_px: info.screen_size_px,
-            pixels_per_point: info.pixels_per_point,
-            to_screen,
-            clip: info.clip_rect,
         }
     }
 
@@ -404,49 +393,8 @@ struct Placement {
     to_screen: ScreenTransform,
 }
 
-/// An egui paint callback that draws one list at one place through the [`GpuPainter`] kept in the renderer's
-/// callback resources, creating the painter on first use.
-pub struct GpuCallback {
-    pub list: Arc<DrawList>,
-    pub config: GpuConfig,
-    pub to_screen: ScreenTransform,
-}
-
-impl egui_wgpu::CallbackTrait for GpuCallback {
-    fn prepare(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        screen: &egui_wgpu::ScreenDescriptor,
-        _encoder: &mut wgpu::CommandEncoder,
-        resources: &mut egui_wgpu::CallbackResources,
-    ) -> Vec<wgpu::CommandBuffer> {
-        let painter = resources
-            .entry::<GpuPainter>()
-            .or_insert_with(GpuPainter::default);
-        let viewport = Viewport::whole(
-            screen.size_in_pixels,
-            screen.pixels_per_point,
-            self.to_screen,
-        );
-        painter.prepare(device, queue, self.config, &self.list, &viewport);
-        Vec::new()
-    }
-
-    fn paint(
-        &self,
-        info: egui::PaintCallbackInfo,
-        pass: &mut wgpu::RenderPass<'static>,
-        resources: &egui_wgpu::CallbackResources,
-    ) {
-        if let Some(painter) = resources.get::<GpuPainter>() {
-            let viewport = Viewport::from_callback(&info, self.to_screen);
-            painter.paint(pass, &viewport, self.config, &self.list);
-        }
-    }
-}
-
-/// egui's blend state for premultiplied colour.
+/// The interface's blend state for premultiplied colour, which the figure's draws share so that they composite
+/// over it as its own shapes do.
 const BLEND: wgpu::BlendState = wgpu::BlendState {
     color: wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -800,17 +748,17 @@ impl GpuPainter {
 }
 
 /// A rectangle in figure points mapped to screen points.
-fn to_points(rect: Rect, to_screen: ScreenTransform) -> egui::Rect {
-    egui::Rect::from_min_max(
+fn to_points(rect: Rect, to_screen: ScreenTransform) -> emath::Rect {
+    emath::Rect::from_min_max(
         to_screen.apply(Point::new(rect.x, rect.y)),
         to_screen.apply(Point::new(rect.right(), rect.bottom())),
     )
 }
 
-/// The scissor rectangle, in pixels within a target of `size`, of a clip in points, rounded as egui rounds its own;
-/// `None` when nothing of the target is inside it.
+/// The scissor rectangle, in pixels within a target of `size`, of a clip in points, rounded as the interface rounds
+/// its own; `None` when nothing of the target is inside it.
 fn scissor(
-    clip: egui::Rect,
+    clip: emath::Rect,
     pixels_per_point: f32,
     size: [u32; 2],
 ) -> Option<(u32, u32, u32, u32)> {

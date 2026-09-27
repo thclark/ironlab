@@ -3,13 +3,15 @@
 //! One figure is shown at a time, chosen in the figure browser of [`crate::sidebar`] when more than one is open.
 //! The figure has a toolbar ([`toolbar`]) above a canvas that draws it at its physical aspect ratio, scaled to fit
 //! and centred in the area below the toolbar on a neutral surround, and below the canvas a strip of details: the
-//! labels and parameters the figure carries, which are what the browser narrows the collection by. The canvas compiles the scene when the figure is first shown and recompiles it after every change to
-//! the figure, so that each gesture is hit-tested against the geometry that is on screen. It converts pointer input
-//! into figure-space calls on [`FigureState`], and draws the figure as one draw list from
-//! [`crate::canvas::tessellate`] through the viewer's own pipelines ([`crate::gpu`]) by a paint callback in the
-//! figure's place among egui's shapes, relying on 4× MSAA for anti-aliasing. The list is in figure points and is
-//! rebuilt only when the scene changes or the figure's scale on screen has changed enough for the flattening of
-//! curves to show; a pan, a resize or a frame in which nothing moved uploads nothing but, at most, the mapping.
+//! labels and parameters the figure carries, which are what the browser narrows the collection by.
+//!
+//! The canvas is the egui host of a [`FigureCanvas`], which owns everything about showing the figure that does not
+//! depend on egui: the compilation of the figure, its fit into the area, the draw list kept for that fit, and the
+//! conversion of gestures into figure-space calls on [`FigureState`]. The pane forwards the gestures egui decides
+//! from the canvas's response (a hover, a wheel notch, the start, moves and end of a drag, a click and a double
+//! click), then draws what the controller reports: the page background inside the fit, the draw list through the
+//! viewer's own pipelines ([`crate::gpu`]) by a paint callback ([`GpuCallback`]) in the figure's place among egui's
+//! shapes, relying on 4× MSAA for anti-aliasing, and the cursor, callout and rubber band with egui's painter.
 //!
 //! Each figure also holds the property editor of [`crate::panel`], which the "Properties" button of the toolbar
 //! opens into a side panel between the toolbar and the canvas. It is hidden when a figure is opened.
@@ -25,26 +27,18 @@
 use std::sync::Arc;
 
 use ironlab_ir::Figure;
-use ironlab_scene::Scene;
-use ironlab_scene::display::Point;
-use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
 use crate::browse::{FacetValue, FigureCard};
-use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
-use crate::gpu::{DEPTH_FORMAT, DrawList, GpuCallback, GpuConfig, GpuPainter};
-use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
+use crate::callback::GpuCallback;
+use crate::canvas::MAX_TILE_SIDE;
+use crate::figure_canvas::{Callout, Cursor, FigureCanvas, Marker, wheel_factor};
+use crate::gpu::{DEPTH_FORMAT, DrawList, GpuConfig, GpuPainter};
+use crate::interaction::{FigureState, Tool};
 use crate::panel::PropertyPanel;
 use crate::problems::{Problem, indicator_label};
 use crate::sidebar::{FigureBrowser, figure_browser};
 use crate::widgets::{Control, PanelKind, Role, Spacing, label, surround, text};
-
-/// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
-/// typical mouse wheel (50 points) zooms by about 20 %.
-const WHEEL_ZOOM_RATE: f64 = 0.0036;
-
-/// The smallest gap, in egui points, between the figure and the edges of its canvas.
-const CANVAS_MARGIN: f32 = 22.0;
 
 /// The room between the edge of the toolbar and its controls, in egui points.
 const TOOLBAR_PADDING: egui::Margin = egui::Margin {
@@ -57,15 +51,6 @@ const TOOLBAR_PADDING: egui::Margin = egui::Margin {
 /// The number of samples per pixel of the window's multisample anti-aliasing, which the viewer's own pipelines must
 /// match.
 const MSAA_SAMPLES: u16 = 4;
-
-/// The factor by which the scale of a figure on screen may change before its draw list is rebuilt for the new
-/// scale: within it, curves flattened for the old scale stay within a tenth of a pixel of true, and a hairline
-/// stays within a quarter of a pixel of one pixel wide.
-const REBUILD_RATIO: f32 = 1.25;
-
-/// The radius, in egui points, of the ring drawn around the data point under the pointer, and around the centre of
-/// a pixel too small on screen to outline.
-const DATATIP_RING_POINTS: f32 = 4.0;
 
 /// The identifier of the strip of details below the canvas, which is also what a test loads its geometry by.
 pub const DETAILS_ID: &str = "ironlab_figure_details";
@@ -83,91 +68,6 @@ const PROBLEM_LIST_WIDTH: f32 = 380.0;
 
 /// The height beyond which the list of problems scrolls, in egui points.
 const PROBLEM_LIST_MAX_HEIGHT: f32 = 320.0;
-
-/// Formats a data value for a datatip, with enough digits to tell neighbouring points apart and without the noise
-/// that printing a binary fraction in full would add.
-fn datatip_value(value: f64) -> String {
-    if !value.is_finite() {
-        return value.to_string();
-    }
-    if value != 0.0 && !(1e-4..1e6).contains(&value.abs()) {
-        return format!("{value:.4e}");
-    }
-    let text = format!("{value:.6}");
-    match text.split_once('.') {
-        Some(_) => text.trim_end_matches('0').trim_end_matches('.').to_owned(),
-        None => text,
-    }
-}
-
-/// The text of the tooltip that names the data point under the pointer.
-///
-/// The index shown is the one the point has in the artist's own data arrays, so it is what the user would use to
-/// find the same point in the data they plotted.
-fn datatip_text(tip: &Datatip) -> String {
-    let mut lines = Vec::new();
-    if let Some(name) = &tip.name {
-        lines.push(name.clone());
-    }
-    lines.push(format!("x = {}", datatip_value(tip.x)));
-    lines.push(format!("y = {}", datatip_value(tip.y)));
-    if let Some(z) = tip.z {
-        lines.push(format!("z = {}", datatip_value(z)));
-    }
-    lines.push(format!("index {}", tip.index));
-    lines.join("\n")
-}
-
-/// The text of the tooltip that names the pixel under the pointer, one item per line: the name of the image when
-/// it has one, the row and column of the pixel in the artist's own array, the coordinates of the pixel's centre,
-/// and what the array holds there, every number formatted as the point datatip formats its coordinates, so that
-/// the two callouts read as one.
-///
-/// The last line takes the words of the image's kind: `value = …` for a colour-mapped image, `index = …` for a
-/// colour-indexed one, and for a true-colour image `rgb = …` or `rgba = …` listing the components in that order,
-/// separated by commas.
-#[must_use]
-pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
-    let mut lines = Vec::new();
-    if let Some(name) = &tip.name {
-        lines.push(name.clone());
-    }
-    lines.push(format!("row {}, column {}", tip.row, tip.column));
-    lines.push(format!("x = {}", datatip_value(tip.x)));
-    lines.push(format!("y = {}", datatip_value(tip.y)));
-    lines.push(match &tip.value {
-        PixelValue::Value(value) => format!("value = {}", datatip_value(*value)),
-        PixelValue::Index(index) => format!("index = {}", datatip_value(*index)),
-        PixelValue::Components(components) => {
-            let label = match components.len() {
-                3 => "rgb",
-                4 => "rgba",
-                _ => "components",
-            };
-            let listed: Vec<String> = components.iter().copied().map(datatip_value).collect();
-            format!("{label} = {}", listed.join(", "))
-        }
-    });
-    lines.join("\n")
-}
-
-/// The corners of the pixel in `row` and `column` of a drawn image, on screen and in the order they are joined, or
-/// `None` when the pixel is smaller on screen than the ring drawn around a point, so that it is ringed instead and
-/// the mark is never too small to see, or when its placement cannot be inverted.
-fn pixel_outline(
-    image: &ImageHit,
-    row: usize,
-    column: usize,
-    to_screen: ScreenTransform,
-) -> Option<[egui::Pos2; 4]> {
-    let to_figure = image.to_pixel.inverse()?;
-    let (c, r) = (column as f64, row as f64);
-    let corners = [(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)]
-        .map(|(x, y)| to_screen.apply(to_figure.apply(Point::new(x, y))));
-    let bounds = egui::Rect::from_points(&corners);
-    let diameter = 2.0 * DATATIP_RING_POINTS;
-    (bounds.width() >= diameter && bounds.height() >= diameter).then_some(corners)
-}
 
 /// What the user asked for through the toolbar in one frame, beyond edits it applied to the figure state itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -424,48 +324,22 @@ pub fn problems_list(ui: &mut egui::Ui, figure: &Figure, problems: &[Problem]) {
         });
 }
 
-/// The draw list of a figure and the scale it was built for.
-struct Built {
-    list: Arc<DrawList>,
-    scale: f32,
-}
-
-/// One figure tab.
+/// One figure tab: the egui host of a [`FigureCanvas`].
 struct FigurePane {
     title: String,
-    state: FigureState,
     /// The property editor of this tab, hidden until the toolbar opens it.
     panel: PropertyPanel,
-    /// The compilation of the displayed figure, or `None` when it must be recompiled.
-    scene: Option<Scene>,
-    /// The draw list of `scene`, or `None` when it must be rebuilt.
-    built: Option<Built>,
+    /// The figure, its interaction state, its compilation and its draw list.
+    canvas: FigureCanvas,
 }
 
 impl FigurePane {
     fn new(title: String, figure: Figure) -> Self {
         Self {
             title,
-            state: FigureState::new(figure),
             panel: PropertyPanel::default(),
-            scene: None,
-            built: None,
+            canvas: FigureCanvas::new(figure),
         }
-    }
-
-    /// Marks the scene as out of date after a change to the figure.
-    fn invalidate(&mut self) {
-        self.scene = None;
-        self.built = None;
-    }
-
-    /// Compiles the scene if it is out of date and returns it.
-    fn scene(&mut self, text: &TextEngine) -> &Scene {
-        if self.scene.is_none() {
-            self.built = None;
-        }
-        self.scene
-            .get_or_insert_with(|| ironlab_scene::compile(self.state.figure(), text))
     }
 
     fn ui(
@@ -475,18 +349,19 @@ impl FigurePane {
         gpu: Option<GpuConfig>,
         notification: &mut Option<Notification>,
     ) {
-        self.scene(text);
-        let mut problems: Vec<Problem> = self.scene.as_ref().map_or_else(Vec::new, |scene| {
-            scene.warnings.iter().map(Problem::from_scene).collect()
-        });
-        problems.extend(self.state.problems().iter().cloned());
+        let problems = self.canvas.problems(text);
         // Nothing stands between the toolbar, the strip of details and the canvas: each ends where the next
         // begins, and the rule beneath the toolbar is its last row rather than a line in a gap.
         ui.spacing_mut().item_spacing.y = 0.0;
         let bar = egui::Frame::new()
             .inner_margin(TOOLBAR_PADDING)
             .show(ui, |ui| {
-                toolbar(ui, &mut self.state, &problems, &mut self.panel.open)
+                let mut response = ToolbarResponse::default();
+                self.canvas.edit(|state| {
+                    response = toolbar(ui, state, &problems, &mut self.panel.open);
+                    response.changed
+                });
+                response
             });
         // The rule beneath the toolbar, which parts it from the canvas as the browser's rule parts its controls
         // from its list.
@@ -497,12 +372,8 @@ impl FigurePane {
             egui::Stroke::new(1.0, crate::style::STROKE),
         );
         let response = bar.inner;
-        if response.changed {
-            self.invalidate();
-        }
-        if crate::panel::property_panel(ui, &mut self.panel, &mut self.state) {
-            self.invalidate();
-        }
+        self.canvas
+            .edit(|state| crate::panel::property_panel(ui, &mut self.panel, state));
         let now = ui.input(|i| i.time);
         if response.export_requested
             && let Some(outcome) = self.export(text, now)
@@ -526,7 +397,7 @@ impl FigurePane {
     /// figures wants to see it without opening an editor. The strip is drawn only when there is something in it,
     /// so a figure that carries nothing keeps the whole height for its canvas.
     fn details(&mut self, ui: &mut egui::Ui) {
-        let figure = self.state.figure();
+        let figure = self.canvas.state().figure();
         if figure.labels.is_empty() && figure.parameters.is_empty() {
             return;
         }
@@ -580,11 +451,12 @@ impl FigurePane {
             .add_filter("PDF", &["pdf"])
             .set_file_name(format!("{stem}.pdf"))
             .save_file()?;
+        let figure = self.canvas.state().figure();
         Some(
             match crate::export::write_pdf(
-                self.state.figure(),
+                figure,
                 text,
-                &ironlab_pdf::PdfOptions::for_figure(self.state.figure()),
+                &ironlab_pdf::PdfOptions::for_figure(figure),
                 &path,
             ) {
                 // The warnings are those the problems indicator already shows for the open figure.
@@ -614,9 +486,13 @@ impl FigurePane {
             .set_file_name(format!("{stem}.fig"))
             .save_file()?;
         Some(
-            match crate::files::write_figure(&path, self.state.figure()) {
+            match crate::files::write_figure(&path, self.canvas.state().figure()) {
                 Ok(()) => {
-                    self.state.fold_overlay();
+                    // Folding the overlay leaves the displayed figure as it is, so the scene is kept.
+                    self.canvas.edit(|state| {
+                        state.fold_overlay();
+                        false
+                    });
                     Notification {
                         message: format!("Saved {}", path.display()),
                         is_error: false,
@@ -632,93 +508,99 @@ impl FigurePane {
         )
     }
 
-    /// Draws the figure in the remaining space of the tab and applies pointer gestures to it.
+    /// Draws the figure in the remaining space of the tab and forwards this frame's pointer gestures to it.
     ///
-    /// The figure is drawn through the viewer's own pipelines by one paint callback built for `gpu`; without a
-    /// graphics configuration (only the headless test harness lacks one) the list is built but not drawn.
+    /// egui decides the gestures from the response of the allocated rectangle; the controller converts them and
+    /// says what to draw. The figure is drawn through the viewer's own pipelines by one paint callback built for
+    /// `gpu`; without a graphics configuration (only the headless test harness lacks one) the list is built but not
+    /// drawn.
     fn canvas(&mut self, ui: &mut egui::Ui, text: &TextEngine, gpu: Option<GpuConfig>) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         surround(&painter, rect, None);
+        let max_tile_side = ui.ctx().input(|input| input.max_texture_side);
+        self.canvas
+            .resize(rect, u32::try_from(max_tile_side).unwrap_or(MAX_TILE_SIDE));
 
-        let (width_pt, height_pt) = {
-            let list = &self.scene(text).display_list;
-            (list.width_pt as f32, list.height_pt as f32)
-        };
-        let area = rect.shrink(CANVAS_MARGIN);
-        if !(width_pt > 0.0 && height_pt > 0.0 && area.width() > 0.0 && area.height() > 0.0) {
-            return;
+        let primary = egui::PointerButton::Primary;
+        let latest = ui.input(|i| i.pointer.latest_pos());
+        self.canvas.hover(response.hover_pos());
+        if let Some(pos) = response.hover_pos() {
+            let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+            self.canvas.wheel(pos, wheel_factor(scroll.y, pinch), text);
         }
-        let scale = (area.width() / width_pt).min(area.height() / height_pt);
-        let size = egui::vec2(width_pt * scale, height_pt * scale);
-        let to_screen = ScreenTransform {
-            scale,
-            origin: rect.center() - size / 2.0,
-        };
-
-        self.handle_input(ui, &response, to_screen, text);
-
-        let scene = self.scene(text);
-        if let Some(background) = premultiplied(scene.display_list.background)
-            && background[3] > 0
+        if response.drag_started_by(primary)
+            && let Some(origin) = ui
+                .input(|i| i.pointer.press_origin())
+                .or(response.interact_pointer_pos())
         {
-            let page = egui::Rect::from_min_size(to_screen.origin, size);
-            surround(&painter, rect, Some(page));
-            painter.rect_filled(
-                page,
-                0.0,
-                egui::Color32::from_rgba_premultiplied(
-                    background[0],
-                    background[1],
-                    background[2],
-                    background[3],
-                ),
-            );
+            self.canvas.drag_start(origin, text);
         }
-        let rebuild = self.built.as_ref().is_none_or(|built| {
-            scale > built.scale * REBUILD_RATIO || scale < built.scale / REBUILD_RATIO
-        });
-        if rebuild {
-            let scene = self.scene.as_ref().expect("compiled above");
-            let max_tile_side = ui.ctx().input(|input| input.max_texture_side);
-            let max_tile_side = u32::try_from(max_tile_side)
-                .map_or(MAX_TILE_SIDE, |limit| limit.min(MAX_TILE_SIDE));
-            let list = tessellate(
-                &scene.display_list,
-                text,
-                Resolution {
-                    scale,
-                    max_tile_side,
-                },
-            );
-            self.built = Some(Built {
-                list: Arc::new(list),
-                scale,
+        if response.dragged_by(primary)
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            self.canvas.drag_move(pos);
+        }
+        if response.drag_stopped_by(primary) {
+            self.canvas
+                .drag_end(response.interact_pointer_pos().or(latest));
+        }
+        if let Some(pos) = response.interact_pointer_pos().or(latest) {
+            if response.double_clicked() {
+                self.canvas.double_click(pos, text);
+            } else if response.clicked() {
+                self.canvas.click(pos, text);
+            }
+        }
+
+        let Some(fit) = self.canvas.fit(text) else {
+            return;
+        };
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(match self.canvas.cursor() {
+                Cursor::Grab => egui::CursorIcon::Grab,
+                Cursor::Grabbing => egui::CursorIcon::Grabbing,
+                Cursor::Crosshair => egui::CursorIcon::Crosshair,
+                Cursor::Move => egui::CursorIcon::Move,
             });
         }
-        if let (Some(built), Some(config)) = (&self.built, gpu) {
+        if let Some([r, g, b, a]) = self.canvas.background(text) {
+            surround(&painter, rect, Some(fit.page));
+            painter.rect_filled(
+                fit.page,
+                0.0,
+                egui::Color32::from_rgba_premultiplied(r, g, b, a),
+            );
+        }
+        let list = self.canvas.draw_list(text);
+        if let (Some((list, to_screen)), Some(config)) = (list, gpu) {
             // The callback covers the whole screen, so that its vertex mapping is the whole target's; every draw
             // of the list clips itself, within the painter's clip.
             painter.add(egui::Shape::Callback(
                 egui_wgpu::Callback::new_paint_callback(
                     ui.ctx().viewport_rect(),
                     GpuCallback {
-                        list: Arc::clone(&built.list),
+                        list,
                         config,
                         to_screen,
                     },
                 ),
             ));
         }
-
-        self.datatip(ui, &response, &painter, to_screen, text);
-
-        if let Some(band) = self.state.rubber_band() {
-            let band = egui::Rect::from_min_max(
-                to_screen.apply(Point::new(band.x, band.y)),
-                to_screen.apply(Point::new(band.right(), band.bottom())),
-            );
+        let stroke = ui.visuals().selection.stroke;
+        if let Some(Callout { marker, text }) = self.canvas.callout(text) {
+            match marker {
+                Marker::Ring { centre, radius } => {
+                    painter.circle_stroke(centre, radius, stroke);
+                }
+                Marker::Outline(corners) => {
+                    painter.add(egui::Shape::closed_line(corners.to_vec(), stroke));
+                }
+            }
+            response.clone().on_hover_text(text);
+        }
+        if let Some(band) = self.canvas.rubber_band(text) {
             let selection = ui.visuals().selection;
             painter.rect(
                 band,
@@ -727,143 +609,6 @@ impl FigurePane {
                 selection.stroke,
                 egui::StrokeKind::Middle,
             );
-        }
-    }
-
-    /// Reads what lies under the pointer — a drawn data point or, where none is within reach, the pixel of an
-    /// image — and shows it, marked on the canvas and named in a tooltip.
-    ///
-    /// Both come from the hit map of the current compilation, so a point names the index and the values of the
-    /// user's own data even where the series was thinned to fit the view, and a pixel names the row and column of
-    /// the user's own array. A point is ringed. A pixel is outlined, so that the reader sees the extent that was
-    /// read, or ringed at its centre when it is smaller on screen than the ring, so that the mark is never too
-    /// small to see.
-    fn datatip(
-        &mut self,
-        ui: &egui::Ui,
-        response: &egui::Response,
-        painter: &egui::Painter,
-        to_screen: ScreenTransform,
-        text: &TextEngine,
-    ) {
-        if response.dragged() || !response.hovered() {
-            return;
-        }
-        let Some(pointer) = response.hover_pos() else {
-            return;
-        };
-        self.scene(text);
-        let hit = &self.scene.as_ref().expect("compiled above").hit_map;
-        let at = to_screen.invert(pointer);
-        let Some(tip) = self.state.tip_at(hit, at) else {
-            return;
-        };
-        let stroke = ui.visuals().selection.stroke;
-        match tip {
-            Tip::Point(tip) => {
-                painter.circle_stroke(to_screen.apply(tip.position), DATATIP_RING_POINTS, stroke);
-                response.clone().on_hover_text(datatip_text(&tip));
-            }
-            Tip::Pixel(tip) => {
-                let outline = hit
-                    .pixel_at(at)
-                    .and_then(|(image, row, column)| pixel_outline(image, row, column, to_screen));
-                match outline {
-                    Some(corners) => {
-                        painter.add(egui::Shape::closed_line(corners.to_vec(), stroke));
-                    }
-                    None => {
-                        painter.circle_stroke(
-                            to_screen.apply(tip.position),
-                            DATATIP_RING_POINTS,
-                            stroke,
-                        );
-                    }
-                }
-                response.clone().on_hover_text(pixel_datatip_text(&tip));
-            }
-        }
-    }
-
-    /// Converts this frame's pointer input on the canvas into edits of the figure, recompiling the scene after each
-    /// edit so that the next gesture is hit-tested against up-to-date geometry.
-    fn handle_input(
-        &mut self,
-        ui: &egui::Ui,
-        response: &egui::Response,
-        to_screen: ScreenTransform,
-        text: &TextEngine,
-    ) {
-        let primary = egui::PointerButton::Primary;
-        let latest = ui.input(|i| i.pointer.latest_pos());
-        let to_figure = |p: egui::Pos2| to_screen.invert(p);
-
-        if response.hovered() {
-            let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
-            let factor = (f64::from(scroll.y) * WHEEL_ZOOM_RATE).exp() * f64::from(pinch);
-            if factor != 1.0
-                && let Some(pos) = response.hover_pos()
-            {
-                self.scene(text);
-                let hit = &self.scene.as_ref().expect("compiled above").hit_map;
-                if self.state.scroll(hit, to_figure(pos), factor) {
-                    self.invalidate();
-                }
-            }
-            let icon = match self.state.tool {
-                Tool::Pan if response.dragged() => egui::CursorIcon::Grabbing,
-                Tool::Pan => egui::CursorIcon::Grab,
-                Tool::Zoom => egui::CursorIcon::Crosshair,
-                Tool::Rotate => egui::CursorIcon::Move,
-            };
-            ui.ctx().set_cursor_icon(icon);
-        }
-
-        if response.drag_started_by(primary)
-            && let Some(origin) = ui
-                .input(|i| i.pointer.press_origin())
-                .or(response.interact_pointer_pos())
-        {
-            self.scene(text);
-            let hit = &self.scene.as_ref().expect("compiled above").hit_map;
-            self.state.drag_start(hit, to_figure(origin));
-        }
-        if response.dragged_by(primary)
-            && let Some(pos) = response.interact_pointer_pos()
-            && self.state.drag_update(to_figure(pos))
-        {
-            self.invalidate();
-        }
-        if response.drag_stopped_by(primary) {
-            let at = response
-                .interact_pointer_pos()
-                .or(latest)
-                .map_or(Point::new(f64::NAN, f64::NAN), to_figure);
-            if self.state.drag_end(at) {
-                self.invalidate();
-            }
-        }
-
-        if let Some(pos) = response.interact_pointer_pos().or(latest) {
-            let clicked = if response.double_clicked() {
-                Some(true)
-            } else if response.clicked() {
-                Some(false)
-            } else {
-                None
-            };
-            if let Some(double) = clicked {
-                self.scene(text);
-                let hit = &self.scene.as_ref().expect("compiled above").hit_map;
-                let changed = if double {
-                    self.state.double_click(hit, to_figure(pos))
-                } else {
-                    self.state.click(hit, to_figure(pos))
-                };
-                if changed {
-                    self.invalidate();
-                }
-            }
         }
     }
 }
@@ -962,7 +707,7 @@ impl ViewerApp {
     /// Returns the interactive state of the figure at `index` in the order the figures were given.
     #[must_use]
     pub fn figure_state(&self, index: usize) -> Option<&FigureState> {
-        self.panes.get(index).map(|pane| &pane.state)
+        self.panes.get(index).map(|pane| pane.canvas.state())
     }
 
     /// Returns the draw list last built for the figure at `index`, or `None` before its canvas has been drawn. The
@@ -972,8 +717,7 @@ impl ViewerApp {
     pub fn draw_list(&self, index: usize) -> Option<Arc<DrawList>> {
         self.panes
             .get(index)
-            .and_then(|pane| pane.built.as_ref())
-            .map(|built| Arc::clone(&built.list))
+            .and_then(|pane| pane.canvas.built_list())
     }
 
     /// Returns the interactive state of the figure at `index`, mutably.
@@ -981,17 +725,15 @@ impl ViewerApp {
     /// The scene of the figure is recompiled before it is next drawn, so that edits made through this reference are
     /// shown.
     pub fn figure_state_mut(&mut self, index: usize) -> Option<&mut FigureState> {
-        let pane = self.panes.get_mut(index)?;
-        pane.invalidate();
-        Some(&mut pane.state)
+        self.panes
+            .get_mut(index)
+            .map(|pane| pane.canvas.state_mut())
     }
 
-    /// Applies a change to the figure state of the figure shown, recompiling it if it changed.
-    fn for_shown_pane(&mut self, change: impl Fn(&mut FigureState) -> bool) {
-        if let Some(pane) = self.panes.get_mut(self.shown)
-            && change(&mut pane.state)
-        {
-            pane.invalidate();
+    /// Applies a change to the canvas of the figure shown, which recompiles the figure if it changed.
+    fn for_shown_canvas(&mut self, change: impl FnOnce(&mut FigureCanvas) -> bool) {
+        if let Some(pane) = self.panes.get_mut(self.shown) {
+            change(&mut pane.canvas);
         }
     }
 
@@ -1057,13 +799,13 @@ impl eframe::App for ViewerApp {
             })
         };
         if reset {
-            self.for_shown_pane(FigureState::reset_view);
+            self.for_shown_canvas(FigureCanvas::reset_view);
         }
         if redo {
-            self.for_shown_pane(FigureState::redo);
+            self.for_shown_canvas(FigureCanvas::redo);
         }
         if undo {
-            self.for_shown_pane(FigureState::undo);
+            self.for_shown_canvas(FigureCanvas::undo);
         }
         // The browser is a panel, so it is added before the central panel that holds the figure; a panel takes
         // its room from what is left, and the central panel takes what remains.

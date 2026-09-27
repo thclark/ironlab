@@ -36,7 +36,7 @@
 //! - **Clips** are recorded, not applied: every draw of a clipped leaf carries the leaf's clip in figure points, and
 //!   the painter cuts the draw at the scissor rectangle of it. Nothing is clipped geometrically.
 //! - **Colours** are straight alpha in the display list and are converted to premultiplied sRGB bytes as
-//!   [`egui::Color32::from_rgba_unmultiplied`] converts them.
+//!   [`ecolor::Color32::from_rgba_unmultiplied`] converts them.
 //! - **The background** of the list is not in the draw list: it is the colour of the page beneath every item, so
 //!   the interactive canvas fills the figure's rectangle with it and the offscreen renderer clears its target to
 //!   it, which covers every pixel of an image whose size rounds up from the page's.
@@ -74,23 +74,23 @@ use crate::gpu::{
     MarkerVertex, Segment, StrokeParams, TileKey, Vertex,
 };
 
-/// The mapping from figure space (points, y down) to screen space (egui points or pixels, y down).
+/// The mapping from figure space (points, y down) to screen space (interface points or pixels, y down).
 ///
 /// A figure-space point `p` maps to `origin + scale · p`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScreenTransform {
-    /// Screen units per figure point. In the interactive canvas this is egui points per figure point; offscreen it is
+    /// Screen units per figure point. In the interactive canvas this is interface points per figure point; offscreen it is
     /// pixels per figure point, `dpi / 72`.
     pub scale: f32,
     /// The screen position of the figure's top-left corner.
-    pub origin: egui::Pos2,
+    pub origin: emath::Pos2,
 }
 
 impl ScreenTransform {
     /// Maps a figure-space point to screen space.
     #[must_use]
-    pub fn apply(&self, p: Point) -> egui::Pos2 {
-        egui::pos2(
+    pub fn apply(&self, p: Point) -> emath::Pos2 {
+        emath::pos2(
             self.origin.x + self.scale * p.x as f32,
             self.origin.y + self.scale * p.y as f32,
         )
@@ -98,7 +98,7 @@ impl ScreenTransform {
 
     /// Maps a screen-space position back to figure space.
     #[must_use]
-    pub fn invert(&self, p: egui::Pos2) -> Point {
+    pub fn invert(&self, p: emath::Pos2) -> Point {
         Point::new(
             f64::from((p.x - self.origin.x) / self.scale),
             f64::from((p.y - self.origin.y) / self.scale),
@@ -525,7 +525,7 @@ pub(crate) fn premultiplied(color: Rgba) -> Option<[u8; 4]> {
         }
     };
     Some(
-        egui::Color32::from_rgba_unmultiplied(
+        ecolor::Color32::from_rgba_unmultiplied(
             channel(color.r)?,
             channel(color.g)?,
             channel(color.b)?,

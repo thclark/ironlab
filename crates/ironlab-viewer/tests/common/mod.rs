@@ -571,6 +571,77 @@ pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
     }
 }
 
+/// The colour-mapped image of [`figure_with_mapped_image`], `ny` × `nx`, named "Temperature", so that a callout
+/// over it names the image, and so that any position inside the plot rectangle lies over a pixel with no drawn
+/// point anywhere near it.
+pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
+    use ironlab_ir::{Artist, Text};
+
+    let mut figure = figure_with_mapped_image(ny, nx);
+    match figure.artist_mut(NodeId(3)) {
+        Some(Artist::MappedImage(image)) => {
+            image.display_name = Some(Text::plain("Temperature"));
+        }
+        other => panic!("node 3 is the mapped image, not {other:?}"),
+    }
+    figure
+}
+
+/// A figure of one axes (node 2) holding a scatter (node 3) of `n` points spread over the whole plot, named
+/// "Samples", so that any position inside the plot rectangle is close to a drawn marker and a callout over it
+/// names the series.
+pub fn figure_with_dense_scatter(n: usize) -> Figure {
+    use ironlab_ir::{Artist, DataId, NdArray, Scatter, Text};
+
+    let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
+    let y: Vec<f64> = (0..n)
+        .map(|i| ((i as u64).wrapping_mul(2_654_435_761) % 10_000) as f64 / 10_000.0)
+        .collect();
+    let (xi, yi) = (DataId(0), DataId(1));
+    Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (xi, NdArray::vector(x)),
+            (yi, NdArray::vector(y)),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::Scatter(Scatter {
+                id: NodeId(3),
+                display_name: Some(Text::plain("Samples")),
+                x: xi,
+                y: yi,
+                ..Scatter::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+/// The axes of [`axes_2d`] holding a line (node 3) of no points, which the scene compiler leaves out with a warning
+/// naming it, as ADR 0012 decides.
+pub fn figure_with_empty_line() -> Figure {
+    use ironlab_ir::{Artist, DataId, Line, NdArray};
+
+    let (x, y) = (DataId(0), DataId(1));
+    let mut figure = figure_with(
+        vec![Axes {
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                x,
+                y,
+                ..Line::default()
+            })],
+            ..axes_2d(2)
+        }],
+        vec![],
+    );
+    figure.data.insert(x, NdArray::vector(vec![]));
+    figure.data.insert(y, NdArray::vector(vec![]));
+    figure
+}
+
 /// The first image item among `items`, at any depth of grouping, in paint order.
 pub fn find_image(items: &[Item]) -> Option<&ImageItem> {
     items.iter().find_map(|item| match &item.kind {
