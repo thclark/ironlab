@@ -26,6 +26,8 @@ ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
 egui.workspace = true
 eframe.workspace = true
+emath.workspace = true
+ecolor.workspace = true
 # wgpu is a direct dependency, pinned in the workspace to the version egui-wgpu builds against, so that the offscreen
 # renderer can be awaited by a host that never links egui-wgpu. A drift between the two would fail to compile at
 # `GpuCallback`, whose `egui_wgpu::CallbackTrait` methods take this crate's wgpu types, which is the guard wanted.
