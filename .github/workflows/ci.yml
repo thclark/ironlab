@@ -21,8 +21,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # The engine must build for the browser, which is what proves it has no native-only dependency.
-      - run: cargo clippy --locked --target wasm32-unknown-unknown -p ironlab-canvas --lib -- -D warnings
+      # The engine and its browser host must build for the browser, which is what proves that neither has a
+      # native-only dependency.
+      - run: cargo clippy --locked --target wasm32-unknown-unknown -p ironlab-web -p ironlab-canvas --lib -- -D warnings
 
   test:
     strategy:
@@ -118,6 +119,37 @@ jobs:
       - run: cargo run -p ironlab-gallery -- export target/gallery
       - uses: wtfjoke/setup-tectonic@v3
       - run: tectonic tests/latex/include.tex
+
+  web:
+    # The browser host is tested in a real browser, then bundled exactly as a release would bundle it, so that a
+    # reviewer can download a pull request's bundle from the run and try it without building anything.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The wasm32 artefacts share nothing with the native jobs' caches, so they get a key of their own.
+          key: web
+      - uses: ./.github/actions/setup-web
+      # .cargo/config.toml names wasm-bindgen-test-runner as the runner for the wasm32 target; it drives the Chrome
+      # that the Ubuntu image ships through the chromedriver beside it. CHROMEWEBDRIVER is set by the image in the
+      # runner's process environment, so it is expanded by the shell rather than through the `env` context, which
+      # holds only the variables a workflow sets itself. The timeout is per test, in seconds; the default of twenty
+      # is too short for a first render that compiles shaders in a software rasteriser.
+      - name: Test in headless Chrome
+        run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked --target wasm32-unknown-unknown -p ironlab-web
+        env:
+          WASM_BINDGEN_TEST_TIMEOUT: 180
+      - name: Build the bundle
+        run: scripts/build-web.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ironlab-web
+          path: dist
+          if-no-files-found: error
 
   docs:
     runs-on: ubuntu-latest

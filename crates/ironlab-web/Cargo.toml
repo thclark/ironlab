@@ -1,0 +1,62 @@
+[package]
+# The bundle is distributed as a release archive and served from ironlab.org/embed/, not as a crate: a page consumes the
+# JavaScript and the wasm module that scripts/build-web.sh assembles, and no Rust program depends on this crate.
+publish = false
+name = "ironlab-web"
+description = "The browser host of IronLAB: the figure canvas compiled to WebAssembly and driven from JavaScript."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[lib]
+# cdylib is what wasm-bindgen consumes; rlib lets the crate's own native tests and the workspace's lint build link it.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ironlab-ir.workspace = true
+ironlab-text.workspace = true
+ironlab-scene.workspace = true
+ironlab-pdf.workspace = true
+ironlab-canvas.workspace = true
+emath.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# Everything that speaks to the browser is compiled for the browser alone; the native build of the crate holds only the
+# outcome and the download stem, which its native tests prove.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The workspace's wgpu, with the `webgl` fallback and the non-atomic Send/Sync shim that a single-threaded browser
+# module needs; a browser without WebGPU gets WebGL 2 through the same pipelines.
+wgpu.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+# Only the interfaces this crate names itself; wgpu enables the many it needs for the surface and the adapter.
+web-sys = { workspace = true, features = [
+    "HtmlCanvasElement",
+    "Document",
+    "Element",
+    "Performance",
+    "Window",
+    "console",
+] }
+# Outcomes and problems cross the boundary as plain JavaScript objects rather than as wasm-bindgen classes, so that a
+# page destructures them and never has to free them.
+serde-wasm-bindgen = "0.6"
+# A panic message reaches the browser console instead of the opaque `unreachable` a bare module reports.
+console_error_panic_hook = "0.1.7"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+web-sys = { workspace = true, features = ["HtmlElement", "Node"] }

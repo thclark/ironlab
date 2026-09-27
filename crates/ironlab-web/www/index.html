@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ironlab-figure test page</title>
+    <!--
+      A local test page for the element. It loads the bundle from ../dist, so build into this crate first, then serve:
+        scripts/build-web.sh --out crates/ironlab-web/dist
+        python3 -m http.server -d crates/ironlab-web 8000
+      and open http://localhost:8000/www/index.html. The figures are the test fixtures in ../tests/fixtures.
+    -->
+    <link rel="stylesheet" href="../dist/ironlab.css" />
+    <script type="module" src="../dist/ironlab.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0 auto;
+        padding: 1.5rem;
+        max-width: 56rem;
+        font: 16px/1.5 system-ui, sans-serif;
+        background: light-dark(#ffffff, #121212);
+        color: light-dark(#222222, #dddddd);
+      }
+      html[data-theme="light"] {
+        color-scheme: light;
+      }
+      html[data-theme="dark"] {
+        color-scheme: dark;
+      }
+      /* A page maps its own theme onto the element by setting the tokens on it; the docs do the same with the
+         Material tokens. Here the page's own background stands in for the panel colour. */
+      html[data-theme="light"] ironlab-figure {
+        --ironlab-bg: #ffffff;
+      }
+      html[data-theme="dark"] ironlab-figure {
+        --ironlab-bg: #121212;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      p.note {
+        color: light-dark(#666666, #999999);
+        font-size: 0.9rem;
+      }
+      .controls {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        margin: 0 0 1rem;
+      }
+      pre#log {
+        max-height: 14rem;
+        overflow: auto;
+        padding: 0.75rem;
+        border: 1px solid light-dark(#dddddd, #333333);
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+      }
+      section {
+        margin: 2rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>&lt;ironlab-figure&gt; test page</h1>
+    <p class="note">
+      Scroll over a figure: the page scrolls until you click the figure, after which the wheel zooms it; Escape, or a
+      click elsewhere, gives the wheel back to the page. Drag to pan, or pick Zoom and drag a rectangle. Press R to
+      refit, and ⌘Z / Ctrl+Z to undo.
+    </p>
+
+    <div class="controls">
+      <button type="button" id="theme">Theme: auto</button>
+      <button type="button" id="element-theme">Element theme: auto</button>
+      <span id="version" class="note"></span>
+    </div>
+
+    <section>
+      <h2>Line with markers</h2>
+      <ironlab-figure src="../tests/fixtures/line_markers.fig" alt="A line with markers at each sample">
+        <p>A line with markers at each sample (<a href="../tests/fixtures/line_markers.fig">line_markers.fig</a>).</p>
+      </ironlab-figure>
+    </section>
+
+    <section>
+      <h2>Surface</h2>
+      <ironlab-figure src="../tests/fixtures/surf.fig" name="surface" alt="A surface plot of a two-dimensional function">
+        <p>A surface plot of a two-dimensional function (<a href="../tests/fixtures/surf.fig">surf.fig</a>).</p>
+      </ironlab-figure>
+    </section>
+
+    <section>
+      <h2>LaTeX labels (fixed height, toolbar hidden)</h2>
+      <ironlab-figure src="../tests/fixtures/latex_labels.fig" height="320" toolbar="hidden" alt="Axes with LaTeX labels">
+      </ironlab-figure>
+    </section>
+
+    <h2>Events</h2>
+    <pre id="log" aria-live="polite"></pre>
+
+    <script type="module">
+      import { version } from "../dist/ironlab.js";
+
+      const log = document.getElementById("log");
+      const line = (text) => {
+        log.textContent += `${new Date().toISOString().slice(11, 23)}  ${text}\n`;
+        log.scrollTop = log.scrollHeight;
+      };
+      for (const type of ["ironlab-ready", "ironlab-error", "ironlab-change", "ironlab-export"]) {
+        document.addEventListener(type, (event) => {
+          const who = event.target.name;
+          let detail = "";
+          if (event.detail?.message) detail = `: ${event.detail.message}`;
+          if (event.detail?.warnings) detail = `: ${event.detail.warnings.length} warning(s)`;
+          line(`${type} (${who})${detail}`);
+        });
+      }
+
+      version()
+        .then((v) => {
+          document.getElementById("version").textContent = `ironlab_core ${v}`;
+        })
+        .catch((error) => line(`session failed: ${error.message}`));
+
+      // The page theme: cycles auto → light → dark, as a site's own toggle would, by an attribute on <html>.
+      const themes = ["auto", "light", "dark"];
+      const pageTheme = document.getElementById("theme");
+      let pageIndex = 0;
+      pageTheme.addEventListener("click", () => {
+        pageIndex = (pageIndex + 1) % themes.length;
+        const theme = themes[pageIndex];
+        if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.dataset.theme = theme;
+        pageTheme.textContent = `Theme: ${theme}`;
+      });
+
+      // The element's own theme attribute, independent of the page.
+      const elementTheme = document.getElementById("element-theme");
+      let elementIndex = 0;
+      elementTheme.addEventListener("click", () => {
+        elementIndex = (elementIndex + 1) % themes.length;
+        const theme = themes[elementIndex];
+        for (const figure of document.querySelectorAll("ironlab-figure")) {
+          if (theme === "auto") figure.removeAttribute("theme");
+          else figure.setAttribute("theme", theme);
+        }
+        elementTheme.textContent = `Element theme: ${theme}`;
+      });
+    </script>
+  </body>
+</html>

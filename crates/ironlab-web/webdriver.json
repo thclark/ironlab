@@ -1,0 +1,11 @@
+{
+  "goog:chromeOptions": {
+    "args": [
+      "--headless=new",
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+      "--ignore-gpu-blocklist",
+      "--no-sandbox"
+    ]
+  }
+}

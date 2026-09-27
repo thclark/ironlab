@@ -36,7 +36,8 @@ use crate::problems::Problem;
 /// typical mouse wheel (50 points) zooms by about 20 %.
 pub const WHEEL_ZOOM_RATE: f64 = 0.0036;
 
-/// The smallest gap, in screen points, between the figure and the edges of its canvas.
+/// The smallest gap, in screen points, between the figure and the edges of its canvas in the native window, and the
+/// margin a [`FigureCanvas`] fits with unless its host [sets another](FigureCanvas::set_margin).
 pub const CANVAS_MARGIN: f32 = 22.0;
 
 /// The factor by which the scale of a figure on screen may change before its draw list is rebuilt for the new
@@ -205,6 +206,8 @@ pub struct FigureCanvas {
     built: Option<Built>,
     /// The area of the host the figure is fitted into, in screen points.
     area: Rect,
+    /// The gap kept between the page and the edges of the area, in screen points.
+    margin: f32,
     /// The largest texture side the host's device allows, which bounds the tiles of an image.
     max_tile_side: u32,
     /// Where the pointer is over the canvas, or `None` when it is not over it.
@@ -223,6 +226,7 @@ impl FigureCanvas {
             page_pt: None,
             built: None,
             area: Rect::ZERO,
+            margin: CANVAS_MARGIN,
             max_tile_side: MAX_TILE_SIDE,
             pointer: None,
             dragging: false,
@@ -293,9 +297,16 @@ impl FigureCanvas {
         self.max_tile_side = max_tile_side;
     }
 
-    /// Where the figure lies in the area: the page scaled uniformly to fit inside [`CANVAS_MARGIN`] and centred, or
-    /// `None` when the page has no size or the area has no room for it inside the margin, in which case there is
-    /// nothing to draw and nothing to read input against.
+    /// Sets the gap kept between the page and the edges of the area, in screen points. The native window keeps
+    /// [`CANVAS_MARGIN`], so that the page reads as a page on a surround; a figure embedded in a document fills the
+    /// box the document gives it, as an image would, and its host sets no margin at all.
+    pub fn set_margin(&mut self, margin: f32) {
+        self.margin = margin;
+    }
+
+    /// Where the figure lies in the area: the page scaled uniformly to fit inside the margin and centred, or `None`
+    /// when the page has no size or the area has no room for it inside the margin, in which case there is nothing
+    /// to draw and nothing to read input against.
     pub fn fit(&mut self, text: &TextEngine) -> Option<Fit> {
         self.scene(text);
         self.fit_of_page()
@@ -305,7 +316,7 @@ impl FigureCanvas {
     /// the scene since the last change, as it does every frame before it forwards a gesture.
     fn fit_of_page(&self) -> Option<Fit> {
         let [width_pt, height_pt] = self.page_pt?;
-        let inner = self.area.shrink(CANVAS_MARGIN);
+        let inner = self.area.shrink(self.margin);
         if !(width_pt > 0.0 && height_pt > 0.0 && inner.width() > 0.0 && inner.height() > 0.0) {
             return None;
         }

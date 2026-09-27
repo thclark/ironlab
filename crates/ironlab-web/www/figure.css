@@ -1,0 +1,394 @@
+/*
+ * figure.css — the styles inside the shadow root of <ironlab-figure>.
+ *
+ * The build script inlines this file into ironlab.js in place of the __IRONLAB_SHADOW_CSS__ placeholder, JSON-escaped,
+ * so that one fetch styles the element. It is never loaded by a page directly.
+ *
+ * The look is the native viewer's: a quiet dark panel (style.rs) around a canvas whose surround is a neutral grey,
+ * controls in 12.5 px text with 9 × 4 px padding and a 2 px radius, labels in 11 px spaced capitals, and data in an
+ * 11 px monospaced face. Every colour is a token on the host, so that a page can map its own theme onto the element:
+ * a rule on `ironlab-figure` in the page's stylesheet beats these `:host` rules whatever its specificity.
+ */
+
+/* ---- tokens: dark, from style.rs ------------------------------------------------------------------------------- */
+
+:host {
+  --ironlab-bg: #1b1b1b;            /* BACKGROUND: grey 27 */
+  --ironlab-text: #bebebe;          /* TEXT: grey 190 */
+  --ironlab-weak: #969696;          /* WEAK_TEXT: grey 150 */
+  --ironlab-widget: #2d2d2d;        /* WIDGET: grey 45 */
+  --ironlab-widget-hover: #464646;  /* egui's hovered fill: grey 70 */
+  --ironlab-stroke: #3c3c3c;        /* STROKE: grey 60 */
+  --ironlab-accent: #005c80;        /* egui's dark selection fill: the pressed tool and the band's wash */
+  --ironlab-accent-text: #ffffff;   /* egui's strong text on the selection fill */
+  --ironlab-selection: #c0deff;     /* egui's dark selection stroke: the band's edge and the datatip marker */
+  --ironlab-problem: #e59280;       /* PROBLEM */
+  --ironlab-canvas-bg: #2b2b2e;     /* SURROUND */
+  --ironlab-font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  --ironlab-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  display: block;
+  color: var(--ironlab-text);
+  font-family: var(--ironlab-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- tokens: light, egui's light visuals ----------------------------------------------------------------------- */
+
+:host([theme="light"]) {
+  --ironlab-bg: #f8f8f8;
+  --ironlab-text: #3c3c3c;
+  --ironlab-weak: #6e6e6e;
+  --ironlab-widget: #e0e0e0;
+  --ironlab-widget-hover: #d2d2d2;
+  --ironlab-stroke: #bebebe;
+  --ironlab-accent: #90d1ff;
+  --ironlab-accent-text: #000000;
+  --ironlab-selection: #00537d;
+  --ironlab-problem: #a8412a;
+  --ironlab-canvas-bg: #d9d9dc;
+}
+
+@media (prefers-color-scheme: light) {
+  :host(:not([theme="dark"])) {
+    --ironlab-bg: #f8f8f8;
+    --ironlab-text: #3c3c3c;
+    --ironlab-weak: #6e6e6e;
+    --ironlab-widget: #e0e0e0;
+    --ironlab-widget-hover: #d2d2d2;
+    --ironlab-stroke: #bebebe;
+    --ironlab-accent: #90d1ff;
+    --ironlab-accent-text: #000000;
+    --ironlab-selection: #00537d;
+    --ironlab-problem: #a8412a;
+    --ironlab-canvas-bg: #d9d9dc;
+  }
+}
+
+/* ---- the figurebar --------------------------------------------------------------------------------------------- */
+
+[part~="figurebar"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;                                   /* Spacing::GAP */
+  padding: 8px 10px;                          /* Spacing::BLOCK_Y, Spacing::INSET */
+  background: var(--ironlab-bg);
+  border-bottom: 1px solid var(--ironlab-stroke);
+  font: 12.5px/1.2 var(--ironlab-font);       /* Role::Control */
+}
+
+[part~="figurebar"][hidden] {
+  display: none;
+}
+
+[part~="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The file controls stand at the right edge, and take a row of their own when the tools leave no room for them. */
+[part~="file"] {
+  margin-left: auto;
+}
+
+[part~="spacer"] {
+  flex: 1 1 0;
+}
+
+[part~="separator"] {
+  display: inline-block;
+  width: 1px;
+  height: 18px;                               /* Spacing::CONTROL_HEIGHT */
+  margin: 0 2px;                              /* six points in all, as egui's separator takes */
+  background: var(--ironlab-stroke);
+}
+
+[part~="separator"][hidden] {
+  display: none;
+}
+
+/* ---- controls: one padding, one face, one rule for every state ------------------------------------------------ */
+
+button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  margin: 0;
+  padding: 4px 9px;                           /* Spacing::LARGE_CONTROL_PADDING */
+  border: 1px solid var(--ironlab-stroke);
+  border-radius: 2px;                         /* Spacing::RADIUS */
+  background: var(--ironlab-widget);
+  color: var(--ironlab-text);
+  font: inherit;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:hover:not(:disabled) {
+  background: var(--ironlab-widget-hover);
+}
+
+button:active:not(:disabled) {
+  background: var(--ironlab-stroke);
+}
+
+button[aria-pressed="true"] {
+  background: var(--ironlab-accent);
+  border-color: transparent;
+  color: var(--ironlab-accent-text);
+}
+
+button:disabled {
+  opacity: 0.7;                               /* DISABLED_ALPHA */
+  cursor: default;
+}
+
+button[aria-busy="true"] {
+  cursor: progress;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--ironlab-selection);
+  outline-offset: 1px;
+}
+
+button[hidden] {
+  display: none;
+}
+
+/* The problems indicator is a frameless button in the problem colour, as the native one is. */
+[part~="quiet"] {
+  background: transparent;
+  border-color: transparent;
+}
+
+[part~="quiet"]:hover:not(:disabled) {
+  background: var(--ironlab-widget);
+}
+
+[part~="problems-button"] {
+  color: var(--ironlab-problem);
+}
+
+/* ---- the problems list ----------------------------------------------------------------------------------------- */
+
+[part~="problems"] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 380px;                               /* PROBLEM_LIST_WIDTH */
+  max-width: calc(100vw - 16px);
+  max-height: 320px;                          /* PROBLEM_LIST_MAX_HEIGHT */
+  overflow: auto;
+  padding: 0;
+  border: 1px solid var(--ironlab-stroke);
+  border-radius: 4px;                         /* Spacing::WELL_RADIUS */
+  background: var(--ironlab-bg);
+  color: var(--ironlab-text);
+  font: 12.5px/1.35 var(--ironlab-font);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+  z-index: 1;
+}
+
+[part~="problems"][hidden] {
+  display: none;
+}
+
+[part~="problem-list"] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+[part~="problem"] {
+  padding: 5px 10px;                          /* Spacing::ROW_Y, Spacing::INSET */
+}
+
+[part~="problem"] + [part~="problem"] {
+  border-top: 1px solid var(--ironlab-stroke);
+}
+
+[part~="problem-subject"] {
+  display: block;
+  font-weight: 600;
+}
+
+[part~="problem-detail"] {
+  margin-top: 2px;
+}
+
+[part~="problem-explanation"] {
+  margin-top: 2px;
+  font-size: 10.5px;                          /* SMALL_SIZE_PT */
+  color: var(--ironlab-weak);
+}
+
+/* ---- the frame and the canvas ---------------------------------------------------------------------------------- */
+
+[part~="frame"] {
+  position: relative;
+  min-height: 3rem;
+  overflow: hidden;
+  background: var(--ironlab-canvas-bg);
+}
+
+/* The fallback content stands in the frame until the first frame is drawn, and stays when the figure cannot be. */
+[part~="frame"][data-state="ready"] slot {
+  display: none;
+}
+
+canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;                         /* the element handles panning and pinching itself */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+[part~="frame"]:not([data-state="ready"]) canvas {
+  visibility: hidden;
+}
+
+canvas:focus-visible {
+  outline: 2px solid var(--ironlab-selection);
+  outline-offset: -2px;
+}
+
+/* ---- the rubber band, the datatip and its marker --------------------------------------------------------------- */
+
+[part~="band"] {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1px solid var(--ironlab-selection);
+  background: rgba(0, 92, 128, 0.25);
+  background: color-mix(in srgb, var(--ironlab-accent) 25%, transparent);
+}
+
+[part~="band"][hidden] {
+  display: none;
+}
+
+[part~="overlay"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+  stroke: var(--ironlab-selection);
+  stroke-width: 1;
+}
+
+[part~="overlay"][hidden],
+[part~="marker"][hidden] {
+  display: none;
+}
+
+[part~="datatip"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 260px;                           /* HINT_WIDTH */
+  padding: 4px 7px;
+  pointer-events: none;
+  white-space: pre;
+  border: 1px solid var(--ironlab-stroke);
+  border-radius: 2px;
+  background: var(--ironlab-bg);
+  color: var(--ironlab-text);
+  font: 11px/1.4 var(--ironlab-mono);         /* Role::Data */
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+[part~="datatip"][hidden] {
+  display: none;
+}
+
+/* ---- the hint and the status line ------------------------------------------------------------------------------ */
+
+[part~="hint"] {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 7px;
+  pointer-events: none;
+  border: 1px solid var(--ironlab-stroke);
+  border-radius: 2px;
+  background: var(--ironlab-bg);
+  color: var(--ironlab-weak);
+  font: 11px/1.4 var(--ironlab-font);         /* Role::Label */
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+[part~="frame"][data-state="ready"][data-active="false"]:hover [part~="hint"] {
+  opacity: 0.92;
+}
+
+@media (hover: none) {
+  [part~="hint"] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [part~="hint"] {
+    transition: none;
+  }
+}
+
+[part~="status"] {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 5px 10px;
+  background: var(--ironlab-bg);
+  color: var(--ironlab-weak);
+  font: 12.5px/1.35 var(--ironlab-font);
+  border-top: 1px solid var(--ironlab-stroke);
+}
+
+[part~="status"][hidden] {
+  display: none;
+}
+
+/* ---- utilities ------------------------------------------------------------------------------------------------- */
+
+/* The colour probe: laid out, so that its computed colour can be read, and invisible. */
+[part~="probe"] {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
