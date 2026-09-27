@@ -93,10 +93,12 @@ jobs:
         # `ironlab-gallery` and `ironlab-web` set `publish = false` and are skipped: the gallery is a tool of this
         # repository, and the browser host is distributed as a bundle rather than as a crate.
         #
-        # If this fails part way through, do not simply re-run the job: `--workspace` refuses outright when any member
-        # of the workspace is already on the registry, rather than stepping over it. Publish the remainder one at a
-        # time instead, with `cargo publish -p <crate>`, which resolves the already-published members from crates.io.
-        run: cargo publish --workspace --locked
+        # Cargo has no flag to step over a crate already on the registry (rust-lang/cargo#13397): `--workspace` refuses
+        # outright. So each member whose version `cargo info` finds on crates.io is passed to `--exclude`, which lets a
+        # job that failed part way through be re-run to publish the remainder.
+        run: |
+          exclude=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[] | select(.publish != []) | "\(.name)@\(.version)"' | xargs -I{} sh -c 'cargo info -q --registry crates-io {} >/dev/null 2>&1 && echo --exclude {} || true')
+          cargo publish --workspace --locked $exclude
 
   bundle:
     # The browser bundle is a release asset rather than a crate. A publication that hosts its own interactive figures
