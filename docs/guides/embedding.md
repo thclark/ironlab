@@ -177,13 +177,14 @@ The bundle is static files and is served by any web server, including GitHub Pag
 
 ## Limits
 
-The engine needs WebGPU or WebGL2. Every current desktop and mobile browser has WebGL2; where neither is available, or the graphics driver is blocked, every figure on the page keeps its fallback content with the status line "This figure needs WebGPU or WebGL2 to be interactive."
+The engine needs WebGPU or WebGL2. Every current desktop and mobile browser has WebGL2; where neither is available, or the graphics driver is blocked, every figure on the page keeps its fallback content with the status line "This figure needs WebGPU or WebGL2 to be interactive." A module that fails to load or initialise is reported differently, with the status line "The figure engine could not be started" followed by the browser's reason, because that is a fault of the bundle or of its hosting rather than of the reader's browser.
 
 Under WebGPU one graphics device serves every figure on a page, and a page may hold as many figures as it likes. Under WebGL2, which the element falls back to where WebGPU is not available, every figure has a device of its own, because the device is the canvas element's own context, and browsers allow about sixteen live WebGL contexts per page before they begin discarding the oldest. A page of many figures is nevertheless fine, because a figure is created only when it scrolls near the viewport and released when it is removed from the document: a long article of thirty figures creates the few that are on screen, and a page of a dozen figures in view at once is safe. Thumbnails that stay in view together, such as the grid of the gallery index, should be static images linking to pages that embed the figures.
 
 ## Troubleshooting
 
 - **The fallback image stays, with a status line beneath it.** The status line and the browser's console say why. The usual causes are a figure file that was not found (a wrong `src`), a browser without WebGPU or WebGL2, and a graphics device that failed.
+- **The status line says "The figure engine could not be started".** The wasm module was fetched but could not be compiled or initialised, so no figure on the page can start in any browser. The reason that follows names the failure. A module that is served with the wrong media type, truncated by a proxy, or paired with an `ironlab_core.js` from a different build fails in this way. Serve the four files of one bundle together, unmodified.
 - **The fallback image stays and there is no status line.** The script did not run: it was blocked by a content security policy or an extension, or `ironlab.js` could not be loaded. The console names the file that failed. Check that the four files are together and that `ironlab_core_bg.wasm` is served as `application/wasm`.
 - **Scrolling the wheel over a figure scrolls the page.** The figure is not active; click it first.
 - **Figures near the foot of a long page do not appear until the reader reaches them.** That is the lazy creation described under [limits](#limits), and it is intended.
