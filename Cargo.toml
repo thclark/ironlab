@@ -47,6 +47,38 @@ sha2 = "0.10"
 prost = "0.14.4"
 prost-reflect = "0.16.5"
 protox = "0.9.1"
+# The browser bindings. wasm-bindgen, wasm-bindgen-futures, js-sys and web-sys are the versions wgpu already resolves
+# to in Cargo.lock, so naming them here adds nothing to the graph. wasm-bindgen-cli must be installed at exactly the
+# wasm-bindgen version (scripts/build-web.sh checks), so a bump here is also a bump of the tool in
+# .github/actions/setup-web and on every developer's machine. wasm-bindgen-test is released in step with wasm-bindgen,
+# its patch number fifty behind, and pins the wasm-bindgen version it was released with.
+wasm-bindgen = "0.2.128"
+wasm-bindgen-futures = "0.4.78"
+js-sys = "0.3.105"
+web-sys = "0.3.105"
+wasm-bindgen-test = "0.3.78"
+
+# The browser bundle. Every byte of the module is downloaded by every reader of a page that embeds a figure, so this
+# profile trades compile time for size; `cargo build --profile web --target wasm32-unknown-unknown -p ironlab-web`
+# writes it to target/wasm32-unknown-unknown/web/. The `release` profile is untouched, so native builds are unchanged.
+[profile.web]
+# Start from release: optimised, no debug assertions, no overflow checks, incremental compilation off.
+inherits = "release"
+# Optimise for size above all; the hot loops are in the GPU, not in the module. Measured on the first bundle, `z` gave a
+# module eight per cent smaller than `s`, raw and gzipped alike.
+opt-level = "z"
+# Whole-program link-time optimisation removes the code no export reaches, which is most of what the workspace crates
+# carry for the desktop viewer and the PDF exporter.
+lto = "fat"
+# One codegen unit per crate gives LLVM the whole crate to inline and dead-strip across.
+codegen-units = 1
+# Unwinding has no landing pads worth paying for in a browser: a panic is reported through console_error_panic_hook and
+# the module then stops. A profile's `panic` setting applies to the final artefact and every crate linked into it, so
+# the cdylib is built without unwind tables.
+panic = "abort"
+# Drop the DWARF sections while keeping the symbol names, which wasm-opt strips last; the names help attribute a size
+# regression to a crate when the two wasm files are compared.
+strip = "debuginfo"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -1,0 +1,48 @@
+# .github/actions/setup-web/action.yml
+name: Set up the browser toolchain
+description: >-
+  Install what scripts/build-web.sh and the wasm32 tests need beyond the Rust toolchain: the wasm32-unknown-unknown
+  target, wasm-bindgen-cli at exactly the version of the wasm-bindgen crate in Cargo.lock, and binaryen for wasm-opt.
+  Run this after dtolnay/rust-toolchain (and after Swatinem/rust-cache, so that the target's artefacts are cached),
+  because the wasm-bindgen version is read with `cargo metadata`, which needs cargo on the path and the repository
+  checked out.
+runs:
+  using: composite
+  steps:
+    - name: Add the wasm32 target
+      shell: bash
+      run: rustup target add wasm32-unknown-unknown
+
+    - name: Read the wasm-bindgen version from Cargo.lock
+      id: version
+      shell: bash
+      # The same query as scripts/build-web.sh, so that the tool installed here is the one the script accepts.
+      # `--locked` refuses a lockfile that no longer matches the manifests rather than rewriting it.
+      run: |
+        set -euo pipefail
+        version=$(cargo metadata --format-version 1 --locked \
+          | jq -r '[.packages[] | select(.name == "wasm-bindgen") | .version] | unique
+                   | if length == 1 then .[0] else error("Cargo.lock must hold exactly one version of wasm-bindgen, found \(.)") end')
+        echo "wasm_bindgen=$version" >> "$GITHUB_OUTPUT"
+
+    # A prebuilt binary rather than `cargo install`, which would compile wasm-bindgen-cli from source on every run.
+    # install-action's `wasm-bindgen` entry downloads the wasm-bindgen-cli release archive, which also carries
+    # wasm-bindgen-test-runner, the runner .cargo/config.toml names for `cargo test --target wasm32-unknown-unknown`.
+    - name: Install wasm-bindgen-cli ${{ steps.version.outputs.wasm_bindgen }}
+      uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-bindgen@${{ steps.version.outputs.wasm_bindgen }}
+
+    # Ubuntu 24.04 packages binaryen 117, which understands every feature rustc 1.98 emits for wasm32-unknown-unknown
+    # (bulk memory, non-trapping float-to-int, reference types, multivalue, sign extension, mutable globals). Should a
+    # future toolchain emit a feature it does not know, replace this step with a download of a pinned release archive
+    # from https://github.com/WebAssembly/binaryen/releases and add its bin/ directory to $GITHUB_PATH.
+    - name: Install binaryen
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y binaryen
+
+    - name: Report the installed versions
+      shell: bash
+      run: |
+        wasm-bindgen --version
+        wasm-opt --version

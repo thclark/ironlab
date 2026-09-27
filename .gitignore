@@ -28,3 +28,6 @@ site/
 
 # Figure outputs written by examples and tests
 *.fig.json.tmp
+
+# The browser bundle assembled by scripts/build-web.sh
+dist/
