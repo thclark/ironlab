@@ -26,8 +26,8 @@
 //! - [`style`] holds the text sizes and colours of the interface, which [`app::run`] installs on the egui context.
 //! - [`app`] is the eframe application: one figure shown at a time, the figure browser beside it, a toolbar, undo and
 //!   redo, PDF export and saving.
-//! - [`export`] writes a figure as a PDF, supplying the PDF exporter with the viewer's own renderer so that the
-//!   dense parts of a figure are rasterised by the pipeline that draws the screen.
+//! - [`export`] writes a figure as a PDF, performing the renders the PDF exporter asks for through the viewer's own
+//!   renderer so that the dense parts of a figure are rasterised by the pipeline that draws the screen.
 //! - [`files`] reads and writes `.fig` (Protocol Buffers) and `.json` figure files by extension, for the
 //!   `ironlab-viewer` binary and for saving from the viewer.
 
@@ -52,7 +52,9 @@ pub use browse::{
     Group, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets, parameter_names,
 };
 pub use canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, tessellate};
-pub use export::{ExportError, GpuRasteriser, export_pdf, write_pdf};
+pub use export::{ExportError, export_display_list};
+#[cfg(not(target_arch = "wasm32"))]
+pub use export::{export_pdf, write_pdf};
 pub use gpu::{
     DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuCallback, GpuConfig, GpuPainter, JOIN_AT_END,
     JOIN_AT_START, MAX_DASH_ENTRIES, MarkerGpu, MarkerVertex, Segment, StrokeParams, TileKey,

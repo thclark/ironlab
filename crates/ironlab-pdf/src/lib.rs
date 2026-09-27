@@ -13,9 +13,13 @@
 //! Content that the scene compiler marked as dense, such as a surface with tens of thousands of faces, is drawn as a
 //! deflated image XObject instead of one vector path per face when it reaches the threshold of
 //! [`RasterOptions::policy`]. Everything else — axes, ticks, tick labels, axis labels, titles, legends and every
-//! other artist — stays vector, and text stays selectable. The image is rendered by the [`Rasteriser`] the caller
-//! supplies, which is the viewer's own headless GPU renderer, so the exported pixels are the ones the user saw on
-//! screen. See [`raster`] for the placement rules and for what happens when no rasteriser is given.
+//! other artist — stays vector, and text stays selectable. This crate rasterises nothing itself: the image is
+//! rendered by the [`Rasteriser`] the caller supplies to [`render_display_list`], or, when the caller cannot render
+//! inside the export's walk, in the two-phase form of [`twophase`], in which [`raster_requests`] records the
+//! renders the export needs, the caller performs them, and [`render_with_rasters`] replays the images into the same
+//! export. The viewer takes the two-phase form with its own headless GPU renderer, so the exported pixels are the
+//! ones the user saw on screen. See [`raster`] for the placement rules and for what happens when no rasteriser is
+//! given.
 //!
 //! # Three-dimensional axes and warnings
 //!
@@ -47,6 +51,7 @@
 //! - Colour channels are clamped to `[0, 1]`, with NaN treated as 0.
 
 pub mod raster;
+pub mod twophase;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -74,6 +79,7 @@ pub use raster::{
     DEFAULT_RASTER_CELLS, DEFAULT_RASTER_DPI, DepthPolicy, Need, RasterImage, RasterOptions,
     RasterPolicy, Rasteriser, SAME_PICTURE_PATCH_PT, SAME_PICTURE_TOLERANCE, same_picture,
 };
+pub use twophase::{RasterRequest, raster_requests, render_with_rasters};
 
 /// Why a three-dimensional axes was drawn back to front without being verified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

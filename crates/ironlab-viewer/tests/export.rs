@@ -29,11 +29,15 @@ use ironlab_ir::{
     NodeId, Projection, Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{
-    DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterOptions, RasterPolicy,
-    UnverifiedCause,
+    DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterImage, RasterOptions,
+    RasterPolicy, Rasteriser, UnverifiedCause,
 };
-use ironlab_scene::display::Rect;
-use ironlab_viewer::{ExportError, RenderError, render_display_list_offscreen};
+use ironlab_scene::display::{DisplayList, Rect};
+use ironlab_text::TextEngine;
+use ironlab_viewer::{
+    ExportError, OffscreenRenderer, RenderError, render_display_list_offscreen,
+    with_shared_renderer,
+};
 
 /// The side of the grid of the dense surface. It has 139 × 139 = 19 321 faces, comfortably above the default
 /// threshold, so the default settings rasterise it without being told to.
@@ -724,6 +728,219 @@ fn a_dense_surface_in_an_axes_drawn_as_vectors_is_rasterised_for_its_size_with_b
         embedded_images(&pdf).len(),
         1,
         "the surface alone became an image"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Two-phase export
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The threshold at which the two-phase test rasterises a dense artist: low enough that the faces of a surface small
+/// enough to verify, and of the planes of [`crossing_planes_figure`], are still images for their size.
+const TWO_PHASE_CELLS: u64 = 30;
+
+/// The side of the height field of [`verified_and_embedded_figure`], and the number of faces it draws.
+const SMOOTH_SIDE: usize = 20;
+const SMOOTH_FACES: u64 = ((SMOOTH_SIDE - 1) * (SMOOTH_SIDE - 1)) as u64;
+
+/// A figure of two three-dimensional axes side by side. The left axes (node 2) holds a smooth height field (node 3)
+/// whose painter's order the exporter verifies and then rasterises for its size under [`TWO_PHASE_CELLS`]; the right
+/// axes (node 4) holds the planes and the line of [`crossing_planes_figure`] (nodes 5, 6 and 7), whose renders
+/// differ, so that it is embedded whole and the faces beneath it, each dense enough under [`TWO_PHASE_CELLS`] to
+/// plan a render, are never rendered.
+fn verified_and_embedded_figure() -> Figure {
+    let planes_side = 7;
+    let (smooth_axis, smooth) = field(SMOOTH_SIDE, |x, y| {
+        0.5 + 0.3 * (std::f64::consts::TAU * x).sin() * (std::f64::consts::TAU * y).cos()
+    });
+    let (planes_axis, rising) = field(planes_side, |x, _| 0.2 + 0.6 * x);
+    let (_, falling) = field(planes_side, |_, y| 0.8 - 0.6 * y);
+    let (sx, sy, z_smooth, px, py, z_rising, z_falling, lx, ly, lz) = (
+        DataId(0),
+        DataId(1),
+        DataId(2),
+        DataId(3),
+        DataId(4),
+        DataId(5),
+        DataId(6),
+        DataId(7),
+        DataId(8),
+        DataId(9),
+    );
+    let matrix =
+        |side, values| NdArray::from_shape(vec![side, side], values).expect("a square field");
+    let data = std::collections::BTreeMap::from([
+        (sx, NdArray::vector(smooth_axis.clone())),
+        (sy, NdArray::vector(smooth_axis)),
+        (z_smooth, matrix(SMOOTH_SIDE, smooth)),
+        (px, NdArray::vector(planes_axis.clone())),
+        (py, NdArray::vector(planes_axis)),
+        (z_rising, matrix(planes_side, rising)),
+        (z_falling, matrix(planes_side, falling)),
+        (lx, NdArray::vector(vec![0.0, 1.0])),
+        (ly, NdArray::vector(vec![0.0, 1.0])),
+        (lz, NdArray::vector(vec![0.1, 0.9])),
+    ]);
+    let surface = |id, x, y, z, face| {
+        Artist::Surface(Surface {
+            id: NodeId(id),
+            grid: Grid::Rectilinear { x, y },
+            z,
+            face,
+            edge: ColorSpec::None,
+            ..Surface::default()
+        })
+    };
+    let axes = |id, col, artists| Axes {
+        id: NodeId(id),
+        cell: Cell {
+            col,
+            ..Cell::default()
+        },
+        projection: Projection::ThreeD {
+            view3d: View3d::default(),
+        },
+        z: Axis {
+            limits: Limits::Manual { min: 0.0, max: 1.0 },
+            ..Axis::default()
+        },
+        artists,
+        ..Axes::default()
+    };
+    Figure {
+        id: NodeId(1),
+        layout: TileLayout { rows: 1, cols: 2 },
+        data,
+        axes: vec![
+            axes(
+                2,
+                0,
+                vec![surface(3, sx, sy, z_smooth, ColorSpec::default())],
+            ),
+            axes(
+                4,
+                1,
+                vec![
+                    surface(5, px, py, z_rising, ColorSpec::default()),
+                    surface(
+                        6,
+                        px,
+                        py,
+                        z_falling,
+                        ColorSpec::Rgba {
+                            color: Color::rgb(0.8, 0.8, 0.8),
+                        },
+                    ),
+                    Artist::Line(Line {
+                        id: NodeId(7),
+                        x: lx,
+                        y: ly,
+                        z: Some(lz),
+                        ..Line::default()
+                    }),
+                ],
+            ),
+        ],
+        ..Figure::new()
+    }
+}
+
+/// The viewer's renderer presented to the PDF exporter as a [`Rasteriser`] inside its walk: the single pass the
+/// two-phase export must reproduce.
+struct BlockingAdapter<'a> {
+    renderer: &'a mut OffscreenRenderer,
+    text: &'a TextEngine,
+    /// The number of renders the exporter asked for.
+    calls: usize,
+}
+
+impl Rasteriser for BlockingAdapter<'_> {
+    fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
+        self.calls += 1;
+        let image = self
+            .renderer
+            .render_display_list(list, self.text, dpi)
+            .map_err(|error| error.to_string())?;
+        Ok(RasterImage {
+            width: image.width,
+            height: image.height,
+            rgba: image.rgba,
+        })
+    }
+}
+
+// WHY: the viewer's export records the renders a page needs, performs them, and replays the images into a second
+// walk, because a browser cannot block on the GPU inside the exporter. That must be a change of plumbing and not of
+// output: the bytes and the warnings must be those of one walk with the renderer answering inside it, or the export
+// from a browser would be a different document from the desktop's, and every gallery PDF would change. The figure
+// holds every kind of request the walk can make through a real renderer, an axes verified as vectors, a dense artist
+// inside it rasterised for its size, and an axes embedded for depth whose dense children the recording plans but
+// the export never renders, so that the replay must feed each image to the right place and skip the rest.
+#[test]
+fn the_two_phase_export_is_byte_identical_to_a_single_pass_through_the_same_renderer() {
+    let figure = verified_and_embedded_figure();
+    let options = depth_options(
+        RasterPolicy::Auto {
+            cells: TWO_PHASE_CELLS,
+        },
+        DepthPolicy::Auto,
+        300.0,
+    );
+    let Some(two_phase) = exported_or_skip(ironlab_viewer::export_pdf(&figure, &TEXT, &options))
+    else {
+        return;
+    };
+
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let (single_pass, rendered_in_the_walk) = with_shared_renderer(|renderer| {
+        let mut adapter = BlockingAdapter {
+            renderer,
+            text: &TEXT,
+            calls: 0,
+        };
+        let rendered = ironlab_pdf::render_display_list(
+            &scene.display_list,
+            &TEXT,
+            &options,
+            Some(&mut adapter),
+        );
+        Ok((rendered, adapter.calls))
+    })
+    .expect("the two-phase export found an adapter, so the single pass does");
+    let single_pass = single_pass.expect("the single pass renders the page");
+    let planned = ironlab_pdf::raster_requests(&scene.display_list, &TEXT, &options)
+        .expect("record the requests")
+        .len();
+    assert!(
+        planned > rendered_in_the_walk,
+        "the premise of this test: the recording plans the renders beneath the embedded axes, which the single \
+         pass never asks for ({planned} planned, {rendered_in_the_walk} asked for)"
+    );
+
+    assert_eq!(
+        kinds(&single_pass.warnings),
+        vec![
+            (
+                Some(NodeId(3)),
+                ExportWarningKind::RasterisedForSize {
+                    cells: SMOOTH_FACES
+                }
+            ),
+            (Some(NodeId(4)), ExportWarningKind::RasterisedForDepth),
+        ],
+        "the premise of this test: the left axes is verified and its surface rasterised for its size, and the \
+         right axes is embedded for its depth"
+    );
+    assert_eq!(
+        two_phase.export, single_pass.warnings,
+        "the two-phase export reports what the single pass reports"
+    );
+    assert!(
+        two_phase.bytes == single_pass.bytes,
+        "the two-phase export writes the bytes the single pass writes ({} against {} bytes)",
+        two_phase.bytes.len(),
+        single_pass.bytes.len()
     );
 }
 
