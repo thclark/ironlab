@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the browser bundle of IronLAB: compile `ironlab-web` for wasm32-unknown-unknown in the size-tuned `web` profile,
-# generate its JavaScript bindings with wasm-bindgen, shrink the module with wasm-opt, and assemble the files a page
-# needs into one directory. That directory is what a release attaches as `ironlab-web-<version>.tar.gz`, for
+# generate its JavaScript bindings with wasm-bindgen, shrink the module with wasm-opt, assemble the files a page
+# needs into one directory, and check that the assembled module initialises. That directory is what a release attaches as `ironlab-web-<version>.tar.gz`, for
 # publications that host their own figures, and what the documentation build serves at ironlab.org/embed/.
 #
 # Usage:
@@ -72,6 +72,9 @@ command -v jq >/dev/null 2>&1 \
 command -v python3 >/dev/null 2>&1 \
   || missing "python3 is not installed; it fills the placeholders of www/ironlab.js." \
              "brew install python (macOS) or sudo apt-get install python3 (Debian and Ubuntu)"
+command -v node >/dev/null 2>&1 \
+  || missing "node is not installed; it checks that the assembled bundle initialises." \
+             "brew install node (macOS) or sudo apt-get install nodejs (Debian and Ubuntu)"
 # `--locked` makes cargo refuse rather than rewrite a lockfile that no longer matches the manifests, so the version
 # read here is always the one that will be linked. A dependency graph with two versions of wasm-bindgen would have no
 # single answer, so it is an error.
@@ -173,6 +176,11 @@ loader = loader.replace("__IRONLAB_SHADOW_CSS__", json.dumps(css)[1:-1])
 with open(target, "w", encoding="utf-8") as handle:
     handle.write(loader)
 PY
+
+# A module that the optimiser has broken still validates and still passes the tests, which run the unoptimised
+# module, so the bundle itself is initialised before it is reported as built (see scripts/check-web-bundle.mjs).
+echo "==> Checking that the bundle initialises"
+node scripts/check-web-bundle.mjs "$out"
 
 # The sizes that matter to a page are the compressed ones, since every host that serves the bundle compresses it;
 # `gzip -9` is the ceiling of what gzip achieves, and brotli would do a little better still.

@@ -33,13 +33,24 @@ runs:
       with:
         tool: wasm-bindgen@${{ steps.version.outputs.wasm_bindgen }}
 
-    # Ubuntu 24.04 packages binaryen 117, which understands every feature rustc 1.98 emits for wasm32-unknown-unknown
-    # (bulk memory, non-trapping float-to-int, reference types, multivalue, sign extension, mutable globals). Should a
-    # future toolchain emit a feature it does not know, replace this step with a download of a pinned release archive
-    # from https://github.com/WebAssembly/binaryen/releases and add its bin/ directory to $GITHUB_PATH.
+    # A pinned release archive rather than Ubuntu's package, because Ubuntu 24.04 packages binaryen 108, whose `-Oz`
+    # rewrites the export `__wbindgen_externrefs` to name the module's function table instead of its externref table.
+    # The bindings then fail to grow that table when the module initialises, and no figure on a page can start.
+    # Version 133 is the one the bundle is developed against; scripts/build-web.sh checks that every bundle it builds
+    # initialises, so an upgrade that breaks the module fails the build rather than a published page.
     - name: Install binaryen
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y binaryen
+      env:
+        BINARYEN_VERSION: "133"
+        BINARYEN_SHA256: 2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489
+      run: |
+        set -euo pipefail
+        archive="binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+        curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" \
+          "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/$archive"
+        echo "$BINARYEN_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+        tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
     - name: Report the installed versions
       shell: bash
