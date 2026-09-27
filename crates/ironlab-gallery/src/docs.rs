@@ -4,12 +4,14 @@
 //!
 //! - `index.md`: an introduction and a column of full-width cards, one per entry, each with a thumbnail, a title
 //!   linking to the entry's page and the entry's description;
-//! - `<slug>.md` for each entry: the title, the description, the rendered figure linked to its PDF, the exact source
-//!   of the entry and, when the source uses the shared data helpers, a link to their page;
+//! - `<slug>.md` for each entry: the title, the description, the figure shown live by the `<ironlab-figure>` element
+//!   over the rendered image linked to its PDF, the exact source of the entry and, when the source uses the shared
+//!   data helpers, a link to their page;
 //! - `fields.md`: the source of the shared data helpers;
-//! - `<slug>.png`, `<slug>-thumb.png` and `<slug>.pdf` for each entry, produced by a [`Renderer`];
-//! - `../stylesheets/gallery.css`, the stylesheet of the cards, which the site configuration must list in
-//!   `extra_css`.
+//! - `<slug>.png`, `<slug>-thumb.png` and `<slug>.pdf` for each entry, produced by a [`Renderer`], and `<slug>.fig`,
+//!   the Protocol Buffers encoding of the figure that the live figure loads;
+//! - `../stylesheets/gallery.css`, the stylesheet of the cards and of the live figure's chrome, which the site
+//!   configuration must list in `extra_css`.
 //!
 //! The generator owns the gallery directory: it removes every file in it apart from `.gitkeep` before writing, so the
 //! directory never holds the pages or assets of an entry that has been renamed or removed.
@@ -20,6 +22,12 @@
 //! the cards carry the `markdown` attribute (Python-Markdown's `md_in_html` extension, enabled by default in zensical),
 //! so the links inside them are ordinary Markdown links. Zensical therefore rewrites them to its directory URLs and
 //! checks them in strict builds, exactly as it does for links in the body of a page.
+//!
+//! The `<ironlab-figure>` block of an entry page is raw HTML without the `markdown` attribute, because Python-Markdown
+//! must pass it through verbatim: an element it does not know would otherwise be wrapped in a paragraph. Zensical
+//! nevertheless rewrites the `href` and `src` attributes of raw HTML exactly as it rewrites Markdown links, relative
+//! to the source file, so the block's URLs are written like every other link, as bare file names in the gallery
+//! directory, and reach the built page as `../<slug>.fig` beside the page's other links.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -46,9 +54,13 @@ pub const DEFAULT_THUMBNAIL_DPI: f64 = 120.0;
 /// list of `zensical.toml`.
 pub const GALLERY_CSS_PATH: &str = "stylesheets/gallery.css";
 
-/// The stylesheet of the gallery cards, written to [`GALLERY_CSS_PATH`] in the documentation directory.
+/// The stylesheet of the gallery cards and of the live figures, written to [`GALLERY_CSS_PATH`] in the documentation
+/// directory.
 ///
-/// Colours come from the theme's custom properties, so the cards follow the light and dark palettes.
+/// Colours come from the theme's custom properties, so the cards follow the light and dark palettes. The stylesheet
+/// also maps those palettes onto the `--ironlab-*` tokens of the `<ironlab-figure>` element, whose own defaults
+/// follow the reader's system colour scheme rather than the site's; a body without a scheme attribute, which is what
+/// a site without a palette toggle has, is the light scheme.
 pub const GALLERY_CSS: &str = r#"/* Styles for the generated IronLAB figure gallery (written by `gallery docs`; do not edit). */
 
 .md-typeset .ironlab-gallery {
@@ -117,6 +129,49 @@ pub const GALLERY_CSS: &str = r#"/* Styles for the generated IronLAB figure gall
   height: auto;
   margin: 0 auto;
   background-color: #ffffff;
+}
+
+/* The live figure of an entry page. The element is a block, so it takes the width of the column and the figure's
+   aspect ratio, and its fallback image inside it is the still image above until the first frame is drawn. */
+.ironlab-figure ironlab-figure {
+  display: block;
+}
+
+/* The element colours its figurebar, datatips and status line from `--ironlab-*` tokens whose defaults follow the
+   reader's system colour scheme. The site's scheme is the one that matters here, so each token is mapped onto the
+   theme's own variables: the panels take the code-block colour and the controls the page colour, the pressed tool
+   the primary colour, and the rubber band and datatip marker the accent colour. The theme has no problem colour, so
+   the viewer's own is kept. A body that carries no scheme attribute is the default (light) scheme. */
+body:not([data-md-color-scheme="slate"]) ironlab-figure {
+  --ironlab-bg: var(--md-code-bg-color);
+  --ironlab-text: var(--md-default-fg-color);
+  --ironlab-weak: var(--md-default-fg-color--light);
+  --ironlab-widget: var(--md-default-bg-color);
+  --ironlab-widget-hover: var(--md-accent-fg-color--transparent);
+  --ironlab-stroke: var(--md-default-fg-color--lighter);
+  --ironlab-accent: var(--md-primary-fg-color);
+  --ironlab-accent-text: var(--md-primary-bg-color);
+  --ironlab-selection: var(--md-accent-fg-color);
+  --ironlab-problem: #a8412a;
+  --ironlab-canvas-bg: var(--md-default-bg-color);
+  --ironlab-font: var(--md-text-font-family);
+  --ironlab-mono: var(--md-code-font-family);
+}
+
+body[data-md-color-scheme="slate"] ironlab-figure {
+  --ironlab-bg: var(--md-code-bg-color);
+  --ironlab-text: var(--md-default-fg-color);
+  --ironlab-weak: var(--md-default-fg-color--light);
+  --ironlab-widget: var(--md-default-bg-color);
+  --ironlab-widget-hover: var(--md-accent-fg-color--transparent);
+  --ironlab-stroke: var(--md-default-fg-color--lighter);
+  --ironlab-accent: var(--md-primary-fg-color);
+  --ironlab-accent-text: var(--md-primary-bg-color);
+  --ironlab-selection: var(--md-accent-fg-color);
+  --ironlab-problem: #e59280;
+  --ironlab-canvas-bg: var(--md-default-bg-color);
+  --ironlab-font: var(--md-text-font-family);
+  --ironlab-mono: var(--md-code-font-family);
 }
 "#;
 
@@ -247,7 +302,7 @@ impl<'a> DocsOptions<'a> {
 pub struct DocsReport {
     /// The Markdown pages, starting with the index.
     pub pages: Vec<PathBuf>,
-    /// The images and PDFs.
+    /// The images, PDFs and `.fig` files.
     pub assets: Vec<PathBuf>,
     /// The stylesheet of the cards.
     pub stylesheet: PathBuf,
@@ -307,6 +362,8 @@ pub fn generate_docs(
                 options.renderer.png(ir, options.thumbnail_dpi)?,
             ),
             (format!("{}.pdf", entry.slug), pdf.bytes),
+            // The live figure of the entry page loads this file; it is the encoding `Figure::save` writes.
+            (format!("{}.fig", entry.slug), ir.to_protobuf()),
         ];
         for (name, bytes) in assets {
             report.assets.push(write_file(&out_dir.join(name), bytes)?);
@@ -345,9 +402,10 @@ pub fn index_markdown(entries: &[GalleryEntry]) -> String {
         "# Gallery\n\n\
          This gallery shows the chart types and features of IronLAB. Every image in it is rendered by IronLAB's own \
          renderer, the same pipeline that draws the interactive viewer, and no other plotting or rasterising tool is \
-         involved. Every entry page shows the exact code that produced its figure, and offers the figure as the PDF \
-         that IronLAB exports for inclusion in a publication. The figures that plot gridded or scattered data use \
-         the functions on the [data helpers](fields.md) page.\n\n\
+         involved. Every entry page shows its figure live, drawn in the browser by that same engine, with the image \
+         and the PDF as the fallback for a browser that cannot draw it; shows the exact code that produced the \
+         figure; and offers the figure as the PDF that IronLAB exports for inclusion in a publication. The figures \
+         that plot gridded or scattered data use the functions on the [data helpers](fields.md) page.\n\n\
          <div class=\"ironlab-gallery\" markdown>\n",
     );
     for entry in entries {
@@ -377,20 +435,26 @@ pub fn entry_markdown(entry: &GalleryEntry) -> String {
     } else {
         ""
     };
+    // The block is raw HTML without the `markdown` attribute, so Python-Markdown passes it through verbatim; zensical
+    // rewrites its URLs like Markdown links, so they are relative to this file (see the module documentation).
     format!(
         "# {title}\n\n\
          {description}\n\n\
-         <div class=\"ironlab-figure\" markdown>\n\n\
-         [![{alt}]({slug}.png)]({slug}.pdf)\n\n\
+         <div class=\"ironlab-figure\">\n\
+         <ironlab-figure src=\"{slug}.fig\" name=\"{slug}\" alt=\"{alt}\">\n\
+         <a href=\"{slug}.pdf\"><img alt=\"{alt}\" src=\"{slug}.png\"></a>\n\
+         </ironlab-figure>\n\
          </div>\n\n\
-         Select the image, or [download the PDF]({slug}.pdf), to open the vector figure exported by IronLAB.\n\n\
+         The figure above is live, drawn in the browser by the same engine that draws the viewer: drag it to pan, \
+         and click it to zoom with the wheel. [Download the PDF]({slug}.pdf) for the vector figure that IronLAB \
+         exports, or read how to [embed a figure of your own](../guides/embedding.md).\n\n\
          ## Source\n\n\
          The figure is built by the following code.{data_note}\n\n\
          {fence}rust\n{source}{newline}{fence}\n\n\
          [Back to the gallery](index.md)\n",
         title = escape_html(entry.title),
         description = escape_html(entry.description),
-        alt = escape_link_text(entry.title),
+        alt = escape_attribute(entry.title),
         source = entry.source,
         newline = if entry.source.ends_with('\n') {
             ""
@@ -466,6 +530,11 @@ fn fence_for(source: &str) -> String {
 /// Escapes the characters that would end or nest the text of a Markdown link.
 fn escape_link_text(text: &str) -> String {
     escape_html(text).replace('[', "\\[").replace(']', "\\]")
+}
+
+/// Escapes the characters that would end or be read as markup inside a double-quoted HTML attribute.
+fn escape_attribute(text: &str) -> String {
+    escape_html(text).replace('"', "&quot;")
 }
 
 /// Escapes the characters that would be read as HTML.

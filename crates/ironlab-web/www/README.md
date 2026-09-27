@@ -67,7 +67,7 @@ figure.handle;                     // the same handle, or null before it exists
 figure.refit();                    // as the Refit button
 figure.save();                     // downloads name.fig or name.json
 await figure.exportPdf();          // downloads name.pdf and resolves with the exporter's warnings; rejects if it fails
-await figure.session;              // the page's one wasm Session; session.backend is "webgpu" or "webgl2"
+await figure.session;              // the page's one wasm Session; session.backend() is "webgpu" or "webgl2"
 ```
 
 The module also exports `session()`, the promise of that one session, and `version()`, the version of the wasm module.

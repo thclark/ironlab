@@ -1,6 +1,6 @@
 # Using the viewer
 
-The IronLAB viewer is a desktop window that shows one figure at a time and lets it be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side is how the others are reached: it narrows them down to the one to look at.
+The IronLAB viewer is a desktop window that shows one figure at a time and lets it be explored with the mouse or trackpad. How to open it is described in [getting started](getting-started.md#opening-the-viewer). When more than one figure is open, the [figure browser](#the-figure-browser) down the left-hand side is how the others are reached: it narrows them down to the one to look at. The same figures can be shown live in a web page, drawn by the same engine, as described [below](#in-the-browser).
 
 The figure has a toolbar above a canvas, and beneath the canvas a strip of [details](#details). The canvas shows the figure as a page preview: the whole figure at its physical aspect ratio, scaled to fit the window. What the canvas shows is drawn from the same geometry as an exported PDF, so the preview and the export agree.
 
@@ -255,11 +255,11 @@ Links apply to limits only. The azimuth, elevation, magnification and position o
 
 **Save figure…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown, with its current limits, three-dimensional views and plot visibility. The format follows the extension of the name given: `.fig` writes the default Protocol Buffers format and `.json` (including `.fig.json`) writes JSON, as described in [saving and loading](getting-started.md#saving-and-loading). A name with any other extension is refused and no file is written.
 
-The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Refit restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded.
+The figure written is the figure the viewer now holds: the changes saved become part of it, the undo history is emptied, and Refit restores the view as saved rather than the view the file was opened with. A notification in the bottom-right corner of the window reports whether the save succeeded. In a web page the same button downloads the file instead; see [in the browser](#in-the-browser).
 
 ## Exporting to PDF
 
-**Export PDF…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown: with its current limits, current three-dimensional views, and without the plots hidden from the legend. The exported page has the same properties as one written by the API, which are described in [exporting PDF](getting-started.md#exporting-pdf), and it is written with the default settings for [dense surfaces](getting-started.md#dense-surfaces). A notification in the bottom-right corner of the window reports whether the export succeeded.
+**Export PDF…**, in the toolbar, opens a save dialog and writes the figure as it is currently shown: with its current limits, current three-dimensional views, and without the plots hidden from the legend. The exported page has the same properties as one written by the API, which are described in [exporting PDF](getting-started.md#exporting-pdf), and it is written with the default settings for [dense surfaces](getting-started.md#dense-surfaces). A notification in the bottom-right corner of the window reports whether the export succeeded. In a web page the same button downloads the file instead; see [in the browser](#in-the-browser).
 
 ## Problems
 
@@ -272,3 +272,15 @@ Each entry names the object the problem concerns, as the [object tree](#selectin
 - **Your change was refused, so the figure is unchanged.** A change made in the property editor was checked before it was recorded and the figure would not accept it, so the figure keeps the value it had and the history keeps no empty step.
 
 The last two are reported until the change they concern is superseded, undone, reverted or discarded, after which the indicator falls silent again. Problems reported while the figure was drawn come back whenever the figure is drawn, so they persist until the figure itself changes.
+
+## In the browser
+
+A figure embedded in a web page with the `<ironlab-figure>` element is drawn by the same engine as this viewer and behaves in the same way: the same tools, gestures, datatips, legend clicks, double-click, Refit, undo and redo, and the same **Save figure…** and **Export PDF…**, each of which downloads the file the viewer would have written. The problems indicator is there too. The differences are these.
+
+- The toolbar is a figurebar drawn in HTML above the figure, which a page may hide, and there is no [figure browser](#the-figure-browser) and no [property editor](#the-property-editor): a page holds one figure per element, and a reader changes the views of a figure and the visibility of its plots but not the properties its author set.
+- Scrolling the mouse wheel zooms a figure only after a click or a touch has activated it, so that the wheel scrolls the page until the reader asks for the figure; **Escape**, focus leaving the figure or a click outside it hands the wheel back to the page. Dragging and pinching need no activation.
+- **R**, **⌘Z** and **⌘⇧Z** (**Ctrl+Z** and **Ctrl+Shift+Z** away from macOS) work while the figure or one of its buttons has keyboard focus.
+- **Save figure…** writes the encoding of the page's figure file, `.fig` or `.json`, under the name the page gives the figure, rather than offering a choice of name in a dialog, and the reader's changes stay undoable after the download because they are never folded into the file the page serves.
+- **Export PDF…** performs the renders the exporter needs on the reader's own graphics device, and the export report's warnings are counted in a status line beneath the figure rather than in a notification.
+
+How to put a figure in a page, and everything a page author controls, is described in [embedding figures in a web page](embedding.md).
