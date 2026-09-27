@@ -9,7 +9,7 @@ use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
 use crate::error::Error;
-use crate::{ExportReport, RasterOptions};
+use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
 ///
@@ -509,6 +509,78 @@ impl Figure {
             validation: validation.warnings,
             scene: exported.warnings,
             export: exported.export,
+        })
+    }
+
+    /// Exports the figure as a PNG image at [`DEFAULT_PNG_DPI`] dots per inch.
+    ///
+    /// The image is the figure as the viewer and the documentation gallery draw it,
+    /// rendered by the same pipeline at the size of the figure, with an alpha channel, so a
+    /// figure with a transparent background stays transparent. It is the format for a
+    /// slide, a web page, the fallback content of an embedded figure and a quick look;
+    /// [`export_pdf`](Figure::export_pdf) remains the format for print, where text stays
+    /// selectable and lines stay vector.
+    ///
+    /// Rendering needs a graphics adapter, which a machine without a graphics device
+    /// provides through a software adapter such as lavapipe; without one the export fails
+    /// with a message naming the remedy.
+    ///
+    /// The returned [`ExportReport`] holds the validation warnings of the figure and the
+    /// warnings the scene compiler raised while drawing it, as
+    /// [`export_pdf`](Figure::export_pdf) returns them. Its `export` list is always empty:
+    /// nothing in a PNG is rasterised selectively, because the whole image is the render.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), ironlab::Error> {
+    /// # let fig = ironlab::Figure::new();
+    /// let report = fig.export_png("pressure.png")?;
+    /// for warning in &report.scene {
+    ///     eprintln!("{:?}: {}", warning.node, warning.message);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Invalid`] when the figure has validation errors (and writes no
+    /// file), [`Error::Render`] when no graphics adapter is available or the renderer
+    /// cannot draw the image, [`Error::Png`] when the image cannot be encoded, and
+    /// [`Error::Io`] when the file cannot be written.
+    pub fn export_png(&self, path: impl AsRef<Path>) -> Result<ExportReport, Error> {
+        self.export_png_with(path, DEFAULT_PNG_DPI)
+    }
+
+    /// Exports the figure as a PNG image at `dpi` dots per inch.
+    ///
+    /// The image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)` pixels,
+    /// where `width_pt` and `height_pt` are the size of the figure in points, so that the
+    /// PNG and the PDF agree on the physical size of the figure to within half a pixel.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), ironlab::Error> {
+    /// # let fig = ironlab::Figure::new();
+    /// // A figure for a printed poster, at 300 dots per inch.
+    /// fig.export_png_with("pressure.png", 300.0)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As for [`export_png`](Figure::export_png). An image that is empty or larger than the
+    /// adapter can draw, because `dpi` is too small or too large for the figure, is
+    /// [`Error::Render`].
+    pub fn export_png_with(&self, path: impl AsRef<Path>, dpi: f64) -> Result<ExportReport, Error> {
+        let validation = self.check_valid()?;
+        let text = text_engine();
+        let scene = ironlab_scene::compile(&self.ir, text);
+        let image = ironlab_canvas::render_display_list_offscreen(&scene.display_list, text, dpi)?;
+        std::fs::write(path, image.to_png()?)?;
+        Ok(ExportReport {
+            validation: validation.warnings,
+            scene: scene.warnings,
+            export: Vec::new(),
         })
     }
 

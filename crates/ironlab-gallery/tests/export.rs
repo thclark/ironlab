@@ -10,8 +10,6 @@ use std::fs;
 
 use common::{FakeRenderer, temp_dir};
 use ironlab::Figure;
-use ironlab_canvas::RenderedImage;
-use ironlab_gallery::docs::encode_png;
 use ironlab_gallery::{GalleryEntry, export_entries};
 
 fn titled() -> Figure {
@@ -68,36 +66,4 @@ fn export_writes_pdf_png_and_reloadable_figure_files_per_entry() {
     let from_json = ironlab::ir::Figure::from_json(&json)
         .expect("the exported .fig.json file is a JSON figure");
     assert_eq!(from_json, titled().into_ir());
-}
-
-/// WHY: the PNG files must decode to the rendered pixels at the rendered size, or the gallery images would be
-/// distorted or corrupt.
-#[test]
-fn encode_png_preserves_size_and_pixels() {
-    let (width, height) = (3, 2);
-    let rgba: Vec<u8> = (0..width * height * 4)
-        .map(|i| (i * 11 % 256) as u8)
-        .collect();
-    let image = RenderedImage {
-        width,
-        height,
-        rgba: rgba.clone(),
-    };
-    let bytes = encode_png(&image).expect("the image encodes");
-    let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
-        .expect("the PNG decodes")
-        .to_rgba8();
-    assert_eq!(decoded.dimensions(), (width, height));
-    assert_eq!(decoded.into_raw(), rgba);
-}
-
-/// WHY: a pixel buffer that does not match the stated size must be reported, not written as a corrupt file.
-#[test]
-fn encode_png_rejects_a_buffer_of_the_wrong_length() {
-    let image = RenderedImage {
-        width: 4,
-        height: 4,
-        rgba: vec![0; 10],
-    };
-    assert!(encode_png(&image).is_err());
 }

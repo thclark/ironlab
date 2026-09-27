@@ -509,12 +509,32 @@ Set the size of the figure to the size it should have on the printed page, for e
 
 Including the figure unscaled keeps text at the font size set in IronLAB, so a 9 pt label is 9 pt on the page. Passing `width=` or `scale=` to `\includegraphics` rescales the text and line widths with the rest of the figure. The PDF works with pdfLaTeX, XeLaTeX and LuaLaTeX, none of which need the `--shell-escape` option to include it. A publication that is also read on the web can carry the figure itself beside the PDF, so that a reader explores it and exports the same PDF from the page; see [embedding figures in a web page](embedding.md).
 
+## Exporting PNG
+
+`export_png` writes the figure as a PNG image, for a slide, a web page, the [fallback content](embedding.md#fallback-content) of an embedded figure or a quick look at what a program produced:
+
+```rust
+fig.export_png("pressure.png")?;
+```
+
+The image is the figure as the viewer and the [gallery](../gallery/index.md) draw it, rendered by the same engine at the size of the figure and at 150 dots per inch (`ironlab::DEFAULT_PNG_DPI`), with an alpha channel, so a figure with a transparent background stays transparent. `export_png_with` chooses the resolution:
+
+```rust
+// A figure for a printed poster, at 300 dots per inch.
+fig.export_png_with("pressure.png", 300.0)?;
+```
+
+The image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)` pixels, where `width_pt` and `height_pt` are the size of the figure in points, so a figure of 160 by 100 mm is 945 by 591 pixels at the default resolution and the PNG agrees with the PDF on the physical size of the figure to within half a pixel.
+
+Because the whole image is drawn by the renderer, every PNG export needs a graphics adapter; a machine without a graphics device provides one through a software adapter, see [running without a graphics device](#running-without-a-graphics-device), and without any adapter the export fails with a message naming the remedy. Both functions return the same `ExportReport` as `export_pdf`, holding the validation warnings of the figure and the warnings the scene compiler raised while drawing it; its `export` list is always empty, because nothing in a PNG is rasterised selectively. The PDF remains the format for print, where text stays selectable and lines stay vector; see [exporting PDF](#exporting-pdf).
+
 ## Running without a graphics device
 
 Nothing in IronLAB needs a window: exporting a figure, rendering the documentation gallery and running the tests all draw through the same headless renderer, so they run on a server, in a container and in continuous integration. What they need, for some figures, is a graphics adapter for wgpu to draw with.
 
 - Verifying a three-dimensional axes for [export](#three-dimensional-axes), and drawing one as an image, needs an adapter.
 - Drawing a [dense surface](#dense-surfaces) as an image needs an adapter.
+- [Exporting PNG](#exporting-png) needs an adapter, because the whole image is drawn by the renderer.
 - Everything else, including every two-dimensional figure and a three-dimensional figure exported with `DepthPolicy::Vector`, needs none.
 
 A machine without a graphics device uses a software adapter, which wgpu finds like any other:

@@ -33,15 +33,15 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ironlab_canvas::RenderedImage;
 use ironlab_text::TextEngine;
 
 use crate::error::GalleryError;
 use crate::fields::FIELDS_SOURCE;
 use crate::{GalleryEntry, all};
 
-/// The resolution of the full-size figure image on each entry page, in dots per inch.
-pub const DEFAULT_PNG_DPI: f64 = 150.0;
+/// The resolution of the full-size figure image on each entry page, in dots per inch: the resolution at which
+/// `Figure::export_png` writes a figure, so that the gallery images are what a user's own export produces.
+pub use ironlab::DEFAULT_PNG_DPI;
 
 /// The resolution of the thumbnail image on the gallery index, in dots per inch.
 ///
@@ -223,9 +223,10 @@ impl IronlabRenderer {
 
 impl Renderer for IronlabRenderer {
     fn png(&self, figure: &ironlab::ir::Figure, dpi: f64) -> Result<Vec<u8>, GalleryError> {
-        let image = ironlab_canvas::render_offscreen(figure, &self.text, dpi)
-            .map_err(|error| GalleryError::Render(error.to_string()))?;
-        encode_png(&image)
+        ironlab_canvas::render_offscreen(figure, &self.text, dpi)
+            .map_err(|error| GalleryError::Render(error.to_string()))?
+            .to_png()
+            .map_err(|error| GalleryError::Render(error.to_string()))
     }
 
     fn pdf(&self, figure: &ironlab::ir::Figure) -> Result<ExportedPdf, GalleryError> {
@@ -241,35 +242,6 @@ impl Renderer for IronlabRenderer {
                 .collect(),
         })
     }
-}
-
-/// Encodes a rendered RGBA image as a PNG file.
-///
-/// # Errors
-///
-/// Returns [`GalleryError::Render`] when the pixel buffer does not match the image size.
-pub fn encode_png(image: &RenderedImage) -> Result<Vec<u8>, GalleryError> {
-    use image::ImageEncoder as _;
-
-    let expected = u64::from(image.width) * u64::from(image.height) * 4;
-    if image.rgba.len() as u64 != expected {
-        return Err(GalleryError::Render(format!(
-            "cannot encode PNG: a {}×{} image needs {expected} RGBA bytes, but {} were given",
-            image.width,
-            image.height,
-            image.rgba.len()
-        )));
-    }
-    let mut bytes = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut bytes)
-        .write_image(
-            &image.rgba,
-            image.width,
-            image.height,
-            image::ExtendedColorType::Rgba8,
-        )
-        .map_err(|error| GalleryError::Render(format!("cannot encode PNG: {error}")))?;
-    Ok(bytes)
 }
 
 /// Options of [`generate_docs`].
