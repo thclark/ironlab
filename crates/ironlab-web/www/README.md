@@ -83,7 +83,7 @@ Four events bubble from the element, and all of them cross the shadow boundary, 
 
 ## Requirements and hosting
 
-The renderer needs WebGPU or WebGL2. Every current desktop and mobile browser has WebGL2; where neither is available, or the graphics driver is blocked, every figure on the page shows its fallback content with the line "This figure needs WebGPU or WebGL2 to be interactive."
+The renderer needs WebGPU or WebGL2. Every current desktop and mobile browser has WebGL2; where neither is available, or the graphics driver is blocked, every figure on the page shows its fallback content with the line "This figure needs WebGPU or WebGL2 to be interactive." A module that fails to load or initialise is reported differently, with the line "The figure engine could not be started" followed by the browser's reason; that is a fault of the bundle or of its hosting, not of the reader's browser.
 
 - The server must send `ironlab_core_bg.wasm` with the media type `application/wasm`, which most servers do by extension. Python's `http.server`, nginx, Apache and every static host do.
 - The `.fig` files are binary and should be served as `application/octet-stream` or `application/x-protobuf`; the `.json` files as `application/json`. Neither needs a particular type for the element to read them.
