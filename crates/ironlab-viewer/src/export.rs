@@ -1,13 +1,18 @@
 //! PDF export through the viewer's own renderer.
 //!
-//! [`ironlab_pdf`] writes vector geometry and text, and asks a [`Rasteriser`] for the parts of a figure that are too
-//! dense to be worth writing as vector paths. This module supplies that rasteriser: [`GpuRasteriser`] wraps the
-//! viewer's headless renderer, so the pixels embedded in a PDF come from the same device, the same tessellation and
-//! the same shaders that draw the interactive canvas. There is no second rasteriser, and therefore nothing that can
-//! drift from what the user inspected on screen.
+//! [`ironlab_pdf`] writes vector geometry and text, and needs an image for the parts of a figure that are too dense
+//! to be worth writing as vector paths, and two renders of each three-dimensional axes to verify its painter's
+//! order. This module supplies those images in the exporter's two-phase form
+//! ([`ironlab_pdf::twophase`]): [`export_display_list`] asks the exporter which renders the page needs, performs
+//! each through the viewer's headless renderer, and hands the images back for the exporter to embed. The pixels in
+//! a PDF therefore come from the same device, the same tessellation and the same shaders that draw the interactive
+//! canvas; there is no second rasteriser, and nothing that can drift from what the user inspected on screen. The
+//! renders are awaited rather than blocked on, so the same export runs on the desktop and in a browser, and both
+//! write the bytes a single pass with the renderer inside the exporter's walk would have written.
 //!
 //! [`export_pdf`] and [`write_pdf`] are the export path the whole project uses: the viewer's "Export PDF…" command,
 //! the `ironlab` crate's [`Figure::export_pdf`](../../ironlab/struct.Figure.html) and the documentation gallery.
+//! They block on the process-wide renderer of [`with_shared_renderer`].
 //!
 //! A figure with nothing to rasterise and no three-dimensional axes is exported without ever touching the GPU, so
 //! exporting on a machine with no graphics adapter works as it always has. A three-dimensional axes under the
@@ -21,14 +26,16 @@ use std::path::Path;
 use ironlab_ir::Figure;
 use ironlab_pdf::raster::{Need, needs_rasteriser};
 use ironlab_pdf::{
-    ExportWarning, ExportWarningKind, Exported, PdfError, PdfOptions, RasterImage, Rasteriser,
-    Rendered, UnverifiedCause,
+    ExportWarning, ExportWarningKind, Exported, PdfError, PdfOptions, RasterImage, Rendered,
+    UnverifiedCause,
 };
 use ironlab_scene::SceneWarning;
 use ironlab_scene::display::DisplayList;
 use ironlab_text::TextEngine;
 
-use crate::offscreen::{OffscreenRenderer, RenderError, with_shared_renderer};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::offscreen::with_shared_renderer;
+use crate::offscreen::{OffscreenRenderer, RenderError};
 
 /// A failure to export a figure as a PDF.
 #[derive(Debug, thiserror::Error)]
@@ -42,46 +49,6 @@ pub enum ExportError {
     Render(#[from] RenderError),
 }
 
-/// The viewer's headless renderer, presented to the PDF exporter as a [`Rasteriser`].
-pub struct GpuRasteriser<'a> {
-    renderer: &'a mut OffscreenRenderer,
-    text: &'a TextEngine,
-    /// The first failure of the renderer. The exporter only learns that rasterising failed, as a message, so the
-    /// failure itself is kept here: a readback failure means the device may have been lost, and only a
-    /// [`RenderError`] reaching [`with_shared_renderer`] makes it replace the device rather than hand the same dead
-    /// one to every later export.
-    failure: Option<RenderError>,
-}
-
-impl<'a> GpuRasteriser<'a> {
-    /// Wraps a renderer, which resolves any text in the rasterised content through `text`.
-    pub fn new(renderer: &'a mut OffscreenRenderer, text: &'a TextEngine) -> Self {
-        Self {
-            renderer,
-            text,
-            failure: None,
-        }
-    }
-}
-
-impl Rasteriser for GpuRasteriser<'_> {
-    fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
-        let rendered = match self.renderer.render_display_list(list, self.text, dpi) {
-            Ok(rendered) => rendered,
-            Err(error) => {
-                let message = error.to_string();
-                self.failure.get_or_insert(error);
-                return Err(message);
-            }
-        };
-        Ok(RasterImage {
-            width: rendered.width,
-            height: rendered.height,
-            rgba: rendered.rgba,
-        })
-    }
-}
-
 /// Compiles and exports a figure, rasterising its dense content on the GPU.
 ///
 /// The warnings the scene compiler raised while drawing the figure are returned with the bytes, as
@@ -91,6 +58,7 @@ impl Rasteriser for GpuRasteriser<'_> {
 ///
 /// Returns [`ExportError::Render`] when the figure has content the policy rasterises and the renderer cannot be
 /// created or cannot draw it, and [`ExportError::Pdf`] when the PDF itself cannot be written.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn export_pdf(
     figure: &Figure,
     text: &TextEngine,
@@ -105,55 +73,111 @@ pub fn export_pdf(
     })
 }
 
-/// Exports an already compiled display list, rasterising and verifying through the GPU what the options ask.
+/// Exports a compiled list, rendering what the options rasterise or verify through `renderer`, or without one
+/// when creating it failed.
 ///
-/// A list that needs the renderer only to verify its three-dimensional axes is exported without it when no
-/// adapter is available, with each such axes drawn back to front and a warning naming the missing adapter.
+/// A list that needs no renderer is exported without asking for one, whatever `renderer` holds. Otherwise the
+/// exporter's plan of renders is performed through `renderer`, one awaited render at a time, and the images are
+/// replayed into the export. A list that needs the renderer only to verify its three-dimensional axes is exported
+/// without it when `renderer` reports that no adapter is available, with each such axes drawn back to front and a
+/// warning naming the missing adapter; a list that must be rasterised is not.
 ///
 /// # Errors
 ///
-/// As for [`export_pdf`].
+/// Returns [`ExportError::Render`] with the failure to create the renderer, when the list needs one, or with a
+/// failure of the renderer to draw a request, and [`ExportError::Pdf`] when the PDF itself cannot be written.
+pub async fn export_display_list(
+    list: &DisplayList,
+    text: &TextEngine,
+    options: &PdfOptions,
+    renderer: Result<&mut OffscreenRenderer, RenderError>,
+) -> Result<Rendered, ExportError> {
+    let need = needs_rasteriser(list, &options.raster);
+    let renderer = match (renderer, need) {
+        (_, Need::No) => {
+            return Ok(ironlab_pdf::render_display_list(list, text, options, None)?);
+        }
+        (Ok(renderer), _) => renderer,
+        (Err(RenderError::NoAdapter(message)), Need::ToVerify) => {
+            return unverified(list, text, options, &message);
+        }
+        (Err(error), _) => return Err(ExportError::Render(error)),
+    };
+    let requests = ironlab_pdf::raster_requests(list, text, options)?;
+    let mut rasters = Vec::with_capacity(requests.len());
+    for request in &requests {
+        let image = renderer
+            .render_display_list_async(&request.list, text, request.dpi)
+            .await
+            .map_err(ExportError::Render)?;
+        rasters.push(RasterImage {
+            width: image.width,
+            height: image.height,
+            rgba: image.rgba,
+        });
+    }
+    Ok(ironlab_pdf::render_with_rasters(
+        list, text, options, &requests, rasters,
+    )?)
+}
+
+/// Exports a list whose three-dimensional axes could not be verified because no graphics adapter is available
+/// (`message` says why), drawing each back to front with a warning that names the missing adapter and its remedy.
+fn unverified(
+    list: &DisplayList,
+    text: &TextEngine,
+    options: &PdfOptions,
+    message: &str,
+) -> Result<Rendered, ExportError> {
+    let mut rendered = ironlab_pdf::render_display_list(list, text, options, None)?;
+    for warning in &mut rendered.warnings {
+        if let ExportWarningKind::Unverified {
+            cause: UnverifiedCause::NoRasteriser,
+        } = warning.kind
+        {
+            *warning = ExportWarning::unverified(
+                warning.node,
+                UnverifiedCause::NoAdapter,
+                &format!(
+                    "no graphics adapter is available to verify it ({message}); a software adapter such as \
+                     lavapipe from Mesa serves on a machine without a graphics device"
+                ),
+            );
+        }
+    }
+    Ok(rendered)
+}
+
+/// Exports an already compiled display list, rasterising and verifying through the process-wide renderer what the
+/// options ask, and blocking on it.
+///
+/// This is [`export_display_list`] over [`with_shared_renderer`]: a list that needs no renderer never creates the
+/// device, and a list that needs one only to verify its three-dimensional axes is exported without it when no
+/// adapter is available.
+///
+/// # Errors
+///
+/// As for [`export_display_list`].
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render_display_list(
     list: &DisplayList,
     text: &TextEngine,
     options: &PdfOptions,
 ) -> Result<Rendered, ExportError> {
-    let need = needs_rasteriser(list, &options.raster);
-    if need == Need::No {
+    if needs_rasteriser(list, &options.raster) == Need::No {
         return Ok(ironlab_pdf::render_display_list(list, text, options, None)?);
     }
     let attempt = with_shared_renderer(|renderer| {
-        let mut raster = GpuRasteriser::new(renderer, text);
-        let result = ironlab_pdf::render_display_list(list, text, options, Some(&mut raster));
         // A failure of the renderer is returned as itself, so that a lost device is recognised and replaced. Every
         // other failure is the exporter's and travels through the inner result, where it cannot be mistaken for one.
-        match (result, raster.failure) {
-            (Err(PdfError::Raster(_)), Some(failure)) => Err(failure),
-            (result, _) => Ok(result),
+        match pollster::block_on(export_display_list(list, text, options, Ok(renderer))) {
+            Err(ExportError::Render(error)) => Err(error),
+            result => Ok(result),
         }
     });
     match attempt {
-        Ok(result) => result.map_err(ExportError::Pdf),
-        Err(RenderError::NoAdapter(message)) if need == Need::ToVerify => {
-            let mut rendered = ironlab_pdf::render_display_list(list, text, options, None)?;
-            for warning in &mut rendered.warnings {
-                if let ExportWarningKind::Unverified {
-                    cause: UnverifiedCause::NoRasteriser,
-                } = warning.kind
-                {
-                    *warning = ExportWarning::unverified(
-                        warning.node,
-                        UnverifiedCause::NoAdapter,
-                        &format!(
-                            "no graphics adapter is available to verify it ({message}); a software adapter \
-                             such as lavapipe from Mesa serves on a machine without a graphics device"
-                        ),
-                    );
-                }
-            }
-            Ok(rendered)
-        }
-        Err(error) => Err(ExportError::Render(error)),
+        Ok(result) => result,
+        Err(error) => pollster::block_on(export_display_list(list, text, options, Err(error))),
     }
 }
 
@@ -163,6 +187,7 @@ pub fn render_display_list(
 /// # Errors
 ///
 /// Returns the errors of [`export_pdf`], and [`PdfError::Io`] when the file cannot be written.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_pdf(
     figure: &Figure,
     text: &TextEngine,
