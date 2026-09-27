@@ -154,6 +154,7 @@ body:not([data-md-color-scheme="slate"]) ironlab-figure {
   --ironlab-selection: var(--md-accent-fg-color);
   --ironlab-problem: #a8412a;
   --ironlab-canvas-bg: var(--md-default-bg-color);
+  --ironlab-frame: var(--md-default-fg-color--lightest);
   --ironlab-font: var(--md-text-font-family);
   --ironlab-mono: var(--md-code-font-family);
 }
@@ -170,6 +171,7 @@ body[data-md-color-scheme="slate"] ironlab-figure {
   --ironlab-selection: var(--md-accent-fg-color);
   --ironlab-problem: #e59280;
   --ironlab-canvas-bg: var(--md-default-bg-color);
+  --ironlab-frame: var(--md-default-fg-color--lightest);
   --ironlab-font: var(--md-text-font-family);
   --ironlab-mono: var(--md-code-font-family);
 }

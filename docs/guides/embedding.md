@@ -154,12 +154,13 @@ The element colours its chrome, meaning the figurebar, the datatips, the rubber 
 | `--ironlab-weak` | Secondary text: the hint, the status line and the explanation beneath a problem. |
 | `--ironlab-widget` | The face of a button. |
 | `--ironlab-widget-hover` | The face of a button under the pointer. |
-| `--ironlab-stroke` | The borders of buttons and panels, and the separators of the figurebar. |
+| `--ironlab-stroke` | The borders of buttons and panels, and the separator between the figurebar's tools. |
 | `--ironlab-accent` | The face of the pressed tool button, and the wash of the rubber band. |
 | `--ironlab-accent-text` | The text of the pressed tool button. |
 | `--ironlab-selection` | The edge of the rubber band, the datatip's marker and the focus ring. |
 | `--ironlab-problem` | The problems indicator. |
 | `--ironlab-canvas-bg` | The backdrop behind a figure whose background is transparent. |
+| `--ironlab-frame` | The line around the figure. |
 | `--ironlab-font` | The typeface of the panels. |
 | `--ironlab-mono` | The monospaced typeface of a datatip's values. |
 

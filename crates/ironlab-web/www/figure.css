@@ -4,7 +4,7 @@
  * The build script inlines this file into ironlab.js in place of the __IRONLAB_SHADOW_CSS__ placeholder, JSON-escaped,
  * so that one fetch styles the element. It is never loaded by a page directly.
  *
- * The look is the native viewer's: a quiet dark panel (style.rs) around a canvas whose surround is a neutral grey,
+ * The look is the native viewer's: quiet controls (style.rs) above a canvas framed by a light line,
  * controls in 12.5 px text with 9 × 4 px padding and a 2 px radius, labels in 11 px spaced capitals, and data in an
  * 11 px monospaced face. Every colour is a token on the host, so that a page can map its own theme onto the element:
  * a rule on `ironlab-figure` in the page's stylesheet beats these `:host` rules whatever its specificity.
@@ -24,6 +24,7 @@
   --ironlab-selection: #c0deff;     /* egui's dark selection stroke: the band's edge and the datatip marker */
   --ironlab-problem: #e59280;       /* PROBLEM */
   --ironlab-canvas-bg: #2b2b2e;     /* SURROUND */
+  --ironlab-frame: #3c3c3c;         /* the line around the figure */
   --ironlab-font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
   --ironlab-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
@@ -47,6 +48,7 @@
   --ironlab-selection: #00537d;
   --ironlab-problem: #a8412a;
   --ironlab-canvas-bg: #d9d9dc;
+  --ironlab-frame: #dcdcdc;
 }
 
 @media (prefers-color-scheme: light) {
@@ -62,6 +64,7 @@
     --ironlab-selection: #00537d;
     --ironlab-problem: #a8412a;
     --ironlab-canvas-bg: #d9d9dc;
+  --ironlab-frame: #dcdcdc;
   }
 }
 
@@ -73,8 +76,6 @@
   align-items: center;
   gap: 6px;                                   /* Spacing::GAP */
   padding: 8px 10px;                          /* Spacing::BLOCK_Y, Spacing::INSET */
-  background: var(--ironlab-bg);
-  border-bottom: 1px solid var(--ironlab-stroke);
   font: 12.5px/1.2 var(--ironlab-font);       /* Role::Control */
 }
 
@@ -143,6 +144,13 @@ button[aria-pressed="true"] {
   background: var(--ironlab-accent);
   border-color: transparent;
   color: var(--ironlab-accent-text);
+}
+
+/* A pressed tool keeps its accent under the pointer and only deepens a little, rather than taking the plain hover
+   fill, which in the light palette would wash the pressed tool out. */
+button[aria-pressed="true"]:hover:not(:disabled),
+button[aria-pressed="true"]:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ironlab-accent) 88%, var(--ironlab-accent-text));
 }
 
 button:disabled {
@@ -237,6 +245,7 @@ button[hidden] {
   min-height: 3rem;
   overflow: hidden;
   background: var(--ironlab-canvas-bg);
+  border: 1px solid var(--ironlab-frame);
 }
 
 /* The fallback content stands in the frame until the first frame is drawn, and stays when the figure cannot be. */
