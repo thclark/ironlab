@@ -14,6 +14,11 @@ should reflect the human committer.
 
 If asked to commit, either omit the trailer or leave the commit to the user.
 
+The `check-commit-message-attribution` pre-commit hook enforces this on the `commit-msg` stage: it rejects a message
+containing a `Co-Authored-By:` trailer that names an AI assistant, an Anthropic no-reply address, or a "Generated
+with" or "prepared by" line naming an assistant. A pull request is squash-merged with a message that GitHub composes
+from its commits, so a clean branch keeps the attribution off `main` as well.
+
 ## Conventional commits & semver
 
 This repo uses [octue conventional commits](https://github.com/octue/conventional-commits)
