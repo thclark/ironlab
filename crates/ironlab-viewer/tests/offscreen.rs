@@ -4,7 +4,8 @@
 //! variable `IRONLAB_REQUIRE_GPU` is set (as in CI, which installs a software Vulkan adapter), in which case a missing
 //! adapter fails the test. Most of them render a display list through the offscreen renderer and read the pixels
 //! back; the tests of the painter's caches drive a `GpuPainter` directly on a device made as the renderer makes its
-//! own, and count what it uploads.
+//! own, and count what it uploads. The tests of the asynchronous API at the end of the file compare what the
+//! awaited entry points and a host-supplied device render against the blocking renderer, byte for byte.
 //!
 //! The image tests draw hand-built image items magnified so that every image pixel spans many device pixels, and
 //! sample device pixels at the centres of image pixels and one device pixel either side of their boundaries, so that
@@ -14,7 +15,9 @@
 mod common;
 
 use std::ops::Range;
+use std::pin::pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 
 use common::{
     TEXT, Workspace, assert_same_picture, depth_group, figure_with_mapped_image,
@@ -30,7 +33,9 @@ use ironlab_scene::display::{
     MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
-use ironlab_viewer::offscreen::create_device;
+use ironlab_viewer::offscreen::{
+    create_device, create_device_async, figure_pass, new_instance, request_adapter, request_device,
+};
 use ironlab_viewer::{
     DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuConfig, GpuPainter, OffscreenRenderer, RenderError,
     RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
@@ -4429,4 +4434,389 @@ fn the_viewport_places_scales_and_clips_the_list_on_the_target() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The asynchronous API, its blocking wrappers, a device the host brings, and the render pass shared with the browser
+// frame. The renders compared here are compared byte for byte, because the gallery's PNGs are what the blocking
+// renderer draws and the awaited path must draw exactly them.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The device, queue and sample count that the awaited device creation produces under `pollster`, or `None`
+/// (skipping the test) when no adapter is available and a GPU is not required.
+fn async_device_or_skip() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
+    gpu_or_skip(pollster::block_on(create_device_async()))
+}
+
+/// The list of the byte-identical render test: crossing faces in a depth group beneath loose leaves with
+/// anti-aliased edges, translucency and a texture, on a 100 by 100 point page, so that the depth pipelines, blending
+/// and image sampling all take part in the comparison.
+fn busy_page() -> DisplayList {
+    let mut items = vec![depth_group(crossing_faces())];
+    items.extend(loose_items_with_depths());
+    page(100.0, 100.0, Rgba::WHITE, items)
+}
+
+/// A viewport whose origin lies half a pixel to the right, so that the quad's vertical edges are half covered and
+/// the multisample resolve takes part in the bytes compared.
+fn half_pixel_viewport() -> Viewport {
+    viewport(ScreenTransform {
+        scale: 1.0,
+        origin: egui::pos2(0.5, 0.0),
+    })
+}
+
+/// Asserts that two renders are the same size and hold identical bytes, naming `what` was compared and the first
+/// pixels that differ when they are not.
+#[track_caller]
+fn assert_identical(first: &RenderedImage, second: &RenderedImage, what: &str) {
+    assert_eq!(
+        (first.width, first.height),
+        (second.width, second.height),
+        "{what}: the two renders have one size"
+    );
+    let differing = first_differences(first, second);
+    assert!(
+        first.rgba == second.rgba,
+        "{what}: the two renders draw identical bytes; the first pixels that differ, as (x, y, first, second): \
+         {differing:?}"
+    );
+}
+
+// Why: a browser frame, or any host that already owns a device, hands it to the renderer with `from_device` rather
+// than asking the renderer to create another; a host that brings its own device must get the offscreen renderer's
+// exact output, so a renderer built over a device from `create_device_async` must draw the bytes that `new` draws,
+// through both the display-list path and the raw `render_list` path.
+#[test]
+fn a_renderer_over_a_host_supplied_device_renders_the_same_bytes_as_one_over_its_own_device() {
+    let Some((device, queue, sample_count)) = async_device_or_skip() else {
+        return;
+    };
+    let mut hosted = OffscreenRenderer::from_device(device, queue, sample_count);
+    let mut own = OffscreenRenderer::new().expect("an adapter was found a moment ago");
+
+    let list = busy_page();
+    let hosted_page = hosted
+        .render_display_list(&list, &TEXT, 72.0)
+        .expect("the hosted renderer draws the page");
+    let own_page = own
+        .render_display_list(&list, &TEXT, 72.0)
+        .expect("the renderer over its own device draws the page");
+    assert_pixel(
+        &hosted_page,
+        75,
+        25,
+        RED_PX,
+        2,
+        "the hosted renderer drew the page, not a blank one",
+    );
+    assert_identical(&hosted_page, &own_page, "the display list path");
+
+    let quad = quad_list(RED_PX, None);
+    let target = half_pixel_viewport();
+    let hosted_quad = hosted
+        .render_list(&quad, &target, WHITE_PX)
+        .expect("the hosted renderer draws the quad");
+    let own_quad = own
+        .render_list(&quad, &target, WHITE_PX)
+        .expect("the renderer over its own device draws the quad");
+    assert_identical(&hosted_quad, &own_quad, "the render_list path");
+}
+
+// Why: the blocking `new`, `render_display_list` and `render_list` are thin wrappers that drive the awaited entry
+// points with `pollster`; the wrapper must add nothing, so the awaited entry points driven by `pollster` in a test
+// must draw the bytes the blocking ones draw, for both the display-list path and the raw `render_list` path.
+#[test]
+fn the_awaited_entry_points_driven_by_pollster_render_identically_to_the_blocking_ones() {
+    let Some(mut awaited) = gpu_or_skip(pollster::block_on(OffscreenRenderer::new_async())) else {
+        return;
+    };
+    let mut blocking = OffscreenRenderer::new().expect("an adapter was found a moment ago");
+
+    let list = busy_page();
+    let awaited_page = pollster::block_on(awaited.render_display_list_async(&list, &TEXT, 72.0))
+        .expect("the awaited renderer draws the page");
+    let blocking_page = blocking
+        .render_display_list(&list, &TEXT, 72.0)
+        .expect("the blocking renderer draws the page");
+    assert_pixel(
+        &awaited_page,
+        25,
+        75,
+        BLUE_PX,
+        2,
+        "the awaited renderer drew the page, not a blank one",
+    );
+    assert_identical(&awaited_page, &blocking_page, "the display list path");
+
+    let quad = quad_list(RED_PX, None);
+    let target = half_pixel_viewport();
+    let awaited_quad = pollster::block_on(awaited.render_list_async(&quad, &target, WHITE_PX))
+        .expect("the awaited renderer draws the quad");
+    let blocking_quad = blocking
+        .render_list(&quad, &target, WHITE_PX)
+        .expect("the blocking renderer draws the quad");
+    assert_identical(&awaited_quad, &blocking_quad, "the render_list path");
+}
+
+// Why: on native the blocking wrappers rely on the render future never parking: the readback awaits the map callback,
+// and `device.poll(Wait)` runs that callback synchronously before the future is polled again, so `pollster` never
+// has to wake. The property the wrappers rest on is therefore that the future is `Ready` on its very first poll,
+// with a waker that can never wake anything; a future that came back `Pending` here would hang a wrapper that
+// polled it on a waker nobody drives, and would show that the native path had started to depend on an executor.
+#[test]
+fn the_render_futures_are_ready_on_their_first_poll_with_a_waker_that_never_wakes() {
+    let Some(mut renderer) = renderer_or_skip() else {
+        return;
+    };
+    let mut context = Context::from_waker(Waker::noop());
+
+    let quad = quad_list(RED_PX, None);
+    let target = half_pixel_viewport();
+    let expected_quad = renderer
+        .render_list(&quad, &target, WHITE_PX)
+        .expect("the blocking render draws the quad");
+    {
+        let mut future = pin!(renderer.render_list_async(&quad, &target, WHITE_PX));
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(Ok(image)) => {
+                assert_identical(
+                    &image,
+                    &expected_quad,
+                    "render_list_async on its first poll",
+                );
+            }
+            Poll::Ready(Err(error)) => panic!("render_list_async failed: {error}"),
+            Poll::Pending => {
+                panic!(
+                    "render_list_async was Pending on its first poll, so a blocking wrapper would park"
+                )
+            }
+        }
+    }
+
+    let list = busy_page();
+    let expected_page = renderer
+        .render_display_list(&list, &TEXT, 72.0)
+        .expect("the blocking render draws the page");
+    let mut future = pin!(renderer.render_display_list_async(&list, &TEXT, 72.0));
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(Ok(image)) => {
+            assert_identical(
+                &image,
+                &expected_page,
+                "render_display_list_async on its first poll",
+            );
+        }
+        Poll::Ready(Err(error)) => panic!("render_display_list_async failed: {error}"),
+        Poll::Pending => {
+            panic!(
+                "render_display_list_async was Pending on its first poll, so a blocking wrapper would park"
+            )
+        }
+    }
+}
+
+// Why: the renderer draws with 4× multisampling where the adapter supports it for the render format and without it
+// where the adapter does not, and a browser's WebGL adapter is one that may not; the sample count is therefore the
+// adapter's answer and not a constant, so `request_device` must report 4 exactly when the adapter's format features
+// admit four samples of `Rgba8Unorm`, and 1 otherwise.
+#[test]
+fn request_device_reports_the_sample_count_the_adapter_supports_for_the_render_format() {
+    let instance = pollster::block_on(new_instance());
+    let Some(adapter) = gpu_or_skip(pollster::block_on(request_adapter(&instance, None))) else {
+        return;
+    };
+    let (_device, _queue, sample_count) =
+        pollster::block_on(request_device(&adapter)).expect("the adapter creates a device");
+
+    let four_supported = adapter
+        .get_texture_format_features(wgpu::TextureFormat::Rgba8Unorm)
+        .flags
+        .sample_count_supported(4);
+    assert!(
+        sample_count == 1 || sample_count == 4,
+        "the sample count is 1 or 4, got {sample_count}"
+    );
+    assert_eq!(
+        sample_count,
+        if four_supported { 4 } else { 1 },
+        "the sample count follows the adapter's support for four samples of Rgba8Unorm (supported: {four_supported})"
+    );
+}
+
+/// Reads a single-sample `COPY_SRC` texture of `width` by `height` `Rgba8Unorm` pixels back through a padded
+/// buffer, as the offscreen renderer does, and returns its bytes row by row with the padding stripped.
+fn read_back(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    mut encoder: wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    let unpadded_bytes_per_row = width as usize * 4;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("figure_pass test readback"),
+        size: (padded_bytes_per_row * height as usize) as u64,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row as u32),
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    let submission = queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = buffer.slice(..);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = sender.send(result);
+    });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(std::time::Duration::from_secs(60)),
+        })
+        .expect("the device finishes the pass and the copy");
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the map callback runs")
+        .expect("the buffer maps");
+    let data = slice
+        .get_mapped_range()
+        .expect("the mapped range is readable");
+    let mut rgba = Vec::with_capacity(unpadded_bytes_per_row * height as usize);
+    for row in data.chunks_exact(padded_bytes_per_row) {
+        rgba.extend_from_slice(&row[..unpadded_bytes_per_row]);
+    }
+    drop(data);
+    buffer.unmap();
+    rgba
+}
+
+// Why: the offscreen renderer and the browser frame must set up one and the same render pass, or the two would
+// clear their targets differently and a figure would not look on screen as it does in its PNG; `figure_pass` is that
+// one setup, so with nothing drawn it must leave every pixel of the resolved image at the premultiplied clear colour,
+// resolving the multisampled attachment into the single-sample target where the adapter gives four samples and
+// writing the colour attachment directly where it gives one. The image is 37 by 21 pixels so that a row is not a
+// multiple of the copy alignment and the readback must strip its padding, and the clear colour is translucent so
+// that a pass which cleared to opaque, or which unpremultiplied on the way, would show in the alpha and the colour.
+#[test]
+fn figure_pass_with_nothing_drawn_leaves_every_pixel_of_the_resolved_image_at_the_clear_colour() {
+    let Some((device, queue, sample_count)) = async_device_or_skip() else {
+        return;
+    };
+    let (width, height) = (37, 21);
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let texture = |label, samples, format, usage| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let resolved = texture(
+        "figure_pass test resolved",
+        1,
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    );
+    let resolved_view = resolved.create_view(&wgpu::TextureViewDescriptor::default());
+    let multisampled = (sample_count > 1).then(|| {
+        texture(
+            "figure_pass test multisampled",
+            sample_count,
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        )
+    });
+    let multisampled_view = multisampled
+        .as_ref()
+        .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+    let depth = texture(
+        "figure_pass test depth",
+        sample_count,
+        DEPTH_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+    );
+    let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Half-transparent purple, premultiplied: every colour channel is at most the alpha.
+    let clear = [64, 0, 128, 128];
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("figure_pass test encoder"),
+    });
+    {
+        let (colour, resolve) = match &multisampled_view {
+            Some(ms) => (ms, Some(&resolved_view)),
+            None => (&resolved_view, None),
+        };
+        let pass = figure_pass(&mut encoder, colour, resolve, &depth_view, clear);
+        drop(pass);
+    }
+    let rgba = read_back(&device, &queue, encoder, &resolved, width, height);
+
+    assert_eq!(rgba.len(), width as usize * height as usize * 4);
+    let how = if sample_count > 1 {
+        format!("resolved from {sample_count} samples")
+    } else {
+        "written directly with one sample".to_owned()
+    };
+    for (i, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
+        let (x, y) = (i as u32 % width, i as u32 / width);
+        assert!(
+            close_to(*pixel, clear, 1),
+            "pixel ({x}, {y}) {how}: expected the clear colour {clear:?}, got {pixel:?}"
+        );
+    }
+}
+
+// Why: a browser host drives the device's callbacks itself between frames rather than blocking on `poll(Wait)`, and
+// it does so through `pump`; a pump must be harmless whenever the host calls it, whether nothing is in flight,
+// something has just been rendered, or it has been called a moment ago, and it must leave the renderer able to
+// render afterwards.
+#[test]
+fn pump_can_be_called_repeatedly_before_and_after_a_render_without_harm() {
+    let Some(mut renderer) = renderer_or_skip() else {
+        return;
+    };
+    renderer.pump();
+    renderer.pump();
+
+    let quad = quad_list(RED_PX, None);
+    let image = renderer
+        .render_list(&quad, &viewport(ONE_TO_ONE), WHITE_PX)
+        .expect("the renderer draws after being pumped");
+    assert_pixel(&image, 5, 5, RED_PX, 1, "the quad drawn after pumping");
+
+    renderer.pump();
+    renderer.pump();
+    let again = renderer
+        .render_list(&quad, &viewport(ONE_TO_ONE), WHITE_PX)
+        .expect("the renderer draws after being pumped again");
+    assert_identical(&image, &again, "a render after pumping");
 }

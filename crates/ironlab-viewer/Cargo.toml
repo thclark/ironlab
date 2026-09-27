@@ -26,17 +26,22 @@ ironlab-scene.workspace = true
 ironlab-pdf.workspace = true
 egui.workspace = true
 eframe.workspace = true
-# egui-wgpu re-exports the matching wgpu (30.x) as `egui_wgpu::wgpu`; the offscreen renderer uses that re-export so
-# that the wgpu version can never drift from the one egui-wgpu was built against.
+# wgpu is a direct dependency, pinned in the workspace to the version egui-wgpu builds against, so that the offscreen
+# renderer can be awaited by a host that never links egui-wgpu. A drift between the two would fail to compile at
+# `GpuCallback`, whose `egui_wgpu::CallbackTrait` methods take this crate's wgpu types, which is the guard wanted.
+wgpu.workspace = true
 egui-wgpu = "0.36.2"
 # The vertex layout of the viewer's own pipelines is cast to bytes with bytemuck, as egui's is.
 bytemuck = { version = "1.25.2", features = ["derive"] }
 kurbo.workspace = true
 lyon.workspace = true
-pollster = "1.0.1"
 rfd.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+# The blocking wrappers over the awaited renderer drive it with pollster; a browser host awaits it instead.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "1.0.1"
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe"] }
