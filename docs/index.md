@@ -1,14 +1,43 @@
 # IronLAB
 
-IronLAB is a Rust library and application for building scientific figures, exploring them interactively and exporting them for publication. It offers three things.
+IronLAB is a Rust library and application for building scientific figures, exploring them interactively then exporting them for publication.
 
-- **A retained figure model.** A figure is a tree of nodes (the figure, its axes and their plots) held in memory and saved as a compact Protocol Buffers `.fig` file, or as JSON. Every node has a stable identifier, and every property that affects the drawing is stored in the model, so a saved figure reopens exactly as it was built. Other languages can read and write figures through `.proto` files generated from the model.
-- **An interactive viewer.** A desktop window shows one figure at a time, chosen in a [figure browser](guides/viewer.md#the-figure-browser) that narrows a collection by the labels and parameters its author gave it. Axes can be panned, zoomed and rotated, plots can be hidden or shown from the legend, and the properties of any object can be changed in a [property editor](guides/viewer.md#the-property-editor). Every interaction sets a property of the figure model, and can be undone or discarded, so the view on screen is always a figure that can be saved or exported. The same figures can be [embedded live in a web page](guides/embedding.md), drawn by the same engine.
-- **Publication-quality PDF export.** A figure is exported as a single-page PDF whose page is exactly the size of the figure, with fonts embedded and text that can be selected and searched. Labels may contain LaTeX mathematics, which IronLAB typesets itself: no TeX installation is needed to build, view or export a figure.
+IronLAB features:
 
-The API is modelled on MATLAB. Plotting functions carry MATLAB's names and argument order (`plot`, `scatter`, `contour`, `quiver`, `surf`, `image` and their relatives; MATLAB's `imagesc` is `mapped_image`, and MATLAB's `pcolor` is `surface` in a two-dimensional axes), and their defaults follow MATLAB where MATLAB has an equivalent. The [equivalent functions](reference/equivalent-functions.md) page lists every plotting function beside its MATLAB, matplotlib and Plotly counterparts.
+- **A desktop viewer.** A fast, native application with [figure browser](guides/viewer.md#the-figure-browser) (*so you can find what you're looking for among hundreds of figures*) and [property editor](guides/viewer.md#the-property-editor) (*so you can edit what it looks like before exporting*). 
+
+- **Web embeds.** Figures can be [embedded live in a web page](guides/embedding.md). Check out [the gallery](https://ironlab.org/gallery/) to see this in action!
+
+- **Publication-quality PDF export.** A figure is exported as a PDF. That PDF is the exact size you need. It contains exactly what you're seeing (WYSIWYG). The fonts are the exact size you need. Figures, including all text and symbols, look identical wherever they're viewed. (*Yes, figures can also be exported as pngs!*).
+
+- **Embedded LaTeX mathematics.** Any label, tick, or title may contain a LaTeX expression, which IronLAB typesets itself using the awesome latex-rust project: no TeX installation is needed to build, view, embed or export a figure.
+
+- **Smart vector/raster export.** All exports contain entirely vector graphics - no more screenshots (finally!!!). If the contents get too large (complex surfaces or images could result in massive PDF files), individual objects are rasterised at 600dpi (retaining vectorised axes, labels and everything else). 
+
+- **Language clients.** (COMING SOON!) Write figures from a wide variety of languages like python, MATLAB, C++, julia and more. Reach out on [github](https://github.com/thclark/ironlab) to request a client if it's not there yet, we'll build them only in response to demand.
+
+
+<figure>
+  <img src="assets/ironlab-desktop.png" alt="The IronLAB desktop viewer, with a list of example figures on the left, a figure of a damped oscillator in the centre, and the figure's object tree and properties on the right.">
+  <figcaption>The IronLAB desktop viewer. The figure browser on the left lists a collection of figures with their labels; the selected figure is drawn in the centre, with its labels and parameters beneath it; and the property editor on the right shows the figure's objects and the properties of the selected one.</figcaption>
+</figure>
+
+
+## At the core
+
+IronLAB is built on a unified data model that describes the contents and arrangement of a figure. This is a tree of nodes (like the figure, its axes and their contents).
+
+These nodes are strictly defined by Rust types. Other languages can read and write figures through `.proto` files generated from the types. Figures are held in binary form using Protocol Buffers (lowest memory, fastest), or as JSON (less efficient, but user-readable).
+
+This yields us the following benefits:
+- Anyone (now or at any time in the future) can build or read an IronLAB figure, even without using IronLAB at all - it's a completely public, open data model
+- Every node has a stable identifier, and every property that affects the drawing is stored in the model, so a saved figure reopens exactly as it was built, whatever the platform.
+- Property changes may be recorded as a changelist, meaning it is possible to 'undo/redo' any manipulation of the view.
+
 
 ## A minimal example
+
+The IronLAB API takes inspriation from MATLAB, plotly, matplotlib and GNU/Octave plots. The [equivalent functions](reference/equivalent-functions.md) page lists every plotting function beside its MATLAB, matplotlib and Plotly counterparts.
 
 The following program plots two curves with LaTeX legend entries and axis labels, exports the figure to PDF and opens it in the viewer.
 
