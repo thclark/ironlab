@@ -226,7 +226,7 @@ impl Default for Provenance {
     fn default() -> Self {
         Self {
             ironlab_version: env!("CARGO_PKG_VERSION").to_owned(),
-            typesetter: "latex-rust 1.0.2".to_owned(),
+            typesetter: "latex-rust 2.1.1".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         }
     }

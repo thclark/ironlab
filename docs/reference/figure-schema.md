@@ -384,7 +384,7 @@ A **Provenance** records the software that wrote a figure, so that a figure that
 | Property | Meaning |
 | --- | --- |
 | `ironlab_version` | The version of IronLAB that wrote the figure. |
-| `typesetter` | The name and version of the mathematics typesetter, such as `"latex-rust 1.0.2"`. |
+| `typesetter` | The name and version of the mathematics typesetter, such as `"latex-rust 2.1.1"`. |
 | `fonts` | The names of the fonts used for text. |
 
 The PDF exporter copies the provenance into the document metadata.

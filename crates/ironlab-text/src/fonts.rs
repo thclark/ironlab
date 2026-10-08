@@ -2,8 +2,9 @@
 //!
 //! The three STIX Two Text faces are embedded from `fonts/`, whose files are
 //! checksummed in `fonts/SHA256SUMS`. The math face is not bundled separately:
-//! it is the copy embedded by `latex-rust`, so that glyph identifiers produced
-//! by math layout always refer to the bytes that renderers draw with.
+//! it is the copy embedded by `latex-rust`, and its parsed face is the one
+//! `latex-rust` lays out with, so that glyph identifiers produced by math layout
+//! always refer to the bytes that renderers draw with.
 
 use crate::FontId;
 
@@ -46,17 +47,22 @@ pub(crate) fn index(font: FontId) -> usize {
 pub(crate) struct Faces([ttf_parser::Face<'static>; 4]);
 
 impl Faces {
-    /// Parses every bundled face.
+    /// Parses every bundled text face, and takes the math face from `math`
+    /// rather than parsing it a second time.
     ///
     /// # Panics
     ///
     /// Panics if a bundled font cannot be parsed. The fonts are compiled into
     /// the binary and verified by tests, so this indicates a corrupt build
     /// rather than bad user input.
-    pub(crate) fn parse() -> Self {
+    pub(crate) fn parse(math: &latex_rust::MathFont) -> Self {
         Self(ALL_FONTS.map(|font| {
-            ttf_parser::Face::parse(bytes(font), 0)
-                .unwrap_or_else(|error| panic!("bundled font {font:?} does not parse: {error}"))
+            match font {
+                FontId::Math => math.face().clone(),
+                _ => ttf_parser::Face::parse(bytes(font), 0).unwrap_or_else(|error| {
+                    panic!("bundled font {font:?} does not parse: {error}")
+                }),
+            }
         }))
     }
 

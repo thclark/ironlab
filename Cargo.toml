@@ -26,7 +26,7 @@ schemars = "1.2.2"
 thiserror = "2.0.20"
 harfrust = "0.13.3"
 ttf-parser = "0.25.1"
-latex-rust = { version = "=1.0.2", default-features = false }
+latex-rust = { version = "=2.1.1", default-features = false }
 kurbo = "0.13.1"
 krilla = { version = "0.8.2", default-features = false }
 lyon = "1.0.19"

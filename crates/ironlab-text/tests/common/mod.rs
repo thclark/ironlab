@@ -135,10 +135,10 @@ fn math_italic(ch: char) -> Option<char> {
 /// Returns every glyph (and its run) whose text is `ch` or, for a letter, its
 /// Mathematical Italic counterpart.
 ///
-/// latex-rust 1.0.2 typesets math letters upright (`$x$` yields U+0078). TeX
-/// convention sets them in italic, so the implementation may remap letters to
-/// the Mathematical Italic block; tests that are not about that choice accept
-/// either form.
+/// TeX convention sets math letters in italic, which latex-rust does by
+/// mapping them to the Mathematical Italic block (`$x$` yields U+1D465), while
+/// styled letters such as those in `\mathrm{…}` stay upright; tests that are
+/// not about that choice accept either form.
 pub fn find_math_glyphs(layout: &TextLayout, ch: char) -> Vec<(&GlyphRun, &PositionedGlyph)> {
     let plain = ch.to_string();
     let italic = math_italic(ch).map(|c| c.to_string());

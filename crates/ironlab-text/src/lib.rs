@@ -63,9 +63,6 @@ type OutlineKey = (FontId, u16);
 pub struct TextEngine {
     /// Parsed STIX Two Math face used by `latex-rust` layout.
     math_font: latex_rust::MathFont,
-    /// OpenType MATH constants, used to snap derived glyph scales to the
-    /// script and script-script scale factors.
-    math_params: latex_rust::MathParams,
     /// HarfRust shaping cache for STIX Two Text Regular, the face used for
     /// all plain text.
     shaper_data: harfrust::ShaperData,
@@ -95,15 +92,12 @@ impl TextEngine {
     pub fn new() -> Self {
         let math_font =
             latex_rust::MathFont::stix_two_math().expect("the embedded STIX Two Math face parses");
-        let math_params = latex_rust::MathParams::from_font(&math_font)
-            .expect("the embedded STIX Two Math face has MATH constants");
         let regular = harfrust::FontRef::new(fonts::bytes(FontId::TextRegular))
             .expect("the bundled STIX Two Text Regular face parses");
         Self {
+            faces: fonts::Faces::parse(&math_font),
             math_font,
-            math_params,
             shaper_data: harfrust::ShaperData::new(&regular),
-            faces: fonts::Faces::parse(),
             layouts: Mutex::new(HashMap::new()),
             outlines: Mutex::new(HashMap::new()),
         }
@@ -215,33 +209,25 @@ impl TextEngine {
         for segment in segments {
             match segment {
                 Segment::Plain(text) => plain.push_str(&text),
-                Segment::Math(inner) => {
-                    match math::typeset(
-                        &inner,
-                        size_pt,
-                        &self.math_font,
-                        &self.math_params,
-                        &self.faces,
-                    ) {
-                        Ok(output) => {
-                            self.flush_plain(&mut builder, &mut plain, size_pt);
-                            if output.ignored_colour {
-                                builder.warnings.push(TextWarning {
-                                    source: format!("${inner}$"),
-                                    message: "Colour in label math is not supported and was \
+                Segment::Math(inner) => match math::typeset(&inner, size_pt, &self.math_font) {
+                    Ok(output) => {
+                        self.flush_plain(&mut builder, &mut plain, size_pt);
+                        if output.ignored_colour {
+                            builder.warnings.push(TextWarning {
+                                source: format!("${inner}$"),
+                                message: "Colour in label math is not supported and was \
                                               ignored."
-                                        .to_owned(),
-                                });
-                            }
-                            builder.append(output.layout);
+                                    .to_owned(),
+                            });
                         }
-                        Err(message) => {
-                            let source = format!("${inner}$");
-                            plain.push_str(&source);
-                            builder.warnings.push(TextWarning { source, message });
-                        }
+                        builder.append(output.layout);
                     }
-                }
+                    Err(message) => {
+                        let source = format!("${inner}$");
+                        plain.push_str(&source);
+                        builder.warnings.push(TextWarning { source, message });
+                    }
+                },
             }
         }
         self.flush_plain(&mut builder, &mut plain, size_pt);
