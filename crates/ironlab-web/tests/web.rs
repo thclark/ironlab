@@ -596,11 +596,12 @@ fn an_input_outcome_is_a_plain_object_with_the_documented_fields() {
 
 // Why: latex-rust parses and lays out recursively, and the browser's main thread has no helper thread to typeset
 // on, so the deepest nesting the text engine admits is typeset on the wasm stack itself; the crate links with an
-// 8 MiB stack for exactly this. The nesting guard rejects deeper math with a warning, so the deepest admitted depth
-// is found by asking the engine, not assumed, and it must be at least the twenty levels ironlab-text proves on a
-// 256 KiB thread natively. That depth must typeset with no warning at all: an overflow would trap the test, and a
-// fallback to plain text would surface as a warning here and as a problem through the handle. A real gallery figure
-// whose every text is mathematics proves the same through the public API.
+// 8 MiB stack for exactly this. latex-rust's nesting limit rejects deeper math with an error that the engine turns
+// into a warning, so the deepest admitted depth is found by asking the engine, not assumed, and it must be at least
+// the fifteen levels ironlab-text proves on a 256 KiB thread natively. That depth must typeset with no warning at
+// all: an overflow would trap the test, and a fallback to plain text would surface as a warning here and as a
+// problem through the handle. A real gallery figure whose every text is mathematics proves the same through the
+// public API.
 #[wasm_bindgen_test]
 fn the_deepest_admitted_math_nesting_typesets_on_the_wasm_stack() {
     let text = TextEngine::new();
@@ -608,19 +609,19 @@ fn the_deepest_admitted_math_nesting_typesets_on_the_wasm_stack() {
         text.layout(&nested_fractions(depth), true, 9.0)
             .warnings
             .iter()
-            .any(|w| w.message.contains("levels deep"))
+            .any(|w| w.message.contains("nests deeper than"))
     };
     let deepest = (1..=64)
         .take_while(|&depth| !rejected(depth))
         .last()
         .expect("one fraction is admitted");
     assert!(
-        deepest >= 20,
-        "the guard admits at least twenty nested fractions, as ironlab-text's tests prove natively; it admits {deepest}"
+        deepest >= 15,
+        "the limit admits at least fifteen nested fractions, as ironlab-text's tests prove natively; it admits {deepest}"
     );
     assert!(
         rejected(deepest + 1),
-        "and one level more is rejected by the guard, not by the stack"
+        "and one level more is rejected by the nesting limit, not by the stack"
     );
 
     let source = nested_fractions(deepest);

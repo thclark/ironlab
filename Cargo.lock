@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "eframe",
  "image",
@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-canvas"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "bytemuck",
  "ecolor",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-gallery"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "clap",
  "image",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-ir"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "proptest",
  "prost",
@@ -1881,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-pdf"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "image",
  "ironlab-ir",
@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-scene"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "ironlab-ir",
  "ironlab-text",
@@ -1904,7 +1904,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-text"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-viewer"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "eframe",
  "egui",
@@ -1933,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "ironlab-web"
-version = "0.10.4"
+version = "0.11.0"
 dependencies = [
  "console_error_panic_hook",
  "emath",
@@ -2131,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "latex-rust"
-version = "1.0.2"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "002bcaf7505b3516103424d8211b44cc4eb401cec17d35283402882b403c11fc"
+checksum = "f8094b939c8af51f9c7d08256ffa607b743e24d466d9a0ccc602dc748c911e54"
 dependencies = [
  "ttf-parser",
 ]

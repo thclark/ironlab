@@ -251,7 +251,8 @@ pub fn kitchen_sink_figure() -> Figure {
     b.fig.layout = TileLayout { rows: 3, cols: 4 };
     b.fig.provenance = Provenance {
         ironlab_version: "0.1.0".to_owned(),
-        typesetter: "latex-rust 1.0.2".to_owned(),
+        typesetter: "latex-rust".to_owned(),
+        typesetter_version: "1.0.2".to_owned(),
         fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
     };
     b.fig.parameters = BTreeMap::from([

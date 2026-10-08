@@ -160,7 +160,8 @@ fn write_pdf_to_an_unwritable_path_is_an_io_error() {
 fn distinctive_provenance() -> Provenance {
     Provenance {
         ironlab_version: "0.0.0-test".to_owned(),
-        typesetter: "latex-rust 9.9.9-test".to_owned(),
+        typesetter: "latex-test".to_owned(),
+        typesetter_version: "9.9.9-test".to_owned(),
         fonts: vec!["Test Serif".to_owned(), "Test Math".to_owned()],
     }
 }
@@ -189,7 +190,7 @@ fn figure_options_take_the_title_source_and_record_provenance() {
     let subject = options.subject.expect("the subject records provenance");
     for expected in [
         "written by IronLAB 0.0.0-test",
-        "typesetter: latex-rust 9.9.9-test",
+        "typesetter: latex-test 9.9.9-test",
         "fonts: Test Serif, Test Math",
     ] {
         assert!(
@@ -234,7 +235,7 @@ fn exported_figure_metadata_names_its_title_creator_and_provenance() {
     );
     let subject = info.get("Subject").cloned().unwrap_or_default();
     assert!(
-        subject.contains("latex-rust 9.9.9-test") && subject.contains("Test Serif"),
+        subject.contains("latex-test 9.9.9-test") && subject.contains("Test Serif"),
         "subject {subject:?} does not record the figure's provenance; pdfinfo: {info:?}"
     );
 }

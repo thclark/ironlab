@@ -97,6 +97,7 @@ impl From<&Figure> for w::Figure {
             provenance: Some(w::Provenance {
                 ironlab_version: figure.provenance.ironlab_version.clone(),
                 typesetter: figure.provenance.typesetter.clone(),
+                typesetter_version: figure.provenance.typesetter_version.clone(),
                 fonts: figure.provenance.fonts.clone(),
             }),
             // Both maps are ordered by name, so the entries are written in ascending order
@@ -584,6 +585,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         provenance: Provenance {
             ironlab_version: provenance.ironlab_version,
             typesetter: provenance.typesetter,
+            typesetter_version: provenance.typesetter_version,
             fonts: provenance.fonts,
         },
         parameters,

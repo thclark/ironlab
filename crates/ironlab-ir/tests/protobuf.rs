@@ -81,6 +81,7 @@ fn empty_provenance() -> Provenance {
     Provenance {
         ironlab_version: String::new(),
         typesetter: String::new(),
+        typesetter_version: String::new(),
         fonts: vec![],
     }
 }
@@ -848,7 +849,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         }],
         provenance: Some(wire::Provenance {
             ironlab_version: "9.8.7".to_owned(),
-            typesetter: "typesetter 6.5".to_owned(),
+            typesetter: "typesetter".to_owned(),
+            typesetter_version: "6.5".to_owned(),
             fonts: vec!["Font B".to_owned(), "Font A".to_owned()],
         }),
         parameters: BTreeMap::from([
@@ -1260,7 +1262,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         }],
         provenance: Provenance {
             ironlab_version: "9.8.7".to_owned(),
-            typesetter: "typesetter 6.5".to_owned(),
+            typesetter: "typesetter".to_owned(),
+            typesetter_version: "6.5".to_owned(),
             fonts: vec!["Font B".to_owned(), "Font A".to_owned()],
         },
         parameters: BTreeMap::from([
@@ -1689,6 +1692,7 @@ fn empty_strings_and_lists_reload_as_empty_rather_than_as_defaults() {
     fig.provenance = Provenance {
         ironlab_version: String::new(),
         typesetter: String::new(),
+        typesetter_version: String::new(),
         fonts: vec![],
     };
     fig.data.insert(
@@ -2575,9 +2579,10 @@ fn hand_encoded_bytes() -> Vec<u8> {
             12,
             &[
                 length_delimited(1, b"0.1.0"),
-                length_delimited(2, b"latex-rust 1.0.2"),
+                length_delimited(2, b"latex-rust"),
                 length_delimited(3, b"STIX Two Text"),
                 length_delimited(3, b"STIX Two Math"),
+                length_delimited(4, b"1.0.2"),
             ]
             .concat(),
         ),
@@ -2750,7 +2755,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
         }],
         provenance: Provenance {
             ironlab_version: "0.1.0".to_owned(),
-            typesetter: "latex-rust 1.0.2".to_owned(),
+            typesetter: "latex-rust".to_owned(),
+            typesetter_version: "1.0.2".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
         parameters: BTreeMap::from([

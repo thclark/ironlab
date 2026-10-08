@@ -1,55 +1,25 @@
 //! LaTeX math typesetting with `latex-rust`.
 //!
-//! A math segment passes through four stages:
-//!
-//! 1. [`nesting_depth`] estimates how deeply the source nests. `latex-rust`
-//!    parses and lays out recursively, so source above [`MAX_NESTING`] is
-//!    rejected before it reaches the parser. The remaining stages run on a
-//!    helper thread with a large stack, independent of the caller's stack,
-//!    except on WebAssembly, whose one thread the linker gives a large stack.
-//! 2. [`propagate_font_styles`] restates the style of each font group (such
-//!    as `\mathrm{…}`) on every letter inside it, and `latex_rust::parse`
-//!    builds the math AST.
-//! 3. [`rewrite`] applies the TeX conventions that `latex-rust` 1.0.2 does
-//!    not: hyphen-minus becomes the minus sign U+2212, and unstyled Latin
-//!    letters and lowercase Greek letters become Mathematical Italic.
-//! 4. `latex_rust::layout` produces a box tree, which [`Walker`] converts to
-//!    positioned glyphs and rules in points without recursion.
+//! `latex_rust::parse` builds the math AST and `latex_rust::layout_with_em_size_pt` lays it out as a box tree, which
+//! [`Walker`] converts to positioned glyphs and rules in points without recursion. `latex-rust` parses and lays out
+//! recursively, and rejects input nested more deeply than `latex_rust::DEFAULT_MAX_NESTING_DEPTH` with an error,
+//! which [`typeset`] reports so that the source falls back to plain text. Natively, parsing and layout run on a
+//! helper thread with a stack of known size, so that the stack they use does not depend on the caller's; on
+//! WebAssembly, whose one thread the linker gives a large stack, they run directly.
 
-use latex_rust::{AtomKind, BoxContent, Dim, EnvRow, EqNumber, MathBox, MathNode, TextStyle};
+use latex_rust::{BoxContent, Dim, MathBox};
 
-use crate::fonts::Faces;
 use crate::{FontId, GlyphRun, PositionedGlyph, SegmentLayout, TextItem};
-
-/// Largest nesting depth, as measured by [`nesting_depth`], that is passed to
-/// `latex-rust`.
-///
-/// `latex-rust` overflows the 2 MiB stack of an ordinary spawned thread at a
-/// few dozen levels in unoptimised builds: measured with latex-rust 1.0.2 on
-/// macOS, nested `\frac{1}{…}` overflows beyond 34 levels (this limit admits
-/// 20), nested `\begin{matrix}` and `\sqrt{…}` beyond 30 (this limit admits 20
-/// and 12), and nested `\left(` beyond 36 (this limit admits 24). Labels rarely
-/// nest more than four or five levels, so the limit leaves ample room for real
-/// labels while keeping a margin below the overflow even on a small stack;
-/// [`typeset`] additionally runs `latex-rust` on a thread with a large stack.
-pub(crate) const MAX_NESTING: usize = 24;
 
 /// Stack size of the thread on which each math segment is typeset natively.
 ///
-/// The memory is reserved address space that the operating system commits
-/// only as the stack grows, so a generous size costs little. Together with
-/// [`MAX_NESTING`] it keeps admitted math far from overflowing in any build.
-/// WebAssembly has no such thread; see [`on_typeset_stack`].
+/// `latex-rust` documents that input at its default nesting limit fits within the 2 MiB stack of a default thread in
+/// an unoptimised build, with about twice the headroom needed. A typesetting thread of its own makes that hold
+/// however deep the caller's stack already is (for example inside a GUI framework in an unoptimised build, or on a
+/// worker thread with a small stack). The memory is reserved address space that the operating system commits only
+/// as the stack grows, so a generous size costs little. WebAssembly has no such thread; see [`on_typeset_stack`].
 #[cfg(not(target_arch = "wasm32"))]
-const TYPESET_STACK_BYTES: usize = 64 * 1024 * 1024;
-
-/// Hard bound on AST depth for [`rewrite`], which recurses. The nesting guard
-/// keeps real trees far shallower; this bound only makes the recursion
-/// provably finite if the estimate were ever wrong.
-const MAX_AST_DEPTH: usize = 256;
-
-/// The unicode minus sign that replaces hyphen-minus in math.
-const MINUS_SIGN: char = '\u{2212}';
+const TYPESET_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 /// The result of typesetting one math segment.
 pub(crate) struct MathOutput {
@@ -69,23 +39,13 @@ pub(crate) fn typeset(
     inner: &str,
     size_pt: f64,
     font: &latex_rust::MathFont,
-    params: &latex_rust::MathParams,
-    faces: &Faces,
 ) -> Result<MathOutput, String> {
-    let depth = nesting_depth(inner);
-    if depth > MAX_NESTING {
-        return Err(format!(
-            "The math nests {depth} levels deep, more than the supported {MAX_NESTING}, so it \
-             is shown as plain text."
-        ));
-    }
-
     // latex-rust parses and lays out recursively, and the AST and box tree
     // are also dropped recursively. All of that happens on a helper thread
-    // with a large stack, so that the stack consumed does not depend on how
-    // deep the caller's own stack already is (for example inside a GUI
-    // framework in an unoptimised build). Only the flat result crosses back.
-    on_typeset_stack(|| typeset_nested(inner, size_pt, font, params, faces))?
+    // with a stack of known size, so that the stack consumed does not depend
+    // on how deep the caller's own stack already is. Only the flat result
+    // crosses back.
+    on_typeset_stack(|| typeset_nested(inner, size_pt, font))?
 }
 
 /// Runs `typeset` on a thread with [`TYPESET_STACK_BYTES`] of stack, so that
@@ -129,7 +89,7 @@ fn on_typeset_stack<T: Send>(typeset: impl FnOnce() -> T + Send) -> Result<T, St
     Ok(typeset())
 }
 
-/// Parses, rewrites, lays out and walks the math source `inner`.
+/// Parses, lays out and walks the math source `inner`.
 ///
 /// This recurses as deeply as the source nests, so [`typeset`] runs it on a
 /// thread with a [`TYPESET_STACK_BYTES`] stack.
@@ -137,24 +97,21 @@ fn typeset_nested(
     inner: &str,
     size_pt: f64,
     font: &latex_rust::MathFont,
-    params: &latex_rust::MathParams,
-    faces: &Faces,
 ) -> Result<MathOutput, String> {
-    let laid_out = latex_rust::parse(&propagate_font_styles(inner))
+    // latex-rust converts absolute TeX lengths, such as the delimiter
+    // shortfall and AMSMath column spacing, to ems using this size.
+    let em_size_pt = Dim::from_ieee32_bits((size_pt as f32).to_bits());
+    let laid_out = latex_rust::parse(inner)
         .map_err(|e| e.to_string())
-        .and_then(|mut ast| {
-            if rewrite(&mut ast, 0) {
-                latex_rust::layout(&ast, font, latex_rust::MathStyle::Text)
-                    .map_err(|e| e.to_string())
-            } else {
-                Err("the math nests too deeply".to_owned())
-            }
+        .and_then(|ast| {
+            latex_rust::layout_with_em_size_pt(&ast, font, latex_rust::MathStyle::Text, &em_size_pt)
+                .map_err(|e| e.to_string())
         });
     let tree = laid_out.map_err(|message| {
         format!("The math could not be typeset ({message}), so it is shown as plain text.")
     })?;
 
-    let mut walker = Walker::new(size_pt, params, faces.get(FontId::Math));
+    let mut walker = Walker::new(size_pt);
     walker.walk(&tree)?;
     let output = walker.finish(&tree);
     let finite = output.layout.width.is_finite()
@@ -167,381 +124,14 @@ fn typeset_nested(
     }
 }
 
-/// Estimates how deeply `source` nests, without parsing it recursively.
+/// Converts a `latex-rust` dimension, an exact rational, to `f64`.
 ///
-/// Each brace group nests one level inside its surroundings. Constructs that
-/// wrap what follows them without braces also count: `^`, `_` and `'` scripts,
-/// and commands that are not plain symbols (for example `\frac` or `\sqrt`),
-/// each add a pending level that is resolved by the next atom or group, so
-/// chains such as `\sqrt\sqrt x` or `x^\frac12` are measured. `\left`,
-/// `\begin` and `\color` add a level until the matching `\right`, `\end` or the
-/// end of the enclosing group. The estimate is deliberately conservative: it
-/// may exceed the depth of the tree that `latex-rust` builds, but it is never
-/// smaller than the nesting of braces and delimiters.
-pub(crate) fn nesting_depth(source: &str) -> usize {
-    /// Nesting state of one brace group.
-    #[derive(Clone, Copy, Default)]
-    struct Frame {
-        /// Depth of the group itself.
-        base: usize,
-        /// Levels opened by `\left`, `\begin` or `\color` within the group.
-        open: usize,
-        /// Pending levels from scripts and commands awaiting their argument.
-        pending: usize,
-    }
-
-    impl Frame {
-        fn depth(self) -> usize {
-            self.base + self.open + self.pending
-        }
-    }
-
-    let mut stack: Vec<Frame> = Vec::new();
-    let mut frame = Frame::default();
-    let mut deepest = 0;
-    let mut chars = source.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '{' => {
-                let base = frame.depth() + 1;
-                deepest = deepest.max(base);
-                stack.push(frame);
-                frame = Frame {
-                    base,
-                    ..Frame::default()
-                };
-            }
-            '}' => {
-                frame = stack.pop().unwrap_or_default();
-                frame.pending = 0;
-            }
-            '^' | '_' | '\'' => {
-                frame.pending += 1;
-                deepest = deepest.max(frame.depth());
-            }
-            '\\' => {
-                let mut name = String::new();
-                while let Some(&next) = chars.peek() {
-                    if next.is_ascii_alphabetic() {
-                        name.push(next);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-                if name.is_empty() {
-                    // A control symbol such as `\,`, `\{` or `\\` takes no
-                    // argument and acts as an atom.
-                    chars.next();
-                    deepest = deepest.max(frame.depth());
-                    frame.pending = 0;
-                    continue;
-                }
-                match name.as_str() {
-                    "left" | "begin" | "color" => {
-                        frame.open += 1;
-                        deepest = deepest.max(frame.depth());
-                    }
-                    "right" | "end" => frame.open = frame.open.saturating_sub(1),
-                    _ if takes_no_argument(&name) => {
-                        deepest = deepest.max(frame.depth());
-                        frame.pending = 0;
-                    }
-                    _ => {
-                        frame.pending += 1;
-                        deepest = deepest.max(frame.depth());
-                    }
-                }
-            }
-            c if c.is_whitespace() => {}
-            _ => {
-                deepest = deepest.max(frame.depth());
-                frame.pending = 0;
-            }
-        }
-    }
-    deepest
-}
-
-/// Returns whether the command `name` is a symbol or operator that takes no
-/// argument, according to the `latex-rust` catalogue.
-fn takes_no_argument(name: &str) -> bool {
-    latex_rust::lookup(name).is_some_and(|entry| {
-        matches!(
-            entry.kind,
-            latex_rust::SymbolKind::Symbol | latex_rust::SymbolKind::Operator
-        )
-    })
-}
-
-/// Commands that set their argument in a font style, which `latex-rust` applies only to the
-/// letters that sit directly in the argument's list.
-const FONT_COMMANDS: [&str; 16] = [
-    "mathrm",
-    "textrm",
-    "mathbf",
-    "textbf",
-    "mathit",
-    "textit",
-    "mathsf",
-    "textsf",
-    "mathtt",
-    "texttt",
-    "mathbb",
-    "mathcal",
-    "mathfrak",
-    "mathscr",
-    "boldsymbol",
-    "pmb",
-];
-
-/// Returns how many leading brace groups the command `name` reads as raw text rather than math.
-///
-/// Letters in these groups are names, dimensions or words, so they must reach the parser
-/// unchanged.
-fn raw_arguments(name: &str) -> usize {
-    match name {
-        "text" | "mbox" | "operatorname" | "hspace" | "begin" | "end" | "color" | "textcolor"
-        | "colorbox" | "label" | "ref" | "eqref" | "tag" => 1,
-        "fcolorbox" => 2,
-        _ => 0,
-    }
-}
-
-/// Restates the style of every font group on each letter inside it.
-///
-/// `latex-rust` 1.0.2 styles only the letters that are direct members of a font group's list,
-/// so in `\mathrm{rad\,s^{-1}}` the `s`, which is the nucleus of a superscript, would be left
-/// unstyled and then italicised by [`rewrite`]. This pass rewrites each letter that lies anywhere
-/// inside a braced font group as `{\style{letter}}`, using the innermost enclosing font command,
-/// so that it is styled wherever it appears. Adjacent letters of one group still merge into one
-/// styled run, because `latex-rust` joins adjacent runs of the same style. Letters are the
-/// characters that [`rewrite`] would italicise. Arguments that commands read as raw text (see
-/// [`raw_arguments`]) are copied unchanged, as are the column specification of an `array` and
-/// letters outside any font group.
-fn propagate_font_styles(source: &str) -> String {
-    let chars: Vec<char> = source.chars().collect();
-    let mut out = String::with_capacity(source.len());
-    // Each open font group: its command and the brace depth inside it.
-    let mut styles: Vec<(&str, usize)> = Vec::new();
-    let mut depth = 0usize;
-    let mut i = 0;
-    while i < chars.len() {
-        let ch = chars[i];
-        match ch {
-            '\\' => {
-                let start = i + 1;
-                let mut end = start;
-                while end < chars.len() && chars[end].is_ascii_alphabetic() {
-                    end += 1;
-                }
-                if end == start {
-                    // A control symbol such as `\,` or `\{`.
-                    out.extend(&chars[i..(start + 1).min(chars.len())]);
-                    i = start + 1;
-                    continue;
-                }
-                let name: String = chars[start..end].iter().collect();
-                out.push('\\');
-                out.push_str(&name);
-                i = end;
-                if chars.get(i) == Some(&'*') {
-                    out.push('*');
-                    i += 1;
-                }
-                if let Some(style) = FONT_COMMANDS.iter().find(|c| **c == name) {
-                    let mut j = i;
-                    while j < chars.len() && chars[j].is_whitespace() {
-                        j += 1;
-                    }
-                    if chars.get(j) == Some(&'{') {
-                        styles.push((style, depth + 1));
-                    }
-                    continue;
-                }
-                for _ in 0..raw_arguments(&name) {
-                    let group = copy_group(&chars, &mut i, &mut out);
-                    if name == "begin" && group.as_deref().is_some_and(|g| g.trim() == "array") {
-                        copy_group(&chars, &mut i, &mut out);
-                    }
-                }
-            }
-            '{' => {
-                depth += 1;
-                out.push(ch);
-                i += 1;
-            }
-            '}' => {
-                if styles.last().is_some_and(|(_, d)| *d == depth) {
-                    styles.pop();
-                }
-                depth = depth.saturating_sub(1);
-                out.push(ch);
-                i += 1;
-            }
-            _ => {
-                match styles.last() {
-                    Some((style, _)) if math_italic(ch).is_some() => {
-                        out.push_str("{\\");
-                        out.push_str(style);
-                        out.push('{');
-                        out.push(ch);
-                        out.push_str("}}");
-                    }
-                    _ => out.push(ch),
-                }
-                i += 1;
-            }
-        }
-    }
-    out
-}
-
-/// Copies the brace group that starts at `chars[*i]`, after any whitespace, to `out` unchanged
-/// and returns its contents, or returns `None` without consuming a group when none starts there.
-fn copy_group(chars: &[char], i: &mut usize, out: &mut String) -> Option<String> {
-    while *i < chars.len() && chars[*i].is_whitespace() {
-        out.push(chars[*i]);
-        *i += 1;
-    }
-    if chars.get(*i) != Some(&'{') {
-        return None;
-    }
-    let mut contents = String::new();
-    let mut level = 0usize;
-    while let Some(&c) = chars.get(*i) {
-        *i += 1;
-        out.push(c);
-        match c {
-            '\\' => {
-                if let Some(&escaped) = chars.get(*i) {
-                    *i += 1;
-                    out.push(escaped);
-                    contents.push(c);
-                    contents.push(escaped);
-                }
-                continue;
-            }
-            '{' => {
-                level += 1;
-                if level == 1 {
-                    continue;
-                }
-            }
-            '}' => {
-                level -= 1;
-                if level == 0 {
-                    break;
-                }
-            }
-            _ => {}
-        }
-        contents.push(c);
-    }
-    Some(contents)
-}
-
-/// Applies TeX's character conventions to a parsed math tree in place.
-///
-/// Hyphen-minus atoms become the minus sign, keeping their atom class so that
-/// binary-operator spacing is unchanged. Unstyled Latin letters and lowercase
-/// Greek letters become their Mathematical Italic counterparts; letters inside
-/// `\mathrm`, `\text`, `\operatorname` and other styled runs are parsed as text
-/// or operator nodes (after [`propagate_font_styles`] for font groups) and are
-/// left upright, as are digits.
-///
-/// Returns false, leaving the tree partly rewritten, if the tree is deeper than
-/// [`MAX_AST_DEPTH`].
-fn rewrite(node: &mut MathNode, depth: usize) -> bool {
-    if depth > MAX_AST_DEPTH {
-        return false;
-    }
-    let next = depth + 1;
-    let all = |nodes: &mut [MathNode]| nodes.iter_mut().all(|n| rewrite(n, next));
-    let opt =
-        |node: &mut Option<Box<MathNode>>| node.as_deref_mut().is_none_or(|n| rewrite(n, next));
-    match node {
-        MathNode::Atom(ch, _) => {
-            if *ch == '-' {
-                *ch = MINUS_SIGN;
-            } else if let Some(italic) = math_italic(*ch) {
-                *ch = italic;
-            }
-            true
-        }
-        MathNode::Symbol(name) => {
-            if let Some(italic) = latex_rust::glyph_char(name).and_then(math_italic) {
-                let kind: AtomKind = latex_rust::symbol_atom_kind(name);
-                *node = MathNode::Atom(italic, kind);
-            }
-            true
-        }
-        MathNode::Fraction(a, b)
-        | MathNode::Superscript(a, b)
-        | MathNode::Subscript(a, b)
-        | MathNode::CancelTo(a, b) => rewrite(a, next) && rewrite(b, next),
-        MathNode::SubSup(a, b, c) => rewrite(a, next) && rewrite(b, next) && rewrite(c, next),
-        MathNode::Radical(index, body) => opt(index) && rewrite(body, next),
-        MathNode::Row(items) | MathNode::Substack(items) => all(items),
-        MathNode::Matrix(_, _, rows) => rows.iter_mut().all(|row| match row {
-            EnvRow::Cells { cells, number, .. } => {
-                all(cells)
-                    && match number {
-                        EqNumber::Tag { body, .. } => rewrite(body, next),
-                        EqNumber::Default | EqNumber::Suppress => true,
-                    }
-            }
-            EnvRow::Intertext(body) => rewrite(body, next),
-            EnvRow::Hline => true,
-        }),
-        MathNode::Sum(a, b) | MathNode::Product(a, b) | MathNode::Integral(_, a, b) => {
-            opt(a) && opt(b)
-        }
-        MathNode::Limit(a) => opt(a),
-        MathNode::OverUnder(base, over, under) => rewrite(base, next) && opt(over) && opt(under),
-        MathNode::Delimited(_, body, _)
-        | MathNode::Accent(body, _)
-        | MathNode::Tag { body, .. }
-        | MathNode::Intertext(body)
-        | MathNode::Color(_, body)
-        | MathNode::TextColor(_, body)
-        | MathNode::ColorBox(_, body)
-        | MathNode::FColorBox(_, _, body)
-        | MathNode::Phantom(_, body) => rewrite(body, next),
-        MathNode::SizedDelim(..)
-        | MathNode::Ref(_)
-        | MathNode::Label(_)
-        | MathNode::NoNumber
-        | MathNode::Hline
-        | MathNode::Text(..)
-        | MathNode::Space(_)
-        | MathNode::Operator(..)
-        | MathNode::Strut(..) => true,
-    }
-}
-
-/// Returns the Mathematical Italic form of an ASCII letter or a lowercase
-/// Greek letter (including the variant forms ϵ, ϑ, ϰ, ϕ, ϱ and ϖ), or `None`
-/// for any other character.
-fn math_italic(ch: char) -> Option<char> {
-    let applies = ch.is_ascii_alphabetic()
-        || ('\u{03B1}'..='\u{03C9}').contains(&ch)
-        || matches!(ch, 'ϵ' | 'ϑ' | 'ϰ' | 'ϕ' | 'ϱ' | 'ϖ');
-    if !applies {
-        return None;
-    }
-    let italic = latex_rust::styled_char(ch, TextStyle::It);
-    (italic != ch).then_some(italic)
-}
-
-/// Converts a `latex-rust` dimension to `f64`.
-///
-/// `latex-rust` exposes its exact rational dimensions only through an IEEE
-/// binary32 rounding, whose relative error (about 6e-8) is far below any
-/// visible or measurable difference at label sizes. A dimension that
-/// overflowed is NaN and is caught by the finiteness checks of the caller.
+/// A dimension that overflowed is NaN and is caught by the finiteness checks
+/// of the caller.
+#[allow(clippy::cast_precision_loss)]
 fn dim(d: &Dim) -> f64 {
-    f64::from(f32::from_bits(d.to_ieee32_bits()))
+    d.as_ratio()
+        .map_or(f64::NAN, |(num, den)| num as f64 / den as f64)
 }
 
 /// One pending visit of the box-tree walk.
@@ -561,23 +151,11 @@ struct Visit<'t> {
 /// advances by each child's width; a vertical list sets its first child on the
 /// baseline and stacks later children below it; a box's `shift` raises it;
 /// overlaps, colour wrappers and frames place children at their own origin; a
-/// rule spans from `height` above to `depth` below the baseline.
-///
-/// `latex-rust` glyph boxes carry no size, but their dimensions are already
-/// scaled for script style. The walker therefore derives each glyph's scale as
-/// its box width over the glyph's advance (or its box height over the ink
-/// height when the advance is zero, as for combining accents), snapped to the
-/// nearest of the text, script and script-script scales.
-struct Walker<'f> {
+/// rule spans from `height` above to `depth` below the baseline; a glyph is
+/// drawn at its own scale of the em.
+struct Walker {
     /// Em size of text-style math in points.
     size_pt: f64,
-    /// The allowed glyph scales: text, script and script-script.
-    scales: [f64; 3],
-    /// Scale of the most recent glyph, used for glyphs with no measurable
-    /// extent from which to derive one.
-    last_scale: f64,
-    /// The math face, for glyph advances and bounding boxes.
-    face: &'f ttf_parser::Face<'static>,
     /// Completed items.
     items: Vec<TextItem>,
     /// Glyph run being accumulated.
@@ -586,21 +164,10 @@ struct Walker<'f> {
     ignored_colour: bool,
 }
 
-impl<'f> Walker<'f> {
-    fn new(
-        size_pt: f64,
-        params: &latex_rust::MathParams,
-        face: &'f ttf_parser::Face<'static>,
-    ) -> Self {
+impl Walker {
+    fn new(size_pt: f64) -> Self {
         Self {
             size_pt,
-            scales: [
-                1.0,
-                f64::from(params.script_percent_scale_down) / 100.0,
-                f64::from(params.script_script_percent_scale_down) / 100.0,
-            ],
-            last_scale: 1.0,
-            face,
             items: Vec::new(),
             run: None,
             ignored_colour: false,
@@ -629,7 +196,12 @@ impl<'f> Walker<'f> {
             // Children are pushed in reverse so that they are visited in order.
             match &bx.content {
                 BoxContent::Empty | BoxContent::Kern(_) => {}
-                BoxContent::Glyph { ch, glyph_id } => self.glyph(bx, *ch, *glyph_id, x, baseline),
+                BoxContent::Glyph {
+                    ch,
+                    glyph_id,
+                    scale,
+                    ..
+                } => self.glyph(*ch, *glyph_id, self.pt(scale), x, baseline),
                 BoxContent::Rule => {
                     let top = baseline - self.pt(&bx.height);
                     let height = self.pt(&bx.height) + self.pt(&bx.depth);
@@ -735,10 +307,8 @@ impl<'f> Walker<'f> {
         Ok(())
     }
 
-    /// Adds a glyph whose box is `bx`, deriving its scale from the box.
-    fn glyph(&mut self, bx: &MathBox, ch: char, glyph_id: u16, x: f64, baseline: f64) {
-        let scale = self.glyph_scale(bx, glyph_id);
-        let size_pt = self.size_pt * scale;
+    /// Adds a glyph set at `size_pt`.
+    fn glyph(&mut self, ch: char, glyph_id: u16, size_pt: f64, x: f64, baseline: f64) {
         let run = match &mut self.run {
             Some(run) if run.size_pt == size_pt => run,
             _ => {
@@ -759,46 +329,6 @@ impl<'f> Walker<'f> {
             y: baseline,
             text_range: start..run.text.len(),
         });
-    }
-
-    /// Derives and snaps the scale at which `glyph_id` was laid out in `bx`.
-    fn glyph_scale(&mut self, bx: &MathBox, glyph_id: u16) -> f64 {
-        let id = ttf_parser::GlyphId(glyph_id);
-        let upem = f64::from(self.face.units_per_em());
-        let advance = self
-            .face
-            .glyph_hor_advance(id)
-            .map_or(0.0, |a| f64::from(a) / upem);
-        let ratio = if advance > 0.0 {
-            dim(&bx.width) / advance
-        } else {
-            let ink_height = self
-                .face
-                .glyph_bounding_box(id)
-                .map_or(0.0, |b| f64::from(b.y_max.max(0)) / upem);
-            let ink_depth = self
-                .face
-                .glyph_bounding_box(id)
-                .map_or(0.0, |b| f64::from((-b.y_min).max(0)) / upem);
-            if ink_height > 0.0 {
-                dim(&bx.height) / ink_height
-            } else if ink_depth > 0.0 {
-                dim(&bx.depth) / ink_depth
-            } else {
-                f64::NAN
-            }
-        };
-        let scale = if ratio.is_finite() {
-            self.scales
-                .iter()
-                .copied()
-                .min_by(|a, b| (a - ratio).abs().total_cmp(&(b - ratio).abs()))
-                .unwrap_or(1.0)
-        } else {
-            self.last_scale
-        };
-        self.last_scale = scale;
-        scale
     }
 
     /// Adds a filled rectangle, ignoring rectangles with no area.
@@ -846,61 +376,5 @@ impl<'f> Walker<'f> {
             },
             ignored_colour: self.ignored_colour,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nesting_counts_groups_scripts_and_commands() {
-        assert_eq!(nesting_depth("x"), 0);
-        assert_eq!(nesting_depth("{x}"), 1);
-        assert_eq!(nesting_depth("{{x}}"), 2);
-        assert_eq!(nesting_depth(r"\alpha\beta\gamma\delta x"), 0);
-        assert!(nesting_depth(r"\sqrt\sqrt\sqrt x") >= 3);
-        assert!(nesting_depth("x''''") >= 4);
-        assert!(nesting_depth(r"\left(\left(x\right)\right)") >= 2);
-        let flat = "a^2 + b^2 + c^2 + d^2 + e^2 + f^2 + g^2 + h^2 + i^2 + j^2 + k^2 + l^2 + m^2";
-        assert!(nesting_depth(flat) <= 2);
-    }
-
-    // Font styles must reach letters nested in scripts, but names, dimensions and words that
-    // commands read as raw text must reach the parser unchanged, or `\hspace{1em}` and
-    // `\begin{array}{cc}` inside a font group would stop parsing.
-    #[test]
-    fn font_styles_reach_nested_letters_but_not_raw_arguments() {
-        assert_eq!(
-            propagate_font_styles(r"\mathrm{s^{-1}}x"),
-            r"\mathrm{{\mathrm{s}}^{-1}}x"
-        );
-        assert_eq!(
-            propagate_font_styles(r"\mathbf{a\mathit{b}}"),
-            r"\mathbf{{\mathbf{a}}\mathit{{\mathit{b}}}}"
-        );
-        for raw in [
-            r"\mathrm{\text{per s}}",
-            r"\mathrm{\hspace{1em}}",
-            r"\mathrm{\operatorname*{sinc}}",
-            r"\mathrm{\color{red}}",
-        ] {
-            assert_eq!(propagate_font_styles(raw), raw);
-        }
-        assert_eq!(
-            propagate_font_styles(r"\mathrm{\begin{array}{cc}a\end{array}}"),
-            r"\mathrm{\begin{array}{cc}{\mathrm{a}}\end{array}}"
-        );
-        assert_eq!(propagate_font_styles(r"a\{b\}"), r"a\{b\}");
-    }
-
-    #[test]
-    fn italic_applies_only_to_letters() {
-        assert_eq!(math_italic('x'), Some('\u{1D465}'));
-        assert_eq!(math_italic('h'), Some('\u{210E}'));
-        assert_eq!(math_italic('A'), Some('\u{1D434}'));
-        assert_eq!(math_italic('\u{03B1}'), Some('\u{1D6FC}'));
-        assert_eq!(math_italic('2'), None);
-        assert_eq!(math_italic('\u{0393}'), None);
     }
 }

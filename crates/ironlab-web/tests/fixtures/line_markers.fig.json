@@ -501,7 +501,8 @@
   "links": [],
   "provenance": {
     "ironlab_version": "0.9.1",
-    "typesetter": "latex-rust 1.0.2",
+    "typesetter": "latex-rust",
+    "typesetter_version": "1.0.2",
     "fonts": [
       "STIX Two Text",
       "STIX Two Math"

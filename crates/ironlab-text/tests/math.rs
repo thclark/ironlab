@@ -51,6 +51,34 @@ fn math_glyph_id(ch: char) -> u16 {
         .0
 }
 
+/// Returns the glyph that the math face substitutes for `ch` at script size: the first alternate of its OpenType
+/// `ssty` (script style) feature, which TeX's OpenType engines select for scripts, or the glyph of `ch` when the face
+/// has no alternate for it.
+fn math_script_glyph_id(ch: char) -> u16 {
+    let face = common::reference_face(FontId::Math);
+    let base = ttf_parser::GlyphId(math_glyph_id(ch));
+    let alternate = face.tables().gsub.and_then(|gsub| {
+        let feature = gsub.features.find(ttf_parser::Tag::from_bytes(b"ssty"))?;
+        feature
+            .lookup_indices
+            .into_iter()
+            .filter_map(|index| gsub.lookups.get(index))
+            .flat_map(|lookup| {
+                lookup
+                    .subtables
+                    .into_iter::<ttf_parser::gsub::SubstitutionSubtable<'_>>()
+            })
+            .find_map(|subtable| match subtable {
+                ttf_parser::gsub::SubstitutionSubtable::Alternate(table) => {
+                    let set = table.alternate_sets.get(table.coverage.get(base)?)?;
+                    set.alternates.get(0)
+                }
+                _ => None,
+            })
+    });
+    alternate.unwrap_or(base).0
+}
+
 // latex-rust does not size script glyphs itself; superscripts must be drawn at the font's script scale and raised, or exponents such as 10^3 would look like 103.
 #[test]
 fn superscript_is_smaller_and_raised() {
@@ -98,7 +126,7 @@ fn subscript_is_smaller_and_lowered() {
 
     let (base_run, base) = find_math_glyph(&layout, 'u');
     let (sub_run, sub) = find_glyph(&layout, "\u{221E}");
-    assert_eq!(sub.id, math_glyph_id('\u{221E}'));
+    assert_eq!(sub.id, math_script_glyph_id('\u{221E}'));
     assert!((base_run.size_pt - 10.0).abs() < EPS);
     assert!((sub_run.size_pt - 10.0 * script_scale()).abs() < EPS);
     assert!(base.y.abs() < EPS);
@@ -280,11 +308,12 @@ fn mathrm_keeps_letters_upright_after_spaces_and_inside_scripts() {
                 .next()
                 .expect("glyph text");
             if ch.is_ascii_alphabetic() {
-                assert_eq!(
-                    g.id,
-                    math_glyph_id(ch),
-                    "{source}: {ch:?} is the upright glyph"
-                );
+                let expected = if run.size_pt < 10.0 - EPS {
+                    math_script_glyph_id(ch)
+                } else {
+                    math_glyph_id(ch)
+                };
+                assert_eq!(g.id, expected, "{source}: {ch:?} is the upright glyph");
             }
         }
     }
@@ -364,7 +393,7 @@ fn tick_label_exponent_is_raised_and_scaled() {
     let (_, zero) = find_glyph(&layout, "0");
     let (minus_run, minus) = find_glyph(&layout, &MINUS_SIGN.to_string());
     let (three_run, three) = find_glyph(&layout, "3");
-    assert_eq!(minus.id, math_glyph_id(MINUS_SIGN));
+    assert_eq!(minus.id, math_script_glyph_id(MINUS_SIGN));
     assert!(one.y.abs() < EPS && zero.y.abs() < EPS);
     assert!(
         minus.y < 0.0 && (three.y - minus.y).abs() < EPS,
@@ -533,7 +562,7 @@ fn malformed_input_never_panics() {
     }
 }
 
-// latex-rust parses and lays out recursively and overflows the stack of an ordinary thread at a few dozen levels of nesting, which aborts the whole process rather than panicking. Generated or malicious labels must fall back to raw text with a warning instead.
+// latex-rust parses and lays out recursively, so input nested hundreds of levels deep would abort the whole process on a stack overflow if latex-rust did not reject it. Generated or malicious labels must fall back to raw text with a warning instead.
 #[test]
 fn deeply_nested_math_falls_back_without_overflowing() {
     let engine = TextEngine::new();
@@ -551,11 +580,11 @@ fn deeply_nested_math_falls_back_without_overflowing() {
     }
 }
 
-// The engine is called from deep GUI stacks and from threads with small stacks. Math nested as deeply as the engine admits must still typeset there, because the recursive typesetting must not run on the caller's stack.
+// The engine is called from deep GUI stacks and from threads with small stacks. Math nested as deeply as latex-rust admits (fifteen nested fractions at its default limit) must still typeset there, because the recursive typesetting must not run on the caller's stack.
 #[test]
 fn admitted_deep_nesting_typesets_on_a_small_caller_stack() {
     let engine = TextEngine::new();
-    let depth = 20;
+    let depth = 15;
     let source = format!("${}x{}$", r"\frac{1}{".repeat(depth), "}".repeat(depth));
     std::thread::scope(|scope| {
         std::thread::Builder::new()

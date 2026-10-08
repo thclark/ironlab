@@ -341,7 +341,7 @@ A **Text** is stored as its source, never as typeset glyphs, so that it can be e
 | `content` | The source text. |
 | `interpreter` | `"latex"` (the default) treats segments delimited by `$…$` as LaTeX mathematics and the rest as plain text, with `\$` producing a literal dollar sign. `"none"` renders the content literally, dollar signs included. |
 
-Mathematics that the typesetter cannot handle is drawn as its raw source and reported as a warning; it never makes a figure invalid. How text is resolved is described in the [architecture reference](architecture.md#text-resolution) and [ADR 0005](../adrs/0005-embedded-latex-math-with-latex-rust.md).
+Mathematics that the typesetter cannot handle is drawn as its raw source and reported as a warning; it never makes a figure invalid. How text is resolved is described in the [architecture reference](architecture.md#text-resolution) and [ADR 0017](../adrs/0017-latex-rust-applies-tex-conventions.md).
 
 ## Data arrays
 
@@ -384,10 +384,11 @@ A **Provenance** records the software that wrote a figure, so that a figure that
 | Property | Meaning |
 | --- | --- |
 | `ironlab_version` | The version of IronLAB that wrote the figure. |
-| `typesetter` | The name and version of the mathematics typesetter, such as `"latex-rust 1.0.2"`. |
+| `typesetter` | The name of the mathematics typesetter, such as `"latex-rust"`. |
+| `typesetter_version` | The version of the mathematics typesetter, such as `"2.1.1"`. |
 | `fonts` | The names of the fonts used for text. |
 
-The PDF exporter copies the provenance into the document metadata.
+The typesetter's name and version are separate fields, so that a new version of the same typesetter is not mistaken for a different typesetter ([ADR 0017](../adrs/0017-latex-rust-applies-tex-conventions.md)). The PDF exporter copies the provenance into the document metadata.
 
 ## Parameters
 
@@ -483,7 +484,8 @@ The following JSON file describes one two-dimensional axes with a line through t
   "links": [],
   "provenance": {
     "ironlab_version": "0.2.0",
-    "typesetter": "latex-rust 1.0.2",
+    "typesetter": "latex-rust",
+    "typesetter_version": "1.0.2",
     "fonts": ["STIX Two Text", "STIX Two Math"]
   }
 }
