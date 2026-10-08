@@ -85,7 +85,8 @@ fn decay_figure() -> Figure {
         links: vec![],
         provenance: Provenance {
             ironlab_version: "0.1.0".to_owned(),
-            typesetter: "latex-rust 1.0.2".to_owned(),
+            typesetter: "latex-rust".to_owned(),
+            typesetter_version: "1.0.2".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
         parameters: BTreeMap::new(),

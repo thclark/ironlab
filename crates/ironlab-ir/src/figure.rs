@@ -216,8 +216,10 @@ impl Default for TileLayout {
 pub struct Provenance {
     /// The version of IronLAB that wrote the figure.
     pub ironlab_version: String,
-    /// The name and version of the mathematics typesetter.
+    /// The name of the mathematics typesetter, such as `latex-rust`.
     pub typesetter: String,
+    /// The version of the mathematics typesetter, such as `2.1.1`.
+    pub typesetter_version: String,
     /// The names of the fonts used for text.
     pub fonts: Vec<String>,
 }
@@ -226,7 +228,9 @@ impl Default for Provenance {
     fn default() -> Self {
         Self {
             ironlab_version: env!("CARGO_PKG_VERSION").to_owned(),
-            typesetter: "latex-rust 2.1.1".to_owned(),
+            typesetter: "latex-rust".to_owned(),
+            // The exact version to which the workspace manifest pins latex-rust; a test fails when they differ.
+            typesetter_version: "2.1.1".to_owned(),
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         }
     }

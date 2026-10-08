@@ -65,10 +65,12 @@ proto_file! {
     message Provenance {
         /// The version of IronLAB that wrote the figure.
         string ironlab_version = 1;
-        /// The name and version of the mathematics typesetter.
+        /// The name of the mathematics typesetter.
         string typesetter = 2;
         /// The names of the fonts used for text.
         repeated string fonts = 3;
+        /// The version of the mathematics typesetter.
+        string typesetter_version = 4;
     }
 
     /// A named value that describes a figure.

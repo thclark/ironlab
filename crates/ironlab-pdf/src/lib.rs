@@ -179,16 +179,17 @@ impl PdfOptions {
     /// The title is the source string of the figure title (LaTeX markup included, since PDF metadata cannot hold
     /// typeset mathematics), or `None` when the figure has no title. The creator is `IronLAB <version>`, naming the
     /// version of this crate that exported the file. The subject records the figure's provenance in the form
-    /// `written by IronLAB <version>; typesetter: <typesetter>; fonts: <font>, <font>, …`, where the version is the
+    /// `written by IronLAB <version>; typesetter: <typesetter> <version>; fonts: <font>, <font>, …`, where the version is the
     /// one recorded in the figure (the version that wrote the figure IR, which may differ from the exporting version).
     pub fn for_figure(figure: &Figure) -> Self {
         let provenance = &figure.provenance;
         Self {
             title: figure.title.as_ref().map(|title| title.content.clone()),
             subject: Some(format!(
-                "written by IronLAB {}; typesetter: {}; fonts: {}",
+                "written by IronLAB {}; typesetter: {} {}; fonts: {}",
                 provenance.ironlab_version,
                 provenance.typesetter,
+                provenance.typesetter_version,
                 provenance.fonts.join(", ")
             )),
             ..Self::default()
