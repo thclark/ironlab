@@ -486,10 +486,12 @@ fn a_column_count_larger_than_the_number_of_entries_puts_them_in_one_row() {
 }
 
 // Why: entries that do not fit even in as many columns as the width allows cannot all be shown; the panel must
-// say so, because a silently truncated key misleads, and it must not spill over the plots or off the page.
+// say so, because a silently truncated key misleads, and it must not spill over the plots or off the page. The panel
+// is tall enough for a few rows, so that the test sees entries being drawn and kept inside it, rather than a panel
+// too small to hold anything, where staying inside is trivially true.
 #[test]
-fn entries_that_cannot_fit_a_tiny_panel_are_reported_and_drawn_only_inside_it() {
-    let (fx, ax, _, panel) = panel_of(200, 20.0, AUTO);
+fn entries_that_cannot_fit_a_small_panel_are_reported_and_only_those_inside_it_are_drawn() {
+    let (fx, ax, _, panel) = panel_of(200, 1.0, AUTO);
     let scene = compile_figure(&fx.build());
     assert!(
         overflows(&scene, LegendOwner::Panel(panel)),
@@ -498,14 +500,28 @@ fn entries_that_cannot_fit_a_tiny_panel_are_reported_and_drawn_only_inside_it() 
     );
     let area = panel_rect(&scene, panel);
     let plot = axes_hit(&scene, ax).plot_rect;
-    for e in panel_entries(&scene, panel) {
+    let entries = panel_entries(&scene, panel);
+    assert!(
+        !entries.is_empty() && entries.len() < 200,
+        "the panel fits some but not all of the entries, and drew {}",
+        entries.len()
+    );
+    assert!(
+        columns(&entries).len() > 1,
+        "the entries that fit fill the width: {entries:?}"
+    );
+    for e in &entries {
         assert!(inside(e.rect, area, 1e-6), "{:?} in {area:?}", e.rect);
     }
-    for leaf in from_source(&leaves(&scene), panel) {
-        if let Some(b) = leaf.visible_bbox() {
-            assert!(inside(b, area, 0.5), "panel item at {b:?} leaves {area:?}");
-            assert!(disjoint(b, plot), "panel item at {b:?} covers the plot");
-        }
+    assert_entries_disjoint(&entries);
+    let items: Vec<Rect> = from_source(&leaves(&scene), panel)
+        .iter()
+        .filter_map(|leaf| leaf.visible_bbox())
+        .collect();
+    assert!(!items.is_empty(), "the panel draws the entries that fit");
+    for b in items {
+        assert!(inside(b, area, 0.5), "panel item at {b:?} leaves {area:?}");
+        assert!(disjoint(b, plot), "panel item at {b:?} covers the plot");
     }
 }
 
