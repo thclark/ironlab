@@ -66,6 +66,14 @@ pub enum IssueKind {
     /// The cell of an axes or of a legend panel lies outside the figure's tile layout or
     /// has a zero span.
     CellOutOfLayout,
+    /// The cells of two nodes placed in the tile layout, axes or legend panels, share at
+    /// least one tile, so that the later is drawn over the earlier. This is a warning, not
+    /// an error, because the figure can still be drawn. Each overlapping pair is reported
+    /// once, against the later of the two nodes in the order axes first, then legend
+    /// panels, each in the order the figure lists them, and the message names both nodes.
+    /// A cell outside the tile layout, which is reported as [`IssueKind::CellOutOfLayout`],
+    /// is not compared with any other.
+    OverlappingCells,
     /// The legend of an axes names a legend panel that the figure does not have.
     DanglingPanelLegend,
     /// The tile layout has more row weights than rows or more column weights than
@@ -149,7 +157,10 @@ impl Figure {
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), and a legend panel with no entries
-    /// to list, which no axes names or whose axes have no artist with a display name;
+    /// to list, which no axes names or whose axes have no artist with a display name, and
+    /// two nodes of the tile layout, axes or legend panels, whose cells share a tile, once
+    /// per pair against the later node (axes before legend panels, each in the order the
+    /// figure lists them), comparing only cells that lie within the layout;
     /// data that is not plotted along an
     /// axis (such as quiver components, colour data or the pixels of an image) never
     /// produces the first of these. An array of 8-bit values that no artist refers to
@@ -178,6 +189,7 @@ impl Figure {
             validator.check_legend_entry_layout(panel.id, panel.layout);
             validator.check_panel_has_entries(panel.id);
         }
+        validator.check_overlapping_cells();
         for axes in &self.axes {
             validator.check_axes(axes);
             for artist in &axes.artists {
@@ -192,6 +204,15 @@ impl Figure {
 struct Validator<'a> {
     figure: &'a Figure,
     report: ValidationReport,
+}
+
+/// Returns whether two cells, each spanning at least one row and one column, share a tile.
+fn share_a_tile(a: Cell, b: Cell) -> bool {
+    let overlap = |start_a: u32, span_a: u32, start_b: u32, span_b: u32| {
+        u64::from(start_a) < u64::from(start_b) + u64::from(span_b)
+            && u64::from(start_b) < u64::from(start_a) + u64::from(span_a)
+    };
+    overlap(a.row, a.row_span, b.row, b.row_span) && overlap(a.col, a.col_span, b.col, b.col_span)
 }
 
 /// Returns whether an array's number of values equals the product of its shape.
@@ -358,19 +379,58 @@ impl Validator<'_> {
         }
     }
 
+    /// Returns whether a cell lies within the tile layout and spans at least one row and one
+    /// column.
+    fn in_layout(&self, cell: Cell) -> bool {
+        let layout = &self.figure.layout;
+        cell.row_span > 0
+            && cell.col_span > 0
+            && u64::from(cell.row) + u64::from(cell.row_span) <= u64::from(layout.rows)
+            && u64::from(cell.col) + u64::from(cell.col_span) <= u64::from(layout.cols)
+    }
+
     /// Checks that a cell of an axes or a legend panel lies within the tile layout.
     fn check_cell(&mut self, node: NodeId, cell: Cell) {
-        let layout = &self.figure.layout;
-        let outside = cell.row_span == 0
-            || cell.col_span == 0
-            || u64::from(cell.row) + u64::from(cell.row_span) > u64::from(layout.rows)
-            || u64::from(cell.col) + u64::from(cell.col_span) > u64::from(layout.cols);
-        if outside {
+        if !self.in_layout(cell) {
+            let layout = &self.figure.layout;
             let message = format!(
                 "the cell {cell:?} does not lie within the {} × {} tile layout",
                 layout.rows, layout.cols
             );
             self.error(Some(node), IssueKind::CellOutOfLayout, message);
+        }
+    }
+
+    /// Warns of every pair of nodes in the tile layout whose cells share a tile, against the
+    /// later node of the pair, taking the axes first and then the legend panels. Cells
+    /// outside the layout are reported by [`Self::check_cell`] and are not compared.
+    fn check_overlapping_cells(&mut self) {
+        let figure = self.figure;
+        let placed: Vec<(NodeId, Cell)> = figure
+            .axes
+            .iter()
+            .map(|axes| (axes.id, axes.cell))
+            .chain(
+                figure
+                    .panel_legends
+                    .iter()
+                    .map(|panel| (panel.id, panel.cell)),
+            )
+            .filter(|&(_, cell)| self.in_layout(cell))
+            .collect();
+        for (j, &(later, b)) in placed.iter().enumerate() {
+            for &(earlier, a) in &placed[..j] {
+                if share_a_tile(a, b) {
+                    self.warning(
+                        Some(later),
+                        IssueKind::OverlappingCells,
+                        format!(
+                            "the cell {b:?} of {later} shares a tile with the cell {a:?} of \
+                             {earlier}, so {later} is drawn over {earlier}"
+                        ),
+                    );
+                }
+            }
         }
     }
 

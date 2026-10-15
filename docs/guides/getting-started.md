@@ -391,7 +391,7 @@ for issue in &report.warnings {
 }
 ```
 
-The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list, and the errors and warnings that concern legends and the weights of the tile layout are described in the [legends guide](legends.md).
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the weights of the tile layout are described in the [legends guide](legends.md).
 
 ## Saving and loading
 

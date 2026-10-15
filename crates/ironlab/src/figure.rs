@@ -277,6 +277,10 @@ impl Figure {
     /// columns as fit its height. Axes list their entries in it once their legend names
     /// it, with [`AxesMut::legend_in`] or [`PanelLegendMut::collect_all`].
     ///
+    /// The panel is placed in the tile whether or not an axes already covers it. A panel
+    /// over an axes is drawn on top of the plot, and [`Figure::validate`] reports the pair
+    /// with the warning `OverlappingCells`.
+    ///
     /// ```
     /// use ironlab::prelude::*;
     ///
@@ -300,7 +304,9 @@ impl Figure {
     /// and makes it span the given numbers of rows and columns.
     ///
     /// A panel is created, with the defaults of [`panel_legend`](Figure::panel_legend),
-    /// when no panel has that top-left tile.
+    /// when no panel has that top-left tile. As with `panel_legend`, a panel whose cells
+    /// cover a tile of an axes is placed there all the same and reported by
+    /// [`Figure::validate`] with the warning `OverlappingCells`.
     ///
     /// ```
     /// use ironlab::prelude::*;

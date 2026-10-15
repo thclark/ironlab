@@ -2567,3 +2567,134 @@ fn a_legend_panel_with_no_entries_has_nothing_to_draw() {
     let report = fig.validate();
     assert_eq!(report.warnings, vec![], "a panel with an entry");
 }
+
+/// Returns the overlap warnings of a report, as the node each is reported against and its
+/// message.
+fn overlaps(report: &ValidationReport) -> Vec<(Option<NodeId>, String)> {
+    report
+        .warnings
+        .iter()
+        .filter(|issue| issue.kind == IssueKind::OverlappingCells)
+        .map(|issue| (issue.node, issue.message.clone()))
+        .collect()
+}
+
+/// Adds an axes with no artists, of the given identifier, in the given cell.
+fn push_axes(fig: &mut Figure, id: NodeId, cell: Cell) {
+    fig.axes.push(Axes {
+        id,
+        cell,
+        ..Axes::default()
+    });
+}
+
+fn cell(row: u32, col: u32, row_span: u32, col_span: u32) -> Cell {
+    Cell {
+        row,
+        col,
+        row_span,
+        col_span,
+    }
+}
+
+// Why: a legend panel placed over an axes is drawn on top of the plot and hides its data,
+// which is almost always a mistake in the code that placed one of them, but the figure can
+// still be drawn, so it is a warning (as ADR 0012 treats other valid but questionable
+// figures), not an error. It is reported against the later node, the panel, and names both
+// nodes so that the author can find the other.
+#[test]
+fn an_axes_and_a_legend_panel_in_the_same_tile_are_a_warning_naming_both() {
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    fig.axes[0].legend = Some(Legend::Panel(panel));
+    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    fig.panel_legends[0].cell = Cell::default();
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    let found = overlaps(&report);
+    assert_eq!(found.len(), 1, "{report:?}");
+    let (node, message) = &found[0];
+    assert_eq!(*node, Some(panel));
+    assert!(
+        message.contains(&axes.to_string()) && message.contains(&panel.to_string()),
+        "the message names both nodes: {message}"
+    );
+}
+
+// Why: an axes spanning several tiles covers each of them, so another axes in any one of
+// those tiles is drawn over it, even though the two cells do not start at the same tile;
+// overlap is decided by the tiles a cell covers, not by where it starts. Each overlapping
+// pair is reported once, against the later axes in the figure.
+#[test]
+fn two_axes_sharing_a_tile_through_a_span_are_a_warning_on_the_later_axes() {
+    let (mut fig, wide, _) = single_line_figure();
+    fig.layout = TileLayout::new(2, 2);
+    fig.axes[0].cell = cell(0, 0, 1, 2);
+    let narrow = NodeId(200);
+    push_axes(&mut fig, narrow, cell(0, 1, 1, 1));
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    let found = overlaps(&report);
+    assert_eq!(found.len(), 1, "{report:?}");
+    assert_eq!(found[0].0, Some(narrow));
+    assert!(
+        found[0].1.contains(&wide.to_string()),
+        "the message names the other axes: {}",
+        found[0].1
+    );
+
+    // A third axes in the same tile overlaps both, so it adds two pairs, each reported
+    // against it.
+    let third = NodeId(201);
+    push_axes(&mut fig, third, cell(0, 1, 1, 1));
+    let nodes: Vec<Option<NodeId>> = overlaps(&fig.validate())
+        .into_iter()
+        .map(|(node, _)| node)
+        .collect();
+    assert_eq!(nodes, vec![Some(narrow), Some(third), Some(third)]);
+}
+
+// Why: cells that touch along an edge or at a corner share no tile, so every node has a
+// place of its own; the check must compare tiles, not rectangles whose shared borders
+// would count as overlap, or every ordinary grid of subplots would be reported.
+#[test]
+fn adjacent_cells_are_not_reported_as_overlapping() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.layout = TileLayout::new(2, 2);
+    push_axes(&mut fig, NodeId(200), cell(0, 1, 1, 1));
+    push_axes(&mut fig, NodeId(201), cell(1, 1, 1, 1));
+    fig.panel_legends.push(PanelLegend {
+        id: NodeId(300),
+        cell: cell(1, 0, 1, 1),
+        ..PanelLegend::default()
+    });
+    assert_eq!(overlaps(&fig.validate()), vec![]);
+}
+
+// Why: the common figure that motivates legend panels, a plot spanning several tiles beside
+// a panel in a column of its own, has no overlap and must not be reported; a check that
+// compared only the starting tiles or the bounding rows would get this case wrong.
+#[test]
+fn a_spanned_axes_beside_a_legend_panel_is_not_reported_as_overlapping() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.layout = TileLayout::new(2, 3);
+    fig.axes[0].cell = cell(0, 0, 2, 2);
+    fig.panel_legends.push(PanelLegend {
+        id: NodeId(300),
+        cell: cell(0, 2, 2, 1),
+        ..PanelLegend::default()
+    });
+    assert_eq!(overlaps(&fig.validate()), vec![]);
+}
+
+// Why: a cell outside the tile layout is already an error that must be fixed first, and
+// where such a cell would land is not defined by the figure, so it is not also reported as
+// overlapping; the error stands alone, as an artist with an error is not also reported as
+// having nothing to draw.
+#[test]
+fn a_cell_outside_the_layout_is_not_also_reported_as_overlapping() {
+    let (mut fig, _, panel) = figure_with_a_legend_panel();
+    fig.panel_legends[0].cell = cell(0, 0, 1, 3);
+    let report = fig.validate();
+    assert!(has_error(&report, IssueKind::CellOutOfLayout, Some(panel)));
+    assert_eq!(overlaps(&report), vec![]);
+}

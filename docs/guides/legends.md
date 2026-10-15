@@ -72,6 +72,8 @@ ax.legend(LegendLocation::North)
 
 Like an axes handle, the panel handle borrows the figure mutably, so it is held only while the panel is being set up. The identifier returned by `id()` is kept instead, to refer to the panel later.
 
+A panel is placed in its tiles whether or not an axes already occupies them. A panel whose tiles include a tile of an axes is drawn over the plot, and [`validate`](getting-started.md#validating-a-figure) reports the pair with the warning `OverlappingCells`, as it reports two axes that share a tile. The warning names both nodes, and it is removed by giving the panel tiles of its own, for example by adding a row or column to the layout.
+
 ### Sending entries to a panel
 
 An axes sends its entries to a panel with `legend_in`, giving the identifier of the panel. The axes then draws no legend inside its plot area: an axes lists its entries in exactly one place, either inside its own plot area or in one panel.
@@ -126,7 +128,7 @@ right.legend_in(key);
 // The panel lists "Model" twice, in black and in red, and the export warns of the clash.
 ```
 
-The entries of a panel are listed in figure order: the axes in the order they were created, and the plots of each axes in the order they were added. A merged entry takes the position at which its first plot appears.
+The entries of a panel are listed in the reading order of the page. The axes are taken by the top-left tile of their cells, row by row from the top and, within a row, column by column from the left, and the plots of each axes follow in the order they were added. Two axes whose cells start at the same tile are taken in the order they were created. The order in which the code creates the axes therefore does not matter: a figure that builds its right-hand plot first still lists the entries of the left-hand plot first. A merged entry takes the position at which its first plot appears in this order.
 
 A legend inside an axes lists every named plot of that axes and merges nothing.
 

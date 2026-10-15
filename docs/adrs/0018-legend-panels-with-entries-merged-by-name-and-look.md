@@ -26,11 +26,15 @@ A panel's area is the rectangle of its cells inset by the aligned margins of the
 
 ### Entries are merged when their name and their look both match
 
-A panel gathers the entries of every axes that names it. Two entries are merged into one when their display names are equal, in both source text and interpreter, and their samples draw the same picture. The sample is computed by the scene compiler from what it draws for the entry: the kind of sample (line, marker, arrow or patch) and its resolved colours, line width, dash pattern, marker shape, marker size and edge width. A merged entry is drawn from the first artist in figure order, and it stands for every artist it merges.
+A panel gathers the entries of every axes that names it. Two entries are merged into one when their display names are equal, in both source text and interpreter, and their samples draw the same picture. The sample is computed by the scene compiler from what it draws for the entry: the kind of sample (line, marker, arrow or patch) and its resolved colours, line width, dash pattern, marker shape, marker size and edge width. A merged entry is drawn from the first of its artists in the order in which the panel lists entries, described below, and it stands for every artist it merges.
 
 Entries with the same display name and a different look are all listed, and the scene compiler reports one `LegendNameClash` warning for that name, because a reader cannot tell which entry belongs to which series.
 
-Entries are listed in figure order: the order of the axes in the figure, then the order of the artists within each axes. A merged entry takes the position of its first occurrence. An inside legend lists the entries of its own axes and merges nothing.
+### Entries are listed in the reading order of the layout
+
+A panel lists the entries of its axes in reading order. The axes are ordered by the top-left tile of their cells, clamped into the layout as the scene compiler places them, first by row and then by column; axes whose cells start at the same tile keep the order in which the figure lists them, which is the order in which they were created. Within each axes the entries follow the order of its artists. A merged entry takes the position of its first occurrence in this order. An inside legend lists the entries of its own axes, in artist order, and merges nothing.
+
+Readers expect the entries of a shared key to follow the layout of the page, which they read from the top left, and not the order in which the code happened to create the axes. A figure whose code builds the right-hand column first, or fills a grid column by column, would otherwise list its series in an order that contradicts the picture the key describes.
 
 ### Entries are arranged in columns, in the same way for both kinds of legend
 
@@ -45,6 +49,10 @@ A block of entries that does not fit the area available, even in as many columns
 ### Clicking a merged entry acts on every artist it stands for
 
 Each legend entry in the hit map records every `(axes, artist)` pair it stands for, not one. Clicking an entry in the viewer hides all of those artists unless every one of them is already hidden, in which case it shows them all, so a series shared by several subplots is hidden or shown in all of them with one click. An entry is greyed only when all of its artists are hidden. The click is one transaction of typed edits, as [ADR 0008](0008-typed-edits-and-a-view-overlay.md) requires, and is undone in one step.
+
+### Overlapping cells are reported
+
+Validation reports the warning `OverlappingCells` whenever the cells of two nodes of the tile layout, axes or legend panels, share at least one tile. The later node is drawn over the earlier, so a panel placed over an axes hides part of the plot, which is almost always a mistake in the code that placed one of them. The figure can still be drawn, so the overlap is a warning rather than an error, consistent with the approach of [ADR 0012](0012-empty-and-singleton-data.md) to figures that are valid but questionable. Each overlapping pair is reported once, against the later of its two nodes, where the axes come before the legend panels and each are taken in the order the figure lists them, and the message names both nodes. A cell outside the tile layout is already the error `CellOutOfLayout`, and where it would be drawn is not defined by the figure, so it is not compared with any other cell.
 
 ### An empty panel is valid
 
@@ -77,5 +85,6 @@ A panel could have held its own list of entries, each naming an artist and a lab
 - The schema version moves from 0.3.1 to 0.4.0, a breaking change. The `legend` of an axes is serialised as `{"type": "inside", "value": {...}}` or `{"type": "panel", "value": <id>}` instead of a plain object, and a file of version 0.3 is rejected. Figures written with earlier versions must be regenerated, which is acceptable because the project has no users who depend on the earlier format.
 - A figure that sets no panel, no weights and no entry layout draws exactly as before.
 - Colourbars are deliberately not covered. A colourbar is another figure-level key that would occupy cells of the tile layout, and the panel mechanism is a likely basis for it, but its design is left to a later decision.
-- A panel whose cells overlap those of an axes is not reported by validation, and both are drawn, the panel on top. Validation does not check overlapping axes either, and a check for both is left to a later change.
+- The order of the entries of a panel depends on the cells of its axes, so moving an axes to another tile can change the order of the entries of its panel, while reordering the axes in the figure changes it only for axes whose cells start at the same tile.
+- A figure in which an axes or a panel is drawn over another, which earlier versions drew without comment, now raises the warning `OverlappingCells`.
 - The rules of placement, merging, arrangement and overflow are stated in the documentation of the scene compiler and taught in the [legends guide](../guides/legends.md); the encoding is described in the [figure schema reference](../reference/figure-schema.md#legend-panels).
