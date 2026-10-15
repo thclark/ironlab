@@ -1667,10 +1667,10 @@ fn a_legend_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inve
     assert_eq!(panel_ids(&moved), [second, first]);
     assert_eq!(applied(&moved, &inverse).unwrap().0, fig);
 
-    // The second panel is named by no legend, so removing it leaves the figure valid.
-    let (removed, inverse) = applied(&fig, &tx([Edit::Remove { node: second }])).unwrap();
-    assert_eq!(panel_ids(&removed), [first]);
-    assert_eq!(applied(&removed, &inverse).unwrap().0, fig);
+    // The inserted panel is named by no legend, so removing it leaves the figure valid.
+    let (removed, inverse) = applied(&inserted, &tx([Edit::Remove { node: spare.id }])).unwrap();
+    assert_eq!(panel_ids(&removed), [first, second]);
+    assert_eq!(applied(&removed, &inverse).unwrap().0, inserted);
 }
 
 // Why: a legend panel belongs to the figure, so an axes cannot hold one and a panel

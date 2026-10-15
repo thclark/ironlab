@@ -239,9 +239,9 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
 /// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
 /// absent, ascending and mirrored. Its tile layout has weights for some of its rows and
-/// all of its columns, and its last row holds an axes whose legend names a legend panel
-/// and two legend panels, which between them and the inside legends use every variant of
-/// the layout of legend entries.
+/// all of its columns, and its last row holds two legend panels, which between them and
+/// the inside legends use every variant of the layout of legend entries, each listing a
+/// named line of an axes whose legend names it.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -772,7 +772,7 @@ pub fn kitchen_sink_figure() -> Figure {
             row: 2,
             col: 0,
             row_span: 1,
-            col_span: 3,
+            col_span: 2,
         };
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::Best,
@@ -787,13 +787,32 @@ pub fn kitchen_sink_figure() -> Figure {
     // Axes 10: an axes without a legend or title.
     let _plain = b.axes2d(2, 3);
 
-    // Axes 11 and two legend panels: an axes that lists its entries in a panel, a boxed
-    // panel with a fixed number of columns filled row by row, and an unboxed panel with
-    // automatic columns filled column by column, centred in a cell that spans two columns.
+    // Axes 11 and 12 and two legend panels: two axes that each list a named line in a
+    // panel, so that neither panel is empty; a boxed panel with a fixed number of columns
+    // filled row by row; and an unboxed panel with automatic columns filled column by
+    // column, centred in a cell that spans two columns.
     let listed = b.axes2d(3, 0);
+    let also_listed = b.axes2d(2, 2);
     let fixed_panel = b.node();
     let auto_panel = b.node();
     b.axes(listed).legend = Some(Legend::Panel(fixed_panel));
+    b.axes(also_listed).legend = Some(Legend::Panel(auto_panel));
+    for (axes, name) in [
+        (listed, "in a fixed panel"),
+        (also_listed, "in an automatic panel"),
+    ] {
+        let id = b.node();
+        b.push(
+            axes,
+            Artist::Line(Line {
+                id,
+                display_name: Some(Text::plain(name)),
+                x: t,
+                y: t_nan,
+                ..Line::default()
+            }),
+        );
+    }
     b.fig.panel_legends = vec![
         PanelLegend {
             id: fixed_panel,

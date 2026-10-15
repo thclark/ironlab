@@ -93,7 +93,9 @@ pub enum IssueKind {
     /// warning, not an error, because empty and singleton data are valid: a figure built
     /// before its data arrives, or streamed from nothing, passes through these states. It
     /// is reported only when the artist's references and shapes are otherwise valid, so
-    /// that an artist reported for an error is not reported twice.
+    /// that an artist reported for an error is not reported twice. It is also reported
+    /// against a legend panel that has no entries to list, because no axes names it in
+    /// its legend or no axes that names it has an artist with a display name.
     NothingToDraw,
     /// A figure parameter has an empty name, or is a number that is not finite (which
     /// JSON cannot represent).
@@ -146,7 +148,9 @@ impl Figure {
     /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
-    /// column, which has no cell between its nodes); data that is not plotted along an
+    /// column, which has no cell between its nodes), and a legend panel with no entries
+    /// to list, which no axes names or whose axes have no artist with a display name;
+    /// data that is not plotted along an
     /// axis (such as quiver components, colour data or the pixels of an image) never
     /// produces the first of these. An array of 8-bit values that no artist refers to
     /// is not an error.
@@ -172,6 +176,7 @@ impl Figure {
         for panel in &self.panel_legends {
             validator.check_cell(panel.id, panel.cell);
             validator.check_legend_entry_layout(panel.id, panel.layout);
+            validator.check_panel_has_entries(panel.id);
         }
         for axes in &self.axes {
             validator.check_axes(axes);
@@ -572,6 +577,30 @@ impl Validator<'_> {
             // number of pixels along each axis of the image.
             Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => true,
         }
+    }
+
+    /// Warns of a legend panel that has no entries to list, because no axes names it or
+    /// no axes that names it has an artist with a display name.
+    fn check_panel_has_entries(&mut self, panel: NodeId) {
+        let mut axes = self
+            .figure
+            .axes
+            .iter()
+            .filter(|axes| axes.legend == Some(Legend::Panel(panel)))
+            .peekable();
+        let message = if axes.peek().is_none() {
+            "no axes lists its entries in the legend panel, so the panel is empty"
+        } else if axes.any(|axes| {
+            axes.artists
+                .iter()
+                .any(|artist| artist.display_name().is_some())
+        }) {
+            return;
+        } else {
+            "no artist of the axes that list their entries in the legend panel has a display \
+             name, so the panel is empty"
+        };
+        self.warning(Some(panel), IssueKind::NothingToDraw, message.to_string());
     }
 
     /// Warns of an artist other than an image whose arrays, which exist and agree in

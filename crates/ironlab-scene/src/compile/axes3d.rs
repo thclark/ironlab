@@ -155,7 +155,7 @@ pub(super) fn emit(
     });
 
     draw_labels(ctx, input, &projector, out);
-    legend::draw(ctx, input, &primaries, &[], out, hits);
+    legend::draw_inside(ctx, input, &primaries, &[], out, hits);
     hits.axes.push(AxesHit {
         id: axes.id,
         plot_rect: input.plot,

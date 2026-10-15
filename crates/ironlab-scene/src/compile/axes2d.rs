@@ -130,7 +130,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
-    legend::draw(ctx, input, &primaries, &data_points, out, hits);
+    legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
     hits.axes.push(AxesHit {
         id: axes.id,

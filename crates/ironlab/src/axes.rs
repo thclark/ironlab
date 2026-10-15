@@ -537,18 +537,44 @@ impl AxesMut<'_> {
     /// [`Figure::panel_legend_span`](crate::Figure::panel_legend_span); one that names no
     /// panel is reported by [`validate`](crate::Figure::validate).
     ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// let key = fig.panel_legend(0, 1).id();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]).display_name("Linear");
+    /// ax.legend_in(key);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    ///
     /// [`Figure::panel_legend`]: crate::Figure::panel_legend
     pub fn legend_in(&mut self, panel: NodeId) -> &mut Self {
-        let _ = panel;
-        todo!("point the legend of the axes at the panel")
+        self.axes().legend = Some(Legend::Panel(panel));
+        self
     }
 
     /// Sets the number of columns of the legend inside the plot area, showing a legend
     /// with the default location and box if the axes has none or lists its entries in a
     /// legend panel.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .legend(LegendLocation::South)
+    ///     .legend_columns(LegendEntryColumns::Count(3));
+    /// ```
     pub fn legend_columns(&mut self, columns: LegendEntryColumns) -> &mut Self {
-        let _ = columns;
-        todo!("set the columns of the inside legend")
+        let axes = self.axes();
+        let mut inside = match axes.legend {
+            Some(Legend::Inside(inside)) => inside,
+            Some(Legend::Panel(_)) | None => InsideLegend::default(),
+        };
+        inside.layout.columns = columns;
+        axes.legend = Some(Legend::Inside(inside));
+        self
     }
 
     /// Hides the legend (MATLAB's `legend off`).
