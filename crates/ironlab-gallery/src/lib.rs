@@ -95,6 +95,8 @@ gallery!(
     log_axes,
     latex_labels,
     legend_toggle,
+    panel_legend_shared,
+    panel_legend_wide,
     contour,
     contourf,
     quiver,
