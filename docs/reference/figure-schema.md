@@ -171,6 +171,8 @@ The legend of an axes lists every artist of the axes that has a display name, in
 
 An axes therefore shows its entries either inside its plot area or in a panel, never in both. In Protocol Buffers the two forms are the variants `inside`, a `LegendInside` whose field `inside` holds the InsideLegend, and `panel`, a `LegendPanel` whose field `panel` holds the identifier.
 
+How to build each form, and how a legend panel merges the entries of several axes, is explained in the [legends guide](../guides/legends.md).
+
 An InsideLegend has three properties:
 
 | Property | Meaning |
@@ -196,7 +198,7 @@ The default layout depends on where the entries are shown: an inside legend uses
 
 ## Legend panels
 
-A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend. A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it.
+A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend. A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same display name and are drawn the same way; the rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
 
 | Property | Type | Meaning |
 | --- | --- | --- |

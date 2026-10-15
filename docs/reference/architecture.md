@@ -84,7 +84,7 @@ The reasons for thinning in the compiler rather than in a backend, for these two
 
 ### The hit map
 
-The hit map is the geometry that the viewer needs to relate a pointer position to the figure: for each axes, its plot rectangle and, in two dimensions, the mapping between data values and figure coordinates along each axis; for each legend entry, its rectangle and the artist it represents; for each line and scatter, the points it drew; and, for each image drawn in a two-dimensional axes, the inverse of the transform that placed it together with its numbers of rows and columns.
+The hit map is the geometry that the viewer needs to relate a pointer position to the figure: for each axes, its plot rectangle and, in two dimensions, the mapping between data values and figure coordinates along each axis; for each legend entry, its rectangle and every artist it stands for, of which a merged entry of a legend panel has several; for each line and scatter, the points it drew; and, for each image drawn in a two-dimensional axes, the inverse of the transform that placed it together with its numbers of rows and columns.
 
 Each drawn point carries its position in figure space together with the index it has in the artist's own data arrays, in one value, so that the two cannot be separated or fall out of step. The index is the one the user's data uses, never a position in the thinned series, which is what lets the viewer's [datatip](../guides/viewer.md#datatips) name the measurement the reader is pointing at however hard the series was thinned.
 
@@ -110,7 +110,7 @@ The viewer has no view state of its own that affects drawing. Each gesture is co
 
 - panning and zooming a two-dimensional axes set its axis limits to manual values;
 - panning, zooming and rotating a three-dimensional axes set the properties of its `projection.view3d`;
-- clicking a legend entry sets the `visible` property of an artist;
+- clicking a legend entry sets the `visible` property of every artist the entry stands for;
 - changing a property in the property editor sets that property.
 
 Limits are set with the `set_limits` command, which reads the figure and returns the limits of every axes of the link group as literal edits, so linked axes follow without the viewer implementing the rule. An axes of the group that cannot show the limits makes the transaction fail, and the figure is left unchanged.

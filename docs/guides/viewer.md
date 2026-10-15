@@ -152,7 +152,9 @@ Each button is disabled when there is nothing to undo or to redo, and both short
 
 ## Legend
 
-Clicking an entry of a legend hides its plot, and clicking the entry again shows the plot. Either way the plot is selected, so the property editor shows it. The entry of a hidden plot stays in the legend and is drawn greyed out. Double-clicking an entry counts as two clicks, so it leaves the plot as it was, and it does not restore the limits of the axes as double-clicking elsewhere in the axes does.
+Clicking an entry of a legend hides its plot, and clicking the entry again shows the plot. Either way the plot is selected, so the property editor shows it. The entry of a hidden plot stays in the legend and is drawn greyed out.
+
+An entry of a [legend panel](legends.md#legend-panels) may stand for several plots, one in each axes that shares the series. Clicking such an entry hides all of its plots, or shows them all when every one of them is already hidden, and selects the first of them. The entry is greyed only when all of its plots are hidden. How entries come to be shared is explained in [sharing and merging entries](legends.md#sharing-and-merging-entries). Double-clicking an entry counts as two clicks, so it leaves the plot as it was, and it does not restore the limits of the axes as double-clicking elsewhere in the axes does.
 
 A hidden plot still takes part in the layout of its axes: its data still contributes to automatic axis limits and colour limits, and it keeps its colour. Hiding or showing a plot therefore never moves, rescales or recolours anything else.
 

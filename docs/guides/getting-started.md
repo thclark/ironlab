@@ -35,6 +35,8 @@ Axes are placed in tiles, numbered from zero starting at the top-left tile.
 - `fig.axes3(row, col)` does the same but makes the axes three-dimensional.
 - `fig.axes_span(row, col, row_span, col_span)` returns an axes whose top-left tile is `(row, col)` and makes it cover the given numbers of rows and columns.
 
+Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans.
+
 Each of these returns an `AxesMut` handle. The handle borrows the figure mutably, so it is held only while one axes is being built. An axes is referred to later, for example when linking axes, by the identifier returned from `ax.id()`.
 
 ## Plotting functions
@@ -273,7 +275,7 @@ Limits that are not set are chosen automatically from the data and rounded outwa
 
 ## Legends
 
-A legend lists every plot of an axes that has a display name, in the order the plots were added. It is shown with `legend` and hidden with `legend_off`.
+A legend lists every plot of an axes that has a display name, in the order the plots were added. It is shown inside the plot area with `legend` and hidden with `legend_off`.
 
 ```rust
 ax.plot(&t, &a).display_name("$S_1(x)$");
@@ -281,7 +283,7 @@ ax.plot(&t, &b).display_name("$S_2(x)$");
 ax.legend(LegendLocation::SouthEast);
 ```
 
-The location is one of `NorthEast`, `NorthWest`, `SouthEast`, `SouthWest`, `North`, `South`, `East`, `West`, or `Best`, which chooses the corner that overlaps the least data. In the viewer, clicking a legend entry hides or shows its plot, as described in [using the viewer](viewer.md#legend).
+The [legends guide](legends.md) describes the locations of a legend and how to arrange its entries in columns, and explains legend panels, which occupy tiles of the layout so that several axes can share one legend.
 
 ## Linking axes
 
@@ -389,7 +391,7 @@ for issue in &report.warnings {
 }
 ```
 
-The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list, and the errors and warnings that concern legends and the weights of the tile layout are described in the [legends guide](legends.md).
 
 ## Saving and loading
 
