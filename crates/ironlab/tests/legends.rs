@@ -153,6 +153,32 @@ fn legend_columns_creates_a_default_inside_legend_or_keeps_the_existing_one() {
     assert_eq!(legend.layout.columns, LegendEntryColumns::Count(3));
 }
 
+// WHY: an inside legend must be as fully configurable from the axes handle as a panel is
+// from its own, so that nobody has to edit the model directly for a row-major or unboxed
+// legend; like `legend_columns`, each setter keeps the other settings of an existing legend.
+#[test]
+fn legend_boxed_and_legend_order_set_the_inside_legend_and_keep_its_other_settings() {
+    let mut fig = Figure::new();
+    let id = fig
+        .axes(0, 0)
+        .legend(LegendLocation::North)
+        .legend_columns(LegendEntryColumns::Count(3))
+        .legend_order(LegendEntryOrder::RowMajor)
+        .legend_boxed(false)
+        .id();
+    assert_eq!(
+        axes(&fig, id).legend,
+        Some(Legend::Inside(InsideLegend {
+            location: LegendLocation::North,
+            boxed: false,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(3),
+                order: LegendEntryOrder::RowMajor,
+            },
+        }))
+    );
+}
+
 // WHY: the API must produce figures the validator accepts, with panel identifiers drawn
 // from the same allocator as axes and artists so that no two nodes share one; this is the
 // example of the legends guide, so it must also be free of warnings, every panel having
