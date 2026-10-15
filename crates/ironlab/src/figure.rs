@@ -9,6 +9,7 @@ use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
 use crate::error::Error;
+use crate::legend::PanelLegendMut;
 use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
@@ -81,6 +82,32 @@ impl Figure {
         self.ir.layout.rows = rows;
         self.ir.layout.cols = cols;
         self
+    }
+
+    /// Sets the relative heights of the rows of tiles, from the top.
+    ///
+    /// The rows share the height of the figure in proportion to their weights. A row
+    /// without a weight, because fewer weights than rows are given, has a weight of one,
+    /// so equal weights give the same layout as none. Weights that are not finite and
+    /// positive, or more weights than rows, are reported by
+    /// [`validate`](Figure::validate).
+    #[must_use]
+    pub fn row_weights(self, weights: impl IntoIterator<Item = f64>) -> Self {
+        let _ = weights.into_iter();
+        todo!("set the row weights of the tile layout")
+    }
+
+    /// Sets the relative widths of the columns of tiles, from the left.
+    ///
+    /// The columns share the width of the figure in proportion to their weights. A
+    /// column without a weight, because fewer weights than columns are given, has a
+    /// weight of one, so equal weights give the same layout as none. Weights that are not
+    /// finite and positive, or more weights than columns, are reported by
+    /// [`validate`](Figure::validate).
+    #[must_use]
+    pub fn col_weights(self, weights: impl IntoIterator<Item = f64>) -> Self {
+        let _ = weights.into_iter();
+        todo!("set the column weights of the tile layout")
     }
 
     /// Sets a named parameter that describes the figure, replacing any parameter of the
@@ -223,6 +250,33 @@ impl Figure {
             None => self.add_axes(cell),
         };
         AxesMut::new(&mut self.ir, id)
+    }
+
+    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
+    /// creating one in that single tile if there is none.
+    ///
+    /// A new panel centres its entries, has no box, and arranges its entries in as few
+    /// columns as fit its height. Axes list their entries in it once their legend names
+    /// it, with [`AxesMut::legend_in`] or [`PanelLegendMut::collect_all`].
+    pub fn panel_legend(&mut self, row: u32, col: u32) -> PanelLegendMut<'_> {
+        let _ = (row, col);
+        todo!("find or create the legend panel")
+    }
+
+    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
+    /// and makes it span the given numbers of rows and columns.
+    ///
+    /// A panel is created, with the defaults of [`panel_legend`](Figure::panel_legend),
+    /// when no panel has that top-left tile.
+    pub fn panel_legend_span(
+        &mut self,
+        row: u32,
+        col: u32,
+        row_span: u32,
+        col_span: u32,
+    ) -> PanelLegendMut<'_> {
+        let _ = (row, col, row_span, col_span);
+        todo!("find or create the spanning legend panel")
     }
 
     /// Links the limits of the given axes along a dimension, so that zooming or

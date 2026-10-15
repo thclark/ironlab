@@ -2,8 +2,8 @@
 
 use ironlab_ir::{
     Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
-    IndexedImage, InsideLegend, IrError, Legend, LegendLocation, Limits, Line, MappedImage,
-    NdArray, NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
+    IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns, LegendLocation, Limits, Line,
+    MappedImage, NdArray, NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
 };
 
 use crate::artists::{
@@ -528,6 +528,27 @@ impl AxesMut<'_> {
             ..InsideLegend::default()
         }));
         self
+    }
+
+    /// Lists the entries of the axes in the legend panel with the given identifier,
+    /// replacing any legend inside the plot area.
+    ///
+    /// The identifier is that of a panel created with [`Figure::panel_legend`] or
+    /// [`Figure::panel_legend_span`](crate::Figure::panel_legend_span); one that names no
+    /// panel is reported by [`validate`](crate::Figure::validate).
+    ///
+    /// [`Figure::panel_legend`]: crate::Figure::panel_legend
+    pub fn legend_in(&mut self, panel: NodeId) -> &mut Self {
+        let _ = panel;
+        todo!("point the legend of the axes at the panel")
+    }
+
+    /// Sets the number of columns of the legend inside the plot area, showing a legend
+    /// with the default location and box if the axes has none or lists its entries in a
+    /// legend panel.
+    pub fn legend_columns(&mut self, columns: LegendEntryColumns) -> &mut Self {
+        let _ = columns;
+        todo!("set the columns of the inside legend")
     }
 
     /// Hides the legend (MATLAB's `legend off`).

@@ -28,7 +28,7 @@ use ironlab_ir::{Figure, NodeId, Projection};
 use ironlab_text::TextEngine;
 
 use crate::display::{DisplayList, Item, Rect};
-use crate::hit::HitMap;
+use crate::hit::{HitMap, LegendOwner};
 
 /// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
 const MAX_TICK_FITTING_PASSES: usize = 10;
@@ -39,6 +39,30 @@ pub struct SceneWarning {
     /// The IR node the warning concerns, when it concerns a specific node.
     pub node: Option<NodeId>,
     pub message: String,
+    /// What the warning is about, for the warnings a front end or a test tells apart by more than their message.
+    pub kind: SceneWarningKind,
+}
+
+/// What a [`SceneWarning`] is about.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum SceneWarningKind {
+    /// A problem described by the message alone.
+    #[default]
+    General,
+    /// Two entries of one legend have the same display name but different samples, so that the reader cannot tell
+    /// which series each name stands for. Both entries are listed.
+    LegendNameClash {
+        /// The legend that lists both entries.
+        legend: LegendOwner,
+        /// The source text of the display name the entries share.
+        name: String,
+    },
+    /// The entries of a legend do not fit the area available to them, even in as many columns as fit its width, so
+    /// that the entries beyond that area are not drawn.
+    LegendOverflow {
+        /// The legend whose entries do not fit.
+        legend: LegendOwner,
+    },
 }
 
 /// The compiled form of a figure: everything a backend draws, and everything a front end needs to interact with it.
@@ -64,6 +88,7 @@ impl Ctx<'_> {
         self.warnings.push(SceneWarning {
             node,
             message: message.into(),
+            kind: SceneWarningKind::General,
         });
     }
 }

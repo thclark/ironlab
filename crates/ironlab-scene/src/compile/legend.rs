@@ -3,7 +3,7 @@
 use ironlab_ir::{Artist, ColorSpec, Legend, LegendLocation, LineStyle, NodeId, ScatterSize};
 
 use crate::display::{Item, Point, Rect, Rgba, Stroke};
-use crate::hit::{HitMap, LegendHit};
+use crate::hit::{HitMap, LegendHit, LegendOwner};
 use crate::maths::quiver;
 
 use super::Ctx;
@@ -130,8 +130,8 @@ pub(super) fn draw(
             .draw(origin, INK.with_alpha_factor(alpha), axes.id, out);
         let left = rect.x + m.pad / 2.0;
         hits.legend_entries.push(LegendHit {
-            axes: axes.id,
-            artist: entry.artist.id(),
+            legend: LegendOwner::Axes(axes.id),
+            targets: vec![(axes.id, entry.artist.id())],
             rect: Rect::new(left, y, rect.right() - m.pad / 2.0 - left, h),
         });
         y += h;

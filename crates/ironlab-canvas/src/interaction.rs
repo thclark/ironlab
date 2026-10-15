@@ -647,8 +647,12 @@ impl FigureState {
         })
     }
 
-    /// Sets `visible` on the artist whose legend entry is under `at`, to the opposite of what is displayed. Returns
-    /// whether the figure changed.
+    /// Sets `visible` on every artist the legend entry under `at` stands for, to the opposite of what is displayed.
+    /// Returns whether the figure changed.
+    ///
+    /// An entry is displayed as shown while any of its artists is visible, so a click on an entry hides all of its
+    /// artists unless every one of them is already hidden, in which case it shows them all. The first of the
+    /// artists is selected.
     pub fn click(&mut self, hit: &HitMap, at: Point) -> bool {
         let Some(entry) = hit.legend_entry_at(at) else {
             if let Some(axes) = hit.axes_at(at) {
@@ -656,17 +660,28 @@ impl FigureState {
             }
             return false;
         };
-        let Some((_, artist)) = self.composed.artist(entry.artist) else {
+        let artists: Vec<(NodeId, bool)> = entry
+            .targets
+            .iter()
+            .filter_map(|&(_, id)| {
+                let (_, artist) = self.composed.artist(id)?;
+                Some((id, artist.visible()))
+            })
+            .collect();
+        let Some(&(first, _)) = artists.first() else {
             return false;
         };
-        let (artist_id, visible) = (entry.artist, artist.visible());
-        self.select(Some(artist_id));
+        let shown = artists.iter().any(|&(_, visible)| visible);
+        self.select(Some(first));
         self.record(&Transaction {
-            edits: vec![Edit::Set {
-                node: artist_id,
-                path: path(&["visible"]),
-                value: Value::Bool(!visible),
-            }],
+            edits: artists
+                .iter()
+                .map(|&(id, _)| Edit::Set {
+                    node: id,
+                    path: path(&["visible"]),
+                    value: Value::Bool(!shown),
+                })
+                .collect(),
         })
     }
 

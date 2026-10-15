@@ -12,14 +12,14 @@ use ironlab_ir::{
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
-use ironlab_scene::hit::ImageHit;
+use ironlab_scene::hit::{ImageHit, LegendOwner};
 use ironlab_scene::maths::camera::{Camera, Plane, back_planes, fit_to_rect, normalise_box};
 use ironlab_scene::maths::colormap::{Lut, MAGMA, VIRIDIS, normalise, sample};
 
 use crate::common::{Fx, compile_figure, linspace, placement, range, rgb8, text, xy};
 use crate::probe::{
-    Leaf, assert_close, axes_hit, axis_maps, disjoint, from_source, inside, leaves, pixel,
-    points_close, x_tick_labels,
+    Leaf, assert_close, axes_hit, axis_maps, disjoint, entry_artist, from_source, inside, leaves,
+    pixel, points_close, x_tick_labels,
 };
 
 /// A distinct opaque colour for each pixel of an image of up to 25 rows and columns, from its row and column.
@@ -2406,10 +2406,10 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
         .hit_map
         .legend_entries
         .iter()
-        .filter(|e| e.axes == ax)
+        .filter(|e| e.legend == LegendOwner::Axes(ax))
         .collect();
     assert_eq!(
-        entries.iter().map(|e| e.artist).collect::<Vec<_>>(),
+        entries.iter().map(|e| entry_artist(e)).collect::<Vec<_>>(),
         vec![mapped_image, indexed, true_colour],
         "one entry per named image, in artist order"
     );
@@ -2420,7 +2420,7 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
         (true_colour, [85, 85, 85]),
     ];
     for (artist, colour) in expected {
-        let entry = entries.iter().find(|e| e.artist == artist).unwrap();
+        let entry = entries.iter().find(|e| entry_artist(e) == artist).unwrap();
         let patches = patches_in(&leaves, ax, entry.rect);
         assert_eq!(
             patches.len(),
@@ -2485,7 +2485,7 @@ fn the_best_legend_location_keeps_clear_of_an_image() {
             .hit_map
             .legend_entries
             .iter()
-            .filter(|e| e.axes == ax)
+            .filter(|e| e.legend == LegendOwner::Axes(ax))
             .map(|e| e.rect)
             .collect();
         assert_eq!(entries.len(), images.len(), "one entry per image");

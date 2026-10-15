@@ -19,7 +19,7 @@ use ironlab_ir::{
     Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Projection, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
-use ironlab_scene::hit::{HitMap, LegendHit};
+use ironlab_scene::hit::{HitMap, LegendHit, LegendOwner};
 use ironlab_viewer::panel::{FOOTER_ID, OBJECT_TREE_ID, revert_all_label};
 use ironlab_viewer::{PropertyPanel, property_panel};
 
@@ -589,10 +589,11 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
     HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![LegendHit {
-            axes: FLAT,
-            artist,
+            legend: LegendOwner::Axes(FLAT),
+            targets: vec![(FLAT, artist)],
             rect: Rect::new(60.0, 30.0, 20.0, 10.0),
         }],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     }
@@ -633,6 +634,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -661,6 +663,7 @@ fn the_selection_survives_a_gesture() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };

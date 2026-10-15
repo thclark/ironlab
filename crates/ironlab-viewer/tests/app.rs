@@ -10,9 +10,9 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use ironlab_canvas::interaction::{PixelDatatip, PixelValue};
 use ironlab_canvas::{FigureState, Origin, Problem, Tool, pixel_datatip_text};
 use ironlab_ir::{Dimension, NodeId};
-use ironlab_scene::SceneWarning;
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::HitMap;
+use ironlab_scene::{SceneWarning, SceneWarningKind};
 use ironlab_viewer::{ViewerApp, toolbar};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
@@ -57,10 +57,12 @@ fn scene_problems() -> Vec<Problem> {
         SceneWarning {
             node: Some(NodeId(2)),
             message: "unsupported command \\foo".to_owned(),
+            kind: SceneWarningKind::General,
         },
         SceneWarning {
             node: None,
             message: "non-positive data on a log axis was dropped".to_owned(),
+            kind: SceneWarningKind::General,
         },
     ]
     .iter()
@@ -73,6 +75,7 @@ fn panned_2d_state() -> FigureState {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };

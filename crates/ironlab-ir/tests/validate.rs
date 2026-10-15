@@ -2535,3 +2535,35 @@ fn a_legend_with_zero_columns_is_an_error_inside_a_plot_area_and_in_a_panel() {
         assert_eq!(fig.validate().errors, vec![], "{columns:?}");
     }
 }
+
+// Why: a legend panel that no axes points at, or whose axes have no artist with a display
+// name, has nothing to draw, which is a valid state (ADR 0012) but almost always a
+// mistake once the figure is finished; it is reported as the same warning as an artist
+// with nothing to draw, against the panel, and never as an error. A panel listing one
+// named artist is not reported.
+#[test]
+fn a_legend_panel_with_no_entries_has_nothing_to_draw() {
+    // No axes points at the panel.
+    let (fig, _, panel) = figure_with_a_legend_panel();
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::NothingToDraw, Some(panel)),
+        "a panel no axes points at: {report:?}"
+    );
+
+    // An axes points at the panel, but its only artist has no display name.
+    let (mut fig, _, panel) = figure_with_a_legend_panel();
+    fig.axes[0].legend = Some(Legend::Panel(panel));
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::NothingToDraw, Some(panel)),
+        "a panel whose axes has no named artist: {report:?}"
+    );
+
+    // Naming the artist gives the panel an entry.
+    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    let report = fig.validate();
+    assert_eq!(report.warnings, vec![], "a panel with an entry");
+}
