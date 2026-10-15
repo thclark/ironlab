@@ -1,6 +1,6 @@
 //! Legends: entry layout, placement inside the plot area, samples and greyed entries of hidden artists.
 
-use ironlab_ir::{Artist, ColorSpec, LegendLocation, LineStyle, NodeId, ScatterSize};
+use ironlab_ir::{Artist, ColorSpec, Legend, LegendLocation, LineStyle, NodeId, ScatterSize};
 
 use crate::display::{Item, Point, Rect, Rgba, Stroke};
 use crate::hit::{HitMap, LegendHit};
@@ -60,7 +60,11 @@ pub(super) fn draw(
     hits: &mut HitMap,
 ) {
     let axes = input.axes;
-    let Some(legend) = axes.legend else { return };
+    // Entries listed in a legend panel are drawn with the panel, not here. The layout of
+    // the entries is not yet applied: an inside legend lists them in one column.
+    let Some(Legend::Inside(legend)) = axes.legend else {
+        return;
+    };
     let fs = ctx.font_size;
     let m = Metrics::new(fs);
     let entries: Vec<Entry> = input
@@ -159,6 +163,7 @@ fn place(
         LegendLocation::South => at(cx, bottom),
         LegendLocation::East => at(right, cy),
         LegendLocation::West => at(left, cy),
+        LegendLocation::Center => at(cx, cy),
         LegendLocation::Best => {
             let candidates = [
                 at(right, top),

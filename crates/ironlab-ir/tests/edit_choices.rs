@@ -13,12 +13,15 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 18] = [
+const WITH_CHOICES: [ValueType; 21] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
     ValueType::ColormapName,
+    ValueType::Legend,
     ValueType::LegendLocation,
+    ValueType::LegendEntryColumns,
+    ValueType::LegendEntryOrder,
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
@@ -483,7 +486,29 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::LegendLocation(LegendLocation::South),
             Value::LegendLocation(LegendLocation::East),
             Value::LegendLocation(LegendLocation::West),
+            Value::LegendLocation(LegendLocation::Center),
             Value::LegendLocation(LegendLocation::Best),
+        ],
+    );
+    covered(
+        ValueType::Legend,
+        vec![
+            Value::Legend(Legend::Inside(InsideLegend::default())),
+            Value::Legend(Legend::Panel(NodeId(7))),
+        ],
+    );
+    covered(
+        ValueType::LegendEntryColumns,
+        vec![
+            Value::LegendEntryColumns(LegendEntryColumns::Auto),
+            Value::LegendEntryColumns(LegendEntryColumns::Count(5)),
+        ],
+    );
+    covered(
+        ValueType::LegendEntryOrder,
+        vec![
+            Value::LegendEntryOrder(LegendEntryOrder::ColumnMajor),
+            Value::LegendEntryOrder(LegendEntryOrder::RowMajor),
         ],
     );
     covered(
@@ -849,4 +874,40 @@ fn the_choices_of_a_type_alone_are_all_available() {
             "{value_type:?} marks a choice unavailable with no property to judge it at"
         );
     }
+}
+
+// Why: listing the entries of an axes in a legend panel that the figure does not have
+// would list them nowhere, which validation refuses, so the editor must show that choice
+// disabled with its reason rather than offer a change that fails; a panel the figure has,
+// and the legend inside the plot area, stay available. Switching between the two forms
+// must keep what the replaced value holds, so that switching back loses nothing.
+#[test]
+fn a_legend_panel_choice_is_available_only_for_a_panel_the_figure_has() {
+    let fig = common::kitchen_sink_figure();
+    let named = fig
+        .axes
+        .iter()
+        .find(|axes| matches!(axes.legend, Some(Legend::Panel(_))))
+        .expect("the kitchen-sink figure has an axes whose legend names a panel");
+    let offered = property_choices(&fig, named.id, &path("legend"));
+    assert_eq!(
+        labels(&offered),
+        ["Inside the plot area", "In a legend panel"]
+    );
+    assert!(offered.iter().all(Choice::available), "{offered:?}");
+    assert_eq!(offered[1].value, Value::Legend(named.legend.unwrap()));
+
+    let inside = fig
+        .axes
+        .iter()
+        .find(|axes| matches!(axes.legend, Some(Legend::Inside(_))))
+        .expect("the kitchen-sink figure has an inside legend");
+    let offered = property_choices(&fig, inside.id, &path("legend"));
+    assert_eq!(offered[0].value, Value::Legend(inside.legend.unwrap()));
+    assert!(offered[0].available());
+    // With no panel to keep, the choice names the fallback panel 0, which the figure
+    // (whose identifiers start at 1) does not have.
+    assert_eq!(offered[1].value, Value::Legend(Legend::Panel(NodeId(0))));
+    assert!(fig.panel_legend(NodeId(0)).is_none());
+    assert!(!offered[1].available(), "{offered:?}");
 }

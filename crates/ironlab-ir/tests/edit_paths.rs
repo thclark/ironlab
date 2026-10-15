@@ -244,11 +244,18 @@ fn collect_paths(
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
     let read_only: &[&str] = &["id"];
-    let cases: [(NodeKind, &str, &[&str]); 10] = [
+    let cases: [(NodeKind, &str, &[&str]); 11] = [
         (
             NodeKind::Figure,
             "Figure",
-            &["schema_version", "id", "data", "axes", "provenance"],
+            &[
+                "schema_version",
+                "id",
+                "data",
+                "axes",
+                "provenance",
+                "panel_legends",
+            ],
         ),
         (NodeKind::Axes, "Axes", &["id", "artists"]),
         (NodeKind::Line, "Line", read_only),
@@ -259,6 +266,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Image, "Image", read_only),
         (NodeKind::IndexedImage, "IndexedImage", read_only),
         (NodeKind::MappedImage, "MappedImage", read_only),
+        (NodeKind::PanelLegend, "PanelLegend", read_only),
     ];
     for (kind, message, skip) in cases {
         let descriptor = pool
@@ -372,7 +380,7 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
         .expect("the generated schema decodes a figure");
     let mut all = Vec::new();
     let mut leaves = Leaves::new();
-    flatten_wire(&figure, "", &["axes"], &mut leaves);
+    flatten_wire(&figure, "", &["axes", "panel_legends"], &mut leaves);
     all.push(leaves);
     let axes_field = figure.get_field_by_name("axes").expect("Figure.axes");
     let WireValue::List(axes_list) = &*axes_field else {
@@ -404,6 +412,20 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
             flatten_wire(fields, "", &[], &mut leaves);
             all.push(leaves);
         }
+    }
+    let panels_field = figure
+        .get_field_by_name("panel_legends")
+        .expect("Figure.panel_legends");
+    let WireValue::List(panels) = &*panels_field else {
+        panic!("Figure.panel_legends is a list");
+    };
+    for panel in panels {
+        let WireValue::Message(panel) = panel else {
+            panic!("a legend panel is a message");
+        };
+        let mut leaves = Leaves::new();
+        flatten_wire(panel, "", &[], &mut leaves);
+        all.push(leaves);
     }
     all
 }
@@ -595,7 +617,7 @@ fn a_path_through_an_absent_optional_value_is_an_absent_value() {
     let image = fig.axes[6].artists[0].id(); // no pixel ranges
     for (node, at, value) in [
         (untitled, "title.content", Value::String("t".to_owned())),
-        (untitled, "legend.boxed", Value::Bool(true)),
+        (untitled, "legend.inside.boxed", Value::Bool(true)),
         (
             unnamed,
             "display_name.content",

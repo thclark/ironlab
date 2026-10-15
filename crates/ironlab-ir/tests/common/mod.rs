@@ -199,7 +199,7 @@ pub fn single_line_figure() -> (Figure, NodeId, NodeId) {
 /// `[100k, 100k + 1]` on z, so that every limit in the figure is distinguishable.
 pub fn row_of_axes(n: u32) -> (Figure, Vec<NodeId>) {
     let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout { rows: 1, cols: n };
+    b.fig.layout = TileLayout::new(1, n);
     let ids: Vec<NodeId> = (0..n)
         .map(|k| {
             let id = b.axes2d(0, k);
@@ -238,7 +238,10 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// figure parameter of every kind, labels that are not in alphabetical order, and images
 /// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
 /// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
-/// absent, ascending and mirrored.
+/// absent, ascending and mirrored. Its tile layout has weights for some of its rows and
+/// all of its columns, and its last row holds an axes whose legend names a legend panel
+/// and two legend panels, which between them and the inside legends use every variant of
+/// the layout of legend entries.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -248,7 +251,12 @@ pub fn kitchen_sink_figure() -> Figure {
     };
     b.fig.font_size_pt = 8.5;
     b.fig.background = Color::rgba(1.0, 1.0, 1.0, 128.0 / 255.0);
-    b.fig.layout = TileLayout { rows: 3, cols: 4 };
+    // Fewer row weights than rows, so that a missing weight is exercised.
+    b.fig.layout = TileLayout {
+        row_weights: vec![1.0, 1.5, 0.75],
+        col_weights: vec![2.0, 1.0, 1.0, 0.5],
+        ..TileLayout::new(4, 4)
+    };
     b.fig.provenance = Provenance {
         ironlab_version: "0.1.0".to_owned(),
         typesetter: "latex-rust".to_owned(),
@@ -347,10 +355,11 @@ pub fn kitchen_sink_figure() -> Figure {
             min: -1.0,
             max: 1.0,
         };
-        a.legend = Some(Legend {
+        a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::NorthEast,
             boxed: false,
-        });
+            ..InsideLegend::default()
+        }));
     }
     for (k, shape) in shapes.into_iter().enumerate() {
         let id = b.node();
@@ -380,10 +389,11 @@ pub fn kitchen_sink_figure() -> Figure {
 
     // Axes 2: 2D scatter with both size and both colour variants.
     let scatters = b.axes2d(0, 1);
-    b.axes(scatters).legend = Some(Legend {
+    b.axes(scatters).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthWest,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     b.axes(scatters).colormap = ColormapName::Cividis;
     let sizes = b.vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     let colours = b.vector(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
@@ -424,10 +434,11 @@ pub fn kitchen_sink_figure() -> Figure {
 
     // Axes 3: 2D contours on both grid kinds, both level kinds, filled and unfilled.
     let contours = b.axes2d(0, 2);
-    b.axes(contours).legend = Some(Legend {
+    b.axes(contours).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::SouthEast,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     b.axes(contours).colormap = ColormapName::Magma;
     let id = b.node();
     b.push(
@@ -460,10 +471,11 @@ pub fn kitchen_sink_figure() -> Figure {
 
     // Axes 4: 2D quivers with automatic and factor scaling.
     let quivers = b.axes2d(0, 3);
-    b.axes(quivers).legend = Some(Legend {
+    b.axes(quivers).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::SouthWest,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     b.axes(quivers).colormap = ColormapName::Inferno;
     let id = b.node();
     b.push(
@@ -512,10 +524,11 @@ pub fn kitchen_sink_figure() -> Figure {
             limits: Limits::Auto,
             grid: true,
         };
-        a.legend = Some(Legend {
+        a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::North,
             boxed: true,
-        });
+            ..InsideLegend::default()
+        }));
         a.colormap = ColormapName::Plasma;
     }
     let id = b.node();
@@ -569,10 +582,11 @@ pub fn kitchen_sink_figure() -> Figure {
 
     // Axes 6: 3D surfaces in surf and mesh styles on both grid kinds.
     let surfaces = b.axes3d(1, 1);
-    b.axes(surfaces).legend = Some(Legend {
+    b.axes(surfaces).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::South,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     b.axes(surfaces).colormap = ColormapName::Coolwarm;
     let id = b.node();
     b.push(
@@ -682,10 +696,11 @@ pub fn kitchen_sink_figure() -> Figure {
     // violate). The west axes holds a colour-mapped image with both pixel ranges and a
     // lenient policy of each kind.
     let east = b.axes2d(1, 2);
-    b.axes(east).legend = Some(Legend {
+    b.axes(east).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::East,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     b.axes(east).colormap = ColormapName::Gray;
     let id = b.node();
     b.push(
@@ -719,10 +734,11 @@ pub fn kitchen_sink_figure() -> Figure {
         }),
     );
     let west = b.axes2d(1, 3);
-    b.axes(west).legend = Some(Legend {
+    b.axes(west).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::West,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     let id = b.node();
     b.push(
         west,
@@ -758,14 +774,58 @@ pub fn kitchen_sink_figure() -> Figure {
             row_span: 1,
             col_span: 3,
         };
-        a.legend = Some(Legend {
+        a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::Best,
             boxed: true,
-        });
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(3),
+                order: LegendEntryOrder::RowMajor,
+            },
+        }));
     }
 
     // Axes 10: an axes without a legend or title.
     let _plain = b.axes2d(2, 3);
+
+    // Axes 11 and two legend panels: an axes that lists its entries in a panel, a boxed
+    // panel with a fixed number of columns filled row by row, and an unboxed panel with
+    // automatic columns filled column by column, centred in a cell that spans two columns.
+    let listed = b.axes2d(3, 0);
+    let fixed_panel = b.node();
+    let auto_panel = b.node();
+    b.axes(listed).legend = Some(Legend::Panel(fixed_panel));
+    b.fig.panel_legends = vec![
+        PanelLegend {
+            id: fixed_panel,
+            cell: Cell {
+                row: 3,
+                col: 1,
+                row_span: 1,
+                col_span: 1,
+            },
+            align: LegendLocation::SouthWest,
+            boxed: true,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(2),
+                order: LegendEntryOrder::RowMajor,
+            },
+        },
+        PanelLegend {
+            id: auto_panel,
+            cell: Cell {
+                row: 3,
+                col: 2,
+                row_span: 1,
+                col_span: 2,
+            },
+            align: LegendLocation::Center,
+            boxed: false,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Auto,
+                order: LegendEntryOrder::ColumnMajor,
+            },
+        },
+    ];
 
     b.fig.links = vec![
         AxisLink {
@@ -798,7 +858,7 @@ pub fn kitchen_sink_figure() -> Figure {
 /// limits, which cannot violate them, so the figure validates without issues.
 pub fn image_variants_figure() -> Figure {
     let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout { rows: 1, cols: 2 };
+    b.fig.layout = TileLayout::new(1, 2);
     let solid = b.axes3d(0, 0);
     let flat = b.axes2d(0, 1);
 
@@ -962,6 +1022,12 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
     visit("size.width_mm".into(), &mut fig.size.width_mm);
     visit("size.height_mm".into(), &mut fig.size.height_mm);
     visit("font_size_pt".into(), &mut fig.font_size_pt);
+    for (i, weight) in fig.layout.row_weights.iter_mut().enumerate() {
+        visit(format!("layout.row_weights[{i}]"), weight);
+    }
+    for (i, weight) in fig.layout.col_weights.iter_mut().enumerate() {
+        visit(format!("layout.col_weights[{i}]"), weight);
+    }
     for (name, parameter) in fig.parameters.iter_mut() {
         if let Parameter::Number(value) = parameter {
             visit(format!("parameters[{name:?}]"), value);

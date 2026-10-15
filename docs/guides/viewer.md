@@ -180,7 +180,7 @@ The panel has three parts: the objects of the figure at the top, the properties 
 
 ### Selecting an object
 
-The upper part lists the figure, its axes in drawing order, and the plots of each axes in drawing order, as a tree that can be collapsed. Every row names the kind of the object first and the name the object carries after it in brackets, so that "Figure (A damped oscillator)", "Axes (Speed)" and "Line ($\sin \omega t$)" each say what they are as well as which one they are. The name in brackets is the title of the figure or of the axes, or the display name of the plot — the name its legend entry carries — written as its source, because the tree does not typeset mathematics. An axes with no title is named by the cell it occupies, as "Axes (row 0, col 1)", which is what tells two untitled axes apart. A figure with no title and a plot with no display name are named by their kind alone. A hidden plot is greyed, so a plot missing from the canvas can be found and shown again.
+The upper part lists the figure, its axes in drawing order, the plots of each axes in drawing order, and then its legend panels, as a tree that can be collapsed. Every row names the kind of the object first and the name the object carries after it in brackets, so that "Figure (A damped oscillator)", "Axes (Speed)" and "Line ($\sin \omega t$)" each say what they are as well as which one they are. The name in brackets is the title of the figure or of the axes, or the display name of the plot — the name its legend entry carries — written as its source, because the tree does not typeset mathematics. An axes with no title is named by the cell it occupies, as "Axes (row 0, col 1)", which is what tells two untitled axes apart, and a legend panel is always named by its cell, as "Legend panel (row 2, col 0)". A figure with no title and a plot with no display name are named by their kind alone. A hidden plot is greyed, so a plot missing from the canvas can be found and shown again.
 
 Clicking a row selects that object and shows its properties below. Clicking inside an axes on the canvas selects that axes, and clicking a legend entry selects its plot as well as hiding or showing it. The canvas cannot pick an individual plot ([issue #1](https://github.com/thclark/ironlab/issues/1)), so the tree is the way to reach one. No gesture changes the selection: panning, zooming and rotating leave the panel showing what it was showing.
 
@@ -230,10 +230,11 @@ from what it draws each time it is opened.
 
 The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes sits in it, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure.
 
-**A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Four kinds of property are shown this way.
+**A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Five kinds of property are shown this way.
 
 - **The data a plot draws**, shown as the array it names and that array's shape.
-- **The rows and columns of the figure's tile layout, and the cell each axes occupies within it.** Where an axes sits is part of how the figure is arranged, which the program that builds it defines.
+- **The rows and columns of the figure's tile layout, and the cell each axes or legend panel occupies within it.** Where an axes or a legend panel sits is part of how the figure is arranged, which the program that builds it defines. The relative sizes of the rows and columns are not part of that arrangement, and stay editable.
+- **The legend panel in which an axes lists its entries**, shown as the identifier of the panel, because which axes share a legend is part of how the figure is arranged.
 - **The groups of axes whose limits are linked**, shown as a count.
 - **The marker size of a scatter**, because a scatter sizes its markers by its own **size**, which overrides it. Change **size** instead, to give every marker the same size or to take each marker's size from an array. Every other plot draws its markers at the size in its marker style, which stays editable.
 

@@ -51,8 +51,8 @@ use prost_reflect::{
 };
 
 /// The modules of the IR whose types appear on the wire, each of which has one file.
-const MODULES: [&str; 8] = [
-    "artist", "axes", "data", "edit", "figure", "link", "style", "text",
+const MODULES: [&str; 10] = [
+    "artist", "axes", "data", "edit", "figure", "layout", "legend", "link", "style", "text",
 ];
 
 /// Resolves imports from the generated files held in memory.

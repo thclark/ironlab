@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3.0",
+  "schema_version": "0.4.0",
   "id": 1,
   "title": { "content": "Decay of $e^{-t}$", "interpreter": "latex" },
   "size": { "width_mm": 120.0, "height_mm": 80.0 },
@@ -38,7 +38,14 @@
       "box": true,
       "colormap": "viridis",
       "clim": { "type": "auto" },
-      "legend": { "location": "north_east", "boxed": true },
+      "legend": {
+        "type": "inside",
+        "value": {
+          "location": "north_east",
+          "boxed": true,
+          "layout": { "columns": { "type": "count", "value": 1 }, "order": "column_major" }
+        }
+      },
       "artists": [
         {
           "type": "line",

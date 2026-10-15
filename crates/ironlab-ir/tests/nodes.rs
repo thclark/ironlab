@@ -14,6 +14,7 @@ fn all_node_ids(fig: &Figure) -> BTreeSet<NodeId> {
         ids.insert(axes.id);
         ids.extend(axes.artists.iter().map(Artist::id));
     }
+    ids.extend(fig.panel_legends.iter().map(|panel| panel.id));
     ids
 }
 
@@ -149,4 +150,38 @@ fn artist_visibility_toggle_changes_only_that_artist_and_persists() {
     assert!(reopened.artist(hidden).unwrap().1.visible());
     assert!(!reopened.artist(shown).unwrap().1.visible());
     assert_eq!(reopened, expected);
+}
+
+// Why: a legend panel is a node, so an identifier allocated after a figure is loaded must
+// lie above a panel's identifier even when the panel holds the largest identifier of the
+// figure; otherwise a new axes could take the identifier of a panel that legends name.
+#[test]
+fn allocation_after_loading_lies_above_the_identifiers_of_legend_panels() {
+    let mut fig = kitchen_sink_figure();
+    let largest = fig.panel_legends[1].id.0 + 1_000;
+    fig.panel_legends[1].id = NodeId(largest);
+    let mut loaded = Figure::from_json(&fig.to_json()).unwrap();
+    assert!(loaded.alloc_node_id().0 > largest);
+    let mut loaded = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
+    assert!(loaded.alloc_node_id().0 > largest);
+}
+
+// Why: legends name a legend panel by identifier, so the lookup must find exactly that
+// panel, and must not return one for the identifier of an axes, an artist or the figure.
+#[test]
+fn legend_panel_lookup_finds_only_legend_panels() {
+    let mut fig = kitchen_sink_figure();
+    let target = fig.panel_legends[1].id;
+    assert_eq!(fig.panel_legend(target).map(|panel| panel.id), Some(target));
+    for other in [
+        fig.id,
+        fig.axes[0].id,
+        fig.axes[0].artists[0].id(),
+        NodeId(u64::MAX),
+    ] {
+        assert!(fig.panel_legend(other).is_none(), "{other:?}");
+    }
+
+    fig.panel_legend_mut(target).unwrap().boxed = true;
+    assert!(fig.panel_legends[1].boxed);
 }

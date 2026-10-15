@@ -21,7 +21,7 @@ proto_file! {
         oneof kind: EditKind {
             /// Replaces the value of a property of a node.
             Set(EditSet) set_property = 1;
-            /// Inserts an axes or an artist, with its subtree.
+            /// Inserts an axes, an artist or a legend panel, with its subtree.
             Insert(EditInsert) insert_node = 2;
             /// Removes a node and its subtree.
             Remove(EditRemove) remove_node = 3;
@@ -47,10 +47,11 @@ proto_file! {
         message Value value = 3;
     }
 
-    /// Inserts an axes into the figure, or an artist into an axes, with its subtree.
+    /// Inserts an axes or a legend panel into the figure, or an artist into an axes, with
+    /// its subtree.
     message EditInsert {
-        /// The identifier of the parent: the figure for an axes, or an axes for an
-        /// artist; it must be present.
+        /// The identifier of the parent: the figure for an axes or a legend panel, or an
+        /// axes for an artist; it must be present.
         optional uint64 parent = 1;
         /// The position in the parent's list; absent to append.
         optional uint32 index = 2;
@@ -60,13 +61,14 @@ proto_file! {
 
     /// Removes a node and its subtree.
     message EditRemove {
-        /// The identifier of the axes or artist; it must be present.
+        /// The identifier of the axes, artist or legend panel; it must be present.
         optional uint64 node = 1;
     }
 
-    /// Moves an axes within the figure, or an artist within its axes or to another axes.
+    /// Moves an axes or a legend panel within the figure, or an artist within its axes
+    /// or to another axes.
     message EditMove {
-        /// The identifier of the axes or artist; it must be present.
+        /// The identifier of the axes, artist or legend panel; it must be present.
         optional uint64 node = 1;
         /// The identifier of the new parent; it must be present.
         optional uint64 parent = 2;
@@ -108,6 +110,8 @@ proto_file! {
             Axes(Axes) axes = 1;
             /// An artist.
             Artist(Artist) artist = 2;
+            /// A legend panel.
+            PanelLegend(PanelLegend) panel_legend = 3;
         }
     }
 
@@ -197,6 +201,17 @@ proto_file! {
             OutOfRange(ValueOutOfRange) out_of_range_value = 40;
             /// The labels of a figure.
             Strings(ValueStrings) strings_value = 41;
+            /// A legend drawn inside the plot area of its axes.
+            InsideLegend(ValueInsideLegend) inside_legend_value = 42;
+            /// How the entries of a legend are arranged in columns.
+            LegendEntryLayout(ValueLegendEntryLayout) legend_entry_layout_value = 43;
+            /// The number of columns of a legend.
+            LegendEntryColumns(ValueLegendEntryColumns) legend_entry_columns_value = 44;
+            /// The order in which the entries of a legend fill its columns.
+            LegendEntryOrder(ValueLegendEntryOrder) legend_entry_order_value = 45;
+            /// A reference to a node, such as the legend panel named by the legend of an
+            /// axes.
+            NodeId(ValueNodeId) node_id_value = 46;
         }
     }
 
@@ -351,6 +366,36 @@ proto_file! {
     message ValueLegendLocation {
         /// The location; it must be specified.
         enum LegendLocation value = 1;
+    }
+
+    /// An inside legend value.
+    message ValueInsideLegend {
+        /// The inside legend; it must be present.
+        message InsideLegend value = 1;
+    }
+
+    /// A legend entry layout value.
+    message ValueLegendEntryLayout {
+        /// The layout; it must be present.
+        message LegendEntryLayout value = 1;
+    }
+
+    /// A legend columns value.
+    message ValueLegendEntryColumns {
+        /// The number of columns; it must be present.
+        message LegendEntryColumns value = 1;
+    }
+
+    /// A legend entry order value.
+    message ValueLegendEntryOrder {
+        /// The order; it must be specified.
+        enum LegendEntryOrder value = 1;
+    }
+
+    /// A reference to a node.
+    message ValueNodeId {
+        /// The node identifier; it must be present.
+        optional uint64 value = 1;
     }
 
     /// A colour specification value.

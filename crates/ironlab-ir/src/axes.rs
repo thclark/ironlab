@@ -1,10 +1,12 @@
-//! Axes, their coordinate axes, projection and legend.
+//! Axes, their coordinate axes and projection.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::Artist;
 use crate::ids::NodeId;
+use crate::layout::Cell;
+use crate::legend::Legend;
 use crate::text::Text;
 
 /// A plotting region placed in one or more cells of the figure's tile layout.
@@ -53,32 +55,6 @@ impl Default for Axes {
             clim: Limits::Auto,
             legend: None,
             artists: Vec::new(),
-        }
-    }
-}
-
-/// A rectangular block of cells in the figure's tile layout.
-///
-/// Rows and columns are numbered from zero, starting at the top-left cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct Cell {
-    /// The zero-based index of the top row occupied.
-    pub row: u32,
-    /// The zero-based index of the leftmost column occupied.
-    pub col: u32,
-    /// The number of rows occupied; at least one.
-    pub row_span: u32,
-    /// The number of columns occupied; at least one.
-    pub col_span: u32,
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Self {
-            row: 0,
-            col: 0,
-            row_span: 1,
-            col_span: 1,
         }
     }
 }
@@ -189,47 +165,4 @@ pub enum ColormapName {
     Coolwarm,
     /// The linear black–white colormap.
     Gray,
-}
-
-/// A legend listing the artists of an axes that have a display name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct Legend {
-    /// Where the legend is placed inside the plot area.
-    pub location: LegendLocation,
-    /// Whether the legend is drawn with a background and outline.
-    pub boxed: bool,
-}
-
-impl Default for Legend {
-    fn default() -> Self {
-        Self {
-            location: LegendLocation::NorthEast,
-            boxed: true,
-        }
-    }
-}
-
-/// The placement of a legend inside the plot area.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LegendLocation {
-    /// The top-right corner.
-    #[default]
-    NorthEast,
-    /// The top-left corner.
-    NorthWest,
-    /// The bottom-right corner.
-    SouthEast,
-    /// The bottom-left corner.
-    SouthWest,
-    /// The centre of the top edge.
-    North,
-    /// The centre of the bottom edge.
-    South,
-    /// The centre of the right edge.
-    East,
-    /// The centre of the left edge.
-    West,
-    /// The corner that overlaps the least data.
-    Best,
 }

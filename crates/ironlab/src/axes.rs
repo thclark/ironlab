@@ -2,8 +2,8 @@
 
 use ironlab_ir::{
     Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
-    IndexedImage, IrError, Legend, LegendLocation, Limits, Line, MappedImage, NdArray, NodeId,
-    Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
+    IndexedImage, InsideLegend, IrError, Legend, LegendLocation, Limits, Line, MappedImage,
+    NdArray, NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
 };
 
 use crate::artists::{
@@ -523,10 +523,10 @@ impl AxesMut<'_> {
     /// Shows a boxed legend of every artist that has a display name, at the given
     /// location.
     pub fn legend(&mut self, location: LegendLocation) -> &mut Self {
-        self.axes().legend = Some(Legend {
+        self.axes().legend = Some(Legend::Inside(InsideLegend {
             location,
-            ..Legend::default()
-        });
+            ..InsideLegend::default()
+        }));
         self
     }
 

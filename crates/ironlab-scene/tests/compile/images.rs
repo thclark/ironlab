@@ -7,8 +7,8 @@
 //! from the public camera for a 3D axes.
 
 use ironlab_ir::{
-    Color, ColormapName, DataId, Dimension, ImagePlane, Legend, LegendLocation, Limits, NodeId,
-    OutOfRange, Scale, ScatterColor, View3d,
+    Color, ColormapName, DataId, Dimension, ImagePlane, InsideLegend, Legend, LegendLocation,
+    Limits, NodeId, OutOfRange, Scale, ScatterColor, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
@@ -2396,10 +2396,11 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
         xy(range(6.0, 7.0), None),
         |m| m.display_name = text("Pixels"),
     );
-    fx.ax(ax).legend = Some(Legend {
+    fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthEast,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     let scene = compile_figure(&fx.build());
     let entries: Vec<_> = scene
         .hit_map
@@ -2474,10 +2475,11 @@ fn the_best_legend_location_keeps_clear_of_an_image() {
             min: 0.0,
             max: 10.0,
         };
-        axes.legend = Some(Legend {
+        axes.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::Best,
             boxed: true,
-        });
+            ..InsideLegend::default()
+        }));
         let scene = compile_figure(&fx.build());
         let entries: Vec<Rect> = scene
             .hit_map

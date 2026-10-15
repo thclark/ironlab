@@ -10,6 +10,8 @@ use crate::axes::{Axes, Axis, Limits, Projection, Scale};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
+use crate::layout::Cell;
+use crate::legend::{Legend, LegendEntryColumns, LegendEntryLayout};
 use crate::link::Dimension;
 
 /// The outcome of validating a figure.
@@ -61,8 +63,17 @@ pub enum IssueKind {
     DanglingLink,
     /// Two nodes share an identifier.
     DuplicateNodeId,
-    /// An axes cell lies outside the figure's tile layout or has a zero span.
+    /// The cell of an axes or of a legend panel lies outside the figure's tile layout or
+    /// has a zero span.
     CellOutOfLayout,
+    /// The legend of an axes names a legend panel that the figure does not have.
+    DanglingPanelLegend,
+    /// The tile layout has more row weights than rows or more column weights than
+    /// columns, or a weight that is not a finite positive number.
+    InvalidLayoutWeights,
+    /// A legend, inside a plot area or in a panel, has a fixed number of columns of
+    /// zero.
+    InvalidLegendColumns,
     /// The figure's width, height or base font size is not a finite positive number.
     InvalidSize,
     /// Manual limits (of a coordinate axis or of the colour limits) are not finite,
@@ -118,8 +129,11 @@ impl Figure {
     /// and shapes within an artist (for an image, pixels that are not an array of shape
     /// `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional),
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), links to
-    /// identifiers that are not axes, duplicate node identifiers, cells outside the tile
-    /// layout, a non-positive figure size or font size, invalid manual limits, invalid
+    /// identifiers that are not axes, duplicate node identifiers, cells of axes and
+    /// legend panels outside the tile layout, layout weights that are too many or not
+    /// finite and positive, legends that name a legend panel the figure does not have,
+    /// legends with a fixed number of zero columns, a non-positive figure size or font
+    /// size, invalid manual limits, invalid
     /// contour levels, parameters with an empty name or a non-finite number, labels that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
@@ -154,6 +168,11 @@ impl Figure {
             report: ValidationReport::default(),
         };
         validator.check_figure();
+        validator.check_layout_weights();
+        for panel in &self.panel_legends {
+            validator.check_cell(panel.id, panel.cell);
+            validator.check_legend_entry_layout(panel.id, panel.layout);
+        }
         for axes in &self.axes {
             validator.check_axes(axes);
             for artist in &axes.artists {
@@ -300,22 +319,81 @@ impl Validator<'_> {
         }
     }
 
-    /// Checks the cell and limits of an axes.
-    fn check_axes(&mut self, axes: &Axes) {
-        let (cell, layout) = (axes.cell, self.figure.layout);
+    /// Checks that the tile layout has no more weights than rows and columns, and that
+    /// every weight is a finite positive number.
+    fn check_layout_weights(&mut self) {
+        let figure = self.figure;
+        let layout = &figure.layout;
+        let lists = [
+            ("row", &layout.row_weights, layout.rows),
+            ("column", &layout.col_weights, layout.cols),
+        ];
+        for (name, weights, count) in lists {
+            if weights.len() > count as usize {
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidLayoutWeights,
+                    format!(
+                        "the tile layout has {} {name} weights but only {count} {name}s",
+                        weights.len()
+                    ),
+                );
+            }
+            for (index, &weight) in weights.iter().enumerate() {
+                if !(weight.is_finite() && weight > 0.0) {
+                    self.error(
+                        Some(figure.id),
+                        IssueKind::InvalidLayoutWeights,
+                        format!(
+                            "the weight {weight} of {name} {index} is not a finite positive number"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Checks that a cell of an axes or a legend panel lies within the tile layout.
+    fn check_cell(&mut self, node: NodeId, cell: Cell) {
+        let layout = &self.figure.layout;
         let outside = cell.row_span == 0
             || cell.col_span == 0
             || u64::from(cell.row) + u64::from(cell.row_span) > u64::from(layout.rows)
             || u64::from(cell.col) + u64::from(cell.col_span) > u64::from(layout.cols);
         if outside {
-            self.error(
-                Some(axes.id),
-                IssueKind::CellOutOfLayout,
-                format!(
-                    "the cell {cell:?} does not lie within the {} × {} tile layout",
-                    layout.rows, layout.cols
-                ),
+            let message = format!(
+                "the cell {cell:?} does not lie within the {} × {} tile layout",
+                layout.rows, layout.cols
             );
+            self.error(Some(node), IssueKind::CellOutOfLayout, message);
+        }
+    }
+
+    /// Checks that the layout of the entries of a legend has at least one column.
+    fn check_legend_entry_layout(&mut self, node: NodeId, layout: LegendEntryLayout) {
+        if layout.columns == LegendEntryColumns::Count(0) {
+            self.error(
+                Some(node),
+                IssueKind::InvalidLegendColumns,
+                "the legend has a fixed number of columns of zero".to_owned(),
+            );
+        }
+    }
+
+    /// Checks the cell, legend and limits of an axes.
+    fn check_axes(&mut self, axes: &Axes) {
+        self.check_cell(axes.id, axes.cell);
+
+        match axes.legend {
+            Some(Legend::Inside(inside)) => self.check_legend_entry_layout(axes.id, inside.layout),
+            Some(Legend::Panel(panel)) if self.figure.panel_legend(panel).is_none() => {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::DanglingPanelLegend,
+                    format!("the legend lists its entries in {panel}, which is not a legend panel"),
+                );
+            }
+            Some(Legend::Panel(_)) | None => {}
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });

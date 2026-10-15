@@ -1117,7 +1117,7 @@ fn nodes_sharing_an_identifier_are_errors() {
     let mut second = fig.axes[0].clone();
     second.cell = Cell::default();
     second.artists.clear();
-    fig.layout = TileLayout { rows: 1, cols: 2 };
+    fig.layout = TileLayout::new(1, 2);
     second.cell.col = 1;
     fig.axes.push(second);
     let report = fig.validate();
@@ -1209,7 +1209,7 @@ fn cell_outside_the_layout_or_with_zero_span_is_an_error() {
     ];
     for cell in cells {
         let (mut fig, axes, _) = single_line_figure();
-        fig.layout = TileLayout { rows: 1, cols: 2 };
+        fig.layout = TileLayout::new(1, 2);
         fig.axes[0].cell = cell;
         let report = fig.validate();
         assert!(
@@ -1219,7 +1219,7 @@ fn cell_outside_the_layout_or_with_zero_span_is_an_error() {
     }
 
     let (mut fig, _, _) = single_line_figure();
-    fig.layout = TileLayout { rows: 1, cols: 2 };
+    fig.layout = TileLayout::new(1, 2);
     fig.axes[0].cell = Cell {
         row: 0,
         col: 0,
@@ -2340,4 +2340,198 @@ fn every_image_variant_used_correctly_has_no_issues() {
     let report = image_variants_figure().validate();
     assert_eq!(report.errors, vec![], "unexpected errors");
     assert_eq!(report.warnings, vec![], "unexpected warnings");
+}
+
+// ---------------------------------------------------------------------------------
+// Legends, legend panels and tile weights
+// ---------------------------------------------------------------------------------
+
+/// A figure of one axes in the left cell of a 1 × 2 layout and a legend panel, of the
+/// returned identifier, in the right cell.
+fn figure_with_a_legend_panel() -> (Figure, NodeId, NodeId) {
+    let (mut fig, axes, _) = single_line_figure();
+    fig.layout = TileLayout::new(1, 2);
+    let panel = NodeId(100);
+    fig.panel_legends.push(PanelLegend {
+        id: panel,
+        cell: Cell {
+            col: 1,
+            ..Cell::default()
+        },
+        ..PanelLegend::default()
+    });
+    (fig, axes, panel)
+}
+
+// Why: an axes whose legend names a legend panel that the figure does not have would list
+// its entries nowhere, silently, so the reference must be reported against the axes; and
+// a reference to a panel that exists must not be.
+#[test]
+fn a_legend_naming_no_legend_panel_is_an_error_and_one_naming_a_panel_is_not() {
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    fig.axes[0].legend = Some(Legend::Panel(panel));
+    assert_eq!(
+        fig.validate().errors,
+        vec![],
+        "a panel that exists is valid"
+    );
+
+    // The identifier of the axes itself and an identifier of no node are both dangling,
+    // because neither is a legend panel.
+    for missing in [axes, NodeId(999)] {
+        fig.axes[0].legend = Some(Legend::Panel(missing));
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::DanglingPanelLegend, Some(axes)),
+            "{missing:?}: {report:?}"
+        );
+    }
+}
+
+// Why: a legend panel is placed in the tile layout exactly as an axes is, so a panel cell
+// past the layout or spanning no cells has no place on the page and is reported against
+// the panel, with the same kind as for an axes.
+#[test]
+fn a_legend_panel_cell_outside_the_layout_or_with_zero_span_is_an_error() {
+    for cell in [
+        Cell {
+            row: 0,
+            col: 2,
+            row_span: 1,
+            col_span: 1,
+        },
+        Cell {
+            row: 0,
+            col: 1,
+            row_span: 1,
+            col_span: 2,
+        },
+        Cell {
+            row: 0,
+            col: 1,
+            row_span: 0,
+            col_span: 1,
+        },
+    ] {
+        let (mut fig, _, panel) = figure_with_a_legend_panel();
+        fig.panel_legends[0].cell = cell;
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::CellOutOfLayout, Some(panel)),
+            "{cell:?}: {report:?}"
+        );
+    }
+}
+
+// Why: a legend panel is a node addressed by its identifier in edits and in the legends
+// that name it, so its identifier must be distinct from every other node's, and a clash
+// must be found whichever node it clashes with.
+#[test]
+fn a_legend_panel_sharing_an_identifier_with_another_node_is_an_error() {
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    fig.panel_legends[0].id = axes;
+    assert!(
+        has_error(&fig.validate(), IssueKind::DuplicateNodeId, Some(axes)),
+        "a panel sharing the identifier of an axes"
+    );
+
+    let (mut fig, _, _) = figure_with_a_legend_panel();
+    let mut second = fig.panel_legends[0];
+    second.cell.col = 0;
+    fig.panel_legends.push(second);
+    assert!(
+        has_error(&fig.validate(), IssueKind::DuplicateNodeId, Some(panel)),
+        "two panels sharing an identifier"
+    );
+}
+
+// Why: weights share out the height and width of the figure, so a weight that is zero,
+// negative or not finite gives a row or column no size or an undefined one, and a weight
+// for a row or column that does not exist is a mistake in the code that built the figure.
+// Fewer weights than rows or columns is valid, because a missing weight is one.
+#[test]
+fn layout_weights_that_are_too_many_or_not_finite_and_positive_are_errors() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.layout = TileLayout {
+        row_weights: vec![2.0],
+        col_weights: vec![0.5, 1.5],
+        ..TileLayout::new(2, 3)
+    };
+    fig.axes[0].cell = Cell::default();
+    assert_eq!(fig.validate().errors, vec![], "fewer weights than tiles");
+
+    for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        for rows in [true, false] {
+            let mut fig = fig.clone();
+            if rows {
+                fig.layout.row_weights = vec![1.0, bad];
+            } else {
+                fig.layout.col_weights = vec![bad];
+            }
+            let report = fig.validate();
+            assert!(
+                has_error(&report, IssueKind::InvalidLayoutWeights, Some(fig.id)),
+                "{bad} on rows {rows}: {report:?}"
+            );
+        }
+    }
+
+    let mut too_many = fig.clone();
+    too_many.layout.row_weights = vec![1.0; 3];
+    assert!(has_error(
+        &too_many.validate(),
+        IssueKind::InvalidLayoutWeights,
+        Some(fig.id)
+    ));
+    let mut too_many = fig;
+    too_many.layout.col_weights = vec![1.0; 4];
+    assert!(has_error(
+        &too_many.validate(),
+        IssueKind::InvalidLayoutWeights,
+        Some(too_many.id)
+    ));
+}
+
+// Why: a legend with a fixed number of zero columns has nowhere to put its entries,
+// whether it is inside a plot area or in a panel, so both must be reported against the
+// node that holds the legend; one column and automatic columns are valid.
+#[test]
+fn a_legend_with_zero_columns_is_an_error_inside_a_plot_area_and_in_a_panel() {
+    let zero = LegendEntryLayout {
+        columns: LegendEntryColumns::Count(0),
+        order: LegendEntryOrder::ColumnMajor,
+    };
+
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
+        layout: zero,
+        ..InsideLegend::default()
+    }));
+    assert!(has_error(
+        &fig.validate(),
+        IssueKind::InvalidLegendColumns,
+        Some(axes)
+    ));
+
+    let (mut fig, _, _) = figure_with_a_legend_panel();
+    fig.panel_legends[0].layout = zero;
+    assert!(has_error(
+        &fig.validate(),
+        IssueKind::InvalidLegendColumns,
+        Some(panel)
+    ));
+
+    for columns in [LegendEntryColumns::Count(1), LegendEntryColumns::Auto] {
+        let (mut fig, _, _) = figure_with_a_legend_panel();
+        let layout = LegendEntryLayout {
+            columns,
+            order: LegendEntryOrder::RowMajor,
+        };
+        fig.panel_legends[0].layout = layout;
+        fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
+            layout,
+            ..InsideLegend::default()
+        }));
+        assert_eq!(fig.validate().errors, vec![], "{columns:?}");
+    }
 }

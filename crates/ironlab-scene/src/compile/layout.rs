@@ -92,7 +92,7 @@ pub(super) fn figure_title(ctx: &mut Ctx, page: Rect, out: &mut Vec<Item>) -> Re
 }
 
 /// Clamps a cell into the tile layout, returning `(row, col, row_end, col_end)` with exclusive ends.
-fn clamp_cell(layout: TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
+fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
     let rows = layout.rows.max(1);
     let cols = layout.cols.max(1);
     let row = cell.row.min(rows - 1);
@@ -103,7 +103,9 @@ fn clamp_cell(layout: TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
 }
 
 /// Returns the rectangle of the tile cells an axes occupies.
-pub(super) fn cell_rect(layout: TileLayout, cell: Cell, area: Rect) -> Rect {
+///
+/// Every row and every column has the same size: the weights of the layout are not applied yet.
+pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
     let (row, col, row_end, col_end) = clamp_cell(layout, cell);
     let cw = area.width / f64::from(layout.cols.max(1));
     let rh = area.height / f64::from(layout.rows.max(1));
@@ -131,7 +133,7 @@ pub(super) fn plot_rects(figure: &Figure, outer: &[Rect], margins: &[Margins]) -
         .axes
         .iter()
         .map(|axes| {
-            let (r, c, re, ce) = clamp_cell(figure.layout, axes.cell);
+            let (r, c, re, ce) = clamp_cell(&figure.layout, axes.cell);
             (r as usize, c as usize, re as usize - 1, ce as usize - 1)
         })
         .collect();

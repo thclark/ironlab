@@ -10,6 +10,8 @@ use crate::axes::Axes;
 use crate::data::NdArray;
 use crate::error::IrError;
 use crate::ids::{DataId, NodeId};
+use crate::layout::TileLayout;
+use crate::legend::PanelLegend;
 use crate::link::AxisLink;
 use crate::style::Color;
 use crate::text::Text;
@@ -18,7 +20,7 @@ use crate::text::Text;
 ///
 /// Files are compatible when their major and minor components equal this version's;
 /// the patch component may differ.
-pub const SCHEMA_VERSION: &str = "0.3.1";
+pub const SCHEMA_VERSION: &str = "0.4.0";
 
 /// A figure: the root of the retained IR, holding axes, data and axis links.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -37,12 +39,18 @@ pub struct Figure {
     pub font_size_pt: f64,
     /// The colour of the figure background.
     pub background: Color,
-    /// The grid of cells in which axes are placed.
+    /// The grid of cells in which axes and legend panels are placed.
     pub layout: TileLayout,
     /// The numeric arrays referenced by artists, keyed by data identifier.
     pub data: BTreeMap<DataId, NdArray>,
     /// The axes of the figure, in drawing order.
     pub axes: Vec<Axes>,
+    /// The legend panels of the figure, which occupy cells of the tile layout and are
+    /// drawn after every axes.
+    ///
+    /// The property is omitted from JSON when there are no legend panels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub panel_legends: Vec<PanelLegend>,
     /// The groups of axes whose limits are linked along a dimension.
     pub links: Vec<AxisLink>,
     /// A record of the software that produced the figure.
@@ -87,6 +95,7 @@ impl Default for Figure {
             layout: TileLayout::default(),
             data: BTreeMap::new(),
             axes: Vec::new(),
+            panel_legends: Vec::new(),
             links: Vec::new(),
             provenance: Provenance::default(),
             parameters: BTreeMap::new(),
@@ -196,21 +205,6 @@ pub enum FontSetId {
     StixTwo,
 }
 
-/// The grid of cells in which the axes of a figure are placed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct TileLayout {
-    /// The number of rows; at least one.
-    pub rows: u32,
-    /// The number of columns; at least one.
-    pub cols: u32,
-}
-
-impl Default for TileLayout {
-    fn default() -> Self {
-        Self { rows: 1, cols: 1 }
-    }
-}
-
 /// A record of the software that produced a figure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Provenance {
@@ -243,7 +237,7 @@ impl Figure {
     }
 
     /// Allocates a node identifier that differs from the figure's identifier, every
-    /// axes and artist identifier in the figure, and every identifier previously
+    /// axes, artist and legend panel identifier in the figure, and every identifier previously
     /// allocated from this figure value.
     ///
     /// Identifiers are allocated above the largest identifier present, so allocation
@@ -265,13 +259,14 @@ impl Figure {
         NodeId(id)
     }
 
-    /// Returns the identifiers of every node: the figure, its axes and their artists.
+    /// Returns the identifiers of every node: the figure, its axes, their artists and its
+    /// legend panels.
     pub(crate) fn node_ids(&self) -> impl Iterator<Item = NodeId> + '_ {
-        std::iter::once(self.id).chain(
-            self.axes.iter().flat_map(|axes| {
+        std::iter::once(self.id)
+            .chain(self.axes.iter().flat_map(|axes| {
                 std::iter::once(axes.id).chain(axes.artists.iter().map(Artist::id))
-            }),
-        )
+            }))
+            .chain(self.panel_legends.iter().map(|panel| panel.id))
     }
 
     /// Inserts an array into the data table under a new identifier, which differs
@@ -302,6 +297,16 @@ impl Figure {
     /// Returns the axes with the given identifier, mutably.
     pub fn axes_mut(&mut self, id: NodeId) -> Option<&mut Axes> {
         self.axes.iter_mut().find(|axes| axes.id == id)
+    }
+
+    /// Returns the legend panel with the given identifier.
+    pub fn panel_legend(&self, id: NodeId) -> Option<&PanelLegend> {
+        self.panel_legends.iter().find(|panel| panel.id == id)
+    }
+
+    /// Returns the legend panel with the given identifier, mutably.
+    pub fn panel_legend_mut(&mut self, id: NodeId) -> Option<&mut PanelLegend> {
+        self.panel_legends.iter_mut().find(|panel| panel.id == id)
     }
 
     /// Returns the artist with the given identifier together with the axes that

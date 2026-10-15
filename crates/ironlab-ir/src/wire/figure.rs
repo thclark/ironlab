@@ -19,7 +19,7 @@ proto_file! {
         optional double font_size_pt = 6;
         /// The colour of the figure background.
         message Color background = 7;
-        /// The grid of cells in which axes are placed.
+        /// The grid of cells in which axes and legend panels are placed.
         message TileLayout layout = 8;
         /// The numeric arrays referenced by artists, keyed by data identifier.
         map<uint64, message NdArray> data = 9;
@@ -37,6 +37,9 @@ proto_file! {
         /// figures, written in the order they were given. A label is never empty, and no
         /// label occurs twice in one figure.
         repeated string labels = 14;
+        /// The legend panels of the figure, which occupy cells of the tile layout and
+        /// are drawn after every axes.
+        repeated message PanelLegend panel_legends = 15;
     }
 
     /// The physical size of a figure.
@@ -51,14 +54,6 @@ proto_file! {
     enum FontSetId {
         /// STIX Two Text for text and STIX Two Math for mathematics.
         StixTwo = 1;
-    }
-
-    /// The grid of cells in which the axes of a figure are placed.
-    message TileLayout {
-        /// The number of rows; at least one.
-        optional uint32 rows = 1;
-        /// The number of columns; at least one.
-        optional uint32 cols = 2;
     }
 
     /// A record of the software that produced a figure.

@@ -23,7 +23,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let mut builder = FigureBuilder::new();
-    builder.fig.layout = TileLayout { rows: 1, cols: 2 };
+    builder.fig.layout = TileLayout::new(1, 2);
     let a = builder.axes2d(0, 0);
     builder.axes(a).x.limits = manual(0.0, 10.0);
     builder.axes(a).y.limits = manual(0.0, 10.0);

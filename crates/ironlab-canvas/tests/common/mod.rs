@@ -199,7 +199,7 @@ pub fn figure_with_artists() -> Figure {
     };
     Figure {
         id: NodeId(1),
-        layout: TileLayout { rows: 1, cols: 2 },
+        layout: TileLayout::new(1, 2),
         data,
         axes: vec![flat, solid],
         ..Figure::new()

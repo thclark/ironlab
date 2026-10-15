@@ -32,9 +32,9 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, Legend, LineStyle,
-    MarkerStyle, NodeId, Parameter, PixelRange, PropertyPath, Text, TileLayout, Value, ValueType,
-    View3d, choices,
+    Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, InsideLegend,
+    LegendEntryLayout, LineStyle, MarkerStyle, NodeId, Parameter, PixelRange, PropertyPath, Text,
+    TileLayout, Value, ValueType, View3d, choices,
 };
 
 use crate::widgets::{
@@ -826,7 +826,7 @@ fn unset_control(
 }
 
 /// The value that an absent optional property is given when the user asks for one, or
-/// `None` for a reference to a data array, which the viewer never invents.
+/// `None` for a reference to a data array or to a node, which the viewer never invents.
 ///
 /// The match is exhaustive, so a value type added to the IR does not compile until it is
 /// given a default here.
@@ -851,12 +851,15 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Cell => Some(Value::Cell(IrCell::default())),
         ValueType::View3d => Some(Value::View3d(View3d::default())),
         ValueType::Axis => Some(Value::Axis(Axis::default())),
-        ValueType::Legend => Some(Value::Legend(Legend::default())),
+        ValueType::InsideLegend => Some(Value::InsideLegend(InsideLegend::default())),
+        ValueType::LegendEntryLayout => {
+            Some(Value::LegendEntryLayout(LegendEntryLayout::default()))
+        }
         ValueType::LineStyle => Some(Value::LineStyle(LineStyle::default())),
         ValueType::MarkerStyle => Some(Value::MarkerStyle(MarkerStyle::default())),
         ValueType::ImagePlacement => Some(Value::ImagePlacement(ImagePlacement::default())),
         ValueType::PixelRange => Some(Value::PixelRange(PixelRange::default())),
-        ValueType::DataId => None,
+        ValueType::DataId | ValueType::NodeId => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
         | ValueType::Limits
@@ -871,7 +874,10 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::OutOfRange
         | ValueType::Scale
         | ValueType::ColormapName
+        | ValueType::Legend
         | ValueType::LegendLocation
+        | ValueType::LegendEntryColumns
+        | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
         | ValueType::DashStyle
         | ValueType::Interpreter

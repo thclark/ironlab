@@ -197,7 +197,9 @@ impl Ctx<'_> {
 ///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
-/// - **Legend.** Only artists with a display name have legend entries, listed in artist order. The hit rectangle of
+/// - **Legend.** Only artists with a display name have legend entries, listed in artist order, in one column whatever
+///   the entry layout of the legend. Only a legend inside the plot area is drawn: the entries of an axes whose legend
+///   names a legend panel, and the legend panels of the figure, are not drawn yet. The hit rectangle of
 ///   an entry encloses both its sample and its label. The sample of an image is a filled patch: the middle colour
 ///   of the colormap for a colour-indexed or colour-mapped image, and for a true-colour image the mean of the
 ///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
@@ -251,7 +253,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     let outer: Vec<Rect> = figure
         .axes
         .iter()
-        .map(|axes| layout::cell_rect(figure.layout, axes.cell, grid_area))
+        .map(|axes| layout::cell_rect(&figure.layout, axes.cell, grid_area))
         .collect();
 
     let prepared: Vec<Vec<data::Prepared>> = figure

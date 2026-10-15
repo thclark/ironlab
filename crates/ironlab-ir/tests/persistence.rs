@@ -18,7 +18,7 @@ fn decay_figure() -> Figure {
     data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
     data.insert(DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135]));
     Figure {
-        schema_version: "0.3.0".to_owned(),
+        schema_version: "0.4.0".to_owned(),
         id: NodeId(1),
         title: Some(Text::new("Decay of $e^{-t}$")),
         size: FigureSize {
@@ -28,7 +28,7 @@ fn decay_figure() -> Figure {
         font_set: FontSetId::StixTwo,
         font_size_pt: 9.0,
         background: Color::WHITE,
-        layout: TileLayout { rows: 1, cols: 1 },
+        layout: TileLayout::new(1, 1),
         data,
         axes: vec![Axes {
             id: NodeId(2),
@@ -56,10 +56,14 @@ fn decay_figure() -> Figure {
             box_: true,
             colormap: ColormapName::Viridis,
             clim: Limits::Auto,
-            legend: Some(Legend {
+            legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,
                 boxed: true,
-            }),
+                layout: LegendEntryLayout {
+                    columns: LegendEntryColumns::Count(1),
+                    order: LegendEntryOrder::ColumnMajor,
+                },
+            })),
             artists: vec![Artist::Line(Line {
                 id: NodeId(3),
                 display_name: Some(Text::plain("decay, $5")),
@@ -82,6 +86,7 @@ fn decay_figure() -> Figure {
                 },
             })],
         }],
+        panel_legends: vec![],
         links: vec![],
         provenance: Provenance {
             ironlab_version: "0.1.0".to_owned(),
@@ -538,31 +543,30 @@ fn every_image_variant_survives_a_json_round_trip() {
     assert_eq!(restored.to_json(), text);
 }
 
-// Why: figure labels are a new optional property whose absence preserves the previous
-// drawing, which the schema rules make a patch change, so this release raises the schema
-// version to 0.3.1 rather than to 0.4.0. The build must declare it, and the fixture,
-// which still declares 0.3.0, must load unchanged, because a difference in the patch
-// component alone is compatible in both directions. A `.fig.json` document of the
-// previous minor release, 0.2.0, must still be refused, and the refusal must name both
-// versions, so that the user knows which build to use.
+// Why: the legend of an axes changed shape (it became a choice between a legend inside
+// the plot area and a legend panel) and the figure gained legend panels, which a reader
+// of the previous release cannot interpret, so this release raises the schema version to
+// 0.4.0. The build must declare it and the fixture, which declares 0.4.0, must load. A
+// `.fig.json` document of the previous minor release, 0.3.1, must be refused, and the
+// refusal must name both versions, so that the user knows which build to use.
 #[test]
-fn the_build_implements_schema_version_0_3_1_and_refuses_documents_of_0_2_0() {
-    assert_eq!(SCHEMA_VERSION, "0.3.1");
+fn the_build_implements_schema_version_0_4_0_and_refuses_documents_of_0_3_1() {
+    assert_eq!(SCHEMA_VERSION, "0.4.0");
     let loaded = Figure::from_json(DECAY_FIXTURE).expect("the fixture declares the version");
-    assert_eq!(loaded.schema_version, "0.3.0");
-    let error = Figure::from_json(&decay_fixture_with_version(json!("0.2.0")))
+    assert_eq!(loaded.schema_version, "0.4.0");
+    let error = Figure::from_json(&decay_fixture_with_version(json!("0.3.1")))
         .expect_err("a document of the previous minor version is refused");
     assert!(
         matches!(
             &error,
             IrError::IncompatibleSchemaVersion { found, supported }
-                if found == "0.2.0" && *supported == "0.3.1"
+                if found == "0.3.1" && *supported == "0.4.0"
         ),
         "{error:?}"
     );
     let message = error.to_string();
     assert!(
-        message.contains("0.2.0") && message.contains("0.3.1"),
+        message.contains("0.3.1") && message.contains("0.4.0"),
         "the message must name both versions: {message}"
     );
 }
@@ -653,4 +657,75 @@ fn malformed_json_is_a_json_error() {
         Figure::from_json(truncated),
         Err(IrError::Json(_))
     ));
+}
+
+// Why: the forms of a legend, a legend panel and the weights of the tile layout are a
+// public contract that web clients and hand-written files produce from the schema
+// reference rather than from serde's output, so the tag and `value` of each legend form,
+// the names of the panel's fields, and the omission of empty weights and of an empty list
+// of panels must stay as documented; and the documented form must read back as the same
+// figure.
+#[test]
+fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_form() {
+    let (mut fig, _, _) = single_line_figure();
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(value["layout"], json!({ "rows": 1, "cols": 1 }));
+    assert!(value.get("panel_legends").is_none());
+
+    fig.layout = TileLayout {
+        row_weights: vec![1.0, 0.5],
+        col_weights: vec![],
+        ..TileLayout::new(2, 1)
+    };
+    fig.axes[0].legend = Some(Legend::Panel(NodeId(9)));
+    fig.panel_legends.push(PanelLegend {
+        id: NodeId(9),
+        cell: Cell {
+            row: 1,
+            ..Cell::default()
+        },
+        ..PanelLegend::default()
+    });
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(
+        value["layout"],
+        json!({ "rows": 2, "cols": 1, "row_weights": [1.0, 0.5] })
+    );
+    assert_eq!(
+        value["axes"][0]["legend"],
+        json!({ "type": "panel", "value": 9 })
+    );
+    assert_eq!(
+        value["panel_legends"],
+        json!([{
+            "id": 9,
+            "cell": { "row": 1, "col": 0, "row_span": 1, "col_span": 1 },
+            "align": "center",
+            "boxed": false,
+            "layout": { "columns": { "type": "auto" }, "order": "column_major" }
+        }])
+    );
+    assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
+
+    fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
+        location: LegendLocation::SouthWest,
+        boxed: false,
+        layout: LegendEntryLayout {
+            columns: LegendEntryColumns::Count(2),
+            order: LegendEntryOrder::RowMajor,
+        },
+    }));
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(
+        value["axes"][0]["legend"],
+        json!({
+            "type": "inside",
+            "value": {
+                "location": "south_west",
+                "boxed": false,
+                "layout": { "columns": { "type": "count", "value": 2 }, "order": "row_major" }
+            }
+        })
+    );
+    assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
 }

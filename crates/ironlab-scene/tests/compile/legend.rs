@@ -1,6 +1,6 @@
 //! Legends: entry selection and order, placement, LaTeX names and hidden artists.
 
-use ironlab_ir::{Artist, Legend, LegendLocation, Limits, NodeId};
+use ironlab_ir::{Artist, InsideLegend, Legend, LegendLocation, Limits, NodeId};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::LegendHit;
@@ -22,10 +22,11 @@ fn legend_axes() -> (Fx, NodeId, [NodeId; 3]) {
     });
     let axes = fx.ax(ax);
     axes.y.limits = Limits::Manual { min: 0.0, max: 2.0 };
-    axes.legend = Some(Legend {
+    axes.legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthEast,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     (fx, ax, [first, unnamed, third])
 }
 
