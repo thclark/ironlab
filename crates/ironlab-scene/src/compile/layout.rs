@@ -92,7 +92,7 @@ pub(super) fn figure_title(ctx: &mut Ctx, page: Rect, out: &mut Vec<Item>) -> Re
 }
 
 /// Clamps a cell into the tile layout, returning `(row, col, row_end, col_end)` with exclusive ends.
-fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
+pub(super) fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
     let rows = layout.rows.max(1);
     let cols = layout.cols.max(1);
     let row = cell.row.min(rows - 1);

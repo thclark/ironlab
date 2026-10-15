@@ -235,9 +235,11 @@ impl Ctx<'_> {
 ///   entries in that panel and draws none of its own; a panel the figure does not have lists them nowhere. A legend
 ///   panel is placed in its cells as an axes is and inset by the aligned margins of the rows and columns it occupies
 ///   (by the page padding on a side whose row or column holds no axes), and its area is recorded in the hit map
-///   whether or not it lists anything. A panel lists the entries of every axes that names it in figure order, by the
-///   order of the axes in the figure and then of the artists in each axes, and merges entries whose display names
-///   are equal and whose samples draw the same picture into one entry that stands for every one of their artists.
+///   whether or not it lists anything. A panel lists the entries of every axes that names it in reading order: the
+///   axes are ordered by the top-left tile of their cells, clamped into the layout, by row and then by column, with
+///   the order of the axes in the figure breaking ties, and the artists of each axes follow in their own order. It
+///   merges entries whose display names are equal and whose samples draw the same picture into one entry that
+///   stands for every one of their artists, at the position of the first of them.
 ///   Entries that share a display name but not a sample are all listed, with one
 ///   [`SceneWarningKind::LegendNameClash`] for the name. A merged entry is greyed only when all of its artists are
 ///   hidden. Entries are arranged in rows and columns: a fixed count of columns is used as given, but never more
@@ -360,8 +362,9 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .collect();
     let plots = layout::plot_rects(figure, &outer, &margins);
 
-    // The entries each axes lists in a legend panel, with the panel it names, in figure order.
-    let mut panel_entries: Vec<(NodeId, Vec<legend::Entry>)> = Vec::new();
+    // The entries each axes lists in a legend panel, with the top-left tile of the axes' clamped cell and the panel
+    // it names.
+    let mut panel_entries: Vec<((u32, u32), NodeId, Vec<legend::Entry>)> = Vec::new();
     for (i, axes) in figure.axes.iter().enumerate() {
         let colour_scale = limits::colour_scale(&mut ctx, axes, &prepared[i]);
         let input = artists::AxesInput {
@@ -381,9 +384,13 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         }
         if let Some(Legend::Panel(panel)) = axes.legend {
             let entries = legend::collect(&input, &style::primaries(axes));
-            panel_entries.push((panel, entries));
+            let (row, col, _, _) = layout::clamp_cell(&figure.layout, axes.cell);
+            panel_entries.push(((row, col), panel, entries));
         }
     }
+    // Panels list their entries in the reading order of the axes' cells: by row, then by column. The sort is stable,
+    // so axes whose cells start at the same tile keep the order of the figure.
+    panel_entries.sort_by_key(|(tile, _, _)| *tile);
 
     // Legend panels are drawn after every axes. An axes naming a panel the figure does not have lists its entries
     // nowhere, and when two panels share an identifier the first takes the entries.
@@ -395,8 +402,8 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         });
         let entries: Vec<legend::Entry> = panel_entries
             .iter_mut()
-            .filter(|(id, _)| *id == panel.id)
-            .flat_map(|(_, entries)| std::mem::take(entries))
+            .filter(|(_, id, _)| *id == panel.id)
+            .flat_map(|(_, _, entries)| std::mem::take(entries))
             .collect();
         legend::draw_panel(&mut ctx, panel, area, entries, &mut items, &mut hit_map);
     }

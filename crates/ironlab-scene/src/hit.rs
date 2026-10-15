@@ -75,8 +75,9 @@ pub enum LegendOwner {
 pub struct LegendHit {
     /// The legend that draws the entry.
     pub legend: LegendOwner,
-    /// The `(axes, artist)` pairs of the artists the entry stands for, in figure order: by the order of the axes in
-    /// the figure, then by the order of the artists in their axes. An entry of an inside legend stands for one
+    /// The `(axes, artist)` pairs of the artists the entry stands for, in the order a legend panel lists entries:
+    /// by the reading order of the cells of their axes (row, then column, with the order of the axes in the figure
+    /// breaking ties), then by the order of the artists in their axes. An entry of an inside legend stands for one
     /// artist; an entry of a legend panel stands for every artist whose display name and sample it shares.
     pub targets: Vec<(NodeId, NodeId)>,
     pub rect: Rect,

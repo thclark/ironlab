@@ -66,7 +66,7 @@ struct MarkerSample {
 pub(super) struct Entry<'a> {
     name: &'a Text,
     sample: LegendSample,
-    /// The `(axes, artist)` pairs of the artists the entry stands for, in figure order.
+    /// The `(axes, artist)` pairs of the artists the entry stands for, in the order the legend lists them.
     targets: Vec<(NodeId, NodeId)>,
     /// Whether any of the artists the entry stands for is visible; an entry is greyed when none is.
     visible: bool,
@@ -179,8 +179,8 @@ pub(super) fn draw_inside(
     );
 }
 
-/// Draws a legend panel in `area`, listing the entries gathered from every axes that names it in figure order, and
-/// records the entries in the hit map. A panel with no entries draws nothing.
+/// Draws a legend panel in `area`, listing the entries gathered from every axes that names it in the reading order
+/// of their cells, and records the entries in the hit map. A panel with no entries draws nothing.
 pub(super) fn draw_panel(
     ctx: &mut Ctx,
     panel: &PanelLegend,

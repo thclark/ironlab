@@ -3,7 +3,7 @@
 
 use ironlab_ir::{
     Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendLocation, Line, NodeId, View3d,
+    LegendEntryOrder, LegendLocation, Line, NodeId, Projection, View3d,
 };
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{LegendHit, LegendOwner};
@@ -171,7 +171,7 @@ fn an_axes_pointing_at_a_panel_lists_its_entries_there_and_not_in_its_plot_area(
 
 // Why: the reason for a shared panel is that a series drawn in several subplots appears once in the key; entries
 // with the same name and the same look are the same series to the reader, so they become one entry that stands
-// for every artist, in figure order, so that toggling it hides the series everywhere.
+// for every artist, in reading order, so that toggling it hides the series everywhere.
 #[test]
 fn entries_with_the_same_name_and_look_from_two_axes_merge_into_one() {
     let (mut fx, [left, right], panel) = two_axes_and_a_panel();
@@ -220,15 +220,15 @@ fn entries_with_the_same_name_but_a_different_look_are_both_listed_and_reported(
     }
 }
 
-// Why: a key is read in the order the figure was built, so entries are listed by the order of the axes in the
-// figure and then by the order of the artists in each axes, never sorted by name; the order of the axes in the
-// figure, not their cells, decides, because it is the order the user created them in.
+// Why: a reader scans a page of subplots from the top left, so a shared key whose entries followed the order in
+// which the code happened to create the axes would contradict the layout it describes. Entries are listed by the
+// reading order of the axes' cells and then by the order of the artists in each axes, never sorted by name; the
+// right-hand axes is created first here so that creation order and reading order disagree.
 #[test]
-fn entries_of_several_axes_are_listed_in_figure_order() {
+fn entries_of_several_axes_are_listed_in_the_reading_order_of_their_cells() {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
     fx.fig.layout.cols = 2;
-    // The right-hand axes is created, and so listed, first.
     let right = fx.axes2d(0, 1);
     let left = fx.axes2d(0, 0);
     let panel = fx.panel(cell(1, 0, 1, 2));
@@ -241,10 +241,55 @@ fn entries_of_several_axes_are_listed_in_figure_order() {
     assert_eq!(
         targets(&scene, panel),
         vec![
+            vec![(left, mike)],
             vec![(right, zulu)],
-            vec![(right, alpha)],
-            vec![(left, mike)]
+            vec![(right, alpha)]
         ]
+    );
+}
+
+// Why: reading order runs along a row before moving down to the next, so an axes in the first row is read before
+// one in the second even when it lies further to the right; ordering by column first would read the page in
+// columns, which is not how a page is read.
+#[test]
+fn an_axes_in_a_lower_row_is_listed_after_one_further_right_in_a_higher_row() {
+    let mut fx = Fx::new();
+    fx.fig.layout.rows = 3;
+    fx.fig.layout.cols = 2;
+    let lower_left = fx.axes2d(1, 0);
+    let upper_right = fx.axes2d(0, 1);
+    let panel = fx.panel(cell(2, 0, 1, 2));
+    let low = fx.named_line(lower_left, "Low", |_| {});
+    let high = fx.named_line(upper_right, "High", |_| {});
+    fx.legend_in(lower_left, panel);
+    fx.legend_in(upper_right, panel);
+    let scene = compile_figure(&fx.build());
+    assert_eq!(
+        targets(&scene, panel),
+        vec![vec![(upper_right, high)], vec![(lower_left, low)]]
+    );
+}
+
+// Why: two axes whose cells start at the same tile have no reading order between them, and the order of a key must
+// still be deterministic; the order in which the axes were created breaks the tie, so the listing is stable and
+// predictable from the code. The axes created first spans more rows, so a rule based on the size of the cell
+// would list them the other way round.
+#[test]
+fn axes_whose_cells_start_at_the_same_tile_are_listed_in_creation_order() {
+    let mut fx = Fx::new();
+    fx.fig.layout.rows = 3;
+    fx.fig.layout.cols = 1;
+    let tall = fx.axes_in(cell(0, 0, 2, 1), Projection::TwoD);
+    let short = fx.axes2d(0, 0);
+    let panel = fx.panel(cell(2, 0, 1, 1));
+    let first = fx.named_line(tall, "First", |_| {});
+    let second = fx.named_line(short, "Second", |_| {});
+    fx.legend_in(short, panel);
+    fx.legend_in(tall, panel);
+    let scene = compile_figure(&fx.build());
+    assert_eq!(
+        targets(&scene, panel),
+        vec![vec![(tall, first)], vec![(short, second)]]
     );
 }
 
