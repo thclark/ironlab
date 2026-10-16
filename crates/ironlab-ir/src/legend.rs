@@ -64,21 +64,24 @@ pub struct PanelLegend {
     /// Where the block of entries is placed within the panel. A panel holds no data
     /// for the legend to avoid, so the location `best` places the block at the centre.
     pub align: LegendLocation,
-    /// Whether the block of entries is drawn with a background and outline.
+    /// Whether the area of the panel is outlined by a border drawn as the box of an
+    /// axes is drawn. The area of a panel is aligned with the plot areas of the axes in
+    /// its rows and columns, so the border continues the edges of their boxes. The
+    /// border has no background, and the entries are kept inset from it.
     pub boxed: bool,
     /// How the entries are arranged in columns.
     pub layout: LegendEntryLayout,
 }
 
 impl Default for PanelLegend {
-    /// Returns an unboxed panel at the top-left cell of the tile layout, with its
-    /// entries centred and arranged in as few columns as fit the panel.
+    /// Returns a boxed panel at the top-left cell of the tile layout, with its entries
+    /// centred and arranged in as few columns as fit the panel.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
             cell: Cell::default(),
             align: LegendLocation::Center,
-            boxed: false,
+            boxed: true,
             layout: LegendEntryLayout {
                 columns: LegendEntryColumns::Auto,
                 order: LegendEntryOrder::ColumnMajor,

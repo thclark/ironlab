@@ -44,7 +44,8 @@ proto_file! {
         message Cell cell = 2;
         /// Where the block of entries is placed within the panel.
         enum LegendLocation align = 3;
-        /// Whether the block of entries is drawn with a background and outline.
+        /// Whether the area of the panel is outlined by a border drawn as the box of an
+        /// axes is drawn.
         optional bool boxed = 4;
         /// How the entries are arranged in columns.
         message LegendEntryLayout layout = 5;

@@ -285,7 +285,7 @@ impl Figure {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// let key = fig.panel_legend(0, 1).boxed(true).id();
+    /// let key = fig.panel_legend(0, 1).boxed(false).id();
     /// assert_eq!(fig.panel_legend(0, 1).id(), key);
     /// ```
     pub fn panel_legend(&mut self, row: u32, col: u32) -> PanelLegendMut<'_> {

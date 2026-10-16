@@ -564,3 +564,28 @@ pub fn panel_entries(scene: &Scene, id: NodeId) -> Vec<LegendHit> {
         .cloned()
         .collect()
 }
+
+/// Returns the rectangular outlines a node draws: path leaves with a stroke and no fill whose only subpath is a
+/// closed axis-aligned rectangle of positive size. These are the box of an axes and the border of a legend panel;
+/// tick marks, grid lines and legend samples have other shapes, so they are not mistaken for one.
+pub fn outlines(scene: &Scene, id: NodeId) -> Vec<Leaf> {
+    from_source(&leaves(scene), id)
+        .into_iter()
+        .filter(|leaf| {
+            let Some(path) = leaf.path() else {
+                return false;
+            };
+            let subpaths = leaf.subpaths();
+            let closed = path.segments.last() == Some(&PathSegment::Close);
+            let rectangle = match subpaths.as_slice() {
+                [corners] if corners.len() == 4 => (0..4).all(|k| {
+                    let (a, b) = (corners[k], corners[(k + 1) % 4]);
+                    (a.x - b.x).abs() < 1e-9 || (a.y - b.y).abs() < 1e-9
+                }),
+                _ => false,
+            };
+            let sized = leaf.bbox().is_some_and(|b| b.width > 0.0 && b.height > 0.0);
+            path.fill.is_none() && path.stroke.is_some() && closed && rectangle && sized
+        })
+        .collect()
+}

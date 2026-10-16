@@ -205,7 +205,7 @@ A legend panel is a legend of the figure rather than of one axes. It occupies a 
 | `id` | NodeId | The identifier of the legend panel, unique among the nodes of the figure. |
 | `cell` | object | The block of tiles occupied, with the same properties as the `cell` of an [axes](#axes). The property editor shows it read-only, as it does the cell of an axes. |
 | `align` | string | Where the block of entries is placed within the panel, as a [legend location](#legend-location). The default is `center`. |
-| `boxed` | boolean | Whether the block of entries has a background and an outline. The default is `false`. |
+| `boxed` | boolean | Whether the area of the panel is outlined by a border, drawn as the box of an [axes](#axes) is drawn and without a background. The area is aligned with the plot areas around it, so the border continues the edges of their boxes, and the entries are kept inset from it. The default is `true`. |
 | `layout` | object | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is automatic columns, filled column by column. |
 
 ## Artists

@@ -2653,6 +2653,31 @@ fn two_axes_sharing_a_tile_through_a_span_are_a_warning_on_the_later_axes() {
     assert_eq!(nodes, vec![Some(narrow), Some(third), Some(third)]);
 }
 
+// Why: the warning is reported against the node added later, because that is the node
+// whose placement is the likely mistake: the earlier one already had the tile when the
+// later one was put on it. The rule is the order of the nodes in the figure, not any
+// property of their cells, so reversing the order of the same two cells moves the warning
+// to the other node; a rule based on size or span would report the same node both times.
+#[test]
+fn an_overlap_is_reported_against_the_node_added_later_whichever_cell_it_has() {
+    let (mut fig, first, _) = single_line_figure();
+    fig.layout = TileLayout::new(2, 2);
+    fig.axes[0].cell = cell(0, 0, 1, 2);
+    let second = NodeId(200);
+    push_axes(&mut fig, second, cell(0, 1, 1, 1));
+    let found = overlaps(&fig.validate());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, Some(second), "the narrow axes is added later");
+    assert!(found[0].1.contains(&first.to_string()), "{}", found[0].1);
+
+    // The same two cells with the narrow axes added first: the wide one is now the later.
+    fig.axes.reverse();
+    let found = overlaps(&fig.validate());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, Some(first), "the wide axes is added later");
+    assert!(found[0].1.contains(&second.to_string()), "{}", found[0].1);
+}
+
 // Why: cells that touch along an edge or at a corner share no tile, so every node has a
 // place of its own; the check must compare tiles, not rectangles whose shared borders
 // would count as overlap, or every ordinary grid of subplots would be reported.

@@ -16,13 +16,17 @@ That arrangement fails a common kind of figure: a grid of subplots that show the
 
 The `legend` of an axes is an enumeration, `Legend`, with two variants. `Legend::Inside(InsideLegend)` draws the entries inside the plot area, as before, with a location, a box and an entry layout. `Legend::Panel(NodeId)` lists the entries in the legend panel with that identifier. An axes therefore shows its entries in exactly one place, and an axes without a legend has `None`.
 
-A **legend panel**, `PanelLegend`, is a node of the figure, listed in `Figure.panel_legends`. It has an identifier, a `Cell` of the tile layout, an alignment, a box and an entry layout. A panel occupies its cells exactly as an axes does, so the tile layout remains the only mechanism that places anything on the page. Panels are drawn after every axes, in the order the figure lists them.
+A **legend panel**, `PanelLegend`, is a node of the figure, listed in `Figure.panel_legends`. It has an identifier, a `Cell` of the tile layout, an alignment, a border and an entry layout. A panel occupies its cells exactly as an axes does, so the tile layout remains the only mechanism that places anything on the page. Panels are drawn after every axes, in the order the figure lists them.
 
 The legend location gains the value `Center`. A panel aligns its block of entries by a legend location, and the centre is the most common alignment for a panel. Inside a plot area `Center` is allowed but covers the data. A panel holds no data for its entries to avoid, so `Best` in a panel means `Center`.
 
 ### Panels line up with the plot areas around them
 
 A panel's area is the rectangle of its cells inset by the aligned margins of the rows and columns it occupies. Those margins are the space the axes in each row and column reserve for tick labels, axis labels and titles, so a panel beneath two plots spans exactly the width of their plot areas, and a panel beside a column of plots spans exactly their height. On a side whose row or column holds no axes, the page padding is used instead. A panel contributes no margins of its own, so adding a panel never moves a plot area.
+
+A panel is outlined by a border by default. The border is drawn by the same code as the box of an axes, with the same stroke and no background, around the panel's area. Because that area is aligned with the plot areas around it, the edges of the border continue the edges of the neighbouring axes boxes, and the panel reads as one more tile of the grid of plots. The entries are kept inside the border by the inset that an inside legend keeps from the box of its axes. A bordered panel with no entries still draws its border, because the author placed the panel and validation already reports that it is empty. Setting `boxed` to false removes the border, and the block of entries then sits flush with the edges it is aligned to.
+
+The property keeps the name `boxed` of an inside legend, because in both cases it decides whether the legend is framed. It frames different things: an inside legend draws a background and an outline around its block of entries, which must hide the data beneath it, whereas a panel outlines its whole area, which covers no data.
 
 ### Entries are merged when their name and their look both match
 
@@ -60,7 +64,7 @@ A panel that no axes names, or whose axes have no artist with a display name, is
 
 ### What the property editor may change
 
-The alignment, box and entry layout of a panel, the entry layout of an inside legend and the tile weights are editable in the viewer's property editor. The cell of a panel and the panel an axes names are read-only, because they are part of the arrangement of the figure, which is built by code and only viewed in the viewer.
+The alignment, border and entry layout of a panel, the entry layout of an inside legend and the tile weights are editable in the viewer's property editor. The cell of a panel and the panel an axes names are read-only, because they are part of the arrangement of the figure, which is built by code and only viewed in the viewer.
 
 ### `Cell` and `TileLayout` move to a module of their own
 

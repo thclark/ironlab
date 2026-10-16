@@ -11,8 +11,8 @@ use ironlab_scene::{Scene, SceneWarningKind};
 
 use crate::common::{Fx, cell, compile_figure};
 use crate::probe::{
-    assert_close, axes_hit, axes_legend_entries, centre, disjoint, from_source, glyph_runs, inside,
-    leaves, panel_entries, panel_rect, union,
+    Leaf, assert_close, axes_hit, axes_legend_entries, centre, disjoint, from_source, glyph_runs,
+    inside, leaves, outlines, panel_entries, panel_rect, union,
 };
 
 const RED: Color = Color::rgb(0.8, 0.1, 0.1);
@@ -324,24 +324,42 @@ fn each_of_two_panels_lists_only_the_entries_of_the_axes_pointing_at_it() {
 }
 
 // Why: a panel with nothing to list is a valid state (a figure built before its series are named, or a panel
-// reserved for axes added later), so compiling must still succeed and draw nothing for it rather than an empty
-// box; the validation report, not the drawing, tells the user (see the IR validation tests).
+// reserved for axes added later), so compiling must still succeed and list no entries; the validation report, not
+// the drawing, tells the user (see the IR validation tests). The author placed the panel, so a boxed panel still
+// draws its border, which keeps the layout of the page as it will look once the panel has entries; an unboxed panel
+// draws nothing at all.
 #[test]
-fn a_panel_with_nothing_to_list_draws_nothing() {
-    // No axes points at the panel.
-    let (mut fx, [left, _], unused) = two_axes_and_a_panel();
-    fx.named_line(left, "Named", |_| {});
-    let scene = compile_figure(&fx.build());
-    assert!(panel_entries(&scene, unused).is_empty());
-    assert!(from_source(&leaves(&scene), unused).is_empty());
+fn a_panel_with_nothing_to_list_draws_only_its_border() {
+    for boxed in [true, false] {
+        // No axes points at the panel.
+        let (mut fx, [left, _], unused) = two_axes_and_a_panel();
+        fx.panel_mut(unused).boxed = boxed;
+        fx.named_line(left, "Named", |_| {});
+        let scene = compile_figure(&fx.build());
+        assert!(panel_entries(&scene, unused).is_empty());
+        assert_only_border(&scene, unused, boxed);
 
-    // An axes points at the panel, but none of its artists has a display name.
-    let (mut fx, [left, _], panel) = two_axes_and_a_panel();
-    fx.line(left, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
-    fx.legend_in(left, panel);
-    let scene = compile_figure(&fx.build());
-    assert!(panel_entries(&scene, panel).is_empty());
-    assert!(from_source(&leaves(&scene), panel).is_empty());
+        // An axes points at the panel, but none of its artists has a display name.
+        let (mut fx, [left, _], panel) = two_axes_and_a_panel();
+        fx.panel_mut(panel).boxed = boxed;
+        fx.line(left, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
+        fx.legend_in(left, panel);
+        let scene = compile_figure(&fx.build());
+        assert!(panel_entries(&scene, panel).is_empty());
+        assert_only_border(&scene, panel, boxed);
+    }
+}
+
+/// Asserts that a panel draws its border and nothing else when boxed, and nothing at all when not.
+#[track_caller]
+fn assert_only_border(scene: &Scene, panel: NodeId, boxed: bool) {
+    let drawn = from_source(&leaves(scene), panel);
+    if boxed {
+        assert_eq!(drawn.len(), 1, "{drawn:?}");
+        assert!(border(scene, panel).is_some(), "{drawn:?}");
+    } else {
+        assert!(drawn.is_empty(), "{drawn:?}");
+    }
 }
 
 // Why: a figure read from a file may name a legend panel it does not have; validation reports that as an error,
@@ -643,19 +661,30 @@ fn aligned(align: LegendLocation) -> (Rect, Rect, Vec<LegendHit>) {
 }
 
 // Why: alignment lets a panel's key sit against the edge it belongs to, such as flush left under a row of plots;
-// north-west must put the block at the panel's top-left corner, no further in than the legend's own padding.
+// north-west must put the block at the panel's top-left corner, no further in than the legend's own padding (about
+// half the font size) in an unboxed panel, and than the padding and the inset from the border (about 1.15 times the
+// font size together) in a boxed one.
 #[test]
 fn a_north_west_panel_puts_its_entries_at_the_top_left() {
-    let (block, area, _) = aligned(LegendLocation::NorthWest);
     let font = 9.0;
-    assert!(
-        block.x >= area.x - 1e-6 && block.x - area.x <= font,
-        "{block:?} in {area:?}"
-    );
-    assert!(
-        block.y >= area.y - 1e-6 && block.y - area.y <= font,
-        "{block:?} in {area:?}"
-    );
+    for (boxed, reach) in [(false, font), (true, 1.2 * font)] {
+        let (mut fx, _, _, panel) = panel_of(3, 1.0, fixed(1, LegendEntryOrder::ColumnMajor));
+        fx.panel_mut(panel).align = LegendLocation::NorthWest;
+        fx.panel_mut(panel).boxed = boxed;
+        let scene = compile_figure(&fx.build());
+        let (block, area) = (
+            block(&panel_entries(&scene, panel)),
+            panel_rect(&scene, panel),
+        );
+        assert!(
+            block.x >= area.x - 1e-6 && block.x - area.x <= reach,
+            "boxed {boxed}: {block:?} in {area:?}"
+        );
+        assert!(
+            block.y >= area.y - 1e-6 && block.y - area.y <= reach,
+            "boxed {boxed}: {block:?} in {area:?}"
+        );
+    }
 }
 
 // Why: a panel's default alignment is the centre, where a key below or beside a group of plots looks balanced;
@@ -729,5 +758,117 @@ fn a_merged_entry_is_greyed_only_when_every_artist_it_stands_for_is_hidden() {
                 usize::from(hide_left) + usize::from(hide_right)
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The border of a panel
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Returns the border a legend panel draws around its area, if it draws one.
+fn border(scene: &Scene, panel: NodeId) -> Option<Leaf> {
+    let area = panel_rect(scene, panel);
+    let mut found: Vec<Leaf> = outlines(scene, panel)
+        .into_iter()
+        .filter(|leaf| leaf.bbox().is_some_and(|b| inside(area, b, 1e-6)))
+        .collect();
+    assert!(found.len() <= 1, "a panel draws one border: {found:?}");
+    found.pop()
+}
+
+/// Returns the box an axes draws around its plot area.
+#[track_caller]
+fn axes_box(scene: &Scene, ax: NodeId) -> Leaf {
+    let plot = axes_hit(scene, ax).plot_rect;
+    outlines(scene, ax)
+        .into_iter()
+        .find(|leaf| {
+            leaf.bbox()
+                .is_some_and(|b| inside(b, plot, 1e-6) && inside(plot, b, 1e-6))
+        })
+        .expect("the axes draws a box around its plot area")
+}
+
+// Why: a panel's border must read as the same kind of frame as the boxes of the plots it sits beside; a border of
+// a different weight, colour or dash would set the key apart from the plots it describes. The border is an
+// outline only, as the axes box is, so that it frames the panel without painting over the figure's background.
+#[test]
+fn a_boxed_panel_draws_its_border_with_the_stroke_of_the_axes_box() {
+    let (mut fx, [left, _], panel) = two_axes_and_a_panel();
+    fx.named_line(left, "Named", |_| {});
+    fx.legend_in(left, panel);
+    let scene = compile_figure(&fx.build());
+    let border = border(&scene, panel).expect("a panel is boxed by default");
+    let frame = axes_box(&scene, left);
+    let (b, f) = (border.path().unwrap(), frame.path().unwrap());
+    assert_eq!(b.stroke, f.stroke);
+    assert_eq!(b.fill, None);
+    let area = panel_rect(&scene, panel);
+    let drawn = border.bbox().unwrap();
+    assert!(
+        inside(drawn, area, 1e-6) && inside(area, drawn, 1e-6),
+        "the border {drawn:?} outlines the panel {area:?}"
+    );
+}
+
+// Why: an unboxed panel is how an author asks for a key with no frame, so nothing may outline its area, while
+// its entries are still listed.
+#[test]
+fn an_unboxed_panel_draws_no_border() {
+    let (mut fx, [left, _], panel) = two_axes_and_a_panel();
+    fx.named_line(left, "Named", |_| {});
+    fx.legend_in(left, panel);
+    fx.panel_mut(panel).boxed = false;
+    let scene = compile_figure(&fx.build());
+    assert_eq!(panel_entries(&scene, panel).len(), 1);
+    assert!(border(&scene, panel).is_none());
+    assert!(outlines(&scene, panel).is_empty());
+}
+
+// Why: entries that touch the border look cramped and can be read as part of the frame, so at every alignment,
+// the corners and edges included, everything the entries draw keeps a clear gap from the inside of the border.
+#[test]
+fn entries_keep_a_gap_from_the_border_at_every_alignment() {
+    const GAP: f64 = 2.0;
+    for align in [
+        LegendLocation::NorthWest,
+        LegendLocation::North,
+        LegendLocation::NorthEast,
+        LegendLocation::West,
+        LegendLocation::Center,
+        LegendLocation::East,
+        LegendLocation::SouthWest,
+        LegendLocation::South,
+        LegendLocation::SouthEast,
+        LegendLocation::Best,
+    ] {
+        let (mut fx, _, _, panel) = panel_of(3, 1.0, fixed(1, LegendEntryOrder::ColumnMajor));
+        fx.panel_mut(panel).align = align;
+        let scene = compile_figure(&fx.build());
+        let border = border(&scene, panel).expect("a panel is boxed by default");
+        let half = border.path().unwrap().stroke.as_ref().unwrap().width / 2.0;
+        let b = border.bbox().unwrap();
+        let inner = Rect::new(
+            b.x + half,
+            b.y + half,
+            b.width - 2.0 * half,
+            b.height - 2.0 * half,
+        );
+        let ink = from_source(&leaves(&scene), panel)
+            .iter()
+            .filter(|leaf| leaf.bbox() != Some(b))
+            .filter_map(Leaf::visible_bbox)
+            .reduce(union)
+            .expect("the panel draws its entries");
+        let gaps = [
+            ink.x - inner.x,
+            ink.y - inner.y,
+            inner.right() - ink.right(),
+            inner.bottom() - ink.bottom(),
+        ];
+        assert!(
+            gaps.iter().all(|g| *g >= GAP),
+            "{align:?}: the entries {ink:?} come within {gaps:?} of the border {inner:?}"
+        );
     }
 }

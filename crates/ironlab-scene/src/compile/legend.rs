@@ -16,6 +16,7 @@ use crate::hit::{HitMap, LegendHit, LegendOwner};
 use crate::maths::quiver;
 
 use super::artists::AxesInput;
+use super::axes2d;
 use super::data::ArtistData;
 use super::decor::TICK_SCALE;
 use super::image;
@@ -180,7 +181,10 @@ pub(super) fn draw_inside(
 }
 
 /// Draws a legend panel in `area`, listing the entries gathered from every axes that names it in the reading order
-/// of their cells, and records the entries in the hit map. A panel with no entries draws nothing.
+/// of their cells, and records the entries in the hit map.
+///
+/// A boxed panel outlines `area` as an axes outlines its plot area, and keeps its entries the legend inset inside
+/// that border. A boxed panel with no entries draws only its border, and an unboxed one draws nothing.
 pub(super) fn draw_panel(
     ctx: &mut Ctx,
     panel: &PanelLegend,
@@ -189,6 +193,11 @@ pub(super) fn draw_panel(
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
+    // Why: the panel's area is aligned with the plot areas of the axes in its rows and columns, so a border drawn
+    // as their box is drawn continues the edges of their boxes.
+    if panel.boxed {
+        out.extend(axes2d::frame(panel.id, area));
+    }
     let owner = LegendOwner::Panel(panel.id);
     let entries = merge(ctx, owner, entries);
     // A panel holds no data to avoid, so the best location is the centre.
@@ -196,17 +205,31 @@ pub(super) fn draw_panel(
         LegendLocation::Best => LegendLocation::Center,
         align => align,
     };
+    // Why: entries against a border look cramped and read as part of the frame, so a boxed panel keeps them the
+    // inset an inside legend keeps from the box of its axes; an unboxed panel has no frame to clear, and its block
+    // sits flush with the edges it is aligned to.
+    let inset = if panel.boxed {
+        Metrics::new(ctx.font_size).inset
+    } else {
+        0.0
+    };
+    let available = Rect::new(
+        area.x + inset,
+        area.y + inset,
+        (area.width - 2.0 * inset).max(0.0),
+        (area.height - 2.0 * inset).max(0.0),
+    );
     render(
         ctx,
         Block {
             owner,
             source: panel.id,
             layout: panel.layout,
-            boxed: panel.boxed,
-            available: area,
+            boxed: false,
+            available,
         },
         &entries,
-        |width, height| place(area, width, height, align, 0.0, &[]),
+        |width, height| place(area, width, height, align, inset, &[]),
         out,
         hits,
     );
@@ -264,8 +287,11 @@ struct Block {
     /// The node every item of the block names as its source.
     source: NodeId,
     layout: LegendEntryLayout,
+    /// Whether the block is drawn with a background and outline, as an inside legend may be; the border of a panel
+    /// is drawn around the panel, not the block.
     boxed: bool,
-    /// The area the block must fit: the plot area less the legend inset, or the area of a legend panel.
+    /// The area the block must fit: the plot area less the legend inset, or the area of a legend panel less the
+    /// legend inset when the panel has a border.
     available: Rect,
 }
 

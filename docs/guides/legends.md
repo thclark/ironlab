@@ -64,7 +64,7 @@ ax.legend(LegendLocation::North)
 | Method | Effect |
 | --- | --- |
 | `align(location)` | Places the block of entries within the panel, using the locations listed [above](#locations). The default is `Center`, and `Best` also means the centre, because a panel holds no data for its entries to avoid. |
-| `boxed(on)` | Draws the block of entries with a background and an outline. A panel has no box by default. |
+| `boxed(on)` | Outlines the panel with a border drawn as the box of an axes is drawn, which is the default. The area of a panel is aligned with the plot areas around it, so the border continues the edges of their boxes. `boxed(false)` removes the border. |
 | `columns(columns)` | Sets the number of columns of entries. A panel uses `LegendEntryColumns::Auto` by default. |
 | `order(order)` | Sets the order in which entries fill the columns, `LegendEntryOrder::ColumnMajor` (the default) or `LegendEntryOrder::RowMajor`. |
 | `collect_all()` | Sends the entries of every axes that the figure has at that moment to the panel. |
@@ -104,6 +104,8 @@ An identifier that names no panel of the figure is reported as the error `Dangli
 ### How a panel lines up with the plots
 
 The area of a panel is its block of tiles less the margins of the rows and columns it occupies. Those margins are the space that the axes in the same rows and columns reserve for their tick labels, axis labels and titles. A panel beneath two plots therefore spans exactly the width of their plot areas, and a panel beside a column of plots spans exactly their height. On a side whose row or column holds no axes, such as the top and bottom of a row that holds only a panel, the panel is inset by the page padding instead. A panel reserves no margin of its own, so adding one never moves a plot area. The block of entries is then placed within the panel's area by its alignment.
+
+By default a panel outlines its area with a border drawn exactly as the box of an axes is drawn, so the edges of the border continue the edges of the boxes of the plots beside or above it, and the panel reads as one more tile of the grid. The entries are kept inside the border by the same inset that a legend inside a plot area keeps from the box of its axes, at every alignment. A panel with no entries still draws its border. `boxed(false)` removes the border, and the block of entries then sits flush with the edges it is aligned to.
 
 ## Sharing and merging entries
 
@@ -214,7 +216,7 @@ for warning in &report.scene {
 
 In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history.
 
-The property editor lists each legend panel after the axes, named by the tile it occupies, as "Legend panel (row 2, col 0)". The alignment, box, columns and order of a panel, the location, box, columns and order of a legend inside an axes, and the weights of the tile layout can be changed there. The tiles a panel occupies and the panel that an axes sends its entries to cannot, because they are part of the arrangement of the figure, which is built in code.
+The property editor lists each legend panel after the axes, named by the tile it occupies, as "Legend panel (row 2, col 0)". The alignment, border, columns and order of a panel, the location, box, columns and order of a legend inside an axes, and the weights of the tile layout can be changed there. The tiles a panel occupies and the panel that an axes sends its entries to cannot, because they are part of the arrangement of the figure, which is built in code.
 
 ## Legends in a figure file
 
@@ -232,7 +234,7 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
       "id": 1,
       "cell": {"row": 1, "col": 0, "row_span": 1, "col_span": 2},
       "align": "center",
-      "boxed": false,
+      "boxed": true,
       "layout": {"columns": {"type": "auto"}, "order": "column_major"}
     }
   ]

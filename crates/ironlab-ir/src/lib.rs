@@ -47,8 +47,9 @@
 //!   cannot colour, whether the pixel lies below or above its range or is not finite.
 //! - Artists are visible and have no display name.
 //! - A legend inside a plot area sits in the top-right corner, is boxed and lists its
-//!   entries in one column. A legend panel is not boxed, centres its entries and
-//!   arranges them in as few columns as fit it. Entries fill each column before the next.
+//!   entries in one column. A legend panel is outlined by a border drawn as the box of
+//!   an axes is drawn, centres its entries and arranges them in as few columns as fit
+//!   it. Entries fill each column before the next.
 //! - The rows and columns of a tile layout all have a weight of one, so its cells are of
 //!   equal size.
 

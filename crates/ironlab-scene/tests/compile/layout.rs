@@ -5,8 +5,8 @@ use ironlab_scene::display::Rect;
 
 use crate::common::{Fx, cell, compile_figure, linspace, rgba, text};
 use crate::probe::{
-    assert_close, axes_hit, disjoint, from_source, glyph_runs, inside, leaves, panel_entries,
-    panel_rect, runs_with_text, text_bbox, x_tick_labels, y_tick_labels,
+    Leaf, assert_close, axes_hit, disjoint, from_source, glyph_runs, inside, leaves, outlines,
+    panel_entries, panel_rect, runs_with_text, text_bbox, x_tick_labels, y_tick_labels,
 };
 
 const MM_TO_PT: f64 = 72.0 / 25.4;
@@ -512,12 +512,10 @@ fn an_axes_spanning_weighted_columns_takes_the_sum_of_their_weights() {
     );
 }
 
-// Why: a panel beside a column of plots, spanning their rows, reads as part of them only if it lines up with
-// their plot areas vertically, so it takes the aligned top margin of its first row and the aligned bottom margin
-// of its last; the top axes has a title and the bottom one an x label, so that both margins are large and differ
-// from the cell edges.
-#[test]
-fn a_panel_beside_axes_and_spanning_their_rows_lines_up_with_their_plot_areas() {
+/// A 2 × 2 layout with two axes in the left column, the top one with a title and the bottom one with an x label so
+/// that their margins are large and differ from the cell edges, and a legend panel spanning the right column,
+/// listing one named line from each axes.
+fn axes_beside_a_tall_panel() -> (Fx, [ironlab_ir::NodeId; 2], ironlab_ir::NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
     fx.fig.layout.cols = 2;
@@ -530,6 +528,15 @@ fn a_panel_beside_axes_and_spanning_their_rows_lines_up_with_their_plot_areas() 
         fx.named_line(ax, name, |_| {});
         fx.legend_in(ax, panel);
     }
+    (fx, [top, bottom], panel)
+}
+
+// Why: a panel beside a column of plots, spanning their rows, reads as part of them only if it lines up with
+// their plot areas vertically, so it takes the aligned top margin of its first row and the aligned bottom margin
+// of its last.
+#[test]
+fn a_panel_beside_axes_and_spanning_their_rows_lines_up_with_their_plot_areas() {
+    let (fx, [top, bottom], panel) = axes_beside_a_tall_panel();
     let scene = compile_figure(&fx.build());
     let (t, b) = (
         axes_hit(&scene, top).plot_rect,
@@ -542,4 +549,44 @@ fn a_panel_beside_axes_and_spanning_their_rows_lines_up_with_their_plot_areas() 
         p.x >= t.right().max(b.right()),
         "the panel {p:?} lies to the right of the plot areas {t:?} and {b:?}"
     );
+}
+
+/// Returns the bounding box of the single rectangular outline a node draws whose box contains `rect`: the border
+/// of a legend panel or the box of an axes, as drawn rather than as published in the hit map.
+#[track_caller]
+fn drawn_frame(scene: &ironlab_scene::Scene, id: ironlab_ir::NodeId, rect: Rect) -> Rect {
+    let frames: Vec<Rect> = outlines(scene, id)
+        .iter()
+        .filter_map(Leaf::bbox)
+        .filter(|b| inside(rect, *b, 1e-6))
+        .collect();
+    assert_eq!(frames.len(), 1, "one frame around {rect:?}: {frames:?}");
+    frames[0]
+}
+
+// Why: the border of a panel below a row of plots is meant to continue their boxes, so its left edge must be drawn
+// on the line of the left plot's box and its right edge on the line of the right plot's box; measured on the drawn
+// outlines, so that a border drawn anywhere other than the published area would be caught.
+#[test]
+fn the_border_of_a_panel_below_axes_continues_the_edges_of_their_boxes() {
+    let (fx, [left, right], panel) = axes_over_a_wide_panel();
+    let scene = compile_figure(&fx.build());
+    let l = drawn_frame(&scene, left, axes_hit(&scene, left).plot_rect);
+    let r = drawn_frame(&scene, right, axes_hit(&scene, right).plot_rect);
+    let p = drawn_frame(&scene, panel, panel_rect(&scene, panel));
+    assert_close(p.x, l.x, 1e-6);
+    assert_close(p.right(), r.right(), 1e-6);
+}
+
+// Why: the border of a panel beside a column of plots is meant to continue their boxes, so its top edge must be
+// drawn on the line of the top plot's box and its bottom edge on the line of the bottom plot's box.
+#[test]
+fn the_border_of_a_panel_beside_axes_continues_the_edges_of_their_boxes() {
+    let (fx, [top, bottom], panel) = axes_beside_a_tall_panel();
+    let scene = compile_figure(&fx.build());
+    let t = drawn_frame(&scene, top, axes_hit(&scene, top).plot_rect);
+    let b = drawn_frame(&scene, bottom, axes_hit(&scene, bottom).plot_rect);
+    let p = drawn_frame(&scene, panel, panel_rect(&scene, panel));
+    assert_close(p.y, t.y, 1e-6);
+    assert_close(p.bottom(), b.bottom(), 1e-6);
 }

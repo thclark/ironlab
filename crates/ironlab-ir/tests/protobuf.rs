@@ -1677,8 +1677,9 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
             ],
             ..wire::Axes::default()
         }],
-        // A legend panel whose values are the defaults of an inside legend, which differ
-        // from those of a panel: a boxed block at the top right in one column.
+        // A legend panel whose values are zero or the defaults of an inside legend, all of
+        // which differ from those of a panel: no border, and a block at the top right in
+        // one column.
         panel_legends: vec![wire::PanelLegend {
             id: Some(10),
             cell: Some(wire::Cell {
@@ -1688,7 +1689,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 col_span: Some(0),
             }),
             align: wire::LegendLocation::NorthEast as i32,
-            boxed: Some(true),
+            boxed: Some(false),
             layout: wire_columns(1, wire::LegendEntryOrder::ColumnMajor),
         }],
         ..minimal_wire_figure()
@@ -1810,7 +1811,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 col_span: 0,
             },
             align: LegendLocation::NorthEast,
-            boxed: true,
+            boxed: false,
             layout: LegendEntryLayout::default(),
         }],
         provenance: empty_provenance(),

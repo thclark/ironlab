@@ -15,8 +15,8 @@ fn panel(fig: &Figure, id: NodeId) -> &PanelLegend {
 }
 
 // WHY: a panel is placed in the tile layout exactly as a spanning axes is, and its
-// defaults are the ones suited to a key beside or below plots (centred, unboxed, as many
-// columns as fit), which differ from those of a legend inside a plot area; a panel created
+// defaults are the ones suited to a key beside or below plots (centred, framed by a border
+// that continues the boxes of the plots, as many columns as fit), which differ from those of a legend inside a plot area; a panel created
 // with other defaults would look like a misplaced inside legend.
 #[test]
 fn panel_legend_span_creates_a_panel_in_its_cells_with_the_panel_defaults() {
@@ -33,7 +33,7 @@ fn panel_legend_span_creates_a_panel_in_its_cells_with_the_panel_defaults() {
         }
     );
     assert_eq!(p.align, LegendLocation::Center);
-    assert!(!p.boxed);
+    assert!(p.boxed);
     assert_eq!(p.layout.columns, LegendEntryColumns::Auto);
     assert_eq!(p.layout.order, LegendEntryOrder::ColumnMajor);
     assert_eq!(fig.ir().panel_legends.len(), 1);
@@ -62,13 +62,13 @@ fn panel_setters_chain_and_set_the_panel() {
     let id = fig
         .panel_legend(0, 1)
         .align(LegendLocation::NorthWest)
-        .boxed(true)
+        .boxed(false)
         .columns(LegendEntryColumns::Count(2))
         .order(LegendEntryOrder::RowMajor)
         .id();
     let p = panel(&fig, id);
     assert_eq!(p.align, LegendLocation::NorthWest);
-    assert!(p.boxed);
+    assert!(!p.boxed);
     assert_eq!(
         p.layout,
         LegendEntryLayout {

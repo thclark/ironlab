@@ -445,7 +445,7 @@ ir_node! {
         plain "align" => align: LegendLocation =
             "Where the block of entries is placed within the panel.";
         plain "boxed" => boxed: bool =
-            "Whether the block of entries is drawn with a background and outline.";
+            "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
     }
 

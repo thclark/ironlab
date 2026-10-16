@@ -63,7 +63,17 @@ impl PanelLegendMut<'_> {
         self
     }
 
-    /// Sets whether the block of entries is drawn with a background and outline.
+    /// Sets whether the area of the panel is outlined by a border, which is the default.
+    /// The border is drawn as the box of an axes is drawn, and continues the edges of the
+    /// boxes of the axes in the panel's rows and columns, because the area of the panel is
+    /// aligned with their plot areas.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// fig.panel_legend(0, 1).boxed(false);
+    /// ```
     pub fn boxed(&mut self, on: bool) -> &mut Self {
         self.panel().boxed = on;
         self

@@ -701,7 +701,7 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
             "id": 9,
             "cell": { "row": 1, "col": 0, "row_span": 1, "col_span": 1 },
             "align": "center",
-            "boxed": false,
+            "boxed": true,
             "layout": { "columns": { "type": "auto" }, "order": "column_major" }
         }])
     );
