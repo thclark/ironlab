@@ -137,13 +137,19 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
     let data = group_dense(coalesce_markers(data), &drawn.dense);
-    let unclipped: Vec<NodeId> = input
+    // The clip of every artist whose clip differs from the plot area: one that releases it along a fraction dimension.
+    let released: Vec<(NodeId, Rect)> = input
         .prepared
         .iter()
-        .filter(|p| !Placement::of(p.artist).clip)
-        .map(|p| p.artist.id())
+        .map(|p| {
+            (
+                p.artist.id(),
+                Placement::of(p.artist).clip_rect(plot, input.page),
+            )
+        })
+        .filter(|(_, clip)| *clip != plot)
         .collect();
-    out.extend(clip_groups(axes.id, plot, data, &unclipped));
+    out.extend(clip_groups(axes.id, plot, data, &released));
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
@@ -156,19 +162,30 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     });
 }
 
-/// Wraps the drawn items of an axes in groups, in paint order: each maximal run of items of clipped artists in a group
-/// clipped to the plot area, and each maximal run of items of the artists in `unclipped` in a group with no clip, so
-/// that their marks may extend beyond the plot area without changing what covers what.
-fn clip_groups(axes: NodeId, plot: Rect, items: Vec<Item>, unclipped: &[NodeId]) -> Vec<Item> {
+/// Wraps the drawn items of an axes in groups, in paint order: each maximal run of items that share a clip in one
+/// group with that clip. An artist listed in `released` takes the clip listed with it, which extends beyond the plot
+/// area along the dimensions it places as fractions of the plot area; every other artist is clipped to the plot area.
+/// Grouping by runs keeps what covers what.
+fn clip_groups(
+    axes: NodeId,
+    plot: Rect,
+    items: Vec<Item>,
+    released: &[(NodeId, Rect)],
+) -> Vec<Item> {
+    let clip_of = |item: &Item| {
+        item.source
+            .and_then(|id| released.iter().find(|(artist, _)| *artist == id))
+            .map_or(plot, |(_, clip)| *clip)
+    };
     let mut groups: Vec<Item> = Vec::new();
     let mut run: Vec<Item> = Vec::new();
-    let mut run_clipped = true;
-    let flush = |groups: &mut Vec<Item>, run: &mut Vec<Item>, clipped: bool| {
+    let mut run_clip = plot;
+    let flush = |groups: &mut Vec<Item>, run: &mut Vec<Item>, clip: Rect| {
         if !run.is_empty() {
             groups.push(Item {
                 source: Some(axes),
                 kind: ItemKind::Group {
-                    clip: clipped.then_some(plot),
+                    clip: Some(clip),
                     transform: None,
                     items: std::mem::take(run),
                 },
@@ -176,14 +193,14 @@ fn clip_groups(axes: NodeId, plot: Rect, items: Vec<Item>, unclipped: &[NodeId])
         }
     };
     for item in items {
-        let clipped = item.source.is_none_or(|id| !unclipped.contains(&id));
-        if clipped != run_clipped {
-            flush(&mut groups, &mut run, run_clipped);
-            run_clipped = clipped;
+        let clip = clip_of(&item);
+        if clip != run_clip {
+            flush(&mut groups, &mut run, run_clip);
+            run_clip = clip;
         }
         run.push(item);
     }
-    flush(&mut groups, &mut run, run_clipped);
+    flush(&mut groups, &mut run, run_clip);
     groups
 }
 

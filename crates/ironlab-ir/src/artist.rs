@@ -123,8 +123,11 @@ pub struct Line {
     /// How the y values are placed: as data along the y axis, or as fractions of the
     /// plot area's height. Anything other than `data` is allowed only in 2D axes.
     pub y_coords: Coords,
-    /// Whether the artist is clipped to the plot area; when false its marks may extend
-    /// beyond it, for example markers that sit on its edge.
+    /// Whether the artist is clipped to the plot area. When false, clipping is released
+    /// only along a dimension in axes-fraction coordinates, so that markers can sit on or
+    /// beyond an edge of the axes; along a dimension in data coordinates the artist stays
+    /// clipped to the plot area, so an artist in data coordinates along both dimensions
+    /// is always clipped, and so is every artist of a 3D axes.
     pub clip: bool,
 }
 
@@ -178,8 +181,11 @@ pub struct Scatter {
     /// How the y values are placed: as data along the y axis, or as fractions of the
     /// plot area's height. Anything other than `data` is allowed only in 2D axes.
     pub y_coords: Coords,
-    /// Whether the artist is clipped to the plot area; when false its marks may extend
-    /// beyond it, for example markers that sit on its edge.
+    /// Whether the artist is clipped to the plot area. When false, clipping is released
+    /// only along a dimension in axes-fraction coordinates, so that markers can sit on or
+    /// beyond an edge of the axes; along a dimension in data coordinates the artist stays
+    /// clipped to the plot area, so an artist in data coordinates along both dimensions
+    /// is always clipped, and so is every artist of a 3D axes.
     pub clip: bool,
 }
 

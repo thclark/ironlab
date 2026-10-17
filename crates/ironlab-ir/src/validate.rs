@@ -63,6 +63,12 @@ pub enum IssueKind {
     /// three-dimensional axes, which has no plot area along its dimensions to take a
     /// fraction of.
     AxesFractionInThreeDAxes,
+    /// A line or scatter releases its clip (`clip` is false) although it places no
+    /// dimension in axes-fraction coordinates, or lies in a three-dimensional axes, so
+    /// that the release has no effect: clipping is released only along a dimension
+    /// placed as fractions of the plot area of a two-dimensional axes. This is a
+    /// warning, not an error, because the artist is drawn, clipped to the plot area.
+    IneffectiveClip,
     /// An axis link refers to an identifier that is not an axes of the figure.
     DanglingLink,
     /// Two nodes share an identifier.
@@ -158,7 +164,8 @@ impl Figure {
     /// only when the colour limits are manual and valid, because automatic limits are
     /// the range of the data). Warnings report finite non-positive data plotted along
     /// logarithmic axes, an image whose plane has a logarithmic axis, which is not
-    /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
+    /// drawn, a line or scatter whose released clip has no effect because it places no
+    /// dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), and a legend panel with no entries
@@ -516,6 +523,22 @@ impl Validator<'_> {
                 IssueKind::AxesFractionInThreeDAxes,
                 "a dimension in axes-fraction coordinates is placed in a three-dimensional axes, \
                  which accepts data coordinates only"
+                    .to_owned(),
+            );
+        }
+
+        let released = match artist {
+            Artist::Line(line) => !line.clip,
+            Artist::Scatter(scatter) => !scatter.clip,
+            _ => false,
+        };
+        if released && (three_d || !usage.fraction.iter().any(|&fraction| fraction)) {
+            self.warning(
+                Some(id),
+                IssueKind::IneffectiveClip,
+                "the clip is released, but clipping is released only along a dimension in \
+                 axes-fraction coordinates of a two-dimensional axes, so the artist is still \
+                 clipped to the plot area"
                     .to_owned(),
             );
         }

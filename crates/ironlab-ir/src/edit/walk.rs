@@ -466,7 +466,7 @@ ir_node! {
         plain "y_coords" => y_coords: Coords =
             "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
         plain "clip" => clip: bool =
-            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area.";
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
     }
 
     Scatter {
@@ -489,7 +489,7 @@ ir_node! {
         plain "y_coords" => y_coords: Coords =
             "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
         plain "clip" => clip: bool =
-            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area.";
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
     }
 
     Contour {

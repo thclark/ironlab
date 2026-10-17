@@ -2794,6 +2794,31 @@ fn data_coordinates_in_three_dimensions_and_any_coordinates_in_two_are_valid() {
     }
 }
 
+// Why: clipping is released only along a dimension placed as fractions of the plot area,
+// so releasing it on an artist in data along both dimensions, or in a three-dimensional
+// axes, does nothing; the author meant something by it, so it is reported, as a warning
+// because the artist is still drawn.
+#[test]
+fn a_released_clip_without_a_fraction_dimension_is_a_warning() {
+    let (mut fig, _, line) = single_line_figure();
+    line_mut(&mut fig).clip = false;
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::IneffectiveClip, Some(line)),
+        "{report:?}"
+    );
+
+    fig.axes[0].projection = Projection::ThreeD {
+        view3d: View3d::default(),
+    };
+    assert!(has_warning(
+        &fig.validate(),
+        IssueKind::IneffectiveClip,
+        Some(line)
+    ));
+}
+
 // Why: a fraction of the plot area is not a value along the axis, so a fraction of 0 (the
 // bottom edge) on a logarithmic axis is not a non-positive value that cannot be drawn; the
 // data dimension of the same artist is still checked.

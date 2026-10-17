@@ -47,6 +47,19 @@ fn fraction_x(plot: Rect, f: f64) -> f64 {
     plot.x + f * plot.width
 }
 
+/// Asserts that a clip is the x extent of the plot area, unbounded by the plot area along y: the clip of an artist
+/// whose y values are fractions of the plot area and whose clipping is released.
+#[track_caller]
+fn assert_released_along_y_only(clip: Option<Rect>, plot: Rect) {
+    let clip = clip.expect("an artist placed in data along x is clipped along x");
+    assert_close(clip.x, plot.x, TOL);
+    assert_close(clip.right(), plot.right(), TOL);
+    assert!(
+        clip.y < plot.y && clip.bottom() > plot.bottom(),
+        "the clip {clip:?} extends beyond the plot area {plot:?} along y"
+    );
+}
+
 /// Adds a horizontal reference line at `y`, as the facade's `hline` builds it.
 fn hline(fx: &mut Fx, ax: NodeId, y: f64) -> NodeId {
     fx.line(ax, &[0.0, 1.0], &[y, y], None, |l| {
@@ -243,8 +256,9 @@ fn edge_ticks_are_drawn_when_every_value_of_the_series_is_nan() {
     }
 }
 
-// An artist that is not clipped is drawn outside the clip of the plot area, so that a tick on the edge is drawn
-// whole; a clipped artist stays inside it. The order in which they were added is the order in which they are painted.
+// An artist that is not clipped along its fraction dimension is drawn in a clip that extends beyond the plot area in
+// that dimension only, so that a tick on the top edge is drawn whole; a clipped artist stays inside the plot area. The
+// order in which they were added is the order in which they are painted.
 #[test]
 fn an_unclipped_artist_is_painted_outside_the_clip_of_the_plot_area_in_artist_order() {
     let mut fx = Fx::new();
@@ -268,7 +282,7 @@ fn an_unclipped_artist_is_painted_outside_the_clip_of_the_plot_area_in_artist_or
     let ticks = from_source(&all, unclipped);
     assert!(!ticks.is_empty());
     for leaf in ticks {
-        assert_eq!(leaf.clip, None, "the unclipped ticks have no clip");
+        assert_released_along_y_only(leaf.clip, plot);
     }
     assert!(position(first) < position(unclipped) && position(unclipped) < position(last));
 }
@@ -435,7 +449,55 @@ fn unclipped_markers_beyond_the_plot_area_survive_the_thinning_of_a_dense_series
             let all = leaves(&scene);
             let drawn_leaves = from_source(&all, ticks);
             assert!(!drawn_leaves.is_empty());
-            assert!(drawn_leaves.iter().all(|l| l.clip.is_none()));
+            for leaf in drawn_leaves {
+                assert_released_along_y_only(leaf.clip, plot);
+            }
         }
     }
+}
+
+// The owner's report: after panning in x, edge ticks whose data x lies outside the x limits slid out of the plot area
+// and onto the neighbouring axes. Releasing the clip lets a tick overhang the top or bottom edge, but along its data
+// dimension the tick is clipped to the plot area exactly as a clipped artist is, so a tick out of the x range is not
+// drawn and a tick in range is.
+#[test]
+fn edge_ticks_outside_the_x_limits_are_clipped_to_the_x_extent_of_the_plot_area() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.ax(ax).x.limits = Limits::Manual {
+        min: 0.0,
+        max: 10.0,
+    };
+    fx.line(ax, &[0.0, 10.0], &[0.0, 1.0], None, |_| {});
+    let ticks = edge_ticks(&mut fx, ax, &[-5.0, 5.0, 15.0], false);
+    let scene = compile_figure(&fx.build());
+    let plot = plot(&scene, ax);
+    let leaves = from_source(&leaves(&scene), ticks);
+    assert!(!leaves.is_empty());
+    for leaf in &leaves {
+        assert_released_along_y_only(leaf.clip, plot);
+    }
+    // Of the three ticks, only the one at x = 5 lies within the clip.
+    let points = drawn(&scene, ticks);
+    let visible: Vec<usize> = points
+        .iter()
+        .filter(|(_, p)| p.x >= plot.x && p.x <= plot.right())
+        .map(|(i, _)| *i)
+        .collect();
+    assert_eq!(visible, vec![1]);
+}
+
+// An artist placed in data along both dimensions has no edge of the axes to sit on, so releasing its clip has no
+// effect: it is clipped to the plot area as any other artist is, and never draws over the neighbouring axes.
+#[test]
+fn an_artist_in_data_coordinates_is_clipped_whatever_its_clip_flag() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.ax(ax).x.limits = Limits::Manual { min: 0.0, max: 1.0 };
+    let line = fx.line(ax, &[-1.0, 2.0], &[0.0, 1.0], None, |l| l.clip = false);
+    let scene = compile_figure(&fx.build());
+    let plot = plot(&scene, ax);
+    let leaves = from_source(&leaves(&scene), line);
+    assert!(!leaves.is_empty());
+    assert!(leaves.iter().all(|l| l.clip == Some(plot)));
 }

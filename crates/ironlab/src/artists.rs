@@ -206,9 +206,16 @@ impl LineMut<'_> {
         self
     }
 
-    /// Sets whether the line is clipped to the plot area (the default) or may draw
-    /// beyond it, for example markers that sit on its edge. A three-dimensional axes
-    /// always clips its artists to its tile.
+    /// Sets whether the line is clipped to the plot area (the default), or may draw
+    /// beyond it along a dimension in axes-fraction coordinates, for example markers
+    /// that sit on the top edge of the axes.
+    ///
+    /// Releasing the clip never releases it along a dimension in data coordinates: a
+    /// marker at a data x outside the x limits is not drawn. A line in data
+    /// coordinates along both dimensions is therefore always clipped, as is every
+    /// artist of a three-dimensional axes, and
+    /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
+    /// effect.
     pub fn clip(&mut self, clip: bool) -> &mut Self {
         self.artist().clip = clip;
         self
@@ -327,9 +334,16 @@ impl ScatterMut<'_> {
         self
     }
 
-    /// Sets whether the scatter is clipped to the plot area (the default) or may draw
-    /// beyond it, for example markers that sit on its edge. A three-dimensional axes
-    /// always clips its artists to its tile.
+    /// Sets whether the scatter is clipped to the plot area (the default), or may draw
+    /// beyond it along a dimension in axes-fraction coordinates, for example markers
+    /// that sit on the top edge of the axes.
+    ///
+    /// Releasing the clip never releases it along a dimension in data coordinates: a
+    /// marker at a data x outside the x limits is not drawn. A scatter in data
+    /// coordinates along both dimensions is therefore always clipped, as is every
+    /// artist of a three-dimensional axes, and
+    /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
+    /// effect.
     pub fn clip(&mut self, clip: bool) -> &mut Self {
         self.artist().clip = clip;
         self

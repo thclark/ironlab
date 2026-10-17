@@ -106,7 +106,7 @@ ax.vline(0.0).dash(Dash::Dotted).color(Color::BLACK);
 
 A reference line spans the plot area because each of its dimensions is placed in its own coordinates. Along the axis it crosses, its value is data, placed through the limits and the scale of that axis. Along the axis it spans, its values are the fractions 0 and 1 of the plot area, which map to the left and right edges (or the bottom and top edges) whatever the limits, the scale or the pan and zoom of the axis. The data value takes part in the automatic limits of its axis, as it does in matplotlib, so a tolerance above the data is in view without fixing the limits; the fractions take part in none, so the line never stretches the axis it spans.
 
-The same mechanism places any line or scatter. Setting `x_coords(Coords::AxesFraction)` or `y_coords(Coords::AxesFraction)` on a line or scatter places that dimension as fractions of the plot area, 0 at the left or bottom edge and 1 at the right or top edge, and leaves the other dimension in data coordinates. Setting `clip(false)` lets its marks extend beyond the plot area, which is clipped to by default. Together they draw markers along an edge of the axes at data positions, which stay on the edge while a reader pans and zooms. The vertical tick `Marker::VLine` and the horizontal tick `Marker::HLine` are made for this: each is one stroke as long as the marker size.
+The same mechanism places any line or scatter. Setting `x_coords(Coords::AxesFraction)` or `y_coords(Coords::AxesFraction)` on a line or scatter places that dimension as fractions of the plot area, 0 at the left or bottom edge and 1 at the right or top edge, and leaves the other dimension in data coordinates. Setting `clip(false)` lets its marks extend beyond the plot area along the dimension placed as fractions, and only along that dimension: along the dimension in data coordinates the artist stays clipped to the plot area, so a marker at a data value outside the limits is not drawn. `clip(false)` therefore has no effect on a line or scatter in data coordinates along both dimensions, and validation warns about it. Together they draw markers along an edge of the axes at data positions, which stay on the edge while a reader pans and zooms. The vertical tick `Marker::VLine` and the horizontal tick `Marker::HLine` are made for this: each is one stroke as long as the marker size.
 
 ```rust
 // A tick along the top of the axes at every angle where the value is not a number.
@@ -118,7 +118,7 @@ let missing: Vec<f64> = alpha
     .collect();
 ax.plot(&missing, vec![0.985; missing.len()])
     .y_coords(Coords::AxesFraction)   // 98.5 % of the way up the plot area
-    .clip(false)                      // drawn whole, even where it overhangs the edge
+    .clip(false)                      // drawn whole where it overhangs the top edge; still clipped in x
     .dash(Dash::None)
     .marker(Marker::VLine)
     .color(Color::rgb(0.9, 0.62, 0.0));

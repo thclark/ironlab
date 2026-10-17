@@ -291,10 +291,10 @@ pub(super) fn draw_artists(
         }
         let placement = Placement::of(prepared.artist);
         draw.space = space.blended(placement.coords, input.plot);
-        draw.clip = if placement.clip || space.is_3d() {
+        draw.clip = if space.is_3d() {
             axes_clip
         } else {
-            input.page
+            placement.clip_rect(input.plot, input.page)
         };
         match (prepared.artist, data) {
             (Artist::Line(line), ArtistData::Line(points)) => {
@@ -335,8 +335,9 @@ pub(super) fn draw_artists(
     }
 }
 
-/// How a line or scatter is placed in a 2D axes: the coordinates of its x and y values and whether it is clipped to
-/// the plot area. Every other artist places data along every dimension and is clipped.
+/// How a line or scatter is placed in a 2D axes: the coordinates of its x and y values and whether its clipping is
+/// released along the dimensions it places as fractions of the plot area. Every other artist places data along every
+/// dimension and is clipped.
 #[derive(Clone, Copy)]
 pub(crate) struct Placement {
     pub coords: [ArtistCoords; 2],
@@ -359,6 +360,28 @@ impl Placement {
                 clip: true,
             },
         }
+    }
+
+    /// Returns the rectangle the artist is clipped to in a 2D axes with the plot area `plot` on the page `page`.
+    ///
+    /// Releasing the clip (`clip` false) releases it only along a dimension placed as fractions of the plot area,
+    /// where the clip extends to the page, so that a marker can overhang an edge of the axes. Along a dimension placed
+    /// in data the artist is clipped to the plot area as it is with `clip` true, so that data outside the limits of
+    /// that axis is never drawn, and an artist in data along both dimensions is clipped to the plot area whatever its
+    /// flag.
+    pub fn clip_rect(&self, plot: Rect, page: Rect) -> Rect {
+        let released = |dim: usize| !self.clip && self.coords[dim] == ArtistCoords::AxesFraction;
+        let (left, right) = if released(0) {
+            (page.x.min(plot.x), page.right().max(plot.right()))
+        } else {
+            (plot.x, plot.right())
+        };
+        let (top, bottom) = if released(1) {
+            (page.y.min(plot.y), page.bottom().max(plot.bottom()))
+        } else {
+            (plot.y, plot.bottom())
+        };
+        Rect::new(left, top, right - left, bottom - top)
     }
 }
 
