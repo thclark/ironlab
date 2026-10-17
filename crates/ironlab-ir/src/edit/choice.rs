@@ -24,7 +24,7 @@
 use crate::artist::{
     ContourPlacement, Grid, ImagePlane, Levels, OutOfRange, QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{ColormapName, Limits, Projection, Scale, View3d};
+use crate::axes::{Axes, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, properties};
 use crate::edit::value::{Value, ValueType};
@@ -32,7 +32,7 @@ use crate::figure::{Figure, FontSetId};
 use crate::ids::{DataId, NodeId};
 use crate::legend::{InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
-use crate::text::Interpreter;
+use crate::text::{Interpreter, Text};
 
 /// One of the values that a property of a given type can be given, as offered by
 /// [`choices`].
@@ -95,6 +95,10 @@ const FALLBACK_DATA: DataId = DataId(0);
 /// scatter built from [`ScatterSize::default`].
 const FALLBACK_MARKER_SIZE_PT: f64 = 4.0;
 
+/// The step that regularly stepped ticks start from when the value they replace holds
+/// none.
+const FALLBACK_TICK_STEP: f64 = 1.0;
+
 /// The number of levels that automatic levels start from, which is the count of
 /// [`Levels::default`].
 const FALLBACK_LEVEL_COUNT: u32 = 10;
@@ -140,6 +144,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
     match value_type {
         ValueType::Projection => projection_choices(replacing),
         ValueType::Limits => limits_choices(replacing),
+        ValueType::Ticks => ticks_choices(replacing),
+        ValueType::TickLabels => tick_labels_choices(replacing),
         ValueType::ColorSpec => color_spec_choices(replacing),
         ValueType::ScatterSize => scatter_size_choices(replacing),
         ValueType::ScatterColor => scatter_color_choices(replacing),
@@ -168,6 +174,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::NodeId
         | ValueType::Doubles
         | ValueType::Strings
+        | ValueType::Texts
         | ValueType::Text
         | ValueType::FigureSize
         | ValueType::Color
@@ -249,10 +256,11 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 ///
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
-const RULES: [Rule; 3] = [
+const RULES: [Rule; 4] = [
     colormapped_without_a_value_to_index_by,
     clamp_without_a_nearest_end_of_the_colormap,
     legend_panel_that_the_figure_lacks,
+    tick_text_without_matching_values,
 ];
 
 /// Completes the reason a colormapped colour is unavailable at a property, which is why
@@ -383,6 +391,46 @@ fn legend_panel_that_the_figure_lacks(
     }
 }
 
+/// Why explicit tick labels are unavailable on an axis whose ticks are not explicit values.
+const TICK_TEXT_WITHOUT_VALUES: &str = "Explicit tick labels name the ticks one by one, so \
+     they are available only where the ticks of the axis are explicit values, with one label \
+     for each value. The ticks and their labels are set by the program that builds the figure.";
+
+/// Marks explicit tick labels unavailable on an axis whose ticks are not explicit values of
+/// as many ticks as the labels hold, which validation would refuse, and leaves every other
+/// choice alone.
+fn tick_text_without_matching_values(
+    figure: &Figure,
+    kind: NodeKind,
+    node: NodeId,
+    path: &PropertyPath,
+    value: &Value,
+) -> Option<&'static str> {
+    let Value::TickLabels(TickLabels::Text(texts)) = value else {
+        return None;
+    };
+    if kind != NodeKind::Axes {
+        return None;
+    }
+    let [axis, field] = path.segments() else {
+        return None;
+    };
+    if field != "tick_labels" {
+        return None;
+    }
+    let axes: &Axes = figure.axes(node)?;
+    let ticks = match axis.as_str() {
+        "x" => &axes.x.ticks,
+        "y" => &axes.y.ticks,
+        "z" => &axes.z.ticks,
+        _ => return None,
+    };
+    match ticks {
+        Ticks::Values(values) if values.len() == texts.len() => None,
+        _ => Some(TICK_TEXT_WITHOUT_VALUES),
+    }
+}
+
 /// Returns whether the IR gives the colour at this property of this kind of node a value
 /// to look up in the colormap.
 ///
@@ -419,6 +467,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
     Some(match value {
         Value::Projection(v) => projection_label(v),
         Value::Limits(v) => limits_label(v),
+        Value::Ticks(v) => ticks_label(v),
+        Value::TickLabels(v) => tick_labels_label(v),
         Value::ColorSpec(v) => color_spec_label(v),
         Value::ScatterSize(v) => scatter_size_label(v),
         Value::ScatterColor(v) => scatter_color_label(v),
@@ -448,6 +498,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::NodeId(_)
         | Value::Doubles(_)
         | Value::Strings(_)
+        | Value::Texts(_)
         | Value::Text(_)
         | Value::FigureSize(_)
         | Value::Color(_)
@@ -538,6 +589,33 @@ tagged_choices! {
             };
             Limits::Manual { min, max }
         };
+    }
+
+    Ticks as Ticks (ticks_choices, ticks_label) replacing replacing {
+        Ticks::Auto => "Automatic" = Ticks::Auto;
+        Ticks::Step { .. } => "Regular step" = match replacing {
+            Some(Value::Ticks(Ticks::Step { step, origin })) => Ticks::Step {
+                step: *step,
+                origin: *origin,
+            },
+            _ => Ticks::Step {
+                step: FALLBACK_TICK_STEP,
+                origin: 0.0,
+            },
+        };
+        Ticks::Values(_) => "Explicit values" = Ticks::Values(match replacing {
+            Some(Value::Ticks(Ticks::Values(values))) => values.clone(),
+            _ => Vec::new(),
+        });
+    }
+
+    TickLabels as TickLabels (tick_labels_choices, tick_labels_label) replacing replacing {
+        TickLabels::Auto => "Automatic" = TickLabels::Auto;
+        TickLabels::Hidden => "Hidden" = TickLabels::Hidden;
+        TickLabels::Text(_) => "Explicit text" = TickLabels::Text(match replacing {
+            Some(Value::TickLabels(TickLabels::Text(texts))) => texts.clone(),
+            _ => Vec::<Text>::new(),
+        });
     }
 
     ColorSpec as ColorSpec (color_spec_choices, color_spec_label) replacing replacing {

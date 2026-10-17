@@ -5,10 +5,12 @@ use serde::{Deserialize, Serialize};
 
 /// The grid of cells in which the axes and legend panels of a figure are placed.
 ///
-/// The rows share the height of the figure, and the columns its width, in proportion to
-/// their weights. A row or column without a weight, because the list of weights is
-/// shorter than the number of rows or columns, has a weight of one, so that empty lists
-/// divide the figure into cells of equal size.
+/// The plot areas of the rows share the height of the figure, and those of the columns
+/// its width, in proportion to their weights, after the margins that the axes reserve for
+/// their tick labels, axis labels and titles have been taken out, so that plot areas of
+/// equal weight are of equal size. A row or column without a weight, because the list of
+/// weights is shorter than the number of rows or columns, has a weight of one, so that
+/// empty lists give plot areas of equal size.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TileLayout {
     /// The number of rows; at least one.

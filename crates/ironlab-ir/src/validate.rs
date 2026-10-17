@@ -6,7 +6,7 @@ use crate::artist::{
     Artist, Contour, ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange,
     PixelRange, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axes, Axis, Limits, Projection, Scale};
+use crate::axes::{Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
@@ -90,6 +90,16 @@ pub enum IssueKind {
     /// Contour levels are empty, not finite or not strictly increasing, or an
     /// automatic level count is zero.
     InvalidLevels,
+    /// The ticks of a coordinate axis cannot be placed: a regular step that is not a
+    /// finite positive number or an origin that is not finite, an explicit tick value
+    /// that is not finite, or an explicit tick value that is not positive on a
+    /// logarithmic axis. Only the axes that are drawn are checked: x and y, and z in a
+    /// three-dimensional axes.
+    InvalidTicks,
+    /// The explicit tick labels of a coordinate axis do not name its ticks one by one:
+    /// the ticks are not explicit values, or the number of labels differs from the
+    /// number of values.
+    InvalidTickLabels,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
@@ -143,7 +153,10 @@ impl Figure {
     /// legend panels outside the tile layout, layout weights that are too many or not
     /// finite and positive, legends that name a legend panel the figure does not have,
     /// legends with a fixed number of zero columns, a non-positive figure size or font
-    /// size, invalid manual limits, invalid
+    /// size, invalid manual limits, ticks that cannot be placed (a regular step that is
+    /// not finite and positive or an origin that is not finite, and explicit tick values
+    /// that are not finite or, on a logarithmic axis, not positive), explicit tick labels
+    /// that do not name explicit tick values one by one, invalid
     /// contour levels, parameters with an empty name or a non-finite number, labels that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
@@ -166,7 +179,7 @@ impl Figure {
     /// produces the first of these. An array of 8-bit values that no artist refers to
     /// is not an error.
     ///
-    /// The z limits and z scale of a 2D axes are ignored, as they are when drawing, and
+    /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when drawing, and
     /// so is the offset of an image in the xy plane of a 2D axes. A line, scatter or
     /// quiver without z data in a 3D axes is not an error: it is drawn in the plane
     /// z = 0. Shape checks are skipped for an artist that refers to unknown or invalid
@@ -445,7 +458,7 @@ impl Validator<'_> {
         }
     }
 
-    /// Checks the cell, legend and limits of an axes.
+    /// Checks the cell, legend, limits and ticks of an axes.
     fn check_axes(&mut self, axes: &Axes) {
         self.check_cell(axes.id, axes.cell);
 
@@ -469,6 +482,13 @@ impl Validator<'_> {
         if three_d {
             limits.push(("z limits", axes.z.limits, axes.z.scale));
         }
+        let mut axes_drawn = vec![("x", &axes.x), ("y", &axes.y)];
+        if three_d {
+            axes_drawn.push(("z", &axes.z));
+        }
+        for (name, axis) in axes_drawn {
+            self.check_ticks(axes.id, name, axis);
+        }
         limits.push(("colour limits", axes.clim, Scale::Linear));
         for (name, limits, scale) in limits {
             let Limits::Manual { min, max } = limits else {
@@ -486,6 +506,58 @@ impl Validator<'_> {
                     IssueKind::InvalidLimits,
                     format!("the {name} [{min}, {max}] are not positive on a logarithmic axis"),
                 );
+            }
+        }
+    }
+
+    /// Checks that the ticks of one coordinate axis can be placed and that explicit tick
+    /// labels name them one by one.
+    fn check_ticks(&mut self, node: NodeId, name: &str, axis: &Axis) {
+        let log = axis.scale == Scale::Log;
+        let problem = match &axis.ticks {
+            Ticks::Auto => None,
+            Ticks::Step { step, origin } => {
+                if !(step.is_finite() && *step > 0.0) {
+                    Some(format!(
+                        "the {name} tick step {step} is not a finite positive number"
+                    ))
+                } else if !origin.is_finite() {
+                    Some(format!("the {name} tick origin {origin} is not finite"))
+                } else {
+                    None
+                }
+            }
+            Ticks::Values(values) => {
+                let not_finite = values.iter().find(|v| !v.is_finite());
+                let not_positive = values.iter().find(|v| log && **v <= 0.0);
+                match (not_finite, not_positive) {
+                    (Some(value), _) => {
+                        Some(format!("the {name} tick value {value} is not finite"))
+                    }
+                    (None, Some(value)) => Some(format!(
+                        "the {name} tick value {value} is not positive on a logarithmic axis"
+                    )),
+                    (None, None) => None,
+                }
+            }
+        };
+        if let Some(message) = problem {
+            self.error(Some(node), IssueKind::InvalidTicks, message);
+        }
+        if let TickLabels::Text(texts) = &axis.tick_labels {
+            let problem = match &axis.ticks {
+                Ticks::Values(values) if values.len() == texts.len() => None,
+                Ticks::Values(values) => Some(format!(
+                    "the {name} axis has {} tick labels for {} tick values",
+                    texts.len(),
+                    values.len()
+                )),
+                Ticks::Auto | Ticks::Step { .. } => Some(format!(
+                    "the {name} axis has explicit tick labels but its ticks are not explicit values"
+                )),
+            };
+            if let Some(message) = problem {
+                self.error(Some(node), IssueKind::InvalidTickLabels, message);
             }
         }
     }

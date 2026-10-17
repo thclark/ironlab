@@ -22,6 +22,13 @@
 //! labelled exponents are the multiples of `n` (so the decade 10⁰ stays labelled while panning).
 //! When fewer than two decades fall inside the range, the linear algorithm supplies the majors.
 //!
+//! # Regular steps and explicit values
+//!
+//! An axis may instead be given a regular step from an origin, whose ticks [`stepped_ticks`] enumerates, or explicit
+//! tick values. Such ticks are labelled with the fewest decimals that show every one of them exactly, as
+//! [`decimals_for`] finds and [`format_fixed`] writes, so that every label of the axis has the same number of
+//! decimals.
+//!
 //! # Labels
 //!
 //! Labels use U+2212 MINUS SIGN for negative numbers, as publication typography requires.
@@ -256,6 +263,66 @@ pub fn format_linear(value: f64, step: f64) -> String {
         format!("{value}")
     };
     typeset_sign(text)
+}
+
+/// Returns the ticks `origin + k · step`, for every integer `k`, that lie within `[min, max]`, in ascending order, or
+/// `None` when there would be more than `limit` of them or the bounds of `k` cannot be computed.
+///
+/// A tick within a relative tolerance of 1e-9 of the step beyond a bound counts as within it, so that a limit which
+/// is a tick up to rounding still carries it. `min > max` is treated as `[max, min]`; a step that is not finite and
+/// positive, an origin that is not finite and bounds that are not finite give `None`.
+pub fn stepped_ticks(min: f64, max: f64, step: f64, origin: f64, limit: usize) -> Option<Vec<f64>> {
+    if !(step.is_finite() && step > 0.0 && origin.is_finite() && min.is_finite() && max.is_finite())
+    {
+        return None;
+    }
+    let (lo, hi) = (min.min(max), min.max(max));
+    let first = ((lo - origin) / step - STEP_TOLERANCE).ceil();
+    let last = ((hi - origin) / step + STEP_TOLERANCE).floor();
+    if !(first.is_finite() && last.is_finite()) {
+        return None;
+    }
+    if last < first {
+        return Some(Vec::new());
+    }
+    if last - first >= limit as f64 {
+        return None;
+    }
+    let (first, last) = (first as i64, last as i64);
+    Some((first..=last).map(|k| origin + k as f64 * step).collect())
+}
+
+/// Returns the fewest decimals, from 0 to 15, with which every value is written exactly, to within one millionth of
+/// the largest magnitude among them; an empty slice, or values that are all zero, need none.
+///
+/// The tolerance is relative to the largest value, so that the rounding residue of a computed tick (0.30000000000000004)
+/// asks for no more decimals than the tick it stands for, while a value that genuinely needs more decimals than its
+/// neighbours (0.05 beside 0.1) is shown with them.
+pub fn decimals_for(values: &[f64]) -> usize {
+    let largest = values
+        .iter()
+        .filter(|v| v.is_finite())
+        .map(|v| v.abs())
+        .fold(0.0, f64::max);
+    if largest == 0.0 {
+        return 0;
+    }
+    (0..=15)
+        .find(|&d| {
+            let scale = 10f64.powi(d as i32);
+            let tolerance = 1e-6 * largest * scale;
+            values.iter().filter(|v| v.is_finite()).all(|v| {
+                let scaled = v * scale;
+                (scaled - scaled.round()).abs() <= tolerance
+            })
+        })
+        .unwrap_or(15)
+}
+
+/// Formats a value with exactly `decimals` decimal places, with U+2212 MINUS SIGN for a negative value and no sign for
+/// a value that rounds to zero.
+pub fn format_fixed(value: f64, decimals: usize) -> String {
+    typeset_sign(format!("{value:.decimals$}"))
 }
 
 /// Returns the power of ten to factor out of an axis's tick labels, or 0 when none is needed.

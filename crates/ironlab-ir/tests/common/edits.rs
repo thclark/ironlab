@@ -167,6 +167,26 @@ pub fn representative_figures() -> Vec<Figure> {
             axis.label.get_or_insert_with(|| Text::plain("label"));
         }
         axes.legend.get_or_insert_with(Legend::default);
+        // Every axis takes the kind of ticks it does not have in the kitchen-sink figure, so
+        // that between the two figures every variant of the ticks of every axis is set:
+        // automatic ticks become explicit values with explicit labels, explicit values a
+        // regular step with hidden labels, and a regular step explicit values.
+        for axis in [&mut axes.x, &mut axes.y, &mut axes.z] {
+            (axis.ticks, axis.tick_labels) = match axis.ticks {
+                Ticks::Auto => (
+                    Ticks::Values(vec![2.0, 5.0]),
+                    TickLabels::Text(vec![Text::plain("two"), Text::new("$5$")]),
+                ),
+                Ticks::Values(_) => (
+                    Ticks::Step {
+                        step: 0.5,
+                        origin: 1.0,
+                    },
+                    TickLabels::Hidden,
+                ),
+                Ticks::Step { .. } => (Ticks::Values(vec![2.0, 4.0]), TickLabels::Auto),
+            };
+        }
         // The kitchen-sink figure sets manual limits only on some x axes and colour limits.
         for axis in [&mut axes.x, &mut axes.y, &mut axes.z] {
             if axis.limits == Limits::Auto {
@@ -328,6 +348,12 @@ pub fn perturb(value: &Value) -> Value {
         Value::Doubles(values) => Value::Doubles(values.iter().map(|v| v + 0.25).collect()),
         Value::Strings(values) if values.is_empty() => Value::Strings(vec!["edited".to_owned()]),
         Value::Strings(values) => Value::Strings(values.iter().skip(1).cloned().collect()),
+        Value::Texts(texts) => Value::Texts(
+            texts
+                .iter()
+                .map(|t| Text::plain(format!("{} (edited)", t.content)))
+                .collect(),
+        ),
         Value::Text(text) => Value::Text(Text {
             content: format!("{} (edited)", text.content),
             interpreter: text.interpreter,
@@ -374,6 +400,22 @@ pub fn perturb(value: &Value) -> Value {
         Value::Scale(Scale::Log) => Value::Scale(Scale::Linear),
         Value::Limits(Limits::Auto) => Value::Limits(manual(1.0, 2.0)),
         Value::Limits(Limits::Manual { .. }) => Value::Limits(Limits::Auto),
+        Value::Ticks(Ticks::Auto) => Value::Ticks(Ticks::Step {
+            step: 0.5,
+            origin: 0.0,
+        }),
+        Value::Ticks(Ticks::Step { .. }) => Value::Ticks(Ticks::Auto),
+        Value::Ticks(Ticks::Values(values)) => {
+            Value::Ticks(Ticks::Values(values.iter().map(|v| v * 2.0).collect()))
+        }
+        Value::TickLabels(TickLabels::Auto) => Value::TickLabels(TickLabels::Hidden),
+        Value::TickLabels(TickLabels::Hidden) => Value::TickLabels(TickLabels::Auto),
+        Value::TickLabels(TickLabels::Text(texts)) => Value::TickLabels(TickLabels::Text(
+            texts
+                .iter()
+                .map(|t| Text::plain(format!("{} (edited)", t.content)))
+                .collect(),
+        )),
         Value::ColormapName(ColormapName::Gray) => Value::ColormapName(ColormapName::Viridis),
         Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
         Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
@@ -481,7 +523,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 46;
+pub const VALUE_VARIANTS: usize = 49;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -531,11 +573,14 @@ pub fn value_variant(value: &Value) -> usize {
         Value::ImagePlane(_) => 38,
         Value::OutOfRange(_) => 39,
         Value::Strings(_) => 40,
+        Value::Texts(_) => 48,
         Value::InsideLegend(_) => 41,
         Value::LegendEntryLayout(_) => 42,
         Value::LegendEntryColumns(_) => 43,
         Value::LegendEntryOrder(_) => 44,
         Value::NodeId(_) => 45,
+        Value::Ticks(_) => 46,
+        Value::TickLabels(_) => 47,
     }
 }
 
@@ -554,6 +599,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::DataId(DataId((1 << 53) + 1)),
         Value::Doubles(vec![-1.0, 0.0, 2.5]),
         Value::Strings(vec!["surface".to_owned(), "k–ω".to_owned()]),
+        Value::Texts(vec![Text::plain("NACA 0012"), Text::new("$Re = 10^6$")]),
         Value::Text(Text::plain("Plain $5")),
         Value::Interpreter(Interpreter::None),
         Value::FigureSize(FigureSize {
@@ -591,8 +637,23 @@ pub fn sample_values() -> Vec<Value> {
             label: Some(Text::new("$t$")),
             scale: Scale::Log,
             limits: manual(1.0, 100.0),
+            reverse: true,
+            ticks: Ticks::Values(vec![1.0, 10.0, 100.0]),
+            tick_labels: TickLabels::Text(vec![
+                Text::plain("1"),
+                Text::new("$10$"),
+                Text::plain("100"),
+            ]),
             grid: true,
         }),
+        Value::Ticks(Ticks::Step {
+            step: 0.2,
+            origin: -0.1,
+        }),
+        Value::TickLabels(TickLabels::Text(vec![
+            Text::plain("upper surface"),
+            Text::new("$x/c$"),
+        ])),
         Value::Scale(Scale::Log),
         Value::Limits(manual(-1.0, 1.0)),
         Value::ColormapName(ColormapName::Coolwarm),

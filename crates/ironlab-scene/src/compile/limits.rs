@@ -9,12 +9,15 @@ use super::Ctx;
 use super::data::{ArtistData, ImageKind, Prepared, values_along};
 use super::style::{ColourScale, lut};
 
-/// The limits of one data axis.
+/// The limits of one data axis, with its direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Range {
     pub min: f64,
     pub max: f64,
     pub log: bool,
+    /// Whether the axis is drawn from `max` at its start (the left of a horizontal axis, the bottom of a vertical
+    /// one) to `min`.
+    pub reverse: bool,
 }
 
 /// Returns the coordinate axes of an axes in x, y, z order.
@@ -175,9 +178,15 @@ pub(super) fn axis_ranges(
         let ranges = std::array::from_fn(|dim| {
             let axis = axes_axis(axes, dim);
             let log = axis.scale == Scale::Log;
+            let reverse = axis.reverse;
             if let Limits::Manual { min, max } = axis.limits {
                 if min.is_finite() && max.is_finite() && min < max && (!log || min > 0.0) {
-                    return Range { min, max, log };
+                    return Range {
+                        min,
+                        max,
+                        log,
+                        reverse,
+                    };
                 }
                 if dim < 2 || is_3d(axes) {
                     ctx.warn(
@@ -189,7 +198,11 @@ pub(super) fn axis_ranges(
                     );
                 }
             }
-            auto_range(figure, axes, prepared, targets, dim, log)
+            // The direction never affects the limits, which a link shares with axes of either direction.
+            Range {
+                reverse,
+                ..auto_range(figure, axes, prepared, targets, dim, log)
+            }
         });
         out.push(ranges);
     }
@@ -230,12 +243,14 @@ fn auto_range(
             min: 1.0,
             max: 10.0,
             log,
+            reverse: false,
         }
     } else {
         Range {
             min: 0.0,
             max: 1.0,
             log,
+            reverse: false,
         }
     };
     let Some((lo, hi)) = union(extents.tight, extents.loose) else {
@@ -267,7 +282,12 @@ fn auto_range(
         _ => (nice_min, nice_max),
     };
     if min.is_finite() && max.is_finite() && min < max {
-        Range { min, max, log }
+        Range {
+            min,
+            max,
+            log,
+            reverse: false,
+        }
     } else {
         fallback
     }

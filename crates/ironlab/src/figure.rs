@@ -88,7 +88,8 @@ impl Figure {
 
     /// Sets the relative heights of the rows of tiles, from the top.
     ///
-    /// The rows share the height of the figure in proportion to their weights. A row
+    /// The plot areas of the rows share the height of the figure, after the margins of
+    /// their axes are taken out, in proportion to their weights. A row
     /// without a weight, because fewer weights than rows are given, has a weight of one,
     /// so equal weights give the same layout as none. Weights that are not finite and
     /// positive, or more weights than rows, are reported by
@@ -97,7 +98,7 @@ impl Figure {
     /// ```
     /// use ironlab::prelude::*;
     ///
-    /// // The top row is three times the height of the bottom row.
+    /// // The plots of the top row are three times the height of those of the bottom row.
     /// let fig = Figure::new().tiles(2, 1).row_weights([3.0, 1.0]);
     /// assert_eq!(fig.ir().layout.row_weights, vec![3.0, 1.0]);
     /// ```
@@ -109,7 +110,8 @@ impl Figure {
 
     /// Sets the relative widths of the columns of tiles, from the left.
     ///
-    /// The columns share the width of the figure in proportion to their weights. A
+    /// The plot areas of the columns share the width of the figure, after the margins of
+    /// their axes are taken out, in proportion to their weights. A
     /// column without a weight, because fewer weights than columns are given, has a
     /// weight of one, so equal weights give the same layout as none. Weights that are not
     /// finite and positive, or more weights than columns, are reported by

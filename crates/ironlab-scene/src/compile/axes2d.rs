@@ -159,7 +159,14 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     });
 }
 
+/// Returns the map of an axis whose usual direction runs from `start` (the left or the bottom of the plot) to `end`;
+/// a reversed axis runs the other way, so its limits swap ends.
 fn axis_map(range: Range, start: f64, end: f64) -> AxisMap {
+    let (start, end) = if range.reverse {
+        (end, start)
+    } else {
+        (start, end)
+    };
     AxisMap {
         min: range.min,
         max: range.max,

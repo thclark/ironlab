@@ -47,6 +47,8 @@ pub(crate) struct Projector {
     lo: [f64; 3],
     hi: [f64; 3],
     log: [bool; 3],
+    /// Whether each axis is reversed, which mirrors the normalised box along it.
+    reverse: [bool; 3],
     scale: f64,
     centre: Point,
 }
@@ -73,6 +75,7 @@ impl Projector {
             lo: ranges.map(|r| r.min),
             hi: ranges.map(|r| r.max),
             log: ranges.map(|r| r.log),
+            reverse: ranges.map(|r| r.reverse),
             scale: fit * zoom,
             centre: Point::new(
                 plot.x + offset[0] + pan_x * plot.width,
@@ -81,9 +84,12 @@ impl Projector {
         }
     }
 
-    /// Maps a data point into the normalised box `[-0.5, 0.5]³`.
+    /// Maps a data point into the normalised box `[-0.5, 0.5]³`, in which the lower limit of an axis is at −0.5 and
+    /// its upper limit at 0.5, or the other way round when the axis is reversed, so that every artist, tick, grid
+    /// line and label placed through the box is mirrored along a reversed axis alike.
     pub fn normalise(&self, p: [f64; 3]) -> [f64; 3] {
-        normalise_box(p, self.lo, self.hi, self.log)
+        let n = normalise_box(p, self.lo, self.hi, self.log);
+        std::array::from_fn(|k| if self.reverse[k] { -n[k] } else { n[k] })
     }
 
     /// Projects a point of the normalised box to figure space, returning its depth as well.
