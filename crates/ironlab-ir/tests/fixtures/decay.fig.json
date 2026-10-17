@@ -52,7 +52,7 @@
         "tick_labels": { "type": "auto" },
         "grid": false
       },
-      "aspect": { "type": "ratio", "value": 0.5 },
+      "aspect": { "type": "ratio", "value": { "y": 0.5, "z": 2.0 } },
       "aspect_adjust": "limits",
       "box": true,
       "colormap": "viridis",

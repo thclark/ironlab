@@ -30,7 +30,7 @@ proto_file! {
         repeated message Artist artists = 12;
         /// How the title is aligned with the plot area.
         enum TitleAlign title_align = 13;
-        /// The ratio of the length of one data unit of y to that of one data unit of x.
+        /// The ratios of the length of one data unit of y, and of z, to that of x.
         message Aspect aspect = 14;
         /// How a fixed aspect is kept.
         enum AspectAdjust aspect_adjust = 15;
@@ -46,8 +46,8 @@ proto_file! {
         Right = 3;
     }
 
-    /// The ratio of the length of one data unit of y to that of one data unit of x in a
-    /// 2D axes; on a logarithmic axis the data unit is one decade.
+    /// The ratios of the length of one data unit of y, and of z, to that of one data unit
+    /// of x; on a logarithmic axis the data unit is one decade.
     message Aspect {
         /// The kind of aspect; unset means the default of the context.
         oneof kind: AspectKind {
@@ -55,7 +55,8 @@ proto_file! {
             Auto(AspectAuto) automatic = 1;
             /// One data unit of y is drawn as long as one data unit of x.
             Equal(AspectEqual) equal = 2;
-            /// One data unit of y is drawn this many times as long as one of x.
+            /// One data unit of y and of z is drawn a fixed number of times as long as
+            /// one of x.
             Ratio(AspectRatio) ratio = 3;
         }
     }
@@ -66,17 +67,19 @@ proto_file! {
     /// One data unit of y is drawn as long as one data unit of x.
     message AspectEqual {}
 
-    /// One data unit of y is drawn a fixed number of times as long as one of x.
+    /// One data unit of y, and of z, is drawn a fixed number of times as long as one of x.
     message AspectRatio {
-        /// The ratio; finite and positive.
-        optional double value = 1;
+        /// How many times as long a unit of y is drawn as a unit of x; finite and positive.
+        optional double y = 1;
+        /// How many times as long a unit of z is drawn as a unit of x; finite and positive.
+        optional double z = 2;
     }
 
-    /// How a 2D axes keeps a fixed aspect.
+    /// How an axes keeps a fixed aspect.
     enum AspectAdjust {
-        /// The plot area is shrunk along one dimension and centred in its space.
+        /// The limits are kept, and the plot area or the 3D box takes their shape.
         Box = 1;
-        /// The limits of one axis are widened symmetrically about their centre.
+        /// The plot area or the 3D cube is kept, and limits widen about their centres.
         Limits = 2;
     }
 

@@ -404,15 +404,12 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
 /// properties cannot even be read: the camera of a two-dimensional axes belongs to a
 /// variant that is not set, and [`property_groups`] leaves it out for that reason alone.
 ///
-/// Two kinds of property of an axes must be hidden by a rule of their own, because they can
-/// always be read and set although the projection of the axes makes the figure ignore them.
-/// An axes holds an x, a y and a z axis whatever its projection, so the label, the scale,
-/// the limits and the grid lines of the z axis can all be read and set, and a
-/// two-dimensional axes draws none of them. Likewise the aspect and its adjustment shape the
-/// plot area of a two-dimensional axes only, and validation refuses a fixed aspect on a
-/// three-dimensional one. The rule therefore reads the projection of the node rather than
-/// the path alone. It is asked afresh for every frame the panel draws, so changing the
-/// projection of an axes brings the rows back at once.
+/// The z axis of a two-dimensional axes is the one property that must be hidden by a rule
+/// of its own. An axes holds an x, a y and a z axis whatever its projection, so the label,
+/// the scale, the limits and the grid lines of the z axis can all be read and set, and a
+/// two-dimensional axes draws none of them. The rule therefore reads the projection of the
+/// node rather than the path alone. It is asked afresh for every frame the panel draws, so
+/// promoting an axes to three dimensions brings the rows back at once.
 #[must_use]
 pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPath) -> bool {
     if kind != NodeKind::Axes {
@@ -428,7 +425,6 @@ pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPa
     };
     match first.as_str() {
         "z" => three_d(figure),
-        "aspect" | "aspect_adjust" => !three_d(figure) || figure.axes(node).is_none(),
         _ => true,
     }
 }

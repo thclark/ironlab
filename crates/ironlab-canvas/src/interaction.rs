@@ -1094,7 +1094,7 @@ fn current_maps(axes: &Axes, x: &AxisMap, y: &AxisMap) -> (AxisMap, AxisMap) {
 
 /// Returns the ratio of a 2D axes whose aspect is fixed and can be kept, or `None`.
 fn fixed_ratio(axes: &Axes) -> Option<f64> {
-    let ratio = axes.aspect.ratio()?;
+    let [ratio, _] = axes.aspect.ratios()?;
     (axes.projection == Projection::TwoD && ratio.is_finite() && ratio > 0.0).then_some(ratio)
 }
 

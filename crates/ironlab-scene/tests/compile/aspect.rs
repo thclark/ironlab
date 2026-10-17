@@ -11,7 +11,7 @@ use ironlab_scene::hit::AxisMap;
 use crate::common::{Fx, compile_figure, linspace};
 use crate::probe::{
     assert_close, axes_hit, axes_legend_entries, axis_maps, bbox_of, centre, from_source, inside,
-    leaves, y_tick_labels,
+    leaves, marker_instances, y_tick_labels,
 };
 
 /// The relative tolerance within which a drawn ratio must equal the requested one.
@@ -189,9 +189,9 @@ fn on_a_tall_page_the_box_shrinks_its_height() {
 #[test]
 fn a_ratio_draws_a_unit_of_y_that_many_times_as_long_as_a_unit_of_x() {
     for ratio in [0.25, 2.0, 7.5] {
-        let (fx, ax) = circle_axes(Aspect::Ratio(ratio), AspectAdjust::Box);
+        let (fx, ax) = circle_axes(Aspect::ratio(ratio), AspectAdjust::Box);
         assert_ratio(&compile_figure(&fx.fig), ax, ratio);
-        let (fx, ax) = circle_axes(Aspect::Ratio(ratio), AspectAdjust::Limits);
+        let (fx, ax) = circle_axes(Aspect::ratio(ratio), AspectAdjust::Limits);
         assert_ratio(&compile_figure(&fx.fig), ax, ratio);
     }
 }
@@ -295,7 +295,7 @@ fn limits_on_a_tall_page_widen_y_and_settle_on_the_exact_aspect() {
 #[test]
 fn the_aspect_holds_with_hidden_tick_labels() {
     for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
-        let (mut fx, ax) = circle_axes(Aspect::Ratio(0.5), adjust);
+        let (mut fx, ax) = circle_axes(Aspect::ratio(0.5), adjust);
         fx.ax(ax).x.tick_labels = ironlab_ir::TickLabels::Hidden;
         fx.ax(ax).y.tick_labels = ironlab_ir::TickLabels::Hidden;
         assert_ratio(&compile_figure(&fx.fig), ax, 0.5);
@@ -335,7 +335,7 @@ fn a_legend_inside_a_shrunk_box_lies_inside_it() {
 #[test]
 fn the_aspect_holds_on_reversed_axes() {
     for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
-        let (mut fx, ax) = circle_axes(Aspect::Ratio(1.5), adjust);
+        let (mut fx, ax) = circle_axes(Aspect::ratio(1.5), adjust);
         fx.ax(ax).x.reverse = true;
         fx.ax(ax).y.reverse = true;
         let scene = compile_figure(&fx.fig);
@@ -392,7 +392,7 @@ fn on_log_linear_axes_a_ratio_relates_a_decade_to_a_unit() {
         let ax = fx.axes2d(0, 0);
         fx.line(ax, &[1.0, 1000.0], &[0.0, 2.0], None, |_| {});
         fx.ax(ax).x.scale = Scale::Log;
-        fx.ax(ax).aspect = Aspect::Ratio(0.75);
+        fx.ax(ax).aspect = Aspect::ratio(0.75);
         fx.ax(ax).aspect_adjust = adjust;
         assert_ratio(&compile_figure(&fx.fig), ax, 0.75);
     }
@@ -425,34 +425,12 @@ fn each_tile_of_unequal_weight_keeps_its_aspect() {
     }
 }
 
-// Why: the property applies to 2D axes; a 3D axes has no plot area of data units to shape. Validation refuses the
-// combination, and the compiler, which never fails, must still draw the figure and say why the aspect was ignored.
-#[test]
-fn a_fixed_aspect_on_a_3d_axes_is_ignored_with_a_warning() {
-    let mut fx = Fx::new();
-    let ax = fx.axes3d(0, 0, View3d::default());
-    fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], Some(&[0.0, 1.0]), |_| {});
-    fx.ax(ax).aspect = Aspect::Equal;
-    let with = compile_figure(&fx.fig);
-    let mut without = fx.fig.clone();
-    without.axes[0].aspect = Aspect::Auto;
-    let without = compile_figure(&without);
-    assert_eq!(with.display_list, without.display_list);
-    assert!(
-        with.warnings
-            .iter()
-            .any(|w| w.node == Some(ax) && w.message.contains("aspect")),
-        "{:?}",
-        with.warnings
-    );
-}
-
 // Why: a ratio that is not a finite positive number cannot be drawn; the compiler draws the axes as if the aspect
 // were automatic and names the axes in a warning rather than failing or drawing a degenerate plot.
 #[test]
 fn an_unusable_ratio_is_drawn_as_automatic_with_a_warning() {
     for ratio in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-        let (fx, ax) = circle_axes(Aspect::Ratio(ratio), AspectAdjust::Box);
+        let (fx, ax) = circle_axes(Aspect::ratio(ratio), AspectAdjust::Box);
         let scene = compile_figure(&fx.fig);
         let free = unadjusted(&fx);
         assert_eq!(scene.display_list, free.display_list, "ratio {ratio}");
@@ -617,4 +595,380 @@ fn linked_panels_whose_shapes_conflict_keep_their_aspect_by_the_box_with_a_warni
         .filter_map(|w| w.node)
         .collect();
     assert_eq!(warned, ids, "each linked panel is named once");
+}
+
+// -------------------------------------------------------------------------------------------------------------------
+// Three-dimensional axes
+// -------------------------------------------------------------------------------------------------------------------
+
+/// The views at which the box of a 3D axes is measured: the default view and others on every side, above and below.
+/// None looks along an axis, so that every axis is drawn with a length that can be measured.
+const VIEWS: [(f64, f64); 5] = [
+    (-37.5, 30.0),
+    (30.0, 20.0),
+    (120.0, 45.0),
+    (-150.0, -25.0),
+    (75.0, 10.0),
+];
+
+/// The spans of the manual limits of the sphere fixture along x, y and z.
+const SPANS: [f64; 3] = [2.0, 6.0, 3.0];
+
+/// Adds to a 3D axes a line along each axis through the centre of the box, spanning `[lo, hi]` along its axis and
+/// placed at `at` along the others, by which the projected box is measured.
+fn measuring_lines(fx: &mut Fx, ax: NodeId, ends: [(f64, f64); 3], at: [f64; 3]) -> [NodeId; 3] {
+    std::array::from_fn(|dim| {
+        let mut coords = [[at[0]; 2], [at[1]; 2], [at[2]; 2]];
+        coords[dim] = [ends[dim].0, ends[dim].1];
+        fx.line(ax, &coords[0], &coords[1], Some(&coords[2]), |_| {})
+    })
+}
+
+/// A 3D axes holding a unit sphere of scatter points centred on the origin, with manual limits of unequal span
+/// (x ∈ [−1, 1], y ∈ [−3, 3], z ∈ [−1.5, 1.5]), and a measuring line along each axis spanning those limits. Returns
+/// the axes, the sphere and the three lines.
+fn sphere_axes(
+    aspect: Aspect,
+    adjust: AspectAdjust,
+    view: (f64, f64),
+) -> (Fx, NodeId, NodeId, [NodeId; 3]) {
+    let mut fx = Fx::new();
+    fx.fig.size = FigureSize {
+        width_mm: 120.0,
+        height_mm: 120.0,
+    };
+    let ax = fx.axes3d(
+        0,
+        0,
+        View3d {
+            azimuth_deg: view.0,
+            elevation_deg: view.1,
+            ..View3d::default()
+        },
+    );
+    // A Fibonacci lattice of points on the unit sphere.
+    let n = 600;
+    let golden = std::f64::consts::PI * (3.0 - 5f64.sqrt());
+    let (mut x, mut y, mut z) = (Vec::new(), Vec::new(), Vec::new());
+    for k in 0..n {
+        let h = 1.0 - 2.0 * (k as f64 + 0.5) / n as f64;
+        let r = (1.0 - h * h).sqrt();
+        x.push(r * (golden * k as f64).cos());
+        y.push(r * (golden * k as f64).sin());
+        z.push(h);
+    }
+    let sphere = fx.scatter(ax, &x, &y, Some(&z), |_, _| {});
+    let limits = [(-1.0, 1.0), (-3.0, 3.0), (-1.5, 1.5)];
+    let lines = measuring_lines(&mut fx, ax, limits, [0.0; 3]);
+    let axes = fx.ax(ax);
+    for (axis, (min, max)) in [&mut axes.x, &mut axes.y, &mut axes.z]
+        .into_iter()
+        .zip(limits)
+    {
+        axis.limits = Limits::Manual { min, max };
+    }
+    axes.aspect = aspect;
+    axes.aspect_adjust = adjust;
+    (fx, ax, sphere, lines)
+}
+
+/// Returns the figure-space vector from the first to the last point drawn for a line.
+fn drawn_vector(scene: &Scene, line: NodeId) -> (f64, f64) {
+    let leaves = leaves(scene);
+    let points: Vec<_> = from_source(&leaves, line)
+        .iter()
+        .flat_map(|leaf| leaf.endpoints())
+        .collect();
+    let (a, b) = (points[0], points[points.len() - 1]);
+    (b.x - a.x, b.y - a.y)
+}
+
+/// Returns the drawn length of one data unit along each axis of the box of a 3D axes, measured from measuring lines
+/// whose data spans `spans` (in decades on a log axis).
+///
+/// The projection is orthographic, so a segment along axis k is drawn as a part of the box's k-th edge scaled by the
+/// camera: its figure-space length is its length in the box times `|(right_k, up_k)|`, for the right and up rows of
+/// the view matrix. Dividing by that factor and by the data span gives the drawn length of a unit, whatever the view.
+/// The camera is built from the raw view, which is correct for views that need no wrapping or clamping, as every view
+/// these tests use.
+fn unit_lengths(scene: &Scene, lines: [NodeId; 3], spans: [f64; 3], view: (f64, f64)) -> [f64; 3] {
+    let camera = ironlab_scene::maths::camera::Camera {
+        azimuth_deg: view.0,
+        elevation_deg: view.1,
+    };
+    let [right, up, _] = camera.view_matrix();
+    std::array::from_fn(|k| {
+        let foreshortening = (right[k] * right[k] + up[k] * up[k]).sqrt();
+        assert!(
+            foreshortening > 0.1,
+            "the view {view:?} looks along axis {k}, which cannot be measured"
+        );
+        let (dx, dy) = drawn_vector(scene, lines[k]);
+        (dx * dx + dy * dy).sqrt() / foreshortening / spans[k]
+    })
+}
+
+/// Returns the width and height of the projected sphere, the box of its marker centres.
+fn sphere_extent(scene: &Scene, sphere: NodeId) -> (f64, f64) {
+    let centres = marker_instances(&leaves(scene), sphere);
+    let b = bbox_of(centres.iter().map(|m| m.position)).expect("the sphere is drawn");
+    (b.width, b.height)
+}
+
+// Why: an isosurface or a mesh seen in 3D is distorted unless one data unit has the same length along x, y and z
+// (MATLAB's `daspect([1 1 1])`). With `Box` the limits are kept and the box takes the proportions of the scaled
+// ranges, so a unit is drawn at one length along every axis at every view, and the sphere is round from every side.
+// The box is fitted by its circumscribing sphere, so a unit has the same length at every view (a fit to each view's
+// outline would make it change as the view rotates) and every view of the box stays within the plot area.
+#[test]
+fn equal_aspect_in_3d_kept_by_the_box_draws_a_round_sphere_at_every_view() {
+    let mut unit_x = Vec::new();
+    for view in VIEWS {
+        let (fx, ax, sphere, lines) = sphere_axes(Aspect::Equal, AspectAdjust::Box, view);
+        let scene = compile_figure(&fx.fig);
+        assert_no_aspect_warning(&scene);
+        let [ux, uy, uz] = unit_lengths(&scene, lines, SPANS, view);
+        assert_close(uy / ux, 1.0, 1e-9);
+        assert_close(uz / ux, 1.0, 1e-9);
+        unit_x.push(ux);
+        let (w, h) = sphere_extent(&scene, sphere);
+        assert_close(w / h, 1.0, 0.03);
+        let plot = axes_hit(&scene, ax).plot_rect;
+        for line in lines {
+            let leaves = leaves(&scene);
+            for leaf in from_source(&leaves, line) {
+                assert!(
+                    inside(leaf.bbox().unwrap(), plot, 1e-6),
+                    "{view:?}: the box lies in {plot:?}"
+                );
+            }
+        }
+    }
+    for ux in &unit_x {
+        assert_close(*ux, unit_x[0], 1e-9 * unit_x[0]);
+    }
+}
+
+// Why: without a fixed aspect the box stays the cube it was, so the same sphere is squashed along y, whose limits are
+// three times as wide; this is the distortion the aspect removes, and the measurement must see it.
+#[test]
+fn an_automatic_aspect_in_3d_keeps_the_cube_and_distorts_the_sphere() {
+    let view = VIEWS[0];
+    let (fx, _, _, lines) = sphere_axes(Aspect::Auto, AspectAdjust::Box, view);
+    let scene = compile_figure(&fx.fig);
+    let [ux, uy, uz] = unit_lengths(&scene, lines, SPANS, view);
+    assert_close(uy / ux, 2.0 / 6.0, 1e-9);
+    assert_close(uz / ux, 2.0 / 3.0, 1e-9);
+}
+
+// Why: `Limits` keeps the cube of the box and shows more data instead: the shorter scaled ranges widen about their
+// centres until every scaled range is as long as the longest, so a unit is drawn at one length along every axis and
+// the sphere is round. The box is the same cube as without the aspect, so y, the longest range, keeps its manual
+// limits and is drawn as it is without the aspect, while x, widened from a span of 2 to 6, is drawn at a third of
+// its length, both in proportion to the size of the plot area the cube is fitted to.
+#[test]
+fn equal_aspect_in_3d_kept_by_the_limits_widens_the_short_ranges_of_a_cube() {
+    for view in VIEWS {
+        let (fx, ax, sphere, lines) = sphere_axes(Aspect::Equal, AspectAdjust::Limits, view);
+        let scene = compile_figure(&fx.fig);
+        assert_no_aspect_warning(&scene);
+        let (w, h) = sphere_extent(&scene, sphere);
+        assert_close(w / h, 1.0, 0.03);
+        let [ux, uy, uz] = unit_lengths(&scene, lines, SPANS, view);
+        assert_close(uy / ux, 1.0, 1e-9);
+        assert_close(uz / ux, 1.0, 1e-9);
+        let free = unadjusted(&fx);
+        let [fx_, fy, _] = unit_lengths(&free, lines, SPANS, view);
+        // The cube is fitted to the plot area, whose size the widened tick labels change slightly.
+        let fit = |s: &Scene| {
+            let plot = axes_hit(s, ax).plot_rect;
+            plot.width.min(plot.height)
+        };
+        let k = fit(&scene) / fit(&free);
+        assert_close(uy / fy, k, 1e-9);
+        assert_close(ux / fx_, k / 3.0, 1e-9);
+    }
+}
+
+// Why: a terrain or a boundary layer is often drawn with its vertical scale exaggerated (MATLAB's
+// `daspect([1 1 1/2])`); `Ratio { y: 1, z: 2 }` draws a unit of z twice as long as a unit of x, in both modes, and a
+// top view, the usual view of a terrain, still draws x and y at one scale.
+#[test]
+fn a_ratio_of_z_exaggerates_the_vertical_scale() {
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        for view in VIEWS {
+            let (fx, _, _, lines) = sphere_axes(Aspect::Ratio { y: 1.0, z: 2.0 }, adjust, view);
+            let scene = compile_figure(&fx.fig);
+            let [ux, uy, uz] = unit_lengths(&scene, lines, SPANS, view);
+            assert_close(uy / ux, 1.0, 1e-9);
+            assert_close(uz / ux, 2.0, 1e-9);
+        }
+        let (fx, _, _, lines) = sphere_axes(Aspect::Ratio { y: 1.0, z: 2.0 }, adjust, (0.0, 90.0));
+        let scene = compile_figure(&fx.fig);
+        let (x, y) = (
+            drawn_vector(&scene, lines[0]),
+            drawn_vector(&scene, lines[1]),
+        );
+        let length = |(a, b): (f64, f64)| (a * a + b * b).sqrt();
+        assert_close(length(y) / SPANS[1], length(x) / SPANS[0], 1e-9);
+    }
+}
+
+// Why: a reversed axis changes the direction in which values are drawn, not their spacing, so the aspect holds on
+// reversed axes in 3D as in 2D, and the reversed axis is still drawn the other way.
+#[test]
+fn the_aspect_holds_on_reversed_axes_in_3d() {
+    let view = VIEWS[1];
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        let (fx, _, _, lines) = sphere_axes(Aspect::Equal, adjust, view);
+        let plain = compile_figure(&fx.fig);
+        let mut reversed = fx.fig.clone();
+        reversed.axes[0].y.reverse = true;
+        reversed.axes[0].z.reverse = true;
+        let reversed = compile_figure(&reversed);
+        let [ux, uy, uz] = unit_lengths(&reversed, lines, SPANS, view);
+        assert_close(uy / ux, 1.0, 1e-9);
+        assert_close(uz / ux, 1.0, 1e-9);
+        let (a, b) = (
+            drawn_vector(&plain, lines[1]),
+            drawn_vector(&reversed, lines[1]),
+        );
+        assert!(
+            a.0 * b.0 + a.1 * b.1 < 0.0,
+            "{adjust:?}: y is drawn the other way"
+        );
+    }
+}
+
+// Why: on a logarithmic axis of a 3D axes the unit is one decade, as in 2D, so at equal aspect the three decades of
+// a log z axis are drawn as long as three units of x, whether the box takes the shape of the limits or the cube widens
+// the shorter ranges, in decades about their centre.
+#[test]
+fn on_a_log_axis_in_3d_a_decade_is_the_unit() {
+    let view = VIEWS[0];
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        let mut fx = Fx::new();
+        let ax = fx.axes3d(0, 0, View3d::default());
+        let mid = 10f64.powf(1.5);
+        let lines = measuring_lines(
+            &mut fx,
+            ax,
+            [(-1.5, 1.5), (-1.0, 1.0), (1.0, 1000.0)],
+            [0.0, 0.0, mid],
+        );
+        let axes = fx.ax(ax);
+        axes.x.limits = Limits::Manual {
+            min: -1.5,
+            max: 1.5,
+        };
+        axes.y.limits = Limits::Manual {
+            min: -1.0,
+            max: 1.0,
+        };
+        axes.z.limits = Limits::Manual {
+            min: 1.0,
+            max: 1000.0,
+        };
+        axes.z.scale = Scale::Log;
+        axes.aspect = Aspect::Equal;
+        axes.aspect_adjust = adjust;
+        let scene = compile_figure(&fx.fig);
+        let [ux, uy, uz] = unit_lengths(&scene, lines, [3.0, 2.0, 3.0], view);
+        assert_close(uy / ux, 1.0, 1e-9);
+        assert_close(uz / ux, 1.0, 1e-9);
+    }
+}
+
+/// Two 3D axes side by side in tiles of the same size, each holding a closed curve of a different size and a
+/// measuring line along each axis spanning its data, with x, y and z linked between them. Returns the axes and the
+/// lines of each.
+fn linked_curves(
+    aspects: [Aspect; 2],
+    adjust: AspectAdjust,
+) -> (Fx, [NodeId; 2], [[NodeId; 3]; 2]) {
+    let mut fx = Fx::new();
+    fx.fig.layout = ironlab_ir::TileLayout::new(1, 2);
+    let mut lines = [[NodeId(0); 3]; 2];
+    let ids = std::array::from_fn(|col| {
+        let ax = fx.axes3d(0, col as u32, View3d::default());
+        let t = linspace(0.0, std::f64::consts::TAU, 65);
+        let r = 1.0 + col as f64;
+        let x: Vec<f64> = t.iter().map(|t| r * t.cos()).collect();
+        let y: Vec<f64> = t.iter().map(|t| 2.0 * r * t.sin()).collect();
+        let z: Vec<f64> = t.iter().map(|t| 0.5 * (3.0 * t).sin()).collect();
+        fx.line(ax, &x, &y, Some(&z), |_| {});
+        lines[col] = measuring_lines(
+            &mut fx,
+            ax,
+            [(-r, r), (-2.0 * r, 2.0 * r), (-0.5, 0.5)],
+            [0.0; 3],
+        );
+        fx.ax(ax).aspect = aspects[col];
+        fx.ax(ax).aspect_adjust = adjust;
+        ax
+    });
+    for dimension in [Dimension::X, Dimension::Y, Dimension::Z] {
+        fx.fig.links.push(AxisLink {
+            dimension,
+            axes: ids.to_vec(),
+        });
+    }
+    (fx, ids, lines)
+}
+
+/// The spans of the data of the measuring lines of panel `col` of [`linked_curves`].
+fn curve_spans(col: usize) -> [f64; 3] {
+    let r = 1.0 + col as f64;
+    [2.0 * r, 4.0 * r, 1.0]
+}
+
+// Why: linked 3D axes at one aspect share their limits, so in tiles of the same size both draw a unit at the same
+// length along every axis, and each keeps its aspect, in both modes and without a warning.
+#[test]
+fn linked_3d_axes_at_one_aspect_share_their_scale_and_keep_their_aspect() {
+    let view = (-37.5, 30.0);
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        let (fx, _, lines) = linked_curves([Aspect::Equal, Aspect::Equal], adjust);
+        let scene = compile_figure(&fx.fig);
+        assert_no_aspect_warning(&scene);
+        let units: Vec<[f64; 3]> = (0..2)
+            .map(|col| unit_lengths(&scene, lines[col], curve_spans(col), view))
+            .collect();
+        for u in &units {
+            assert_close(u[1] / u[0], 1.0, 1e-9);
+            assert_close(u[2] / u[0], 1.0, 1e-9);
+        }
+        for (second, first) in units[1].iter().zip(&units[0]) {
+            assert_close(*second, *first, 1e-9 * first);
+        }
+    }
+}
+
+// Why: linked 3D axes that keep different aspects by `Limits` would widen without end, each widening the axis the
+// other needs shorter; the compiler must stop, leave the limits as the data gives them, keep each aspect by its box
+// instead, and name each axes.
+#[test]
+fn linked_3d_axes_at_different_aspects_fall_back_to_the_box_with_a_warning() {
+    let view = (-37.5, 30.0);
+    let ratios = [Aspect::Equal, Aspect::Ratio { y: 1.0, z: 3.0 }];
+    let (fx, ids, lines) = linked_curves(ratios, AspectAdjust::Limits);
+    let scene = compile_figure(&fx.fig);
+    let warned: Vec<NodeId> = scene
+        .warnings
+        .iter()
+        .filter(|w| w.message.contains("Linked axes"))
+        .filter_map(|w| w.node)
+        .collect();
+    assert_eq!(warned, ids.to_vec());
+    let [p0, p1] = [0, 1].map(|col| unit_lengths(&scene, lines[col], curve_spans(col), view));
+    assert_close(p0[1] / p0[0], 1.0, 1e-9);
+    assert_close(p0[2] / p0[0], 1.0, 1e-9);
+    assert_close(p1[1] / p1[0], 1.0, 1e-9);
+    assert_close(p1[2] / p1[0], 3.0, 1e-9);
+    // The limits are those the data gives, not widened: the same figure kept by the box draws the same picture.
+    let mut boxed = fx.fig.clone();
+    for axes in &mut boxed.axes {
+        axes.aspect_adjust = AspectAdjust::Box;
+    }
+    assert_eq!(compile_figure(&boxed).display_list, scene.display_list);
 }

@@ -104,6 +104,7 @@ gallery!(
     pressure_distribution,
     aerofoil_family,
     equal_aspect,
+    equal_aspect_3d,
     contour,
     contourf,
     quiver,

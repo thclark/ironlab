@@ -2609,3 +2609,141 @@ fn zooming_linked_panels_at_equal_aspect_moves_them_together_and_returns_without
         }
     }
 }
+
+/// A 3D axes (node 2) at equal aspect kept by `adjust`, with the manual limits of unequal span of
+/// [`axes_3d`] (x ∈ [−1, 1], y ∈ [−2, 2], z ∈ [0, 3]), so that an automatic aspect would draw the
+/// circle as an ellipse, holding a circle of radius 1 in
+/// the plane z = 1 (node 3) and a vertical segment of length 2 at its centre (node 4).
+fn circle_3d(adjust: AspectAdjust) -> Figure {
+    let t: Vec<f64> = (0..=96).map(|k| f64::from(k) / 96.0 * TAU).collect();
+    let mut figure = figure_of(
+        vec![
+            NdArray::vector(t.iter().map(|t| t.cos()).collect()),
+            NdArray::vector(t.iter().map(|t| t.sin()).collect()),
+            NdArray::vector(vec![1.0; t.len()]),
+            NdArray::vector(vec![0.0, 0.0]),
+            NdArray::vector(vec![0.5, 2.5]),
+        ],
+        vec![
+            Artist::Line(Line {
+                id: NodeId(3),
+                x: DataId(0),
+                y: DataId(1),
+                z: Some(DataId(2)),
+                ..Line::default()
+            }),
+            Artist::Line(Line {
+                id: NodeId(4),
+                x: DataId(3),
+                y: DataId(3),
+                z: Some(DataId(4)),
+                ..Line::default()
+            }),
+        ],
+    );
+    let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
+    *axes = Axes {
+        artists: std::mem::take(&mut axes.artists),
+        aspect: Aspect::Equal,
+        aspect_adjust: adjust,
+        ..axes_3d(2)
+    };
+    figure
+}
+
+/// Returns the box of the vertices drawn for an artist.
+fn drawn_box(state: &FigureState, id: u64) -> Rect {
+    let scene = ironlab_scene::compile(state.figure(), &TEXT);
+    let mut points = Vec::new();
+    scene.display_list.visit_leaves(|item, transform, _| {
+        if item.source == Some(NodeId(id))
+            && let ironlab_scene::display::ItemKind::Path(path) = &item.kind
+        {
+            for segment in &path.segments {
+                if let ironlab_scene::display::PathSegment::MoveTo(p)
+                | ironlab_scene::display::PathSegment::LineTo(p) = segment
+                {
+                    points.push(transform.apply(*p));
+                }
+            }
+        }
+    });
+    let (mut lo, mut hi) = (points[0], points[0]);
+    for p in &points {
+        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+    }
+    Rect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y)
+}
+
+// Why: the box of a 3D axes at a fixed aspect takes its proportions from its limits and the aspect alone, so rotating,
+// zooming and panning the view in the viewer, which change the camera and never the limits, must never change them:
+// seen from directly above, a circle in the xy plane is round however the view got there, and the ratio of its
+// diameter to a vertical segment seen from the side is the same before and after a zoom.
+#[test]
+fn rotating_zooming_and_panning_a_3d_axes_never_changes_its_box_proportions() {
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        let (mut state, hit) = compiled(circle_3d(adjust));
+        let plot = hit.axes[0].plot_rect;
+        let centre = Point::new(plot.x + plot.width / 2.0, plot.y + plot.height / 2.0);
+
+        // Rotate to look straight down: the elevation is clamped at 90 degrees.
+        state.tool = Tool::Rotate;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x, centre.y + 400.0)
+        ));
+        assert_eq!(view_of(state.figure(), 2).elevation_deg, 90.0);
+        let circle = drawn_box(&state, 3);
+        assert_close(circle.width / circle.height, 1.0, 1e-3, "round from above");
+
+        // Zooming and panning scale and move the drawing but keep its proportions.
+        assert!(state.scroll(&hit, centre, 1.7));
+        state.tool = Tool::Pan;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x + 15.0, centre.y - 9.0)
+        ));
+        let zoomed = drawn_box(&state, 3);
+        assert_close(
+            zoomed.width / zoomed.height,
+            1.0,
+            1e-3,
+            "round after zoom and pan",
+        );
+        assert_close(zoomed.width / circle.width, 1.7, 1e-6, "the zoom scales it");
+
+        // From the side the vertical segment of length 2 is as long as the diameter of the circle.
+        state.tool = Tool::Rotate;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x, centre.y - 400.0)
+        ));
+        assert!(state.record(&set(
+            2,
+            "projection.view3d.elevation_deg",
+            Value::Double(0.0)
+        )));
+        assert!(state.record(&set(2, "projection.view3d.azimuth_deg", Value::Double(0.0))));
+        let (side, segment) = (drawn_box(&state, 3), drawn_box(&state, 4));
+        assert_close(
+            segment.height / side.width,
+            1.0,
+            1e-6,
+            &format!("{adjust:?}: z is drawn as x is"),
+        );
+        // Seen from above and from the side, x runs to the right at the same scale: rotating changed nothing.
+        assert_close(
+            side.width,
+            zoomed.width,
+            1e-6,
+            "the box keeps its size as it rotates",
+        );
+    }
+}

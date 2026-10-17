@@ -438,9 +438,9 @@ ir_node! {
         plain "z" => z: Axis =
             "The vertical axis in three dimensions; ignored by two-dimensional axes.";
         plain "aspect" => aspect: Aspect =
-            "The ratio of the length of one data unit of y to the length of one data unit of x, in two-dimensional axes; on a logarithmic axis the unit is one decade.";
+            "The ratios of the length of one data unit of y, and of z, to the length of one data unit of x; on a logarithmic axis the unit is one decade.";
         plain "aspect_adjust" => aspect_adjust: AspectAdjust =
-            "How a fixed aspect is kept: by shrinking the plot area, or by widening the limits of one axis.";
+            "How a fixed aspect is kept: by shaping the plot area or the box of a three-dimensional axes to the limits, or by widening the limits.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
         plain "colormap" => colormap: ColormapName =
@@ -747,8 +747,10 @@ ir_tagged! {
         Auto {}
         Equal {}
         Ratio {
-            plain "value" => 0: f64 =
+            plain "y" => y: f64 =
                 "How many times as long one data unit of y is drawn as one data unit of x; finite and positive.";
+            plain "z" => z: f64 =
+                "How many times as long one data unit of z is drawn as one data unit of x, in three-dimensional axes; finite and positive.";
         }
     }
 

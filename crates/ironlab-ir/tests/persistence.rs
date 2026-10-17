@@ -67,7 +67,7 @@ fn decay_figure() -> Figure {
                 grid: true,
             },
             z: Axis::default(),
-            aspect: Aspect::Ratio(0.5),
+            aspect: Aspect::Ratio { y: 0.5, z: 2.0 },
             aspect_adjust: AspectAdjust::Limits,
             box_: true,
             colormap: ColormapName::Viridis,

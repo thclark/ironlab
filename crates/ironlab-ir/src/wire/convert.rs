@@ -443,7 +443,10 @@ fn encode_aspect(aspect: Aspect) -> w::Aspect {
     let kind = match aspect {
         Aspect::Auto => w::AspectKind::Auto(w::AspectAuto {}),
         Aspect::Equal => w::AspectKind::Equal(w::AspectEqual {}),
-        Aspect::Ratio(value) => w::AspectKind::Ratio(w::AspectRatio { value: Some(value) }),
+        Aspect::Ratio { y, z } => w::AspectKind::Ratio(w::AspectRatio {
+            y: Some(y),
+            z: Some(z),
+        }),
     };
     w::Aspect { kind: Some(kind) }
 }
@@ -1109,7 +1112,11 @@ fn decode_aspect(wire: Option<w::Aspect>, at: &str) -> Result<Aspect> {
         Some(w::AspectKind::Auto(_)) => Aspect::Auto,
         Some(w::AspectKind::Equal(_)) => Aspect::Equal,
         Some(w::AspectKind::Ratio(ratio)) => {
-            Aspect::Ratio(required(ratio.value, &join(at, "ratio"), "value")?)
+            let at = join(at, "ratio");
+            Aspect::Ratio {
+                y: required(ratio.y, &at, "y")?,
+                z: required(ratio.z, &at, "z")?,
+            }
         }
     })
 }

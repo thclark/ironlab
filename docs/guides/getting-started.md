@@ -318,8 +318,8 @@ The remaining axes properties are also set on the axes handle.
 | `xtick_step(step)`, `xtick_step_from(step, origin)` and the same for y and z | Places a tick at every multiple of the step, or at every `origin + k × step`, within the limits. |
 | `xtick_labels(texts)`, `ytick_labels(texts)`, `ztick_labels(texts)` | Labels the ticks given by `xticks`, `yticks` or `zticks` with the texts, one per value. |
 | `xtick_labels_hidden()`, `ytick_labels_hidden()`, `ztick_labels_hidden()` | Draws the ticks of an axis without labels and reserves no space for them. |
-| `aspect(aspect)` | Fixes the ratio of the drawn length of a unit of y to that of a unit of x: `Aspect::Equal` or `Aspect::Ratio(r)`; see [equal aspect](#equal-aspect). |
-| `aspect_adjust(adjust)` | Keeps a fixed aspect by shrinking the plot area (`AspectAdjust::Box`, the default) or by widening the limits of one axis (`AspectAdjust::Limits`). |
+| `aspect(aspect)` | Fixes the ratios of the drawn length of a unit of y, and of z, to that of a unit of x: `Aspect::Equal`, `Aspect::ratio(y)` or `Aspect::Ratio { y, z }`; see [equal aspect](#equal-aspect). |
+| `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
@@ -451,7 +451,7 @@ A label need not be shared with another figure to be worth adding. The browser l
 
 ## Equal aspect
 
-Where the data is geometry, such as an aerofoil section, a mesh or a map, one data unit must be drawn at the same length along x and y, or the figure misrepresents the shape. `aspect(Aspect::Equal)` asks for that, as MATLAB's `axis equal` and matplotlib's `set_aspect("equal")` do, and `aspect(Aspect::Ratio(r))` draws a unit of y `r` times as long as a unit of x, as MATLAB's `daspect` does. On a logarithmic axis the unit is one decade.
+Where the data is geometry, such as an aerofoil section, a mesh or a map, one data unit must be drawn at the same length along every axis, or the figure misrepresents the shape. `aspect(Aspect::Equal)` asks for that, as MATLAB's `axis equal` and matplotlib's `set_aspect("equal")` do, and `aspect(Aspect::ratio(r))` draws a unit of y `r` times as long as a unit of x, as MATLAB's `daspect` does. On a logarithmic axis the unit is one decade.
 
 ```rust
 let mut ax = fig.axes(0, 0);
@@ -464,7 +464,17 @@ ax.aspect(Aspect::Equal)
     .ytick_step(0.2);
 ```
 
-The aspect is kept once the margins of the layout are known, so it survives a change of fonts, of tick labels or of the figure size, and it is kept by export and while the figure is panned and zoomed in the viewer. `AspectAdjust::Box` keeps the limits exactly as they are, manual or automatic, and shrinks the plot area along one dimension, centred in its tile. `AspectAdjust::Limits` keeps the plot area and widens the limits of the axis that is too short for it, symmetrically about their centre; manual limits are then the least range shown, and only the axis that must grow is widened. Axes [linked](#linking-axes) along a dimension widen together, and every panel of a linked family keeps its aspect. Panels linked in both x and y whose plot areas differ in shape cannot all keep the aspect by widening shared limits, so they keep it by their plot areas instead, and a warning says so; `AspectAdjust::Box` is the adjustment to choose for such a family. The aspect applies to two-dimensional axes only, and [`validate`](#validating-a-figure) reports a fixed aspect on a three-dimensional axes, and a ratio that is not a finite positive number, as the error `InvalidAspect`. The [NACA 4-digit family sheet](../gallery/aerofoil_family.md) and the [equal aspect](../gallery/equal_aspect.md) figure of the gallery show both adjustments, and the decision is recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#the-aspect-of-an-axes-is-kept-everywhere).
+The aspect is kept once the margins of the layout are known, so it survives a change of fonts, of tick labels or of the figure size, and it is kept by export and while the figure is panned and zoomed in the viewer. `AspectAdjust::Box` keeps the limits exactly as they are, manual or automatic, and shrinks the plot area along one dimension, centred in its tile. `AspectAdjust::Limits` keeps the plot area and widens the limits of the axis that is too short for it, symmetrically about their centre; manual limits are then the least range shown, and only the axis that must grow is widened. Axes [linked](#linking-axes) along a dimension widen together, and every panel of a linked family keeps its aspect. Panels linked in both x and y whose plot areas differ in shape cannot all keep the aspect by widening shared limits, so they keep it by their plot areas instead, and a warning says so; `AspectAdjust::Box` is the adjustment to choose for such a family.
+
+A three-dimensional axes keeps a fixed aspect in the same two ways. With `AspectAdjust::Box` the limits are kept and the sides of the box take the lengths of the ranges, so that an isosurface or a sphere is drawn with its true shape; with `AspectAdjust::Limits` the box stays a cube and the shorter ranges widen about their centres. `Aspect::Ratio { y: 1.0, z: 4.0 }` draws a unit of z four times as long as a unit of x, the vertical exaggeration of a terrain map. The box keeps its proportions however the view is rotated, zoomed or panned.
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.surf(&x, &y, &height);
+ax.aspect(Aspect::Ratio { y: 1.0, z: 4.0 }); // the height drawn four times as long
+```
+
+[`validate`](#validating-a-figure) reports a ratio of y or of z that is not a finite positive number as the error `InvalidAspect`, on two-dimensional axes too, which ignore the ratio of z. The [NACA 4-digit family sheet](../gallery/aerofoil_family.md), the [equal aspect](../gallery/equal_aspect.md) figure and [equal aspect in three dimensions](../gallery/equal_aspect_3d.md) of the gallery show both adjustments, and the decision is recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#the-aspect-of-an-axes-is-kept-everywhere).
 
 ## Validating a figure
 

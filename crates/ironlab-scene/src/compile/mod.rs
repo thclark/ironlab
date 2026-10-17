@@ -338,14 +338,18 @@ fn arrange(
 ///   the normalised box along that axis, so that every artist, tick, grid line and label follows. The limits keep
 ///   `min < max`, automatic limits are computed as for the axis unreversed, and links share limits only, so linked
 ///   axes may differ in direction.
-/// - **Aspect.** A 2D axes with a fixed aspect draws one unit of y `ratio` times as long as one unit of x, a unit of a
-///   log axis being one decade. With `AspectAdjust::Box` its limits are kept and its plot rectangle is the largest one
+/// - **Aspect.** An axes with a fixed aspect draws one unit of y `y` times, and one unit of z `z` times, as long as one
+///   unit of x, a unit of a log axis being one decade; a 2D axes uses `y` alone. A 3D axes kept by `AspectAdjust::Box`
+///   keeps its limits and gives the sides of its box the lengths of their scale-space spans multiplied by the ratios;
+///   one kept by `AspectAdjust::Limits` keeps the cube and widens the shorter scaled spans about their centres, a link
+///   group widening as one. The box is projected after everything is placed in the normalised box, and is fitted by
+///   its circumscribing sphere, so its size and proportions do not depend on the view. In a 2D axes: With `AspectAdjust::Box` its limits are kept and its plot rectangle is the largest one
 ///   of the right shape centred in the rectangle the layout gives it. With `AspectAdjust::Limits` the axis too short
 ///   for the plot rectangle widens symmetrically about its centre in scale space, a link group widening as one, and
 ///   the layout is repeated, at most three times, until the widened limits stop changing; when axes
-///   linked in both x and y need different shapes, no limits are widened and every such axes is fitted by its plot
-///   rectangle instead, with a warning naming it. Every axes with a fixed aspect is fitted last, so its ratio is
-///   exact. A fixed aspect on a 3D axes, and a ratio that is not finite and positive, are ignored with a warning.
+///   that are linked need different shapes, no limits are widened and every such axes is fitted by its plot
+///   rectangle or its box instead, with a warning naming it. Every axes with a fixed aspect is fitted last, so its ratio is
+///   exact. A ratio of y or of z that is not finite and positive is drawn as an automatic aspect with a warning.
 /// - **Titles.** An axes title is centred over the plot rectangle, or has its left or right edge on the left or right
 ///   edge of the plot rectangle, as `title_align` says.
 /// - **Text beyond the page.** A title, axis label, tick label or common exponent label whose box extends beyond the

@@ -167,14 +167,11 @@ pub fn representative_figures() -> Vec<Figure> {
             axis.label.get_or_insert_with(|| Text::plain("label"));
         }
         axes.legend.get_or_insert_with(Legend::default);
-        // Every two-dimensional axes takes a fixed ratio, kept by its limits and with its
-        // title on the right, so that the ratio's value and the variants the kitchen-sink
-        // figure leaves at their defaults are set; a three-dimensional axes keeps the
-        // automatic aspect that validation requires of it.
-        if axes.projection == Projection::TwoD {
-            axes.aspect = Aspect::Ratio(2.0);
-            axes.aspect_adjust = AspectAdjust::Limits;
-        }
+        // Every axes takes a fixed ratio of y and of z, kept by its limits and with its title
+        // on the right, so that the ratio's values and the variants the kitchen-sink figure
+        // leaves at their defaults are set.
+        axes.aspect = Aspect::Ratio { y: 2.0, z: 0.5 };
+        axes.aspect_adjust = AspectAdjust::Limits;
         axes.title_align = TitleAlign::Right;
         // Every axis takes the kind of ticks it does not have in the kitchen-sink figure, so
         // that between the two figures every variant of the ticks of every axis is set:
@@ -436,8 +433,8 @@ pub fn perturb(value: &Value) -> Value {
                 .collect(),
         )),
         Value::Aspect(Aspect::Auto) => Value::Aspect(Aspect::Equal),
-        Value::Aspect(Aspect::Equal) => Value::Aspect(Aspect::Ratio(2.0)),
-        Value::Aspect(Aspect::Ratio(_)) => Value::Aspect(Aspect::Auto),
+        Value::Aspect(Aspect::Equal) => Value::Aspect(Aspect::Ratio { y: 2.0, z: 1.0 }),
+        Value::Aspect(Aspect::Ratio { .. }) => Value::Aspect(Aspect::Auto),
         Value::AspectAdjust(AspectAdjust::Box) => Value::AspectAdjust(AspectAdjust::Limits),
         Value::AspectAdjust(AspectAdjust::Limits) => Value::AspectAdjust(AspectAdjust::Box),
         Value::TitleAlign(TitleAlign::Center) => Value::TitleAlign(TitleAlign::Left),
@@ -689,7 +686,7 @@ pub fn sample_values() -> Vec<Value> {
             Text::plain("upper surface"),
             Text::new("$x/c$"),
         ])),
-        Value::Aspect(Aspect::Ratio(0.25)),
+        Value::Aspect(Aspect::Ratio { y: 0.25, z: 3.0 }),
         Value::AspectAdjust(AspectAdjust::Limits),
         Value::TitleAlign(TitleAlign::Left),
         Value::Scale(Scale::Log),

@@ -85,7 +85,12 @@ pub(super) fn emit(
     hits: &mut HitMap,
 ) {
     let axes = input.axes;
-    let projector = Projector::new(view, input.ranges, input.plot);
+    let projector = Projector::new(
+        view,
+        input.ranges,
+        input.plot,
+        super::aspect::box_sides(input.axes, input.ranges),
+    );
     let back: Vec<(usize, f64)> = back_planes(&projector.camera)
         .into_iter()
         .map(plane_position)

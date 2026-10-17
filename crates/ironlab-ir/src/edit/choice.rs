@@ -265,12 +265,11 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 ///
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
-const RULES: [Rule; 5] = [
+const RULES: [Rule; 4] = [
     colormapped_without_a_value_to_index_by,
     clamp_without_a_nearest_end_of_the_colormap,
     legend_panel_that_the_figure_lacks,
     tick_text_without_matching_values,
-    fixed_aspect_in_three_dimensions,
 ];
 
 /// Completes the reason a colormapped colour is unavailable at a property, which is why
@@ -439,29 +438,6 @@ fn tick_text_without_matching_values(
         Ticks::Values(values) if values.len() == texts.len() => None,
         _ => Some(TICK_TEXT_WITHOUT_VALUES),
     }
-}
-
-/// Why a fixed aspect is unavailable on a three-dimensional axes.
-const FIXED_ASPECT_IN_THREE_DIMENSIONS: &str = "A fixed aspect shapes the plot area of a \
-     two-dimensional axes, so it is available only where the axes is two-dimensional.";
-
-/// Marks a fixed aspect unavailable on a three-dimensional axes, which validation would
-/// refuse, and leaves every other choice alone.
-fn fixed_aspect_in_three_dimensions(
-    figure: &Figure,
-    kind: NodeKind,
-    node: NodeId,
-    _path: &PropertyPath,
-    value: &Value,
-) -> Option<&'static str> {
-    let Value::Aspect(aspect) = value else {
-        return None;
-    };
-    if kind != NodeKind::Axes || *aspect == Aspect::Auto {
-        return None;
-    }
-    let axes: &Axes = figure.axes(node)?;
-    matches!(axes.projection, Projection::ThreeD { .. }).then_some(FIXED_ASPECT_IN_THREE_DIMENSIONS)
 }
 
 /// Returns whether the IR gives the colour at this property of this kind of node a value
@@ -650,10 +626,10 @@ tagged_choices! {
     Aspect as Aspect (aspect_choices, aspect_label) replacing replacing {
         Aspect::Auto => "Automatic" = Aspect::Auto;
         Aspect::Equal => "Equal" = Aspect::Equal;
-        Aspect::Ratio(_) => "Ratio" = Aspect::Ratio(match replacing {
-            Some(Value::Aspect(Aspect::Ratio(ratio))) => *ratio,
-            _ => 1.0,
-        });
+        Aspect::Ratio { .. } => "Ratio" = match replacing {
+            Some(Value::Aspect(Aspect::Ratio { y, z })) => Aspect::Ratio { y: *y, z: *z },
+            _ => Aspect::Ratio { y: 1.0, z: 1.0 },
+        };
     }
 
     TickLabels as TickLabels (tick_labels_choices, tick_labels_label) replacing replacing {
@@ -868,7 +844,7 @@ plain_choices! {
     }
 
     AspectAdjust as AspectAdjust (aspect_adjust_choices, aspect_adjust_label) {
-        AspectAdjust::Box => "Shrink the plot area";
+        AspectAdjust::Box => "Shape the box";
         AspectAdjust::Limits => "Widen the limits";
     }
 

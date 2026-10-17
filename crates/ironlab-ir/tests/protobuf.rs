@@ -1007,7 +1007,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 title_align: wire::TitleAlign::Left as i32,
                 aspect: Some(wire::Aspect {
                     kind: Some(wire::AspectKind::Ratio(wire::AspectRatio {
-                        value: Some(2.5),
+                        y: Some(2.5),
+                        z: Some(0.75),
                     })),
                 }),
                 aspect_adjust: wire::AspectAdjust::Limits as i32,
@@ -1519,7 +1520,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 projection: Projection::TwoD,
                 title: None,
                 title_align: TitleAlign::Left,
-                aspect: Aspect::Ratio(2.5),
+                aspect: Aspect::Ratio { y: 2.5, z: 0.75 },
                 aspect_adjust: AspectAdjust::Limits,
                 x: auto_axis.clone(),
                 y: auto_axis.clone(),

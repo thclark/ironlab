@@ -501,18 +501,19 @@ impl AxesMut<'_> {
         self
     }
 
-    /// Fixes the ratio of the length of one data unit of y to that of one data unit of x
-    /// (MATLAB's `daspect` and `axis equal`; matplotlib's `set_aspect`).
+    /// Fixes the ratios of the length of one data unit of y, and of z, to that of one data
+    /// unit of x (MATLAB's `daspect` and `axis equal`; matplotlib's `set_aspect` and
+    /// `set_box_aspect`).
     ///
-    /// [`Aspect::Equal`] draws one unit of x and one unit of y at the same length, so
-    /// that geometry such as an aerofoil section keeps its shape; [`Aspect::Ratio`]
-    /// draws one unit of y that many times as long as one unit of x. On a logarithmic
-    /// axis the unit is one decade. The aspect is kept by the layout, by export and while
-    /// the figure is panned and zoomed in a viewer, in the way
-    /// [`aspect_adjust`](AxesMut::aspect_adjust) chooses. It applies to
-    /// two-dimensional axes only, and [`Figure::validate`](crate::Figure::validate)
-    /// reports a fixed aspect on a three-dimensional axes, and a ratio that is not a
-    /// finite positive number.
+    /// [`Aspect::Equal`] draws one unit at the same length along every axis, so that
+    /// geometry such as an aerofoil section or a sphere keeps its shape;
+    /// [`Aspect::ratio(y)`](Aspect::ratio) draws one unit of y `y` times as long as one unit
+    /// of x, and `Aspect::Ratio { y, z }` also one unit of z `z` times as long, which a 2D
+    /// axes ignores. On a logarithmic axis the unit is one decade. The aspect is kept by the
+    /// layout, by export and while the figure is panned, zoomed and rotated in a viewer, in
+    /// the way [`aspect_adjust`](AxesMut::aspect_adjust) chooses.
+    /// [`Figure::validate`](crate::Figure::validate) reports a ratio that is not a finite
+    /// positive number.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -534,11 +535,12 @@ impl AxesMut<'_> {
 
     /// Sets how a fixed [`aspect`](AxesMut::aspect) is kept.
     ///
-    /// [`AspectAdjust::Box`], the default, shrinks the plot area along one dimension and
-    /// centres it in the space the layout gives it, keeping the limits exactly as they
-    /// are, manual or automatic. [`AspectAdjust::Limits`] keeps the plot area and widens
-    /// the limits of one axis symmetrically about their centre, so that manual limits are
-    /// the least range shown rather than the exact one.
+    /// [`AspectAdjust::Box`], the default, keeps the limits exactly as they are, manual or
+    /// automatic: a 2D axes shrinks its plot area along one dimension and centres it in the
+    /// space the layout gives it, and a 3D axes gives the sides of its box the lengths of
+    /// the scaled ranges. [`AspectAdjust::Limits`] keeps the plot area, or the cube of a 3D
+    /// axes, and widens the limits of the axes that are too short symmetrically about their
+    /// centres, so that manual limits are the least range shown rather than the exact one.
     pub fn aspect_adjust(&mut self, adjust: AspectAdjust) -> &mut Self {
         self.axes().aspect_adjust = adjust;
         self

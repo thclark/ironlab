@@ -29,11 +29,11 @@ pub struct Axes {
     pub y: Axis,
     /// The vertical axis in 3D; ignored by 2D axes.
     pub z: Axis,
-    /// The ratio of the length of one data unit of y to the length of one data unit of
-    /// x. Applies to 2D axes only; validation refuses any aspect but `Auto` on a 3D axes.
+    /// The ratios of the length of one data unit of y, and of z, to the length of one data
+    /// unit of x.
     pub aspect: Aspect,
-    /// How a fixed aspect is kept: by shrinking the plot area or by widening the limits
-    /// of one axis. Ignored when the aspect is `Auto`.
+    /// How a fixed aspect is kept: by shaping the plot area or the box, or by widening
+    /// limits. Ignored when the aspect is `Auto`.
     pub aspect_adjust: AspectAdjust,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels.
@@ -71,50 +71,64 @@ impl Default for Axes {
     }
 }
 
-/// The ratio of the length of one data unit of y to the length of one data unit of x in a
-/// 2D axes, as MATLAB's `daspect` gives it.
+/// The ratios of the drawn length of one data unit of y, and of z, to that of one data unit
+/// of x, as MATLAB's `daspect` gives them.
 ///
 /// On a logarithmic axis the data unit is one decade, so `Equal` on log–log axes draws a
-/// decade of x and a decade of y at the same length.
+/// decade of x and a decade of y at the same length. A 2D axes uses the ratio of y alone.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Aspect {
-    /// The plot area fills its space and the limits are those of the data, whatever the
-    /// ratio of their lengths.
+    /// The plot area, or the box of a 3D axes, keeps its own shape and the limits are those
+    /// of the data, whatever the ratio of their lengths.
     #[default]
     Auto,
-    /// One data unit of y is drawn as long as one data unit of x, which is `Ratio(1.0)`.
+    /// One data unit is drawn at the same length along every axis, which is
+    /// `Ratio { y: 1.0, z: 1.0 }`.
     Equal,
-    /// One data unit of y is drawn this many times as long as one data unit of x; finite
-    /// and positive.
-    Ratio(f64),
+    /// One data unit of y is drawn `y` times as long as one data unit of x, and one data
+    /// unit of z `z` times as long. Both are finite and positive; `z` is ignored by a 2D
+    /// axes but validated all the same.
+    Ratio {
+        /// How many times as long a unit of y is drawn as a unit of x.
+        y: f64,
+        /// How many times as long a unit of z is drawn as a unit of x, in a 3D axes.
+        z: f64,
+    },
 }
 
 impl Aspect {
-    /// Returns the ratio of the length of a unit of y to that of a unit of x, or `None`
-    /// when the aspect is automatic.
+    /// Returns the ratio `y` of a unit of y to a unit of x, with a ratio of 1 for z, which is
+    /// how a 2D axes is given a fixed ratio.
     #[must_use]
-    pub fn ratio(self) -> Option<f64> {
+    pub fn ratio(y: f64) -> Self {
+        Aspect::Ratio { y, z: 1.0 }
+    }
+
+    /// Returns the ratios of the length of a unit of y, and of z, to that of a unit of x, or
+    /// `None` when the aspect is automatic.
+    #[must_use]
+    pub fn ratios(self) -> Option<[f64; 2]> {
         match self {
             Aspect::Auto => None,
-            Aspect::Equal => Some(1.0),
-            Aspect::Ratio(r) => Some(r),
+            Aspect::Equal => Some([1.0, 1.0]),
+            Aspect::Ratio { y, z } => Some([y, z]),
         }
     }
 }
 
-/// How a 2D axes keeps a fixed [`Aspect`].
+/// How an axes keeps a fixed [`Aspect`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AspectAdjust {
-    /// The plot area is shrunk along one dimension, and centred in the space the layout
-    /// gives it, so that the limits are drawn at the aspect. The limits are kept as they
-    /// are, manual or automatic.
+    /// The limits are kept as they are, manual or automatic. A 2D axes shrinks its plot area
+    /// along one dimension, centred in the space the layout gives it; a 3D axes gives the
+    /// sides of its box the lengths of the scaled ranges of its axes.
     #[default]
     Box,
-    /// The limits of one axis are widened symmetrically about their centre, so that the
-    /// plot area keeps the space the layout gives it. The limits of the other axis are kept
-    /// as they are, manual or automatic.
+    /// The plot area of a 2D axes, and the cube of a 3D axes, keep their shape, and the
+    /// limits of the axes that are too short for it are widened symmetrically about their
+    /// centres. Manual limits are the least range shown.
     Limits,
 }
 

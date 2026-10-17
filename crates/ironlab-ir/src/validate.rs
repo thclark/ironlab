@@ -130,9 +130,9 @@ pub enum IssueKind {
     /// the ticks are not explicit values, or the number of labels differs from the
     /// number of values.
     InvalidTickLabels,
-    /// The aspect of an axes cannot be kept: a ratio that is not a finite positive
-    /// number, or an aspect other than automatic on a three-dimensional axes, which has
-    /// no plot area of its own data units to shape.
+    /// The aspect of an axes cannot be kept: a ratio of y or of z that is not a finite
+    /// positive number. The ratio of z is checked on a two-dimensional axes too, which
+    /// ignores it, so that a figure stays valid when it is made three-dimensional.
     InvalidAspect,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
@@ -619,21 +619,18 @@ impl Validator<'_> {
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });
-        if let Aspect::Ratio(ratio) = axes.aspect
-            && !(ratio.is_finite() && ratio > 0.0)
-        {
-            self.error(
-                Some(axes.id),
-                IssueKind::InvalidAspect,
-                format!("the aspect ratio {ratio} is not a finite positive number"),
-            );
-        } else if three_d && axes.aspect != Aspect::Auto {
-            self.error(
-                Some(axes.id),
-                IssueKind::InvalidAspect,
-                "a three-dimensional axes has a fixed aspect, which applies to two-dimensional axes only"
-                    .to_owned(),
-            );
+        if let Aspect::Ratio { y, z } = axes.aspect {
+            for (name, ratio) in [("y", y), ("z", z)] {
+                if !(ratio.is_finite() && ratio > 0.0) {
+                    self.error(
+                        Some(axes.id),
+                        IssueKind::InvalidAspect,
+                        format!(
+                            "the aspect ratio of {name} {ratio} is not a finite positive number"
+                        ),
+                    );
+                }
+            }
         }
         let mut limits = vec![
             ("x limits", axes.x.limits, axes.x.scale),
