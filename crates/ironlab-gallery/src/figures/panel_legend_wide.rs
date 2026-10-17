@@ -42,8 +42,9 @@ pub fn figure() -> Figure {
         .parameter("artists", 24)
         .parameter("data_points", 9648)
         .parameter("has_legend", true);
-    // A full-width panel in the bottom row; its default automatic columns spread the entries across its width.
-    let key = fig.panel_legend_span(1, 0, 1, 2).id();
+    // A full-width panel in the bottom row, drawn without the border a panel has by default; its default automatic
+    // columns spread the entries across its width.
+    let key = fig.panel_legend_span(1, 0, 1, 2).boxed(false).id();
 
     for (k, &zeta) in DAMPING_RATIOS.iter().enumerate() {
         // The lightly damped responses are red and the heavily damped ones violet.

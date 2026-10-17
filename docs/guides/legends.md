@@ -247,4 +247,4 @@ Every property is described in the [figure schema reference](../reference/figure
 
 - [Legend toggling](../gallery/legend_toggle.md) shows a legend inside an axes, with entries typeset in LaTeX, whose series can be hidden from the legend.
 - [Shared legend panel](../gallery/panel_legend_shared.md) shows temperatures at five weather stations in a grid of five axes that draw the same series, with one panel in the sixth tile listing each series once.
-- [Wide legend panel](../gallery/panel_legend_wide.md) shows the step and magnitude responses of a second-order system at twelve damping ratios, with a panel across the full width beneath the two plots, in a row made shorter by row weights, whose entries are arranged in automatic columns.
+- [Wide legend panel](../gallery/panel_legend_wide.md) shows the step and magnitude responses of a second-order system at twelve damping ratios, with a panel across the full width beneath the two plots, in a row made shorter by row weights, whose entries are arranged in automatic columns. Its panel is drawn without a border, for comparison with the bordered panel of the previous figure.
