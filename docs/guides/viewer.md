@@ -160,7 +160,7 @@ A hidden plot still takes part in the layout of its axes: its data still contrib
 
 ## Datatips
 
-Resting the pointer near a point of a line or a scatter rings that point and shows its name, its coordinates and its index. The index is the position the point has in the arrays you plotted, so it is what you would use to find the same point in your own data.
+Resting the pointer near a point of a line or a scatter rings that point and shows its name, its coordinates and its index. The index is the position the point has in the arrays you plotted, so it is what you would use to find the same point in your own data. A line or scatter that places a dimension as fractions of the plot area, such as a [reference line or a row of edge markers](getting-started.md#reference-lines-and-edge-markers), reports only its data coordinate, because a fraction says where the mark was drawn rather than what was measured.
 
 Very large series are thinned to what the plot can resolve before they are drawn, on screen and in an exported PDF alike, and only the points that were drawn can be read. The index reported is always the original one, never a position in the thinned series, and zooming in draws more of the series, so more of it becomes readable. How the thinning works is described under [large series are thinned for the current view](../reference/architecture.md#large-series-are-thinned-for-the-current-view).
 

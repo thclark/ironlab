@@ -251,6 +251,8 @@ A polyline through data points, with optional markers (MATLAB's `plot`, `plot3`,
 | `z` | DataId of the z coordinates, or `null`. Allowed only in three-dimensional axes; without it, points lie in the plane z = 0. |
 | `line` | The LineStyle of the line. A non-finite coordinate breaks the line. |
 | `marker` | The MarkerStyle of the markers drawn at the points. |
+| `x_coords`, `y_coords` | The [coordinates](#coordinates-and-clipping) of the x and y values: `data` (the default) or `axes_fraction`. |
+| `clip` | Whether the artist is [clipped](#coordinates-and-clipping) to the plot area. The default is `true`. |
 
 ### `scatter`
 
@@ -258,10 +260,23 @@ Markers at data points, each with its own size and colour (MATLAB's `scatter` an
 
 | Property | Meaning |
 | --- | --- |
-| `x`, `y`, `z` | As for a line. |
+| `x`, `y`, `z`, `x_coords`, `y_coords`, `clip` | As for a line. |
 | `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": DataId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
 | `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": DataId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
 | `marker` | The MarkerStyle; its shape defaults to `circle`. |
+
+### Coordinates and clipping
+
+Each of the x and y dimensions of a line or scatter is placed in its own coordinates, named by `x_coords` and `y_coords`, so that one dimension can be data while the other is not, as in matplotlib's blended transforms.
+
+- `data` places the values through the limits, the scale and the direction of the axis, and the values take part in its automatic limits.
+- `axes_fraction` places the values as fractions of the plot area along that dimension: 0 is the left edge (for x) or the bottom edge (for y) and 1 the right or top edge, whatever the limits, the scale, the direction or the pan and zoom of the axis, and values outside `[0, 1]` lie beyond the plot area. These values take no part in the automatic limits of the axis, and a zero or negative fraction is not reported against a logarithmic axis, because a fraction is not a value along the axis.
+
+A horizontal reference line is therefore a line with `x_coords` of `axes_fraction`, x values 0 and 1 and two equal y values in data coordinates; its y value takes part in the automatic y limits, as matplotlib's `axhline` does. A three-dimensional axes has no plot area to take a fraction of, so `axes_fraction` in either dimension of an artist of a three-dimensional axes is a validation error.
+
+`clip` decides whether the marks of the artist are clipped to the plot area of a two-dimensional axes. With `false`, clipping is released only along a dimension in `axes_fraction` coordinates, where the marks are drawn wherever they are placed, on screen and in exported files; this lets a marker on an edge of the axes be drawn whole. Along a dimension in `data` coordinates the artist stays clipped to the plot area exactly as with `true`, so that a value outside the limits of that axis is never drawn: an edge tick at a data x and a fractional y may overhang the top or bottom edge, but is never drawn left or right of the plot area, however the axes is panned or zoomed. `clip` therefore has no effect on an artist in `data` coordinates along both dimensions, nor in a three-dimensional axes, which clips every artist to its tile, and validation reports a released clip there with the warning `IneffectiveClip`.
+
+The property editor of the viewer shows `x_coords` and `y_coords` read-only, because the coordinates of the values decide what the values mean and are therefore set by the program that builds the figure, and lets `clip` be changed. A datatip reports only the coordinates in `data`. The reasons are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### `contour`
 
@@ -386,7 +401,7 @@ Validation checks a strict category against the data. For a colour-indexed image
 
 | Property | Meaning |
 | --- | --- |
-| `shape` | `none` (the default for lines), `circle`, `square`, `diamond`, `triangle_up`, `triangle_down`, `plus`, `cross` or `point`. |
+| `shape` | `none` (the default for lines), `circle`, `square`, `diamond`, `triangle_up`, `triangle_down`, `plus`, `cross`, `point`, `v_line` (a vertical tick, one stroke as tall as the marker size) or `h_line` (a horizontal tick, one stroke as wide as the marker size). |
 | `size_pt` | The width of the marker. The default is 4 pt. |
 | `face` | The ColorSpec of the marker interior. The default is `none`. |
 | `edge` | The ColorSpec of the marker outline. The default is `auto`. |
@@ -411,7 +426,7 @@ A **Text** is stored as its source, never as typeset glyphs, so that it can be e
 | Property | Meaning |
 | --- | --- |
 | `content` | The source text. |
-| `interpreter` | `"latex"` (the default) treats segments delimited by `$…$` as LaTeX mathematics and the rest as plain text, with `\$` producing a literal dollar sign. `"none"` renders the content literally, dollar signs included. |
+| `interpreter` | `"latex"` (the default) treats segments delimited by `$…$` as LaTeX mathematics and the rest as plain text, with `\$` producing a literal dollar sign and `\texttt{…}` setting its argument in monospace, as [titles, labels and LaTeX](../guides/getting-started.md#titles-labels-and-latex) describes. `"none"` renders the content literally, dollar signs included. |
 
 Mathematics that the typesetter cannot handle is drawn as its raw source and reported as a warning; it never makes a figure invalid. How text is resolved is described in the [architecture reference](architecture.md#text-resolution) and [ADR 0017](../adrs/0017-latex-rust-applies-tex-conventions.md).
 
@@ -505,7 +520,7 @@ Labels are edited in the viewer's [property editor](../guides/viewer.md#labels) 
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column weights than rows or columns or a weight that is not a finite positive number, a legend that names a legend panel the figure does not have, a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list, because no axes names it in its legend or no axes that names it has an artist with a display name. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column weights than rows or columns or a weight that is not a finite positive number, a legend that names a legend panel the figure does not have, a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list, because no axes names it in its legend or no axes that names it has an artist with a display name. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
 
 ## A minimal JSON file
 
@@ -548,7 +563,10 @@ The following JSON file describes one two-dimensional axes with a line through t
           "y": 1,
           "z": null,
           "line": { "color": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
-          "marker": { "shape": "circle", "size_pt": 4.0, "face": { "type": "none" }, "edge": { "type": "auto" } }
+          "marker": { "shape": "circle", "size_pt": 4.0, "face": { "type": "none" }, "edge": { "type": "auto" } },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         }
       ]
     }

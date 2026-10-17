@@ -317,6 +317,15 @@ pub fn kitchen_sink_figure() -> Figure {
         MarkerShape::Plus,
         MarkerShape::Cross,
         MarkerShape::Point,
+        MarkerShape::VLine,
+        MarkerShape::HLine,
+    ];
+    // Every combination of coordinates along x and y, each line taking one in turn.
+    let coords = [
+        (Coords::Data, Coords::Data),
+        (Coords::AxesFraction, Coords::Data),
+        (Coords::Data, Coords::AxesFraction),
+        (Coords::AxesFraction, Coords::AxesFraction),
     ];
     let dashes = [
         DashStyle::Solid,
@@ -395,6 +404,9 @@ pub fn kitchen_sink_figure() -> Figure {
                     face: color_specs[(k + 1) % color_specs.len()],
                     edge: color_specs[(k + 2) % color_specs.len()],
                 },
+                x_coords: coords[k % coords.len()].0,
+                y_coords: coords[k % coords.len()].1,
+                clip: k % 2 == 0,
             }),
         );
     }
@@ -429,6 +441,9 @@ pub fn kitchen_sink_figure() -> Figure {
                 shape: MarkerShape::Diamond,
                 ..MarkerStyle::default()
             },
+            x_coords: Coords::Data,
+            y_coords: Coords::AxesFraction,
+            clip: false,
         }),
     );
     let id = b.node();

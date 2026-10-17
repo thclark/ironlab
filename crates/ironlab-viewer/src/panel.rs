@@ -883,6 +883,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
         | ValueType::DashStyle
+        | ValueType::Coords
         | ValueType::Interpreter
         | ValueType::FontSetId => None,
     }

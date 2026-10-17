@@ -721,6 +721,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_no_color(),
                             wire_colormapped(),
                         ),
+                        x_coords: wire::Coords::AxesFraction as i32,
+                        y_coords: wire::Coords::Data as i32,
+                        clip: Some(false),
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(31),
@@ -745,6 +748,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_auto_color(),
                             wire_no_color(),
                         ),
+                        x_coords: wire::Coords::Data as i32,
+                        y_coords: wire::Coords::AxesFraction as i32,
+                        clip: Some(true),
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(32),
@@ -769,6 +775,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_rgba(0.0625, 0.1875, 0.3125, 0.4375),
                             wire_auto_color(),
                         ),
+                        x_coords: wire::Coords::AxesFraction as i32,
+                        y_coords: wire::Coords::AxesFraction as i32,
+                        clip: Some(false),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -1152,6 +1161,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        x_coords: Coords::AxesFraction,
+                        y_coords: Coords::Data,
+                        clip: false,
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(31),
@@ -1168,6 +1180,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             face: ColorSpec::Auto,
                             edge: ColorSpec::None,
                         },
+                        x_coords: Coords::Data,
+                        y_coords: Coords::AxesFraction,
+                        clip: true,
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(32),
@@ -1188,6 +1203,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             },
                             edge: ColorSpec::Auto,
                         },
+                        x_coords: Coords::AxesFraction,
+                        y_coords: Coords::AxesFraction,
+                        clip: false,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -1560,6 +1578,10 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         check::<wire::MarkerShape>(
             |w, v| wire_line(w).marker.as_mut().unwrap().shape = v,
             |f| format!("{:?}", line(f).marker.shape),
+        ),
+        check::<wire::Coords>(
+            |w, v| wire_line(w).x_coords = v,
+            |f| format!("{:?}", line(f).x_coords),
         ),
         check::<wire::Dimension>(
             |w, v| w.links[0].dimension = v,
@@ -3031,6 +3053,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        x_coords: Coords::Data,
+                        y_coords: Coords::Data,
+                        clip: true,
                     }),
                     Artist::Image(Image {
                         id: NodeId(4),

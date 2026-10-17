@@ -73,7 +73,7 @@ fn datatip_value(value: f64) -> String {
 }
 
 /// The text of the callout that names the data point under the pointer, one item per line: the name of the series
-/// when it has one, its coordinates, and the index the point has in the artist's own data arrays, which is what the
+/// when it has one, its data coordinates (leaving out any the artist places as fractions of the plot area), and the index the point has in the artist's own data arrays, which is what the
 /// user would use to find the same point in the data they plotted.
 #[must_use]
 pub fn datatip_text(tip: &Datatip) -> String {
@@ -81,8 +81,13 @@ pub fn datatip_text(tip: &Datatip) -> String {
     if let Some(name) = &tip.name {
         lines.push(name.clone());
     }
-    lines.push(format!("x = {}", datatip_value(tip.x)));
-    lines.push(format!("y = {}", datatip_value(tip.y)));
+    // A coordinate placed as a fraction of the plot area is not data, so the callout leaves it out.
+    if let Some(x) = tip.x {
+        lines.push(format!("x = {}", datatip_value(x)));
+    }
+    if let Some(y) = tip.y {
+        lines.push(format!("y = {}", datatip_value(y)));
+    }
     if let Some(z) = tip.z {
         lines.push(format!("z = {}", datatip_value(z)));
     }

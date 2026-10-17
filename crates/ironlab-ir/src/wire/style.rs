@@ -102,5 +102,9 @@ proto_file! {
         Cross = 8;
         /// A small filled dot.
         Point = 9;
+        /// A vertical tick.
+        VLine = 10;
+        /// A horizontal tick.
+        HLine = 11;
     }
 }

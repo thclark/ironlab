@@ -10,14 +10,16 @@
 //! validation of the figure agree about which artists are absent.
 
 use ironlab_ir::{
-    Artist, Axes, ContourPlacement, DataId, Dimension, Figure, Grid, ImagePlacement, ImagePlane,
-    NdArray, OutOfRange, PixelRange, QuiverScale, Scale, ScatterColor, ScatterSize,
+    Artist, Axes, ContourPlacement, Coords as ArtistCoords, DataId, Dimension, Figure, Grid,
+    ImagePlacement, ImagePlane, NdArray, OutOfRange, PixelRange, QuiverScale, Scale, ScatterColor,
+    ScatterSize,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
 use crate::maths::quiver;
 
 use super::Ctx;
+use super::artists::Placement;
 use super::image;
 use super::limits::{axes_axis, is_3d};
 
@@ -522,6 +524,12 @@ pub(super) fn dimension_index(dimension: Dimension) -> usize {
 /// a plane at an explicit height places that height, the bottom plane places nothing, and contours at their levels
 /// place the field values. An image places the two edges of its pixels along each axis of its plane and, along the
 /// third axis, the offset of its plane when it has one.
+///
+/// A line or scatter in a 2D axes places nothing along a dimension whose values are fractions of the plot area,
+/// because those values are not positions along the axis: they take no part in its automatic limits, and a zero or
+/// negative fraction is no concern of a logarithmic axis. Its other dimension, in data coordinates, places its values
+/// as usual, so a reference line spanning the axes at a data value still takes part in the automatic limits of the
+/// axis it crosses, as Matplotlib's `axhline` and `axvline` do.
 pub(crate) fn values_along(
     artist: &Artist,
     data: &ArtistData,
@@ -530,6 +538,9 @@ pub(crate) fn values_along(
     visit: &mut dyn FnMut(f64),
 ) {
     if dim == 2 && !three_d {
+        return;
+    }
+    if !three_d && dim < 2 && Placement::of(artist).coords[dim] == ArtistCoords::AxesFraction {
         return;
     }
     let mut point_values = |points: &Points| match dim {
