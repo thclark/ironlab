@@ -102,8 +102,27 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/main-target" \
             cargo run --manifest-path "$RUNNER_TEMP/main/Cargo.toml" -p ironlab-ir --bin generate-proto
           echo "generated=true" >> "$GITHUB_OUTPUT"
-      - name: Check the .proto files for breaking changes against main
+      - name: Decide whether the schema version declares a breaking change
+        id: version
         if: steps.main.outputs.generated == 'true'
+        # A reader rejects a file whose major version differs from its own, or, while the major version is 0, whose minor
+        # version differs, so the .proto files need not stay compatible across that boundary. Raising the schema version
+        # past it is how a pull request declares a deliberate breaking change; any other incompatible change is a mistake
+        # that buf reports.
+        run: |
+          read_version() { sed -n 's/^pub const SCHEMA_VERSION: &str = "\(.*\)";$/\1/p' "$1/crates/ironlab-ir/src/figure.rs"; }
+          this=$(read_version .)
+          main=$(read_version "$RUNNER_TEMP/main")
+          IFS=. read -r this_major this_minor _ <<< "$this"
+          IFS=. read -r main_major main_minor _ <<< "$main"
+          if [ -n "$main" ] && { [ "$this_major" != "$main_major" ] || { [ "$this_major" = 0 ] && [ "$this_minor" != "$main_minor" ]; }; }; then
+            echo "::notice title=buf breaking skipped::The schema version moves from $main to $this, which declares a breaking change."
+            echo "breaking=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "breaking=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check the .proto files for breaking changes against main
+        if: steps.main.outputs.generated == 'true' && steps.version.outputs.breaking != 'true'
         working-directory: target/ironlab-proto
         run: buf breaking --against "$RUNNER_TEMP/main-target/ironlab-proto"
 

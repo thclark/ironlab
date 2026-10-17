@@ -37,7 +37,7 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 - **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
 - **Versioning.** Field 1 of `Figure` is `schema_version` in every version of the schema, so that a reader can check the version of a file before decoding the rest of it, as described in [versioning](#versioning).
 
-Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch.
+Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch, except when the schema version declares a breaking change, as described in [versioning](#versioning).
 
 ### JSON encoding
 
@@ -548,7 +548,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.4.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
-The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
+The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless the change raises the major version, or, while the major version is 0, the minor version. A reader rejects a file of such a different version before decoding it, so the files need not be compatible across that boundary, and raising the version is how a deliberate breaking change is declared. Any other incompatible change is reported as a mistake.
 
 Changes to the schema are versioned as follows.
 
