@@ -2436,7 +2436,7 @@ fn a_legend_panel_sharing_an_identifier_with_another_node_is_an_error() {
     );
 
     let (mut fig, _, _) = figure_with_a_legend_panel();
-    let mut second = fig.panel_legends[0];
+    let mut second = fig.panel_legends[0].clone();
     second.cell.col = 0;
     fig.panel_legends.push(second);
     assert!(
@@ -2446,27 +2446,28 @@ fn a_legend_panel_sharing_an_identifier_with_another_node_is_an_error() {
 }
 
 // Why: weights share out the height and width of the figure, so a weight that is zero,
-// negative or not finite gives a row or column no size or an undefined one, and a weight
-// for a row or column that does not exist is a mistake in the code that built the figure.
-// Fewer weights than rows or columns is valid, because a missing weight is one.
+// negative or not finite gives a row or column no size or an undefined one, and a size
+// for a row or column that does not exist is a mistake in the code that built the figure,
+// whether that size is a weight or fitted. Fewer sizes than rows or columns is valid,
+// because a missing size is a weight of one.
 #[test]
 fn layout_weights_that_are_too_many_or_not_finite_and_positive_are_errors() {
     let (mut fig, _, _) = single_line_figure();
     fig.layout = TileLayout {
-        row_weights: vec![2.0],
-        col_weights: vec![0.5, 1.5],
+        row_weights: vec![TrackSize::Weight(2.0)],
+        col_weights: vec![TrackSize::Weight(0.5), TrackSize::Weight(1.5)],
         ..TileLayout::new(2, 3)
     };
     fig.axes[0].cell = Cell::default();
     assert_eq!(fig.validate().errors, vec![], "fewer weights than tiles");
 
-    for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+    for bad in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         for rows in [true, false] {
             let mut fig = fig.clone();
             if rows {
-                fig.layout.row_weights = vec![1.0, bad];
+                fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Weight(bad)];
             } else {
-                fig.layout.col_weights = vec![bad];
+                fig.layout.col_weights = vec![TrackSize::Weight(bad)];
             }
             let report = fig.validate();
             assert!(
@@ -2477,14 +2478,21 @@ fn layout_weights_that_are_too_many_or_not_finite_and_positive_are_errors() {
     }
 
     let mut too_many = fig.clone();
-    too_many.layout.row_weights = vec![1.0; 3];
+    too_many.layout.row_weights = vec![TrackSize::Weight(1.0); 3];
     assert!(has_error(
         &too_many.validate(),
         IssueKind::InvalidLayoutWeights,
         Some(fig.id)
     ));
     let mut too_many = fig;
-    too_many.layout.col_weights = vec![1.0; 4];
+    // Fitted sizes count as sizes: a fitted column that does not exist is as much a
+    // mistake as a weighted one.
+    too_many.layout.col_weights = vec![
+        TrackSize::Weight(1.0),
+        TrackSize::Fit,
+        TrackSize::Weight(1.0),
+        TrackSize::Fit,
+    ];
     assert!(has_error(
         &too_many.validate(),
         IssueKind::InvalidLayoutWeights,
@@ -2566,6 +2574,357 @@ fn a_legend_panel_with_no_entries_has_nothing_to_draw() {
     line_mut(&mut fig).display_name = Some(Text::new("Named"));
     let report = fig.validate();
     assert_eq!(report.warnings, vec![], "a panel with an entry");
+}
+
+// Why: a fitted row or column takes its size from the legend panels in it, and an axes
+// has no content size of its own, so an axes lying in fitted rows alone, or in fitted
+// columns alone, would be drawn with no height or no width; that is an error against the
+// axes. An axes that spans a fitted track together with a weighted one has the size of
+// the weighted track and is valid, a legend panel in a fitted track alone is what fitted
+// tracks are for, and a track without a size is weighted, however the sizes before it
+// are given.
+#[test]
+fn an_axes_in_fitted_rows_or_fitted_columns_alone_is_an_error() {
+    let (base, axes, _) = single_line_figure();
+    let with = |row_weights: Vec<TrackSize>, col_weights: Vec<TrackSize>, cell: Cell| {
+        let mut fig = base.clone();
+        fig.layout = TileLayout {
+            row_weights,
+            col_weights,
+            ..TileLayout::new(2, 2)
+        };
+        fig.axes[0].cell = cell;
+        fig.validate()
+    };
+    let fit_weight = || vec![TrackSize::Fit, TrackSize::Weight(1.0)];
+    let fit_fit = || vec![TrackSize::Fit, TrackSize::Fit];
+
+    for (at, report) in [
+        ("a fitted row", with(fit_weight(), vec![], cell(0, 0, 1, 1))),
+        (
+            "a fitted column",
+            with(vec![], fit_weight(), cell(0, 0, 1, 1)),
+        ),
+        ("two fitted rows", with(fit_fit(), vec![], cell(0, 0, 2, 1))),
+        (
+            "two fitted columns",
+            with(vec![], fit_fit(), cell(0, 0, 1, 2)),
+        ),
+        // Weighted columns do not rescue an axes whose rows are all fitted.
+        (
+            "a fitted row across weighted columns",
+            with(fit_weight(), vec![], cell(0, 0, 1, 2)),
+        ),
+    ] {
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::AxesInFittedTrack],
+            "{at}: {report:?}"
+        );
+        assert!(
+            has_error(&report, IssueKind::AxesInFittedTrack, Some(axes)),
+            "{at}: {report:?}"
+        );
+    }
+
+    for (at, report) in [
+        (
+            "a fitted and a weighted row",
+            with(fit_weight(), vec![], cell(0, 0, 2, 1)),
+        ),
+        (
+            "a fitted and a weighted column",
+            with(vec![], fit_weight(), cell(0, 0, 1, 2)),
+        ),
+        (
+            "a weighted row beside a fitted one",
+            with(fit_weight(), vec![], cell(1, 0, 1, 1)),
+        ),
+        // The second row has no size, so it has a weight of one.
+        (
+            "a row without a size",
+            with(vec![TrackSize::Fit], vec![], cell(1, 0, 1, 1)),
+        ),
+    ] {
+        assert_eq!(report.errors, vec![], "{at}");
+    }
+
+    // A legend panel alone in a fitted column is valid.
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
+    fig.axes[0].legend = Some(Legend::Panel(panel));
+    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    let report = fig.validate();
+    assert_eq!(report.errors, vec![], "a panel in a fitted column");
+    assert!(!has_error(
+        &report,
+        IssueKind::AxesInFittedTrack,
+        Some(axes)
+    ));
+}
+
+/// A figure of two axes in the first two cells of a 1 × 3 layout, each with one line of
+/// a display name, and a legend panel in the third cell that no axes names. Returns the
+/// figure, the identifiers of the axes, those of their lines, and that of the panel.
+fn two_axes_and_a_panel() -> (Figure, [NodeId; 2], [NodeId; 2], NodeId) {
+    let mut b = FigureBuilder::new();
+    let x = b.vector(&[1.0, 2.0, 3.0]);
+    let mut axes = [NodeId(0); 2];
+    let mut lines = [NodeId(0); 2];
+    for k in 0..2 {
+        axes[k] = b.axes2d(0, k as u32);
+        lines[k] = b.node();
+        b.push(
+            axes[k],
+            Artist::Line(Line {
+                id: lines[k],
+                display_name: Some(Text::plain(format!("line {k}"))),
+                x,
+                y: x,
+                ..Line::default()
+            }),
+        );
+    }
+    let panel = b.node();
+    b.fig.layout = TileLayout::new(1, 3);
+    b.fig.panel_legends.push(PanelLegend {
+        id: panel,
+        cell: cell(0, 2, 1, 1),
+        ..PanelLegend::default()
+    });
+    (b.build(), axes, lines, panel)
+}
+
+/// Returns an explicit list of the given items.
+fn explicit(items: impl IntoIterator<Item = LegendItem>) -> LegendEntries {
+    LegendEntries::Explicit(items.into_iter().collect())
+}
+
+/// Returns an inside legend that lists the given entries.
+fn inside_listing(entries: LegendEntries) -> Option<Legend> {
+    Some(Legend::Inside(InsideLegend {
+        entries,
+        ..InsideLegend::default()
+    }))
+}
+
+// Why: an explicit legend item that names an artist the legend cannot list would show an
+// entry for nothing, silently, so it is an error against the legend's owner: the panel,
+// or the axes of a legend inside a plot area. A panel may list an artist of any axes of
+// the figure, including one whose axes does not name the panel (which is how a shared
+// legend is built), but a legend inside a plot area lists only the artists of its own
+// axes, because it describes that plot alone. A node that is not an artist (such as an
+// axes) is not listable either.
+#[test]
+fn an_explicit_legend_item_naming_an_artist_outside_its_scope_is_dangling() {
+    let (base, axes, lines, panel) = two_axes_and_a_panel();
+
+    for missing in [NodeId(999), axes[0], panel] {
+        let mut fig = base.clone();
+        fig.panel_legends[0].entries = explicit([LegendItem::artist(missing)]);
+        let report = fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::DanglingLegendItem],
+            "a panel naming {missing:?}: {report:?}"
+        );
+        assert!(has_error(
+            &report,
+            IssueKind::DanglingLegendItem,
+            Some(panel)
+        ));
+    }
+
+    // A panel lists artists of any axes, though no axes names the panel.
+    let mut fig = base.clone();
+    fig.panel_legends[0].entries = explicit(lines.map(LegendItem::artist));
+    let report = fig.validate();
+    assert_eq!(
+        report.errors,
+        vec![],
+        "a panel naming artists of the figure"
+    );
+    assert_eq!(
+        report.warnings,
+        vec![],
+        "a panel naming artists of the figure"
+    );
+
+    // An inside legend lists the artists of its own axes only.
+    let mut fig = base.clone();
+    fig.panel_legends.clear();
+    fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(lines[1])]));
+    let report = fig.validate();
+    assert_eq!(error_kinds(&report), [IssueKind::DanglingLegendItem]);
+    assert!(
+        has_error(&report, IssueKind::DanglingLegendItem, Some(axes[0])),
+        "an inside legend naming the artist of another axes: {report:?}"
+    );
+
+    fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(lines[0])]));
+    let report = fig.validate();
+    assert_eq!(
+        report.errors,
+        vec![],
+        "an inside legend naming its own artist"
+    );
+    assert_eq!(
+        report.warnings,
+        vec![],
+        "an inside legend naming its own artist"
+    );
+}
+
+// Why: an explicit list that holds the same item twice lists it twice, which is almost
+// always a mistake in the code that built the list, but the legend can still be drawn,
+// so it is a warning against the legend's owner (ADR 0012) and the figure stays valid.
+// Items are the same when their content is the same, whether or not either is on a row
+// of its own; two custom items are the same only when both the label and the sample are.
+#[test]
+fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
+    let (base, axes, lines, panel) = two_axes_and_a_panel();
+    let swatch = |label: &str, color: Color| LegendItem::custom(LegendSample::swatch(color), label);
+    let on_own_row = |item: LegendItem| LegendItem {
+        full_row: true,
+        ..item
+    };
+
+    for (at, items) in [
+        (
+            "an artist, once on its own row",
+            vec![
+                LegendItem::artist(lines[0]),
+                LegendItem::artist(lines[1]),
+                on_own_row(LegendItem::artist(lines[0])),
+            ],
+        ),
+        (
+            "a custom item",
+            vec![swatch("upper", Color::BLACK), swatch("upper", Color::BLACK)],
+        ),
+    ] {
+        let mut fig = base.clone();
+        fig.panel_legends[0].entries = explicit(items);
+        let report = fig.validate();
+        assert!(report.is_valid(), "{at}: {report:?}");
+        assert!(
+            has_warning(&report, IssueKind::DuplicateLegendItem, Some(panel)),
+            "{at}: {report:?}"
+        );
+        assert_eq!(report.warnings.len(), 1, "{at}: {report:?}");
+    }
+
+    // Custom items that differ in their label alone, or in their sample alone, are
+    // distinct items.
+    let mut fig = base.clone();
+    fig.panel_legends[0].entries = explicit([
+        swatch("upper", Color::BLACK),
+        swatch("lower", Color::BLACK),
+        swatch("upper", Color::WHITE),
+        LegendItem::custom(LegendSample::line(Color::BLACK), "upper"),
+    ]);
+    assert_eq!(fig.validate().warnings, vec![], "distinct custom items");
+
+    // A repeat in a legend inside a plot area is reported against its axes.
+    let mut fig = base;
+    fig.axes[0].legend = inside_listing(explicit([lines[0].into(), lines[0].into()]));
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::DuplicateLegendItem, Some(axes[0])),
+        "{report:?}"
+    );
+}
+
+// Why: an artist without a display name is left out of an automatic legend, but an
+// explicit item names it on purpose and shows its sample without a label. That is
+// almost always a name not yet given, which can be given later in code or in the viewer,
+// so it is a warning against the legend's owner and never an error; naming the artist
+// clears it.
+#[test]
+fn an_explicit_item_naming_an_artist_without_a_display_name_is_a_warning() {
+    let (mut fig, axes, panel) = figure_with_a_legend_panel();
+    let line = fig.axes[0].artists[0].id();
+    fig.panel_legends[0].entries = explicit([LegendItem::artist(line)]);
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::UnnamedLegendItem, Some(panel)),
+        "a panel naming an unnamed artist: {report:?}"
+    );
+
+    fig.panel_legends.clear();
+    fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(line)]));
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::UnnamedLegendItem, Some(axes)),
+        "an inside legend naming an unnamed artist: {report:?}"
+    );
+
+    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    assert_eq!(fig.validate().warnings, vec![], "a named artist");
+}
+
+// Why: a panel with an explicit list draws exactly that list, whichever axes name the
+// panel, so it has nothing to draw exactly when the list is empty: a panel of custom items
+// that no axes names (a key of marker shapes, for example) draws them and must not be
+// reported, and an empty explicit list draws nothing even when an axes with named artists
+// names the panel. Both outcomes are valid (ADR 0012).
+#[test]
+fn a_panel_with_an_explicit_list_has_nothing_to_draw_only_when_the_list_is_empty() {
+    let (mut fig, _, _, panel) = two_axes_and_a_panel();
+    fig.panel_legends[0].entries = explicit([LegendItem::custom(
+        LegendSample::marker(MarkerShape::Circle, Color::BLACK),
+        "measured",
+    )]);
+    let report = fig.validate();
+    assert_eq!(
+        report.errors,
+        vec![],
+        "custom items in a panel no axes names"
+    );
+    assert_eq!(
+        report.warnings,
+        vec![],
+        "custom items in a panel no axes names"
+    );
+
+    // The first axes, whose line is named, names the panel.
+    fig.panel_legends[0].entries = explicit([]);
+    fig.axes[0].legend = Some(Legend::Panel(panel));
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        has_warning(&report, IssueKind::NothingToDraw, Some(panel)),
+        "an empty explicit list: {report:?}"
+    );
+}
+
+// Why: an item on a row of its own spans every column, however many columns there are,
+// so it is as meaningful with automatic columns as with a fixed number of them, and must
+// not be reported in either kind of legend.
+#[test]
+fn an_item_on_a_row_of_its_own_is_valid_with_automatic_columns() {
+    let (mut fig, _, lines, _) = two_axes_and_a_panel();
+    let full_row = LegendItem {
+        full_row: true,
+        ..LegendItem::custom(LegendSample::swatch(Color::BLACK), "a long heading")
+    };
+    let automatic = LegendEntryLayout {
+        columns: LegendEntryColumns::Auto,
+        order: LegendEntryOrder::RowMajor,
+    };
+    fig.panel_legends[0].layout = automatic;
+    fig.panel_legends[0].entries = explicit([full_row.clone(), lines[1].into()]);
+    fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
+        layout: automatic,
+        entries: explicit([full_row, lines[0].into()]),
+        ..InsideLegend::default()
+    }));
+    let report = fig.validate();
+    assert_eq!(report.errors, vec![]);
+    assert_eq!(report.warnings, vec![]);
 }
 
 /// Returns the overlap warnings of a report, as the node each is reported against and its

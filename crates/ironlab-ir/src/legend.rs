@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::NodeId;
 use crate::layout::Cell;
+use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+use crate::text::Text;
 
 /// The legend of an axes, which lists the artists of the axes that have a display name.
 ///
@@ -13,7 +15,7 @@ use crate::layout::Cell;
 /// `type` names the variant and whose `value` holds its content, such as
 /// `{"type": "inside", "value": {"location": "north_east", ...}}` or
 /// `{"type": "panel", "value": 7}`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Legend {
     /// The entries are listed in a legend drawn inside the plot area of the axes.
@@ -32,7 +34,7 @@ impl Default for Legend {
 }
 
 /// A legend drawn inside the plot area of its axes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct InsideLegend {
     /// Where the legend is placed inside the plot area.
     pub location: LegendLocation,
@@ -40,6 +42,13 @@ pub struct InsideLegend {
     pub boxed: bool,
     /// How the entries are arranged in columns.
     pub layout: LegendEntryLayout,
+    /// Which entries the legend lists, and in what order: the named artists of its axes
+    /// in artist order, or an explicit list of items. An item that names an artist must
+    /// name an artist of the same axes.
+    ///
+    /// The property is omitted from JSON when the entries are automatic.
+    #[serde(default, skip_serializing_if = "LegendEntries::is_auto")]
+    pub entries: LegendEntries,
 }
 
 impl Default for InsideLegend {
@@ -49,13 +58,14 @@ impl Default for InsideLegend {
             location: LegendLocation::NorthEast,
             boxed: true,
             layout: LegendEntryLayout::default(),
+            entries: LegendEntries::Auto,
         }
     }
 }
 
 /// A legend of the figure that occupies cells of the tile layout, as an axes does, and
 /// lists the entries of every axes whose legend names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PanelLegend {
     /// The node identifier of the panel, unique within the figure.
     pub id: NodeId,
@@ -71,6 +81,14 @@ pub struct PanelLegend {
     pub boxed: bool,
     /// How the entries are arranged in columns.
     pub layout: LegendEntryLayout,
+    /// Which entries the panel lists, and in what order: the named artists of every axes
+    /// that names the panel, merged by name and look, in the reading order of the
+    /// layout, or an explicit list of items. An item that names an artist may name an
+    /// artist of any axes of the figure.
+    ///
+    /// The property is omitted from JSON when the entries are automatic.
+    #[serde(default, skip_serializing_if = "LegendEntries::is_auto")]
+    pub entries: LegendEntries,
 }
 
 impl Default for PanelLegend {
@@ -86,7 +104,159 @@ impl Default for PanelLegend {
                 columns: LegendEntryColumns::Auto,
                 order: LegendEntryOrder::ColumnMajor,
             },
+            entries: LegendEntries::Auto,
         }
+    }
+}
+
+/// Which entries a legend lists, and in what order.
+///
+/// In JSON the entries are an object whose `type` names the variant, such as
+/// `{"type": "auto"}` or `{"type": "explicit", "value": [...]}`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum LegendEntries {
+    /// Every artist with a display name, in the order of the legend: for a legend inside
+    /// a plot area, the artists of its axes in artist order; for a legend panel, the
+    /// artists of every axes that names it, in the reading order of the layout, with the
+    /// entries of the same display name and look merged into one.
+    #[default]
+    Auto,
+    /// Exactly these items, in this order. The order of the items is independent of the
+    /// order in which the artists are drawn, so a series drawn last, on top of the
+    /// others, can be listed first.
+    Explicit(Vec<LegendItem>),
+}
+
+impl LegendEntries {
+    /// Returns whether the entries are automatic.
+    pub fn is_auto(&self) -> bool {
+        matches!(self, LegendEntries::Auto)
+    }
+}
+
+/// One item of an explicit list of legend entries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LegendItem {
+    /// What the item lists: an artist, or a label and sample that stand for no artist.
+    pub content: LegendItemContent,
+    /// Whether the item spans every column of the legend, on a row of its own at its
+    /// position in the list. The label of such an item does not set the width of any
+    /// column.
+    pub full_row: bool,
+}
+
+impl LegendItem {
+    /// Returns an item, not on a row of its own, that lists the artist with this node
+    /// identifier.
+    pub fn artist(artist: NodeId) -> Self {
+        Self {
+            content: LegendItemContent::Artist(artist),
+            full_row: false,
+        }
+    }
+
+    /// Returns an item, not on a row of its own, that shows a sample and a label and
+    /// stands for no artist.
+    pub fn custom(sample: LegendSample, label: impl Into<Text>) -> Self {
+        Self {
+            content: LegendItemContent::Custom {
+                label: label.into(),
+                sample,
+            },
+            full_row: false,
+        }
+    }
+}
+
+impl From<NodeId> for LegendItem {
+    /// Returns an item, not on a row of its own, that lists the artist with this node
+    /// identifier.
+    fn from(artist: NodeId) -> Self {
+        LegendItem::artist(artist)
+    }
+}
+
+/// What an item of an explicit list of legend entries lists.
+///
+/// In JSON the content is an object whose `type` names the variant, such as
+/// `{"type": "artist", "value": 12}` or
+/// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum LegendItemContent {
+    /// The artist with this node identifier, labelled by its display name beside the
+    /// sample drawn for it. Clicking the item in the viewer hides or shows the artist.
+    Artist(NodeId),
+    /// A label beside a sample, standing for no artist, such as the meaning of a marker
+    /// shape that many artists share. Clicking the item does nothing.
+    Custom {
+        /// The label shown beside the sample.
+        label: Text,
+        /// The sample drawn beside the label.
+        sample: LegendSample,
+    },
+}
+
+/// The sample of a legend item that stands for no artist.
+///
+/// In JSON a sample is an object whose `type` names the variant, such as
+/// `{"type": "swatch", "color": "#e69f00"}`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LegendSample {
+    /// A sample drawn as the sample of a line artist is drawn: a horizontal line with a
+    /// marker at its centre. A line whose dash is `none` draws only the marker, and a
+    /// marker whose shape is `none` draws only the line. A line colour of `auto` is the
+    /// ink in which the axes and labels of the figure are drawn, because the item belongs
+    /// to no axes whose colour order could supply one, and a marker colour of `auto`
+    /// takes the line colour, as it does for a line artist.
+    Line {
+        /// The style of the line.
+        line: LineStyle,
+        /// The style of the marker at the centre of the line.
+        marker: MarkerStyle,
+    },
+    /// A filled rectangle of a colour, as the sample of a surface is drawn.
+    Swatch {
+        /// The colour of the rectangle.
+        color: Color,
+    },
+}
+
+impl LegendSample {
+    /// Returns a sample of a solid line of the given colour, without a marker.
+    pub fn line(color: Color) -> Self {
+        LegendSample::Line {
+            line: LineStyle {
+                color: ColorSpec::Rgba { color },
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle::default(),
+        }
+    }
+
+    /// Returns a sample of a single filled marker of the given shape and colour, without
+    /// a line.
+    pub fn marker(shape: MarkerShape, color: Color) -> Self {
+        LegendSample::Line {
+            line: LineStyle {
+                color: ColorSpec::Rgba { color },
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle {
+                shape,
+                face: ColorSpec::Auto,
+                edge: ColorSpec::Auto,
+                ..MarkerStyle::default()
+            },
+        }
+    }
+
+    /// Returns a sample of a filled rectangle of the given colour.
+    pub fn swatch(color: Color) -> Self {
+        LegendSample::Swatch { color }
     }
 }
 

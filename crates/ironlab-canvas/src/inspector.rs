@@ -230,7 +230,8 @@ pub enum Editor {
     },
     /// A colour picker; the components below the colour are not listed separately.
     Color,
-    /// A list of numbers, typed as text.
+    /// A list of numbers, typed as text, or a list of the sizes of the rows or columns
+    /// of the tile layout, in which the word `fit` stands for a fitted size.
     Numbers,
     /// A list of words, typed as text: the labels of the figure.
     Words,
@@ -561,6 +562,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::DataId
         | ValueType::NodeId
         | ValueType::Doubles
+        | ValueType::TrackSizes
         | ValueType::Strings
         | ValueType::Texts
         | ValueType::Text
@@ -625,7 +627,7 @@ fn editor_for(
         ValueType::String => Editor::Text,
         ValueType::Text => Editor::RichText,
         ValueType::Color => Editor::Color,
-        ValueType::Doubles => Editor::Numbers,
+        ValueType::Doubles | ValueType::TrackSizes => Editor::Numbers,
         ValueType::Strings => Editor::Words,
         ValueType::Texts => Editor::ReadOnly {
             reason: TICK_LABELS_REASON,

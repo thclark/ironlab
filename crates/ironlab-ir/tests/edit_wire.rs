@@ -539,6 +539,90 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
     );
 }
 
+// Why: the viewer and clients size the rows and columns of the layout by sending a list
+// of sizes, which must reach the figure exactly as sent through the binary format: a
+// weight with its value, a fitted size as fitted, in their order. A size whose kind is
+// unset is a weight of one, as a missing size is, but a weight without its value comes
+// from a faulty writer and is refused with its path. A list of plain numbers, the earlier
+// form of the property, is refused rather than taken as weights, so that an outdated
+// client learns that the property has changed; and fitting the only row of an axes is
+// refused, because the axes would have no height.
+#[test]
+fn row_and_column_sizes_are_set_through_a_transaction_on_the_wire() {
+    let (mut fig, _, _) = common::single_line_figure();
+    fig.layout = TileLayout::new(2, 1);
+    let sizes = vec![TrackSize::Weight(2.0), TrackSize::Fit];
+    let transaction = tx([set(
+        fig.id,
+        "layout.row_weights",
+        Value::TrackSizes(sizes.clone()),
+    )]);
+    let decoded = protobuf_round_trip(&transaction);
+    assert_eq!(decoded, transaction);
+
+    let inverse = fig
+        .apply(&decoded)
+        .expect("the axes lies in the weighted row");
+    assert_eq!(fig.layout.row_weights, sizes);
+    assert_eq!(
+        fig.get(fig.id, &"layout.row_weights".parse().unwrap()),
+        Ok(Value::TrackSizes(sizes))
+    );
+    fig.apply(&inverse).unwrap();
+    assert_eq!(fig.layout.row_weights, vec![]);
+
+    let refused = fig.apply(&tx([set(
+        fig.id,
+        "layout.col_weights",
+        Value::Doubles(vec![2.0]),
+    )]));
+    assert!(
+        matches!(refused, Err(EditError::TypeMismatch { .. })),
+        "{refused:?}"
+    );
+    let before = fig.clone();
+    let refused = fig.apply(&tx([set(
+        fig.id,
+        "layout.row_weights",
+        Value::TrackSizes(vec![TrackSize::Fit]),
+    )]));
+    assert!(
+        matches!(&refused, Err(EditError::Invalid(issues)) if issues.iter().any(|i| i.kind == IssueKind::AxesInFittedTrack)),
+        "{refused:?}"
+    );
+    assert_eq!(fig, before);
+
+    let wire_sizes = |sizes: Vec<wire::TrackSize>| {
+        wire_tx(wire::EditKind::Set(wire::EditSet {
+            node: Some(1),
+            path: "layout.row_weights".to_owned(),
+            value: wire_value(wire::ValueKind::TrackSizes(wire::ValueTrackSizes { sizes })),
+        }))
+    };
+    let decoded = decode_wire(wire_sizes(vec![wire::TrackSize { kind: None }])).unwrap();
+    assert_eq!(
+        decoded,
+        tx([set(
+            NodeId(1),
+            "layout.row_weights",
+            Value::TrackSizes(vec![TrackSize::Weight(1.0)]),
+        )])
+    );
+    assert_missing(
+        decode_wire(wire_sizes(vec![
+            wire::TrackSize {
+                kind: Some(wire::TrackSizeKind::Fit(wire::TrackSizeFit {})),
+            },
+            wire::TrackSize {
+                kind: Some(wire::TrackSizeKind::Weight(wire::TrackSizeWeight {
+                    weight: None,
+                })),
+            },
+        ])),
+        "edits[0].set_property.value.track_sizes_value.sizes[1].weight.weight",
+    );
+}
+
 // Why: a node inside an insertion is decoded with the rules of the figure format, so its
 // missing identifier is refused, with a path that leads into the node.
 #[test]

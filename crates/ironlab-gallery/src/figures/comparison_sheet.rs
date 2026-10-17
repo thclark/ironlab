@@ -7,7 +7,8 @@ pub const DESCRIPTION: &str = "A synthetic polar sweep of an aerofoil computed b
      orange ticks along the top of each panel mark the angles at which the candidate's value is not a number. The \
      ticks are placed at the data angle and at 98.5 % of the panel height, may overhang the top edge but are \
      clipped to the angles in view, and take no part in the limits, so they stay on the edge while the reader pans \
-     and zooms. In the bottom right panel neither code converged at any angle, so the ticks are all there is.";
+     and zooms. The legend of the lift panel explains the ticks once, with an item that stands for no plot. In the \
+     bottom right panel neither code converged at any angle, so the ticks are all there is.";
 
 /// The colour of the reference code's series.
 const REFERENCE: Color = Color::rgb(0.0, 0.0, 0.0);
@@ -50,18 +51,28 @@ fn mark_not_finite(ax: &mut AxesMut, alpha: &[f64], values: &[f64]) -> NodeId {
 }
 
 /// Plots the reference and candidate values of one quantity over the angle of attack, with the ticks of the
-/// candidate's missing values.
-fn compare(ax: &mut AxesMut, alpha: &[f64], reference: &[f64], candidate: &[f64]) {
-    ax.plot(alpha, reference)
-        .color(REFERENCE)
-        .display_name("reference");
-    ax.plot(alpha, candidate)
-        .color(CANDIDATE)
-        .dash(Dash::Dashed)
-        .marker(Marker::Circle)
-        .marker_size(2.5)
-        .display_name("candidate");
+/// candidate's missing values, and returns the identifiers of the reference and the candidate.
+fn compare(
+    ax: &mut AxesMut,
+    alpha: &[f64],
+    reference: &[f64],
+    candidate: &[f64],
+) -> (NodeId, NodeId) {
+    let ids = (
+        ax.plot(alpha, reference)
+            .color(REFERENCE)
+            .display_name("reference")
+            .id(),
+        ax.plot(alpha, candidate)
+            .color(CANDIDATE)
+            .dash(Dash::Dashed)
+            .marker(Marker::Circle)
+            .marker_size(2.5)
+            .display_name("candidate")
+            .id(),
+    );
     mark_not_finite(ax, alpha, candidate);
+    ids
 }
 
 pub fn figure() -> Figure {
@@ -96,9 +107,30 @@ pub fn figure() -> Figure {
         .map(|&a| candidate(a, lift(a) + 1e-3 * (1.0 + ((a + 10.0) / 6.0).powi(2))))
         .collect();
     let mut ax = fig.axes(0, 0);
-    compare(&mut ax, &alpha, &cl_ref, &cl_new);
+    let (reference, new) = compare(&mut ax, &alpha, &cl_ref, &cl_new);
     ax.hline(0.0).dash(Dash::Dotted);
-    ax.title("Lift").ylabel("$C_L$").grid(true).legend(LegendLocation::SouthEast);
+    // The ticks have no display name, because every panel draws them; one item that stands for no plot explains them.
+    let tick = LegendSample::Line {
+        line: ironlab::LineStyle {
+            color: ColorSpec::Rgba { color: NOT_FINITE },
+            dash: Dash::None,
+            ..ironlab::LineStyle::default()
+        },
+        marker: ironlab::MarkerStyle {
+            shape: Marker::VLine,
+            size_pt: 5.0,
+            ..ironlab::MarkerStyle::default()
+        },
+    };
+    ax.title("Lift")
+        .ylabel("$C_L$")
+        .grid(true)
+        .legend(LegendLocation::SouthEast)
+        .legend_entries(LegendEntries::Explicit(vec![
+            LegendItem::artist(reference),
+            LegendItem::artist(new),
+            LegendItem::custom(tick, "candidate not a number"),
+        ]));
 
     // Drag grows with the square of the lift.
     let drag = |a: f64| 0.006 + 0.008 * lift(a).powi(2);

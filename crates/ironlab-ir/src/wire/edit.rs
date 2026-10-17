@@ -220,7 +220,15 @@ proto_file! {
             Texts(ValueTexts) texts_value = 49;
             /// How the values of one dimension of a line or scatter are placed.
             Coords(ValueCoords) coords_value = 50;
+            /// A list of sizes of the rows or columns of the tile layout.
+            TrackSizes(ValueTrackSizes) track_sizes_value = 51;
         }
+    }
+
+    /// A list of sizes of the rows or columns of the tile layout.
+    message ValueTrackSizes {
+        /// The sizes, which may be empty.
+        repeated message TrackSize sizes = 1;
     }
 
     /// No value: an optional property is cleared.
