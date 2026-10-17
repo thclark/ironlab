@@ -9,13 +9,16 @@ mod probe;
 
 mod artists;
 mod aspect;
+mod blended;
 mod decimation;
 mod dense;
 mod depth;
 mod direction;
+mod fitted_tracks;
 mod images;
 mod layout;
 mod legend;
+mod legend_items;
 mod markers;
 mod panel_legend;
 mod robustness;

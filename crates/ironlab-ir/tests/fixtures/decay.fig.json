@@ -84,7 +84,10 @@
             "size_pt": 4.0,
             "face": { "type": "none" },
             "edge": { "type": "auto" }
-          }
+          },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         }
       ]
     }

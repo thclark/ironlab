@@ -54,6 +54,14 @@ fn assert_no_aspect_warning(scene: &Scene) {
     assert!(about.is_empty(), "{about:?}");
 }
 
+/// Returns tracks of the given weights.
+fn weights(values: &[f64]) -> Vec<ironlab_ir::TrackSize> {
+    values
+        .iter()
+        .map(|w| ironlab_ir::TrackSize::Weight(*w))
+        .collect()
+}
+
 fn limits(map: &AxisMap) -> (f64, f64) {
     (map.min, map.max)
 }
@@ -398,8 +406,8 @@ fn each_tile_of_unequal_weight_keeps_its_aspect() {
         fx.fig.layout = ironlab_ir::TileLayout {
             rows: 2,
             cols: 2,
-            row_weights: vec![1.0, 2.5],
-            col_weights: vec![3.0, 1.0],
+            row_weights: weights(&[1.0, 2.5]),
+            col_weights: weights(&[3.0, 1.0]),
         };
         let (x, y) = circle();
         let mut ids = Vec::new();
@@ -475,7 +483,7 @@ fn family_sheet(adjust: AspectAdjust, weights: Vec<f64>) -> (Fx, Vec<NodeId>) {
         rows: 1,
         cols: 3,
         row_weights: Vec::new(),
-        col_weights: weights,
+        col_weights: self::weights(&weights),
     };
     let (x, y) = circle();
     let mut ids = Vec::new();

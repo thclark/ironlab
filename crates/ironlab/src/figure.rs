@@ -5,14 +5,15 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Axes, Cell, Dimension, NodeId, PanelLegend, Parameter, Projection, Text, ValidationReport,
+    Axes, Cell, Dimension, NodeId, PanelLegend, Parameter, Projection, Text, TrackSize,
+    ValidationReport,
 };
 use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
 use crate::error::Error;
 use crate::legend::PanelLegendMut;
-use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions};
+use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions, SceneWarning};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
 ///
@@ -86,13 +87,15 @@ impl Figure {
         self
     }
 
-    /// Sets the relative heights of the rows of tiles, from the top.
+    /// Sets the sizes of the rows of tiles, from the top.
     ///
-    /// The plot areas of the rows share the height of the figure, after the margins of
-    /// their axes are taken out, in proportion to their weights. A row
-    /// without a weight, because fewer weights than rows are given, has a weight of one,
-    /// so equal weights give the same layout as none. Weights that are not finite and
-    /// positive, or more weights than rows, are reported by
+    /// Each size is a weight, given as a number, or [`TrackSize::Fit`]. The margins of the
+    /// axes are taken out of the height of the figure first; the fitted rows then take the
+    /// height that their legend panels need, and the plot areas of the weighted rows share
+    /// the rest in proportion to their weights. A row without a size, because fewer sizes
+    /// than rows are given, has a weight of one, so equal weights give the same layout as
+    /// none. Weights that are not finite and positive, or more sizes than rows, are
+    /// reported by
     /// [`validate`](Figure::validate).
     ///
     /// ```
@@ -100,33 +103,81 @@ impl Figure {
     ///
     /// // The plots of the top row are three times the height of those of the bottom row.
     /// let fig = Figure::new().tiles(2, 1).row_weights([3.0, 1.0]);
-    /// assert_eq!(fig.ir().layout.row_weights, vec![3.0, 1.0]);
+    /// assert_eq!(
+    ///     fig.ir().layout.row_weights,
+    ///     vec![TrackSize::Weight(3.0), TrackSize::Weight(1.0)]
+    /// );
+    ///
+    /// // Two rows of plots, and a row as tall as the legend panel it holds.
+    /// let fig = Figure::new()
+    ///     .tiles(3, 1)
+    ///     .row_weights([TrackSize::Weight(1.0), TrackSize::Weight(1.0), TrackSize::Fit]);
     /// ```
     #[must_use]
-    pub fn row_weights(mut self, weights: impl IntoIterator<Item = f64>) -> Self {
-        self.ir.layout.row_weights = weights.into_iter().collect();
+    pub fn row_weights(mut self, weights: impl IntoIterator<Item = impl Into<TrackSize>>) -> Self {
+        self.ir.layout.row_weights = weights.into_iter().map(Into::into).collect();
         self
     }
 
-    /// Sets the relative widths of the columns of tiles, from the left.
+    /// Fits the height of a row to the content of the legend panels in it, keeping the
+    /// sizes of the other rows.
     ///
-    /// The plot areas of the columns share the width of the figure, after the margins of
-    /// their axes are taken out, in proportion to their weights. A
-    /// column without a weight, because fewer weights than columns are given, has a
-    /// weight of one, so equal weights give the same layout as none. Weights that are not
-    /// finite and positive, or more weights than columns, are reported by
-    /// [`validate`](Figure::validate).
+    /// A fitted row is as tall as the entries of the tallest panel that lies in that row
+    /// alone, with its border and the margins that align it with the plot areas around
+    /// it, so the panel neither clips its entries nor leaves space empty. The weighted
+    /// rows share the rest of the height. An axes that lies in fitted rows alone is
+    /// reported by [`validate`](Figure::validate), because an axes has no content height
+    /// of its own.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let fig = Figure::new().tiles(3, 1).fit_row(2);
+    /// assert_eq!(
+    ///     fig.ir().layout.row_weights,
+    ///     vec![TrackSize::Weight(1.0), TrackSize::Weight(1.0), TrackSize::Fit]
+    /// );
+    /// ```
+    #[must_use]
+    pub fn fit_row(mut self, row: u32) -> Self {
+        fit(&mut self.ir.layout.row_weights, row);
+        self
+    }
+
+    /// Fits the width of a column to the content of the legend panels in it, keeping the
+    /// sizes of the other columns, as [`fit_row`](Figure::fit_row) does for a row.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let fig = Figure::new().tiles(1, 2).fit_col(1);
+    /// assert_eq!(
+    ///     fig.ir().layout.col_weights,
+    ///     vec![TrackSize::Weight(1.0), TrackSize::Fit]
+    /// );
+    /// ```
+    #[must_use]
+    pub fn fit_col(mut self, col: u32) -> Self {
+        fit(&mut self.ir.layout.col_weights, col);
+        self
+    }
+
+    /// Sets the sizes of the columns of tiles, from the left, as
+    /// [`row_weights`](Figure::row_weights) does for the rows.
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
     /// // Two wide columns of plots and a narrow column for a legend panel.
     /// let fig = Figure::new().tiles(1, 3).col_weights([2.0, 2.0, 1.0]);
-    /// assert_eq!(fig.ir().layout.col_weights, vec![2.0, 2.0, 1.0]);
+    /// assert_eq!(
+    ///     fig.ir().layout.col_weights,
+    ///     vec![TrackSize::Weight(2.0), TrackSize::Weight(2.0), TrackSize::Weight(1.0)]
+    /// );
     /// ```
     #[must_use]
-    pub fn col_weights(mut self, weights: impl IntoIterator<Item = f64>) -> Self {
-        self.ir.layout.col_weights = weights.into_iter().collect();
+    pub fn col_weights(mut self, weights: impl IntoIterator<Item = impl Into<TrackSize>>) -> Self {
+        self.ir.layout.col_weights = weights.into_iter().map(Into::into).collect();
         self
     }
 
@@ -542,6 +593,46 @@ impl Figure {
         Ok(Self::from_ir(ironlab_ir::Figure::from_protobuf(bytes)?))
     }
 
+    /// Lays the figure out, without exporting or showing it, and returns the warnings the
+    /// scene compiler raised.
+    ///
+    /// The warnings are those of the `scene` list of the [`ExportReport`] that an export
+    /// returns, such as a [`LegendOverflow`](crate::SceneWarningKind::LegendOverflow) for a
+    /// legend whose entries do not fit the space available to them, so that a program can
+    /// choose the number of columns of a legend, or the size of a row, without exporting
+    /// a file to find out. The figure is laid out with the bundled fonts and needs no
+    /// graphics adapter, so the call works on a machine without a GPU. It does not
+    /// validate the figure: [`validate`](Figure::validate) does that.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    /// use ironlab::SceneWarningKind;
+    ///
+    /// let x = linspace(0.0, 1.0, 11);
+    /// let mut fig = Figure::new().size_mm(80.0, 60.0).tiles(2, 1).row_weights([6.0, 1.0]);
+    /// let key = fig.panel_legend(1, 0).columns(LegendEntryColumns::Count(1)).id();
+    /// let mut ax = fig.axes(0, 0);
+    /// for k in 0..8 {
+    ///     ax.plot(&x, &x).display_name(format!("Case {k}"));
+    /// }
+    /// ax.legend_in(key);
+    ///
+    /// // Eight entries in one column do not fit a short row...
+    /// let overflows = |fig: &Figure| {
+    ///     fig.layout_warnings()
+    ///         .iter()
+    ///         .any(|warning| matches!(warning.kind, SceneWarningKind::LegendOverflow { .. }))
+    /// };
+    /// assert!(overflows(&fig));
+    /// // ...but they fit a row fitted to them.
+    /// let fig = fig.fit_row(1);
+    /// assert!(!overflows(&fig));
+    /// ```
+    #[must_use]
+    pub fn layout_warnings(&self) -> Vec<SceneWarning> {
+        ironlab_scene::compile(&self.ir, text_engine()).warnings
+    }
+
     /// Exports the figure as a single-page PDF whose page is the size of the figure.
     ///
     /// Text is embedded as real, selectable text in the bundled fonts, so the PDF can
@@ -805,6 +896,16 @@ impl Format {
 ///
 /// Creating an engine parses the bundled fonts, and its layout memo is only useful when
 /// reused, so one engine is created on first use and kept for the life of the process.
+/// Sets the size of the row or column at `index` to fitted, giving every row or column
+/// before it that has no size a weight of one.
+fn fit(sizes: &mut Vec<TrackSize>, index: u32) {
+    let index = index as usize;
+    if sizes.len() <= index {
+        sizes.resize(index + 1, TrackSize::default());
+    }
+    sizes[index] = TrackSize::Fit;
+}
+
 fn text_engine() -> &'static TextEngine {
     static ENGINE: OnceLock<TextEngine> = OnceLock::new();
     ENGINE.get_or_init(TextEngine::new)

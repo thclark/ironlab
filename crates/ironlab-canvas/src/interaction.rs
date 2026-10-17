@@ -62,8 +62,9 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, AspectAdjust, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NdArray,
-    NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
+    Artist, AspectAdjust, Axes, Axis, Coords, DataId, Dimension, Edit, EditError, Figure, Limits,
+    NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d,
+    command,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
@@ -84,7 +85,9 @@ pub const DATATIP_RADIUS_POINTS: f64 = 6.0;
 ///
 /// `index` is the index the point has in the artist's own data arrays, before the scene compiler thinned the series
 /// to the current view, and `x`, `y` and `z` are the values held at that index. A datatip therefore names the
-/// measurement the user recorded, whatever decimation drew.
+/// measurement the user recorded, whatever decimation drew. A dimension whose values the artist places as fractions
+/// of the plot area rather than as data, such as the span of a reference line or the height of markers along an edge
+/// of the axes, has no data value to report, so its coordinate is `None`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Datatip {
     /// The axes the point was drawn in.
@@ -97,8 +100,10 @@ pub struct Datatip {
     pub index: usize,
     /// Where the point was drawn, in figure space, which is where a callout is anchored.
     pub position: Point,
-    pub x: f64,
-    pub y: f64,
+    /// The x value, or `None` when the artist places its x values as fractions of the plot area.
+    pub x: Option<f64>,
+    /// The y value, or `None` when the artist places its y values as fractions of the plot area.
+    pub y: Option<f64>,
     /// The z value, for an artist that has one.
     pub z: Option<f64>,
 }
@@ -720,21 +725,31 @@ impl FigureState {
     pub fn datatip(&self, hit: &HitMap, at: Point) -> Option<Datatip> {
         let (drawn, sample) = hit.sample_at(at, DATATIP_RADIUS_POINTS)?;
         let (_, artist) = self.composed.artist(drawn.artist)?;
-        let (x, y, z) = match artist {
-            Artist::Line(line) => (line.x, line.y, line.z),
-            Artist::Scatter(scatter) => (scatter.x, scatter.y, scatter.z),
+        let (x, y, z, coords) = match artist {
+            Artist::Line(line) => (line.x, line.y, line.z, [line.x_coords, line.y_coords]),
+            Artist::Scatter(scatter) => (
+                scatter.x,
+                scatter.y,
+                scatter.z,
+                [scatter.x_coords, scatter.y_coords],
+            ),
             _ => return None,
         };
         let index = sample.source_index;
         let value = |id: DataId| self.composed.data.get(&id)?.get(index);
+        // A fraction of the plot area is where the point was drawn, not a measurement, so it is not reported as data.
+        let data = |id: DataId, coords: Coords| match coords {
+            Coords::Data => value(id).map(Some),
+            Coords::AxesFraction => Some(None),
+        };
         Some(Datatip {
             axes: drawn.axes,
             artist: drawn.artist,
             name: artist.display_name().map(|text| text.content.clone()),
             index,
             position: sample.position,
-            x: value(x)?,
-            y: value(y)?,
+            x: data(x, coords[0])?,
+            y: data(y, coords[1])?,
             z: z.and_then(value),
         })
     }

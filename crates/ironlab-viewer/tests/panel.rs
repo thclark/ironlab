@@ -2592,3 +2592,24 @@ fn a_label_typed_twice_is_refused_and_reported() {
         "and the refusal is reported, naming the label: {reported:?}"
     );
 }
+
+// Why: whether a plot places its values as data or as fractions of the plot area decides what the values mean, as the
+// data does, so the viewer, which views figures and does not build them, shows the coordinates without a control; but
+// whether a plot is clipped to the plot area is how it looks, so clipping keeps its control on lines and scatters.
+#[test]
+fn coordinates_are_read_only_and_clipping_is_editable() {
+    for kind in [NodeKind::Line, NodeKind::Scatter] {
+        for coords in ["x_coords", "y_coords"] {
+            let reason = read_only_reason(kind, &path(coords))
+                .unwrap_or_else(|| panic!("{kind:?} {coords} is editable"));
+            assert!(
+                reason.contains("program that builds the figure"),
+                "the reason must say where the coordinates are set: {reason}"
+            );
+        }
+        assert!(
+            read_only_reason(kind, &path("clip")).is_none(),
+            "{kind:?} clip must keep its control"
+        );
+    }
+}

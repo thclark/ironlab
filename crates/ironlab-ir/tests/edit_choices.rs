@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 26] = [
+const WITH_CHOICES: [ValueType; 27] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -30,6 +30,7 @@ const WITH_CHOICES: [ValueType; 26] = [
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
+    ValueType::Coords,
     ValueType::ScatterSize,
     ValueType::ScatterColor,
     ValueType::Grid,
@@ -547,6 +548,15 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::MarkerShape(MarkerShape::Plus),
             Value::MarkerShape(MarkerShape::Cross),
             Value::MarkerShape(MarkerShape::Point),
+            Value::MarkerShape(MarkerShape::VLine),
+            Value::MarkerShape(MarkerShape::HLine),
+        ],
+    );
+    covered(
+        ValueType::Coords,
+        vec![
+            Value::Coords(Coords::Data),
+            Value::Coords(Coords::AxesFraction),
         ],
     );
     covered(
@@ -919,7 +929,10 @@ fn a_legend_panel_choice_is_available_only_for_a_panel_the_figure_has() {
         ["Inside the plot area", "In a legend panel"]
     );
     assert!(offered.iter().all(Choice::available), "{offered:?}");
-    assert_eq!(offered[1].value, Value::Legend(named.legend.unwrap()));
+    assert_eq!(
+        offered[1].value,
+        Value::Legend(named.legend.clone().unwrap())
+    );
 
     let inside = fig
         .axes
@@ -927,7 +940,10 @@ fn a_legend_panel_choice_is_available_only_for_a_panel_the_figure_has() {
         .find(|axes| matches!(axes.legend, Some(Legend::Inside(_))))
         .expect("the kitchen-sink figure has an inside legend");
     let offered = property_choices(&fig, inside.id, &path("legend"));
-    assert_eq!(offered[0].value, Value::Legend(inside.legend.unwrap()));
+    assert_eq!(
+        offered[0].value,
+        Value::Legend(inside.legend.clone().unwrap())
+    );
     assert!(offered[0].available());
     // With no panel to keep, the choice names the fallback panel 0, which the figure
     // (whose identifiers start at 1) does not have.

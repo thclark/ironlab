@@ -17,9 +17,9 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
@@ -30,7 +30,7 @@ use crate::edit::registry::{NodeKind, Property};
 use crate::edit::value::{Value, ValueType};
 use crate::figure::{Figure, FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
-use crate::layout::{Cell, TileLayout};
+use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
     PanelLegend,
@@ -381,6 +381,7 @@ ir_leaf! {
     DataId => DataId;
     NodeId => NodeId;
     Vec<f64> => Doubles;
+    Vec<TrackSize> => TrackSizes;
     Vec<String> => Strings;
     Vec<Text> => Texts;
     Vec<AxisLink> => Links;
@@ -395,6 +396,7 @@ ir_leaf! {
     TitleAlign => TitleAlign;
     DashStyle => DashStyle;
     MarkerShape => MarkerShape;
+    Coords => Coords;
 }
 
 ir_node! {
@@ -459,6 +461,7 @@ ir_node! {
         plain "boxed" => boxed: bool =
             "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+        hidden "entries" => entries: () = "";
     }
 
     Line {
@@ -472,6 +475,12 @@ ir_node! {
             "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
         plain "line" => line: LineStyle = "The style of the line through the points.";
         plain "marker" => marker: MarkerStyle = "The style of the markers at the points.";
+        plain "x_coords" => x_coords: Coords =
+            "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
+        plain "y_coords" => y_coords: Coords =
+            "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
+        plain "clip" => clip: bool =
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
     }
 
     Scatter {
@@ -489,6 +498,12 @@ ir_node! {
             "The colour of the markers, applied wherever the marker face or edge is automatic.";
         plain "marker" => marker: MarkerStyle =
             "The marker shape and the use of the scatter colour for face and edge.";
+        plain "x_coords" => x_coords: Coords =
+            "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
+        plain "y_coords" => y_coords: Coords =
+            "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
+        plain "clip" => clip: bool =
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
     }
 
     Contour {
@@ -602,10 +617,10 @@ ir_value! {
     TileLayout as TileLayout {
         plain "rows" => rows: u32 = "The number of rows; at least one.";
         plain "cols" => cols: u32 = "The number of columns; at least one.";
-        plain "row_weights" => row_weights: Vec<f64> =
-            "The relative heights of the rows, from the top; a row without a weight has a weight of one.";
-        plain "col_weights" => col_weights: Vec<f64> =
-            "The relative widths of the columns, from the left; a column without a weight has a weight of one.";
+        plain "row_weights" => row_weights: Vec<TrackSize> =
+            "The sizes of the rows, from the top: a relative weight, or fitted to the legend panels in the row; a row without a size has a weight of one.";
+        plain "col_weights" => col_weights: Vec<TrackSize> =
+            "The sizes of the columns, from the left: a relative weight, or fitted to the legend panels in the column; a column without a size has a weight of one.";
     }
 
     Color as Color {
@@ -655,6 +670,7 @@ ir_value! {
         plain "boxed" => boxed: bool =
             "Whether the legend is drawn with a background and outline.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+        hidden "entries" => entries: () = "";
     }
 
     LegendEntryLayout as LegendEntryLayout {

@@ -213,6 +213,14 @@ pub(super) fn marker_outline(shape: MarkerShape) -> Option<MarkerOutline> {
             b.polyline(&[at(0.0, -h), at(0.0, h)], false);
             (false, false)
         }
+        MarkerShape::VLine => {
+            b.polyline(&[at(0.0, -h), at(0.0, h)], false);
+            (false, false)
+        }
+        MarkerShape::HLine => {
+            b.polyline(&[at(-h, 0.0), at(h, 0.0)], false);
+            (false, false)
+        }
         MarkerShape::Cross => {
             let s = h * std::f64::consts::FRAC_1_SQRT_2;
             b.polyline(&[at(-s, -s), at(s, s)], false);
@@ -239,7 +247,7 @@ pub(super) struct MarkerPlace {
 /// Builds one instance of a marker of `outline` at `place`.
 ///
 /// A face or edge set to `Auto` (or `Colormapped`) takes `auto`, the resolved colour of the artist or data point.
-/// Every colour is multiplied by `alpha`. An open marker (plus or cross) is stroked with its edge colour, or with
+/// Every colour is multiplied by `alpha`. An open marker (plus, cross or a vertical or horizontal tick) is stroked with its edge colour, or with
 /// its face colour when it has no edge colour, and a point marker is filled with its edge colour. Returns `None`
 /// for an unusable size or a marker with neither a face nor an edge to draw.
 pub(super) fn marker_instance(

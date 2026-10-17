@@ -35,7 +35,7 @@ Axes are placed in tiles, numbered from zero starting at the top-left tile.
 - `fig.axes3(row, col)` does the same but makes the axes three-dimensional.
 - `fig.axes_span(row, col, row_span, col_span)` returns an axes whose top-left tile is `(row, col)` and makes it cover the given numbers of rows and columns.
 
-Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans.
+Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans, and `fit_row` and `fit_col` make a row or column as large as the [legend panels it holds](legends.md#fitting-rows-and-columns-to-their-legends).
 
 Each of these returns an `AxesMut` handle. The handle borrows the figure mutably, so it is held only while one axes is being built. An axes is referred to later, for example when linking axes, by the identifier returned from `ax.id()`.
 
@@ -62,7 +62,7 @@ ax.plot(&x, &y)
     .color(Color::rgb(0.0, 0.45, 0.7))
     .line_width(1.5)
     .dash(Dash::DashDot)       // Solid, Dashed, Dotted, DashDot, or None to draw only markers
-    .marker(Marker::Square)    // Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point
+    .marker(Marker::Square)    // Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine
     .marker_size(5.0)
     .marker_face(Color::WHITE)
     .marker_edge(Color::BLACK);
@@ -92,6 +92,39 @@ fig.axes(0, 0)
     .marker(Marker::Diamond)
     .filled();
 ```
+
+### Reference lines and edge markers
+
+A reference line is a line that a reader judges the data against, such as a tolerance, a threshold or the ends of an interval. `hline(y)` draws a horizontal reference line across the whole width of the plot area at the data value `y`, and `vline(x)` draws a vertical one across its whole height at `x`, as matplotlib's `axhline` and `axvline` and MATLAB's `yline` and `xline` do. A reference line is a line like any other: it is dark grey, 0.75 pt wide and solid unless changed, it takes no colour from the colour order, and the usual line setters change its look.
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.semilogy(&alpha, &error);
+ax.hline(1.0).dash(Dash::Dotted);                 // a tolerance at 1
+ax.vline(0.0).dash(Dash::Dotted).color(Color::BLACK);
+```
+
+A reference line spans the plot area because each of its dimensions is placed in its own coordinates. Along the axis it crosses, its value is data, placed through the limits and the scale of that axis. Along the axis it spans, its values are the fractions 0 and 1 of the plot area, which map to the left and right edges (or the bottom and top edges) whatever the limits, the scale or the pan and zoom of the axis. The data value takes part in the automatic limits of its axis, as it does in matplotlib, so a tolerance above the data is in view without fixing the limits; the fractions take part in none, so the line never stretches the axis it spans.
+
+The same mechanism places any line or scatter. Setting `x_coords(Coords::AxesFraction)` or `y_coords(Coords::AxesFraction)` on a line or scatter places that dimension as fractions of the plot area, 0 at the left or bottom edge and 1 at the right or top edge, and leaves the other dimension in data coordinates. Setting `clip(false)` lets its marks extend beyond the plot area along the dimension placed as fractions, and only along that dimension: along the dimension in data coordinates the artist stays clipped to the plot area, so a marker at a data value outside the limits is not drawn. `clip(false)` therefore has no effect on a line or scatter in data coordinates along both dimensions, and validation warns about it. Together they draw markers along an edge of the axes at data positions, which stay on the edge while a reader pans and zooms. The vertical tick `Marker::VLine` and the horizontal tick `Marker::HLine` are made for this: each is one stroke as long as the marker size.
+
+```rust
+// A tick along the top of the axes at every angle where the value is not a number.
+let missing: Vec<f64> = alpha
+    .iter()
+    .zip(&value)
+    .filter(|(_, v)| !v.is_finite())
+    .map(|(a, _)| *a)
+    .collect();
+ax.plot(&missing, vec![0.985; missing.len()])
+    .y_coords(Coords::AxesFraction)   // 98.5 % of the way up the plot area
+    .clip(false)                      // drawn whole where it overhangs the top edge; still clipped in x
+    .dash(Dash::None)
+    .marker(Marker::VLine)
+    .color(Color::rgb(0.9, 0.62, 0.0));
+```
+
+Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a line or scatter in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### Contours
 
@@ -253,6 +286,12 @@ Every piece of text is stored as its source. By default, segments delimited by `
 
 ```rust
 ax.ylabel(Text::plain("Cost in $"));
+```
+
+Outside mathematics, `\texttt{…}` sets its argument in monospace, which suits code identifiers such as the name of a case or a file. IronLAB bundles no monospace font: the letters and digits are taken from the Mathematical Monospace alphabet of STIX Two Math, and every character, punctuation and spaces included, occupies a cell of the same width. Within the argument, an underscore may be written bare or as `\_`, so that an identifier can be pasted unchanged; `\{`, `\}`, `\$`, `\&`, `\%` and `\#` produce the character after the backslash, and a `$` is a literal dollar sign rather than the start of mathematics. Monospace text is copied from a PDF as the characters that were written. Inside mathematics, `\texttt` and `\mathtt` set letters and digits in the same alphabet, but follow the rules of mathematics, in which spaces are dropped and a bare `_` starts a subscript.
+
+```rust
+let fig = Figure::new().title(r"Polars of \texttt{naca4412_n160_polar30_re1e6_iter100}");
 ```
 
 Mathematics is typeset in STIX Two Math and plain text in STIX Two Text. Within mathematics, a hyphen is set as a minus sign and single letters are set in italic, as in TeX. A mathematical expression that the typesetter does not support does not prevent the figure from being built: its raw source is drawn in the text font, and the problem is reported as a warning, which the viewer shows in its [problems indicator](viewer.md#problems). Rust raw strings (`r"…"`) avoid doubling every backslash in LaTeX source.
@@ -424,7 +463,7 @@ for issue in &report.warnings {
 }
 ```
 
-The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the weights of the tile layout are described in the [legends guide](legends.md).
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the sizes of the rows and columns of the tile layout are described in the [legends guide](legends.md).
 
 ## Saving and loading
 

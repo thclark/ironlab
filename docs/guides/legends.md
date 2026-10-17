@@ -1,6 +1,6 @@
 # Legends
 
-A legend lists the plots of a figure that have a display name, each beside a sample of how the plot is drawn. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
+A legend lists the plots of a figure that have a display name, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
 
 This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
 
@@ -153,6 +153,86 @@ for col in 0..2 {
 
 Each panel is aligned with the plot areas of its own column, and the two axes of a column share the entries of their panel.
 
+## Choosing the entries
+
+By default a legend lists every named plot, in the order described above, in which the plots of each axes follow the order in which they were added, which is also the order in which they are drawn. That order does not always suit the key. The reference of a family of cases, for example, is drawn last so that the other cases never hide it, but a reader expects it first in the key. An **explicit list** of entries names exactly the items that a legend lists, in the order they are given, whatever the order of drawing. There is no separate drawing order to set: a plot is drawn where it was added, and the explicit list decides the key alone.
+
+The item setters of a panel build an explicit list one item at a time. `item` appends an item that lists a plot, given its identifier, and the first call turns the automatic entries of the panel into an explicit list, so that the plots it does not name are no longer listed:
+
+```rust
+let mut fig = Figure::new().tiles(2, 1).fit_row(1);
+let mut ax = fig.axes(0, 0);
+let small = ax.plot(&t, &a).display_name("Small perturbation").id();
+let large = ax.plot(&t, &b).display_name("Large perturbation").id();
+// The reference is added last, so that it is drawn on top of the others.
+let reference = ax.plot(&t, &a).display_name("Reference").color(Color::rgb(0.0, 0.0, 0.0)).id();
+let key = fig.panel_legend(1, 0).item(reference).item(small).item(large).id();
+fig.axes(0, 0).legend_in(key);
+```
+
+The key lies in a row [fitted to its legend](#fitting-rows-and-columns-to-their-legends), which is described below, so that the row is as tall as the key needs.
+
+| Method | Effect |
+| --- | --- |
+| `item(artist)` | Appends an item that lists the plot with this identifier, labelled by its display name beside its sample. It also accepts a `LegendItem`. |
+| `full_row(artist)` | Appends an item that lists the plot on a row of its own, spanning every column, as [described below](#items-on-a-row-of-their-own). |
+| `custom_item(sample, label)` | Appends an item that shows a sample and a label and stands for no plot, as [described below](#items-that-stand-for-no-plot). |
+| `entries(entries)` | Replaces the entries of the panel: `LegendEntries::Auto` restores the automatic entries, and `LegendEntries::Explicit(items)` sets a whole list of `LegendItem` values at once. |
+
+An item in a panel may name a plot of any axes of the figure, including one that sends its own entries elsewhere. It also stands for every plot of the axes that send their entries to the panel whose display name and look match it, as a merged entry does, so that an item naming the reference in one plot of a stack hides or shows the reference in every plot of the stack. Like a merged entry, the item is greyed only when every plot it stands for is hidden, and clicking it hides or shows all of them. A legend inside an axes takes an explicit list through `legend_entries`, whose items must name plots of that axes and merge nothing:
+
+```rust
+ax.legend(LegendLocation::NorthWest).legend_entries(LegendEntries::Explicit(vec![
+    LegendItem::artist(reference),
+    LegendItem::artist(small),
+]));
+```
+
+[`validate`](getting-started.md#validating-a-figure) reports an item that names no plot of the figure, or, in a legend inside an axes, a plot of another axes, as the error `DanglingLegendItem`, and the scene compiler leaves such an item out. It reports an item that repeats an earlier item with the warning `DuplicateLegendItem`, because the legend then lists it twice, and an item naming a plot without a display name with the warning `UnnamedLegendItem`, because the item then has no label. An explicit list of no items lists nothing, and validation reports such a panel with the warning `NothingToDraw`.
+
+### Items that stand for no plot
+
+Some keys explain an encoding rather than name a series: the shape of a marker may stand for a kind of point and its colour for a surface, whatever plot the marker belongs to. Listing one entry per combination drawn repeats every shape in every colour. An item that **stands for no plot** shows a label beside a sample that the author describes, so that each shape and each colour is explained once. A `LegendSample` is one of the following:
+
+| Sample | Drawn as |
+| --- | --- |
+| `LegendSample::marker(shape, color)` | A single filled marker of the shape and colour, without a line. |
+| `LegendSample::line(color)` | A solid line of the colour, without a marker. |
+| `LegendSample::swatch(color)` | A filled rectangle of the colour. |
+| `LegendSample::Line { line, marker }` | A line and a marker of any `LineStyle` and `MarkerStyle`, drawn as the sample of a plot is drawn. A dash of `Dash::None` draws the marker alone. An automatic line colour is the ink of the labels, and an automatic marker colour takes the line colour. |
+
+A panel that no axes sends its entries to may list such items alone, as a second key beside the first:
+
+```rust
+let grey = Color::rgb(0.45, 0.45, 0.45);
+let mut fig = Figure::new().tiles(2, 2).fit_row(1);
+let curves = fig.panel_legend(1, 0).id();
+// ... plots in the axes above, which send their entries to `curves` ...
+fig.panel_legend(1, 1)
+    .custom_item(LegendSample::marker(Marker::Square, grey), "Transition")
+    .custom_item(LegendSample::marker(Marker::TriangleUp, grey), "Separation")
+    .custom_item(LegendSample::swatch(Color::rgb(0.85, 0.55, 0.0)), "Upper surface")
+    .custom_item(LegendSample::swatch(Color::rgb(0.0, 0.55, 0.4)), "Lower surface")
+    .columns(LegendEntryColumns::Count(2));
+```
+
+An item that stands for no plot is never greyed, and clicking it in the viewer does nothing, because there is nothing for it to hide or show.
+
+### Items on a row of their own
+
+An item on a row of its own spans every column of the legend, and its label sets the width of no column, so a long label, such as that of a reference case, neither widens a column of short labels nor needs a column to itself. The item is placed at its position in the list: the items before it fill the columns above it, and the items after it fill the columns below it. Each run of items between two items on rows of their own is a group that fills the columns on its own, in the order of the legend, and the columns of every group share their widths, so that they line up. A reference listed first on a row of its own therefore sits above the members of its family in columns, and an item on a row of its own in the middle of a list heads a second group.
+
+```rust
+let mut key = fig.panel_legend(1, 0);
+key.full_row(reference);
+for &level in &levels {
+    key.item(level);
+}
+key.columns(LegendEntryColumns::Count(3));
+```
+
+`LegendItem { full_row: true, ..LegendItem::custom(sample, label) }` puts an item that stands for no plot on a row of its own in the same way. When automatic columns are chosen, each item on a row of its own counts as one row whatever the number of columns, so such items may be used with automatic columns.
+
 ## Sizing rows and columns with weights
 
 The tiles of a figure are of equal size by default, which suits a grid of plots but makes a panel as large as a plot. Weights give rows and columns different sizes. `row_weights` sets the relative heights of the rows, from the top, and `col_weights` the relative widths of the columns, from the left. The space that the axes of each row and column need for their tick labels, axis labels and titles is set aside first, and the plot areas of the rows then share the height that remains in proportion to their weights, and those of the columns the width, so that plot areas of equal weight are of equal size whatever is written beside them. A legend panel in a row or column without axes counts as a plot area of its weight. [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#plot-areas-not-cells-share-the-page-by-weight) records why.
@@ -177,6 +257,29 @@ ax.legend_in(key);
 
 Weights apply to every axes and panel of the figure, not only to legends, and the same layout can make one plot of a grid larger than the others.
 
+## Fitting rows and columns to their legends
+
+A weight sizes a row as a share of the page, so the height that a key needs must otherwise be guessed, and a wrong guess either clips the key or leaves space empty. A **fitted** row takes the height of the legend panels in it instead. The margins of the axes are set aside first, as for weights, the fitted rows then take their heights, and the plot areas of the weighted rows share the rest, so plot areas of equal weight stay of equal size above or beside a fitted row. `fit_row` fits one row and keeps the sizes of the others, and `fit_col` does the same for a column:
+
+```rust
+// Three plots sharing the time axis, and a key beneath them as tall as its entries.
+let mut fig = Figure::new().tiles(4, 1).fit_row(3);
+let key = fig.panel_legend(3, 0).id();
+for row in 0..3 {
+    let mut ax = fig.axes(row, 0);
+    ax.plot(&t, &a).display_name("Inlet");
+    ax.plot(&t, &b).display_name("Outlet");
+    ax.legend_in(key);
+}
+fig.link_all_x()?;
+```
+
+`row_weights` and `col_weights` also accept a list of `TrackSize` values, in which `TrackSize::Weight(w)` is a weight and `TrackSize::Fit` a fitted size, such as `row_weights([TrackSize::Weight(1.0), TrackSize::Weight(1.0), TrackSize::Fit])`.
+
+A fitted row is as tall as the tallest area that a panel lying in that row alone needs for its entries, together with the margins that align the panel with the plot areas beside it, or the page padding on a side whose row holds no axes. The area includes the inset of the panel's border, if it has one, so that the panel neither clips its entries nor leaves space around them. In a fitted row the width of a panel is fixed and its height follows its entries, so automatic columns are chosen the other way round: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. A fitted column is as wide as the widest area that a panel lying in that column alone needs, with automatic columns chosen to fit the height as usual. A panel that spans a fitted row and another row does not size the fitted row, and a fitted row or column that holds no panel of its own has no size.
+
+An axes has no content size, so an axes that lies in fitted rows alone, or in fitted columns alone, is reported by [`validate`](getting-started.md#validating-a-figure) as the error `AxesInFittedTrack`. An axes may span a fitted row together with a weighted one, as a tall plot beside a key does.
+
 ## Many entries
 
 A panel arranges its entries in as few columns as fit its height, so a panel across the width of a figure with a short row spreads a long list into several columns without being told how many. Automatic columns are chosen as follows: the entries are first placed in one column; while that block is taller than the area available, one more column is tried; and the search stops at the first count that fits the height or when another column would no longer fit the width. A fixed count, set with `columns(LegendEntryColumns::Count(n))`, is used as given, except that there are never more columns than entries. Rows are as tall as their tallest entry and columns as wide as their widest, so that entries line up both across and down.
@@ -196,11 +299,27 @@ for col in 0..2 {
 
 When the entries do not fit the area available even in as many columns as fit its width, the legend overflows. The block of entries is then drawn from the top-left corner of the area and clipped to it, the entries that do not lie wholly inside the area are left out, and the scene compiler reports a `LegendOverflow` warning. The remedy is to make the panel larger, with more tiles, a larger weight or a larger figure, or to use fewer entries. The same rules apply to a legend inside an axes, whose available area is the plot area less a small inset.
 
-A program can check for both legend warnings in the report of an export:
+A key in a [fitted row](#fitting-rows-and-columns-to-their-legends) does not overflow its height unless the fitted rows together need more than the height of the figure, in which case they share it in proportion to their sizes and their legends report `LegendOverflow`. When a key must share the page by weight, a program can learn whether it fits from `layout_warnings`, which lays the figure out without exporting it and returns the warnings of the scene compiler, the same warnings that the `scene` list of an export report holds. It needs no graphics adapter, so it can be called repeatedly, for example to choose the number of columns of a key:
 
 ```rust
 use ironlab::SceneWarningKind;
 
+let fits = |fig: &Figure| {
+    !fig.layout_warnings()
+        .iter()
+        .any(|warning| matches!(warning.kind, SceneWarningKind::LegendOverflow { .. }))
+};
+for columns in [1, 2, 3, 4] {
+    fig.panel_legend(1, 0).columns(LegendEntryColumns::Count(columns));
+    if fits(&fig) {
+        break;
+    }
+}
+```
+
+The report of an export holds the same warnings, and a program can check for both legend warnings there:
+
+```rust
 let report = fig.export_pdf("modes.pdf")?;
 for warning in &report.scene {
     if matches!(
@@ -214,17 +333,21 @@ for warning in &report.scene {
 
 ## Legends in the viewer
 
-In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history.
+In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history. An item of an explicit list that names a plot behaves in the same way, and acts on every plot it stands for; an item that stands for no plot is not a toggle, and clicking it does nothing.
 
-The property editor lists each legend panel after the axes, named by the tile it occupies, as "Legend panel (row 2, col 0)". The alignment, border, columns and order of a panel, the location, box, columns and order of a legend inside an axes, and the weights of the tile layout can be changed there. The tiles a panel occupies and the panel that an axes sends its entries to cannot, because they are part of the arrangement of the figure, which is built in code.
+The property editor lists each legend panel after the axes, named by the tile it occupies, as "Legend panel (row 2, col 0)". The alignment, border, columns and order of a panel, the location, box, columns and order of a legend inside an axes, and the sizes of the rows and columns of the tile layout can be changed there; the sizes are typed as a list of weights in which the word `fit` stands for a fitted size. The tiles a panel occupies, the panel that an axes sends its entries to and the explicit list of entries of a legend cannot, because they are part of the arrangement and the description of the figure, which are built in code. A legend with an explicit list is drawn and clicked in the viewer exactly as in an export.
 
 ## Legends in a figure file
 
-In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "value": {...}}`, holding the location, box and entry layout, or `{"type": "panel", "value": 7}`, naming the identifier of a panel. The panels are listed in the `panel_legends` property of the figure, and the weights are the `row_weights` and `col_weights` of its `layout`. A shared panel beneath two plots, as in the [many entries](#many-entries) example, is stored as follows, with the rest of each axes left out:
+In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "value": {...}}`, holding the location, box and entry layout, or `{"type": "panel", "value": 7}`, naming the identifier of a panel. The panels are listed in the `panel_legends` property of the figure, and the sizes of the rows and columns are the `row_weights` and `col_weights` of its `layout`. A shared panel beneath two plots, as in the [many entries](#many-entries) example, is stored as follows, with the rest of each axes left out:
 
 ```json
 {
-  "layout": {"rows": 2, "cols": 2, "row_weights": [3.0, 1.0]},
+  "layout": {
+    "rows": 2,
+    "cols": 2,
+    "row_weights": [{"type": "weight", "value": 3.0}, {"type": "weight", "value": 1.0}]
+  },
   "axes": [
     {"id": 2, "cell": {"row": 0, "col": 0, "row_span": 1, "col_span": 1}, "legend": {"type": "panel", "value": 1}},
     {"id": 15, "cell": {"row": 0, "col": 1, "row_span": 1, "col_span": 1}, "legend": {"type": "panel", "value": 1}}
@@ -241,10 +364,34 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
 }
 ```
 
-Every property is described in the [figure schema reference](../reference/figure-schema.md#legend), and the reasons for the design are recorded in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
+The entries of a legend are omitted while they are automatic. An explicit list is stored in the `entries` of the legend; a reference on a row of its own, followed by a plot and an item that stands for no plot, is stored as follows:
+
+```json
+"entries": {
+  "type": "explicit",
+  "value": [
+    {"content": {"type": "artist", "value": 12}, "full_row": true},
+    {"content": {"type": "artist", "value": 9}, "full_row": false},
+    {
+      "content": {
+        "type": "custom",
+        "value": {
+          "label": {"content": "Upper surface", "interpreter": "latex"},
+          "sample": {"type": "swatch", "color": "#d98c00"}
+        }
+      },
+      "full_row": false
+    }
+  ]
+}
+```
+
+Every property is described in the [figure schema reference](../reference/figure-schema.md#legend), and the reasons for the design are recorded in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md) and [ADR 0020](../adrs/0020-explicit-legend-entries-and-fitted-tracks.md).
 
 ## Examples in the gallery
 
 - [Legend toggling](../gallery/legend_toggle.md) shows a legend inside an axes, with entries typeset in LaTeX, whose series can be hidden from the legend.
 - [Shared legend panel](../gallery/panel_legend_shared.md) shows temperatures at five weather stations in a grid of five axes that draw the same series, with one panel in the sixth tile listing each series once.
 - [Wide legend panel](../gallery/panel_legend_wide.md) shows the step and magnitude responses of a second-order system at twelve damping ratios, with a panel across the full width beneath the two plots, in a row made shorter by row weights, whose entries are arranged in automatic columns. Its panel is drawn without a border, for comparison with the bordered panel of the previous figure.
+- [Reference and variants](../gallery/reference_and_variants.md) shows a stack of three plots that share the angle of attack, with a key in a fitted row beneath them that lists the base case first, on a row of its own, although it is drawn last, followed by six perturbation levels in columns.
+- [Two keys](../gallery/two_keys.md) shows a curve key beside a marker key whose items stand for no plot: a grey shape for each kind of point, and a colour swatch for each surface, both in one fitted row.

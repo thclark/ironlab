@@ -1,7 +1,7 @@
 //! Tick placement and tick labels: automatic ticks on short axes, regular steps, explicit values, explicit labels and
 //! hidden labels, and the space the layout reserves for them.
 
-use ironlab_ir::{Limits, NodeId, Scale, Text, TickLabels, Ticks};
+use ironlab_ir::{Limits, NodeId, Scale, Text, TickLabels, Ticks, TrackSize};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Rect;
 use ironlab_text::FontId;
@@ -536,7 +536,7 @@ fn stacked_rows_have_plot_areas_of_equal_height_when_only_the_bottom_shows_x_lab
 #[test]
 fn column_weights_share_plot_widths_in_proportion_whatever_the_margins() {
     let (mut fx, left, right, _) = strip_chart_pair();
-    fx.fig.layout.col_weights = vec![2.0, 1.0];
+    fx.fig.layout.col_weights = vec![TrackSize::Weight(2.0), TrackSize::Weight(1.0)];
     let scene = compile_figure(&fx.build());
     let (l, r) = (
         axes_hit(&scene, left).plot_rect,
@@ -551,7 +551,11 @@ fn column_weights_share_plot_widths_in_proportion_whatever_the_margins() {
 fn a_panel_in_a_weighted_column_lines_up_with_the_plots_beside_it() {
     let (mut fx, left, right, _) = strip_chart_pair();
     fx.fig.layout.cols = 3;
-    fx.fig.layout.col_weights = vec![1.0, 1.0, 0.5];
+    fx.fig.layout.col_weights = vec![
+        TrackSize::Weight(1.0),
+        TrackSize::Weight(1.0),
+        TrackSize::Weight(0.5),
+    ];
     let panel = fx.panel(cell(0, 2, 1, 1));
     fx.ax(left).artists.clear();
     fx.named_line(left, "series", |_| {});

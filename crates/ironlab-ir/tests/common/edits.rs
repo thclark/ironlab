@@ -354,6 +354,16 @@ pub fn perturb(value: &Value) -> Value {
         Value::String(s) => Value::String(format!("{s} (edited)")),
         Value::DataId(id) => Value::DataId(DataId(id.0 + 1)),
         Value::Doubles(values) if values.is_empty() => Value::Doubles(vec![1.0]),
+        Value::TrackSizes(sizes) if sizes.is_empty() => Value::TrackSizes(vec![TrackSize::Fit]),
+        Value::TrackSizes(sizes) => Value::TrackSizes(
+            sizes
+                .iter()
+                .map(|size| match size {
+                    TrackSize::Weight(_) => TrackSize::Fit,
+                    TrackSize::Fit => TrackSize::Weight(1.5),
+                })
+                .collect(),
+        ),
         Value::Doubles(values) => Value::Doubles(values.iter().map(|v| v + 0.25).collect()),
         Value::Strings(values) if values.is_empty() => Value::Strings(vec!["edited".to_owned()]),
         Value::Strings(values) => Value::Strings(values.iter().skip(1).cloned().collect()),
@@ -437,12 +447,12 @@ pub fn perturb(value: &Value) -> Value {
         Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
         Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
             boxed: !legend.boxed,
-            ..*legend
+            ..legend.clone()
         })),
         Value::Legend(Legend::Panel(panel)) => Value::Legend(Legend::Panel(NodeId(panel.0 + 1))),
         Value::InsideLegend(legend) => Value::InsideLegend(InsideLegend {
             boxed: !legend.boxed,
-            ..*legend
+            ..legend.clone()
         }),
         Value::LegendEntryLayout(layout) => Value::LegendEntryLayout(LegendEntryLayout {
             order: match layout.order {
@@ -481,6 +491,8 @@ pub fn perturb(value: &Value) -> Value {
         }),
         Value::MarkerShape(MarkerShape::Square) => Value::MarkerShape(MarkerShape::Circle),
         Value::MarkerShape(_) => Value::MarkerShape(MarkerShape::Square),
+        Value::Coords(Coords::Data) => Value::Coords(Coords::AxesFraction),
+        Value::Coords(Coords::AxesFraction) => Value::Coords(Coords::Data),
         Value::ScatterSize(ScatterSize::Scalar { value }) => {
             Value::ScatterSize(ScatterSize::Scalar { value: value + 1.0 })
         }
@@ -540,7 +552,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 52;
+pub const VALUE_VARIANTS: usize = 54;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -598,9 +610,11 @@ pub fn value_variant(value: &Value) -> usize {
         Value::NodeId(_) => 45,
         Value::Ticks(_) => 46,
         Value::TickLabels(_) => 47,
-        Value::Aspect(_) => 49,
-        Value::AspectAdjust(_) => 50,
-        Value::TitleAlign(_) => 51,
+        Value::Coords(_) => 49,
+        Value::TrackSizes(_) => 50,
+        Value::Aspect(_) => 51,
+        Value::AspectAdjust(_) => 52,
+        Value::TitleAlign(_) => 53,
     }
 }
 
@@ -618,6 +632,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::String("k–ω $\\alpha$".to_owned()),
         Value::DataId(DataId((1 << 53) + 1)),
         Value::Doubles(vec![-1.0, 0.0, 2.5]),
+        Value::TrackSizes(vec![TrackSize::Fit, TrackSize::Weight(2.5)]),
         Value::Strings(vec!["surface".to_owned(), "k–ω".to_owned()]),
         Value::Texts(vec![Text::plain("NACA 0012"), Text::new("$Re = 10^6$")]),
         Value::Text(Text::plain("Plain $5")),
@@ -693,6 +708,13 @@ pub fn sample_values() -> Vec<Value> {
                 columns: LegendEntryColumns::Count(3),
                 order: LegendEntryOrder::RowMajor,
             },
+            entries: LegendEntries::Explicit(vec![
+                LegendItem {
+                    full_row: true,
+                    ..LegendItem::artist(NodeId((1 << 53) + 5))
+                },
+                LegendItem::custom(LegendSample::swatch(blue), Text::plain("Upper $s$")),
+            ]),
         }),
         Value::LegendEntryLayout(LegendEntryLayout {
             columns: LegendEntryColumns::Auto,
@@ -715,6 +737,7 @@ pub fn sample_values() -> Vec<Value> {
             edge: ColorSpec::Rgba { color: blue },
         }),
         Value::MarkerShape(MarkerShape::Cross),
+        Value::Coords(Coords::AxesFraction),
         Value::ScatterSize(ScatterSize::Data { data: DataId(7) }),
         Value::ScatterColor(ScatterColor::Data { data: DataId(8) }),
         Value::Grid(Grid::Curvilinear {

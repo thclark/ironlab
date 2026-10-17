@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use ironlab_ir::{
     Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, InsideLegend,
     LegendEntryLayout, LineStyle, MarkerStyle, NodeId, Parameter, PixelRange, PropertyPath, Text,
-    TileLayout, Value, ValueType, View3d, choices,
+    TileLayout, TrackSize, Value, ValueType, View3d, choices,
 };
 
 use crate::widgets::{
@@ -711,30 +711,63 @@ fn numbers_control(
     node: NodeId,
     row: &PropertyRow,
 ) -> bool {
-    let Value::Doubles(current) = &row.value else {
-        return false;
+    // The sizes of the rows or columns of the tile layout are numbers too, except that a
+    // fitted size is the word `fit`.
+    let (mut typed, advice) = match &row.value {
+        Value::Doubles(current) => (
+            current
+                .iter()
+                .map(f64::to_string)
+                .collect::<Vec<String>>()
+                .join(", "),
+            "Separate the numbers with commas.",
+        ),
+        Value::TrackSizes(current) => (
+            current
+                .iter()
+                .map(|size| match size {
+                    TrackSize::Weight(weight) => weight.to_string(),
+                    TrackSize::Fit => "fit".to_owned(),
+                })
+                .collect::<Vec<String>>()
+                .join(", "),
+            "Separate the weights with commas, and write fit for a size fitted to the legend \
+             panels it holds.",
+        ),
+        _ => return false,
     };
-    let mut typed = current
-        .iter()
-        .map(f64::to_string)
-        .collect::<Vec<String>>()
-        .join(", ");
     let response = hint(
         field(ui, &mut typed, "empty", control_id(row)),
-        &format!("{} Separate the numbers with commas.", row.docs),
+        &format!("{} {advice}", row.docs),
     );
     panel.hold(state, response.id, response.has_focus());
     if !response.changed() {
         return false;
     }
-    let parsed: Result<Vec<f64>, _> = typed
+    let parts = typed
         .split(',')
         .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(str::parse::<f64>)
-        .collect();
+        .filter(|part| !part.is_empty());
+    let parsed = match &row.value {
+        Value::Doubles(_) => parts
+            .map(str::parse::<f64>)
+            .collect::<Result<Vec<f64>, _>>()
+            .ok()
+            .map(Value::Doubles),
+        _ => parts
+            .map(|part| {
+                if part.eq_ignore_ascii_case("fit") {
+                    Ok(TrackSize::Fit)
+                } else {
+                    part.parse::<f64>().map(TrackSize::Weight)
+                }
+            })
+            .collect::<Result<Vec<TrackSize>, _>>()
+            .ok()
+            .map(Value::TrackSizes),
+    };
     match parsed {
-        Ok(numbers) if numbers != *current => set(state, node, &row.path, Value::Doubles(numbers)),
+        Some(value) if value != row.value => set(state, node, &row.path, value),
         _ => false,
     }
 }
@@ -841,6 +874,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Float => Some(Value::Float(0.0)),
         ValueType::String => Some(Value::String(String::new())),
         ValueType::Doubles => Some(Value::Doubles(Vec::new())),
+        ValueType::TrackSizes => Some(Value::TrackSizes(Vec::new())),
         ValueType::Strings => Some(Value::Strings(Vec::new())),
         ValueType::Texts => Some(Value::Texts(Vec::new())),
         ValueType::Text => Some(Value::Text(Text::default())),
@@ -886,6 +920,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
         | ValueType::DashStyle
+        | ValueType::Coords
         | ValueType::Interpreter
         | ValueType::FontSetId => None,
     }

@@ -43,9 +43,9 @@ Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` ch
 
 The JSON encoding follows these conventions.
 
-- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. An entity whose forms each hold a single value, namely a [parameter](#parameters), the [legend](#legend) of an axes, the [number of legend columns](#legend-entry-layout), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, holds that value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
+- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. An entity whose forms each hold a single value, namely a [parameter](#parameters), the [legend](#legend) of an axes, the [number of legend columns](#legend-entry-layout), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [size of a row or column](#tile-layout), the [entries of a legend](#legend-entries) and the content of a legend item, holds that value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
 - **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters`, the `labels` and the `panel_legends` of a figure, each of which is omitted when the figure has none, and the `row_weights` and `col_weights` of the [tile layout](#tile-layout), each of which is omitted when it is empty.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters`, the `labels` and the `panel_legends` of a figure, each of which is omitted when the figure has none, the `row_weights` and `col_weights` of the [tile layout](#tile-layout), each of which is omitted when it is empty, and the `entries` of a [legend](#legend-entries), which are omitted when they are automatic.
 - **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
 - **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array of floating-point values, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Data arrays.** An array of 8-bit values carries `"element": "u8"` and writes its values as integers. An array of floating-point values has no `element` property, and an `element` of `null` or `"f64"` is read in the same way, so a file written before the element existed still loads. Under `"u8"`, every value must be an integer from 0 to 255: a whole number written with a fraction, such as `1.0`, is accepted as the byte it denotes, and `null`, a fraction, a number outside the range, a string and any other element name are refused.
@@ -111,10 +111,17 @@ The tile layout divides the page below the figure title into a grid of tiles. Ax
 | --- | --- | --- |
 | `rows` | integer | The number of rows, at least one. The default is 1. |
 | `cols` | integer | The number of columns, at least one. The default is 1. |
-| `row_weights` | array of number | The relative heights of the rows, from the top. Omitted from JSON when it is empty. |
-| `col_weights` | array of number | The relative widths of the columns, from the left. Omitted from JSON when it is empty. |
+| `row_weights` | array of TrackSize | The sizes of the rows, from the top. Omitted from JSON when it is empty. |
+| `col_weights` | array of TrackSize | The sizes of the columns, from the left. Omitted from JSON when it is empty. |
 
-The plot areas of the rows share the height of the grid in proportion to their weights, and those of the columns share its width in the same way, after the margins that the axes of every row and column reserve for their tick labels, axis labels and titles have been taken out. Plot areas of equal weight are therefore of equal size, however wide the labels beside them are, and a legend panel in a row or column without axes counts as a plot area of its weight. A row or column without a weight, because the list is shorter than the number of rows or columns, has a weight of 1, so empty lists, which are the default, give plot areas of equal size. The rule is recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#plot-areas-not-cells-share-the-page-by-weight). A list must not be longer than the number of rows or columns it weights, and every weight must be a finite positive number. For example, `"col_weights": [2, 1]` in a layout of three columns makes the plot area of the first column twice as wide as each of the other two. The number of rows and columns is part of the arrangement of the figure, so the property editor shows it read-only; the weights can be changed there. Two nodes whose cells share a tile are both drawn, the later over the earlier, and [validation](#validation) warns of them.
+A TrackSize is the size of one row or column, in one of two forms:
+
+- `{"type": "weight", "value": number}` gives the plot areas of the row or column a share of the space, in proportion to the weight, which must be a finite positive number.
+- `{"type": "fit"}` fits the row or column to the legend panels in it. A fitted row takes the height of the tallest area that a legend panel lying in that row alone needs for its entries, with the border inset of a boxed panel, and a fitted column the width of the widest such area in the same way. A fitted row or column in which no legend panel lies alone has no size.
+
+The margins that the axes of every row and column reserve for their tick labels, axis labels and titles are taken out of the grid first, and the panels in a fitted row or column are aligned with the plot areas around them by those margins, or inset by the page padding on a side whose row or column holds no axes. The fitted rows then take their sizes, and the plot areas of the weighted rows share the rest of the height in proportion to their weights; the columns share the width in the same way. Plot areas of equal weight are therefore of equal size, however wide the labels beside them are and whatever fitted rows or columns lie beside them, and a legend panel in a weighted row or column without axes counts as a plot area of its weight. The rule for weights is recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#plot-areas-not-cells-share-the-page-by-weight), and the rule for fitted sizes in [ADR 0020](../adrs/0020-explicit-legend-entries-and-fitted-tracks.md). A row or column without a size, because the list is shorter than the number of rows or columns, has a weight of 1, so empty lists, which are the default, give plot areas of equal size. A list must not be longer than the number of rows or columns it sizes. For example, `"col_weights": [{"type": "weight", "value": 2}, {"type": "weight", "value": 1}]` in a layout of three columns makes the plot area of the first column twice as wide as each of the other two, and `"row_weights": [{"type": "weight", "value": 1}, {"type": "fit"}]` makes the second row of two as tall as the legend panel it holds. An axes has no content size of its own, so an axes that lies in fitted rows alone, or in fitted columns alone, is a validation error; an axes that spans a fitted row and a weighted one is valid. When the fitted rows or columns need more than the space that the margins leave, they share it in proportion to their sizes, and the legends in them report that their entries do not fit with the scene warning `LegendOverflow`.
+
+The number of rows and columns is part of the arrangement of the figure, so the property editor shows it read-only; the sizes can be changed there, as a list of weights in which the word `fit` stands for a fitted size. Two nodes whose cells share a tile are both drawn, the later over the earlier, and [validation](#validation) warns of them. In Protocol Buffers, the sizes are repeated `TrackSize` messages in fields 5 and 6 of the `TileLayout`, whose oneof holds a `TrackSizeWeight` or a `TrackSizeFit`; fields 3 and 4, which held the plain weights of schema 0.4, are reserved.
 
 ## Axes
 
@@ -185,7 +192,7 @@ A categorical axis is expressed with these properties rather than with a type of
 
 ### Legend
 
-The legend of an axes lists every artist of the axes that has a display name, in artist order. It takes one of two forms, each of which holds its content in a `value` property:
+The legend of an axes lists every artist of the axes that has a display name, in artist order, unless its [entries](#legend-entries) are an explicit list. It takes one of two forms, each of which holds its content in a `value` property:
 
 - `{"type": "inside", "value": InsideLegend}` draws the entries in a legend inside the plot area of the axes. This is the form that a legend takes by default.
 - `{"type": "panel", "value": NodeId}` lists the entries in the [legend panel](#legend-panels) with that identifier, together with the entries of every other axes that names the same panel. The identifier must be that of a legend panel of the figure. Which panel an axes uses is part of the arrangement of the figure, so the property editor shows it read-only.
@@ -194,13 +201,14 @@ An axes therefore shows its entries either inside its plot area or in a panel, n
 
 How to build each form, and how a legend panel merges the entries of several axes, is explained in the [legends guide](../guides/legends.md).
 
-An InsideLegend has three properties:
+An InsideLegend has four properties:
 
 | Property | Meaning |
 | --- | --- |
 | `location` | Where the legend is placed inside the plot area, as a [legend location](#legend-location). The default is `north_east`. |
 | `boxed` | Whether the legend has a background and an outline. The default is `true`. |
 | `layout` | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is one column, filled from top to bottom. |
+| `entries` | Which entries the legend lists, and in what order, as [legend entries](#legend-entries). The default is automatic entries. An item of an explicit list that names an artist must name an artist of the same axes. Omitted from JSON when the entries are automatic. |
 
 #### Legend location
 
@@ -215,11 +223,34 @@ A legend entry layout arranges the entries of a legend in columns.
 | `columns` | The number of columns: `{"type": "auto"}` chooses the fewest columns in which the entries fit the height available to the legend, and `{"type": "count", "value": n}` uses exactly `n` columns, which must be at least one. |
 | `order` | The order in which the entries fill the columns: `column_major` fills each column from top to bottom before starting the next, and `row_major` fills each row from left to right before starting the next. The default is `column_major`. |
 
-The default layout depends on where the entries are shown: an inside legend uses one column, and a legend panel uses automatic columns.
+The default layout depends on where the entries are shown: an inside legend uses one column, and a legend panel uses automatic columns. A legend panel that lies in [fitted](#tile-layout) rows alone has a fixed width and a height that follows from its entries, so its automatic columns are chosen differently: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. An item on a row of its own, described below, takes a row whatever the number of columns.
+
+#### Legend entries
+
+The entries of a legend take one of two forms:
+
+- `{"type": "auto"}` lists every artist with a display name: for a legend inside a plot area, the artists of its axes in artist order, and for a legend panel, the artists of every axes that names the panel, merged by name and look, in the reading order of the layout. This is the default.
+- `{"type": "explicit", "value": [LegendItem, ...]}` lists exactly the given items, in the given order, whatever the order in which the artists are drawn. An explicit list of no items lists nothing.
+
+A LegendItem has two properties:
+
+| Property | Meaning |
+| --- | --- |
+| `content` | What the item lists: `{"type": "artist", "value": NodeId}` lists that artist, labelled by its display name beside the sample drawn for it, and `{"type": "custom", "value": {"label": Text, "sample": LegendSample}}` shows a label beside a sample and stands for no artist. |
+| `full_row` | Whether the item spans every column of the legend, on a row of its own at its position in the list. The label of such an item sets the width of no column. |
+
+The items between two items on rows of their own form a group, which fills the columns on its own; every group has the same number of columns and the same order, and the columns of all groups share their widths, so that they line up. An item that names an artist in a legend panel may name an artist of any axes of the figure, and also stands for every artist of the axes that name the panel whose display name and look match it, so that clicking it in the viewer hides or shows that series in all of them. An item that names an artist is greyed only when every artist it stands for is hidden, as a merged automatic entry is. An item that stands for no artist is never greyed, and clicking it does nothing.
+
+A LegendSample is the sample of an item that stands for no artist, in one of two forms, each identified by its `type`:
+
+- `{"type": "line", "line": LineStyle, "marker": MarkerStyle}` is drawn as the sample of a line artist is drawn: a horizontal line in the [LineStyle](#linestyle) with a marker in the [MarkerStyle](#markerstyle) at its centre. A dash of `none` draws the marker alone, and a marker shape of `none` draws the line alone. A line colour of `auto` is the ink in which the axes and labels of the figure are drawn, because the item belongs to no axes whose colour order could supply one, and a marker colour of `auto` takes the line colour.
+- `{"type": "swatch", "color": Color}` is a filled rectangle of the colour.
+
+In Protocol Buffers the entries are a `LegendEntries` message whose oneof holds a `LegendEntriesAuto` or a `LegendEntriesExplicit`, in field 4 of an `InsideLegend` and field 6 of a `PanelLegend`; an absent message means automatic entries. Which entries a legend lists is part of how the figure is described by its author, so the property editor does not show them, and the [legends guide](../guides/legends.md#choosing-the-entries) explains how to build them.
 
 ## Legend panels
 
-A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend. A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same display name and are drawn the same way; the entries are listed in the reading order of the cells of their axes, by the row and then the column of the top-left tile of each cell, with the order of the axes in the figure breaking ties, and then in the order of the artists of each axes. The merge rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
+A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend, or the items of an explicit list of [entries](#legend-entries). A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same display name and are drawn the same way; the entries are listed in the reading order of the cells of their axes, by the row and then the column of the top-left tile of each cell, with the order of the axes in the figure breaking ties, and then in the order of the artists of each axes. The merge rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
 
 | Property | Type | Meaning |
 | --- | --- | --- |
@@ -228,6 +259,7 @@ A legend panel is a legend of the figure rather than of one axes. It occupies a 
 | `align` | string | Where the block of entries is placed within the panel, as a [legend location](#legend-location). The default is `center`. |
 | `boxed` | boolean | Whether the area of the panel is outlined by a border, drawn as the box of an [axes](#axes) is drawn and without a background. The area is aligned with the plot areas around it, so the border continues the edges of their boxes, and the entries are kept inset from it. The default is `true`. |
 | `layout` | object | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is automatic columns, filled column by column. |
+| `entries` | object | Which entries the panel lists, and in what order, as [legend entries](#legend-entries). The default is automatic entries. Omitted from JSON when the entries are automatic. |
 
 ## Artists
 
@@ -251,6 +283,8 @@ A polyline through data points, with optional markers (MATLAB's `plot`, `plot3`,
 | `z` | DataId of the z coordinates, or `null`. Allowed only in three-dimensional axes; without it, points lie in the plane z = 0. |
 | `line` | The LineStyle of the line. A non-finite coordinate breaks the line. |
 | `marker` | The MarkerStyle of the markers drawn at the points. |
+| `x_coords`, `y_coords` | The [coordinates](#coordinates-and-clipping) of the x and y values: `data` (the default) or `axes_fraction`. |
+| `clip` | Whether the artist is [clipped](#coordinates-and-clipping) to the plot area. The default is `true`. |
 
 ### `scatter`
 
@@ -258,10 +292,23 @@ Markers at data points, each with its own size and colour (MATLAB's `scatter` an
 
 | Property | Meaning |
 | --- | --- |
-| `x`, `y`, `z` | As for a line. |
+| `x`, `y`, `z`, `x_coords`, `y_coords`, `clip` | As for a line. |
 | `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": DataId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
 | `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": DataId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
 | `marker` | The MarkerStyle; its shape defaults to `circle`. |
+
+### Coordinates and clipping
+
+Each of the x and y dimensions of a line or scatter is placed in its own coordinates, named by `x_coords` and `y_coords`, so that one dimension can be data while the other is not, as in matplotlib's blended transforms.
+
+- `data` places the values through the limits, the scale and the direction of the axis, and the values take part in its automatic limits.
+- `axes_fraction` places the values as fractions of the plot area along that dimension: 0 is the left edge (for x) or the bottom edge (for y) and 1 the right or top edge, whatever the limits, the scale, the direction or the pan and zoom of the axis, and values outside `[0, 1]` lie beyond the plot area. These values take no part in the automatic limits of the axis, and a zero or negative fraction is not reported against a logarithmic axis, because a fraction is not a value along the axis.
+
+A horizontal reference line is therefore a line with `x_coords` of `axes_fraction`, x values 0 and 1 and two equal y values in data coordinates; its y value takes part in the automatic y limits, as matplotlib's `axhline` does. A three-dimensional axes has no plot area to take a fraction of, so `axes_fraction` in either dimension of an artist of a three-dimensional axes is a validation error.
+
+`clip` decides whether the marks of the artist are clipped to the plot area of a two-dimensional axes. With `false`, clipping is released only along a dimension in `axes_fraction` coordinates, where the marks are drawn wherever they are placed, on screen and in exported files; this lets a marker on an edge of the axes be drawn whole. Along a dimension in `data` coordinates the artist stays clipped to the plot area exactly as with `true`, so that a value outside the limits of that axis is never drawn: an edge tick at a data x and a fractional y may overhang the top or bottom edge, but is never drawn left or right of the plot area, however the axes is panned or zoomed. `clip` therefore has no effect on an artist in `data` coordinates along both dimensions, nor in a three-dimensional axes, which clips every artist to its tile, and validation reports a released clip there with the warning `IneffectiveClip`.
+
+The property editor of the viewer shows `x_coords` and `y_coords` read-only, because the coordinates of the values decide what the values mean and are therefore set by the program that builds the figure, and lets `clip` be changed. A datatip reports only the coordinates in `data`. The reasons are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### `contour`
 
@@ -386,7 +433,7 @@ Validation checks a strict category against the data. For a colour-indexed image
 
 | Property | Meaning |
 | --- | --- |
-| `shape` | `none` (the default for lines), `circle`, `square`, `diamond`, `triangle_up`, `triangle_down`, `plus`, `cross` or `point`. |
+| `shape` | `none` (the default for lines), `circle`, `square`, `diamond`, `triangle_up`, `triangle_down`, `plus`, `cross`, `point`, `v_line` (a vertical tick, one stroke as tall as the marker size) or `h_line` (a horizontal tick, one stroke as wide as the marker size). |
 | `size_pt` | The width of the marker. The default is 4 pt. |
 | `face` | The ColorSpec of the marker interior. The default is `none`. |
 | `edge` | The ColorSpec of the marker outline. The default is `auto`. |
@@ -411,7 +458,7 @@ A **Text** is stored as its source, never as typeset glyphs, so that it can be e
 | Property | Meaning |
 | --- | --- |
 | `content` | The source text. |
-| `interpreter` | `"latex"` (the default) treats segments delimited by `$…$` as LaTeX mathematics and the rest as plain text, with `\$` producing a literal dollar sign. `"none"` renders the content literally, dollar signs included. |
+| `interpreter` | `"latex"` (the default) treats segments delimited by `$…$` as LaTeX mathematics and the rest as plain text, with `\$` producing a literal dollar sign and `\texttt{…}` setting its argument in monospace, as [titles, labels and LaTeX](../guides/getting-started.md#titles-labels-and-latex) describes. `"none"` renders the content literally, dollar signs included. |
 
 Mathematics that the typesetter cannot handle is drawn as its raw source and reported as a warning; it never makes a figure invalid. How text is resolved is described in the [architecture reference](architecture.md#text-resolution) and [ADR 0017](../adrs/0017-latex-rust-applies-tex-conventions.md).
 
@@ -505,7 +552,7 @@ Labels are edited in the viewer's [property editor](../guides/viewer.md#labels) 
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column weights than rows or columns or a weight that is not a finite positive number, a legend that names a legend panel the figure does not have, a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list, because no axes names it in its legend or no axes that names it has an artist with a display name. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column sizes than rows or columns or a weight that is not a finite positive number (`InvalidLayoutWeights`), an axes that lies in fitted rows alone or in fitted columns alone (`AxesInFittedTrack`), a legend that names a legend panel the figure does not have, an item of an explicit list of legend entries that names no artist of the figure, or, in a legend inside a plot area, an artist of another axes (`DanglingLegendItem`), a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list: a panel with automatic entries that no axes names in its legend, or whose axes have no artist with a display name, and a panel with an explicit list of no items. A panel with an explicit list of items is never empty, whether or not an axes names it. The warning `DuplicateLegendItem` is reported for an item of an explicit list whose content repeats that of an earlier item, because the legend then lists it twice, and the warning `UnnamedLegendItem` for an item that names an artist without a display name, which is listed with its sample and no label. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
 
 ## A minimal JSON file
 
@@ -548,7 +595,10 @@ The following JSON file describes one two-dimensional axes with a line through t
           "y": 1,
           "z": null,
           "line": { "color": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
-          "marker": { "shape": "circle", "size_pt": 4.0, "face": { "type": "none" }, "edge": { "type": "auto" } }
+          "marker": { "shape": "circle", "size_pt": 4.0, "face": { "type": "none" }, "edge": { "type": "auto" } },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         }
       ]
     }

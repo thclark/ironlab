@@ -218,13 +218,23 @@ proto_file! {
             TickLabels(ValueTickLabels) tick_labels_value = 48;
             /// A list of texts.
             Texts(ValueTexts) texts_value = 49;
+            /// How the values of one dimension of a line or scatter are placed.
+            Coords(ValueCoords) coords_value = 50;
+            /// A list of sizes of the rows or columns of the tile layout.
+            TrackSizes(ValueTrackSizes) track_sizes_value = 51;
             /// The aspect of an axes.
-            Aspect(ValueAspect) aspect_value = 50;
+            Aspect(ValueAspect) aspect_value = 52;
             /// How an axes keeps a fixed aspect.
-            AspectAdjust(ValueAspectAdjust) aspect_adjust_value = 51;
+            AspectAdjust(ValueAspectAdjust) aspect_adjust_value = 53;
             /// How the title of an axes is aligned with its plot area.
-            TitleAlign(ValueTitleAlign) title_align_value = 52;
+            TitleAlign(ValueTitleAlign) title_align_value = 54;
         }
+    }
+
+    /// A list of sizes of the rows or columns of the tile layout.
+    message ValueTrackSizes {
+        /// The sizes, which may be empty.
+        repeated message TrackSize sizes = 1;
     }
 
     /// No value: an optional property is cleared.
@@ -462,6 +472,12 @@ proto_file! {
     message ValueDashStyle {
         /// The dash style; it must be specified.
         enum DashStyle value = 1;
+    }
+
+    /// A coordinates value.
+    message ValueCoords {
+        /// How the values are placed; it must be specified.
+        enum Coords value = 1;
     }
 
     /// A marker style value.

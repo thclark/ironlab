@@ -55,6 +55,7 @@
 //!   it. Entries fill each column before the next.
 //! - The rows and columns of a tile layout all have a weight of one, so its plot areas
 //!   are of equal size.
+//! - A legend lists its entries automatically, rather than from an explicit list of items.
 
 mod artist;
 mod axes;
@@ -75,9 +76,9 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface,
 };
 pub use axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
@@ -93,10 +94,10 @@ pub use figure::{
     Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
 };
 pub use ids::{DataId, NodeId};
-pub use layout::{Cell, TileLayout};
+pub use layout::{Cell, TileLayout, TrackSize};
 pub use legend::{
-    InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
-    PanelLegend,
+    InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
+    LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
 };
 pub use link::{AxisLink, Dimension};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};

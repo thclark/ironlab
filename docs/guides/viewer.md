@@ -154,13 +154,13 @@ Each button is disabled when there is nothing to undo or to redo, and both short
 
 Clicking an entry of a legend hides its plot, and clicking the entry again shows the plot. Either way the plot is selected, so the property editor shows it. The entry of a hidden plot stays in the legend and is drawn greyed out.
 
-An entry of a [legend panel](legends.md#legend-panels) may stand for several plots, one in each axes that shares the series. Clicking such an entry hides all of its plots, or shows them all when every one of them is already hidden, and selects the first of them. The entry is greyed only when all of its plots are hidden. How entries come to be shared is explained in [sharing and merging entries](legends.md#sharing-and-merging-entries). Double-clicking an entry counts as two clicks, so it leaves the plot as it was, and it does not restore the limits of the axes as double-clicking elsewhere in the axes does.
+An entry of a [legend panel](legends.md#legend-panels) may stand for several plots, one in each axes that shares the series. Clicking such an entry hides all of its plots, or shows them all when every one of them is already hidden, and selects the first of them. The entry is greyed only when all of its plots are hidden. How entries come to be shared is explained in [sharing and merging entries](legends.md#sharing-and-merging-entries). An item of an [explicit list of entries](legends.md#choosing-the-entries) that names a plot behaves in the same way, and an item that stands for no plot, such as a marker shape explained in a second key, is not a toggle: clicking it does nothing. Double-clicking an entry counts as two clicks, so it leaves the plot as it was, and it does not restore the limits of the axes as double-clicking elsewhere in the axes does.
 
 A hidden plot still takes part in the layout of its axes: its data still contributes to automatic axis limits and colour limits, and it keeps its colour. Hiding or showing a plot therefore never moves, rescales or recolours anything else.
 
 ## Datatips
 
-Resting the pointer near a point of a line or a scatter rings that point and shows its name, its coordinates and its index. The index is the position the point has in the arrays you plotted, so it is what you would use to find the same point in your own data.
+Resting the pointer near a point of a line or a scatter rings that point and shows its name, its coordinates and its index. The index is the position the point has in the arrays you plotted, so it is what you would use to find the same point in your own data. A line or scatter that places a dimension as fractions of the plot area, such as a [reference line or a row of edge markers](getting-started.md#reference-lines-and-edge-markers), reports only its data coordinate, because a fraction says where the mark was drawn rather than what was measured.
 
 Very large series are thinned to what the plot can resolve before they are drawn, on screen and in an exported PDF alike, and only the points that were drawn can be read. The index reported is always the original one, never a position in the thinned series, and zooming in draws more of the series, so more of it becomes readable. How the thinning works is described under [large series are thinned for the current view](../reference/architecture.md#large-series-are-thinned-for-the-current-view).
 
@@ -235,10 +235,12 @@ The editor changes the properties of the objects a figure already has. Its struc
 **A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Five kinds of property are shown this way.
 
 - **The data a plot draws**, shown as the array it names and that array's shape.
-- **The rows and columns of the figure's tile layout, and the cell each axes or legend panel occupies within it.** Where an axes or a legend panel sits is part of how the figure is arranged, which the program that builds it defines. The relative sizes of the rows and columns are not part of that arrangement, and stay editable.
+- **The rows and columns of the figure's tile layout, and the cell each axes or legend panel occupies within it.** Where an axes or a legend panel sits is part of how the figure is arranged, which the program that builds it defines. The relative sizes of the rows and columns are not part of that arrangement, and stay editable, as a list of weights in which the word `fit` stands for a row or column [fitted to its legends](legends.md#fitting-rows-and-columns-to-their-legends).
 - **The legend panel in which an axes lists its entries**, shown as the identifier of the panel, because which axes share a legend is part of how the figure is arranged.
 - **The groups of axes whose limits are linked**, shown as a count.
 - **The marker size of a scatter**, because a scatter sizes its markers by its own **size**, which overrides it. Change **size** instead, to give every marker the same size or to take each marker's size from an array. Every other plot draws its markers at the size in its marker style, which stays editable.
+
+The [explicit list of entries](legends.md#choosing-the-entries) of a legend is not shown at all, because which series a key explains, and in what order, is part of how the author describes the figure. The legend is nevertheless drawn and clicked in the viewer exactly as the list says.
 
 A property that the figure merely constrains is not read-only. Limits that must increase and a font size that must be positive stay editable, and a value the figure will not accept is refused with its reason, which is the more useful answer.
 

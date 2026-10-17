@@ -79,6 +79,7 @@ fn decay_figure() -> Figure {
                     columns: LegendEntryColumns::Count(1),
                     order: LegendEntryOrder::ColumnMajor,
                 },
+                entries: LegendEntries::Auto,
             })),
             artists: vec![Artist::Line(Line {
                 id: NodeId(3),
@@ -100,6 +101,9 @@ fn decay_figure() -> Figure {
                     face: ColorSpec::None,
                     edge: ColorSpec::Auto,
                 },
+                x_coords: Coords::Data,
+                y_coords: Coords::Data,
+                clip: true,
             })],
         }],
         panel_legends: vec![],
@@ -675,12 +679,12 @@ fn malformed_json_is_a_json_error() {
     ));
 }
 
-// Why: the forms of a legend, a legend panel and the weights of the tile layout are a
-// public contract that web clients and hand-written files produce from the schema
-// reference rather than from serde's output, so the tag and `value` of each legend form,
-// the names of the panel's fields, and the omission of empty weights and of an empty list
-// of panels must stay as documented; and the documented form must read back as the same
-// figure.
+// Why: the forms of a legend, a legend panel and the sizes of the rows and columns of the
+// tile layout are a public contract that web clients and hand-written files produce from
+// the schema reference rather than from serde's output, so the tag and `value` of each
+// legend form and of each kind of size, the names of the panel's fields, and the omission
+// of empty sizes, of automatic entries and of an empty list of panels must stay as
+// documented; and the documented form must read back as the same figure.
 #[test]
 fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
@@ -689,7 +693,7 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
     assert!(value.get("panel_legends").is_none());
 
     fig.layout = TileLayout {
-        row_weights: vec![1.0, 0.5],
+        row_weights: vec![TrackSize::Weight(1.0), TrackSize::Fit],
         col_weights: vec![],
         ..TileLayout::new(2, 1)
     };
@@ -705,7 +709,11 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
     let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(
         value["layout"],
-        json!({ "rows": 2, "cols": 1, "row_weights": [1.0, 0.5] })
+        json!({
+            "rows": 2,
+            "cols": 1,
+            "row_weights": [{ "type": "weight", "value": 1.0 }, { "type": "fit" }]
+        })
     );
     assert_eq!(
         value["axes"][0]["legend"],
@@ -730,6 +738,7 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
             columns: LegendEntryColumns::Count(2),
             order: LegendEntryOrder::RowMajor,
         },
+        entries: LegendEntries::Auto,
     }));
     let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(
@@ -744,4 +753,116 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
         })
     );
     assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
+}
+
+// Why: an explicit list of legend entries is written by hand and by web clients from the
+// schema reference, so the adjacently tagged forms of the list and of the content of an
+// item, the internally tagged form of a sample (whose fields sit beside its `type`) and
+// the `full_row` flag must stay as documented, in an inside legend and in a panel alike.
+// The documented form is written out here rather than taken from serde's output, and it
+// must read back as the same figure.
+#[test]
+fn explicit_legend_entries_are_written_in_the_documented_json_form() {
+    let (mut fig, _, line) = single_line_figure();
+    let orange = Color::rgb(230.0 / 255.0, 159.0 / 255.0, 0.0);
+    let items = vec![
+        LegendItem {
+            full_row: true,
+            ..LegendItem::artist(line)
+        },
+        LegendItem::custom(
+            LegendSample::Line {
+                line: LineStyle {
+                    color: ColorSpec::Rgba { color: orange },
+                    width_pt: 1.5,
+                    dash: DashStyle::Dashed,
+                },
+                marker: MarkerStyle {
+                    shape: MarkerShape::Square,
+                    size_pt: 4.0,
+                    face: ColorSpec::Auto,
+                    edge: ColorSpec::None,
+                },
+            },
+            Text::plain("measured"),
+        ),
+        LegendItem::custom(LegendSample::swatch(orange), Text::new("$x_s$")),
+    ];
+    let items_json = json!([
+        { "content": { "type": "artist", "value": line.0 }, "full_row": true },
+        {
+            "content": {
+                "type": "custom",
+                "value": {
+                    "label": { "content": "measured", "interpreter": "none" },
+                    "sample": {
+                        "type": "line",
+                        "line": {
+                            "color": { "type": "rgba", "color": "#e69f00" },
+                            "width_pt": 1.5,
+                            "dash": "dashed"
+                        },
+                        "marker": {
+                            "shape": "square",
+                            "size_pt": 4.0,
+                            "face": { "type": "auto" },
+                            "edge": { "type": "none" }
+                        }
+                    }
+                }
+            },
+            "full_row": false
+        },
+        {
+            "content": {
+                "type": "custom",
+                "value": {
+                    "label": { "content": "$x_s$", "interpreter": "latex" },
+                    "sample": { "type": "swatch", "color": "#e69f00" }
+                }
+            },
+            "full_row": false
+        }
+    ]);
+
+    fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
+        entries: LegendEntries::Explicit(items.clone()),
+        ..InsideLegend::default()
+    }));
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(
+        value["axes"][0]["legend"]["value"]["entries"],
+        json!({ "type": "explicit", "value": items_json })
+    );
+    assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
+
+    fig.layout = TileLayout::new(1, 2);
+    fig.panel_legends.push(PanelLegend {
+        id: NodeId(90),
+        cell: Cell {
+            col: 1,
+            ..Cell::default()
+        },
+        entries: LegendEntries::Explicit(items),
+        ..PanelLegend::default()
+    });
+    let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(
+        value["panel_legends"][0]["entries"],
+        json!({ "type": "explicit", "value": items_json })
+    );
+    assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
+
+    // An explicit list of no items is written, because it differs from automatic entries,
+    // which are omitted (as the test of the other legend forms checks) and read back as
+    // automatic when written out as `{"type": "auto"}`.
+    fig.panel_legends[0].entries = LegendEntries::Explicit(vec![]);
+    let mut value: Value = serde_json::from_str(&fig.to_json()).unwrap();
+    assert_eq!(
+        value["panel_legends"][0]["entries"],
+        json!({ "type": "explicit", "value": [] })
+    );
+    value["panel_legends"][0]["entries"] = json!({ "type": "auto" });
+    let read = Figure::from_json(&value.to_string()).unwrap();
+    assert_eq!(read.panel_legends[0].entries, LegendEntries::Auto);
 }

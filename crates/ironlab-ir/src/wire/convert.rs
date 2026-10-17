@@ -11,13 +11,14 @@ use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
     Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName,
-    Contour, ContourPlacement, DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId,
-    Grid, Image, ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter, Legend,
-    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation, Levels, Limits, Line,
-    LineStyle, MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId,
-    OutOfRange, PanelLegend, Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale,
-    Scale, Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout,
-    TitleAlign, Transaction, Value, Values, View3d,
+    Contour, ContourPlacement, Coords, DashStyle, DataId, Dimension, Edit, Figure, FigureSize,
+    FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
+    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, Line, LineStyle, MappedImage,
+    MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, PanelLegend,
+    Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter,
+    ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize,
+    Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -71,8 +72,9 @@ wire_enum! {
     AspectAdjust => AspectAdjust { Box, Limits }
     TitleAlign => TitleAlign { Center, Left, Right }
     MarkerShape => MarkerShape {
-        None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point,
+        None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
+    Coords => Coords { Data, AxesFraction }
     Dimension => Dimension { X, Y, Z }
     NdArrayElement => NdArrayElement { F64, U8 }
 }
@@ -150,9 +152,27 @@ fn encode_tile_layout(layout: &TileLayout) -> w::TileLayout {
     w::TileLayout {
         rows: Some(layout.rows),
         cols: Some(layout.cols),
-        row_weights: layout.row_weights.clone(),
-        col_weights: layout.col_weights.clone(),
+        row_weights: layout
+            .row_weights
+            .iter()
+            .map(|&size| encode_track_size(size))
+            .collect(),
+        col_weights: layout
+            .col_weights
+            .iter()
+            .map(|&size| encode_track_size(size))
+            .collect(),
     }
+}
+
+fn encode_track_size(size: TrackSize) -> w::TrackSize {
+    let kind = match size {
+        TrackSize::Weight(weight) => w::TrackSizeKind::Weight(w::TrackSizeWeight {
+            weight: Some(weight),
+        }),
+        TrackSize::Fit => w::TrackSizeKind::Fit(w::TrackSizeFit {}),
+    };
+    w::TrackSize { kind: Some(kind) }
 }
 
 fn encode_links(links: &[AxisLink]) -> Vec<w::AxisLink> {
@@ -305,7 +325,7 @@ fn encode_cell(cell: Cell) -> w::Cell {
     }
 }
 
-fn encode_legend(legend: Legend) -> w::Legend {
+fn encode_legend(legend: &Legend) -> w::Legend {
     let kind = match legend {
         Legend::Inside(inside) => w::LegendKind::Inside(w::LegendInside {
             inside: Some(encode_inside_legend(inside)),
@@ -317,11 +337,12 @@ fn encode_legend(legend: Legend) -> w::Legend {
     w::Legend { kind: Some(kind) }
 }
 
-fn encode_inside_legend(legend: InsideLegend) -> w::InsideLegend {
+fn encode_inside_legend(legend: &InsideLegend) -> w::InsideLegend {
     w::InsideLegend {
         location: legend.location.to_wire(),
         boxed: Some(legend.boxed),
         layout: Some(encode_legend_entry_layout(legend.layout)),
+        entries: Some(encode_legend_entries(&legend.entries)),
     }
 }
 
@@ -332,7 +353,53 @@ fn encode_panel_legend(panel: &PanelLegend) -> w::PanelLegend {
         align: panel.align.to_wire(),
         boxed: Some(panel.boxed),
         layout: Some(encode_legend_entry_layout(panel.layout)),
+        entries: Some(encode_legend_entries(&panel.entries)),
     }
+}
+
+fn encode_legend_entries(entries: &LegendEntries) -> w::LegendEntries {
+    let kind = match entries {
+        LegendEntries::Auto => w::LegendEntriesKind::Auto(w::LegendEntriesAuto {}),
+        LegendEntries::Explicit(items) => {
+            w::LegendEntriesKind::Explicit(w::LegendEntriesExplicit {
+                items: items.iter().map(encode_legend_item).collect(),
+            })
+        }
+    };
+    w::LegendEntries { kind: Some(kind) }
+}
+
+fn encode_legend_item(item: &LegendItem) -> w::LegendItem {
+    let kind = match &item.content {
+        LegendItemContent::Artist(artist) => {
+            w::LegendItemContentKind::Artist(w::LegendItemContentArtist {
+                artist: Some(artist.0),
+            })
+        }
+        LegendItemContent::Custom { label, sample } => {
+            w::LegendItemContentKind::Custom(w::LegendItemContentCustom {
+                label: Some(encode_text(label)),
+                sample: Some(encode_legend_sample(*sample)),
+            })
+        }
+    };
+    w::LegendItem {
+        content: Some(w::LegendItemContent { kind: Some(kind) }),
+        full_row: Some(item.full_row),
+    }
+}
+
+fn encode_legend_sample(sample: LegendSample) -> w::LegendSample {
+    let kind = match sample {
+        LegendSample::Line { line, marker } => w::LegendSampleKind::Line(w::LegendSampleLine {
+            line: Some(encode_line_style(line)),
+            marker: Some(encode_marker_style(marker)),
+        }),
+        LegendSample::Swatch { color } => w::LegendSampleKind::Swatch(w::LegendSampleSwatch {
+            color: Some(encode_color(color)),
+        }),
+    };
+    w::LegendSample { kind: Some(kind) }
 }
 
 fn encode_legend_entry_layout(layout: LegendEntryLayout) -> w::LegendEntryLayout {
@@ -364,7 +431,7 @@ fn encode_axes(axes: &Axes) -> w::Axes {
         r#box: Some(axes.box_),
         colormap: axes.colormap.to_wire(),
         clim: Some(encode_limits(axes.clim)),
-        legend: axes.legend.map(encode_legend),
+        legend: axes.legend.as_ref().map(encode_legend),
         artists: axes.artists.iter().map(encode_artist).collect(),
         title_align: axes.title_align.to_wire(),
         aspect: Some(encode_aspect(axes.aspect)),
@@ -503,6 +570,9 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             z: line.z.map(|id| id.0),
             line: Some(encode_line_style(line.line)),
             marker: Some(encode_marker_style(line.marker)),
+            x_coords: line.x_coords.to_wire(),
+            y_coords: line.y_coords.to_wire(),
+            clip: Some(line.clip),
         }),
         Artist::Scatter(scatter) => w::ArtistKind::Scatter(w::Scatter {
             id: Some(scatter.id.0),
@@ -514,6 +584,9 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             size: Some(encode_scatter_size(scatter.size)),
             color: Some(encode_scatter_color(scatter.color)),
             marker: Some(encode_marker_style(scatter.marker)),
+            x_coords: scatter.x_coords.to_wire(),
+            y_coords: scatter.y_coords.to_wire(),
+            clip: Some(scatter.clip),
         }),
         Artist::Contour(contour) => w::ArtistKind::Contour(w::Contour {
             id: Some(contour.id.0),
@@ -676,7 +749,11 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         font_set: decode_enum(wire.font_set, Some(default.font_set), "", "font_set")?,
         font_size_pt: wire.font_size_pt.unwrap_or(default.font_size_pt),
         background: wire.background.map_or(default.background, decode_color),
-        layout: wire.layout.map_or(default.layout, decode_tile_layout),
+        layout: wire
+            .layout
+            .map(|layout| decode_tile_layout(layout, "layout"))
+            .transpose()?
+            .unwrap_or(default.layout),
         data,
         axes,
         panel_legends,
@@ -774,14 +851,31 @@ fn decode_figure_size(wire: w::FigureSize) -> FigureSize {
     }
 }
 
-fn decode_tile_layout(wire: w::TileLayout) -> TileLayout {
+fn decode_tile_layout(wire: w::TileLayout, at: &str) -> Result<TileLayout> {
     let default = TileLayout::default();
-    TileLayout {
+    let sizes = |list: Vec<w::TrackSize>, field: &str| -> Result<Vec<TrackSize>> {
+        list.into_iter()
+            .enumerate()
+            .map(|(i, size)| decode_track_size(size, &join(at, &format!("{field}[{i}]"))))
+            .collect()
+    };
+    Ok(TileLayout {
         rows: wire.rows.unwrap_or(default.rows),
         cols: wire.cols.unwrap_or(default.cols),
-        row_weights: wire.row_weights,
-        col_weights: wire.col_weights,
-    }
+        row_weights: sizes(wire.row_weights, "row_weights")?,
+        col_weights: sizes(wire.col_weights, "col_weights")?,
+    })
+}
+
+/// Decodes the size of a row or column, which is a weight of one when unset.
+fn decode_track_size(wire: w::TrackSize, at: &str) -> Result<TrackSize> {
+    Ok(match wire.kind {
+        None => TrackSize::default(),
+        Some(w::TrackSizeKind::Weight(weight)) => {
+            TrackSize::Weight(required(weight.weight, &join(at, "weight"), "weight")?)
+        }
+        Some(w::TrackSizeKind::Fit(_)) => TrackSize::Fit,
+    })
 }
 
 fn decode_cell(wire: w::Cell) -> Cell {
@@ -824,6 +918,7 @@ fn decode_inside_legend(wire: w::InsideLegend, at: &str) -> Result<InsideLegend>
         location: decode_enum(wire.location, Some(default.location), at, "location")?,
         boxed: wire.boxed.unwrap_or(default.boxed),
         layout: decode_legend_entry_layout(wire.layout, default.layout, &join(at, "layout"))?,
+        entries: decode_legend_entries(wire.entries, &join(at, "entries"))?,
     })
 }
 
@@ -835,6 +930,73 @@ fn decode_panel_legend(wire: w::PanelLegend, at: &str) -> Result<PanelLegend> {
         align: decode_enum(wire.align, Some(default.align), at, "align")?,
         boxed: wire.boxed.unwrap_or(default.boxed),
         layout: decode_legend_entry_layout(wire.layout, default.layout, &join(at, "layout"))?,
+        entries: decode_legend_entries(wire.entries, &join(at, "entries"))?,
+    })
+}
+
+/// Decodes the entries of a legend, which are automatic when absent or unset.
+fn decode_legend_entries(wire: Option<w::LegendEntries>, at: &str) -> Result<LegendEntries> {
+    Ok(match wire.and_then(|entries| entries.kind) {
+        None | Some(w::LegendEntriesKind::Auto(_)) => LegendEntries::Auto,
+        Some(w::LegendEntriesKind::Explicit(explicit)) => {
+            let at = join(at, "explicit_items");
+            LegendEntries::Explicit(
+                explicit
+                    .items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, item)| decode_legend_item(item, &join(&at, &format!("items[{i}]"))))
+                    .collect::<Result<_>>()?,
+            )
+        }
+    })
+}
+
+/// Decodes an item of an explicit list of legend entries, whose content has no default.
+fn decode_legend_item(wire: w::LegendItem, at: &str) -> Result<LegendItem> {
+    let content = required(wire.content.and_then(|content| content.kind), at, "content")?;
+    let content =
+        match content {
+            w::LegendItemContentKind::Artist(artist) => LegendItemContent::Artist(NodeId(
+                required(artist.artist, &join(at, "content.artist"), "artist")?,
+            )),
+            w::LegendItemContentKind::Custom(custom) => {
+                let at = join(at, "content.custom");
+                LegendItemContent::Custom {
+                    label: custom
+                        .label
+                        .map(|label| decode_text(label, &join(&at, "label")))
+                        .transpose()?
+                        .unwrap_or_default(),
+                    sample: decode_legend_sample(custom.sample, &at)?,
+                }
+            }
+        };
+    Ok(LegendItem {
+        content,
+        full_row: wire.full_row.unwrap_or(false),
+    })
+}
+
+/// Decodes the sample of a legend item, which has no default.
+fn decode_legend_sample(wire: Option<w::LegendSample>, at: &str) -> Result<LegendSample> {
+    let kind = required(wire.and_then(|sample| sample.kind), at, "sample")?;
+    let at = join(at, "sample");
+    Ok(match kind {
+        w::LegendSampleKind::Line(line) => {
+            let at = join(&at, "line");
+            LegendSample::Line {
+                line: decode_line_style(line.line, LineStyle::default(), &join(&at, "line"))?,
+                marker: decode_marker_style(
+                    line.marker,
+                    MarkerStyle::default(),
+                    &join(&at, "marker"),
+                )?,
+            }
+        }
+        w::LegendSampleKind::Swatch(swatch) => LegendSample::Swatch {
+            color: swatch.color.map(decode_color).unwrap_or_default(),
+        },
     })
 }
 
@@ -1092,6 +1254,9 @@ fn decode_line(wire: w::Line, at: &str) -> Result<Line> {
         z: wire.z.map(DataId),
         line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
         marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+        clip: wire.clip.unwrap_or(default.clip),
     })
 }
 
@@ -1184,6 +1349,9 @@ fn decode_scatter(wire: w::Scatter, at: &str) -> Result<Scatter> {
         size,
         color,
         marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+        clip: wire.clip.unwrap_or(default.clip),
     })
 }
 
@@ -1426,6 +1594,9 @@ fn encode_value(value: &Value) -> w::Value {
         Value::DataId(v) => w::ValueKind::DataId(w::ValueDataId { value: Some(v.0) }),
         Value::NodeId(v) => w::ValueKind::NodeId(w::ValueNodeId { value: Some(v.0) }),
         Value::Doubles(v) => w::ValueKind::Doubles(w::ValueDoubles { values: v.clone() }),
+        Value::TrackSizes(v) => w::ValueKind::TrackSizes(w::ValueTrackSizes {
+            sizes: v.iter().map(|&size| encode_track_size(size)).collect(),
+        }),
         Value::Strings(v) => w::ValueKind::Strings(w::ValueStrings { values: v.clone() }),
         Value::Texts(v) => w::ValueKind::Texts(w::ValueTexts {
             values: v.iter().map(encode_text).collect(),
@@ -1475,10 +1646,10 @@ fn encode_value(value: &Value) -> w::Value {
             w::ValueKind::ColormapName(w::ValueColormapName { value: v.to_wire() })
         }
         Value::Legend(v) => w::ValueKind::Legend(w::ValueLegend {
-            value: Some(encode_legend(*v)),
+            value: Some(encode_legend(v)),
         }),
         Value::InsideLegend(v) => w::ValueKind::InsideLegend(w::ValueInsideLegend {
-            value: Some(encode_inside_legend(*v)),
+            value: Some(encode_inside_legend(v)),
         }),
         Value::LegendLocation(v) => {
             w::ValueKind::LegendLocation(w::ValueLegendLocation { value: v.to_wire() })
@@ -1514,6 +1685,7 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_line_style(*v)),
         }),
         Value::DashStyle(v) => w::ValueKind::DashStyle(w::ValueDashStyle { value: v.to_wire() }),
+        Value::Coords(v) => w::ValueKind::Coords(w::ValueCoords { value: v.to_wire() }),
         Value::MarkerStyle(v) => w::ValueKind::MarkerStyle(w::ValueMarkerStyle {
             value: Some(encode_marker_style(*v)),
         }),
@@ -1671,6 +1843,16 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             "value",
         )?)),
         w::ValueKind::Doubles(v) => Value::Doubles(v.values),
+        w::ValueKind::TrackSizes(v) => {
+            let at = join(at, "track_sizes_value");
+            Value::TrackSizes(
+                v.sizes
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, size)| decode_track_size(size, &join(&at, &format!("sizes[{i}]"))))
+                    .collect::<Result<_>>()?,
+            )
+        }
         w::ValueKind::Strings(v) => Value::Strings(v.values),
         w::ValueKind::Texts(v) => {
             let at = join(at, "texts_value");
@@ -1713,7 +1895,7 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         }
         w::ValueKind::TileLayout(v) => {
             let (layout, _) = value_message(v.value, at, "tile_layout_value")?;
-            Value::TileLayout(decode_tile_layout(layout))
+            Value::TileLayout(decode_tile_layout(layout, &join(at, "tile_layout_value"))?)
         }
         w::ValueKind::Links(v) => {
             let at = join(at, "links_value");
@@ -1835,6 +2017,12 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "dash_style_value"),
+            "value",
+        )?),
+        w::ValueKind::Coords(v) => Value::Coords(decode_enum(
+            v.value,
+            None,
+            &join(at, "coords_value"),
             "value",
         )?),
         w::ValueKind::MarkerStyle(v) => {

@@ -5,8 +5,8 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, DashStyle, DataId, Figure, Image, ImagePlane, IndexedImage, Levels, Line,
-    MappedImage, MarkerShape, NdArray, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale,
+    Artist, Contour, Coords, DashStyle, DataId, Figure, Image, ImagePlane, IndexedImage, Levels,
+    Line, MappedImage, MarkerShape, NdArray, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale,
     Scatter, ScatterColor, ScatterSize, Surface, Text,
 };
 
@@ -186,6 +186,40 @@ impl LineMut<'_> {
         self.artist().marker.edge = color.into_color_spec();
         self
     }
+    /// Sets how the x values are placed: as data along the x axis (the default), or as
+    /// fractions of the plot area's width, 0 at its left edge and 1 at its right edge,
+    /// whatever the limits, scale or pan and zoom of the axis.
+    ///
+    /// Values in axes-fraction coordinates take no part in the automatic x limits. Only
+    /// a two-dimensional axes accepts them; [`Figure::validate`](crate::Figure::validate)
+    /// reports them as an error in a three-dimensional one.
+    pub fn x_coords(&mut self, coords: Coords) -> &mut Self {
+        self.artist().x_coords = coords;
+        self
+    }
+
+    /// Sets how the y values are placed: as data along the y axis (the default), or as
+    /// fractions of the plot area's height, 0 at its bottom edge and 1 at its top edge,
+    /// as [`x_coords`](Self::x_coords) places x values.
+    pub fn y_coords(&mut self, coords: Coords) -> &mut Self {
+        self.artist().y_coords = coords;
+        self
+    }
+
+    /// Sets whether the line is clipped to the plot area (the default), or may draw
+    /// beyond it along a dimension in axes-fraction coordinates, for example markers
+    /// that sit on the top edge of the axes.
+    ///
+    /// Releasing the clip never releases it along a dimension in data coordinates: a
+    /// marker at a data x outside the x limits is not drawn. A line in data
+    /// coordinates along both dimensions is therefore always clipped, as is every
+    /// artist of a three-dimensional axes, and
+    /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
+    /// effect.
+    pub fn clip(&mut self, clip: bool) -> &mut Self {
+        self.artist().clip = clip;
+        self
+    }
 }
 
 /// A handle to a scatter created by [`scatter`](crate::AxesMut::scatter) or
@@ -277,6 +311,41 @@ impl ScatterMut<'_> {
     /// Fills the markers with their colour (MATLAB's `scatter(..., 'filled')`).
     pub fn filled(&mut self) -> &mut Self {
         self.artist().marker.face = ironlab_ir::ColorSpec::Auto;
+        self
+    }
+
+    /// Sets how the x values are placed: as data along the x axis (the default), or as
+    /// fractions of the plot area's width, 0 at its left edge and 1 at its right edge,
+    /// whatever the limits, scale or pan and zoom of the axis.
+    ///
+    /// Values in axes-fraction coordinates take no part in the automatic x limits. Only
+    /// a two-dimensional axes accepts them; [`Figure::validate`](crate::Figure::validate)
+    /// reports them as an error in a three-dimensional one.
+    pub fn x_coords(&mut self, coords: Coords) -> &mut Self {
+        self.artist().x_coords = coords;
+        self
+    }
+
+    /// Sets how the y values are placed: as data along the y axis (the default), or as
+    /// fractions of the plot area's height, 0 at its bottom edge and 1 at its top edge,
+    /// as [`x_coords`](Self::x_coords) places x values.
+    pub fn y_coords(&mut self, coords: Coords) -> &mut Self {
+        self.artist().y_coords = coords;
+        self
+    }
+
+    /// Sets whether the scatter is clipped to the plot area (the default), or may draw
+    /// beyond it along a dimension in axes-fraction coordinates, for example markers
+    /// that sit on the top edge of the axes.
+    ///
+    /// Releasing the clip never releases it along a dimension in data coordinates: a
+    /// marker at a data x outside the x limits is not drawn. A scatter in data
+    /// coordinates along both dimensions is therefore always clipped, as is every
+    /// artist of a three-dimensional axes, and
+    /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
+    /// effect.
+    pub fn clip(&mut self, clip: bool) -> &mut Self {
+        self.artist().clip = clip;
         self
     }
 }
