@@ -367,6 +367,7 @@
         "type": "two_d"
       },
       "title": null,
+      "title_align": "center",
       "x": {
         "label": {
           "content": "Time $t$ (s)",
@@ -418,6 +419,10 @@
         },
         "grid": true
       },
+      "aspect": {
+        "type": "auto"
+      },
+      "aspect_adjust": "box",
       "box": true,
       "colormap": "viridis",
       "clim": {

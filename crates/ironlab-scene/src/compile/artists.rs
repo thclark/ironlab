@@ -51,15 +51,22 @@ pub(crate) struct Projector {
     log: [bool; 3],
     /// Whether each axis is reversed, which mirrors the normalised box along it.
     reverse: [bool; 3],
+    /// The relative lengths of the sides of the box along x, y and z, the longest being 1.
+    sides: [f64; 3],
     scale: f64,
     centre: Point,
 }
 
 impl Projector {
-    /// Builds the projection for a view, fitting the unit box to the plot rectangle independently of the view and
-    /// then applying the view's zoom about the plot centre and its pan as fractions of the plot size (positive pan
-    /// moves right and down).
-    pub fn new(view: View3d, ranges: &[Range; 3], plot: Rect) -> Self {
+    /// Builds the projection for a view, fitting the box to the plot rectangle independently of the view and then
+    /// applying the view's zoom about the plot centre and its pan as fractions of the plot size (positive pan moves
+    /// right and down).
+    ///
+    /// The box has sides of the relative lengths `sides` along x, y and z, the longest being 1: a cube for an
+    /// automatic aspect, and the proportions of the aspect otherwise. It is fitted by the sphere that circumscribes it,
+    /// whose projection is the same disc in every view, so that rotating the view never changes the size or the
+    /// proportions of the box and every view of it fits the plot rectangle at a zoom of 1.
+    pub fn new(view: View3d, ranges: &[Range; 3], plot: Rect, sides: [f64; 3]) -> Self {
         let camera = Camera {
             azimuth_deg: wrap_azimuth(view.azimuth_deg),
             elevation_deg: clamp_elevation(view.elevation_deg),
@@ -72,12 +79,19 @@ impl Projector {
         let finite_or_zero = |p: f64| if p.is_finite() { p } else { 0.0 };
         let (pan_x, pan_y) = (finite_or_zero(view.pan_x), finite_or_zero(view.pan_y));
         let (fit, offset) = fit_to_rect(plot.width, plot.height);
+        let usable = sides.iter().all(|s| s.is_finite() && *s > 0.0);
+        let sides = if usable { sides } else { [1.0; 3] };
+        // The unit cube has a diagonal of √3, for which `fit_to_rect` is computed; a box of other sides is fitted by
+        // its own diagonal.
+        let diagonal = sides.iter().map(|s| s * s).sum::<f64>().sqrt();
+        let fit = fit * 3f64.sqrt() / diagonal;
         Self {
             camera,
             lo: ranges.map(|r| r.min),
             hi: ranges.map(|r| r.max),
             log: ranges.map(|r| r.log),
             reverse: ranges.map(|r| r.reverse),
+            sides,
             scale: fit * zoom,
             centre: Point::new(
                 plot.x + offset[0] + pan_x * plot.width,
@@ -99,7 +113,9 @@ impl Projector {
         if !n.iter().all(|c| c.is_finite()) {
             return None;
         }
-        let projected = self.camera.project(n);
+        let projected = self
+            .camera
+            .project(std::array::from_fn(|k| n[k] * self.sides[k]));
         let p = Point::new(
             self.centre.x + self.scale * projected.screen[0],
             self.centre.y - self.scale * projected.screen[1],

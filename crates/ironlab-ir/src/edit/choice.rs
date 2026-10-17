@@ -25,7 +25,10 @@ use crate::artist::Coords;
 use crate::artist::{
     ContourPlacement, Grid, ImagePlane, Levels, OutOfRange, QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axes, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
+use crate::axes::{
+    Aspect, AspectAdjust, Axes, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
+    TitleAlign, View3d,
+};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, properties};
 use crate::edit::value::{Value, ValueType};
@@ -147,6 +150,9 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Limits => limits_choices(replacing),
         ValueType::Ticks => ticks_choices(replacing),
         ValueType::TickLabels => tick_labels_choices(replacing),
+        ValueType::Aspect => aspect_choices(replacing),
+        ValueType::AspectAdjust => aspect_adjust_choices(),
+        ValueType::TitleAlign => title_align_choices(),
         ValueType::ColorSpec => color_spec_choices(replacing),
         ValueType::ScatterSize => scatter_size_choices(replacing),
         ValueType::ScatterColor => scatter_color_choices(replacing),
@@ -472,6 +478,9 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Limits(v) => limits_label(v),
         Value::Ticks(v) => ticks_label(v),
         Value::TickLabels(v) => tick_labels_label(v),
+        Value::Aspect(v) => aspect_label(v),
+        Value::AspectAdjust(v) => aspect_adjust_label(v),
+        Value::TitleAlign(v) => title_align_label(v),
         Value::ColorSpec(v) => color_spec_label(v),
         Value::ScatterSize(v) => scatter_size_label(v),
         Value::ScatterColor(v) => scatter_color_label(v),
@@ -612,6 +621,15 @@ tagged_choices! {
             Some(Value::Ticks(Ticks::Values(values))) => values.clone(),
             _ => Vec::new(),
         });
+    }
+
+    Aspect as Aspect (aspect_choices, aspect_label) replacing replacing {
+        Aspect::Auto => "Automatic" = Aspect::Auto;
+        Aspect::Equal => "Equal" = Aspect::Equal;
+        Aspect::Ratio { .. } => "Ratio" = match replacing {
+            Some(Value::Aspect(Aspect::Ratio { y, z })) => Aspect::Ratio { y: *y, z: *z },
+            _ => Aspect::Ratio { y: 1.0, z: 1.0 },
+        };
     }
 
     TickLabels as TickLabels (tick_labels_choices, tick_labels_label) replacing replacing {
@@ -820,7 +838,20 @@ plain_choices! {
         DashStyle::Dashed => "Dashed";
         DashStyle::Dotted => "Dotted";
         DashStyle::DashDot => "Dash-dot";
+        DashStyle::DashDotDot => "Dash-dot-dot";
+        DashStyle::LongDash => "Long dash";
         DashStyle::None => "None";
+    }
+
+    AspectAdjust as AspectAdjust (aspect_adjust_choices, aspect_adjust_label) {
+        AspectAdjust::Box => "Shape the box";
+        AspectAdjust::Limits => "Widen the limits";
+    }
+
+    TitleAlign as TitleAlign (title_align_choices, title_align_label) {
+        TitleAlign::Center => "Centre";
+        TitleAlign::Left => "Left";
+        TitleAlign::Right => "Right";
     }
 
     Interpreter as Interpreter (interpreter_choices, interpreter_label) {

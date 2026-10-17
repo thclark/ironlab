@@ -10,15 +10,15 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
-    Coords, DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Image,
-    ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter, Legend, LegendEntries,
-    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
-    LegendLocation, LegendSample, Levels, Limits, Line, LineStyle, MappedImage, MarkerShape,
-    MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, PanelLegend, Parameter,
-    PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter, ScatterColor,
-    ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, TrackSize, Transaction, Value,
-    Values, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName,
+    Contour, ContourPlacement, Coords, DashStyle, DataId, Dimension, Edit, Figure, FigureSize,
+    FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
+    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, Line, LineStyle, MappedImage,
+    MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, PanelLegend,
+    Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter,
+    ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize,
+    Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -68,7 +68,9 @@ wire_enum! {
         NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Center, Best,
     }
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
-    DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None }
+    DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
+    AspectAdjust => AspectAdjust { Box, Limits }
+    TitleAlign => TitleAlign { Center, Left, Right }
     MarkerShape => MarkerShape {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
@@ -431,7 +433,22 @@ fn encode_axes(axes: &Axes) -> w::Axes {
         clim: Some(encode_limits(axes.clim)),
         legend: axes.legend.as_ref().map(encode_legend),
         artists: axes.artists.iter().map(encode_artist).collect(),
+        title_align: axes.title_align.to_wire(),
+        aspect: Some(encode_aspect(axes.aspect)),
+        aspect_adjust: axes.aspect_adjust.to_wire(),
     }
+}
+
+fn encode_aspect(aspect: Aspect) -> w::Aspect {
+    let kind = match aspect {
+        Aspect::Auto => w::AspectKind::Auto(w::AspectAuto {}),
+        Aspect::Equal => w::AspectKind::Equal(w::AspectEqual {}),
+        Aspect::Ratio { y, z } => w::AspectKind::Ratio(w::AspectRatio {
+            y: Some(y),
+            z: Some(z),
+        }),
+    };
+    w::Aspect { kind: Some(kind) }
 }
 
 fn encode_grid(grid: Grid) -> w::Grid {
@@ -1089,6 +1106,21 @@ fn decode_limits(wire: Option<w::Limits>, default: Limits, at: &str) -> Result<L
     })
 }
 
+fn decode_aspect(wire: Option<w::Aspect>, at: &str) -> Result<Aspect> {
+    Ok(match wire.and_then(|aspect| aspect.kind) {
+        None => Aspect::default(),
+        Some(w::AspectKind::Auto(_)) => Aspect::Auto,
+        Some(w::AspectKind::Equal(_)) => Aspect::Equal,
+        Some(w::AspectKind::Ratio(ratio)) => {
+            let at = join(at, "ratio");
+            Aspect::Ratio {
+                y: required(ratio.y, &at, "y")?,
+                z: required(ratio.z, &at, "z")?,
+            }
+        }
+    })
+}
+
 fn decode_ticks(wire: Option<w::Ticks>, at: &str) -> Result<Ticks> {
     Ok(match wire.and_then(|ticks| ticks.kind) {
         None => Ticks::default(),
@@ -1169,6 +1201,19 @@ fn decode_axes(wire: w::Axes, at: &str) -> Result<Axes> {
             .title
             .map(|t| decode_text(t, &join(at, "title")))
             .transpose()?,
+        title_align: decode_enum(
+            wire.title_align,
+            Some(default.title_align),
+            at,
+            "title_align",
+        )?,
+        aspect: decode_aspect(wire.aspect, &join(at, "aspect"))?,
+        aspect_adjust: decode_enum(
+            wire.aspect_adjust,
+            Some(default.aspect_adjust),
+            at,
+            "aspect_adjust",
+        )?,
         x: decode_axis(wire.x, &join(at, "x"))?,
         y: decode_axis(wire.y, &join(at, "y"))?,
         z: decode_axis(wire.z, &join(at, "z"))?,
@@ -1627,6 +1672,13 @@ fn encode_value(value: &Value) -> w::Value {
         Value::LegendEntryOrder(v) => {
             w::ValueKind::LegendEntryOrder(w::ValueLegendEntryOrder { value: v.to_wire() })
         }
+        Value::Aspect(v) => w::ValueKind::Aspect(w::ValueAspect {
+            value: Some(encode_aspect(*v)),
+        }),
+        Value::AspectAdjust(v) => {
+            w::ValueKind::AspectAdjust(w::ValueAspectAdjust { value: v.to_wire() })
+        }
+        Value::TitleAlign(v) => w::ValueKind::TitleAlign(w::ValueTitleAlign { value: v.to_wire() }),
         Value::Ticks(v) => w::ValueKind::Ticks(w::ValueTicks {
             value: Some(encode_ticks(v)),
         }),
@@ -1934,6 +1986,22 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "legend_entry_order_value"),
+            "value",
+        )?),
+        w::ValueKind::Aspect(v) => {
+            let (aspect, at) = value_message(v.value, at, "aspect_value")?;
+            Value::Aspect(decode_aspect(Some(aspect), &at)?)
+        }
+        w::ValueKind::AspectAdjust(v) => Value::AspectAdjust(decode_enum(
+            v.value,
+            None,
+            &join(at, "aspect_adjust_value"),
+            "value",
+        )?),
+        w::ValueKind::TitleAlign(v) => Value::TitleAlign(decode_enum(
+            v.value,
+            None,
+            &join(at, "title_align_value"),
             "value",
         )?),
         w::ValueKind::Ticks(v) => {

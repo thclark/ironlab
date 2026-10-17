@@ -8,6 +8,7 @@ mod common;
 mod probe;
 
 mod artists;
+mod aspect;
 mod blended;
 mod decimation;
 mod dense;
@@ -25,4 +26,5 @@ mod scales;
 mod surfaces_2d;
 mod three_d;
 mod ticks;
+mod titles;
 mod validity;

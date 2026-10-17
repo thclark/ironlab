@@ -32,7 +32,8 @@
 //! - A figure is 160 mm wide and 100 mm high, uses the STIX Two font set at a base
 //!   size of 9 pt on a white background, and has a single-cell tile layout.
 //! - An axes is two-dimensional with a full box, the viridis colormap, automatic
-//!   colour limits and no legend. Each of its axes is linear, has automatic limits,
+//!   colour limits, an automatic aspect (kept, when it is fixed, by shrinking the plot
+//!   area), a title centred over the plot area and no legend. Each of its axes is linear, has automatic limits,
 //!   automatic ticks and automatic tick labels, runs in the usual direction (left to
 //!   right, bottom to top) and has no grid lines.
 //! - A three-dimensional view has an azimuth of −37.5°, an elevation of 30°, a zoom
@@ -79,7 +80,10 @@ pub use artist::{
     IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
     ScatterColor, ScatterSize, Surface,
 };
-pub use axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
+pub use axes::{
+    Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
+    TitleAlign, View3d,
+};
 pub use data::{NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,

@@ -40,6 +40,7 @@ fn decay_figure() -> Figure {
             },
             projection: Projection::TwoD,
             title: None,
+            title_align: TitleAlign::Left,
             x: Axis {
                 label: Some(Text::new("$t$ (s)")),
                 scale: Scale::Linear,
@@ -66,6 +67,8 @@ fn decay_figure() -> Figure {
                 grid: true,
             },
             z: Axis::default(),
+            aspect: Aspect::Ratio { y: 0.5, z: 2.0 },
+            aspect_adjust: AspectAdjust::Limits,
             box_: true,
             colormap: ColormapName::Viridis,
             clim: Limits::Auto,

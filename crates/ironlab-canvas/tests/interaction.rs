@@ -9,9 +9,12 @@ mod common;
 use common::*;
 use ironlab_canvas::interaction::{MIN_BOX_ZOOM_POINTS, PixelDatatip, PixelValue, Tip};
 use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
+use std::f64::consts::TAU;
+
 use ironlab_ir::{
-    Artist, Axes, Color, Coords, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage,
-    Limits, Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Color, Coords, DataId, Dimension, Figure, Image,
+    ImagePlacement, IndexedImage, Limits, Line, MappedImage, NdArray, NodeId, OutOfRange,
+    PixelRange, Scale, Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -2289,4 +2292,458 @@ fn setting_reverse_in_the_overlay_reverses_the_axis_and_undo_restores_it() {
     assert!(state.undo());
     reversed_maps_of(&recompiled(&state), false);
     assert!(!state.source().axes(NodeId(2)).unwrap().x.reverse);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// A fixed aspect, kept while panning and zooming
+// ---------------------------------------------------------------------------------------------------------------
+
+/// A section-like closed curve spanning x ∈ [0, 1] and y ∈ [−0.06, 0.06] in axes 2 at equal aspect, with manual
+/// limits x ∈ [−0.2, 1.2] and y ∈ [−0.4, 0.4] that do not match the shape of the plot area, so that a `Limits`
+/// adjustment widens y and a `Box` adjustment shrinks the plot.
+fn section_figure(adjust: AspectAdjust) -> Figure {
+    let t: Vec<f64> = (0..=64).map(|k| f64::from(k) / 64.0 * TAU).collect();
+    let x: Vec<f64> = t.iter().map(|t| 0.5 + 0.5 * t.cos()).collect();
+    let y: Vec<f64> = t.iter().map(|t| 0.06 * t.sin()).collect();
+    let mut figure = figure_of(
+        vec![NdArray::vector(x), NdArray::vector(y)],
+        vec![Artist::Line(Line {
+            id: NodeId(3),
+            x: DataId(0),
+            y: DataId(1),
+            ..Line::default()
+        })],
+    );
+    let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
+    axes.aspect = Aspect::Equal;
+    axes.aspect_adjust = adjust;
+    axes.x.limits = manual(-0.2, 1.2);
+    axes.y.limits = manual(-0.4, 0.4);
+    figure
+}
+
+/// Returns the drawn length of a unit of y over that of a unit of x in a 2D axes of a hit map.
+fn drawn_ratio(hit: &HitMap, id: u64) -> f64 {
+    let axes = hit
+        .axes
+        .iter()
+        .find(|a| a.id == NodeId(id))
+        .expect("the axes is drawn");
+    let AxesHitKind::TwoD { x, y } = axes.kind else {
+        panic!("axes {id} is two-dimensional");
+    };
+    let unit = |m: &AxisMap| (m.end - m.start).abs() / (m.max - m.min);
+    unit(&y) / unit(&x)
+}
+
+#[track_caller]
+fn assert_equal_aspect(hit: &HitMap, id: u64) {
+    let ratio = drawn_ratio(hit, id);
+    assert!((ratio - 1.0).abs() < 1e-9, "axes {id}: drawn ratio {ratio}");
+}
+
+/// Returns the data point drawn at `at` in axes 2 of a hit map.
+fn data_at(hit: &HitMap, at: Point) -> (f64, f64) {
+    let (x, y) = maps_of(hit);
+    (x.to_data(at.x), y.to_data(at.y))
+}
+
+// Why: the wheel zooms about the pointer; at a fixed aspect kept by widening limits, the limits the gesture starts
+// from are the widened ones the reader sees, not the narrower manual ones stored, or the first notch would jump the
+// view. The limits a notch writes keep the data point under the pointer in the plot rectangle the reader zoomed in,
+// and the aspect holds once the figure is drawn again.
+#[test]
+fn wheel_zoom_at_a_fixed_aspect_keeps_the_point_under_the_cursor_and_the_aspect() {
+    for adjust in [AspectAdjust::Limits, AspectAdjust::Box] {
+        let (mut state, mut hit) = compiled(section_figure(adjust));
+        assert_equal_aspect(&hit, 2);
+        for factor in [2.0, 1.5, 0.5] {
+            let plot = hit.axes[0].plot_rect;
+            let at = Point::new(plot.x + 0.3 * plot.width, plot.y + 0.35 * plot.height);
+            let (x, y) = maps_of(&hit);
+            let under = (x.to_data(at.x), y.to_data(at.y));
+            assert!(state.scroll(&hit, at, factor));
+            let (x, y) = (
+                remapped(x, manual_of(state.figure(), 2, Dimension::X)),
+                remapped(y, manual_of(state.figure(), 2, Dimension::Y)),
+            );
+            let what = format!("{adjust:?}, factor {factor}");
+            assert_close(
+                x.to_data(at.x),
+                under.0,
+                1e-9,
+                &format!("{what}: x under the cursor"),
+            );
+            assert_close(
+                y.to_data(at.y),
+                under.1,
+                1e-9,
+                &format!("{what}: y under the cursor"),
+            );
+            hit = recompiled(&state);
+            assert_equal_aspect(&hit, 2);
+        }
+    }
+}
+
+// Why: a pan grabs the data under the pointer and keeps it there; at a fixed aspect kept by widening limits, the
+// grabbed point is read through the widened limits the reader sees, and the plot keeps its aspect after the pan.
+#[test]
+fn pan_at_a_fixed_aspect_keeps_the_grabbed_point_under_the_pointer() {
+    for adjust in [AspectAdjust::Limits, AspectAdjust::Box] {
+        let (mut state, hit) = compiled(section_figure(adjust));
+        let plot = hit.axes[0].plot_rect;
+        let from = Point::new(plot.x + 0.4 * plot.width, plot.y + 0.6 * plot.height);
+        let to = Point::new(from.x + 30.0, from.y - 12.0);
+        let grabbed = data_at(&hit, from);
+        assert!(drag(&mut state, &hit, from, to));
+        let (x, y) = maps_of(&hit);
+        let (x, y) = (
+            remapped(x, manual_of(state.figure(), 2, Dimension::X)),
+            remapped(y, manual_of(state.figure(), 2, Dimension::Y)),
+        );
+        assert_close(
+            x.to_data(to.x),
+            grabbed.0,
+            1e-9,
+            &format!("{adjust:?}: x grabbed"),
+        );
+        assert_close(
+            y.to_data(to.y),
+            grabbed.1,
+            1e-9,
+            &format!("{adjust:?}: y grabbed"),
+        );
+        assert_equal_aspect(&recompiled(&state), 2);
+    }
+}
+
+// Why: a rubber band of any shape must zoom to a view that keeps the aspect without hiding any of what the reader
+// selected, so the shorter side of the band is expanded about its centre to the shape of the plot area; with `Box`
+// this also keeps the plot area from changing shape at every zoom. A wide band grows in height; the tall band is
+// tested below.
+#[test]
+fn a_rubber_band_at_a_fixed_aspect_expands_its_shorter_side_about_its_centre() {
+    for adjust in [AspectAdjust::Limits, AspectAdjust::Box] {
+        let (mut state, hit) = compiled(section_figure(adjust));
+        state.tool = Tool::Zoom;
+        let plot = hit.axes[0].plot_rect;
+        // A wide, short band in the middle of the plot.
+        let from = Point::new(plot.x + 0.2 * plot.width, plot.y + 0.45 * plot.height);
+        let to = Point::new(plot.x + 0.7 * plot.width, plot.y + 0.55 * plot.height);
+        let (x0, y0) = data_at(&hit, from);
+        let (x1, y1) = data_at(&hit, to);
+        state.drag_start(&hit, from);
+        state.drag_update(to);
+        let band = state.rubber_band().expect("the band is shown");
+        assert_close(
+            band.height / band.width,
+            plot.height / plot.width,
+            1e-9,
+            "the band shown has the shape of the plot area",
+        );
+        assert_close(band.width, to.x - from.x, 1e-9, "the longer side is kept");
+        assert!(state.drag_end(to));
+
+        assert_equal_aspect(&recompiled(&state), 2);
+        // The limits the zoom writes, before the figure is drawn again with tick labels that may reshape it.
+        let (x, y) = (
+            remapped(maps_of(&hit).0, manual_of(state.figure(), 2, Dimension::X)),
+            remapped(maps_of(&hit).1, manual_of(state.figure(), 2, Dimension::Y)),
+        );
+        assert_close(x.min, x0.min(x1), 1e-9, "x min is the band's");
+        assert_close(x.max, x0.max(x1), 1e-9, "x max is the band's");
+        assert!(
+            y.min < y0.min(y1) && y.max > y0.max(y1),
+            "y shows all of the band"
+        );
+        assert_close(
+            (y.min + y.max) / 2.0,
+            (y0 + y1) / 2.0,
+            1e-9,
+            "y widens about the centre of the band",
+        );
+        // The new limits have the shape of the old ones, so a box keeps its shape and a plot whose limits are
+        // widened needs no further widening.
+        let (old_x, old_y) = maps_of(&hit);
+        assert_close(
+            (y.max - y.min) / (x.max - x.min),
+            (old_y.max - old_y.min) / (old_x.max - old_x.min),
+            1e-9,
+            "the limits keep their shape",
+        );
+    }
+}
+
+// Why: a tall, narrow band must grow in width, not height: it is the shorter side relative to the plot's shape that
+// expands. A band near the edge of the plot may expand past it, because the expanded band is the region the zoom
+// shows, which may extend beyond the current view; clamping it back would hide part of what was selected.
+#[test]
+fn a_tall_rubber_band_at_a_fixed_aspect_expands_its_width_even_past_the_plot() {
+    let (mut state, hit) = compiled(section_figure(AspectAdjust::Limits));
+    state.tool = Tool::Zoom;
+    let plot = hit.axes[0].plot_rect;
+    let from = Point::new(plot.x + 0.02 * plot.width, plot.y + 0.1 * plot.height);
+    let to = Point::new(plot.x + 0.06 * plot.width, plot.y + 0.9 * plot.height);
+    state.drag_start(&hit, from);
+    state.drag_update(to);
+    let band = state.rubber_band().expect("the band is shown");
+    assert_close(band.height, to.y - from.y, 1e-9, "the longer side is kept");
+    assert_close(
+        band.height / band.width,
+        plot.height / plot.width,
+        1e-9,
+        "the band has the shape of the plot area",
+    );
+    assert!(
+        band.x < plot.x,
+        "the expanded band reaches past the plot: {band:?}"
+    );
+    let (x0, y0) = data_at(&hit, from);
+    let (x1, y1) = data_at(&hit, to);
+    assert!(state.drag_end(to));
+    let (x, y) = (
+        remapped(maps_of(&hit).0, manual_of(state.figure(), 2, Dimension::X)),
+        remapped(maps_of(&hit).1, manual_of(state.figure(), 2, Dimension::Y)),
+    );
+    assert_close(y.min, y0.min(y1), 1e-9, "y min is the band's");
+    assert_close(y.max, y0.max(y1), 1e-9, "y max is the band's");
+    assert!(
+        x.min < x0.min(x1) && x.max > x0.max(x1),
+        "x shows all of the band"
+    );
+    assert_close(
+        (x.min + x.max) / 2.0,
+        (x0 + x1) / 2.0,
+        1e-9,
+        "x widens about its centre",
+    );
+    assert_equal_aspect(&recompiled(&state), 2);
+}
+
+/// Three linked panels of the same section at equal aspect, x and y linked over all of them, as on a family sheet.
+fn linked_sections(adjust: AspectAdjust) -> Figure {
+    let mut figure = section_figure(adjust);
+    let template = figure.axes[0].clone();
+    figure.layout = ironlab_ir::TileLayout::new(1, 3);
+    figure.axes = (0..3)
+        .map(|col| {
+            let mut axes = template.clone();
+            axes.id = NodeId(10 + u64::from(col));
+            axes.cell.col = col;
+            for (k, artist) in axes.artists.iter_mut().enumerate() {
+                if let Artist::Line(line) = artist {
+                    line.id = NodeId(100 + 10 * u64::from(col) + k as u64);
+                }
+            }
+            axes
+        })
+        .collect();
+    figure.links = vec![
+        link(Dimension::X, &[10, 11, 12]),
+        link(Dimension::Y, &[10, 11, 12]),
+    ];
+    figure
+}
+
+// Why: on a family sheet whose panels are linked in x and y at equal aspect, zooming one panel moves all of them,
+// and every panel keeps its aspect. Zooming in and back out about one data point must return to the view the reader
+// started from: exactly when the aspect is kept by the box, whose limits keep their shape under a zoom, and to within
+// the reflow of tick labels when it is kept by widening limits, which may widen once more for a plot area that the
+// new tick labels reshape. The view must never creep or oscillate from one gesture to the next.
+#[test]
+fn zooming_linked_panels_at_equal_aspect_moves_them_together_and_returns_without_drift() {
+    for (adjust, tolerance) in [(AspectAdjust::Box, 1e-9), (AspectAdjust::Limits, 0.02)] {
+        let (mut state, mut hit) = compiled(linked_sections(adjust));
+        let anchor = {
+            let AxesHitKind::TwoD { x, y } = hit.axes[1].kind else {
+                panic!("two-dimensional");
+            };
+            let plot = hit.axes[1].plot_rect;
+            (
+                x.to_data(plot.x + 0.25 * plot.width),
+                y.to_data(plot.y + 0.6 * plot.height),
+            )
+        };
+        let start = hit.clone();
+        for factor in [2.0, 2.0, 0.5, 0.5] {
+            let AxesHitKind::TwoD { x, y } = hit.axes[1].kind else {
+                panic!("two-dimensional");
+            };
+            let at = Point::new(x.to_figure(anchor.0), y.to_figure(anchor.1));
+            assert!(state.scroll(&hit, at, factor));
+            hit = recompiled(&state);
+            let AxesHitKind::TwoD { x: x0, y: y0 } = hit.axes[0].kind else {
+                panic!("two-dimensional");
+            };
+            for axes in &hit.axes {
+                assert_equal_aspect(&hit, axes.id.0);
+                let AxesHitKind::TwoD { x, y } = axes.kind else {
+                    panic!("two-dimensional");
+                };
+                assert_eq!(
+                    (x.min, x.max, y.min, y.max),
+                    (x0.min, x0.max, y0.min, y0.max)
+                );
+            }
+        }
+        for (before, after) in start.axes.iter().zip(&hit.axes) {
+            let (&AxesHitKind::TwoD { x: bx, y: by }, &AxesHitKind::TwoD { x: ax, y: ay }) =
+                (&before.kind, &after.kind)
+            else {
+                panic!("two-dimensional");
+            };
+            for (b, a, span) in [
+                (bx.min, ax.min, bx.max - bx.min),
+                (bx.max, ax.max, bx.max - bx.min),
+                (by.min, ay.min, by.max - by.min),
+                (by.max, ay.max, by.max - by.min),
+            ] {
+                assert_close(
+                    a,
+                    b,
+                    tolerance * span,
+                    &format!("{adjust:?}: the view returns"),
+                );
+            }
+        }
+    }
+}
+
+/// A 3D axes (node 2) at equal aspect kept by `adjust`, with the manual limits of unequal span of
+/// [`axes_3d`] (x ∈ [−1, 1], y ∈ [−2, 2], z ∈ [0, 3]), so that an automatic aspect would draw the
+/// circle as an ellipse, holding a circle of radius 1 in
+/// the plane z = 1 (node 3) and a vertical segment of length 2 at its centre (node 4).
+fn circle_3d(adjust: AspectAdjust) -> Figure {
+    let t: Vec<f64> = (0..=96).map(|k| f64::from(k) / 96.0 * TAU).collect();
+    let mut figure = figure_of(
+        vec![
+            NdArray::vector(t.iter().map(|t| t.cos()).collect()),
+            NdArray::vector(t.iter().map(|t| t.sin()).collect()),
+            NdArray::vector(vec![1.0; t.len()]),
+            NdArray::vector(vec![0.0, 0.0]),
+            NdArray::vector(vec![0.5, 2.5]),
+        ],
+        vec![
+            Artist::Line(Line {
+                id: NodeId(3),
+                x: DataId(0),
+                y: DataId(1),
+                z: Some(DataId(2)),
+                ..Line::default()
+            }),
+            Artist::Line(Line {
+                id: NodeId(4),
+                x: DataId(3),
+                y: DataId(3),
+                z: Some(DataId(4)),
+                ..Line::default()
+            }),
+        ],
+    );
+    let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
+    *axes = Axes {
+        artists: std::mem::take(&mut axes.artists),
+        aspect: Aspect::Equal,
+        aspect_adjust: adjust,
+        ..axes_3d(2)
+    };
+    figure
+}
+
+/// Returns the box of the vertices drawn for an artist.
+fn drawn_box(state: &FigureState, id: u64) -> Rect {
+    let scene = ironlab_scene::compile(state.figure(), &TEXT);
+    let mut points = Vec::new();
+    scene.display_list.visit_leaves(|item, transform, _| {
+        if item.source == Some(NodeId(id))
+            && let ironlab_scene::display::ItemKind::Path(path) = &item.kind
+        {
+            for segment in &path.segments {
+                if let ironlab_scene::display::PathSegment::MoveTo(p)
+                | ironlab_scene::display::PathSegment::LineTo(p) = segment
+                {
+                    points.push(transform.apply(*p));
+                }
+            }
+        }
+    });
+    let (mut lo, mut hi) = (points[0], points[0]);
+    for p in &points {
+        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+    }
+    Rect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y)
+}
+
+// Why: the box of a 3D axes at a fixed aspect takes its proportions from its limits and the aspect alone, so rotating,
+// zooming and panning the view in the viewer, which change the camera and never the limits, must never change them:
+// seen from directly above, a circle in the xy plane is round however the view got there, and the ratio of its
+// diameter to a vertical segment seen from the side is the same before and after a zoom.
+#[test]
+fn rotating_zooming_and_panning_a_3d_axes_never_changes_its_box_proportions() {
+    for adjust in [AspectAdjust::Box, AspectAdjust::Limits] {
+        let (mut state, hit) = compiled(circle_3d(adjust));
+        let plot = hit.axes[0].plot_rect;
+        let centre = Point::new(plot.x + plot.width / 2.0, plot.y + plot.height / 2.0);
+
+        // Rotate to look straight down: the elevation is clamped at 90 degrees.
+        state.tool = Tool::Rotate;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x, centre.y + 400.0)
+        ));
+        assert_eq!(view_of(state.figure(), 2).elevation_deg, 90.0);
+        let circle = drawn_box(&state, 3);
+        assert_close(circle.width / circle.height, 1.0, 1e-3, "round from above");
+
+        // Zooming and panning scale and move the drawing but keep its proportions.
+        assert!(state.scroll(&hit, centre, 1.7));
+        state.tool = Tool::Pan;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x + 15.0, centre.y - 9.0)
+        ));
+        let zoomed = drawn_box(&state, 3);
+        assert_close(
+            zoomed.width / zoomed.height,
+            1.0,
+            1e-3,
+            "round after zoom and pan",
+        );
+        assert_close(zoomed.width / circle.width, 1.7, 1e-6, "the zoom scales it");
+
+        // From the side the vertical segment of length 2 is as long as the diameter of the circle.
+        state.tool = Tool::Rotate;
+        assert!(drag(
+            &mut state,
+            &hit,
+            centre,
+            Point::new(centre.x, centre.y - 400.0)
+        ));
+        assert!(state.record(&set(
+            2,
+            "projection.view3d.elevation_deg",
+            Value::Double(0.0)
+        )));
+        assert!(state.record(&set(2, "projection.view3d.azimuth_deg", Value::Double(0.0))));
+        let (side, segment) = (drawn_box(&state, 3), drawn_box(&state, 4));
+        assert_close(
+            segment.height / side.width,
+            1.0,
+            1e-6,
+            &format!("{adjust:?}: z is drawn as x is"),
+        );
+        // Seen from above and from the side, x runs to the right at the same scale: rotating changed nothing.
+        assert_close(
+            side.width,
+            zoomed.width,
+            1e-6,
+            "the box keeps its size as it rotates",
+        );
+    }
 }

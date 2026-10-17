@@ -20,12 +20,21 @@ pub struct Axes {
     pub projection: Projection,
     /// The title drawn above the axes.
     pub title: Option<Text>,
+    /// How the title is aligned with the plot area: centred over it, or with its left or
+    /// right edge on the left or right edge of the plot area.
+    pub title_align: TitleAlign,
     /// The horizontal axis in 2D, or the first horizontal axis in 3D.
     pub x: Axis,
     /// The vertical axis in 2D, or the second horizontal axis in 3D.
     pub y: Axis,
     /// The vertical axis in 3D; ignored by 2D axes.
     pub z: Axis,
+    /// The ratios of the length of one data unit of y, and of z, to the length of one data
+    /// unit of x.
+    pub aspect: Aspect,
+    /// How a fixed aspect is kept: by shaping the plot area or the box, or by widening
+    /// limits. Ignored when the aspect is `Auto`.
+    pub aspect_adjust: AspectAdjust,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels.
     #[serde(rename = "box")]
@@ -47,9 +56,12 @@ impl Default for Axes {
             cell: Cell::default(),
             projection: Projection::TwoD,
             title: None,
+            title_align: TitleAlign::Center,
             x: Axis::default(),
             y: Axis::default(),
             z: Axis::default(),
+            aspect: Aspect::Auto,
+            aspect_adjust: AspectAdjust::Box,
             box_: true,
             colormap: ColormapName::Viridis,
             clim: Limits::Auto,
@@ -57,6 +69,80 @@ impl Default for Axes {
             artists: Vec::new(),
         }
     }
+}
+
+/// The ratios of the drawn length of one data unit of y, and of z, to that of one data unit
+/// of x, as MATLAB's `daspect` gives them.
+///
+/// On a logarithmic axis the data unit is one decade, so `Equal` on log–log axes draws a
+/// decade of x and a decade of y at the same length. A 2D axes uses the ratio of y alone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum Aspect {
+    /// The plot area, or the box of a 3D axes, keeps its own shape and the limits are those
+    /// of the data, whatever the ratio of their lengths.
+    #[default]
+    Auto,
+    /// One data unit is drawn at the same length along every axis, which is
+    /// `Ratio { y: 1.0, z: 1.0 }`.
+    Equal,
+    /// One data unit of y is drawn `y` times as long as one data unit of x, and one data
+    /// unit of z `z` times as long. Both are finite and positive; `z` is ignored by a 2D
+    /// axes but validated all the same.
+    Ratio {
+        /// How many times as long a unit of y is drawn as a unit of x.
+        y: f64,
+        /// How many times as long a unit of z is drawn as a unit of x, in a 3D axes.
+        z: f64,
+    },
+}
+
+impl Aspect {
+    /// Returns the ratio `y` of a unit of y to a unit of x, with a ratio of 1 for z, which is
+    /// how a 2D axes is given a fixed ratio.
+    #[must_use]
+    pub fn ratio(y: f64) -> Self {
+        Aspect::Ratio { y, z: 1.0 }
+    }
+
+    /// Returns the ratios of the length of a unit of y, and of z, to that of a unit of x, or
+    /// `None` when the aspect is automatic.
+    #[must_use]
+    pub fn ratios(self) -> Option<[f64; 2]> {
+        match self {
+            Aspect::Auto => None,
+            Aspect::Equal => Some([1.0, 1.0]),
+            Aspect::Ratio { y, z } => Some([y, z]),
+        }
+    }
+}
+
+/// How an axes keeps a fixed [`Aspect`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AspectAdjust {
+    /// The limits are kept as they are, manual or automatic. A 2D axes shrinks its plot area
+    /// along one dimension, centred in the space the layout gives it; a 3D axes gives the
+    /// sides of its box the lengths of the scaled ranges of its axes.
+    #[default]
+    Box,
+    /// The plot area of a 2D axes, and the cube of a 3D axes, keep their shape, and the
+    /// limits of the axes that are too short for it are widened symmetrically about their
+    /// centres. Manual limits are the least range shown.
+    Limits,
+}
+
+/// How the title of an axes is aligned with its plot area.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleAlign {
+    /// The title is centred over the plot area.
+    #[default]
+    Center,
+    /// The left edge of the title is on the left edge of the plot area.
+    Left,
+    /// The right edge of the title is on the right edge of the plot area.
+    Right,
 }
 
 /// The projection of an axes.
