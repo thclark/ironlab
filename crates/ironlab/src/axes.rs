@@ -2,9 +2,9 @@
 
 use ironlab_ir::{
     Artist, Axes, Axis, Color, ColorSpec, ColormapName, Contour, ContourPlacement, Coords,
-    Dimension, Image, IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns,
-    LegendEntryOrder, LegendLocation, Limits, Line, MappedImage, NdArray, NodeId, Projection,
-    Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, View3d,
+    Dimension, Image, IndexedImage, InsideLegend, IrError, Legend, LegendEntries,
+    LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, Line, MappedImage, NdArray,
+    NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, View3d,
 };
 
 use crate::artists::{
@@ -838,11 +838,40 @@ impl AxesMut<'_> {
         self.inside_legend(|inside| inside.boxed = boxed)
     }
 
+    /// Sets which entries the legend inside the plot area lists, and in what order,
+    /// showing a legend with the default location and box if the axes has none or lists
+    /// its entries in a legend panel.
+    ///
+    /// `LegendEntries::Auto`, the default, lists every artist of the axes that has a
+    /// display name, in the order the artists were added. An explicit list names exactly
+    /// the items to list, in their order, whatever the order in which the artists are
+    /// drawn; an item that names an artist must name an artist of this axes.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(0.0, 1.0, 11);
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// let member = ax.plot(&x, &x).display_name("Member").id();
+    /// // The reference is drawn last, on top of the member, but listed first.
+    /// let reference = ax.plot(&x, &x).display_name("Reference").id();
+    /// ax.legend(LegendLocation::NorthWest)
+    ///     .legend_entries(LegendEntries::Explicit(vec![
+    ///         LegendItem::artist(reference),
+    ///         LegendItem::artist(member),
+    ///     ]));
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn legend_entries(&mut self, entries: LegendEntries) -> &mut Self {
+        self.inside_legend(|inside| inside.entries = entries)
+    }
+
     /// Applies `change` to the legend inside the plot area, starting from the default
     /// inside legend if the axes has none or lists its entries in a legend panel.
     fn inside_legend(&mut self, change: impl FnOnce(&mut InsideLegend)) -> &mut Self {
         let axes = self.axes();
-        let mut inside = match axes.legend {
+        let mut inside = match axes.legend.take() {
             Some(Legend::Inside(inside)) => inside,
             Some(Legend::Panel(_)) | None => InsideLegend::default(),
         };

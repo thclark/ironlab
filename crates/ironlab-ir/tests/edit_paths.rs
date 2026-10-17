@@ -191,6 +191,7 @@ type Flags = (bool, bool);
 /// registry: every field is a path, a singular message field (other than a list or a map)
 /// is descended into, and a tagged value (a message whose only oneof is `kind`) is
 /// flattened, so that the fields of each variant message are named directly below it.
+/// The paths in `skip`, which are not settable, are left out with every path below them.
 fn collect_paths(
     message: &MessageDescriptor,
     prefix: &str,
@@ -213,10 +214,10 @@ fn collect_paths(
         message.fields().map(|f| (f, false)).collect()
     };
     for (field, in_variant) in fields {
-        if skip.contains(&field.name()) {
+        let at = format!("{prefix}{}", field.name());
+        if skip.contains(&at.as_str()) {
             continue;
         }
-        let at = format!("{prefix}{}", field.name());
         let optional = OPTIONAL_IN_IR.contains(&field.full_name());
         let below = conditional || in_variant;
         out.insert(at.clone(), (optional, below));
@@ -224,7 +225,7 @@ fn collect_paths(
             && !field.is_list()
             && !field.is_map()
         {
-            collect_paths(&inner, &format!("{at}."), below || optional, &[], out);
+            collect_paths(&inner, &format!("{at}."), below || optional, skip, out);
         }
     }
 }
@@ -257,7 +258,13 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
                 "panel_legends",
             ],
         ),
-        (NodeKind::Axes, "Axes", &["id", "artists"]),
+        // The entries of a legend are structure that code writes, read but not set
+        // through the registry, as the artists of an axes are.
+        (
+            NodeKind::Axes,
+            "Axes",
+            &["id", "artists", "legend.inside.entries"],
+        ),
         (NodeKind::Line, "Line", read_only),
         (NodeKind::Scatter, "Scatter", read_only),
         (NodeKind::Contour, "Contour", read_only),
@@ -266,7 +273,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Image, "Image", read_only),
         (NodeKind::IndexedImage, "IndexedImage", read_only),
         (NodeKind::MappedImage, "MappedImage", read_only),
-        (NodeKind::PanelLegend, "PanelLegend", read_only),
+        (NodeKind::PanelLegend, "PanelLegend", &["id", "entries"]),
     ];
     for (kind, message, skip) in cases {
         let descriptor = pool
@@ -644,12 +651,37 @@ fn a_path_through_an_absent_optional_value_is_an_absent_value() {
 // Why: nodes and data change only through structural and data edits; a set of an
 // identifier, a node list or the data table must be refused with an error that says the
 // property is read-only, so that a client does not conclude that the path is misspelled.
+// The explicit entries of a legend are structure that code writes, as the artists of an
+// axes are, so they are read-only in a panel and inside a plot area alike, and are not
+// offered as properties.
 #[test]
 fn identifiers_node_lists_data_version_and_provenance_are_read_only() {
     let fig = kitchen_sink_figure();
     let axes = fig.axes[0].id;
     let artist = fig.axes[0].artists[0].id();
+    let inside = fig
+        .axes
+        .iter()
+        .find(|axes| matches!(axes.legend, Some(Legend::Inside(_))))
+        .expect("the kitchen-sink figure has an inside legend")
+        .id;
+    let explicit_panel = fig
+        .panel_legends
+        .iter()
+        .find(|panel| !panel.entries.is_auto())
+        .expect("the kitchen-sink figure has a panel of explicit entries")
+        .id;
+    for kind in [NodeKind::PanelLegend, NodeKind::Axes] {
+        assert!(
+            properties(kind)
+                .iter()
+                .all(|p| !p.path.to_string().ends_with("entries")),
+            "{kind:?} offers its entries as a property"
+        );
+    }
     for (node, at) in [
+        (explicit_panel, "entries"),
+        (inside, "legend.inside.entries"),
         (fig.id, "id"),
         (fig.id, "schema_version"),
         (fig.id, "provenance"),

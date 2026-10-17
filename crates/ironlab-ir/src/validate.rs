@@ -10,8 +10,10 @@ use crate::axes::{Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
-use crate::layout::Cell;
-use crate::legend::{Legend, LegendEntryColumns, LegendEntryLayout};
+use crate::layout::{Cell, TrackSize};
+use crate::legend::{
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItem, LegendItemContent,
+};
 use crate::link::Dimension;
 
 /// The outcome of validating a figure.
@@ -86,9 +88,27 @@ pub enum IssueKind {
     OverlappingCells,
     /// The legend of an axes names a legend panel that the figure does not have.
     DanglingPanelLegend,
-    /// The tile layout has more row weights than rows or more column weights than
-    /// columns, or a weight that is not a finite positive number.
+    /// The tile layout has more row sizes than rows or more column sizes than columns,
+    /// or a weight that is not a finite positive number.
     InvalidLayoutWeights,
+    /// An axes lies in fitted rows alone, or in fitted columns alone. A fitted row or
+    /// column takes its size from the legend panels in it, and an axes has no content
+    /// size of its own, so the axes would have no height or no width. An axes that spans
+    /// a fitted row or column together with a weighted one is valid.
+    AxesInFittedTrack,
+    /// An item of an explicit list of legend entries names an artist that the figure
+    /// does not have, or, in a legend inside a plot area, an artist of another axes.
+    DanglingLegendItem,
+    /// An explicit list of legend entries holds the same item more than once: two items
+    /// that name the same artist, or two items with the same label and sample. This is a
+    /// warning, not an error, because the legend can still be drawn: every item is
+    /// listed where it stands.
+    DuplicateLegendItem,
+    /// An item of an explicit list of legend entries names an artist that has no display
+    /// name, so the item shows its sample without a label. This is a warning, not an
+    /// error, because the legend can still be drawn and a display name can be given
+    /// later, in code or in the viewer.
+    UnnamedLegendItem,
     /// A legend, inside a plot area or in a panel, has a fixed number of columns of
     /// zero.
     InvalidLegendColumns,
@@ -161,8 +181,11 @@ impl Figure {
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
     /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
     /// identifiers that are not axes, duplicate node identifiers, cells of axes and
-    /// legend panels outside the tile layout, layout weights that are too many or not
-    /// finite and positive, legends that name a legend panel the figure does not have,
+    /// legend panels outside the tile layout, layout sizes that are too many or weights
+    /// that are not finite and positive, axes that lie in fitted rows alone or in fitted
+    /// columns alone, legends that name a legend panel the figure does not have, items of
+    /// an explicit list of legend entries that name no artist of the figure (or, inside a
+    /// plot area, an artist of another axes),
     /// legends with a fixed number of zero columns, a non-positive figure size or font
     /// size, invalid manual limits, ticks that cannot be placed (a regular step that is
     /// not finite and positive or an origin that is not finite, and explicit tick values
@@ -181,8 +204,10 @@ impl Figure {
     /// dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
-    /// column, which has no cell between its nodes), and a legend panel with no entries
-    /// to list, which no axes names or whose axes have no artist with a display name, and
+    /// column, which has no cell between its nodes), a legend panel with no entries
+    /// to list, which no axes names or whose axes have no artist with a display name, or
+    /// whose explicit list has no items, an item of an explicit list that repeats an
+    /// earlier item, an item that names an artist without a display name, and
     /// two nodes of the tile layout, axes or legend panels, whose cells share a tile, once
     /// per pair against the later node (axes before legend panels, each in the order the
     /// figure lists them), comparing only cells that lie within the layout;
@@ -213,7 +238,8 @@ impl Figure {
         for panel in &self.panel_legends {
             validator.check_cell(panel.id, panel.cell);
             validator.check_legend_entry_layout(panel.id, panel.layout);
-            validator.check_panel_has_entries(panel.id);
+            validator.check_legend_items(panel.id, None, &panel.entries);
+            validator.check_panel_has_entries(panel.id, &panel.entries);
         }
         validator.check_overlapping_cells();
         for axes in &self.axes {
@@ -386,12 +412,15 @@ impl Validator<'_> {
                     Some(figure.id),
                     IssueKind::InvalidLayoutWeights,
                     format!(
-                        "the tile layout has {} {name} weights but only {count} {name}s",
+                        "the tile layout has {} {name} sizes but only {count} {name}s",
                         weights.len()
                     ),
                 );
             }
-            for (index, &weight) in weights.iter().enumerate() {
+            for (index, size) in weights.iter().enumerate() {
+                let TrackSize::Weight(weight) = *size else {
+                    continue;
+                };
                 if !(weight.is_finite() && weight > 0.0) {
                     self.error(
                         Some(figure.id),
@@ -471,13 +500,111 @@ impl Validator<'_> {
         }
     }
 
+    /// Reports an axes whose cell lies in fitted rows alone or in fitted columns alone. A
+    /// cell outside the layout is reported by [`Self::check_cell`] and is not checked.
+    fn check_fitted_tracks(&mut self, axes: &Axes) {
+        if !self.in_layout(axes.cell) {
+            return;
+        }
+        let layout = &self.figure.layout;
+        let fitted = |sizes: &[TrackSize], first: u32, span: u32| {
+            (first..first + span).all(|k| sizes.get(k as usize) == Some(&TrackSize::Fit))
+        };
+        let cell = axes.cell;
+        for (fitted, tracks, extent) in [
+            (
+                fitted(&layout.row_weights, cell.row, cell.row_span),
+                "rows",
+                "height",
+            ),
+            (
+                fitted(&layout.col_weights, cell.col, cell.col_span),
+                "columns",
+                "width",
+            ),
+        ] {
+            if fitted {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::AxesInFittedTrack,
+                    format!(
+                        "the axes lies in fitted {tracks} alone, which take their size from \
+                         legend panels, so the axes would have no {extent}"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Checks the items of an explicit list of legend entries: that each artist they name
+    /// is an artist of the figure (of the axes `own`, for a legend inside its plot area)
+    /// with a display name, and that no item is listed twice.
+    fn check_legend_items(&mut self, legend: NodeId, own: Option<&Axes>, entries: &LegendEntries) {
+        let LegendEntries::Explicit(items) = entries else {
+            return;
+        };
+        let figure = self.figure;
+        for (index, item) in items.iter().enumerate() {
+            if items[..index]
+                .iter()
+                .any(|earlier| earlier.content == item.content)
+            {
+                self.warning(
+                    Some(legend),
+                    IssueKind::DuplicateLegendItem,
+                    format!(
+                        "legend item {index} repeats an earlier item, so the legend lists it twice"
+                    ),
+                );
+            }
+            let LegendItem {
+                content: LegendItemContent::Artist(artist),
+                ..
+            } = item
+            else {
+                continue;
+            };
+            let found = match own {
+                Some(axes) => axes.artists.iter().find(|a| a.id() == *artist),
+                None => figure.artist(*artist).map(|(_, a)| a),
+            };
+            match found {
+                None => {
+                    let whose = if own.is_some() {
+                        "an artist of the axes"
+                    } else {
+                        "an artist of the figure"
+                    };
+                    self.error(
+                        Some(legend),
+                        IssueKind::DanglingLegendItem,
+                        format!("legend item {index} names {artist}, which is not {whose}"),
+                    );
+                }
+                Some(found) if found.display_name().is_none() => self.warning(
+                    Some(legend),
+                    IssueKind::UnnamedLegendItem,
+                    format!(
+                        "legend item {index} names {artist}, which has no display name, so the \
+                         item has no label"
+                    ),
+                ),
+                Some(_) => {}
+            }
+        }
+    }
+
     /// Checks the cell, legend, limits and ticks of an axes.
     fn check_axes(&mut self, axes: &Axes) {
         self.check_cell(axes.id, axes.cell);
+        self.check_fitted_tracks(axes);
 
-        match axes.legend {
-            Some(Legend::Inside(inside)) => self.check_legend_entry_layout(axes.id, inside.layout),
-            Some(Legend::Panel(panel)) if self.figure.panel_legend(panel).is_none() => {
+        match &axes.legend {
+            Some(Legend::Inside(inside)) => {
+                self.check_legend_entry_layout(axes.id, inside.layout);
+                self.check_legend_items(axes.id, Some(axes), &inside.entries);
+            }
+            Some(Legend::Panel(panel)) if self.figure.panel_legend(*panel).is_none() => {
                 self.error(
                     Some(axes.id),
                     IssueKind::DanglingPanelLegend,
@@ -756,7 +883,18 @@ impl Validator<'_> {
 
     /// Warns of a legend panel that has no entries to list, because no axes names it or
     /// no axes that names it has an artist with a display name.
-    fn check_panel_has_entries(&mut self, panel: NodeId) {
+    fn check_panel_has_entries(&mut self, panel: NodeId, entries: &LegendEntries) {
+        if let LegendEntries::Explicit(items) = entries {
+            if items.is_empty() {
+                self.warning(
+                    Some(panel),
+                    IssueKind::NothingToDraw,
+                    "the legend panel has an explicit list of no items, so the panel is empty"
+                        .to_owned(),
+                );
+            }
+            return;
+        }
         let mut axes = self
             .figure
             .axes

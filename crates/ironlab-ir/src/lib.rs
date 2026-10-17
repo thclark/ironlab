@@ -54,6 +54,7 @@
 //!   it. Entries fill each column before the next.
 //! - The rows and columns of a tile layout all have a weight of one, so its plot areas
 //!   are of equal size.
+//! - A legend lists its entries automatically, rather than from an explicit list of items.
 
 mod artist;
 mod axes;
@@ -89,10 +90,10 @@ pub use figure::{
     Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
 };
 pub use ids::{DataId, NodeId};
-pub use layout::{Cell, TileLayout};
+pub use layout::{Cell, TileLayout, TrackSize};
 pub use legend::{
-    InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
-    PanelLegend,
+    InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
+    LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
 };
 pub use link::{AxisLink, Dimension};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};

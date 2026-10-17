@@ -175,6 +175,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::DataId
         | ValueType::NodeId
         | ValueType::Doubles
+        | ValueType::TrackSizes
         | ValueType::Strings
         | ValueType::Texts
         | ValueType::Text
@@ -500,6 +501,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::DataId(_)
         | Value::NodeId(_)
         | Value::Doubles(_)
+        | Value::TrackSizes(_)
         | Value::Strings(_)
         | Value::Texts(_)
         | Value::Text(_)
@@ -742,7 +744,7 @@ tagged_choices! {
 
     Legend as Legend (legend_choices, legend_label) replacing replacing {
         Legend::Inside(_) => "Inside the plot area" = Legend::Inside(match replacing {
-            Some(Value::Legend(Legend::Inside(inside))) => *inside,
+            Some(Value::Legend(Legend::Inside(inside))) => inside.clone(),
             _ => InsideLegend::default(),
         });
         Legend::Panel(_) => "In a legend panel" = Legend::Panel(match replacing {

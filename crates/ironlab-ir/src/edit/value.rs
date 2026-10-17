@@ -12,7 +12,7 @@ use crate::artist::{
 use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
-use crate::layout::{Cell, TileLayout};
+use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
 };
@@ -56,8 +56,7 @@ pub enum Value {
     DataId(DataId),
     /// A reference to a node, such as the legend panel named by the legend of an axes.
     NodeId(NodeId),
-    /// A list of double-precision numbers, such as explicit contour levels or the
-    /// weights of the rows of the tile layout.
+    /// A list of double-precision numbers, such as explicit contour levels.
     Doubles(Vec<f64>),
     /// A list of strings: the labels of a figure.
     Strings(Vec<String>),
@@ -121,6 +120,8 @@ pub enum Value {
     MarkerShape(MarkerShape),
     /// How the values of one dimension of a line or scatter are placed.
     Coords(Coords),
+    /// A list of sizes of the rows or columns of the tile layout.
+    TrackSizes(Vec<TrackSize>),
     /// The size of scatter markers.
     ScatterSize(ScatterSize),
     /// The colour of scatter markers.
@@ -225,6 +226,8 @@ pub enum ValueType {
     MarkerShape,
     /// See [`Value::Coords`].
     Coords,
+    /// See [`Value::TrackSizes`].
+    TrackSizes,
     /// See [`Value::ScatterSize`].
     ScatterSize,
     /// See [`Value::ScatterColor`].
@@ -294,6 +297,7 @@ impl Value {
             Value::MarkerStyle(_) => ValueType::MarkerStyle,
             Value::MarkerShape(_) => ValueType::MarkerShape,
             Value::Coords(_) => ValueType::Coords,
+            Value::TrackSizes(_) => ValueType::TrackSizes,
             Value::ScatterSize(_) => ValueType::ScatterSize,
             Value::ScatterColor(_) => ValueType::ScatterColor,
             Value::Grid(_) => ValueType::Grid,

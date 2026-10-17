@@ -1651,7 +1651,7 @@ fn a_legend_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inve
     let insert = Edit::Insert {
         parent: fig.id,
         index: Some(1),
-        node: Node::PanelLegend(spare),
+        node: Node::PanelLegend(spare.clone()),
     };
     let (inserted, inverse) = applied(&fig, &tx([insert])).unwrap();
     assert_eq!(panel_ids(&inserted), [first, spare.id, second]);
@@ -1691,7 +1691,7 @@ fn a_legend_panel_has_only_the_figure_as_parent_and_cannot_be_removed_while_name
         &tx([Edit::Insert {
             parent: axes,
             index: None,
-            node: Node::PanelLegend(spare),
+            node: Node::PanelLegend(spare.clone()),
         }]),
     );
     assert!(
