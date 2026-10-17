@@ -9,7 +9,7 @@ use crate::artist::{
     ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
     QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, View3d};
+use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
 use crate::layout::{Cell, TileLayout};
@@ -63,6 +63,8 @@ pub enum Value {
     Strings(Vec<String>),
     /// A text, such as a title.
     Text(Text),
+    /// A list of texts: the explicit labels of the ticks of an axis.
+    Texts(Vec<Text>),
     /// How the source of a text is interpreted.
     Interpreter(Interpreter),
     /// The physical size of a figure.
@@ -89,6 +91,10 @@ pub enum Value {
     Scale(Scale),
     /// A range of data values.
     Limits(Limits),
+    /// Where the major ticks of an axis are placed.
+    Ticks(Ticks),
+    /// What is written at the major ticks of an axis.
+    TickLabels(TickLabels),
     /// A colormap name.
     ColormapName(ColormapName),
     /// The legend of an axes.
@@ -159,6 +165,8 @@ pub enum ValueType {
     Strings,
     /// See [`Value::Text`].
     Text,
+    /// See [`Value::Texts`].
+    Texts,
     /// See [`Value::Interpreter`].
     Interpreter,
     /// See [`Value::FigureSize`].
@@ -185,6 +193,10 @@ pub enum ValueType {
     Scale,
     /// See [`Value::Limits`].
     Limits,
+    /// See [`Value::Ticks`].
+    Ticks,
+    /// See [`Value::TickLabels`].
+    TickLabels,
     /// See [`Value::ColormapName`].
     ColormapName,
     /// See [`Value::Legend`].
@@ -249,6 +261,7 @@ impl Value {
             Value::Doubles(_) => ValueType::Doubles,
             Value::Strings(_) => ValueType::Strings,
             Value::Text(_) => ValueType::Text,
+            Value::Texts(_) => ValueType::Texts,
             Value::Interpreter(_) => ValueType::Interpreter,
             Value::FigureSize(_) => ValueType::FigureSize,
             Value::FontSetId(_) => ValueType::FontSetId,
@@ -262,6 +275,8 @@ impl Value {
             Value::Axis(_) => ValueType::Axis,
             Value::Scale(_) => ValueType::Scale,
             Value::Limits(_) => ValueType::Limits,
+            Value::Ticks(_) => ValueType::Ticks,
+            Value::TickLabels(_) => ValueType::TickLabels,
             Value::ColormapName(_) => ValueType::ColormapName,
             Value::Legend(_) => ValueType::Legend,
             Value::InsideLegend(_) => ValueType::InsideLegend,

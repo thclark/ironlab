@@ -155,16 +155,16 @@ Each panel is aligned with the plot areas of its own column, and the two axes of
 
 ## Sizing rows and columns with weights
 
-The tiles of a figure are of equal size by default, which suits a grid of plots but makes a panel as large as a plot. Weights give rows and columns different sizes. `row_weights` sets the relative heights of the rows, from the top, and `col_weights` the relative widths of the columns, from the left. Each row shares the height of the figure below its title in proportion to its weight, and each column shares the width in the same way.
+The tiles of a figure are of equal size by default, which suits a grid of plots but makes a panel as large as a plot. Weights give rows and columns different sizes. `row_weights` sets the relative heights of the rows, from the top, and `col_weights` the relative widths of the columns, from the left. The space that the axes of each row and column need for their tick labels, axis labels and titles is set aside first, and the plot areas of the rows then share the height that remains in proportion to their weights, and those of the columns the width, so that plot areas of equal weight are of equal size whatever is written beside them. A legend panel in a row or column without axes counts as a plot area of its weight. [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#plot-areas-not-cells-share-the-page-by-weight) records why.
 
 ```rust
-// The top row of plots is three times the height of the row that holds the panel.
+// The plots of the top row are three times the height of the panel in the row below.
 let fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
 ```
 
-A row or column without a weight, because fewer weights than rows or columns are given, has a weight of 1, so `col_weights([2.0])` in a layout of three columns makes the first column twice as wide as each of the others. A weight must be a finite positive number, and there must be no more weights than rows or columns; [`validate`](getting-started.md#validating-a-figure) reports any other list as the error `InvalidLayoutWeights`.
+A row or column without a weight, because fewer weights than rows or columns are given, has a weight of 1, so `col_weights([2.0])` in a layout of three columns makes the plot area of the first column twice as wide as each of the others. A weight must be a finite positive number, and there must be no more weights than rows or columns; [`validate`](getting-started.md#validating-a-figure) reports any other list as the error `InvalidLayoutWeights`.
 
-An axes or panel that spans several rows or columns takes the sum of their weights. This makes it possible to combine a wide plot with a narrow panel in one row. In the following figure, the axes spans the first two columns and takes four fifths of the width, and the panel in the third column takes the remaining fifth:
+An axes or panel that spans several rows or columns takes the shares of all of them, together with the margins between them. This makes it possible to combine a wide plot with a narrow panel in one row. In the following figure, the axes spans the first two columns and its plot area is four times as wide as the panel in the third column:
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3).col_weights([2.0, 2.0, 1.0]);

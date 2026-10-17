@@ -346,8 +346,20 @@ pub fn kitchen_sink_figure() -> Figure {
                 min: 0.5,
                 max: 20.0,
             },
+            reverse: true,
+            ticks: Ticks::Values(vec![1.0, 2.0, 10.0]),
+            tick_labels: TickLabels::Text(vec![
+                Text::plain("one"),
+                Text::new("$2$"),
+                Text::plain("ten"),
+            ]),
             grid: true,
         };
+        a.y.ticks = Ticks::Step {
+            step: 0.25,
+            origin: -0.125,
+        };
+        a.y.tick_labels = TickLabels::Hidden;
         a.y.scale = Scale::Log;
         a.box_ = false;
         a.colormap = ColormapName::Viridis;
@@ -522,6 +534,9 @@ pub fn kitchen_sink_figure() -> Figure {
             label: Some(Text::new("$z$")),
             scale: Scale::Log,
             limits: Limits::Auto,
+            reverse: true,
+            ticks: Ticks::Values(vec![0.1, 1.0, 10.0]),
+            tick_labels: TickLabels::Auto,
             grid: true,
         };
         a.legend = Some(Legend::Inside(InsideLegend {

@@ -102,10 +102,12 @@ pub(super) fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32
     (row, col, row_end, col_end)
 }
 
-/// Returns the rectangle of the tile cells an axes or a legend panel occupies.
+/// Returns an estimate of the rectangle of the tile cells an axes occupies, from which its tick targets are chosen
+/// before its margins are measured.
 ///
 /// The rows share the height of `area`, and the columns its width, in proportion to their weights; a cell block
-/// spanning several rows or columns takes the sum of their weights.
+/// spanning several rows or columns takes the sum of their weights. [`place`] then places the axes for good, once the
+/// margins are known.
 pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
     let (row, col, row_end, col_end) = clamp_cell(layout, cell);
     let (x, width) = span(
@@ -177,26 +179,6 @@ impl AlignedMargins {
         }
         aligned
     }
-
-    /// Insets the rectangle of `cell` by the aligned margins of the rows and columns it starts and ends in, using
-    /// `default` on a side whose row or column has no margin.
-    fn inset(&self, layout: &TileLayout, cell: Cell, outer: Rect, default: f64) -> Rect {
-        let (r, c, re, ce) = span_indices(layout, cell);
-        let side = |slot: Option<f64>| slot.unwrap_or(default);
-        let (x, width) = inset(
-            outer.x,
-            outer.width,
-            side(self.left[c]),
-            side(self.right[ce]),
-        );
-        let (y, height) = inset(
-            outer.y,
-            outer.height,
-            side(self.top[r]),
-            side(self.bottom[re]),
-        );
-        Rect::new(x, y, width, height)
-    }
 }
 
 /// Returns the first and last row and column of a cell block, clamped into the layout, as indices.
@@ -205,49 +187,148 @@ fn span_indices(layout: &TileLayout, cell: Cell) -> (usize, usize, usize, usize)
     (r as usize, c as usize, re as usize - 1, ce as usize - 1)
 }
 
-/// Computes the plot rectangle of every axes.
+/// The division of one direction of the grid area (its width into columns, or its height into rows) into tracks.
+///
+/// Each track holds the aligned margins of its row or column on either side of its share of the plot space. The
+/// shares are in proportion to the weights, after every margin has been taken out of the length, so that two plot
+/// areas of equal weight are of equal size whatever their margins.
+struct Tracks {
+    /// The start of each track, and the end of the last.
+    bounds: Vec<f64>,
+    /// The aligned margin at the start of each track, as given and scaled by `squeeze`; `None` where no axes starts.
+    lo: Vec<Option<f64>>,
+    /// The aligned margin at the end of each track, as given and scaled by `squeeze`; `None` where no axes ends.
+    hi: Vec<Option<f64>>,
+}
+
+impl Tracks {
+    /// Divides `[start, start + len]` into `count` tracks with the given weights and aligned margins.
+    ///
+    /// A track without a weight, and a track whose weight is not finite and positive, has a weight of one: compilation
+    /// never fails, and validation reports such weights. Equal weights are replaced by ones, so that equal weights of
+    /// any size divide the length exactly as no weights do. When the margins leave less than [`MIN_PLOT_FRACTION`] of
+    /// the length to the plots, every margin is scaled down by the same factor so that the plots keep that fraction.
+    fn new(
+        weights: &[f64],
+        count: u32,
+        lo: &[Option<f64>],
+        hi: &[Option<f64>],
+        start: f64,
+        len: f64,
+    ) -> Self {
+        let count = count.max(1) as usize;
+        let given = |k: usize| match weights.get(k) {
+            Some(&w) if w.is_finite() && w > 0.0 => w,
+            _ => 1.0,
+        };
+        let uniform = (0..count).all(|k| given(k) == given(0));
+        let weight = |k: usize| if uniform { 1.0 } else { given(k) };
+        let total_weight: f64 = (0..count).map(weight).sum();
+
+        let len = len.max(1.0);
+        let margin = |slot: Option<f64>| slot.filter(|m| m.is_finite() && *m > 0.0).unwrap_or(0.0);
+        let margins: f64 = lo.iter().chain(hi).map(|m| margin(*m)).sum();
+        let keep = MIN_PLOT_FRACTION * len;
+        let squeeze = if len - margins >= keep {
+            1.0
+        } else {
+            (len - keep) / margins.max(f64::MIN_POSITIVE)
+        };
+        let plots = len - squeeze * margins;
+        let scaled = |slot: Option<f64>| slot.map(|m| squeeze * margin(Some(m)));
+        let lo: Vec<Option<f64>> = lo.iter().map(|m| scaled(*m)).collect();
+        let hi: Vec<Option<f64>> = hi.iter().map(|m| scaled(*m)).collect();
+
+        let mut bounds = Vec::with_capacity(count + 1);
+        let mut at = start;
+        bounds.push(at);
+        for k in 0..count {
+            at += lo[k].unwrap_or(0.0) + plots * weight(k) / total_weight + hi[k].unwrap_or(0.0);
+            bounds.push(at);
+        }
+        Self { bounds, lo, hi }
+    }
+
+    /// Returns the start and length of the tracks `first..=last`, inset at either end by the aligned margin there, or
+    /// by `default` where the track has none.
+    fn inset(&self, first: usize, last: usize, default: f64) -> (f64, f64) {
+        let lo = self.lo[first].unwrap_or(default);
+        let hi = self.hi[last].unwrap_or(default);
+        let (start, end) = (self.bounds[first] + lo, self.bounds[last + 1] - hi);
+        (start, (end - start).max(1.0))
+    }
+
+    /// Returns the start and length of the tracks `first..=last`.
+    fn span(&self, first: usize, last: usize) -> (f64, f64) {
+        (
+            self.bounds[first],
+            self.bounds[last + 1] - self.bounds[first],
+        )
+    }
+}
+
+/// Where every axes and legend panel of a figure is placed, once the margins of the axes are known.
+pub(super) struct Placement {
+    /// The rectangle of the cells of each axes, in the order the figure lists them.
+    pub outer: Vec<Rect>,
+    /// The plot rectangle of each axes, in the order the figure lists them.
+    pub plots: Vec<Rect>,
+    /// The area of each legend panel, in the order the figure lists them.
+    pub panels: Vec<Rect>,
+}
+
+/// Places every axes and legend panel of the figure in the grid area.
 ///
 /// Margins are aligned across the layout: every axes that starts in a column uses the largest left margin of the
 /// axes starting there, and likewise for right margins by end column and for top and bottom margins by row, so the
-/// plot areas of neighbouring tiles line up.
-pub(super) fn plot_rects(figure: &Figure, outer: &[Rect], margins: &[Margins]) -> Vec<Rect> {
-    let aligned = AlignedMargins::new(figure, margins);
-    figure
-        .axes
-        .iter()
-        .zip(outer)
-        .map(|(axes, o)| aligned.inset(&figure.layout, axes.cell, *o, 0.0))
-        .collect()
-}
-
-/// Computes the area of every legend panel of the figure, in the order the figure lists them.
+/// plot areas of neighbouring tiles line up. The rows then share the height of the grid area, and the columns its
+/// width, so that every plot area takes its share of what the margins leave in proportion to the weights of its rows
+/// and columns; plot areas of equal weight are therefore of equal size, however wide the tick labels and axis labels
+/// beside them are. A cell block spanning several rows or columns takes their shares and the margins between them.
 ///
-/// A panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
-/// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row
-/// or column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
-pub(super) fn panel_rects(ctx: &Ctx, grid_area: Rect, margins: &[Margins]) -> Vec<Rect> {
+/// A legend panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
+/// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row or
+/// column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
+pub(super) fn place(ctx: &Ctx, grid_area: Rect, margins: &[Margins]) -> Placement {
     let figure = ctx.figure;
+    let layout = &figure.layout;
     let aligned = AlignedMargins::new(figure, margins);
+    let columns = Tracks::new(
+        &layout.col_weights,
+        layout.cols,
+        &aligned.left,
+        &aligned.right,
+        grid_area.x,
+        grid_area.width,
+    );
+    let rows = Tracks::new(
+        &layout.row_weights,
+        layout.rows,
+        &aligned.top,
+        &aligned.bottom,
+        grid_area.y,
+        grid_area.height,
+    );
+    let rect = |cell: Cell, inset: Option<f64>| {
+        let (r, c, re, ce) = span_indices(layout, cell);
+        let ((x, width), (y, height)) = match inset {
+            Some(default) => (columns.inset(c, ce, default), rows.inset(r, re, default)),
+            None => (columns.span(c, ce), rows.span(r, re)),
+        };
+        Rect::new(x, y, width, height)
+    };
     let pad = page_padding(ctx);
-    figure
-        .panel_legends
-        .iter()
-        .map(|panel| {
-            let outer = cell_rect(&figure.layout, panel.cell, grid_area);
-            aligned.inset(&figure.layout, panel.cell, outer, pad)
-        })
-        .collect()
-}
-
-/// Insets the interval `[start, start + len]` by `lo` and `hi`, keeping at least a minimum fraction of its length.
-fn inset(start: f64, len: f64, lo: f64, hi: f64) -> (f64, f64) {
-    let len = len.max(1.0);
-    let keep = MIN_PLOT_FRACTION * len;
-    let available = len - lo - hi;
-    if available >= keep {
-        (start + lo, available)
-    } else {
-        let squeeze = (len - keep) / (lo + hi).max(f64::MIN_POSITIVE);
-        (start + lo * squeeze, keep)
+    Placement {
+        outer: figure.axes.iter().map(|a| rect(a.cell, None)).collect(),
+        plots: figure
+            .axes
+            .iter()
+            .map(|a| rect(a.cell, Some(0.0)))
+            .collect(),
+        panels: figure
+            .panel_legends
+            .iter()
+            .map(|p| rect(p.cell, Some(pad)))
+            .collect(),
     }
 }

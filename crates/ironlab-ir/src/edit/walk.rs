@@ -21,7 +21,7 @@ use crate::artist::{
     Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
     ScatterSize, Surface,
 };
-use crate::axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
+use crate::axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, Property};
 use crate::edit::value::{Value, ValueType};
@@ -105,7 +105,7 @@ fn cloned<T: Clone>(value: &T) -> T {
 /// structure; its type is never used, and is written `()`.
 macro_rules! walk_get {
     (hidden, $value:expr, $rest:expr) => {{
-        let _ = $value;
+        let _ = ($value, $rest);
         Err(Step::ReadOnly)
     }};
     (optional, $value:expr, $rest:expr) => {
@@ -125,7 +125,7 @@ macro_rules! walk_get {
 /// the type of the value is checked in exactly one place.
 macro_rules! walk_set {
     (hidden, $place:expr, $rest:expr, $value:expr) => {{
-        let _ = $place;
+        let _ = ($place, $rest);
         Err(Step::ReadOnly)
     }};
     (optional, $place:expr, $rest:expr, $value:expr) => {{
@@ -379,6 +379,7 @@ ir_leaf! {
     NodeId => NodeId;
     Vec<f64> => Doubles;
     Vec<String> => Strings;
+    Vec<Text> => Texts;
     Vec<AxisLink> => Links;
     BTreeMap<String, Parameter> => Parameters;
     Interpreter => Interpreter;
@@ -628,6 +629,11 @@ ir_value! {
         plain "scale" => scale: Scale =
             "The mapping from data values to positions along the axis.";
         plain "limits" => limits: Limits = "The range of data values shown along the axis.";
+        plain "reverse" => reverse: bool =
+            "Whether the axis runs from its upper limit to its lower limit: from left to right for a horizontal axis, and from bottom to top for a vertical axis.";
+        plain "ticks" => ticks: Ticks = "Where the major ticks of the axis are placed.";
+        plain "tick_labels" => tick_labels: TickLabels =
+            "What is written at the major ticks of the axis.";
         plain "grid" => grid: bool =
             "Whether grid lines are drawn at the major ticks of this axis.";
     }
@@ -707,6 +713,29 @@ ir_tagged! {
         Manual {
             plain "min" => min: f64 = "The lower bound of the range.";
             plain "max" => max: f64 = "The upper bound of the range.";
+        }
+    }
+
+    Ticks as Ticks {
+        Auto {}
+        Step {
+            plain "step" => step: f64 =
+                "The distance between neighbouring ticks, in data units; finite and positive.";
+            plain "origin" => origin: f64 =
+                "A value at which a tick is placed if it lies within the limits; finite.";
+        }
+        Values {
+            plain "values" => 0: Vec<f64> =
+                "The tick values; each is finite, and positive on a logarithmic axis.";
+        }
+    }
+
+    TickLabels as TickLabels {
+        Auto {}
+        Hidden {}
+        Text {
+            plain "labels" => 0: Vec<Text> =
+                "One label for each explicit tick value, in the order of the values.";
         }
     }
 

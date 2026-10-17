@@ -226,10 +226,32 @@ impl Ctx<'_> {
 ///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
-/// - **Tile weights.** The rows of the tile layout share the height of the area below the figure title, and the
-///   columns its width, in proportion to their weights; a missing weight, and one that is not finite and positive,
-///   counts as one, so that equal weights draw exactly what no weights draw. A cell block takes the sum of the
-///   weights of its rows and columns.
+/// - **Tile weights.** The plot areas of the rows of the tile layout share the height of the area below the figure
+///   title, and those of the columns its width, in proportion to their weights, after the aligned margins of every row
+///   and column have been taken out; a missing weight, and one that is not finite and positive, counts as one, so
+///   that equal weights draw exactly what no weights draw. Plot areas of equal weight are therefore of equal size
+///   whatever their tick labels, axis labels and titles. A cell block takes the shares of its rows and columns and
+///   the margins between them. When the margins leave less than a fifth of the length, they are all scaled down
+///   alike.
+/// - **Axis direction.** A reversed axis is drawn from its upper limit to its lower limit: in a 2D axes from the left
+///   or the bottom of the plot, so that its axis map has `start` at the upper limit, and in a 3D axes by mirroring
+///   the normalised box along that axis, so that every artist, tick, grid line and label follows. The limits keep
+///   `min < max`, automatic limits are computed as for the axis unreversed, and links share limits only, so linked
+///   axes may differ in direction.
+/// - **Ticks.** Automatic ticks are chosen by [`crate::maths::ticks`] from the limits and a target count of intervals
+///   set by the length of the axis; on a linear axis whose limits are narrower than the round step of that target,
+///   the target is raised until at least two ticks (on the x axis of a 2D axes) or three (on any other axis) lie
+///   within the limits. A regular step places a tick at every `origin + k · step` within the limits, and explicit
+///   values a tick at each of them within the limits; a step that would place more than 500 ticks, or cannot be
+///   placed, falls back to automatic ticks with a warning naming the axes. Ticks never change the limits. Explicit
+///   ticks carry no minor ticks.
+/// - **Tick labels.** Automatic labels of automatic ticks are described under **Tick labels** above. Automatic labels
+///   of a regular step or of explicit values show each value with the fewest decimals that show every one of them
+///   (see [`crate::maths::ticks::decimals_for`]), with the common exponent of automatic labels, and on a log axis as
+///   automatic log labels are written. Explicit labels are typeset like any other text of the figure and drawn at
+///   the values they name; explicit labels that do not name explicit values one by one, which validation reports,
+///   are replaced by automatic labels. Hidden labels draw the ticks without labels or a common exponent, and the
+///   layout reserves no space for them.
 /// - **Legend.** Only artists with a display name and usable data have legend entries. An axes whose legend is inside
 ///   its plot area lists its entries there, in artist order. An axes whose legend names a legend panel lists its
 ///   entries in that panel and draws none of its own; a panel the figure does not have lists them nowhere. A legend
@@ -360,7 +382,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
             Projection::ThreeD { .. } => axes3d::margins(&ctx, d),
         })
         .collect();
-    let plots = layout::plot_rects(figure, &outer, &margins);
+    let placement = layout::place(&ctx, grid_area, &margins);
 
     // The entries each axes lists in a legend panel, with the top-left tile of the axes' clamped cell and the panel
     // it names.
@@ -373,8 +395,8 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
             ranges: &ranges[i],
             colours: colour_scale,
             decor: &decorations[i],
-            plot: plots[i],
-            outer: outer[i],
+            plot: placement.plots[i],
+            outer: placement.outer[i],
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
@@ -394,8 +416,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
 
     // Legend panels are drawn after every axes. An axes naming a panel the figure does not have lists its entries
     // nowhere, and when two panels share an identifier the first takes the entries.
-    let panel_areas = layout::panel_rects(&ctx, grid_area, &margins);
-    for (panel, area) in figure.panel_legends.iter().zip(panel_areas) {
+    for (panel, area) in figure.panel_legends.iter().zip(placement.panels) {
         hit_map.legend_panels.push(LegendPanelHit {
             id: panel.id,
             rect: area,

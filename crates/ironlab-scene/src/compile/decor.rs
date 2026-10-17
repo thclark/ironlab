@@ -1,6 +1,6 @@
 //! Ticks and the measured text of axes decorations: tick labels, common exponents, axis labels and titles.
 
-use ironlab_ir::{Axes, NodeId};
+use ironlab_ir::{Axes, Axis, NodeId, TickLabels, Ticks};
 
 use crate::maths::ticks;
 
@@ -11,6 +11,15 @@ use crate::display::Rect;
 
 /// Tick labels are this fraction of the base font size.
 pub(super) const TICK_SCALE: f64 = 0.9;
+/// The largest number of ticks a regular step may place on one axis; a finer step falls back to automatic ticks.
+const MAX_STEPPED_TICKS: usize = 500;
+/// The fewest labelled ticks that automatic ticks give the x axis of a 2D axes whose limits hold them at a round step.
+/// Two are the fewest from which a value can be read, and the labels of an x axis must also fit along it.
+const MIN_X_TICKS: usize = 2;
+/// The fewest labelled ticks that automatic ticks give any other axis whose limits hold them at a round step.
+const MIN_TICKS: usize = 3;
+/// How many more intervals than its target an axis may be given to reach its fewest ticks.
+const MAX_EXTRA_INTERVALS: usize = 20;
 /// Axes titles are this multiple of the base font size.
 pub(super) const TITLE_SCALE: f64 = 1.1;
 
@@ -66,7 +75,13 @@ pub(super) fn measure(
     let dims = if is_3d(axes) { 3 } else { 2 };
     let ticks = std::array::from_fn(|dim| {
         if dim < dims {
-            axis_ticks(ctx, axes.id, ranges[dim], targets[dim])
+            let axis = axes_axis(axes, dim);
+            let fewest = if dims == 2 && dim == 0 {
+                MIN_X_TICKS
+            } else {
+                MIN_TICKS
+            };
+            axis_ticks(ctx, axes.id, axis, dim, ranges[dim], targets[dim], fewest)
         } else {
             AxisTicks {
                 major: Vec::new(),
@@ -99,7 +114,8 @@ const X_LABEL_GAP: f64 = 1.5;
 /// The labels fit when the distance between neighbouring major ticks along the estimated axis length is at least the
 /// widest label plus [`X_LABEL_GAP`] font sizes. When they do not fit, the target becomes the number of such
 /// distances that the axis length holds, and always decreases, so that repeatedly fitting and recomputing the limits
-/// terminates. A logarithmic x axis, a 3D axes and a target of two are returned unchanged.
+/// terminates. A logarithmic x axis, a 3D axes, an x axis whose ticks are not automatic or whose labels are hidden,
+/// and a target of two are returned unchanged.
 pub(super) fn fit_x_target(
     ctx: &mut Ctx,
     axes: &Axes,
@@ -107,10 +123,11 @@ pub(super) fn fit_x_target(
     target: usize,
     outer: Rect,
 ) -> usize {
-    if is_3d(axes) || range.log || target <= 2 {
+    let automatic = axes.x.ticks == Ticks::Auto && axes.x.tick_labels != TickLabels::Hidden;
+    if is_3d(axes) || range.log || target <= 2 || !automatic {
         return target;
     }
-    let ticks = axis_ticks(ctx, axes.id, range, target);
+    let ticks = axis_ticks(ctx, axes.id, &axes.x, 0, range, target, MIN_X_TICKS);
     let [a, b, ..] = ticks.major[..] else {
         return target;
     };
@@ -130,7 +147,138 @@ pub(super) fn fit_x_target(
 }
 
 /// Computes the ticks of one axis and typesets their labels.
-fn axis_ticks(ctx: &mut Ctx, owner: NodeId, range: Range, target: usize) -> AxisTicks {
+///
+/// The ticks are those the axis asks for: automatic ticks, every multiple of a regular step from its origin, or the
+/// explicit values, each kept only where it lies within the limits. Automatic ticks on a linear axis are given more
+/// intervals than `target` when that is what it takes for at least `fewest` of them to lie within the limits, which
+/// matters only for manual limits narrower than the round step the target gives. A regular step that would place more
+/// than [`MAX_STEPPED_TICKS`] ticks falls back to automatic ticks with a warning naming `owner`.
+///
+/// The labels are what the axis asks for: none when they are hidden, the explicit texts beside the values they name,
+/// or the formatted values. Explicit texts that do not name explicit values one by one, which validation reports, are
+/// replaced by the formatted values, so that the figure is still drawn.
+fn axis_ticks(
+    ctx: &mut Ctx,
+    owner: NodeId,
+    axis: &Axis,
+    dim: usize,
+    range: Range,
+    target: usize,
+    fewest: usize,
+) -> AxisTicks {
+    let size = TICK_SCALE * ctx.font_size;
+    let inside = |v: &f64| {
+        let tol = 1e-9 * (range.max - range.min).abs();
+        v.is_finite() && *v >= range.min - tol && *v <= range.max + tol && (!range.log || *v > 0.0)
+    };
+    let explicit = match &axis.ticks {
+        Ticks::Auto => None,
+        Ticks::Step { step, origin } => {
+            match ticks::stepped_ticks(range.min, range.max, *step, *origin, MAX_STEPPED_TICKS) {
+                Some(values) => Some(values.into_iter().map(|v| (v, None)).collect::<Vec<_>>()),
+                None => {
+                    ctx.warn(
+                        Some(owner),
+                        format!(
+                            "The {} tick step {step} from {origin} is too fine for the limits [{}, {}] or cannot \
+                             be placed, so automatic ticks are used.",
+                            ["x", "y", "z"][dim],
+                            range.min,
+                            range.max
+                        ),
+                    );
+                    None
+                }
+            }
+        }
+        Ticks::Values(values) => {
+            let texts = match &axis.tick_labels {
+                TickLabels::Text(texts) if texts.len() == values.len() => Some(texts),
+                _ => None,
+            };
+            Some(
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(k, v)| (*v, texts.map(|t| &t[k])))
+                    .collect(),
+            )
+        }
+    };
+    let hidden = axis.tick_labels == TickLabels::Hidden;
+    let Some(explicit) = explicit else {
+        let mut auto = automatic_ticks(ctx, owner, range, target, fewest);
+        if hidden {
+            auto.labels.clear();
+            auto.exponent = None;
+        }
+        return auto;
+    };
+    let (major, texts): (Vec<f64>, Vec<_>) =
+        explicit.into_iter().filter(|(v, _)| inside(v)).unzip();
+    if hidden {
+        return AxisTicks {
+            major,
+            minor: Vec::new(),
+            labels: Vec::new(),
+            exponent: None,
+        };
+    }
+    if let Some(texts) = texts.iter().copied().collect::<Option<Vec<_>>>() {
+        let labels = texts
+            .into_iter()
+            .map(|t| text::measure(ctx, t, size, owner))
+            .collect();
+        return AxisTicks {
+            major,
+            minor: Vec::new(),
+            labels,
+            exponent: None,
+        };
+    }
+    if range.log {
+        let labels = major
+            .iter()
+            .map(|v| {
+                let label = ticks::format_log(*v);
+                let math = label.starts_with('$');
+                measure_str(ctx, &label, math, size, owner)
+            })
+            .collect();
+        return AxisTicks {
+            major,
+            minor: Vec::new(),
+            labels,
+            exponent: None,
+        };
+    }
+    let k = ticks::common_exponent(&major);
+    let factor = 10f64.powi(k);
+    let scaled: Vec<f64> = major.iter().map(|v| v / factor).collect();
+    let decimals = ticks::decimals_for(&scaled);
+    let labels = scaled
+        .iter()
+        .map(|v| measure_str(ctx, &ticks::format_fixed(*v, decimals), false, size, owner))
+        .collect();
+    let exponent =
+        (k != 0).then(|| measure_str(ctx, &format!("$\\times 10^{{{k}}}$"), true, size, owner));
+    AxisTicks {
+        major,
+        minor: Vec::new(),
+        labels,
+        exponent,
+    }
+}
+
+/// Computes automatic ticks for one axis and typesets their labels, giving a linear axis more intervals than `target`
+/// where that is needed for at least `fewest` ticks to lie within its limits.
+fn automatic_ticks(
+    ctx: &mut Ctx,
+    owner: NodeId,
+    range: Range,
+    target: usize,
+    fewest: usize,
+) -> AxisTicks {
     let size = TICK_SCALE * ctx.font_size;
     let inside = |v: &f64| {
         let tol = 1e-9 * (range.max - range.min).abs();
@@ -154,8 +302,20 @@ fn axis_ticks(ctx: &mut Ctx, owner: NodeId, range: Range, target: usize) -> Axis
             exponent: None,
         };
     }
-    let t = ticks::linear_ticks(range.min, range.max, target);
-    let major: Vec<f64> = t.major.into_iter().filter(inside).collect();
+    let linear = |target: usize| {
+        let t = ticks::linear_ticks(range.min, range.max, target);
+        let major: Vec<f64> = t.major.iter().copied().filter(inside).collect();
+        (t, major)
+    };
+    let (mut t, mut major) = linear(target);
+    // Each added interval can only make the step finer, and a step of a fifth of the span places at least four ticks,
+    // so a few more intervals suffice; the bound only guarantees that the search ends.
+    for more in target + 1..=target + MAX_EXTRA_INTERVALS {
+        if major.len() >= fewest {
+            break;
+        }
+        (t, major) = linear(more);
+    }
     let k = ticks::common_exponent(&major);
     let factor = 10f64.powi(k);
     let labels = major

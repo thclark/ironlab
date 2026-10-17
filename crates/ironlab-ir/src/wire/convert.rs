@@ -16,8 +16,8 @@ use crate::{
     LegendEntryLayout, LegendEntryOrder, LegendLocation, Levels, Limits, Line, LineStyle,
     MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
     PanelLegend, Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale,
-    Scatter, ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values,
-    View3d,
+    Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, Transaction,
+    Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -237,12 +237,40 @@ fn encode_limits(limits: Limits) -> w::Limits {
     w::Limits { kind: Some(kind) }
 }
 
+fn encode_ticks(ticks: &Ticks) -> w::Ticks {
+    let kind = match ticks {
+        Ticks::Auto => w::TicksKind::Auto(w::TicksAuto {}),
+        Ticks::Step { step, origin } => w::TicksKind::Step(w::TicksStep {
+            step: Some(*step),
+            origin: Some(*origin),
+        }),
+        Ticks::Values(values) => w::TicksKind::Values(w::TicksValues {
+            values: values.clone(),
+        }),
+    };
+    w::Ticks { kind: Some(kind) }
+}
+
+fn encode_tick_labels(labels: &TickLabels) -> w::TickLabels {
+    let kind = match labels {
+        TickLabels::Auto => w::TickLabelsKind::Auto(w::TickLabelsAuto {}),
+        TickLabels::Hidden => w::TickLabelsKind::Hidden(w::TickLabelsHidden {}),
+        TickLabels::Text(texts) => w::TickLabelsKind::Text(w::TickLabelsText {
+            labels: texts.iter().map(encode_text).collect(),
+        }),
+    };
+    w::TickLabels { kind: Some(kind) }
+}
+
 fn encode_axis(axis: &Axis) -> w::Axis {
     w::Axis {
         label: axis.label.as_ref().map(encode_text),
         scale: axis.scale.to_wire(),
         limits: Some(encode_limits(axis.limits)),
         grid: Some(axis.grid),
+        reverse: Some(axis.reverse),
+        ticks: Some(encode_ticks(&axis.ticks)),
+        tick_labels: Some(encode_tick_labels(&axis.tick_labels)),
     }
 }
 
@@ -899,6 +927,39 @@ fn decode_limits(wire: Option<w::Limits>, default: Limits, at: &str) -> Result<L
     })
 }
 
+fn decode_ticks(wire: Option<w::Ticks>, at: &str) -> Result<Ticks> {
+    Ok(match wire.and_then(|ticks| ticks.kind) {
+        None => Ticks::default(),
+        Some(w::TicksKind::Auto(_)) => Ticks::Auto,
+        Some(w::TicksKind::Step(step)) => {
+            let at = join(at, "step");
+            Ticks::Step {
+                step: required(step.step, &at, "step")?,
+                origin: required(step.origin, &at, "origin")?,
+            }
+        }
+        Some(w::TicksKind::Values(values)) => Ticks::Values(values.values),
+    })
+}
+
+fn decode_tick_labels(wire: Option<w::TickLabels>, at: &str) -> Result<TickLabels> {
+    Ok(match wire.and_then(|labels| labels.kind) {
+        None => TickLabels::default(),
+        Some(w::TickLabelsKind::Auto(_)) => TickLabels::Auto,
+        Some(w::TickLabelsKind::Hidden(_)) => TickLabels::Hidden,
+        Some(w::TickLabelsKind::Text(text)) => {
+            let at = join(at, "text");
+            TickLabels::Text(
+                text.labels
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, label)| decode_text(label, &join(&at, &format!("labels[{i}]"))))
+                    .collect::<Result<Vec<Text>>>()?,
+            )
+        }
+    })
+}
+
 fn decode_axis(wire: Option<w::Axis>, at: &str) -> Result<Axis> {
     let default = Axis::default();
     let wire = wire.unwrap_or_default();
@@ -909,6 +970,9 @@ fn decode_axis(wire: Option<w::Axis>, at: &str) -> Result<Axis> {
             .transpose()?,
         scale: decode_enum(wire.scale, Some(default.scale), at, "scale")?,
         limits: decode_limits(wire.limits, default.limits, &join(at, "limits"))?,
+        reverse: wire.reverse.unwrap_or(default.reverse),
+        ticks: decode_ticks(wire.ticks, &join(at, "ticks"))?,
+        tick_labels: decode_tick_labels(wire.tick_labels, &join(at, "tick_labels"))?,
         grid: wire.grid.unwrap_or(default.grid),
     })
 }
@@ -1325,6 +1389,9 @@ fn encode_value(value: &Value) -> w::Value {
         Value::NodeId(v) => w::ValueKind::NodeId(w::ValueNodeId { value: Some(v.0) }),
         Value::Doubles(v) => w::ValueKind::Doubles(w::ValueDoubles { values: v.clone() }),
         Value::Strings(v) => w::ValueKind::Strings(w::ValueStrings { values: v.clone() }),
+        Value::Texts(v) => w::ValueKind::Texts(w::ValueTexts {
+            values: v.iter().map(encode_text).collect(),
+        }),
         Value::Text(v) => w::ValueKind::Text(w::ValueText {
             value: Some(encode_text(v)),
         }),
@@ -1389,6 +1456,12 @@ fn encode_value(value: &Value) -> w::Value {
         Value::LegendEntryOrder(v) => {
             w::ValueKind::LegendEntryOrder(w::ValueLegendEntryOrder { value: v.to_wire() })
         }
+        Value::Ticks(v) => w::ValueKind::Ticks(w::ValueTicks {
+            value: Some(encode_ticks(v)),
+        }),
+        Value::TickLabels(v) => w::ValueKind::TickLabels(w::ValueTickLabels {
+            value: Some(encode_tick_labels(v)),
+        }),
         Value::ColorSpec(v) => w::ValueKind::ColorSpec(w::ValueColorSpec {
             value: Some(encode_color_spec(*v)),
         }),
@@ -1554,6 +1627,16 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         )?)),
         w::ValueKind::Doubles(v) => Value::Doubles(v.values),
         w::ValueKind::Strings(v) => Value::Strings(v.values),
+        w::ValueKind::Texts(v) => {
+            let at = join(at, "texts_value");
+            Value::Texts(
+                v.values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, text)| decode_text(text, &join(&at, &format!("values[{i}]"))))
+                    .collect::<Result<Vec<Text>>>()?,
+            )
+        }
         w::ValueKind::NodeId(v) => Value::NodeId(NodeId(required(
             v.value,
             &join(at, "node_id_value"),
@@ -1671,6 +1754,14 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "legend_entry_order_value"),
             "value",
         )?),
+        w::ValueKind::Ticks(v) => {
+            let (ticks, at) = value_message(v.value, at, "ticks_value")?;
+            Value::Ticks(decode_ticks(Some(ticks), &at)?)
+        }
+        w::ValueKind::TickLabels(v) => {
+            let (labels, at) = value_message(v.value, at, "tick_labels_value")?;
+            Value::TickLabels(decode_tick_labels(Some(labels), &at)?)
+        }
         w::ValueKind::ColorSpec(v) => {
             let (spec, _) = value_message(v.value, at, "color_spec_value")?;
             Value::ColorSpec(decode_color_spec(Some(spec), ColorSpec::default()))

@@ -8,7 +8,9 @@ use crate::maths::decimate::Sample;
 /// Maps one data axis onto a coordinate range in figure space.
 ///
 /// `start` is the figure-space coordinate (points) of the `min` limit and `end` that of the `max` limit. For a
-/// horizontal axis `start < end`; for a vertical axis (y increasing downwards in figure space) `start > end`.
+/// horizontal axis `start < end`; for a vertical axis (y increasing downwards in figure space) `start > end`. A
+/// reversed axis swaps them, so that `start > end` for a reversed horizontal axis and `start < end` for a reversed
+/// vertical one; `min < max` always, and every conversion below holds in either direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AxisMap {
     pub min: f64,
