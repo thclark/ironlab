@@ -97,6 +97,8 @@ gallery!(
     legend_toggle,
     panel_legend_shared,
     panel_legend_wide,
+    strip_chart,
+    pressure_distribution,
     contour,
     contourf,
     quiver,
