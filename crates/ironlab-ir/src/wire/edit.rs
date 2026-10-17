@@ -218,6 +218,8 @@ proto_file! {
             TickLabels(ValueTickLabels) tick_labels_value = 48;
             /// A list of texts.
             Texts(ValueTexts) texts_value = 49;
+            /// How the values of one dimension of a line or scatter are placed.
+            Coords(ValueCoords) coords_value = 50;
         }
     }
 
@@ -438,6 +440,12 @@ proto_file! {
     message ValueDashStyle {
         /// The dash style; it must be specified.
         enum DashStyle value = 1;
+    }
+
+    /// A coordinates value.
+    message ValueCoords {
+        /// How the values are placed; it must be specified.
+        enum Coords value = 1;
     }
 
     /// A marker style value.

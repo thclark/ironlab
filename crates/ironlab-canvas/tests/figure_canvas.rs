@@ -637,6 +637,7 @@ fn a_callout_rings_a_point_and_outlines_a_large_pixel_but_rings_a_small_one() {
             .unwrap_or_else(|| panic!("the text has a {label:?} line: {text:?}"))
             .parse()
             .expect("the value is a number");
+        let value = value.expect("a line in data coordinates reports both coordinates");
         assert_close(written, value, 1e-6, "the text gives the point's own value");
     }
 

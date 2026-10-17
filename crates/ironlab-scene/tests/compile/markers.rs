@@ -110,6 +110,8 @@ fn every_marker_shape_is_an_outline_of_unit_width_centred_on_the_origin() {
         (MarkerShape::TriangleDown, 1.15 * 0.5, true),
         (MarkerShape::Plus, 0.5, false),
         (MarkerShape::Cross, 0.5, false),
+        (MarkerShape::VLine, 0.5, false),
+        (MarkerShape::HLine, 0.5, false),
     ];
     for (shape, expected_reach, closed) in cases {
         let mut fx = Fx::new();
@@ -474,7 +476,12 @@ fn plus_and_cross_markers_have_no_face_and_an_edge_of_the_edge_or_else_the_face_
         ),
         ("neither", ColorSpec::None, ColorSpec::None, None),
     ];
-    for shape in [MarkerShape::Plus, MarkerShape::Cross] {
+    for shape in [
+        MarkerShape::Plus,
+        MarkerShape::Cross,
+        MarkerShape::VLine,
+        MarkerShape::HLine,
+    ] {
         for (what, face, edge, stroke) in colours {
             let mut fx = Fx::new();
             let ax = fx.axes2d(0, 0);
@@ -730,4 +737,32 @@ fn a_line_marker_edge_follows_the_line_width_within_bounds_and_a_scatter_edge_is
         markers.edge_width, 0.5,
         "a scatter strokes its markers at half a point"
     );
+}
+
+// A vertical tick is the `|` that marks a position along x at an edge of the axes, and a horizontal tick the `_` that
+// marks a position along y; each is one stroke as long as the marker size, through the centre, and the two must not
+// be swapped, which a test of their reach alone would not notice.
+#[test]
+fn a_vertical_tick_is_a_vertical_stroke_and_a_horizontal_tick_a_horizontal_one() {
+    for (shape, vertical) in [(MarkerShape::VLine, true), (MarkerShape::HLine, false)] {
+        let mut fx = Fx::new();
+        let ax = fx.axes2d(0, 0);
+        let scatter = fx.scatter(ax, &[0.0], &[0.0], None, |s, _| {
+            s.marker.shape = shape;
+        });
+        let scene = compile_figure(&fx.build());
+        let leaves = leaves(&scene);
+        let markers = the_markers_item(&leaves, scatter, &format!("{shape:?}"));
+        let mut ends = distinct_endpoints(&markers.outline);
+        ends.sort_by(|a, b| (a.x + a.y).total_cmp(&(b.x + b.y)));
+        let expected = if vertical {
+            [Point::new(0.0, -0.5), Point::new(0.0, 0.5)]
+        } else {
+            [Point::new(-0.5, 0.0), Point::new(0.5, 0.0)]
+        };
+        assert_eq!(ends.len(), 2, "{shape:?} is one stroke: {ends:?}");
+        for (end, expected) in ends.iter().zip(expected) {
+            assert!(points_close(*end, expected, 1e-12), "{shape:?}: {ends:?}");
+        }
+    }
 }

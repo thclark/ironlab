@@ -465,7 +465,10 @@
             "edge": {
               "type": "auto"
             }
-          }
+          },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         },
         {
           "type": "line",
@@ -494,7 +497,10 @@
             "edge": {
               "type": "auto"
             }
-          }
+          },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         },
         {
           "type": "line",
@@ -524,7 +530,10 @@
             "edge": {
               "type": "auto"
             }
-          }
+          },
+          "x_coords": "data",
+          "y_coords": "data",
+          "clip": true
         }
       ]
     }

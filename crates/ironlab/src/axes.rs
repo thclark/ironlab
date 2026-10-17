@@ -1,10 +1,10 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
-    IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns, LegendEntryOrder,
-    LegendLocation, Limits, Line, MappedImage, NdArray, NodeId, Projection, Quiver, Scale, Scatter,
-    Surface, Text, TickLabels, Ticks, View3d,
+    Artist, Axes, Axis, Color, ColorSpec, ColormapName, Contour, ContourPlacement, Coords,
+    Dimension, Image, IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns,
+    LegendEntryOrder, LegendLocation, Limits, Line, MappedImage, NdArray, NodeId, Projection,
+    Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, View3d,
 };
 
 use crate::artists::{
@@ -14,6 +14,11 @@ use crate::artists::{
 use crate::grid::{GridCoords, matrix_array, store_grid};
 use crate::matrix::Matrix;
 use crate::pixels::{ImageValues, Pixels};
+
+/// The colour of a reference line drawn by [`hline`](AxesMut::hline) or
+/// [`vline`](AxesMut::vline): the dark grey of MATLAB's `xline` and `yline`, which is
+/// also the colour of the axes box.
+const REFERENCE_LINE_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
 
 /// A handle to one axes of a figure, through which plots are added and axes
 /// properties are set.
@@ -108,6 +113,40 @@ impl AxesMut<'_> {
     pub fn semilogy(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> LineMut<'_> {
         self.set_xy_scales(Scale::Linear, Scale::Log);
         self.add_line(x.as_ref(), y.as_ref(), None)
+    }
+
+    // Reference lines.
+
+    /// Draws a horizontal reference line across the whole width of the plot area at
+    /// `y` (Matplotlib's `axhline`, MATLAB's `yline`).
+    ///
+    /// The line is a [`LineMut`] whose x values are the fractions 0 and 1 of the plot
+    /// area ([`Coords::AxesFraction`]), so it spans the plot area at any limits, pan or
+    /// zoom, and whose y values are the data value `y`. The x fractions take no part in
+    /// the automatic x limits, but `y` takes part in the automatic y limits, so the line
+    /// is always in view unless the y limits are fixed. It is solid, 0.75 pt wide and
+    /// dark grey, and takes no colour from the axes colour order; the usual line setters
+    /// ([`dash`](LineMut::dash), [`color`](LineMut::color),
+    /// [`line_width`](LineMut::line_width)) change its look. A reference line is valid
+    /// only in a two-dimensional axes.
+    pub fn hline(&mut self, y: f64) -> LineMut<'_> {
+        let mut line = self.add_line(&[0.0, 1.0], &[y, y], None);
+        line.x_coords(Coords::AxesFraction)
+            .color(REFERENCE_LINE_COLOR);
+        line
+    }
+
+    /// Draws a vertical reference line across the whole height of the plot area at
+    /// `x` (Matplotlib's `axvline`, MATLAB's `xline`).
+    ///
+    /// The line spans the plot area as [`hline`](AxesMut::hline) does, with the roles of
+    /// x and y exchanged: its y values are the fractions 0 and 1 of the plot area and
+    /// its x values the data value `x`, which takes part in the automatic x limits.
+    pub fn vline(&mut self, x: f64) -> LineMut<'_> {
+        let mut line = self.add_line(&[x, x], &[0.0, 1.0], None);
+        line.y_coords(Coords::AxesFraction)
+            .color(REFERENCE_LINE_COLOR);
+        line
     }
 
     // Scatter plots.

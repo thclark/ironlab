@@ -6,7 +6,7 @@ use crate::display::{Item, ItemKind, Point, Rect, Stroke};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
 
 use super::Ctx;
-use super::artists::{AxesInput, Space, coalesce_markers, draw_artists, group_dense};
+use super::artists::{AxesInput, Placement, Space, coalesce_markers, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
@@ -137,16 +137,19 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
     let data = group_dense(coalesce_markers(data), &drawn.dense);
-    if !data.is_empty() {
-        out.push(Item {
-            source: Some(axes.id),
-            kind: ItemKind::Group {
-                clip: Some(plot),
-                transform: None,
-                items: data,
-            },
-        });
-    }
+    // The clip of every artist whose clip differs from the plot area: one that releases it along a fraction dimension.
+    let released: Vec<(NodeId, Rect)> = input
+        .prepared
+        .iter()
+        .map(|p| {
+            (
+                p.artist.id(),
+                Placement::of(p.artist).clip_rect(plot, input.page),
+            )
+        })
+        .filter(|(_, clip)| *clip != plot)
+        .collect();
+    out.extend(clip_groups(axes.id, plot, data, &released));
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
@@ -157,6 +160,48 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
         plot_rect: plot,
         kind: AxesHitKind::TwoD { x, y },
     });
+}
+
+/// Wraps the drawn items of an axes in groups, in paint order: each maximal run of items that share a clip in one
+/// group with that clip. An artist listed in `released` takes the clip listed with it, which extends beyond the plot
+/// area along the dimensions it places as fractions of the plot area; every other artist is clipped to the plot area.
+/// Grouping by runs keeps what covers what.
+fn clip_groups(
+    axes: NodeId,
+    plot: Rect,
+    items: Vec<Item>,
+    released: &[(NodeId, Rect)],
+) -> Vec<Item> {
+    let clip_of = |item: &Item| {
+        item.source
+            .and_then(|id| released.iter().find(|(artist, _)| *artist == id))
+            .map_or(plot, |(_, clip)| *clip)
+    };
+    let mut groups: Vec<Item> = Vec::new();
+    let mut run: Vec<Item> = Vec::new();
+    let mut run_clip = plot;
+    let flush = |groups: &mut Vec<Item>, run: &mut Vec<Item>, clip: Rect| {
+        if !run.is_empty() {
+            groups.push(Item {
+                source: Some(axes),
+                kind: ItemKind::Group {
+                    clip: Some(clip),
+                    transform: None,
+                    items: std::mem::take(run),
+                },
+            });
+        }
+    };
+    for item in items {
+        let clip = clip_of(&item);
+        if clip != run_clip {
+            flush(&mut groups, &mut run, run_clip);
+            run_clip = clip;
+        }
+        run.push(item);
+    }
+    flush(&mut groups, &mut run, run_clip);
+    groups
 }
 
 /// Returns the map of an axis whose usual direction runs from `start` (the left or the bottom of the plot) to `end`;

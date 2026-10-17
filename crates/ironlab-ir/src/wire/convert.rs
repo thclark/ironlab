@@ -11,13 +11,13 @@ use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
     Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
-    DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
-    ImagePlane, IndexedImage, InsideLegend, Interpreter, Legend, LegendEntryColumns,
-    LegendEntryLayout, LegendEntryOrder, LegendLocation, Levels, Limits, Line, LineStyle,
-    MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
-    PanelLegend, Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale,
-    Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, Transaction,
-    Value, Values, View3d,
+    Coords, DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Image,
+    ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter, Legend,
+    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation, Levels, Limits, Line,
+    LineStyle, MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId,
+    OutOfRange, PanelLegend, Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale,
+    Scale, Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout,
+    Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -69,8 +69,9 @@ wire_enum! {
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None }
     MarkerShape => MarkerShape {
-        None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point,
+        None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
+    Coords => Coords { Data, AxesFraction }
     Dimension => Dimension { X, Y, Z }
     NdArrayElement => NdArrayElement { F64, U8 }
 }
@@ -489,6 +490,9 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             z: line.z.map(|id| id.0),
             line: Some(encode_line_style(line.line)),
             marker: Some(encode_marker_style(line.marker)),
+            x_coords: line.x_coords.to_wire(),
+            y_coords: line.y_coords.to_wire(),
+            clip: Some(line.clip),
         }),
         Artist::Scatter(scatter) => w::ArtistKind::Scatter(w::Scatter {
             id: Some(scatter.id.0),
@@ -500,6 +504,9 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             size: Some(encode_scatter_size(scatter.size)),
             color: Some(encode_scatter_color(scatter.color)),
             marker: Some(encode_marker_style(scatter.marker)),
+            x_coords: scatter.x_coords.to_wire(),
+            y_coords: scatter.y_coords.to_wire(),
+            clip: Some(scatter.clip),
         }),
         Artist::Contour(contour) => w::ArtistKind::Contour(w::Contour {
             id: Some(contour.id.0),
@@ -1054,6 +1061,9 @@ fn decode_line(wire: w::Line, at: &str) -> Result<Line> {
         z: wire.z.map(DataId),
         line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
         marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+        clip: wire.clip.unwrap_or(default.clip),
     })
 }
 
@@ -1146,6 +1156,9 @@ fn decode_scatter(wire: w::Scatter, at: &str) -> Result<Scatter> {
         size,
         color,
         marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+        clip: wire.clip.unwrap_or(default.clip),
     })
 }
 
@@ -1469,6 +1482,7 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_line_style(*v)),
         }),
         Value::DashStyle(v) => w::ValueKind::DashStyle(w::ValueDashStyle { value: v.to_wire() }),
+        Value::Coords(v) => w::ValueKind::Coords(w::ValueCoords { value: v.to_wire() }),
         Value::MarkerStyle(v) => w::ValueKind::MarkerStyle(w::ValueMarkerStyle {
             value: Some(encode_marker_style(*v)),
         }),
@@ -1774,6 +1788,12 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "dash_style_value"),
+            "value",
+        )?),
+        w::ValueKind::Coords(v) => Value::Coords(decode_enum(
+            v.value,
+            None,
+            &join(at, "coords_value"),
             "value",
         )?),
         w::ValueKind::MarkerStyle(v) => {

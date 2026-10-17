@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange,
-    PixelRange, ScatterColor, ScatterSize,
+    Artist, Contour, ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels,
+    OutOfRange, PixelRange, ScatterColor, ScatterSize,
 };
 use crate::axes::{Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::data::{NdArray, NdArrayElement, Values};
@@ -59,6 +59,16 @@ pub enum IssueKind {
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
     /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
+    /// A line or scatter places a dimension in axes-fraction coordinates in a
+    /// three-dimensional axes, which has no plot area along its dimensions to take a
+    /// fraction of.
+    AxesFractionInThreeDAxes,
+    /// A line or scatter releases its clip (`clip` is false) although it places no
+    /// dimension in axes-fraction coordinates, or lies in a three-dimensional axes, so
+    /// that the release has no effect: clipping is released only along a dimension
+    /// placed as fractions of the plot area of a two-dimensional axes. This is a
+    /// warning, not an error, because the artist is drawn, clipped to the plot area.
+    IneffectiveClip,
     /// An axis link refers to an identifier that is not an axes of the figure.
     DanglingLink,
     /// Two nodes share an identifier.
@@ -148,7 +158,8 @@ impl Figure {
     /// other artist requires 64-bit floating-point values), inconsistent array lengths
     /// and shapes within an artist (for an image, pixels that are not an array of shape
     /// `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional),
-    /// 3D artists in 2D axes (an image on the xz or yz plane among them), links to
+    /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
+    /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
     /// identifiers that are not axes, duplicate node identifiers, cells of axes and
     /// legend panels outside the tile layout, layout weights that are too many or not
     /// finite and positive, legends that name a legend panel the figure does not have,
@@ -166,7 +177,8 @@ impl Figure {
     /// only when the colour limits are manual and valid, because automatic limits are
     /// the range of the data). Warnings report finite non-positive data plotted along
     /// logarithmic axes, an image whose plane has a logarithmic axis, which is not
-    /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
+    /// drawn, a line or scatter whose released clip has no effect because it places no
+    /// dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), and a legend panel with no entries
@@ -175,8 +187,9 @@ impl Figure {
     /// per pair against the later node (axes before legend panels, each in the order the
     /// figure lists them), comparing only cells that lie within the layout;
     /// data that is not plotted along an
-    /// axis (such as quiver components, colour data or the pixels of an image) never
-    /// produces the first of these. An array of 8-bit values that no artist refers to
+    /// axis (such as quiver components, colour data, the pixels of an image, or the
+    /// values of a dimension in axes-fraction coordinates) never produces the first of
+    /// these. An array of 8-bit values that no artist refers to
     /// is not an error.
     ///
     /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when drawing, and
@@ -576,6 +589,32 @@ impl Validator<'_> {
             );
         }
 
+        if three_d && usage.fraction.iter().any(|&fraction| fraction) {
+            self.error(
+                Some(id),
+                IssueKind::AxesFractionInThreeDAxes,
+                "a dimension in axes-fraction coordinates is placed in a three-dimensional axes, \
+                 which accepts data coordinates only"
+                    .to_owned(),
+            );
+        }
+
+        let released = match artist {
+            Artist::Line(line) => !line.clip,
+            Artist::Scatter(scatter) => !scatter.clip,
+            _ => false,
+        };
+        if released && (three_d || !usage.fraction.iter().any(|&fraction| fraction)) {
+            self.warning(
+                Some(id),
+                IssueKind::IneffectiveClip,
+                "the clip is released, but clipping is released only along a dimension in \
+                 axes-fraction coordinates of a two-dimensional axes, so the artist is still \
+                 clipped to the plot area"
+                    .to_owned(),
+            );
+        }
+
         if let Artist::Contour(contour) = artist {
             self.check_levels(contour);
         }
@@ -590,8 +629,12 @@ impl Validator<'_> {
             None => {}
         }
 
-        for (dimension, data) in usage.positions {
+        for &(dimension, data) in &usage.positions {
             if dimension == Dimension::Z && !three_d {
+                continue;
+            }
+            // A fraction of the plot area is not placed along the axis, so its scale does not apply to it.
+            if usage.is_fraction(dimension) {
                 continue;
             }
             let axis = axis_of(axes, dimension);
@@ -1237,6 +1280,9 @@ struct ArtistUsage {
     three_d: bool,
     /// Whether the artist can use arrays of 8-bit values, as the image kinds can.
     accepts_bytes: bool,
+    /// Whether the x and y values of a line or scatter are fractions of the plot area
+    /// rather than data.
+    fraction: [bool; 2],
 }
 
 impl ArtistUsage {
@@ -1249,6 +1295,16 @@ impl ArtistUsage {
             positions: Vec::new(),
             three_d: !matches!(placement.plane, ImagePlane::Xy { .. }),
             accepts_bytes: true,
+            fraction: [false; 2],
+        }
+    }
+
+    /// Returns whether the values along `dimension` are fractions of the plot area.
+    fn is_fraction(&self, dimension: Dimension) -> bool {
+        match dimension {
+            Dimension::X => self.fraction[0],
+            Dimension::Y => self.fraction[1],
+            Dimension::Z => false,
         }
     }
 
@@ -1267,6 +1323,7 @@ impl ArtistUsage {
                     positions,
                     three_d: line.z.is_some(),
                     accepts_bytes: false,
+                    fraction: fractions(line.x_coords, line.y_coords),
                 }
             }
             Artist::Scatter(scatter) => {
@@ -1284,6 +1341,7 @@ impl ArtistUsage {
                     positions,
                     three_d: scatter.z.is_some(),
                     accepts_bytes: false,
+                    fraction: fractions(scatter.x_coords, scatter.y_coords),
                 }
             }
             Artist::Quiver(quiver) => {
@@ -1297,6 +1355,7 @@ impl ArtistUsage {
                     positions,
                     three_d: quiver.z.is_some() || quiver.w.is_some(),
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Contour(contour) => {
@@ -1312,6 +1371,7 @@ impl ArtistUsage {
                     positions,
                     three_d: at_level,
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Surface(surface) => {
@@ -1327,6 +1387,7 @@ impl ArtistUsage {
                     positions,
                     three_d: false,
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Image(image) => Self::image(image.pixels, &image.placement),
@@ -1334,4 +1395,9 @@ impl ArtistUsage {
             Artist::MappedImage(image) => Self::image(image.values, &image.placement),
         }
     }
+}
+
+/// Returns whether the x and y values of a line or scatter are fractions of the plot area.
+fn fractions(x: Coords, y: Coords) -> [bool; 2] {
+    [x == Coords::AxesFraction, y == Coords::AxesFraction]
 }

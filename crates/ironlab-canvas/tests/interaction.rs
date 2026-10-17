@@ -10,8 +10,8 @@ use common::*;
 use ironlab_canvas::interaction::{MIN_BOX_ZOOM_POINTS, PixelDatatip, PixelValue, Tip};
 use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 use ironlab_ir::{
-    Artist, Axes, Color, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage, Limits,
-    Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
+    Artist, Axes, Color, Coords, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage,
+    Limits, Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -1170,8 +1170,8 @@ fn a_datatip_on_a_decimated_series_reports_the_index_and_values_of_the_original_
         "the index reported is the one in the source data, not the place in the drawn series"
     );
     assert!(tip.index < n);
-    assert_eq!(tip.x, x[tip.index]);
-    assert_eq!(tip.y, y[tip.index]);
+    assert_eq!(tip.x, Some(x[tip.index]));
+    assert_eq!(tip.y, Some(y[tip.index]));
     assert_eq!(tip.z, None);
 }
 
@@ -1860,6 +1860,136 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
     }
 }
 
+// Why: a fraction of the plot area is where a mark was drawn, not a measurement, so a datatip that reported it as `y`
+// would tell the reader that a tick along the top edge sits at y = 0.985 whatever the axis shows. The datatip of a
+// blended artist reports its data coordinate only, both in its values and in the text of its callout.
+#[test]
+fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
+    let (alpha, top) = (DataId(0), DataId(1));
+    let figure = Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (alpha, NdArray::vector(vec![-2.0, 3.5])),
+            (top, NdArray::vector(vec![0.985, 0.985])),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            x: ironlab_ir::Axis {
+                limits: Limits::Manual {
+                    min: -5.0,
+                    max: 5.0,
+                },
+                ..ironlab_ir::Axis::default()
+            },
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                x: alpha,
+                y: top,
+                y_coords: Coords::AxesFraction,
+                clip: false,
+                line: ironlab_ir::LineStyle {
+                    dash: ironlab_ir::DashStyle::None,
+                    ..ironlab_ir::LineStyle::default()
+                },
+                marker: ironlab_ir::MarkerStyle {
+                    shape: ironlab_ir::MarkerShape::VLine,
+                    ..ironlab_ir::MarkerStyle::default()
+                },
+                ..Line::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    };
+    let (state, hit) = compiled(figure);
+    let sample = hit.artists[0].samples[1];
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("a drawn tick lies under its own position");
+    assert_eq!(tip.index, 1);
+    assert_eq!(tip.x, Some(3.5));
+    assert_eq!(tip.y, None, "the fraction is not reported as data");
+    let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
+    assert!(text.contains("x = 3.5"), "{text}");
+    assert!(!text.contains("y ="), "{text}");
+}
+
+/// A figure of one 2D axes holding the line `line`, whose x and y data are `x` and `y`.
+fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Line) -> Figure {
+    let (xi, yi) = (DataId(0), DataId(1));
+    Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (xi, NdArray::vector(x)),
+            (yi, NdArray::vector(y)),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                x: xi,
+                y: yi,
+                ..line
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+// Why: a horizontal reference line is placed at a data y across fractions of the plot width, so its datatip reports
+// the y it stands for and no x, and its callout says so.
+#[test]
+fn a_datatip_on_a_horizontal_reference_line_reports_its_y_only() {
+    let figure = figure_with_line(
+        vec![0.0, 1.0],
+        vec![2.5, 2.5],
+        Line {
+            x_coords: Coords::AxesFraction,
+            ..Line::default()
+        },
+    );
+    let (state, hit) = compiled(figure);
+    let sample = hit.artists[0].samples[0];
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("a drawn end lies under its own position");
+    assert_eq!(tip.x, None);
+    assert_eq!(tip.y, Some(2.5));
+    let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
+    assert!(text.contains("y = 2.5") && !text.contains("x ="), "{text}");
+}
+
+// Why: a mark that is not clipped can be drawn above the plot area, where the reader can see it and point at it, so
+// the datatip must find it there as it finds any drawn point.
+#[test]
+fn a_datatip_finds_an_unclipped_mark_drawn_beyond_the_plot_area() {
+    let figure = figure_with_line(
+        vec![0.25, 0.75],
+        vec![1.05, 1.05],
+        Line {
+            y_coords: Coords::AxesFraction,
+            clip: false,
+            marker: ironlab_ir::MarkerStyle {
+                shape: ironlab_ir::MarkerShape::VLine,
+                ..ironlab_ir::MarkerStyle::default()
+            },
+            ..Line::default()
+        },
+    );
+    let (state, hit) = compiled(figure);
+    let plot = hit.axes[0].plot_rect;
+    let sample = hit.artists[0].samples[1];
+    assert!(
+        sample.position.y < plot.y,
+        "the mark lies above the plot area"
+    );
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("the mark is found where it was drawn");
+    assert_eq!((tip.index, tip.x, tip.y), (1, Some(0.75), None));
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Reversed axes: every gesture behaves on an axis drawn from its upper limit as it does on a normal one
 // ---------------------------------------------------------------------------------------------------------------
@@ -2017,7 +2147,7 @@ fn a_datatip_on_reversed_axes_reports_the_stored_values_of_the_point_under_the_p
     let at = Point::new(x.to_figure(5.0), y.to_figure(0.5));
     let tip = state.datatip(&hit, at).expect("a point is drawn there");
     assert_eq!(tip.index, 1);
-    assert_eq!((tip.x, tip.y), (5.0, 0.5));
+    assert_eq!((tip.x, tip.y), (Some(5.0), Some(0.5)));
 }
 
 // Why: double-clicking restores the limits the figure was opened with; the direction of the axes is not a view
