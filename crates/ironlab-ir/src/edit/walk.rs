@@ -17,9 +17,9 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface,
 };
 use crate::axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
 use crate::edit::path::PropertyPath;
@@ -389,6 +389,7 @@ ir_leaf! {
     LegendEntryOrder => LegendEntryOrder;
     DashStyle => DashStyle;
     MarkerShape => MarkerShape;
+    Coords => Coords;
 }
 
 ir_node! {
@@ -460,6 +461,12 @@ ir_node! {
             "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
         plain "line" => line: LineStyle = "The style of the line through the points.";
         plain "marker" => marker: MarkerStyle = "The style of the markers at the points.";
+        plain "x_coords" => x_coords: Coords =
+            "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
+        plain "y_coords" => y_coords: Coords =
+            "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
+        plain "clip" => clip: bool =
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area.";
     }
 
     Scatter {
@@ -477,6 +484,12 @@ ir_node! {
             "The colour of the markers, applied wherever the marker face or edge is automatic.";
         plain "marker" => marker: MarkerStyle =
             "The marker shape and the use of the scatter colour for face and edge.";
+        plain "x_coords" => x_coords: Coords =
+            "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
+        plain "y_coords" => y_coords: Coords =
+            "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
+        plain "clip" => clip: bool =
+            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area.";
     }
 
     Contour {

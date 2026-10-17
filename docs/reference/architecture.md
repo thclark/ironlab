@@ -65,6 +65,8 @@ The display list is a backend-neutral description of one page. Its coordinates a
 
 Every item names the node of the figure model that produced it, so that selection and picking can be added without changing the display list.
 
+The artists of a two-dimensional axes are drawn in groups clipped to its plot area, except that a run of consecutive artists that are [not clipped](figure-schema.md#coordinates-and-clipping) is drawn in a group with no clip, so that the paint order of the artists is kept. The compiler maps a dimension placed in axes-fraction coordinates onto the plot area directly and every other dimension through the limits and scale of its axis, so a blended artist is placed afresh on every compilation and therefore follows every pan and zoom.
+
 Compilation never fails. An artist whose data cannot be drawn, or gives it nothing to draw, is skipped, and text that cannot be typeset is drawn as its source; each such problem becomes a warning in the scene, naming the node it concerns, which the viewer shows in its [problems indicator](../guides/viewer.md#problems) and the PDF exporters return with the document. The compiler warns of every artist it leaves out, so that the problems indicator and `Figure::validate` agree about which artists are absent, as [ADR 0012](../adrs/0012-empty-and-singleton-data.md) decides.
 
 ### Large series are thinned for the current view
@@ -78,7 +80,7 @@ Thinning is applied in figure space, so it follows the view. The axis limits, th
 - A **line** is thinned by the largest-triangle-three-buckets rule, which divides the points into consecutive buckets and keeps from each the one that forms the largest triangle with its neighbours. It keeps the peaks, troughs and corners that carry the shape of a curve, which taking every *n*th point loses. The first and last points always survive, and each run of drawable points is thinned on its own, so a non-finite value still breaks the line rather than being smoothed over.
 - A **set of markers**, whether a scatter or the markers of a line, is thinned by keeping one marker per square of half a marker width, the one that would be painted over the others. The cost of a dense scatter is then set by the area of its plot rather than by the size of its data.
 
-Segments and markers that the axes clip away are dropped before either rule is applied, so the whole budget is spent on what the reader can see: zooming into a thousand points of a million draws those thousand in full.
+Segments and markers that the axes clip away are dropped before either rule is applied, so the whole budget is spent on what the reader can see: zooming into a thousand points of a million draws those thousand in full. For a line or scatter that is [not clipped](figure-schema.md#coordinates-and-clipping), what the reader can see is the whole page, so only what falls off the page is dropped.
 
 The reasons for thinning in the compiler rather than in a backend, for these two rules, for a fixed target and for carrying each drawn point's source index with it are recorded in [ADR 0009](../adrs/0009-view-dependent-decimation-with-source-index-maps.md). The gallery entry [Data decimation for very large datasets](../gallery/decimated_timeseries.md) shows the effect: two views of one hundred-thousand-sample record, each thinned to what its own view resolves.
 
@@ -140,8 +142,8 @@ Because the composed figure is the only state that drawing depends on, exporting
 
 The figure model stores every piece of text as its source string with an interpreter, never as typeset glyphs. Text is resolved only when the scene compiler lays out a figure, by the text engine in `ironlab-text`:
 
-1. With the LaTeX interpreter, the source is split into plain segments and mathematics segments delimited by `$…$`. With no interpreter, the whole source is one plain segment.
-2. Plain segments are shaped with HarfRust against STIX Two Text.
+1. With the LaTeX interpreter, the source is split into plain segments, mathematics segments delimited by `$…$`, and monospace segments written `\texttt{…}` outside mathematics. With no interpreter, the whole source is one plain segment.
+2. Plain segments are shaped with HarfRust against STIX Two Text. Monospace segments are set in the Mathematical Monospace letters and digits of STIX Two Math, one character to a cell of fixed width, because no monospace font is bundled.
 3. Mathematics segments are parsed and laid out by latex-rust against STIX Two Math, which applies TeX's conventions itself: hyphens become minus signs, unstyled letters are set in mathematical italic, and scripts are drawn at the font's script sizes. latex-rust rejects input nested more deeply than its nesting limit with an error, and layout runs on a helper thread with a stack of known size (in the browser, which has one thread, the linker gives that thread a large stack instead), so that no input can overflow a stack.
 4. The resulting box tree is converted into positioned glyphs and rules in points, and the segments are placed on a shared baseline.
 

@@ -8,6 +8,7 @@ mod common;
 mod probe;
 
 mod artists;
+mod blended;
 mod decimation;
 mod dense;
 mod depth;

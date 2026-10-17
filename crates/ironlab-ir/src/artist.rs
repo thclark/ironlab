@@ -117,6 +117,15 @@ pub struct Line {
     pub line: LineStyle,
     /// The style of the markers at the points.
     pub marker: MarkerStyle,
+    /// How the x values are placed: as data along the x axis, or as fractions of the
+    /// plot area's width. Anything other than `data` is allowed only in 2D axes.
+    pub x_coords: Coords,
+    /// How the y values are placed: as data along the y axis, or as fractions of the
+    /// plot area's height. Anything other than `data` is allowed only in 2D axes.
+    pub y_coords: Coords,
+    /// Whether the artist is clipped to the plot area; when false its marks may extend
+    /// beyond it, for example markers that sit on its edge.
+    pub clip: bool,
 }
 
 impl Default for Line {
@@ -130,6 +139,9 @@ impl Default for Line {
             z: None,
             line: LineStyle::default(),
             marker: MarkerStyle::default(),
+            x_coords: Coords::Data,
+            y_coords: Coords::Data,
+            clip: true,
         }
     }
 }
@@ -160,6 +172,15 @@ pub struct Scatter {
     pub color: ScatterColor,
     /// The marker shape and the use of the scatter colour for face and edge.
     pub marker: MarkerStyle,
+    /// How the x values are placed: as data along the x axis, or as fractions of the
+    /// plot area's width. Anything other than `data` is allowed only in 2D axes.
+    pub x_coords: Coords,
+    /// How the y values are placed: as data along the y axis, or as fractions of the
+    /// plot area's height. Anything other than `data` is allowed only in 2D axes.
+    pub y_coords: Coords,
+    /// Whether the artist is clipped to the plot area; when false its marks may extend
+    /// beyond it, for example markers that sit on its edge.
+    pub clip: bool,
 }
 
 impl Default for Scatter {
@@ -177,8 +198,31 @@ impl Default for Scatter {
                 shape: MarkerShape::Circle,
                 ..MarkerStyle::default()
             },
+            x_coords: Coords::Data,
+            y_coords: Coords::Data,
+            clip: true,
         }
     }
+}
+
+/// How the values of one dimension of a line or scatter are placed in a 2D axes.
+///
+/// A line or scatter places each dimension independently, so that a dimension in data
+/// coordinates and one in axes-fraction coordinates make a blended placement, as
+/// Matplotlib's blended transforms do: a reference line spanning the axes at a data
+/// value, or markers along an edge of the axes at data positions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Coords {
+    /// The values are data, placed through the limits and scale of the axis, and take
+    /// part in its automatic limits.
+    #[default]
+    Data,
+    /// The values are fractions of the plot area along the dimension: 0 is its left or
+    /// bottom edge and 1 its right or top edge, whatever the limits, scale or direction
+    /// of the axis. They take no part in the automatic limits of the axis, and values
+    /// outside `[0, 1]` lie beyond the plot area.
+    AxesFraction,
 }
 
 /// The size of scatter markers.

@@ -97,7 +97,7 @@ pub use ironlab_ir::ImagePlane;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Color, ColorSpec, InsideLegend, Interpreter, IssueKind, Legend, LegendEntryColumns,
+    Color, ColorSpec, Coords, InsideLegend, Interpreter, IssueKind, Legend, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, LegendLocation, NodeId, PanelLegend, Parameter, Scale,
     Text, ValidationIssue, ValidationReport,
 };
@@ -165,10 +165,10 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
-        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendEntryColumns,
-        LegendEntryOrder, LegendLocation, LineMut, MappedImageMut, Marker, Matrix, NodeId,
-        OutOfRange, PanelLegendMut, Parameter, Pixels, QuiverMut, RasterOptions, RasterPolicy,
-        Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
+        ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Coords, Dash, Dim, Error, Figure,
+        GridCoords, ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec,
+        LegendEntryColumns, LegendEntryOrder, LegendLocation, LineMut, MappedImageMut, Marker,
+        Matrix, NodeId, OutOfRange, PanelLegendMut, Parameter, Pixels, QuiverMut, RasterOptions,
+        RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
     };
 }

@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::{
-    ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
+    ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
     QuiverScale, ScatterColor, ScatterSize,
 };
 use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, View3d};
@@ -113,6 +113,8 @@ pub enum Value {
     MarkerStyle(MarkerStyle),
     /// A marker shape.
     MarkerShape(MarkerShape),
+    /// How the values of one dimension of a line or scatter are placed.
+    Coords(Coords),
     /// The size of scatter markers.
     ScatterSize(ScatterSize),
     /// The colour of scatter markers.
@@ -209,6 +211,8 @@ pub enum ValueType {
     MarkerStyle,
     /// See [`Value::MarkerShape`].
     MarkerShape,
+    /// See [`Value::Coords`].
+    Coords,
     /// See [`Value::ScatterSize`].
     ScatterSize,
     /// See [`Value::ScatterColor`].
@@ -274,6 +278,7 @@ impl Value {
             Value::DashStyle(_) => ValueType::DashStyle,
             Value::MarkerStyle(_) => ValueType::MarkerStyle,
             Value::MarkerShape(_) => ValueType::MarkerShape,
+            Value::Coords(_) => ValueType::Coords,
             Value::ScatterSize(_) => ValueType::ScatterSize,
             Value::ScatterColor(_) => ValueType::ScatterColor,
             Value::Grid(_) => ValueType::Grid,

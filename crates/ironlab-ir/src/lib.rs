@@ -72,9 +72,9 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface,
 };
 pub use axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
 pub use data::{NdArray, NdArrayElement, Values};

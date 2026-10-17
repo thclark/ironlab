@@ -97,6 +97,7 @@ gallery!(
     legend_toggle,
     panel_legend_shared,
     panel_legend_wide,
+    comparison_sheet,
     contour,
     contourf,
     quiver,

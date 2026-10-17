@@ -422,6 +422,8 @@ pub fn perturb(value: &Value) -> Value {
         }),
         Value::MarkerShape(MarkerShape::Square) => Value::MarkerShape(MarkerShape::Circle),
         Value::MarkerShape(_) => Value::MarkerShape(MarkerShape::Square),
+        Value::Coords(Coords::Data) => Value::Coords(Coords::AxesFraction),
+        Value::Coords(Coords::AxesFraction) => Value::Coords(Coords::Data),
         Value::ScatterSize(ScatterSize::Scalar { value }) => {
             Value::ScatterSize(ScatterSize::Scalar { value: value + 1.0 })
         }
@@ -481,7 +483,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 46;
+pub const VALUE_VARIANTS: usize = 47;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -536,6 +538,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::LegendEntryColumns(_) => 43,
         Value::LegendEntryOrder(_) => 44,
         Value::NodeId(_) => 45,
+        Value::Coords(_) => 46,
     }
 }
 
@@ -631,6 +634,7 @@ pub fn sample_values() -> Vec<Value> {
             edge: ColorSpec::Rgba { color: blue },
         }),
         Value::MarkerShape(MarkerShape::Cross),
+        Value::Coords(Coords::AxesFraction),
         Value::ScatterSize(ScatterSize::Data { data: DataId(7) }),
         Value::ScatterColor(ScatterColor::Data { data: DataId(8) }),
         Value::Grid(Grid::Curvilinear {

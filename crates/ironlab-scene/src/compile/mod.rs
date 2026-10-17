@@ -375,6 +375,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
             decor: &decorations[i],
             plot: plots[i],
             outer: outer[i],
+            page,
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),

@@ -2723,3 +2723,95 @@ fn a_cell_outside_the_layout_is_not_also_reported_as_overlapping() {
     assert!(has_error(&report, IssueKind::CellOutOfLayout, Some(panel)));
     assert_eq!(overlaps(&report), vec![]);
 }
+
+// ---------------------------------------------------------------------------------
+// Blended coordinates
+// ---------------------------------------------------------------------------------
+
+// Why: a fraction of the plot area has a meaning only in a two-dimensional axes, whose plot
+// area is a rectangle with a left and a bottom edge; a three-dimensional axes has a camera
+// instead, so a line or scatter that places a dimension as a fraction there cannot be drawn
+// as described, and the error names the artist so that it can be found.
+#[test]
+fn axes_fraction_coordinates_in_a_three_dimensional_axes_are_an_error() {
+    for (x_coords, y_coords) in [
+        (Coords::AxesFraction, Coords::Data),
+        (Coords::Data, Coords::AxesFraction),
+    ] {
+        for scatter in [false, true] {
+            let (mut fig, _, artist) = single_line_figure();
+            fig.axes[0].projection = Projection::ThreeD {
+                view3d: View3d::default(),
+            };
+            if scatter {
+                let Artist::Line(line) = fig.axes[0].artists[0].clone() else {
+                    unreachable!("the fixture holds a line");
+                };
+                fig.axes[0].artists[0] = Artist::Scatter(Scatter {
+                    id: line.id,
+                    x: line.x,
+                    y: line.y,
+                    x_coords,
+                    y_coords,
+                    ..Scatter::default()
+                });
+            } else {
+                let line = line_mut(&mut fig);
+                line.x_coords = x_coords;
+                line.y_coords = y_coords;
+            }
+            let report = fig.validate();
+            assert!(
+                has_error(&report, IssueKind::AxesFractionInThreeDAxes, Some(artist)),
+                "{x_coords:?}/{y_coords:?}, scatter {scatter}: {report:?}"
+            );
+        }
+    }
+}
+
+// Why: the same artist in data coordinates is an ordinary line of a three-dimensional
+// axes, and in a two-dimensional axes any combination of coordinates and clipping is
+// valid; the check must not be over-eager.
+#[test]
+fn data_coordinates_in_three_dimensions_and_any_coordinates_in_two_are_valid() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].projection = Projection::ThreeD {
+        view3d: View3d::default(),
+    };
+    assert_eq!(fig.validate(), ValidationReport::default());
+
+    for (x_coords, y_coords) in [
+        (Coords::AxesFraction, Coords::Data),
+        (Coords::Data, Coords::AxesFraction),
+        (Coords::AxesFraction, Coords::AxesFraction),
+    ] {
+        let (mut fig, _, _) = single_line_figure();
+        let line = line_mut(&mut fig);
+        line.x_coords = x_coords;
+        line.y_coords = y_coords;
+        line.clip = false;
+        assert_eq!(fig.validate(), ValidationReport::default());
+    }
+}
+
+// Why: a fraction of the plot area is not a value along the axis, so a fraction of 0 (the
+// bottom edge) on a logarithmic axis is not a non-positive value that cannot be drawn; the
+// data dimension of the same artist is still checked.
+#[test]
+fn fractions_on_a_logarithmic_axis_are_not_non_positive_data() {
+    let (mut fig, _, line) = single_line_figure();
+    fig.axes[0].x.scale = Scale::Log;
+    fig.axes[0].y.scale = Scale::Log;
+    let y = line_mut(&mut fig).y;
+    floats_mut(fig.data.get_mut(&y).unwrap()).copy_from_slice(&[0.0, 0.5, 1.0]);
+    line_mut(&mut fig).y_coords = Coords::AxesFraction;
+    assert_eq!(fig.validate().warnings, vec![]);
+
+    let x = line_mut(&mut fig).x;
+    floats_mut(fig.data.get_mut(&x).unwrap())[0] = -1.0;
+    let report = fig.validate();
+    assert!(
+        has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(line)),
+        "the data dimension is still checked: {report:?}"
+    );
+}

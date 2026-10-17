@@ -6,7 +6,7 @@ use crate::display::{Item, ItemKind, Point, Rect, Stroke};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
 
 use super::Ctx;
-use super::artists::{AxesInput, Space, coalesce_markers, draw_artists, group_dense};
+use super::artists::{AxesInput, Placement, Space, coalesce_markers, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
@@ -137,16 +137,13 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let mut data_points = Vec::new();
     paths::for_each_vertex(&data, &mut |p| data_points.push(p));
     let data = group_dense(coalesce_markers(data), &drawn.dense);
-    if !data.is_empty() {
-        out.push(Item {
-            source: Some(axes.id),
-            kind: ItemKind::Group {
-                clip: Some(plot),
-                transform: None,
-                items: data,
-            },
-        });
-    }
+    let unclipped: Vec<NodeId> = input
+        .prepared
+        .iter()
+        .filter(|p| !Placement::of(p.artist).clip)
+        .map(|p| p.artist.id())
+        .collect();
+    out.extend(clip_groups(axes.id, plot, data, &unclipped));
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
@@ -157,6 +154,37 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
         plot_rect: plot,
         kind: AxesHitKind::TwoD { x, y },
     });
+}
+
+/// Wraps the drawn items of an axes in groups, in paint order: each maximal run of items of clipped artists in a group
+/// clipped to the plot area, and each maximal run of items of the artists in `unclipped` in a group with no clip, so
+/// that their marks may extend beyond the plot area without changing what covers what.
+fn clip_groups(axes: NodeId, plot: Rect, items: Vec<Item>, unclipped: &[NodeId]) -> Vec<Item> {
+    let mut groups: Vec<Item> = Vec::new();
+    let mut run: Vec<Item> = Vec::new();
+    let mut run_clipped = true;
+    let flush = |groups: &mut Vec<Item>, run: &mut Vec<Item>, clipped: bool| {
+        if !run.is_empty() {
+            groups.push(Item {
+                source: Some(axes),
+                kind: ItemKind::Group {
+                    clip: clipped.then_some(plot),
+                    transform: None,
+                    items: std::mem::take(run),
+                },
+            });
+        }
+    };
+    for item in items {
+        let clipped = item.source.is_none_or(|id| !unclipped.contains(&id));
+        if clipped != run_clipped {
+            flush(&mut groups, &mut run, run_clipped);
+            run_clipped = clipped;
+        }
+        run.push(item);
+    }
+    flush(&mut groups, &mut run, run_clipped);
+    groups
 }
 
 fn axis_map(range: Range, start: f64, end: f64) -> AxisMap {

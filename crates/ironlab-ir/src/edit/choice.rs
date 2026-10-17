@@ -21,6 +21,7 @@
 //! fact about the semantics of the IR rather than about any user interface, so it is
 //! stated here and not in the viewer.
 
+use crate::artist::Coords;
 use crate::artist::{
     ContourPlacement, Grid, ImagePlane, Levels, OutOfRange, QuiverScale, ScatterColor, ScatterSize,
 };
@@ -157,6 +158,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
+        ValueType::Coords => coords_choices(),
         ValueType::Interpreter => interpreter_choices(),
         ValueType::FontSetId => font_set_id_choices(),
         ValueType::Bool
@@ -436,6 +438,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
+        Value::Coords(v) => coords_label(v),
         Value::Interpreter(v) => interpreter_label(v),
         Value::FontSetId(v) => font_set_id_label(v),
         Value::Unset
@@ -723,6 +726,13 @@ plain_choices! {
         MarkerShape::Plus => "Plus";
         MarkerShape::Cross => "Cross";
         MarkerShape::Point => "Point";
+        MarkerShape::VLine => "Vertical tick";
+        MarkerShape::HLine => "Horizontal tick";
+    }
+
+    Coords as Coords (coords_choices, coords_label) {
+        Coords::Data => "Data";
+        Coords::AxesFraction => "Axes fraction";
     }
 
     DashStyle as DashStyle (dash_style_choices, dash_style_label) {

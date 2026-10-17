@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 21] = [
+const WITH_CHOICES: [ValueType; 22] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -25,6 +25,7 @@ const WITH_CHOICES: [ValueType; 21] = [
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
+    ValueType::Coords,
     ValueType::ScatterSize,
     ValueType::ScatterColor,
     ValueType::Grid,
@@ -523,6 +524,15 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::MarkerShape(MarkerShape::Plus),
             Value::MarkerShape(MarkerShape::Cross),
             Value::MarkerShape(MarkerShape::Point),
+            Value::MarkerShape(MarkerShape::VLine),
+            Value::MarkerShape(MarkerShape::HLine),
+        ],
+    );
+    covered(
+        ValueType::Coords,
+        vec![
+            Value::Coords(Coords::Data),
+            Value::Coords(Coords::AxesFraction),
         ],
     );
     covered(

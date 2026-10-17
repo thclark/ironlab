@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, ColorSpec, Contour, ContourPlacement, DashStyle, Levels, Line, NodeId, Quiver,
-    Scatter, ScatterSize, Surface, View3d,
+    Artist, Axes, ColorSpec, Contour, ContourPlacement, Coords as ArtistCoords, DashStyle, Levels,
+    Line, NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
 };
 
 use crate::display::{Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
@@ -39,6 +39,8 @@ pub(crate) struct AxesInput<'a> {
     pub decor: &'a Decor,
     pub plot: Rect,
     pub outer: Rect,
+    /// The whole page, which bounds what an artist that is not clipped to the plot area can paint.
+    pub page: Rect,
 }
 
 /// An orthographic projection of the data box of a 3D axes into its plot rectangle.
@@ -101,6 +103,7 @@ impl Projector {
 }
 
 /// The mapping from data space to figure space.
+#[derive(Clone, Copy)]
 pub(crate) enum Space<'a> {
     TwoD { x: AxisMap, y: AxisMap },
     ThreeD(&'a Projector),
@@ -134,6 +137,37 @@ impl Space<'_> {
     fn is_3d(&self) -> bool {
         matches!(self, Space::ThreeD(_))
     }
+
+    /// Returns this space with each dimension of a 2D axes whose values are fractions of the plot area mapped onto
+    /// the plot area instead of through the axis.
+    ///
+    /// A fraction maps 0 to the left or bottom edge of `plot` and 1 to its right or top edge, linearly, whatever the
+    /// limits, scale or direction of the axis, so it is an [`AxisMap`] over `[0, 1]` laid on the physical extent of
+    /// the plot area. A data dimension keeps the axis's own map, which is the single place where the limits, scale
+    /// and direction of the axis are applied. A 3D axes has no plot area to take a fraction of, so its space is
+    /// returned unchanged (validation reports such an artist as an error).
+    pub fn blended(self, coords: [ArtistCoords; 2], plot: Rect) -> Self {
+        let Space::TwoD { x, y } = self else {
+            return self;
+        };
+        let fraction = |start: f64, end: f64| AxisMap {
+            min: 0.0,
+            max: 1.0,
+            log: false,
+            start,
+            end,
+        };
+        Space::TwoD {
+            x: match coords[0] {
+                ArtistCoords::Data => x,
+                ArtistCoords::AxesFraction => fraction(plot.x, plot.right()),
+            },
+            y: match coords[1] {
+                ArtistCoords::Data => y,
+                ArtistCoords::AxesFraction => fraction(plot.bottom(), plot.y),
+            },
+        }
+    }
 }
 
 /// A drawable item with the depth at which it is sorted in 3D.
@@ -160,7 +194,9 @@ pub(crate) struct Drawn {
 struct Draw<'a, 'f> {
     /// The compilation, to which an artist skipped while it is drawn is reported.
     ctx: &'a mut Ctx<'f>,
-    space: &'a Space<'a>,
+    /// The mapping of the artist being drawn: the axes' own, or a blend of it with the plot area for a line or
+    /// scatter that places a dimension in axes-fraction coordinates.
+    space: Space<'a>,
     scale: ColourScale,
     /// The lower limit of each axis: planar contours without an explicit height are drawn at the lower z limit,
     /// and an image whose plane has no offset lies at the lower limit of the third axis of its plane.
@@ -169,7 +205,8 @@ struct Draw<'a, 'f> {
     axes: ironlab_ir::NodeId,
     /// The number of points a series is decimated to for this plot rectangle.
     target: usize,
-    /// The rectangle the artist geometry is clipped to, outside which nothing is drawn.
+    /// The rectangle the geometry of the artist being drawn is clipped to, outside which nothing is drawn: the plot
+    /// area of a 2D axes, the tile of a 3D axes, or the page for an artist that is not clipped.
     clip: Rect,
     out: Vec<Prim>,
     /// The points each artist drew, for picking and datatips.
@@ -229,18 +266,19 @@ pub(super) fn draw_artists(
     primaries: &[Paint],
     space: &Space,
 ) -> Drawn {
+    let axes_clip = if space.is_3d() {
+        input.outer
+    } else {
+        input.plot
+    };
     let mut draw = Draw {
         ctx,
-        space,
+        space: *space,
         scale: input.colours,
         low: input.ranges.map(|r| r.min),
         axes: input.axes.id,
         target: decimate::target_points(input.plot.width),
-        clip: if space.is_3d() {
-            input.outer
-        } else {
-            input.plot
-        },
+        clip: axes_clip,
         out: Vec::new(),
         hits: Vec::new(),
         images: Vec::new(),
@@ -251,6 +289,13 @@ pub(super) fn draw_artists(
         if !prepared.artist.visible() {
             continue;
         }
+        let placement = Placement::of(prepared.artist);
+        draw.space = space.blended(placement.coords, input.plot);
+        draw.clip = if placement.clip || space.is_3d() {
+            axes_clip
+        } else {
+            input.page
+        };
         match (prepared.artist, data) {
             (Artist::Line(line), ArtistData::Line(points)) => {
                 draw_line(&mut draw, line, points, *primary)
@@ -287,6 +332,33 @@ pub(super) fn draw_artists(
         hits: draw.hits,
         images: draw.images,
         dense: draw.dense,
+    }
+}
+
+/// How a line or scatter is placed in a 2D axes: the coordinates of its x and y values and whether it is clipped to
+/// the plot area. Every other artist places data along every dimension and is clipped.
+#[derive(Clone, Copy)]
+pub(crate) struct Placement {
+    pub coords: [ArtistCoords; 2],
+    pub clip: bool,
+}
+
+impl Placement {
+    pub fn of(artist: &Artist) -> Self {
+        match artist {
+            Artist::Line(line) => Self {
+                coords: [line.x_coords, line.y_coords],
+                clip: line.clip,
+            },
+            Artist::Scatter(scatter) => Self {
+                coords: [scatter.x_coords, scatter.y_coords],
+                clip: scatter.clip,
+            },
+            _ => Self {
+                coords: [ArtistCoords::Data; 2],
+                clip: true,
+            },
+        }
     }
 }
 
@@ -523,7 +595,7 @@ fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
     if let Some(stroke) = line_stroke(&line.line, colour) {
         let clip = expand(draw.clip, stroke.width);
         let runs: Vec<Vec<Sample>> =
-            mapped_runs(draw.space, (0..points.len()).map(|i| points.get(i)))
+            mapped_runs(&draw.space, (0..points.len()).map(|i| points.get(i)))
                 .into_iter()
                 .flat_map(|run| thin_polyline(run, draw.target, clip))
                 .collect();
@@ -545,7 +617,7 @@ fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
     }
     if let Some(outline) = style::marker_outline(line.marker.shape) {
         let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
-        let samples = mapped_samples(draw.space, (0..points.len()).map(|i| points.get(i)));
+        let samples = mapped_samples(&draw.space, (0..points.len()).map(|i| points.get(i)));
         let samples = thin_markers(samples, draw.target, line.marker.size_pt, draw.clip);
         for s in &samples {
             let instance = style::marker_instance(
@@ -700,7 +772,7 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
         let mut b = PathBuilder::new();
         for polyline in contour::isolines(grid, level) {
             let points = polyline.points.iter().map(|q| [q[0], q[1], z]);
-            let runs = mapped_runs(draw.space, points);
+            let runs = mapped_runs(&draw.space, points);
             let closed =
                 polyline.closed && runs.len() == 1 && runs[0].len() == polyline.points.len();
             for run in runs {
