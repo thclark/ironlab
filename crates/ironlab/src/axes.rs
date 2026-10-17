@@ -4,7 +4,7 @@ use ironlab_ir::{
     Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
     IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns, LegendEntryOrder,
     LegendLocation, Limits, Line, MappedImage, NdArray, NodeId, Projection, Quiver, Scale, Scatter,
-    Surface, Text, View3d,
+    Surface, Text, TickLabels, Ticks, View3d,
 };
 
 use crate::artists::{
@@ -508,6 +508,203 @@ impl AxesMut<'_> {
     /// Sets whether the z axis is linear or logarithmic.
     pub fn zscale(&mut self, scale: Scale) -> &mut Self {
         self.axes().z.scale = scale;
+        self
+    }
+
+    /// Sets whether the x axis is reversed, running from its upper limit at the left
+    /// to its lower limit at the right (MATLAB's `XDir` set to `reverse`).
+    ///
+    /// The limits keep their meaning, with the lower limit first; only the direction
+    /// in which they are drawn changes. Axes linked along x share limits only, so
+    /// reversing this axis leaves the axes linked with it as they are.
+    pub fn xreverse(&mut self, on: bool) -> &mut Self {
+        self.axes().x.reverse = on;
+        self
+    }
+
+    /// Sets whether the y axis is reversed, running from its upper limit at the bottom
+    /// to its lower limit at the top (MATLAB's `YDir` set to `reverse`).
+    ///
+    /// A pressure distribution is drawn this way, with suction (negative values)
+    /// upwards; see [`xreverse`](AxesMut::xreverse) for how a reversed axis relates to
+    /// the axes linked with it.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(0.0, 1.0, 11);
+    /// let cp: Vec<f64> = x.iter().map(|x| 1.0 - 4.0 * x * (1.0 - x)).collect();
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&x, &cp);
+    /// ax.ylabel("$C_p$").yreverse(true);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn yreverse(&mut self, on: bool) -> &mut Self {
+        self.axes().y.reverse = on;
+        self
+    }
+
+    /// Sets whether the z axis is reversed, running from its upper limit at the bottom
+    /// of the box to its lower limit at the top; drawn only by three-dimensional axes.
+    pub fn zreverse(&mut self, on: bool) -> &mut Self {
+        self.axes().z.reverse = on;
+        self
+    }
+
+    /// Places the major ticks of the x axis at the given values (MATLAB's `xticks`).
+    ///
+    /// Values outside the limits are not drawn, and the limits are not changed. The
+    /// ticks are labelled with their values unless [`xtick_labels`](AxesMut::xtick_labels)
+    /// names them or [`xtick_labels_hidden`](AxesMut::xtick_labels_hidden) hides them.
+    /// A value that is not finite, or not positive on a logarithmic axis, is reported
+    /// by [`Figure::validate`](crate::Figure::validate).
+    pub fn xticks(&mut self, values: impl AsRef<[f64]>) -> &mut Self {
+        self.axes().x.ticks = Ticks::Values(values.as_ref().to_vec());
+        self
+    }
+
+    /// Places the major ticks of the y axis at the given values (MATLAB's `yticks`).
+    ///
+    /// Explicit ticks and explicit labels make a categorical axis: one tick per
+    /// category, named by its label. See [`xticks`](AxesMut::xticks).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let cases = ["naca_0012", "naca_2412", "naca_4415"];
+    /// let rows: Vec<f64> = (0..cases.len()).map(|k| k as f64).collect();
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.scatter([0.31, 0.27, 0.22], &rows);
+    /// ax.ylim(-0.5, 2.5)
+    ///     .yreverse(true) // the first case at the top
+    ///     .yticks(&rows)
+    ///     .ytick_labels(cases);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn yticks(&mut self, values: impl AsRef<[f64]>) -> &mut Self {
+        self.axes().y.ticks = Ticks::Values(values.as_ref().to_vec());
+        self
+    }
+
+    /// Places the major ticks of the z axis at the given values (MATLAB's `zticks`).
+    /// See [`xticks`](AxesMut::xticks).
+    pub fn zticks(&mut self, values: impl AsRef<[f64]>) -> &mut Self {
+        self.axes().z.ticks = Ticks::Values(values.as_ref().to_vec());
+        self
+    }
+
+    /// Places a major tick of the x axis at every multiple of `step` within the limits.
+    ///
+    /// A step that is not a finite positive number is reported by
+    /// [`Figure::validate`](crate::Figure::validate); one so fine that it would place
+    /// more than 500 ticks is drawn as automatic ticks, with a warning in the report of
+    /// the export.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).xlim(-0.2, 1.2).xtick_step(0.2).ylim(-0.4, 0.4).ytick_step(0.2);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn xtick_step(&mut self, step: f64) -> &mut Self {
+        self.xtick_step_from(step, 0.0)
+    }
+
+    /// Places a major tick of the y axis at every multiple of `step` within the limits.
+    /// See [`xtick_step`](AxesMut::xtick_step).
+    pub fn ytick_step(&mut self, step: f64) -> &mut Self {
+        self.ytick_step_from(step, 0.0)
+    }
+
+    /// Places a major tick of the z axis at every multiple of `step` within the limits.
+    /// See [`xtick_step`](AxesMut::xtick_step).
+    pub fn ztick_step(&mut self, step: f64) -> &mut Self {
+        self.ztick_step_from(step, 0.0)
+    }
+
+    /// Places a major tick of the x axis at every value `origin + k × step`, for every
+    /// integer `k`, within the limits, so that the ticks need not include zero.
+    pub fn xtick_step_from(&mut self, step: f64, origin: f64) -> &mut Self {
+        self.axes().x.ticks = Ticks::Step { step, origin };
+        self
+    }
+
+    /// Places a major tick of the y axis at every value `origin + k × step` within the
+    /// limits. See [`xtick_step_from`](AxesMut::xtick_step_from).
+    pub fn ytick_step_from(&mut self, step: f64, origin: f64) -> &mut Self {
+        self.axes().y.ticks = Ticks::Step { step, origin };
+        self
+    }
+
+    /// Places a major tick of the z axis at every value `origin + k × step` within the
+    /// limits. See [`xtick_step_from`](AxesMut::xtick_step_from).
+    pub fn ztick_step_from(&mut self, step: f64, origin: f64) -> &mut Self {
+        self.axes().z.ticks = Ticks::Step { step, origin };
+        self
+    }
+
+    /// Labels the ticks of the x axis with the given texts, one per value given to
+    /// [`xticks`](AxesMut::xticks), in the same order (MATLAB's `xticklabels`).
+    ///
+    /// A plain string is interpreted as LaTeX, so `$…$` is typeset as mathematics, as
+    /// for every other text of the figure. Labels without explicit tick values, or of a
+    /// different number, are reported by [`Figure::validate`](crate::Figure::validate).
+    pub fn xtick_labels<T: Into<Text>>(
+        &mut self,
+        labels: impl IntoIterator<Item = T>,
+    ) -> &mut Self {
+        self.axes().x.tick_labels = TickLabels::Text(labels.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Labels the ticks of the y axis with the given texts, one per value given to
+    /// [`yticks`](AxesMut::yticks) (MATLAB's `yticklabels`). See
+    /// [`xtick_labels`](AxesMut::xtick_labels).
+    pub fn ytick_labels<T: Into<Text>>(
+        &mut self,
+        labels: impl IntoIterator<Item = T>,
+    ) -> &mut Self {
+        self.axes().y.tick_labels = TickLabels::Text(labels.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Labels the ticks of the z axis with the given texts, one per value given to
+    /// [`zticks`](AxesMut::zticks) (MATLAB's `zticklabels`). See
+    /// [`xtick_labels`](AxesMut::xtick_labels).
+    pub fn ztick_labels<T: Into<Text>>(
+        &mut self,
+        labels: impl IntoIterator<Item = T>,
+    ) -> &mut Self {
+        self.axes().z.tick_labels = TickLabels::Text(labels.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Draws the ticks of the x axis without labels, and reserves no space for them
+    /// (matplotlib's `labelbottom=False`).
+    ///
+    /// This suits a stack of rows that share one x axis, where only the bottom row is
+    /// labelled; plot areas of equal weight keep equal sizes whatever their labels.
+    pub fn xtick_labels_hidden(&mut self) -> &mut Self {
+        self.axes().x.tick_labels = TickLabels::Hidden;
+        self
+    }
+
+    /// Draws the ticks of the y axis without labels, and reserves no space for them;
+    /// see [`xtick_labels_hidden`](AxesMut::xtick_labels_hidden).
+    pub fn ytick_labels_hidden(&mut self) -> &mut Self {
+        self.axes().y.tick_labels = TickLabels::Hidden;
+        self
+    }
+
+    /// Draws the ticks of the z axis without labels; see
+    /// [`xtick_labels_hidden`](AxesMut::xtick_labels_hidden).
+    pub fn ztick_labels_hidden(&mut self) -> &mut Self {
+        self.axes().z.tick_labels = TickLabels::Hidden;
         self
     }
 

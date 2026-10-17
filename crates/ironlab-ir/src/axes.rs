@@ -112,8 +112,54 @@ pub struct Axis {
     pub scale: Scale,
     /// The range of data values shown along the axis.
     pub limits: Limits,
+    /// Whether the axis runs from its upper limit to its lower limit: from left to
+    /// right for a horizontal axis, and from bottom to top for a vertical axis. The
+    /// limits themselves keep `min < max`; only the direction in which they are drawn
+    /// changes.
+    pub reverse: bool,
+    /// Where the major ticks of the axis are placed.
+    pub ticks: Ticks,
+    /// What is written at the major ticks of the axis.
+    pub tick_labels: TickLabels,
     /// Whether grid lines are drawn at the major ticks of this axis.
     pub grid: bool,
+}
+
+/// Where the major ticks of an axis are placed.
+///
+/// Ticks never change the limits of an axis: automatic limits are computed as they are
+/// for automatic ticks, and a tick that lies outside the limits is not drawn.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum Ticks {
+    /// The ticks are chosen at round values from the limits and the length of the axis.
+    #[default]
+    Auto,
+    /// A tick at every value `origin + k × step`, for every integer `k`, that lies
+    /// within the limits.
+    Step {
+        /// The distance between neighbouring ticks, in data units; finite and positive.
+        step: f64,
+        /// A value at which a tick is placed if it lies within the limits; finite.
+        origin: f64,
+    },
+    /// A tick at each of the given values that lies within the limits; every value is
+    /// finite, and positive on a logarithmic axis.
+    Values(Vec<f64>),
+}
+
+/// What is written at the major ticks of an axis.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum TickLabels {
+    /// Each tick is labelled with its value, formatted for the scale of the axis.
+    #[default]
+    Auto,
+    /// The ticks are drawn without labels, and no space is reserved for labels.
+    Hidden,
+    /// Each tick is labelled with the text at the same position in the list. Valid only
+    /// with [`Ticks::Values`] holding as many values as there are texts.
+    Text(Vec<Text>),
 }
 
 /// The mapping from data values to positions along an axis.

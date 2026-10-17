@@ -95,7 +95,8 @@
 //!   coordinate arrays), the data of per-point scatter sizes and colours, and the
 //!   pixels, indices or values of an image. Zero is a valid identifier, so
 //!   substituting it would silently attach an artist to the wrong data;
-//! - the bounds of manual limits, the factor of a quiver scale, the number of a fixed
+//! - the bounds of manual limits, the step and origin of regularly stepped ticks, the
+//!   factor of a quiver scale, the number of a fixed
 //!   number of legend columns, and both centres of a pixel range of an image that is
 //!   present (one centre alone places nothing);
 //! - in a transaction (`edit.proto`), the kind of an edit, of a node and of a value, the
