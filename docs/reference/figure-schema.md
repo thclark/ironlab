@@ -276,7 +276,7 @@ A horizontal reference line is therefore a line with `x_coords` of `axes_fractio
 
 `clip` decides whether the marks of the artist are clipped to the plot area of a two-dimensional axes. With `false`, clipping is released only along a dimension in `axes_fraction` coordinates, where the marks are drawn wherever they are placed, on screen and in exported files; this lets a marker on an edge of the axes be drawn whole. Along a dimension in `data` coordinates the artist stays clipped to the plot area exactly as with `true`, so that a value outside the limits of that axis is never drawn: an edge tick at a data x and a fractional y may overhang the top or bottom edge, but is never drawn left or right of the plot area, however the axes is panned or zoomed. `clip` therefore has no effect on an artist in `data` coordinates along both dimensions, nor in a three-dimensional axes, which clips every artist to its tile, and validation reports a released clip there with the warning `IneffectiveClip`.
 
-The property editor of the viewer shows `x_coords` and `y_coords` read-only, because the coordinates of the values decide what the values mean and are therefore set by the program that builds the figure, and lets `clip` be changed. A datatip reports only the coordinates in `data`.
+The property editor of the viewer shows `x_coords` and `y_coords` read-only, because the coordinates of the values decide what the values mean and are therefore set by the program that builds the figure, and lets `clip` be changed. A datatip reports only the coordinates in `data`. The reasons are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### `contour`
 

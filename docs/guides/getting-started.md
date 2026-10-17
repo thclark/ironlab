@@ -124,7 +124,7 @@ ax.plot(&missing, vec![0.985; missing.len()])
     .color(Color::rgb(0.9, 0.62, 0.0));
 ```
 
-Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a line or scatter in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together.
+Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a line or scatter in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### Contours
 
