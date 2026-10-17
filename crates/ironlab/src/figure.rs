@@ -89,17 +89,19 @@ impl Figure {
 
     /// Sets the sizes of the rows of tiles, from the top.
     ///
-    /// Each size is a weight, given as a number, or [`TrackSize::Fit`]. The weighted rows
-    /// share the height of the figure that the fitted rows leave, in proportion to their
-    /// weights. A row without a size, because fewer sizes than rows are given, has a
-    /// weight of one, so equal weights give the same layout as none. Weights that are not
-    /// finite and positive, or more sizes than rows, are reported by
+    /// Each size is a weight, given as a number, or [`TrackSize::Fit`]. The margins of the
+    /// axes are taken out of the height of the figure first; the fitted rows then take the
+    /// height that their legend panels need, and the plot areas of the weighted rows share
+    /// the rest in proportion to their weights. A row without a size, because fewer sizes
+    /// than rows are given, has a weight of one, so equal weights give the same layout as
+    /// none. Weights that are not finite and positive, or more sizes than rows, are
+    /// reported by
     /// [`validate`](Figure::validate).
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
-    /// // The top row is three times the height of the bottom row.
+    /// // The plots of the top row are three times the height of those of the bottom row.
     /// let fig = Figure::new().tiles(2, 1).row_weights([3.0, 1.0]);
     /// assert_eq!(
     ///     fig.ir().layout.row_weights,

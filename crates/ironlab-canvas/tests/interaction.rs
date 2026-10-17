@@ -10,8 +10,8 @@ use common::*;
 use ironlab_canvas::interaction::{MIN_BOX_ZOOM_POINTS, PixelDatatip, PixelValue, Tip};
 use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_PER_POINT, Tool};
 use ironlab_ir::{
-    Artist, Axes, Color, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage, Limits,
-    Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
+    Artist, Axes, Color, Coords, DataId, Dimension, Figure, Image, ImagePlacement, IndexedImage,
+    Limits, Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -1250,8 +1250,8 @@ fn a_datatip_on_a_decimated_series_reports_the_index_and_values_of_the_original_
         "the index reported is the one in the source data, not the place in the drawn series"
     );
     assert!(tip.index < n);
-    assert_eq!(tip.x, x[tip.index]);
-    assert_eq!(tip.y, y[tip.index]);
+    assert_eq!(tip.x, Some(x[tip.index]));
+    assert_eq!(tip.y, Some(y[tip.index]));
     assert_eq!(tip.z, None);
 }
 
@@ -1938,4 +1938,355 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
         ),
         other => panic!("node 3 of the source is the mapped image, not {other:?}"),
     }
+}
+
+// Why: a fraction of the plot area is where a mark was drawn, not a measurement, so a datatip that reported it as `y`
+// would tell the reader that a tick along the top edge sits at y = 0.985 whatever the axis shows. The datatip of a
+// blended artist reports its data coordinate only, both in its values and in the text of its callout.
+#[test]
+fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
+    let (alpha, top) = (DataId(0), DataId(1));
+    let figure = Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (alpha, NdArray::vector(vec![-2.0, 3.5])),
+            (top, NdArray::vector(vec![0.985, 0.985])),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            x: ironlab_ir::Axis {
+                limits: Limits::Manual {
+                    min: -5.0,
+                    max: 5.0,
+                },
+                ..ironlab_ir::Axis::default()
+            },
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                x: alpha,
+                y: top,
+                y_coords: Coords::AxesFraction,
+                clip: false,
+                line: ironlab_ir::LineStyle {
+                    dash: ironlab_ir::DashStyle::None,
+                    ..ironlab_ir::LineStyle::default()
+                },
+                marker: ironlab_ir::MarkerStyle {
+                    shape: ironlab_ir::MarkerShape::VLine,
+                    ..ironlab_ir::MarkerStyle::default()
+                },
+                ..Line::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    };
+    let (state, hit) = compiled(figure);
+    let sample = hit.artists[0].samples[1];
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("a drawn tick lies under its own position");
+    assert_eq!(tip.index, 1);
+    assert_eq!(tip.x, Some(3.5));
+    assert_eq!(tip.y, None, "the fraction is not reported as data");
+    let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
+    assert!(text.contains("x = 3.5"), "{text}");
+    assert!(!text.contains("y ="), "{text}");
+}
+
+/// A figure of one 2D axes holding the line `line`, whose x and y data are `x` and `y`.
+fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Line) -> Figure {
+    let (xi, yi) = (DataId(0), DataId(1));
+    Figure {
+        id: NodeId(1),
+        data: std::collections::BTreeMap::from([
+            (xi, NdArray::vector(x)),
+            (yi, NdArray::vector(y)),
+        ]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            artists: vec![Artist::Line(Line {
+                id: NodeId(3),
+                x: xi,
+                y: yi,
+                ..line
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    }
+}
+
+// Why: a horizontal reference line is placed at a data y across fractions of the plot width, so its datatip reports
+// the y it stands for and no x, and its callout says so.
+#[test]
+fn a_datatip_on_a_horizontal_reference_line_reports_its_y_only() {
+    let figure = figure_with_line(
+        vec![0.0, 1.0],
+        vec![2.5, 2.5],
+        Line {
+            x_coords: Coords::AxesFraction,
+            ..Line::default()
+        },
+    );
+    let (state, hit) = compiled(figure);
+    let sample = hit.artists[0].samples[0];
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("a drawn end lies under its own position");
+    assert_eq!(tip.x, None);
+    assert_eq!(tip.y, Some(2.5));
+    let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
+    assert!(text.contains("y = 2.5") && !text.contains("x ="), "{text}");
+}
+
+// Why: a mark that is not clipped can be drawn above the plot area, where the reader can see it and point at it, so
+// the datatip must find it there as it finds any drawn point.
+#[test]
+fn a_datatip_finds_an_unclipped_mark_drawn_beyond_the_plot_area() {
+    let figure = figure_with_line(
+        vec![0.25, 0.75],
+        vec![1.05, 1.05],
+        Line {
+            y_coords: Coords::AxesFraction,
+            clip: false,
+            marker: ironlab_ir::MarkerStyle {
+                shape: ironlab_ir::MarkerShape::VLine,
+                ..ironlab_ir::MarkerStyle::default()
+            },
+            ..Line::default()
+        },
+    );
+    let (state, hit) = compiled(figure);
+    let plot = hit.axes[0].plot_rect;
+    let sample = hit.artists[0].samples[1];
+    assert!(
+        sample.position.y < plot.y,
+        "the mark lies above the plot area"
+    );
+    let tip = state
+        .datatip(&hit, sample.position)
+        .expect("the mark is found where it was drawn");
+    assert_eq!((tip.index, tip.x, tip.y), (1, Some(0.75), None));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Reversed axes: every gesture behaves on an axis drawn from its upper limit as it does on a normal one
+// ---------------------------------------------------------------------------------------------------------------
+
+// These tests compile the figure, because the direction of an axis is decided by the scene compiler and reaches the
+// viewer only through the axis maps of the hit map.
+
+/// A two-dimensional axes (node 2) with manual limits x ∈ [0, 10] (logarithmic from 1 to 100 when `log`) and
+/// y ∈ [−2, 1], whose x axis is reversed when `reverse_x` and whose y axis is always reversed, holding one line
+/// (node 3) through three points.
+fn reversed_figure(reverse_x: bool, log: bool) -> Figure {
+    let mut figure = figure_of(
+        vec![
+            NdArray::vector(vec![2.0, 5.0, 8.0]),
+            NdArray::vector(vec![-1.5, 0.5, -0.5]),
+        ],
+        vec![Artist::Line(Line {
+            id: NodeId(3),
+            x: DataId(0),
+            y: DataId(1),
+            display_name: Some(Text::plain("Cp")),
+            ..Line::default()
+        })],
+    );
+    let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
+    axes.x.limits = if log {
+        manual(1.0, 100.0)
+    } else {
+        manual(0.0, 10.0)
+    };
+    axes.x.scale = if log { Scale::Log } else { Scale::Linear };
+    axes.x.reverse = reverse_x;
+    axes.y.limits = manual(-2.0, 1.0);
+    axes.y.reverse = true;
+    figure
+}
+
+/// Returns the x and y axis maps of axes 2 in a compiled hit map, checking that the y axis, and the x axis when
+/// `reverse_x`, runs from its upper limit, so that a test of a gesture never passes on an axis that was not reversed.
+#[track_caller]
+fn reversed_maps_of(hit: &HitMap, reverse_x: bool) -> (AxisMap, AxisMap) {
+    let (x, y) = maps_of(hit);
+    assert_eq!(x.start > x.end, reverse_x, "the direction of x: {x:?}");
+    assert!(
+        y.start < y.end,
+        "y runs from its upper limit at the bottom: {y:?}"
+    );
+    (x, y)
+}
+
+/// Returns the x and y axis maps of axes 2 in a compiled hit map.
+fn maps_of(hit: &HitMap) -> (AxisMap, AxisMap) {
+    match hit.axes[0].kind {
+        AxesHitKind::TwoD { x, y } => (x, y),
+        AxesHitKind::ThreeD => panic!("axes 2 is two-dimensional"),
+    }
+}
+
+/// Compiles the displayed figure of `state` and returns its hit map.
+fn recompiled(state: &FigureState) -> HitMap {
+    ironlab_scene::compile(state.figure(), &TEXT).hit_map
+}
+
+// Why: a pan grabs the data under the pointer and keeps it there; on a reversed axis the data moves opposite to the
+// limits, and a pan computed for a normal axis would push the view the wrong way, away from the pointer.
+#[test]
+fn pan_on_reversed_axes_keeps_the_grabbed_data_under_the_pointer() {
+    for log in [false, true] {
+        let (mut state, hit) = compiled(reversed_figure(true, log));
+        let (x, y) = reversed_maps_of(&hit, true);
+        let plot = hit.axes[0].plot_rect;
+        let start = Point::new(plot.x + 0.3 * plot.width, plot.y + 0.4 * plot.height);
+        let end = Point::new(start.x + 40.0, start.y + 25.0);
+        let grabbed = (x.to_data(start.x), y.to_data(start.y));
+
+        assert!(drag(&mut state, &hit, start, end));
+
+        // The new limits are read through the figure-space extent of the plot as the gesture saw it, because the
+        // compiler may move the plot when new tick labels change the width of the margins.
+        let (xmin, xmax) = manual_of(state.figure(), 2, Dimension::X);
+        let (ymin, ymax) = manual_of(state.figure(), 2, Dimension::Y);
+        assert!(xmin < xmax && ymin < ymax, "the limits still increase");
+        let (x, y) = (remapped(x, (xmin, xmax)), remapped(y, (ymin, ymax)));
+        assert_close(
+            x.to_figure(grabbed.0),
+            end.x,
+            1e-6,
+            "grabbed x under pointer",
+        );
+        assert_close(
+            y.to_figure(grabbed.1),
+            end.y,
+            1e-6,
+            "grabbed y under pointer",
+        );
+        // Recompiling keeps the direction: the larger value is still at the left and at the bottom.
+        let (x, y) = maps_of(&recompiled(&state));
+        assert!(x.to_figure(xmax) < x.to_figure(xmin));
+        assert!(y.to_figure(ymax) > y.to_figure(ymin));
+    }
+}
+
+// Why: the wheel zooms about the cursor, and on a reversed axis the cursor's position must still name the same data
+// value after the zoom, or each notch would slide the feature under inspection away.
+#[test]
+fn wheel_zoom_on_reversed_axes_keeps_the_data_under_the_cursor() {
+    let (mut state, hit) = compiled(reversed_figure(true, false));
+    let (x, y) = reversed_maps_of(&hit, true);
+    let plot = hit.axes[0].plot_rect;
+    let at = Point::new(plot.x + 0.7 * plot.width, plot.y + 0.2 * plot.height);
+    let under = (x.to_data(at.x), y.to_data(at.y));
+
+    assert!(state.scroll(&hit, at, 2.0));
+
+    let (xmin, xmax) = manual_of(state.figure(), 2, Dimension::X);
+    let (ymin, ymax) = manual_of(state.figure(), 2, Dimension::Y);
+    let (x, y) = (remapped(x, (xmin, xmax)), remapped(y, (ymin, ymax)));
+    assert_close(x.to_data(at.x), under.0, 1e-6, "x under the cursor");
+    assert_close(y.to_data(at.y), under.1, 1e-6, "y under the cursor");
+    assert_close(ymax - ymin, 1.5, 1e-9, "the y range halves");
+}
+
+// Why: a rubber band selects the data inside it; on a reversed axis the top of the band is the lower value, and the
+// new limits must still be increasing and cover exactly the data the band covered.
+#[test]
+fn box_zoom_on_reversed_axes_sets_increasing_limits_to_the_data_in_the_band() {
+    let (mut state, hit) = compiled(reversed_figure(true, false));
+    state.tool = Tool::Zoom;
+    let (x, y) = reversed_maps_of(&hit, true);
+    let plot = hit.axes[0].plot_rect;
+    let from = Point::new(plot.x + 0.2 * plot.width, plot.y + 0.1 * plot.height);
+    let to = Point::new(plot.x + 0.6 * plot.width, plot.y + 0.7 * plot.height);
+    let (x0, x1) = (x.to_data(from.x), x.to_data(to.x));
+    let (y0, y1) = (y.to_data(from.y), y.to_data(to.y));
+
+    assert!(drag(&mut state, &hit, from, to));
+
+    let (xmin, xmax) = manual_of(state.figure(), 2, Dimension::X);
+    let (ymin, ymax) = manual_of(state.figure(), 2, Dimension::Y);
+    assert_close(xmin, x0.min(x1), 1e-9, "x min");
+    assert_close(xmax, x0.max(x1), 1e-9, "x max");
+    assert_close(ymin, y0.min(y1), 1e-9, "y min");
+    assert_close(ymax, y0.max(y1), 1e-9, "y max");
+    // The direction is a property of the figure, which zooming does not change.
+    let axes = state.figure().axes(NodeId(2)).unwrap();
+    assert!(axes.x.reverse && axes.y.reverse);
+}
+
+// Why: the datatip reports the quantity the reader reads off the axis, so on a reversed C_p axis it reports C_p as
+// stored, not its negation, and finds the point where it is drawn.
+#[test]
+fn a_datatip_on_reversed_axes_reports_the_stored_values_of_the_point_under_the_pointer() {
+    let (state, hit) = compiled(reversed_figure(true, false));
+    let (x, y) = reversed_maps_of(&hit, true);
+    let at = Point::new(x.to_figure(5.0), y.to_figure(0.5));
+    let tip = state.datatip(&hit, at).expect("a point is drawn there");
+    assert_eq!(tip.index, 1);
+    assert_eq!((tip.x, tip.y), (Some(5.0), Some(0.5)));
+}
+
+// Why: double-clicking restores the limits the figure was opened with; the direction of the axes is not a view
+// property and must be exactly what it was, while the limits return to their source values.
+#[test]
+fn double_click_on_reversed_axes_restores_the_limits_and_keeps_the_direction() {
+    let (mut state, hit) = compiled(reversed_figure(false, false));
+    reversed_maps_of(&hit, false);
+    let plot = hit.axes[0].plot_rect;
+    let at = Point::new(plot.x + 0.5 * plot.width, plot.y + 0.5 * plot.height);
+    assert!(state.scroll(&hit, at, 3.0));
+    assert!(state.double_click(&hit, at));
+    assert_eq!(manual_of(state.figure(), 2, Dimension::Y), (-2.0, 1.0));
+    assert!(state.figure().axes(NodeId(2)).unwrap().y.reverse);
+}
+
+// Why: links share limits only, so a pan on a reversed axis moves its unreversed partner to the same limits, and the
+// partner keeps its own direction; the grabbed value stays under the pointer in the axes that was dragged.
+#[test]
+fn pan_on_a_reversed_axis_moves_a_linked_normal_axis_to_the_same_limits() {
+    let mut figure = reversed_figure(false, false);
+    let mut partner = figure.axes[0].clone();
+    partner.id = NodeId(4);
+    partner.cell.col = 1;
+    partner.y.reverse = false;
+    partner.artists.clear();
+    figure.layout = ironlab_ir::TileLayout::new(1, 2);
+    figure.axes.push(partner);
+    figure.links.push(link(Dimension::Y, &[2, 4]));
+    let (mut state, hit) = compiled(figure);
+    let (_, y) = reversed_maps_of(&hit, false);
+    let plot = hit.axes[0].plot_rect;
+    let start = Point::new(plot.x + 0.5 * plot.width, plot.y + 0.5 * plot.height);
+    let end = Point::new(start.x, start.y + 30.0);
+    let grabbed = y.to_data(start.y);
+
+    assert!(drag(&mut state, &hit, start, end));
+
+    let limits = manual_of(state.figure(), 2, Dimension::Y);
+    assert_eq!(manual_of(state.figure(), 4, Dimension::Y), limits);
+    assert_close(
+        remapped(y, limits).to_figure(grabbed),
+        end.y,
+        1e-6,
+        "grabbed y",
+    );
+    assert!(!state.figure().axes(NodeId(4)).unwrap().y.reverse);
+}
+
+// Why: the property editor offers `reverse` beside the scale and limits of each axis, and its edit is an ordinary set
+// recorded in the view overlay; the axis must then be drawn reversed, and undoing the edit must restore its direction.
+#[test]
+fn setting_reverse_in_the_overlay_reverses_the_axis_and_undo_restores_it() {
+    let (mut state, hit) = compiled(reversed_figure(false, false));
+    let (x, _) = reversed_maps_of(&hit, false);
+    assert!(state.record(&set(2, "x.reverse", Value::Bool(true))));
+    let (x_reversed, _) = reversed_maps_of(&recompiled(&state), true);
+    assert_eq!((x_reversed.start, x_reversed.end), (x.end, x.start));
+    assert!(state.undo());
+    reversed_maps_of(&recompiled(&state), false);
+    assert!(!state.source().axes(NodeId(2)).unwrap().x.reverse);
 }

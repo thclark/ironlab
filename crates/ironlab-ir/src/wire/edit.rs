@@ -212,8 +212,16 @@ proto_file! {
             /// A reference to a node, such as the legend panel named by the legend of an
             /// axes.
             NodeId(ValueNodeId) node_id_value = 46;
+            /// Where the major ticks of an axis are placed.
+            Ticks(ValueTicks) ticks_value = 47;
+            /// What is written at the major ticks of an axis.
+            TickLabels(ValueTickLabels) tick_labels_value = 48;
+            /// A list of texts.
+            Texts(ValueTexts) texts_value = 49;
+            /// How the values of one dimension of a line or scatter are placed.
+            Coords(ValueCoords) coords_value = 50;
             /// A list of sizes of the rows or columns of the tile layout.
-            TrackSizes(ValueTrackSizes) track_sizes_value = 47;
+            TrackSizes(ValueTrackSizes) track_sizes_value = 51;
         }
     }
 
@@ -406,6 +414,24 @@ proto_file! {
         optional uint64 value = 1;
     }
 
+    /// A list of texts value.
+    message ValueTexts {
+        /// The texts.
+        repeated message Text values = 1;
+    }
+
+    /// A ticks value.
+    message ValueTicks {
+        /// The ticks; it must be present.
+        message Ticks value = 1;
+    }
+
+    /// A tick labels value.
+    message ValueTickLabels {
+        /// The tick labels; it must be present.
+        message TickLabels value = 1;
+    }
+
     /// A colour specification value.
     message ValueColorSpec {
         /// The colour specification; it must be present.
@@ -422,6 +448,12 @@ proto_file! {
     message ValueDashStyle {
         /// The dash style; it must be specified.
         enum DashStyle value = 1;
+    }
+
+    /// A coordinates value.
+    message ValueCoords {
+        /// How the values are placed; it must be specified.
+        enum Coords value = 1;
     }
 
     /// A marker style value.

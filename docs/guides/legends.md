@@ -235,16 +235,16 @@ key.columns(LegendEntryColumns::Count(3));
 
 ## Sizing rows and columns with weights
 
-The tiles of a figure are of equal size by default, which suits a grid of plots but makes a panel as large as a plot. Weights give rows and columns different sizes. `row_weights` sets the relative heights of the rows, from the top, and `col_weights` the relative widths of the columns, from the left. Each row shares the height of the figure below its title in proportion to its weight, and each column shares the width in the same way.
+The tiles of a figure are of equal size by default, which suits a grid of plots but makes a panel as large as a plot. Weights give rows and columns different sizes. `row_weights` sets the relative heights of the rows, from the top, and `col_weights` the relative widths of the columns, from the left. The space that the axes of each row and column need for their tick labels, axis labels and titles is set aside first, and the plot areas of the rows then share the height that remains in proportion to their weights, and those of the columns the width, so that plot areas of equal weight are of equal size whatever is written beside them. A legend panel in a row or column without axes counts as a plot area of its weight. [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#plot-areas-not-cells-share-the-page-by-weight) records why.
 
 ```rust
-// The top row of plots is three times the height of the row that holds the panel.
+// The plots of the top row are three times the height of the panel in the row below.
 let fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
 ```
 
-A row or column without a weight, because fewer weights than rows or columns are given, has a weight of 1, so `col_weights([2.0])` in a layout of three columns makes the first column twice as wide as each of the others. A weight must be a finite positive number, and there must be no more weights than rows or columns; [`validate`](getting-started.md#validating-a-figure) reports any other list as the error `InvalidLayoutWeights`.
+A row or column without a weight, because fewer weights than rows or columns are given, has a weight of 1, so `col_weights([2.0])` in a layout of three columns makes the plot area of the first column twice as wide as each of the others. A weight must be a finite positive number, and there must be no more weights than rows or columns; [`validate`](getting-started.md#validating-a-figure) reports any other list as the error `InvalidLayoutWeights`.
 
-An axes or panel that spans several rows or columns takes the sum of their weights. This makes it possible to combine a wide plot with a narrow panel in one row. In the following figure, the axes spans the first two columns and takes four fifths of the width, and the panel in the third column takes the remaining fifth:
+An axes or panel that spans several rows or columns takes the shares of all of them, together with the margins between them. This makes it possible to combine a wide plot with a narrow panel in one row. In the following figure, the axes spans the first two columns and its plot area is four times as wide as the panel in the third column:
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3).col_weights([2.0, 2.0, 1.0]);
@@ -259,7 +259,7 @@ Weights apply to every axes and panel of the figure, not only to legends, and th
 
 ## Fitting rows and columns to their legends
 
-A weight sizes a row as a share of the page, so the height that a key needs must otherwise be guessed, and a wrong guess either clips the key or leaves space empty. A **fitted** row takes the height of the legend panels in it instead, and the weighted rows share the rest of the height. `fit_row` fits one row and keeps the sizes of the others, and `fit_col` does the same for a column:
+A weight sizes a row as a share of the page, so the height that a key needs must otherwise be guessed, and a wrong guess either clips the key or leaves space empty. A **fitted** row takes the height of the legend panels in it instead. The margins of the axes are set aside first, as for weights, the fitted rows then take their heights, and the plot areas of the weighted rows share the rest, so plot areas of equal weight stay of equal size above or beside a fitted row. `fit_row` fits one row and keeps the sizes of the others, and `fit_col` does the same for a column:
 
 ```rust
 // Three plots sharing the time axis, and a key beneath them as tall as its entries.
@@ -276,7 +276,7 @@ fig.link_all_x()?;
 
 `row_weights` and `col_weights` also accept a list of `TrackSize` values, in which `TrackSize::Weight(w)` is a weight and `TrackSize::Fit` a fitted size, such as `row_weights([TrackSize::Weight(1.0), TrackSize::Weight(1.0), TrackSize::Fit])`.
 
-A fitted row is as tall as the tallest area that a panel lying in that row alone needs for its entries. The area includes the inset of the panel's border, if it has one, and the row also includes the margins that align the panel with the plot areas beside it, so that the panel neither clips its entries nor leaves space around them. In a fitted row the width of a panel is fixed and its height follows its entries, so automatic columns are chosen the other way round: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. A fitted column is as wide as the widest area that a panel lying in that column alone needs, with automatic columns chosen to fit the height as usual. A panel that spans a fitted row and another row does not size the fitted row, and a fitted row or column that holds no panel of its own has no size.
+A fitted row is as tall as the tallest area that a panel lying in that row alone needs for its entries, together with the margins that align the panel with the plot areas beside it, or the page padding on a side whose row holds no axes. The area includes the inset of the panel's border, if it has one, so that the panel neither clips its entries nor leaves space around them. In a fitted row the width of a panel is fixed and its height follows its entries, so automatic columns are chosen the other way round: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. A fitted column is as wide as the widest area that a panel lying in that column alone needs, with automatic columns chosen to fit the height as usual. A panel that spans a fitted row and another row does not size the fitted row, and a fitted row or column that holds no panel of its own has no size.
 
 An axes has no content size, so an axes that lies in fitted rows alone, or in fitted columns alone, is reported by [`validate`](getting-started.md#validating-a-figure) as the error `AxesInFittedTrack`. An axes may span a fitted row together with a weighted one, as a tall plot beside a key does.
 

@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange,
-    PixelRange, ScatterColor, ScatterSize,
+    Artist, Contour, ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels,
+    OutOfRange, PixelRange, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axes, Axis, Limits, Projection, Scale};
+use crate::axes::{Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
@@ -61,6 +61,16 @@ pub enum IssueKind {
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
     /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
+    /// A line or scatter places a dimension in axes-fraction coordinates in a
+    /// three-dimensional axes, which has no plot area along its dimensions to take a
+    /// fraction of.
+    AxesFractionInThreeDAxes,
+    /// A line or scatter releases its clip (`clip` is false) although it places no
+    /// dimension in axes-fraction coordinates, or lies in a three-dimensional axes, so
+    /// that the release has no effect: clipping is released only along a dimension
+    /// placed as fractions of the plot area of a two-dimensional axes. This is a
+    /// warning, not an error, because the artist is drawn, clipped to the plot area.
+    IneffectiveClip,
     /// An axis link refers to an identifier that is not an axes of the figure.
     DanglingLink,
     /// Two nodes share an identifier.
@@ -110,6 +120,16 @@ pub enum IssueKind {
     /// Contour levels are empty, not finite or not strictly increasing, or an
     /// automatic level count is zero.
     InvalidLevels,
+    /// The ticks of a coordinate axis cannot be placed: a regular step that is not a
+    /// finite positive number or an origin that is not finite, an explicit tick value
+    /// that is not finite, or an explicit tick value that is not positive on a
+    /// logarithmic axis. Only the axes that are drawn are checked: x and y, and z in a
+    /// three-dimensional axes.
+    InvalidTicks,
+    /// The explicit tick labels of a coordinate axis do not name its ticks one by one:
+    /// the ticks are not explicit values, or the number of labels differs from the
+    /// number of values.
+    InvalidTickLabels,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
@@ -158,7 +178,8 @@ impl Figure {
     /// other artist requires 64-bit floating-point values), inconsistent array lengths
     /// and shapes within an artist (for an image, pixels that are not an array of shape
     /// `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional),
-    /// 3D artists in 2D axes (an image on the xz or yz plane among them), links to
+    /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
+    /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
     /// identifiers that are not axes, duplicate node identifiers, cells of axes and
     /// legend panels outside the tile layout, layout sizes that are too many or weights
     /// that are not finite and positive, axes that lie in fitted rows alone or in fitted
@@ -166,7 +187,10 @@ impl Figure {
     /// an explicit list of legend entries that name no artist of the figure (or, inside a
     /// plot area, an artist of another axes),
     /// legends with a fixed number of zero columns, a non-positive figure size or font
-    /// size, invalid manual limits, invalid
+    /// size, invalid manual limits, ticks that cannot be placed (a regular step that is
+    /// not finite and positive or an origin that is not finite, and explicit tick values
+    /// that are not finite or, on a logarithmic axis, not positive), explicit tick labels
+    /// that do not name explicit tick values one by one, invalid
     /// contour levels, parameters with an empty name or a non-finite number, labels that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
@@ -176,7 +200,8 @@ impl Figure {
     /// only when the colour limits are manual and valid, because automatic limits are
     /// the range of the data). Warnings report finite non-positive data plotted along
     /// logarithmic axes, an image whose plane has a logarithmic axis, which is not
-    /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
+    /// drawn, a line or scatter whose released clip has no effect because it places no
+    /// dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), a legend panel with no entries
@@ -187,11 +212,12 @@ impl Figure {
     /// per pair against the later node (axes before legend panels, each in the order the
     /// figure lists them), comparing only cells that lie within the layout;
     /// data that is not plotted along an
-    /// axis (such as quiver components, colour data or the pixels of an image) never
-    /// produces the first of these. An array of 8-bit values that no artist refers to
+    /// axis (such as quiver components, colour data, the pixels of an image, or the
+    /// values of a dimension in axes-fraction coordinates) never produces the first of
+    /// these. An array of 8-bit values that no artist refers to
     /// is not an error.
     ///
-    /// The z limits and z scale of a 2D axes are ignored, as they are when drawing, and
+    /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when drawing, and
     /// so is the offset of an image in the xy plane of a 2D axes. A line, scatter or
     /// quiver without z data in a 3D axes is not an error: it is drawn in the plane
     /// z = 0. Shape checks are skipped for an artist that refers to unknown or invalid
@@ -568,7 +594,7 @@ impl Validator<'_> {
         }
     }
 
-    /// Checks the cell, legend and limits of an axes.
+    /// Checks the cell, legend, limits and ticks of an axes.
     fn check_axes(&mut self, axes: &Axes) {
         self.check_cell(axes.id, axes.cell);
         self.check_fitted_tracks(axes);
@@ -596,6 +622,13 @@ impl Validator<'_> {
         if three_d {
             limits.push(("z limits", axes.z.limits, axes.z.scale));
         }
+        let mut axes_drawn = vec![("x", &axes.x), ("y", &axes.y)];
+        if three_d {
+            axes_drawn.push(("z", &axes.z));
+        }
+        for (name, axis) in axes_drawn {
+            self.check_ticks(axes.id, name, axis);
+        }
         limits.push(("colour limits", axes.clim, Scale::Linear));
         for (name, limits, scale) in limits {
             let Limits::Manual { min, max } = limits else {
@@ -617,6 +650,58 @@ impl Validator<'_> {
         }
     }
 
+    /// Checks that the ticks of one coordinate axis can be placed and that explicit tick
+    /// labels name them one by one.
+    fn check_ticks(&mut self, node: NodeId, name: &str, axis: &Axis) {
+        let log = axis.scale == Scale::Log;
+        let problem = match &axis.ticks {
+            Ticks::Auto => None,
+            Ticks::Step { step, origin } => {
+                if !(step.is_finite() && *step > 0.0) {
+                    Some(format!(
+                        "the {name} tick step {step} is not a finite positive number"
+                    ))
+                } else if !origin.is_finite() {
+                    Some(format!("the {name} tick origin {origin} is not finite"))
+                } else {
+                    None
+                }
+            }
+            Ticks::Values(values) => {
+                let not_finite = values.iter().find(|v| !v.is_finite());
+                let not_positive = values.iter().find(|v| log && **v <= 0.0);
+                match (not_finite, not_positive) {
+                    (Some(value), _) => {
+                        Some(format!("the {name} tick value {value} is not finite"))
+                    }
+                    (None, Some(value)) => Some(format!(
+                        "the {name} tick value {value} is not positive on a logarithmic axis"
+                    )),
+                    (None, None) => None,
+                }
+            }
+        };
+        if let Some(message) = problem {
+            self.error(Some(node), IssueKind::InvalidTicks, message);
+        }
+        if let TickLabels::Text(texts) = &axis.tick_labels {
+            let problem = match &axis.ticks {
+                Ticks::Values(values) if values.len() == texts.len() => None,
+                Ticks::Values(values) => Some(format!(
+                    "the {name} axis has {} tick labels for {} tick values",
+                    texts.len(),
+                    values.len()
+                )),
+                Ticks::Auto | Ticks::Step { .. } => Some(format!(
+                    "the {name} axis has explicit tick labels but its ticks are not explicit values"
+                )),
+            };
+            if let Some(message) = problem {
+                self.error(Some(node), IssueKind::InvalidTickLabels, message);
+            }
+        }
+    }
+
     /// Checks one artist of an axes.
     fn check_artist(&mut self, axes: &Axes, artist: &Artist) {
         let id = artist.id();
@@ -628,6 +713,32 @@ impl Validator<'_> {
                 Some(id),
                 IssueKind::ThreeDArtistInTwoDAxes,
                 "a three-dimensional artist is placed in a two-dimensional axes".to_owned(),
+            );
+        }
+
+        if three_d && usage.fraction.iter().any(|&fraction| fraction) {
+            self.error(
+                Some(id),
+                IssueKind::AxesFractionInThreeDAxes,
+                "a dimension in axes-fraction coordinates is placed in a three-dimensional axes, \
+                 which accepts data coordinates only"
+                    .to_owned(),
+            );
+        }
+
+        let released = match artist {
+            Artist::Line(line) => !line.clip,
+            Artist::Scatter(scatter) => !scatter.clip,
+            _ => false,
+        };
+        if released && (three_d || !usage.fraction.iter().any(|&fraction| fraction)) {
+            self.warning(
+                Some(id),
+                IssueKind::IneffectiveClip,
+                "the clip is released, but clipping is released only along a dimension in \
+                 axes-fraction coordinates of a two-dimensional axes, so the artist is still \
+                 clipped to the plot area"
+                    .to_owned(),
             );
         }
 
@@ -645,8 +756,12 @@ impl Validator<'_> {
             None => {}
         }
 
-        for (dimension, data) in usage.positions {
+        for &(dimension, data) in &usage.positions {
             if dimension == Dimension::Z && !three_d {
+                continue;
+            }
+            // A fraction of the plot area is not placed along the axis, so its scale does not apply to it.
+            if usage.is_fraction(dimension) {
                 continue;
             }
             let axis = axis_of(axes, dimension);
@@ -1303,6 +1418,9 @@ struct ArtistUsage {
     three_d: bool,
     /// Whether the artist can use arrays of 8-bit values, as the image kinds can.
     accepts_bytes: bool,
+    /// Whether the x and y values of a line or scatter are fractions of the plot area
+    /// rather than data.
+    fraction: [bool; 2],
 }
 
 impl ArtistUsage {
@@ -1315,6 +1433,16 @@ impl ArtistUsage {
             positions: Vec::new(),
             three_d: !matches!(placement.plane, ImagePlane::Xy { .. }),
             accepts_bytes: true,
+            fraction: [false; 2],
+        }
+    }
+
+    /// Returns whether the values along `dimension` are fractions of the plot area.
+    fn is_fraction(&self, dimension: Dimension) -> bool {
+        match dimension {
+            Dimension::X => self.fraction[0],
+            Dimension::Y => self.fraction[1],
+            Dimension::Z => false,
         }
     }
 
@@ -1333,6 +1461,7 @@ impl ArtistUsage {
                     positions,
                     three_d: line.z.is_some(),
                     accepts_bytes: false,
+                    fraction: fractions(line.x_coords, line.y_coords),
                 }
             }
             Artist::Scatter(scatter) => {
@@ -1350,6 +1479,7 @@ impl ArtistUsage {
                     positions,
                     three_d: scatter.z.is_some(),
                     accepts_bytes: false,
+                    fraction: fractions(scatter.x_coords, scatter.y_coords),
                 }
             }
             Artist::Quiver(quiver) => {
@@ -1363,6 +1493,7 @@ impl ArtistUsage {
                     positions,
                     three_d: quiver.z.is_some() || quiver.w.is_some(),
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Contour(contour) => {
@@ -1378,6 +1509,7 @@ impl ArtistUsage {
                     positions,
                     three_d: at_level,
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Surface(surface) => {
@@ -1393,6 +1525,7 @@ impl ArtistUsage {
                     positions,
                     three_d: false,
                     accepts_bytes: false,
+                    fraction: [false; 2],
                 }
             }
             Artist::Image(image) => Self::image(image.pixels, &image.placement),
@@ -1400,4 +1533,9 @@ impl ArtistUsage {
             Artist::MappedImage(image) => Self::image(image.values, &image.placement),
         }
     }
+}
+
+/// Returns whether the x and y values of a line or scatter are fractions of the plot area.
+fn fractions(x: Coords, y: Coords) -> [bool; 2] {
+    [x == Coords::AxesFraction, y == Coords::AxesFraction]
 }

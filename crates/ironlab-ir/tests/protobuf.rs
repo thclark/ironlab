@@ -174,6 +174,13 @@ fn wire_axis(
         scale: scale as i32,
         limits,
         grid: Some(grid),
+        reverse: Some(false),
+        ticks: Some(wire::Ticks {
+            kind: Some(wire::TicksKind::Auto(wire::TicksAuto {})),
+        }),
+        tick_labels: Some(wire::TickLabels {
+            kind: Some(wire::TickLabelsKind::Auto(wire::TickLabelsAuto {})),
+        }),
     })
 }
 
@@ -711,13 +718,42 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     wire::Scale::Log,
                     wire_manual(1.0, 2.0),
                     true,
-                ),
+                )
+                .map(|axis| wire::Axis {
+                    reverse: Some(true),
+                    ticks: Some(wire::Ticks {
+                        kind: Some(wire::TicksKind::Step(wire::TicksStep {
+                            step: Some(0.25),
+                            origin: Some(1.125),
+                        })),
+                    }),
+                    tick_labels: Some(wire::TickLabels {
+                        kind: Some(wire::TickLabelsKind::Hidden(wire::TickLabelsHidden {})),
+                    }),
+                    ..axis
+                }),
                 y: wire_axis(
                     Some("y label"),
                     wire::Scale::Linear,
                     wire_manual(3.0, 4.0),
                     false,
-                ),
+                )
+                .map(|axis| wire::Axis {
+                    ticks: Some(wire::Ticks {
+                        kind: Some(wire::TicksKind::Values(wire::TicksValues {
+                            values: vec![3.0, 3.5],
+                        })),
+                    }),
+                    tick_labels: Some(wire::TickLabels {
+                        kind: Some(wire::TickLabelsKind::Text(wire::TickLabelsText {
+                            labels: vec![
+                                wire_text("low", wire::Interpreter::None).unwrap(),
+                                wire_text("$h$", wire::Interpreter::Latex).unwrap(),
+                            ],
+                        })),
+                    }),
+                    ..axis
+                }),
                 z: wire_axis(None, wire::Scale::Log, wire_auto_limits(), true),
                 r#box: Some(false),
                 colormap: wire::ColormapName::Magma as i32,
@@ -746,6 +782,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_no_color(),
                             wire_colormapped(),
                         ),
+                        x_coords: wire::Coords::AxesFraction as i32,
+                        y_coords: wire::Coords::Data as i32,
+                        clip: Some(false),
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(31),
@@ -770,6 +809,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_auto_color(),
                             wire_no_color(),
                         ),
+                        x_coords: wire::Coords::Data as i32,
+                        y_coords: wire::Coords::AxesFraction as i32,
+                        clip: Some(true),
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(32),
@@ -794,6 +836,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_rgba(0.0625, 0.1875, 0.3125, 0.4375),
                             wire_auto_color(),
                         ),
+                        x_coords: wire::Coords::AxesFraction as i32,
+                        y_coords: wire::Coords::AxesFraction as i32,
+                        clip: Some(false),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -1079,6 +1124,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         label: None,
         scale: Scale::Linear,
         limits: Limits::Auto,
+        reverse: false,
+        ticks: Ticks::Auto,
+        tick_labels: TickLabels::Auto,
         grid: false,
     };
     let expected = Figure {
@@ -1152,18 +1200,30 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     label: text("x label", Interpreter::Latex),
                     scale: Scale::Log,
                     limits: Limits::Manual { min: 1.0, max: 2.0 },
+                    reverse: true,
+                    ticks: Ticks::Step {
+                        step: 0.25,
+                        origin: 1.125,
+                    },
+                    tick_labels: TickLabels::Hidden,
                     grid: true,
                 },
                 y: Axis {
                     label: text("y label", Interpreter::Latex),
                     scale: Scale::Linear,
                     limits: Limits::Manual { min: 3.0, max: 4.0 },
+                    reverse: false,
+                    ticks: Ticks::Values(vec![3.0, 3.5]),
+                    tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::new("$h$")]),
                     grid: false,
                 },
                 z: Axis {
                     label: None,
                     scale: Scale::Log,
                     limits: Limits::Auto,
+                    reverse: false,
+                    ticks: Ticks::Auto,
+                    tick_labels: TickLabels::Auto,
                     grid: true,
                 },
                 box_: false,
@@ -1208,6 +1268,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        x_coords: Coords::AxesFraction,
+                        y_coords: Coords::Data,
+                        clip: false,
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(31),
@@ -1224,6 +1287,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             face: ColorSpec::Auto,
                             edge: ColorSpec::None,
                         },
+                        x_coords: Coords::Data,
+                        y_coords: Coords::AxesFraction,
+                        clip: true,
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(32),
@@ -1244,6 +1310,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             },
                             edge: ColorSpec::Auto,
                         },
+                        x_coords: Coords::AxesFraction,
+                        y_coords: Coords::AxesFraction,
+                        clip: false,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -1660,6 +1729,10 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         check::<wire::MarkerShape>(
             |w, v| wire_line(w).marker.as_mut().unwrap().shape = v,
             |f| format!("{:?}", line(f).marker.shape),
+        ),
+        check::<wire::Coords>(
+            |w, v| wire_line(w).x_coords = v,
+            |f| format!("{:?}", line(f).x_coords),
         ),
         check::<wire::Dimension>(
             |w, v| w.links[0].dimension = v,
@@ -2445,7 +2518,7 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         .expect("the complete figure decodes, so each case fails only for its removal");
 
     type Removal = fn(&mut wire::Figure);
-    let cases: [(&str, Removal); 38] = [
+    let cases: [(&str, Removal); 40] = [
         ("id", |f| f.id = None),
         ("axes[0].id", |f| f.axes[0].id = None),
         ("axes[0].artists[0].kind", |f| {
@@ -2565,6 +2638,28 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                     min: Some(0.0),
                     max: None,
                 })),
+            });
+        }),
+        ("axes[0].x.ticks.step.step", |f| {
+            f.axes[0].x = Some(wire::Axis {
+                ticks: Some(wire::Ticks {
+                    kind: Some(wire::TicksKind::Step(wire::TicksStep {
+                        step: None,
+                        origin: Some(0.0),
+                    })),
+                }),
+                ..wire::Axis::default()
+            });
+        }),
+        ("axes[0].y.ticks.step.origin", |f| {
+            f.axes[0].y = Some(wire::Axis {
+                ticks: Some(wire::Ticks {
+                    kind: Some(wire::TicksKind::Step(wire::TicksStep {
+                        step: Some(0.5),
+                        origin: None,
+                    })),
+                }),
+                ..wire::Axis::default()
             });
         }),
         ("links[0].dimension", |f| {
@@ -3340,12 +3435,14 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     scale: Scale::Linear,
                     limits: Limits::Auto,
                     grid: false,
+                    ..Axis::default()
                 },
                 y: Axis {
                     label: None,
                     scale: Scale::Log,
                     limits: Limits::Manual { min: 0.1, max: 1.0 },
                     grid: true,
+                    ..Axis::default()
                 },
                 z: Axis {
                     label: Some(Text::plain("z")),
@@ -3355,6 +3452,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         max: 2.0,
                     },
                     grid: false,
+                    ..Axis::default()
                 },
                 box_: false,
                 colormap: ColormapName::Coolwarm,
@@ -3398,6 +3496,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        x_coords: Coords::Data,
+                        y_coords: Coords::Data,
+                        clip: true,
                     }),
                     Artist::Image(Image {
                         id: NodeId(4),

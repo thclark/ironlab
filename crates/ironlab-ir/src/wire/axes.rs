@@ -79,6 +79,69 @@ proto_file! {
         message Limits limits = 3;
         /// Whether grid lines are drawn at the major ticks of this axis.
         optional bool grid = 4;
+        /// Whether the axis runs from its upper limit to its lower limit: from left to
+        /// right for a horizontal axis, and from bottom to top for a vertical axis.
+        optional bool reverse = 5;
+        /// Where the major ticks of the axis are placed.
+        message Ticks ticks = 6;
+        /// What is written at the major ticks of the axis.
+        message TickLabels tick_labels = 7;
+    }
+
+    /// Where the major ticks of an axis are placed.
+    message Ticks {
+        /// The kind of ticks; unset means the default of the context.
+        oneof kind: TicksKind {
+            /// The ticks are chosen at round values from the limits and the length of
+            /// the axis.
+            Auto(TicksAuto) automatic = 1;
+            /// A tick at every value origin + k × step within the limits.
+            Step(TicksStep) step = 2;
+            /// A tick at each of the given values within the limits.
+            Values(TicksValues) explicit_values = 3;
+        }
+    }
+
+    /// The ticks are chosen at round values from the limits and the length of the axis.
+    message TicksAuto {}
+
+    /// A tick at every value origin + k × step, for every integer k, within the limits.
+    message TicksStep {
+        /// The distance between neighbouring ticks, in data units.
+        optional double step = 1;
+        /// A value at which a tick is placed if it lies within the limits.
+        optional double origin = 2;
+    }
+
+    /// A tick at each of the given values within the limits.
+    message TicksValues {
+        /// The tick values.
+        repeated double values = 1;
+    }
+
+    /// What is written at the major ticks of an axis.
+    message TickLabels {
+        /// The kind of labels; unset means the default of the context.
+        oneof kind: TickLabelsKind {
+            /// Each tick is labelled with its value.
+            Auto(TickLabelsAuto) automatic = 1;
+            /// The ticks are drawn without labels.
+            Hidden(TickLabelsHidden) hidden = 2;
+            /// Each tick is labelled with the text at the same position in the list.
+            Text(TickLabelsText) text = 3;
+        }
+    }
+
+    /// Each tick is labelled with its value.
+    message TickLabelsAuto {}
+
+    /// The ticks are drawn without labels.
+    message TickLabelsHidden {}
+
+    /// Each tick is labelled with the text at the same position in the list.
+    message TickLabelsText {
+        /// One label per tick value.
+        repeated message Text labels = 1;
     }
 
     /// The mapping from data values to positions along an axis.

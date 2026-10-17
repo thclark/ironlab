@@ -6,6 +6,8 @@
 //! delimited by unescaped `$…$` are typeset with `latex-rust` against the STIX
 //! Two Math face that `latex-rust` embeds, so that glyph identifiers produced by
 //! layout always refer to the same font bytes that the renderers draw with.
+//! Monospace text, written `\texttt{…}` outside math, is set in the Mathematical
+//! Monospace alphabet of the same math face, because no monospace font is bundled.
 //!
 //! All output coordinates share one convention: the origin is the left end of
 //! the baseline, x increases to the right and y increases downwards, so glyphs
@@ -19,6 +21,7 @@ use kurbo::BezPath;
 
 mod fonts;
 mod math;
+mod mono;
 mod outline;
 mod plain;
 mod segments;
@@ -121,7 +124,11 @@ impl TextEngine {
     ///
     /// When `parse_math` is true, segments delimited by unescaped `$…$` are
     /// typeset as LaTeX math, `\$` produces a literal dollar sign, and an
-    /// unmatched `$` is rendered literally with a warning. When `parse_math`
+    /// unmatched `$` is rendered literally with a warning. Outside math,
+    /// `\texttt{…}` sets its argument in monospace: letters and digits in the
+    /// Mathematical Monospace alphabet of STIX Two Math, and every character in a
+    /// cell of one fixed width, with the extents of plain text; within it a bare
+    /// `_` is a literal underscore, as `\_` is. When `parse_math`
     /// is false, `content` is shaped verbatim, including any `$` and `\`
     /// characters.
     ///
@@ -209,6 +216,12 @@ impl TextEngine {
         for segment in segments {
             match segment {
                 Segment::Plain(text) => plain.push_str(&text),
+                Segment::Mono(text) => {
+                    self.flush_plain(&mut builder, &mut plain, size_pt);
+                    let (layout, warnings) = mono::shape(&self.faces, &text, size_pt);
+                    builder.append(layout);
+                    builder.warnings.extend(warnings);
+                }
                 Segment::Math(inner) => match math::typeset(&inner, size_pt, &self.math_font) {
                     Ok(output) => {
                         self.flush_plain(&mut builder, &mut plain, size_pt);

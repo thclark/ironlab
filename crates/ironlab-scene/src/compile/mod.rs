@@ -235,17 +235,38 @@ impl Ctx<'_> {
 ///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
-/// - **Tile sizes.** A fitted row of the tile layout is as tall as the tallest area that a legend panel lying in that
-///   row alone needs for its block of entries (with the border inset of a boxed panel), plus the aligned margins of
-///   the row's axes above and below it, or the page padding on a side whose row holds no axes; a fitted column is as
-///   wide as the widest such area in the same way, and a fitted track in which no panel lies alone has no size. The
-///   weighted rows share the rest of the height of the area below the figure title, and the columns the rest of its
-///   width, in proportion to their weights; a missing size, and a weight that is not finite and positive, counts as a
-///   weight of one, so that equal weights draw exactly what no weights draw. Fitted tracks that need more than the
-///   area share it in proportion to their sizes and leave the weighted tracks nothing. A cell block takes the sum of
-///   the sizes of its rows and columns. The margins depend on the sizes through the tick labels, so a layout with
-///   fitted tracks is laid out again with the sizes recomputed until they settle, at most four times; only the
-///   warnings of the last pass are kept.
+/// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below
+///   the figure title first. A fitted row then takes the share that the tallest legend panel lying in that row alone
+///   needs for its block of entries (with the border inset of a boxed panel), with the page padding added on a side
+///   at which no axes starts or ends; a fitted column takes the widest such share in the same way, and a fitted track
+///   in which no panel lies alone takes none. The plot areas of the weighted rows share the rest of the height, and
+///   those of the weighted columns the rest of the width, in proportion to their weights; a missing size, and a weight
+///   that is not finite and positive, counts as a weight of one, so that equal weights draw exactly what no weights
+///   draw. Plot areas of equal weight are therefore of equal size whatever their tick labels, axis labels, titles and
+///   the fitted tracks beside them. Fitted tracks that need more than the space left share it in proportion to their
+///   needs and leave the weighted tracks nothing. A cell block takes the shares of its rows and columns and the
+///   margins between them. When the margins leave less than a fifth of the length, they are all scaled down alike.
+///   The margins depend on the sizes through the tick labels, so a layout with fitted tracks is laid out again with
+///   the shares recomputed until they settle, at most four times; only the warnings of the last pass are kept.
+/// - **Axis direction.** A reversed axis is drawn from its upper limit to its lower limit: in a 2D axes from the left
+///   or the bottom of the plot, so that its axis map has `start` at the upper limit, and in a 3D axes by mirroring
+///   the normalised box along that axis, so that every artist, tick, grid line and label follows. The limits keep
+///   `min < max`, automatic limits are computed as for the axis unreversed, and links share limits only, so linked
+///   axes may differ in direction.
+/// - **Ticks.** Automatic ticks are chosen by [`crate::maths::ticks`] from the limits and a target count of intervals
+///   set by the length of the axis; on a linear axis whose limits are narrower than the round step of that target,
+///   the target is raised until at least two ticks (on the x axis of a 2D axes) or three (on any other axis) lie
+///   within the limits. A regular step places a tick at every `origin + k · step` within the limits, and explicit
+///   values a tick at each of them within the limits; a step that would place more than 500 ticks, or cannot be
+///   placed, falls back to automatic ticks with a warning naming the axes. Ticks never change the limits. Explicit
+///   ticks carry no minor ticks.
+/// - **Tick labels.** Automatic labels of automatic ticks are described under **Tick labels** above. Automatic labels
+///   of a regular step or of explicit values show each value with the fewest decimals that show every one of them
+///   (see [`crate::maths::ticks::decimals_for`]), with the common exponent of automatic labels, and on a log axis as
+///   automatic log labels are written. Explicit labels are typeset like any other text of the figure and drawn at
+///   the values they name; explicit labels that do not name explicit values one by one, which validation reports,
+///   are replaced by automatic labels. Hidden labels draw the ticks without labels or a common exponent, and the
+///   layout reserves no space for them.
 /// - **Legend.** Only artists with usable data have legend entries, and only those with a display name have
 ///   automatic ones. An axes whose legend is inside its plot area lists its entries there, in artist order, or the
 ///   items of its explicit list, in their order, an artist item naming an artist of another axes being left out. An
@@ -374,7 +395,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     // The warnings of a pass that is repeated would only repeat those of the next, so they are discarded.
     let pass_start = ctx.warnings.len();
     let mut pass = 0;
-    let (outer, ranges, _, decorations, margins) = loop {
+    let (_, ranges, _, decorations, margins) = loop {
         ctx.warnings.truncate(pass_start);
         let laid_out = lay_out(&mut ctx, &fits, grid_area, &prepared);
         pass += 1;
@@ -387,7 +408,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         }
         fits = next;
     };
-    let plots = layout::plot_rects(figure, &outer, &margins);
+    let placement = layout::place(&ctx, &fits, grid_area, &margins);
 
     for (i, axes) in figure.axes.iter().enumerate() {
         let input = artists::AxesInput {
@@ -396,8 +417,9 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
             ranges: &ranges[i],
             colours: colour_scales[i],
             decor: &decorations[i],
-            plot: plots[i],
-            outer: outer[i],
+            plot: placement.plots[i],
+            outer: placement.outer[i],
+            page,
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
@@ -408,8 +430,12 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     }
 
     // Legend panels are drawn after every axes.
-    let panel_areas = layout::panel_rects(&ctx, &fits, grid_area, &margins);
-    for ((panel, area), listing) in figure.panel_legends.iter().zip(panel_areas).zip(&listings) {
+    for ((panel, area), listing) in figure
+        .panel_legends
+        .iter()
+        .zip(placement.panels)
+        .zip(&listings)
+    {
         hit_map.legend_panels.push(LegendPanelHit {
             id: panel.id,
             rect: area,

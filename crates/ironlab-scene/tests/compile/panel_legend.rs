@@ -478,7 +478,7 @@ fn automatic_columns_keep_one_column_in_a_tall_panel() {
 // same panel keeps in one column.
 #[test]
 fn automatic_columns_use_the_fewest_columns_that_fit_a_short_panel() {
-    const TOP: f64 = 6.0;
+    const TOP: f64 = 4.0;
     let column_count = |n: usize| {
         let (fx, _, _, panel) = panel_of(n, TOP, AUTO);
         let scene = compile_figure(&fx.build());

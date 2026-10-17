@@ -13,10 +13,12 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 21] = [
+const WITH_CHOICES: [ValueType; 24] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
+    ValueType::Ticks,
+    ValueType::TickLabels,
     ValueType::ColormapName,
     ValueType::Legend,
     ValueType::LegendLocation,
@@ -25,6 +27,7 @@ const WITH_CHOICES: [ValueType; 21] = [
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
+    ValueType::Coords,
     ValueType::ScatterSize,
     ValueType::ScatterColor,
     ValueType::Grid,
@@ -370,6 +373,25 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ],
     );
     covered(
+        ValueType::Ticks,
+        vec![
+            Value::Ticks(Ticks::Auto),
+            Value::Ticks(Ticks::Step {
+                step: 0.5,
+                origin: 0.25,
+            }),
+            Value::Ticks(Ticks::Values(vec![1.0, 2.0])),
+        ],
+    );
+    covered(
+        ValueType::TickLabels,
+        vec![
+            Value::TickLabels(TickLabels::Auto),
+            Value::TickLabels(TickLabels::Hidden),
+            Value::TickLabels(TickLabels::Text(vec![Text::plain("a")])),
+        ],
+    );
+    covered(
         ValueType::ColorSpec,
         vec![
             Value::ColorSpec(ColorSpec::Auto),
@@ -523,6 +545,15 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::MarkerShape(MarkerShape::Plus),
             Value::MarkerShape(MarkerShape::Cross),
             Value::MarkerShape(MarkerShape::Point),
+            Value::MarkerShape(MarkerShape::VLine),
+            Value::MarkerShape(MarkerShape::HLine),
+        ],
+    );
+    covered(
+        ValueType::Coords,
+        vec![
+            Value::Coords(Coords::Data),
+            Value::Coords(Coords::AxesFraction),
         ],
     );
     covered(
@@ -916,4 +947,49 @@ fn a_legend_panel_choice_is_available_only_for_a_panel_the_figure_has() {
     assert_eq!(offered[1].value, Value::Legend(Legend::Panel(NodeId(0))));
     assert!(fig.panel_legend(NodeId(0)).is_none());
     assert!(!offered[1].available(), "{offered:?}");
+}
+
+// Why: switching the ticks of an axis between a regular step and explicit values must
+// keep what the replaced value holds, so that a user who flips the combo box away and
+// back loses nothing they had set.
+#[test]
+fn tick_choices_keep_the_step_or_the_values_they_replace() {
+    let step = Value::Ticks(Ticks::Step {
+        step: 0.2,
+        origin: -0.1,
+    });
+    let offered = choices(ValueType::Ticks, Some(&step));
+    assert_eq!(
+        labels(&offered),
+        ["Automatic", "Regular step", "Explicit values"]
+    );
+    assert_eq!(offered[1].value, step);
+    let values = Value::Ticks(Ticks::Values(vec![0.0, 1.0, 2.0]));
+    let offered = choices(ValueType::Ticks, Some(&values));
+    assert_eq!(offered[2].value, values);
+}
+
+// Why: explicit tick labels name the ticks one by one, which validation accepts only
+// where the ticks are explicit values of the same number, so the editor must show the
+// choice disabled, with its reason, anywhere else rather than offer a change that is
+// refused; where the labels already match their values the choice stays available.
+#[test]
+fn explicit_tick_labels_are_available_only_for_as_many_explicit_tick_values() {
+    let (mut fig, axes, _) = common::single_line_figure();
+    {
+        let a = fig.axes_mut(axes).expect("the fixture has its axes");
+        a.y.ticks = Ticks::Values(vec![0.0, 1.0]);
+        a.y.tick_labels = TickLabels::Text(vec![Text::plain("zero"), Text::plain("one")]);
+    }
+    let offered = property_choices(&fig, axes, &path("y.tick_labels"));
+    assert_eq!(labels(&offered), ["Automatic", "Hidden", "Explicit text"]);
+    assert!(offered.iter().all(Choice::available), "{offered:?}");
+
+    // The x axis has automatic ticks, so explicit labels would name nothing.
+    let offered = property_choices(&fig, axes, &path("x.tick_labels"));
+    assert!(offered[0].available() && offered[1].available());
+    let reason = offered[2]
+        .unavailable
+        .expect("explicit labels are unavailable without explicit values");
+    assert!(reason.contains("explicit values"), "{reason}");
 }

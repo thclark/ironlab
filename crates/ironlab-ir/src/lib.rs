@@ -31,8 +31,10 @@
 //!
 //! - A figure is 160 mm wide and 100 mm high, uses the STIX Two font set at a base
 //!   size of 9 pt on a white background, and has a single-cell tile layout.
-//! - An axes is two-dimensional with a full box, linear automatic axes without
-//!   grid lines, the viridis colormap, automatic colour limits and no legend.
+//! - An axes is two-dimensional with a full box, the viridis colormap, automatic
+//!   colour limits and no legend. Each of its axes is linear, has automatic limits,
+//!   automatic ticks and automatic tick labels, runs in the usual direction (left to
+//!   right, bottom to top) and has no grid lines.
 //! - A three-dimensional view has an azimuth of −37.5°, an elevation of 30°, a zoom
 //!   of 1 and no pan.
 //! - A line style is a solid 0.75 pt line in the automatic colour, and a marker style
@@ -50,8 +52,8 @@
 //!   entries in one column. A legend panel is outlined by a border drawn as the box of
 //!   an axes is drawn, centres its entries and arranges them in as few columns as fit
 //!   it. Entries fill each column before the next.
-//! - The rows and columns of a tile layout all have a weight of one, so its cells are of
-//!   equal size.
+//! - The rows and columns of a tile layout all have a weight of one, so its plot areas
+//!   are of equal size.
 //! - A legend lists its entries automatically, rather than from an explicit list of items.
 
 mod artist;
@@ -73,11 +75,11 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Contour, ContourPlacement, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface,
 };
-pub use axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
+pub use axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 pub use data::{NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,

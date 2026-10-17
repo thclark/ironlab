@@ -330,6 +330,15 @@ pub fn kitchen_sink_figure() -> Figure {
         MarkerShape::Plus,
         MarkerShape::Cross,
         MarkerShape::Point,
+        MarkerShape::VLine,
+        MarkerShape::HLine,
+    ];
+    // Every combination of coordinates along x and y, each line taking one in turn.
+    let coords = [
+        (Coords::Data, Coords::Data),
+        (Coords::AxesFraction, Coords::Data),
+        (Coords::Data, Coords::AxesFraction),
+        (Coords::AxesFraction, Coords::AxesFraction),
     ];
     let dashes = [
         DashStyle::Solid,
@@ -359,8 +368,20 @@ pub fn kitchen_sink_figure() -> Figure {
                 min: 0.5,
                 max: 20.0,
             },
+            reverse: true,
+            ticks: Ticks::Values(vec![1.0, 2.0, 10.0]),
+            tick_labels: TickLabels::Text(vec![
+                Text::plain("one"),
+                Text::new("$2$"),
+                Text::plain("ten"),
+            ]),
             grid: true,
         };
+        a.y.ticks = Ticks::Step {
+            step: 0.25,
+            origin: -0.125,
+        };
+        a.y.tick_labels = TickLabels::Hidden;
         a.y.scale = Scale::Log;
         a.box_ = false;
         a.colormap = ColormapName::Viridis;
@@ -396,6 +417,9 @@ pub fn kitchen_sink_figure() -> Figure {
                     face: color_specs[(k + 1) % color_specs.len()],
                     edge: color_specs[(k + 2) % color_specs.len()],
                 },
+                x_coords: coords[k % coords.len()].0,
+                y_coords: coords[k % coords.len()].1,
+                clip: k % 2 == 0,
             }),
         );
     }
@@ -430,6 +454,9 @@ pub fn kitchen_sink_figure() -> Figure {
                 shape: MarkerShape::Diamond,
                 ..MarkerStyle::default()
             },
+            x_coords: Coords::Data,
+            y_coords: Coords::AxesFraction,
+            clip: false,
         }),
     );
     let id = b.node();
@@ -535,6 +562,9 @@ pub fn kitchen_sink_figure() -> Figure {
             label: Some(Text::new("$z$")),
             scale: Scale::Log,
             limits: Limits::Auto,
+            reverse: true,
+            ticks: Ticks::Values(vec![0.1, 1.0, 10.0]),
+            tick_labels: TickLabels::Auto,
             grid: true,
         };
         a.legend = Some(Legend::Inside(InsideLegend {

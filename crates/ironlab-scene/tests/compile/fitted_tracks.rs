@@ -157,15 +157,39 @@ fn weighted_rows_share_the_height_that_a_fitted_row_leaves() {
     let scene = compile_figure(&fx.build());
     let top = axes_hit(&scene, axes[0]).plot_rect;
     let bottom = axes_hit(&scene, axes[1]).plot_rect;
-    // Both axes reserve the same margins, so a row's height is its plot's height plus the gap between the plots.
-    let gap = bottom.y - top.bottom();
-    assert_close(bottom.height + gap, 3.0 * (top.height + gap), 1e-6);
+    // The margins are taken out first, so the plot areas themselves are in the ratio of the weights.
+    assert_close(bottom.height, 3.0 * top.height, 1e-6);
     // The fitted row keeps the height of its content whatever the weights of the others.
     assert_close(
         panel_rect(&scene, panel).height,
         panel_rect(&even, panel).height,
         1e-6,
     );
+}
+
+// Why: issue #77's stack of rows sharing x hides the x tick labels of every row but the bottom one, so the rows
+// reserve different margins; the plot areas of equal weight must still be of equal height, both when the margins are
+// taken out and when a fitted key beneath the stack takes its height first, or the rows could not be compared.
+#[test]
+fn equal_weight_rows_with_hidden_tick_labels_above_a_fitted_key_have_equal_plot_areas() {
+    let (mut fx, axes, _, panel) = stack_over_fitted_row(4, &names("Level ", 9), AUTO, true);
+    for &ax in &axes[..3] {
+        fx.ax(ax).x.tick_labels = ironlab_ir::TickLabels::Hidden;
+    }
+    fx.ax(axes[3]).x.label = Some(ironlab_ir::Text::new("Angle of attack"));
+    let scene = compile_figure(&fx.build());
+    assert!(!overflows(&scene, panel), "{:?}", scene.warnings);
+    let plots: Vec<Rect> = axes
+        .iter()
+        .map(|&ax| axes_hit(&scene, ax).plot_rect)
+        .collect();
+    for plot in &plots[1..] {
+        assert_close(plot.height, plots[0].height, 1e-6);
+    }
+    // The rows with hidden labels sit closer together than the bottom row sits to the key.
+    let gap = plots[1].y - plots[0].bottom();
+    let to_key = panel_rect(&scene, panel).y - plots[3].bottom();
+    assert!(gap < to_key, "{gap} between rows, {to_key} to the key");
 }
 
 // Why: a fitted row that holds nothing has no content, so it takes no height and leaves the figure as it would be

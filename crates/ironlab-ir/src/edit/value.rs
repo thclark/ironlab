@@ -6,10 +6,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::{
-    ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
+    ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
     QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, View3d};
+use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
 use crate::layout::{Cell, TileLayout, TrackSize};
@@ -58,12 +58,12 @@ pub enum Value {
     NodeId(NodeId),
     /// A list of double-precision numbers, such as explicit contour levels.
     Doubles(Vec<f64>),
-    /// A list of sizes of the rows or columns of the tile layout.
-    TrackSizes(Vec<TrackSize>),
     /// A list of strings: the labels of a figure.
     Strings(Vec<String>),
     /// A text, such as a title.
     Text(Text),
+    /// A list of texts: the explicit labels of the ticks of an axis.
+    Texts(Vec<Text>),
     /// How the source of a text is interpreted.
     Interpreter(Interpreter),
     /// The physical size of a figure.
@@ -90,6 +90,10 @@ pub enum Value {
     Scale(Scale),
     /// A range of data values.
     Limits(Limits),
+    /// Where the major ticks of an axis are placed.
+    Ticks(Ticks),
+    /// What is written at the major ticks of an axis.
+    TickLabels(TickLabels),
     /// A colormap name.
     ColormapName(ColormapName),
     /// The legend of an axes.
@@ -114,6 +118,10 @@ pub enum Value {
     MarkerStyle(MarkerStyle),
     /// A marker shape.
     MarkerShape(MarkerShape),
+    /// How the values of one dimension of a line or scatter are placed.
+    Coords(Coords),
+    /// A list of sizes of the rows or columns of the tile layout.
+    TrackSizes(Vec<TrackSize>),
     /// The size of scatter markers.
     ScatterSize(ScatterSize),
     /// The colour of scatter markers.
@@ -154,14 +162,14 @@ pub enum ValueType {
     DataId,
     /// See [`Value::NodeId`].
     NodeId,
-    /// See [`Value::TrackSizes`].
-    TrackSizes,
     /// See [`Value::Doubles`].
     Doubles,
     /// See [`Value::Strings`].
     Strings,
     /// See [`Value::Text`].
     Text,
+    /// See [`Value::Texts`].
+    Texts,
     /// See [`Value::Interpreter`].
     Interpreter,
     /// See [`Value::FigureSize`].
@@ -188,6 +196,10 @@ pub enum ValueType {
     Scale,
     /// See [`Value::Limits`].
     Limits,
+    /// See [`Value::Ticks`].
+    Ticks,
+    /// See [`Value::TickLabels`].
+    TickLabels,
     /// See [`Value::ColormapName`].
     ColormapName,
     /// See [`Value::Legend`].
@@ -212,6 +224,10 @@ pub enum ValueType {
     MarkerStyle,
     /// See [`Value::MarkerShape`].
     MarkerShape,
+    /// See [`Value::Coords`].
+    Coords,
+    /// See [`Value::TrackSizes`].
+    TrackSizes,
     /// See [`Value::ScatterSize`].
     ScatterSize,
     /// See [`Value::ScatterColor`].
@@ -249,10 +265,10 @@ impl Value {
             Value::String(_) => ValueType::String,
             Value::DataId(_) => ValueType::DataId,
             Value::NodeId(_) => ValueType::NodeId,
-            Value::TrackSizes(_) => ValueType::TrackSizes,
             Value::Doubles(_) => ValueType::Doubles,
             Value::Strings(_) => ValueType::Strings,
             Value::Text(_) => ValueType::Text,
+            Value::Texts(_) => ValueType::Texts,
             Value::Interpreter(_) => ValueType::Interpreter,
             Value::FigureSize(_) => ValueType::FigureSize,
             Value::FontSetId(_) => ValueType::FontSetId,
@@ -266,6 +282,8 @@ impl Value {
             Value::Axis(_) => ValueType::Axis,
             Value::Scale(_) => ValueType::Scale,
             Value::Limits(_) => ValueType::Limits,
+            Value::Ticks(_) => ValueType::Ticks,
+            Value::TickLabels(_) => ValueType::TickLabels,
             Value::ColormapName(_) => ValueType::ColormapName,
             Value::Legend(_) => ValueType::Legend,
             Value::InsideLegend(_) => ValueType::InsideLegend,
@@ -278,6 +296,8 @@ impl Value {
             Value::DashStyle(_) => ValueType::DashStyle,
             Value::MarkerStyle(_) => ValueType::MarkerStyle,
             Value::MarkerShape(_) => ValueType::MarkerShape,
+            Value::Coords(_) => ValueType::Coords,
+            Value::TrackSizes(_) => ValueType::TrackSizes,
             Value::ScatterSize(_) => ValueType::ScatterSize,
             Value::ScatterColor(_) => ValueType::ScatterColor,
             Value::Grid(_) => ValueType::Grid,

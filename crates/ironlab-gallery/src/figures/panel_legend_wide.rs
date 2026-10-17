@@ -6,7 +6,7 @@ pub const TITLE: &str = "Wide legend panel";
 pub const DESCRIPTION: &str = "The step response and the magnitude response of a second-order system for twelve \
      damping ratios, with one legend panel spanning the full width of the figure below both plots. The panel \
      arranges its twelve entries in as few columns as fit its height, and the rows of tiles are weighted 3 : 1 so \
-     that the panel takes a quarter of the height.";
+     that the panel is a third as tall as the plots above it.";
 
 const DAMPING_RATIOS: [f64; 12] = [
     0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,

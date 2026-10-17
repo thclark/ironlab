@@ -446,9 +446,19 @@ const PANEL_REFERENCE_REASON: &str = "The legend panel in which an axes lists it
      is set by the program that builds the figure, as part of how its axes and legends \
      relate to one another.";
 
+/// The reason the explicit labels of the ticks of an axis are not changed here.
+const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one by one, and \
+     both are set together by the program that builds the figure, which is where they are \
+     changed.";
+
 /// The reason the groups of linked axes are not changed here.
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
      program that builds the figure, as part of how its axes relate to one another.";
+
+/// The reason the coordinates in which a line or scatter places its values are not changed here.
+const COORDS_REASON: &str = "Whether a plot places its values as data or as fractions of \
+     the plot area is set by the program that builds the figure, because it decides what \
+     the values mean. The editor changes how a figure looks, not what it draws.";
 
 /// The reason the data a plot draws is not changed here, which the row of a data reference
 /// shows exactly as every other read-only row shows its own reason.
@@ -486,6 +496,13 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // never reads `marker.size_pt` there. Every other artist draws its markers at
         // that size, so it stays editable for them.
         NodeKind::Scatter if segments == ["marker", "size_pt"] => Some(SCATTER_MARKER_SIZE_REASON),
+        // The coordinates of a line or scatter say what its values mean, as its data does,
+        // so they come from the program that builds the figure.
+        NodeKind::Line | NodeKind::Scatter
+            if segments == ["x_coords"] || segments == ["y_coords"] =>
+        {
+            Some(COORDS_REASON)
+        }
         // Where an axes sits in the tile layout is part of the structure of the figure,
         // which the program that builds it defines, as the layout itself is.
         NodeKind::Axes if segments.first().is_some_and(|first| first == "cell") => {
@@ -547,6 +564,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Doubles
         | ValueType::TrackSizes
         | ValueType::Strings
+        | ValueType::Texts
         | ValueType::Text
         | ValueType::Interpreter
         | ValueType::FontSetId
@@ -556,6 +574,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Projection
         | ValueType::Scale
         | ValueType::Limits
+        | ValueType::Ticks
+        | ValueType::TickLabels
         | ValueType::ColormapName
         | ValueType::Legend
         | ValueType::LegendLocation
@@ -564,6 +584,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ColorSpec
         | ValueType::DashStyle
         | ValueType::MarkerShape
+        | ValueType::Coords
         | ValueType::ScatterSize
         | ValueType::ScatterColor
         | ValueType::Grid
@@ -608,6 +629,9 @@ fn editor_for(
         ValueType::Color => Editor::Color,
         ValueType::Doubles | ValueType::TrackSizes => Editor::Numbers,
         ValueType::Strings => Editor::Words,
+        ValueType::Texts => Editor::ReadOnly {
+            reason: TICK_LABELS_REASON,
+        },
         ValueType::Parameters => Editor::Parameters,
         ValueType::Links => Editor::ReadOnly {
             reason: LINKS_REASON,
@@ -625,6 +649,8 @@ fn editor_for(
         },
         ValueType::Projection
         | ValueType::Limits
+        | ValueType::Ticks
+        | ValueType::TickLabels
         | ValueType::ColorSpec
         | ValueType::ScatterSize
         | ValueType::ScatterColor
@@ -642,6 +668,7 @@ fn editor_for(
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
         | ValueType::DashStyle
+        | ValueType::Coords
         | ValueType::Interpreter
         | ValueType::FontSetId => Editor::Choice {
             offered: property_choices(figure, node, &property.path),

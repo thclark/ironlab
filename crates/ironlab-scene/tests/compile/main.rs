@@ -8,9 +8,11 @@ mod common;
 mod probe;
 
 mod artists;
+mod blended;
 mod decimation;
 mod dense;
 mod depth;
+mod direction;
 mod fitted_tracks;
 mod images;
 mod layout;
@@ -22,4 +24,5 @@ mod robustness;
 mod scales;
 mod surfaces_2d;
 mod three_d;
+mod ticks;
 mod validity;

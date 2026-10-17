@@ -44,6 +44,12 @@ proto_file! {
         message LineStyle line = 7;
         /// The style of the markers at the points.
         message MarkerStyle marker = 8;
+        /// How the x values are placed: as data or as fractions of the plot area.
+        enum Coords x_coords = 9;
+        /// How the y values are placed: as data or as fractions of the plot area.
+        enum Coords y_coords = 10;
+        /// Whether the artist is clipped to the plot area.
+        optional bool clip = 11;
     }
 
     /// Markers at data points, each with its own size and colour.
@@ -68,6 +74,21 @@ proto_file! {
         message ScatterColor color = 8;
         /// The marker shape and the use of the scatter colour for face and edge.
         message MarkerStyle marker = 9;
+        /// How the x values are placed: as data or as fractions of the plot area.
+        enum Coords x_coords = 10;
+        /// How the y values are placed: as data or as fractions of the plot area.
+        enum Coords y_coords = 11;
+        /// Whether the artist is clipped to the plot area.
+        optional bool clip = 12;
+    }
+
+    /// How the values of one dimension of a line or scatter are placed in a 2D axes.
+    enum Coords {
+        /// The values are data, placed through the limits and scale of the axis.
+        Data = 1;
+        /// The values are fractions of the plot area along the dimension, 0 at its left
+        /// or bottom edge and 1 at its right or top edge.
+        AxesFraction = 2;
     }
 
     /// The size of scatter markers.

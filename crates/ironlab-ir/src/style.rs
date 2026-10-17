@@ -230,4 +230,8 @@ pub enum MarkerShape {
     Cross,
     /// A small filled dot.
     Point,
+    /// A vertical tick, a stroke as tall as the marker size (`'|'` in Matplotlib).
+    VLine,
+    /// A horizontal tick, a stroke as wide as the marker size (`'_'` in Matplotlib).
+    HLine,
 }
