@@ -105,15 +105,15 @@ fn panels() -> [Panel; 3] {
     };
     [
         Panel {
-            title: "Maximum camber $m$, with $p = 0.4$ and $t = 0.12$ held fixed",
+            title: "Maximum camber $m$ (position $p = 0.4$, thickness $t = 0.12$)",
             members: with(|s, v| s.m = v, [0.0, 0.02, 0.06, 0.08]),
         },
         Panel {
-            title: "Position of maximum camber $p$, with $m = 0.04$ and $t = 0.12$ held fixed",
+            title: "Position of maximum camber $p$ ($m = 0.04$, $t = 0.12$)",
             members: with(|s, v| s.p = v, [0.2, 0.3, 0.5, 0.6]),
         },
         Panel {
-            title: "Thickness $t$, with $m = 0.04$ and $p = 0.4$ held fixed",
+            title: "Thickness $t$ (maximum camber $m = 0.04$, position $p = 0.4$)",
             members: with(|s, v| s.t = v, [0.06, 0.09, 0.15, 0.18]),
         },
     ]
@@ -133,7 +133,7 @@ pub fn figure() -> Figure {
         .label("aspect")
         .parameter("dimensionality", "2D")
         .parameter("artists", 15)
-        .parameter("data_points", 15 * 159)
+        .parameter("data_points", 2 * 15 * 159)
         .parameter("has_legend", true);
 
     let mut ids = Vec::new();
@@ -155,8 +155,9 @@ pub fn figure() -> Figure {
             .xtick_step(0.2)
             .ytick_step(0.2)
             .ylabel("$y/c$")
-            .legend(LegendLocation::North)
-            .legend_columns(LegendEntryColumns::Count(3))
+            .legend(LegendLocation::South)
+            .legend_columns(LegendEntryColumns::Count(2))
+            .legend_order(LegendEntryOrder::RowMajor)
             .legend_boxed(false);
         if row + 1 == panels.len() {
             ax.xlabel("Chordwise position $x/c$");
