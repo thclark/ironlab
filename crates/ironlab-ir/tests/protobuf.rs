@@ -713,6 +713,11 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                 }),
                 title: wire_text("axes title", wire::Interpreter::Latex),
+                title_align: wire::TitleAlign::Right as i32,
+                aspect: Some(wire::Aspect {
+                    kind: Some(wire::AspectKind::Auto(wire::AspectAuto {})),
+                }),
+                aspect_adjust: wire::AspectAdjust::Box as i32,
                 x: wire_axis(
                     Some("x label"),
                     wire::Scale::Log,
@@ -999,6 +1004,14 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     kind: Some(wire::ProjectionKind::TwoD(wire::ProjectionTwoD {})),
                 }),
                 title: None,
+                title_align: wire::TitleAlign::Left as i32,
+                aspect: Some(wire::Aspect {
+                    kind: Some(wire::AspectKind::Ratio(wire::AspectRatio {
+                        y: Some(2.5),
+                        z: Some(0.75),
+                    })),
+                }),
+                aspect_adjust: wire::AspectAdjust::Limits as i32,
                 x: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 y: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 z: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
@@ -1196,6 +1209,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     },
                 },
                 title: text("axes title", Interpreter::Latex),
+                title_align: TitleAlign::Right,
+                aspect: Aspect::Auto,
+                aspect_adjust: AspectAdjust::Box,
                 x: Axis {
                     label: text("x label", Interpreter::Latex),
                     scale: Scale::Log,
@@ -1503,6 +1519,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 },
                 projection: Projection::TwoD,
                 title: None,
+                title_align: TitleAlign::Left,
+                aspect: Aspect::Ratio { y: 2.5, z: 0.75 },
+                aspect_adjust: AspectAdjust::Limits,
                 x: auto_axis.clone(),
                 y: auto_axis.clone(),
                 z: auto_axis,
@@ -1721,6 +1740,14 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                     .order = v;
             },
             |f| format!("{:?}", inside(&f.axes[0].legend).layout.order),
+        ),
+        check::<wire::TitleAlign>(
+            |w, v| w.axes[0].title_align = v,
+            |f| format!("{:?}", f.axes[0].title_align),
+        ),
+        check::<wire::AspectAdjust>(
+            |w, v| w.axes[0].aspect_adjust = v,
+            |f| format!("{:?}", f.axes[0].aspect_adjust),
         ),
         check::<wire::DashStyle>(
             |w, v| wire_line(w).line.as_mut().unwrap().dash = v,
@@ -3203,6 +3230,11 @@ fn hand_encoded_bytes() -> Vec<u8> {
         length_delimited(12, &length_delimited(6, &image)),
         length_delimited(12, &length_delimited(7, &indexed_image)),
         length_delimited(12, &length_delimited(8, &mapped_image)),
+        // Title aligned right (field 13, value 3), an automatic aspect (field 14, oneof
+        // variant 1) and an aspect kept by the limits (field 15, value 2).
+        varint_field(13, 3),
+        length_delimited(14, &length_delimited(1, &[])),
+        varint_field(15, 2),
     ]
     .concat();
 
@@ -3430,6 +3462,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     },
                 },
                 title: Some(Text::new("Axes")),
+                title_align: TitleAlign::Right,
+                aspect: Aspect::Auto,
+                aspect_adjust: AspectAdjust::Limits,
                 x: Axis {
                     label: Some(Text::new("$t$ (s)")),
                     scale: Scale::Linear,

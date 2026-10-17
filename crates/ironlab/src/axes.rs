@@ -1,10 +1,11 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, Color, ColorSpec, ColormapName, Contour, ContourPlacement, Coords,
-    Dimension, Image, IndexedImage, InsideLegend, IrError, Legend, LegendEntries,
-    LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, Line, MappedImage, NdArray,
-    NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, ColormapName, Contour,
+    ContourPlacement, Coords, Dimension, Image, IndexedImage, InsideLegend, IrError, Legend,
+    LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, Line, MappedImage,
+    NdArray, NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks,
+    TitleAlign, View3d,
 };
 
 use crate::artists::{
@@ -486,6 +487,62 @@ impl AxesMut<'_> {
     /// Sets the title drawn above the axes.
     pub fn title(&mut self, title: impl Into<Text>) -> &mut Self {
         self.axes().title = Some(title.into());
+        self
+    }
+
+    /// Sets how the title is aligned with the plot area: centred over it (the default),
+    /// or with its left or right edge on the left or right edge of the plot area, rather
+    /// than of the tile.
+    ///
+    /// A long title that names the varied and the fixed parameters of a panel reads best
+    /// aligned on the left.
+    pub fn title_align(&mut self, align: TitleAlign) -> &mut Self {
+        self.axes().title_align = align;
+        self
+    }
+
+    /// Fixes the ratios of the length of one data unit of y, and of z, to that of one data
+    /// unit of x (MATLAB's `daspect` and `axis equal`; matplotlib's `set_aspect` and
+    /// `set_box_aspect`).
+    ///
+    /// [`Aspect::Equal`] draws one unit at the same length along every axis, so that
+    /// geometry such as an aerofoil section or a sphere keeps its shape;
+    /// [`Aspect::ratio(y)`](Aspect::ratio) draws one unit of y `y` times as long as one unit
+    /// of x, and `Aspect::Ratio { y, z }` also one unit of z `z` times as long, which a 2D
+    /// axes ignores. On a logarithmic axis the unit is one decade. The aspect is kept by the
+    /// layout, by export and while the figure is panned, zoomed and rotated in a viewer, in
+    /// the way [`aspect_adjust`](AxesMut::aspect_adjust) chooses.
+    /// [`Figure::validate`](crate::Figure::validate) reports a ratio that is not a finite
+    /// positive number.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let t = linspace(0.0, std::f64::consts::TAU, 65);
+    /// let x: Vec<f64> = t.iter().map(|t| t.cos()).collect();
+    /// let y: Vec<f64> = t.iter().map(|t| t.sin()).collect();
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&x, &y);
+    /// ax.aspect(Aspect::Equal).aspect_adjust(AspectAdjust::Limits);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn aspect(&mut self, aspect: Aspect) -> &mut Self {
+        self.axes().aspect = aspect;
+        self
+    }
+
+    /// Sets how a fixed [`aspect`](AxesMut::aspect) is kept.
+    ///
+    /// [`AspectAdjust::Box`], the default, keeps the limits exactly as they are, manual or
+    /// automatic: a 2D axes shrinks its plot area along one dimension and centres it in the
+    /// space the layout gives it, and a 3D axes gives the sides of its box the lengths of
+    /// the scaled ranges. [`AspectAdjust::Limits`] keeps the plot area, or the cube of a 3D
+    /// axes, and widens the limits of the axes that are too short symmetrically about their
+    /// centres, so that manual limits are the least range shown rather than the exact one.
+    pub fn aspect_adjust(&mut self, adjust: AspectAdjust) -> &mut Self {
+        self.axes().aspect_adjust = adjust;
         self
     }
 

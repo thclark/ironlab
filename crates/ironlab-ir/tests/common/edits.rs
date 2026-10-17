@@ -167,6 +167,12 @@ pub fn representative_figures() -> Vec<Figure> {
             axis.label.get_or_insert_with(|| Text::plain("label"));
         }
         axes.legend.get_or_insert_with(Legend::default);
+        // Every axes takes a fixed ratio of y and of z, kept by its limits and with its title
+        // on the right, so that the ratio's values and the variants the kitchen-sink figure
+        // leaves at their defaults are set.
+        axes.aspect = Aspect::Ratio { y: 2.0, z: 0.5 };
+        axes.aspect_adjust = AspectAdjust::Limits;
+        axes.title_align = TitleAlign::Right;
         // Every axis takes the kind of ticks it does not have in the kitchen-sink figure, so
         // that between the two figures every variant of the ticks of every axis is set:
         // automatic ticks become explicit values with explicit labels, explicit values a
@@ -426,6 +432,14 @@ pub fn perturb(value: &Value) -> Value {
                 .map(|t| Text::plain(format!("{} (edited)", t.content)))
                 .collect(),
         )),
+        Value::Aspect(Aspect::Auto) => Value::Aspect(Aspect::Equal),
+        Value::Aspect(Aspect::Equal) => Value::Aspect(Aspect::Ratio { y: 2.0, z: 1.0 }),
+        Value::Aspect(Aspect::Ratio { .. }) => Value::Aspect(Aspect::Auto),
+        Value::AspectAdjust(AspectAdjust::Box) => Value::AspectAdjust(AspectAdjust::Limits),
+        Value::AspectAdjust(AspectAdjust::Limits) => Value::AspectAdjust(AspectAdjust::Box),
+        Value::TitleAlign(TitleAlign::Center) => Value::TitleAlign(TitleAlign::Left),
+        Value::TitleAlign(TitleAlign::Left) => Value::TitleAlign(TitleAlign::Right),
+        Value::TitleAlign(TitleAlign::Right) => Value::TitleAlign(TitleAlign::Center),
         Value::ColormapName(ColormapName::Gray) => Value::ColormapName(ColormapName::Viridis),
         Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
         Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
@@ -535,7 +549,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 51;
+pub const VALUE_VARIANTS: usize = 54;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -595,6 +609,9 @@ pub fn value_variant(value: &Value) -> usize {
         Value::TickLabels(_) => 47,
         Value::Coords(_) => 49,
         Value::TrackSizes(_) => 50,
+        Value::Aspect(_) => 51,
+        Value::AspectAdjust(_) => 52,
+        Value::TitleAlign(_) => 53,
     }
 }
 
@@ -669,6 +686,9 @@ pub fn sample_values() -> Vec<Value> {
             Text::plain("upper surface"),
             Text::new("$x/c$"),
         ])),
+        Value::Aspect(Aspect::Ratio { y: 0.25, z: 3.0 }),
+        Value::AspectAdjust(AspectAdjust::Limits),
+        Value::TitleAlign(TitleAlign::Left),
         Value::Scale(Scale::Log),
         Value::Limits(manual(-1.0, 1.0)),
         Value::ColormapName(ColormapName::Coolwarm),
@@ -706,7 +726,7 @@ pub fn sample_values() -> Vec<Value> {
             width_pt: 1.25,
             dash: DashStyle::DashDot,
         }),
-        Value::DashStyle(DashStyle::Dotted),
+        Value::DashStyle(DashStyle::DashDotDot),
         Value::MarkerStyle(MarkerStyle {
             shape: MarkerShape::TriangleDown,
             size_pt: 6.0,

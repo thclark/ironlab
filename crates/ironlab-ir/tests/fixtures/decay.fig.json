@@ -17,6 +17,7 @@
       "cell": { "row": 0, "col": 0, "row_span": 1, "col_span": 1 },
       "projection": { "type": "two_d" },
       "title": null,
+      "title_align": "left",
       "x": {
         "label": { "content": "$t$ (s)", "interpreter": "latex" },
         "scale": "linear",
@@ -51,6 +52,8 @@
         "tick_labels": { "type": "auto" },
         "grid": false
       },
+      "aspect": { "type": "ratio", "value": { "y": 0.5, "z": 2.0 } },
+      "aspect_adjust": "limits",
       "box": true,
       "colormap": "viridis",
       "clim": { "type": "auto" },

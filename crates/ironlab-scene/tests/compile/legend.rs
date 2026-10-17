@@ -87,6 +87,50 @@ fn northeast_legend_entries_lie_inside_plot_and_stack_downwards() {
     );
 }
 
+// Why: design points told apart by dash pattern are told apart in the key only if each sample is stroked with the
+// pattern of its line; the two patterns added for a fifth and sixth design point must reach the samples as the
+// others do.
+#[test]
+fn the_sample_of_a_line_is_stroked_with_its_dash_pattern() {
+    use ironlab_ir::DashStyle;
+    for style in [
+        DashStyle::DashDotDot,
+        DashStyle::LongDash,
+        DashStyle::Dashed,
+    ] {
+        let mut fx = Fx::new();
+        let ax = fx.axes2d(0, 0);
+        let line = fx.line(ax, &[0.0, 1.0], &[0.0, 0.2], None, |l| {
+            l.display_name = text("design point");
+            l.line.dash = style;
+        });
+        fx.ax(ax).legend = Some(Legend::Inside(InsideLegend::default()));
+        let scene = compile_figure(&fx.build());
+        let leaves = leaves(&scene);
+        let drawn = from_source(&leaves, line)
+            .iter()
+            .find_map(|l| l.path().and_then(|p| p.stroke.clone()))
+            .expect("the line is stroked")
+            .dash;
+        let entry = entries(&scene, ax)[0].rect;
+        let in_entry = leaves_in(&leaves, entry);
+        let sample = in_entry
+            .iter()
+            .find(|l| l.path().is_some_and(|p| p.stroke.is_some()))
+            .expect("the entry holds a stroked sample");
+        let dash = sample.path().unwrap().stroke.clone().unwrap().dash;
+        assert!(!drawn.is_empty(), "{style:?} is dashed");
+        assert_eq!(dash, drawn, "{style:?}");
+        // A sample shorter than one period of its pattern could not show the pattern it stands for.
+        let length = sample.bbox().unwrap().width;
+        let period: f64 = dash.iter().sum();
+        assert!(
+            length >= period,
+            "{style:?}: a sample {length} pt long, a period {period} pt"
+        );
+    }
+}
+
 // Why: a legend entry is only useful if its sample looks like the series it names, so the sample of
 // an automatically coloured line takes that line's colour; its hit rectangle must enclose both the
 // sample and the label, so clicking either toggles the artist; and the whole legend belongs to the

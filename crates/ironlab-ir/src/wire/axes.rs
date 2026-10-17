@@ -28,6 +28,59 @@ proto_file! {
         message Legend legend = 11;
         /// The artists drawn in this axes, in drawing order.
         repeated message Artist artists = 12;
+        /// How the title is aligned with the plot area.
+        enum TitleAlign title_align = 13;
+        /// The ratios of the length of one data unit of y, and of z, to that of x.
+        message Aspect aspect = 14;
+        /// How a fixed aspect is kept.
+        enum AspectAdjust aspect_adjust = 15;
+    }
+
+    /// How the title of an axes is aligned with its plot area.
+    enum TitleAlign {
+        /// The title is centred over the plot area.
+        Center = 1;
+        /// The left edge of the title is on the left edge of the plot area.
+        Left = 2;
+        /// The right edge of the title is on the right edge of the plot area.
+        Right = 3;
+    }
+
+    /// The ratios of the length of one data unit of y, and of z, to that of one data unit
+    /// of x; on a logarithmic axis the data unit is one decade.
+    message Aspect {
+        /// The kind of aspect; unset means the default of the context.
+        oneof kind: AspectKind {
+            /// The plot area fills its space whatever the ratio.
+            Auto(AspectAuto) automatic = 1;
+            /// One data unit of y is drawn as long as one data unit of x.
+            Equal(AspectEqual) equal = 2;
+            /// One data unit of y and of z is drawn a fixed number of times as long as
+            /// one of x.
+            Ratio(AspectRatio) ratio = 3;
+        }
+    }
+
+    /// The plot area fills its space whatever the ratio of the data units.
+    message AspectAuto {}
+
+    /// One data unit of y is drawn as long as one data unit of x.
+    message AspectEqual {}
+
+    /// One data unit of y, and of z, is drawn a fixed number of times as long as one of x.
+    message AspectRatio {
+        /// How many times as long a unit of y is drawn as a unit of x; finite and positive.
+        optional double y = 1;
+        /// How many times as long a unit of z is drawn as a unit of x; finite and positive.
+        optional double z = 2;
+    }
+
+    /// How an axes keeps a fixed aspect.
+    enum AspectAdjust {
+        /// The limits are kept, and the plot area or the 3D box takes their shape.
+        Box = 1;
+        /// The plot area or the 3D cube is kept, and limits widen about their centres.
+        Limits = 2;
     }
 
     /// The projection of an axes.

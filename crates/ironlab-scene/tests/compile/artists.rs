@@ -180,6 +180,77 @@ fn dash_style_becomes_a_dash_array() {
     assert!(!d.is_empty() && d.iter().sum::<f64>() > 0.0, "{d:?}");
 }
 
+/// Returns the "on" lengths of one period of a dash array, after an odd array is repeated as PDF repeats it.
+fn on_lengths(dash: &[f64]) -> Vec<f64> {
+    let period: Vec<f64> = if dash.len() % 2 == 1 {
+        dash.iter().chain(dash).copied().collect()
+    } else {
+        dash.to_vec()
+    };
+    period.iter().step_by(2).copied().collect()
+}
+
+// Why: a plot overlaying five design points distinguishes them by dash pattern, so every stroked style must reach
+// the display list as its own pattern; dash-dot-dot is a dash and two dots in each period, and a long dash a single
+// dash longer than that of `Dashed`. Two styles with one pattern would make a legend name two series with one look.
+#[test]
+fn every_stroked_dash_style_draws_its_own_pattern() {
+    let styles = [
+        DashStyle::Solid,
+        DashStyle::Dashed,
+        DashStyle::Dotted,
+        DashStyle::DashDot,
+        DashStyle::DashDotDot,
+        DashStyle::LongDash,
+    ];
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let ids: Vec<NodeId> = styles
+        .iter()
+        .enumerate()
+        .map(|(k, style)| {
+            let y = k as f64;
+            fx.line(ax, &[0.0, 1.0], &[y, y], None, |l| {
+                l.line.dash = *style;
+                l.line.width_pt = 1.0;
+            })
+        })
+        .collect();
+    let scene = compile_figure(&fx.build());
+    let leaves = leaves(&scene);
+    let dashes: Vec<Vec<f64>> = ids
+        .iter()
+        .map(|id| {
+            stroked(&leaves, *id)[0]
+                .path()
+                .unwrap()
+                .stroke
+                .clone()
+                .unwrap()
+                .dash
+        })
+        .collect();
+    for (i, a) in dashes.iter().enumerate() {
+        for b in &dashes[i + 1..] {
+            assert_ne!(a, b, "two styles share the pattern {a:?}");
+        }
+    }
+    let dash_dot_dot = on_lengths(&dashes[4]);
+    assert_eq!(
+        dash_dot_dot.len(),
+        3,
+        "a dash and two dots: {:?}",
+        dashes[4]
+    );
+    assert!(dash_dot_dot[0] > dash_dot_dot[1] && dash_dot_dot[1] == dash_dot_dot[2]);
+    let (long, dashed) = (on_lengths(&dashes[5]), on_lengths(&dashes[1]));
+    assert_eq!(long.len(), 1, "{:?}", dashes[5]);
+    assert!(
+        long[0] > dashed[0],
+        "a long dash {long:?} is longer than a dash {dashed:?}"
+    );
+}
+
 // Why: `DashStyle::None` with a marker is MATLAB's markers-only plot; it must draw one marker at each
 // finite point and no connecting polyline.
 #[test]

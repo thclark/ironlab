@@ -14,6 +14,8 @@ use super::paths::{self, PathBuilder};
 #[derive(Clone)]
 pub(crate) struct TextBlock {
     layout: Arc<TextLayout>,
+    /// The source text the block was typeset from, which a warning about the block quotes.
+    source: Arc<str>,
 }
 
 impl TextBlock {
@@ -53,6 +55,40 @@ impl TextBlock {
             self.width(),
             self.total_height(),
         )
+    }
+
+    /// Emits the text with its baseline origin at `origin`, recording a warning about `owner` when it extends beyond
+    /// the page.
+    pub fn draw_on_page(
+        &self,
+        ctx: &mut Ctx,
+        origin: Point,
+        color: Rgba,
+        owner: NodeId,
+        out: &mut Vec<Item>,
+    ) {
+        ctx.check_on_page(owner, &self.source, self.bounds(origin));
+        self.draw(origin, color, owner, out);
+    }
+
+    /// Emits the text turned a quarter turn to read upwards, as [`TextBlock::draw_upwards`] does, recording a warning
+    /// about `owner` when it extends beyond the page.
+    pub fn draw_upwards_on_page(
+        &self,
+        ctx: &mut Ctx,
+        origin: Point,
+        color: Rgba,
+        owner: NodeId,
+        out: &mut Vec<Item>,
+    ) {
+        let bounds = Rect::new(
+            origin.x - self.height(),
+            origin.y - self.width(),
+            self.total_height(),
+            self.width(),
+        );
+        ctx.check_on_page(owner, &self.source, bounds);
+        self.draw_upwards(origin, color, owner, out);
     }
 
     /// Emits the text with its baseline origin at `origin`.
@@ -173,5 +209,8 @@ pub(super) fn measure_str(
             format!("In the text {:?}: {}", warning.source, warning.message),
         );
     }
-    TextBlock { layout }
+    TextBlock {
+        layout,
+        source: Arc::from(content),
+    }
 }

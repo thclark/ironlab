@@ -18,6 +18,7 @@
 //! pixels of images.
 
 mod artists;
+mod aspect;
 mod axes2d;
 mod axes3d;
 mod data;
@@ -30,7 +31,7 @@ mod paths;
 mod style;
 mod text;
 
-use ironlab_ir::{Figure, Legend, NodeId, Projection};
+use ironlab_ir::{AspectAdjust, Figure, Legend, NodeId, Projection};
 use ironlab_text::TextEngine;
 
 use crate::display::{DisplayList, Item, Rect};
@@ -74,6 +75,12 @@ pub enum SceneWarningKind {
         /// The legend whose entries do not fit.
         legend: LegendOwner,
     },
+    /// A title, an axis label or a tick label extends beyond the edge of the page, so that part of it is not drawn.
+    /// The warning names the figure, for its title, or the axes, for its title, axis labels and tick labels.
+    TextOutsidePage {
+        /// The source text of the text that extends beyond the page.
+        text: String,
+    },
 }
 
 /// The compiled form of a figure: everything a backend draws, and everything a front end needs to interact with it.
@@ -90,6 +97,8 @@ pub(crate) struct Ctx<'a> {
     pub text: &'a TextEngine,
     /// The base font size in points, after replacing an invalid size with the default.
     pub font_size: f64,
+    /// The page, in points, which text must not extend beyond.
+    pub page: Rect,
     pub warnings: Vec<SceneWarning>,
 }
 
@@ -102,6 +111,82 @@ impl Ctx<'_> {
             kind: SceneWarningKind::General,
         });
     }
+
+    /// Records a [`SceneWarningKind::TextOutsidePage`] about `node` when `bounds`, the box of the text `source`,
+    /// extends beyond the page, unless the same text of the same node has already been reported.
+    pub fn check_on_page(&mut self, node: NodeId, source: &str, bounds: Rect) {
+        let page = self.page;
+        let finite = [bounds.x, bounds.y, bounds.width, bounds.height]
+            .iter()
+            .all(|v| v.is_finite());
+        let outside = bounds.x < page.x - PAGE_TOLERANCE
+            || bounds.y < page.y - PAGE_TOLERANCE
+            || bounds.right() > page.right() + PAGE_TOLERANCE
+            || bounds.bottom() > page.bottom() + PAGE_TOLERANCE;
+        if !finite || !outside {
+            return;
+        }
+        let kind = SceneWarningKind::TextOutsidePage {
+            text: source.to_owned(),
+        };
+        if self
+            .warnings
+            .iter()
+            .any(|w| w.node == Some(node) && w.kind == kind)
+        {
+            return;
+        }
+        self.warnings.push(SceneWarning {
+            node: Some(node),
+            message: format!("The text {source:?} extends beyond the edge of the page, so part of it is not drawn."),
+            kind,
+        });
+    }
+}
+
+/// How far, in points, text may reach beyond the page before it is reported: the rounding of its measured box.
+const PAGE_TOLERANCE: f64 = 0.01;
+
+/// The largest number of times the layout is repeated for limits widened by a fixed aspect.
+const MAX_ASPECT_PASSES: usize = 3;
+
+/// Measures the decorations of every axes for the given limits.
+fn measure(
+    ctx: &mut Ctx,
+    ranges: &[[limits::Range; 3]],
+    targets: &[[usize; 3]],
+) -> Vec<decor::Decor> {
+    let figure = ctx.figure;
+    figure
+        .axes
+        .iter()
+        .enumerate()
+        .map(|(i, axes)| decor::measure(ctx, axes, &ranges[i], &targets[i]))
+        .collect()
+}
+
+/// Measures the decorations of every axes for the given limits and places the axes and legend panels in the grid
+/// area with the margins the decorations need.
+fn arrange(
+    ctx: &mut Ctx,
+    ranges: &[[limits::Range; 3]],
+    targets: &[[usize; 3]],
+    fits: &layout::Fits,
+    grid_area: Rect,
+) -> (Vec<decor::Decor>, layout::Placement) {
+    let decorations = measure(ctx, ranges, targets);
+    let margins: Vec<layout::Margins> = ctx
+        .figure
+        .axes
+        .iter()
+        .zip(&decorations)
+        .map(|(axes, d)| match axes.projection {
+            Projection::TwoD => axes2d::margins(ctx, d),
+            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+        })
+        .collect();
+    let placement = layout::place(ctx, fits, grid_area, &margins);
+    (decorations, placement)
 }
 
 /// Compiles `figure` into a scene.
@@ -253,6 +338,22 @@ impl Ctx<'_> {
 ///   the normalised box along that axis, so that every artist, tick, grid line and label follows. The limits keep
 ///   `min < max`, automatic limits are computed as for the axis unreversed, and links share limits only, so linked
 ///   axes may differ in direction.
+/// - **Aspect.** An axes with a fixed aspect draws one unit of y `y` times, and one unit of z `z` times, as long as one
+///   unit of x, a unit of a log axis being one decade; a 2D axes uses `y` alone. A 3D axes kept by `AspectAdjust::Box`
+///   keeps its limits and gives the sides of its box the lengths of their scale-space spans multiplied by the ratios;
+///   one kept by `AspectAdjust::Limits` keeps the cube and widens the shorter scaled spans about their centres, a link
+///   group widening as one. The box is projected after everything is placed in the normalised box, and is fitted by
+///   its circumscribing sphere, so its size and proportions do not depend on the view. In a 2D axes: With `AspectAdjust::Box` its limits are kept and its plot rectangle is the largest one
+///   of the right shape centred in the rectangle the layout gives it. With `AspectAdjust::Limits` the axis too short
+///   for the plot rectangle widens symmetrically about its centre in scale space, a link group widening as one, and
+///   the layout is repeated, at most three times, until the widened limits stop changing; when axes
+///   that are linked need different shapes, no limits are widened and every such axes is fitted by its plot
+///   rectangle or its box instead, with a warning naming it. Every axes with a fixed aspect is fitted last, so its ratio is
+///   exact. A ratio of y or of z that is not finite and positive is drawn as an automatic aspect with a warning.
+/// - **Titles.** An axes title is centred over the plot rectangle, or has its left or right edge on the left or right
+///   edge of the plot rectangle, as `title_align` says.
+/// - **Text beyond the page.** A title, axis label, tick label or common exponent label whose box extends beyond the
+///   page raises one [`SceneWarningKind::TextOutsidePage`] for each node and text.
 /// - **Ticks.** Automatic ticks are chosen by [`crate::maths::ticks`] from the limits and a target count of intervals
 ///   set by the length of the axis; on a linear axis whose limits are narrower than the round step of that target,
 ///   the target is raised until at least two ticks (on the x axis of a 2D axes) or three (on any other axis) lie
@@ -341,9 +442,11 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         figure,
         text,
         font_size: layout::font_size(figure),
+        page: Rect::new(0.0, 0.0, 0.0, 0.0),
         warnings: Vec::new(),
     };
     let (width, height) = layout::page_size(&mut ctx);
+    ctx.page = Rect::new(0.0, 0.0, width, height);
     let mut items: Vec<Item> = Vec::new();
     let mut hit_map = HitMap::default();
 
@@ -395,7 +498,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     // The warnings of a pass that is repeated would only repeat those of the next, so they are discarded.
     let pass_start = ctx.warnings.len();
     let mut pass = 0;
-    let (_, ranges, _, decorations, margins) = loop {
+    let (_, ranges, targets, mut decorations, margins) = loop {
         ctx.warnings.truncate(pass_start);
         let laid_out = lay_out(&mut ctx, &fits, grid_area, &prepared);
         pass += 1;
@@ -408,7 +511,51 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         }
         fits = next;
     };
-    let placement = layout::place(&ctx, &fits, grid_area, &margins);
+    let mut placement = layout::place(&ctx, &fits, grid_area, &margins);
+
+    // A fixed aspect is kept once the margins are known. Widening limits for it changes the tick labels and so the
+    // margins, which change the plot areas the limits are widened for, so the layout is repeated until the widened
+    // limits stop changing; the warnings of the repeated measurements are those of the last.
+    let requests = aspect::requests(&mut ctx);
+    let measured = ctx.warnings.len();
+    let mut drawn = ranges.clone();
+    let mut settled = true;
+    if requests
+        .iter()
+        .flatten()
+        .any(|r| r.adjust == AspectAdjust::Limits)
+    {
+        for pass in 0..=MAX_ASPECT_PASSES {
+            let widened;
+            (widened, settled) = aspect::widen_limits(&ctx, &ranges, &placement.plots, &requests);
+            if widened == drawn {
+                break;
+            }
+            drawn = widened;
+            ctx.warnings.truncate(measured);
+            if pass == MAX_ASPECT_PASSES {
+                // The last widening is drawn as it is, with tick labels measured for it, in the places the previous
+                // margins left; the aspect stays exact, because the limits were widened for these plot areas.
+                decorations = measure(&mut ctx, &drawn, &targets);
+            } else {
+                (decorations, placement) = arrange(&mut ctx, &drawn, &targets, &fits, grid_area);
+            }
+        }
+    }
+    // A warning of the measurements repeated for the aspect that the first measurement already raised is dropped.
+    let (first, repeated) = ctx.warnings.split_at(measured);
+    let fresh: Vec<SceneWarning> = repeated
+        .iter()
+        .filter(|w| !first.contains(w))
+        .cloned()
+        .collect();
+    ctx.warnings.truncate(measured);
+    ctx.warnings.extend(fresh);
+    if !settled {
+        aspect::warn_unsettled(&mut ctx, &requests);
+    }
+    aspect::fit_plots(&mut placement.plots, &drawn, &requests);
+    let ranges = drawn;
 
     for (i, axes) in figure.axes.iter().enumerate() {
         let input = artists::AxesInput {

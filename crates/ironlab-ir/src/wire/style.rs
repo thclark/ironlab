@@ -68,6 +68,10 @@ proto_file! {
         DashDot = 4;
         /// No line is drawn.
         None = 5;
+        /// A line of dashes, each followed by two dots.
+        DashDotDot = 6;
+        /// A line of long dashes.
+        LongDash = 7;
     }
 
     /// The style of the markers drawn at data points.

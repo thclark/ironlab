@@ -4863,6 +4863,114 @@ fn a_rendered_image_encodes_as_a_png_that_decodes_to_the_same_pixels() {
     );
 }
 
+/// A figure of one horizontal line at mid-height across the whole x range, 2 pt wide, in the given dash style.
+fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
+    let mut figure = Figure {
+        size: FigureSize {
+            width_mm: 120.0,
+            height_mm: 30.0,
+        },
+        ..Figure::new()
+    };
+    figure
+        .data
+        .insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
+    figure
+        .data
+        .insert(DataId(1), NdArray::vector(vec![0.5, 0.5]));
+    figure.axes.push(Axes {
+        id: NodeId(2),
+        x: Axis {
+            limits: Limits::Manual { min: 0.0, max: 1.0 },
+            ..Axis::default()
+        },
+        y: Axis {
+            limits: Limits::Manual { min: 0.0, max: 1.0 },
+            ..Axis::default()
+        },
+        artists: vec![Artist::Line(Line {
+            id: NodeId(3),
+            x: DataId(0),
+            y: DataId(1),
+            line: ironlab_ir::LineStyle {
+                color: ironlab_ir::ColorSpec::Rgba {
+                    color: ironlab_ir::Color::BLACK,
+                },
+                width_pt: 2.0,
+                dash,
+            },
+            ..Line::default()
+        })],
+        ..Axes::default()
+    });
+    figure
+}
+
+/// Returns the number of runs of dark pixels along the row of the line, inside the plot and clear of its box, with
+/// the length scanned in points.
+fn ink_runs(dark: impl Fn(u32, u32) -> bool, plot: Rect, dpi: f64) -> (usize, f64) {
+    let scale = dpi / 72.0;
+    let row = ((plot.y + plot.height / 2.0) * scale) as u32;
+    let (from, to) = (
+        ((plot.x + 6.0) * scale).ceil() as u32,
+        ((plot.right() - 6.0) * scale).floor() as u32,
+    );
+    let mut runs = 0;
+    let mut inside = false;
+    for x in from..to {
+        let ink = dark(x, row);
+        if ink && !inside {
+            runs += 1;
+        }
+        inside = ink;
+    }
+    (runs, f64::from(to - from) / scale)
+}
+
+// Why: the two dash patterns added for a fifth and a sixth design point must be drawn as patterns by every
+// renderer, the viewer's GPU canvas (and so PNG export) and PDF export alike: a dash-dot-dot line is three marks in
+// every period of thirteen line widths, and a long-dash line one mark in every period of thirteen. A renderer that
+// dropped a six-entry pattern, cut it to the four entries of dash-dot (two marks in ten widths), or drew it solid,
+// would make two design points look alike, so the count of marks is held to within two of the pattern's.
+#[test]
+fn the_dash_dot_dot_and_long_dash_patterns_are_drawn_by_the_canvas_and_by_pdf_export() {
+    const DPI: f64 = 288.0;
+    let ws = Workspace::new("new-dashes");
+    for (dash, marks_per_period, period_widths) in [
+        (ironlab_ir::DashStyle::DashDotDot, 3.0, 13.0),
+        (ironlab_ir::DashStyle::LongDash, 1.0, 13.0),
+    ] {
+        let figure = dashed_line_figure(dash);
+        let scene = ironlab_scene::compile(&figure, &TEXT);
+        let plot = scene.hit_map.axes[0].plot_rect;
+        let expected = |length: f64| marks_per_period * length / (period_widths * 2.0);
+        let mut checked = Vec::new();
+        if let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, DPI)) {
+            let (runs, length) = ink_runs(|x, y| image.pixel(x, y)[0] < 128, plot, DPI);
+            checked.push(("canvas", runs, length));
+        }
+        if tools_available(&["pdftoppm"]) {
+            let exported = ironlab_pdf::render_display_list(
+                &scene.display_list,
+                &TEXT,
+                &PdfOptions::default(),
+                None,
+            )
+            .expect("the export succeeds");
+            let printed = rasterise(&ws.write(&format!("{dash:?}"), &exported.bytes), DPI);
+            let (runs, length) = ink_runs(|x, y| printed.get_pixel(x, y)[0] < 128, plot, DPI);
+            checked.push(("pdf", runs, length));
+        }
+        for (renderer, runs, length) in checked {
+            let want = expected(length);
+            assert!(
+                (runs as f64 - want).abs() <= 2.0,
+                "{renderer}, {dash:?}: {runs} marks over {length} pt, expected about {want}"
+            );
+        }
+    }
+}
+
 // Why: a pixel buffer that does not match the stated size must be reported as an error, not written as a corrupt
 // file and not a panic inside the encoder.
 #[test]
