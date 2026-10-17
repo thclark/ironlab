@@ -5,10 +5,9 @@ pub const DESCRIPTION: &str = "A synthetic polar sweep of an aerofoil computed b
      candidate code, compared quantity by quantity over the angle of attack, which every panel shares. Dotted \
      reference lines span the axes at a tolerance on a logarithmic axis and at the ends and middle of an interval; \
      orange ticks along the top of each panel mark the angles at which the candidate's value is not a number. The \
-     ticks are placed at the data angle and at 98.5 % of the panel height, are not clipped, and take no part in the \
-     limits, so they stay on the edge while the reader pans and zooms. In the bottom right panel neither code \
-     converged at any angle, so the ticks are all there is. The title is the case name, set in monospace with \
-     `\\texttt`.";
+     ticks are placed at the data angle and at 98.5 % of the panel height, may overhang the top edge but are \
+     clipped to the angles in view, and take no part in the limits, so they stay on the edge while the reader pans \
+     and zooms. In the bottom right panel neither code converged at any angle, so the ticks are all there is.";
 
 /// The colour of the reference code's series.
 const REFERENCE: Color = Color::rgb(0.0, 0.0, 0.0);
@@ -55,13 +54,13 @@ fn mark_not_finite(ax: &mut AxesMut, alpha: &[f64], values: &[f64]) -> NodeId {
 fn compare(ax: &mut AxesMut, alpha: &[f64], reference: &[f64], candidate: &[f64]) {
     ax.plot(alpha, reference)
         .color(REFERENCE)
-        .display_name(r"\texttt{reference}");
+        .display_name("reference");
     ax.plot(alpha, candidate)
         .color(CANDIDATE)
         .dash(Dash::Dashed)
         .marker(Marker::Circle)
         .marker_size(2.5)
-        .display_name(r"\texttt{candidate}");
+        .display_name("candidate");
     mark_not_finite(ax, alpha, candidate);
 }
 
@@ -69,7 +68,7 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 170.0)
         .tiles(3, 2)
-        .title(r"\texttt{naca4412_n160_polar30_re1e6_iter100}")
+        .title("naca4412_n160_polar30_re1e6_iter100")
         .label("line")
         .label("subplots")
         .label("legend")
@@ -80,7 +79,6 @@ pub fn figure() -> Figure {
         .label("linked-axes")
         .label("reference-lines")
         .label("edge-markers")
-        .label("monospace")
         .parameter("dimensionality", "2D")
         .parameter("artists", 25)
         .parameter("data_points", 1316)
