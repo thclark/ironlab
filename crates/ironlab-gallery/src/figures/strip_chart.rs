@@ -117,6 +117,7 @@ pub fn figure() -> Figure {
         .label("markers")
         .label("ticks")
         .label("reversed-axes")
+        .label("reference-lines")
         .parameter("dimensionality", "2D")
         .parameter("artists", 46)
         .parameter("data_points", 1224)
@@ -125,9 +126,10 @@ pub fn figure() -> Figure {
 
     for (col, upper) in [(0, true), (1, false)] {
         let mut ax = fig.axes(0, col);
-        // Dotted references at the ends and the middle of the interval, spanning every row.
+        // Dotted references at the ends and the middle of the interval, spanning the plot area from top to bottom
+        // however the rows are panned or zoomed.
         for x in [0.0, 0.5, 1.0] {
-            ax.plot([x, x], [top, bottom])
+            ax.vline(x)
                 .color(REFERENCE)
                 .dash(Dash::Dotted)
                 .line_width(0.5);
