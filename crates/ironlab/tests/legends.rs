@@ -5,6 +5,7 @@ mod common;
 use common::axes;
 use ironlab::ir::{Cell, InsideLegend, Legend, LegendEntryLayout, PanelLegend};
 use ironlab::prelude::*;
+use ironlab::{LegendEntries, LegendItem, LegendSample, TrackSize};
 
 /// Returns the legend panel with the given identifier.
 #[track_caller]
@@ -108,15 +109,177 @@ fn collect_all_points_every_existing_axes_at_the_panel() {
 }
 
 // WHY: weights let a narrow panel and wide plots share a row; they are given as any list
-// of numbers, from the top or from the left, and must reach the layout in that order.
+// of numbers, or of sizes that mix weights and fitted tracks, from the top or from the
+// left, and must reach the layout in that order.
 #[test]
-fn row_and_column_weights_are_set_in_order() {
+fn row_and_column_sizes_are_set_in_order() {
     let fig = Figure::new()
         .tiles(2, 3)
         .row_weights([3.0, 1.0])
-        .col_weights(vec![2.0, 2.0, 1.0]);
-    assert_eq!(fig.ir().layout.row_weights, vec![3.0, 1.0]);
-    assert_eq!(fig.ir().layout.col_weights, vec![2.0, 2.0, 1.0]);
+        .col_weights(vec![
+            TrackSize::Weight(2.0),
+            TrackSize::Fit,
+            TrackSize::Weight(1.0),
+        ]);
+    assert_eq!(
+        fig.ir().layout.row_weights,
+        vec![TrackSize::Weight(3.0), TrackSize::Weight(1.0)]
+    );
+    assert_eq!(
+        fig.ir().layout.col_weights,
+        vec![
+            TrackSize::Weight(2.0),
+            TrackSize::Fit,
+            TrackSize::Weight(1.0)
+        ]
+    );
+}
+
+// WHY: fitting one row is the common case (a key beneath a stack of plots), so it must not
+// require the author to restate the weights of every other row: the rows before it that
+// have no size take the weight of one they had implicitly, and sizes already given are
+// kept.
+#[test]
+fn fit_row_and_fit_col_keep_the_other_sizes() {
+    let fig = Figure::new()
+        .tiles(4, 3)
+        .row_weights([2.0])
+        .fit_row(2)
+        .fit_col(0);
+    assert_eq!(
+        fig.ir().layout.row_weights,
+        vec![
+            TrackSize::Weight(2.0),
+            TrackSize::Weight(1.0),
+            TrackSize::Fit
+        ]
+    );
+    assert_eq!(fig.ir().layout.col_weights, vec![TrackSize::Fit]);
+    let refitted = Figure::new().tiles(2, 1).row_weights([3.0, 4.0]).fit_row(0);
+    assert_eq!(
+        refitted.ir().layout.row_weights,
+        vec![TrackSize::Fit, TrackSize::Weight(4.0)]
+    );
+}
+
+// WHY: the item setters build the explicit list one item at a time, in the order the author
+// calls them, which is the order of the key; the first call turns automatic entries into an
+// explicit list, so that the artists the author did not name are no longer listed.
+#[test]
+fn panel_item_setters_build_an_explicit_list_in_call_order() {
+    let x = linspace(0.0, 1.0, 5);
+    let mut fig = Figure::new().tiles(2, 1);
+    let mut ax = fig.axes(0, 0);
+    let member = ax.plot(&x, &x).display_name("Member").id();
+    let base = ax.plot(&x, &x).display_name("Base").id();
+    let swatch = LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0));
+    let key = fig
+        .panel_legend(1, 0)
+        .full_row(base)
+        .item(member)
+        .custom_item(swatch, "Upper surface")
+        .id();
+    assert_eq!(
+        panel(&fig, key).entries,
+        LegendEntries::Explicit(vec![
+            LegendItem {
+                full_row: true,
+                ..LegendItem::artist(base)
+            },
+            LegendItem::artist(member),
+            LegendItem::custom(swatch, "Upper surface"),
+        ])
+    );
+    fig.panel_legend(1, 0).entries(LegendEntries::Auto);
+    assert_eq!(panel(&fig, key).entries, LegendEntries::Auto);
+}
+
+// WHY: a legend inside a plot area takes an explicit list as a panel does; setting it gives
+// the axes an inside legend if it had none, as the other inside-legend setters do, and keeps
+// the location of one it had.
+#[test]
+fn legend_entries_sets_the_entries_of_the_inside_legend() {
+    let x = linspace(0.0, 1.0, 5);
+    let mut fig = Figure::new();
+    let mut ax = fig.axes(0, 0);
+    let line = ax.plot(&x, &x).display_name("Line").id();
+    ax.legend(LegendLocation::SouthWest)
+        .legend_entries(LegendEntries::Explicit(vec![LegendItem::artist(line)]));
+    let id = ax.id();
+    assert_eq!(
+        axes(&fig, id).legend,
+        Some(Legend::Inside(InsideLegend {
+            location: LegendLocation::SouthWest,
+            entries: LegendEntries::Explicit(vec![LegendItem::artist(line)]),
+            ..InsideLegend::default()
+        }))
+    );
+    assert!(fig.validate().is_valid());
+}
+
+/// A stack of three plots over a key of twelve series in one column, in a row of the given
+/// size.
+fn stack_with_a_key(key_row: TrackSize) -> Figure {
+    let x = linspace(0.0, 1.0, 5);
+    let mut fig = Figure::new()
+        .size_mm(120.0, 120.0)
+        .tiles(4, 1)
+        .row_weights([
+            TrackSize::Weight(1.0),
+            TrackSize::Weight(1.0),
+            TrackSize::Weight(1.0),
+            key_row,
+        ]);
+    let key = fig
+        .panel_legend(3, 0)
+        .columns(LegendEntryColumns::Count(1))
+        .id();
+    for row in 0..3 {
+        let mut ax = fig.axes(row, 0);
+        for k in 0..12 {
+            ax.plot(&x, &x).display_name(format!("Level {k}"));
+        }
+        ax.legend_in(key);
+    }
+    fig.link_all_x().unwrap();
+    fig
+}
+
+/// Returns whether the warnings report a legend that does not fit.
+fn overflows(warnings: &[ironlab::SceneWarning]) -> bool {
+    warnings
+        .iter()
+        .any(|w| matches!(w.kind, ironlab::SceneWarningKind::LegendOverflow { .. }))
+}
+
+// WHY: a builder chooses the columns of a key, or the size of its row, from whether the key
+// fits; it must learn that from the layout alone, without exporting a file, and the answer
+// must be the one an export would give.
+#[test]
+fn layout_warnings_report_an_overflow_that_export_would_report() {
+    let fig = stack_with_a_key(TrackSize::Weight(1.0));
+    let warnings = fig.layout_warnings();
+    assert!(
+        overflows(&warnings),
+        "twelve entries in one column overflow a quarter of the page"
+    );
+    let path = std::env::temp_dir().join(format!(
+        "ironlab-layout-warnings-{}.pdf",
+        std::process::id()
+    ));
+    let report = fig.export_pdf(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(report.scene, warnings);
+}
+
+// WHY: a fitted row exists so that the builder does not need to probe at all: the same key
+// in a fitted row fits, whatever the number of entries.
+#[test]
+fn a_key_in_a_fitted_row_does_not_overflow() {
+    let fig = stack_with_a_key(TrackSize::Fit);
+    assert!(fig.validate().is_valid(), "{:?}", fig.validate());
+    let warnings = fig.layout_warnings();
+    assert!(!overflows(&warnings), "{warnings:?}");
 }
 
 // WHY: asking for legend columns on an axes without a legend means the user wants a
@@ -146,7 +309,7 @@ fn legend_columns_creates_a_default_inside_legend_or_keeps_the_existing_one() {
         .legend(LegendLocation::SouthWest)
         .legend_columns(LegendEntryColumns::Count(3))
         .id();
-    let Some(Legend::Inside(legend)) = axes(&fig, placed).legend else {
+    let Some(Legend::Inside(legend)) = &axes(&fig, placed).legend else {
         panic!("an inside legend");
     };
     assert_eq!(legend.location, LegendLocation::SouthWest);
@@ -175,6 +338,7 @@ fn legend_boxed_and_legend_order_set_the_inside_legend_and_keep_its_other_settin
                 columns: LegendEntryColumns::Count(3),
                 order: LegendEntryOrder::RowMajor,
             },
+            entries: LegendEntries::Auto,
         }))
     );
 }

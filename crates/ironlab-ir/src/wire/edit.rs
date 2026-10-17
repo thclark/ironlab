@@ -212,7 +212,15 @@ proto_file! {
             /// A reference to a node, such as the legend panel named by the legend of an
             /// axes.
             NodeId(ValueNodeId) node_id_value = 46;
+            /// A list of sizes of the rows or columns of the tile layout.
+            TrackSizes(ValueTrackSizes) track_sizes_value = 47;
         }
+    }
+
+    /// A list of sizes of the rows or columns of the tile layout.
+    message ValueTrackSizes {
+        /// The sizes, which may be empty.
+        repeated message TrackSize sizes = 1;
     }
 
     /// No value: an optional property is cleared.

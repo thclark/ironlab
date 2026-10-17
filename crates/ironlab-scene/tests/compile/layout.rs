@@ -1,6 +1,6 @@
 //! Page size, tile layout and placement of titles, labels and tick labels.
 
-use ironlab_ir::{Cell, Color, Legend, Projection};
+use ironlab_ir::{Cell, Color, Legend, Projection, TrackSize};
 use ironlab_scene::display::Rect;
 
 use crate::common::{Fx, cell, compile_figure, linspace, rgba, text};
@@ -359,7 +359,7 @@ fn cell_heights(plots: &[Rect]) -> Vec<f64> {
 #[test]
 fn column_weights_share_the_width_in_proportion() {
     let (mut fx, ids) = uniform_tiles(1, 2);
-    fx.fig.layout.col_weights = vec![2.0, 1.0];
+    fx.fig.layout.col_weights = vec![TrackSize::Weight(2.0), TrackSize::Weight(1.0)];
     let scene = compile_figure(&fx.build());
     let plots: Vec<Rect> = ids
         .iter()
@@ -374,7 +374,7 @@ fn column_weights_share_the_width_in_proportion() {
 #[test]
 fn row_weights_share_the_height_in_proportion() {
     let (mut fx, ids) = uniform_tiles(2, 1);
-    fx.fig.layout.row_weights = vec![1.0, 3.0];
+    fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Weight(3.0)];
     let scene = compile_figure(&fx.build());
     let plots: Vec<Rect> = ids
         .iter()
@@ -390,7 +390,7 @@ fn row_weights_share_the_height_in_proportion() {
 #[test]
 fn a_missing_weight_is_one() {
     let (mut fx, ids) = uniform_tiles(1, 3);
-    fx.fig.layout.col_weights = vec![2.0];
+    fx.fig.layout.col_weights = vec![TrackSize::Weight(2.0)];
     let scene = compile_figure(&fx.build());
     let plots: Vec<Rect> = ids
         .iter()
@@ -408,8 +408,8 @@ fn equal_weights_reproduce_the_unweighted_layout() {
     let (fx, ids) = uniform_tiles(2, 2);
     let plain = compile_figure(&fx.fig.clone());
     let mut weighted = fx.build();
-    weighted.layout.row_weights = vec![0.7, 0.7];
-    weighted.layout.col_weights = vec![3.0, 3.0];
+    weighted.layout.row_weights = vec![TrackSize::Weight(0.7), TrackSize::Weight(0.7)];
+    weighted.layout.col_weights = vec![TrackSize::Weight(3.0), TrackSize::Weight(3.0)];
     let weighted = compile_figure(&weighted);
     for id in ids {
         let (a, b) = (
@@ -496,7 +496,11 @@ fn an_axes_spanning_weighted_columns_takes_the_sum_of_their_weights() {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
     fx.fig.layout.cols = 3;
-    fx.fig.layout.col_weights = vec![2.0, 1.0, 1.0];
+    fx.fig.layout.col_weights = vec![
+        TrackSize::Weight(2.0),
+        TrackSize::Weight(1.0),
+        TrackSize::Weight(1.0),
+    ];
     let wide = fx.axes2d(0, 0);
     let spanning = fx.axes_in(cell(1, 1, 1, 2), Projection::TwoD);
     for ax in [wide, spanning] {

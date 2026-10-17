@@ -847,6 +847,86 @@ fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
     assert_ne!(limits_of(state.figure(), 2, Dimension::X), navigated);
 }
 
+/// Two stacked axes that each draw a line named "base", and a legend panel beneath them that both name, listing an
+/// item for the base of the top axes and, below it, an item that stands for no artist. Returns the state and the
+/// compiled hit map.
+fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
+    use ironlab_ir::{
+        Cell, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItem,
+        LegendSample, PanelLegend, TileLayout,
+    };
+    let line = |id: u64| {
+        Artist::Line(Line {
+            id: NodeId(id),
+            display_name: Some(Text::plain("base")),
+            x: DataId(0),
+            y: DataId(0),
+            ..Line::default()
+        })
+    };
+    let mut top = axes_2d(2);
+    top.artists.push(line(10));
+    top.legend = Some(Legend::Panel(NodeId(50)));
+    let mut bottom = axes_2d(3);
+    bottom.cell = Cell {
+        row: 1,
+        ..Cell::default()
+    };
+    bottom.artists.push(line(11));
+    bottom.legend = Some(Legend::Panel(NodeId(50)));
+    let mut figure = figure_with(vec![top, bottom], vec![]);
+    figure.layout = TileLayout::new(3, 1);
+    figure
+        .data
+        .insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
+    figure.panel_legends.push(PanelLegend {
+        id: NodeId(50),
+        cell: Cell {
+            row: 2,
+            ..Cell::default()
+        },
+        layout: LegendEntryLayout {
+            columns: LegendEntryColumns::Count(1),
+            ..LegendEntryLayout::default()
+        },
+        entries: LegendEntries::Explicit(vec![
+            LegendItem::artist(NodeId(10)),
+            LegendItem::custom(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "upper"),
+        ]),
+        ..PanelLegend::default()
+    });
+    let state = FigureState::new(figure);
+    let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
+    (state, hit)
+}
+
+// Why: an explicit key lists the base case once, by naming one of its artists; a click on that item must hide or
+// show the base case in every axes that names the panel, as an automatic entry of the same name and look would. An
+// item that stands for no artist is not a toggle, so a click on it changes nothing.
+#[test]
+fn clicking_an_explicit_item_toggles_its_series_and_a_custom_item_does_nothing() {
+    let (mut state, hit) = figure_with_an_explicit_key();
+    assert_eq!(
+        hit.legend_entries.len(),
+        1,
+        "only the artist item is a click target"
+    );
+    let entry = hit.legend_entries[0].rect;
+    let on_item = Point::new(entry.x + entry.width / 2.0, entry.y + entry.height / 2.0);
+    let on_custom = Point::new(on_item.x, on_item.y + entry.height);
+
+    assert!(
+        !state.click(&hit, on_custom),
+        "the custom item is not a toggle"
+    );
+    assert!(visible(&state, 10) && visible(&state, 11));
+
+    assert!(state.click(&hit, on_item));
+    assert!(!visible(&state, 10) && !visible(&state, 11), "both hidden");
+    assert!(state.click(&hit, on_item));
+    assert!(visible(&state, 10) && visible(&state, 11), "both shown");
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The source, the overlay and the displayed figure
 // ---------------------------------------------------------------------------------------------------------------

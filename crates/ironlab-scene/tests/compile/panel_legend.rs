@@ -3,7 +3,7 @@
 
 use ironlab_ir::{
     Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendLocation, Line, NodeId, Projection, View3d,
+    LegendEntryOrder, LegendLocation, Line, NodeId, Projection, TrackSize, View3d,
 };
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{LegendHit, LegendOwner};
@@ -117,7 +117,7 @@ fn assert_entries_disjoint(entries: &[LegendHit]) {
 fn panel_of(n: usize, top: f64, layout: LegendEntryLayout) -> (Fx, NodeId, Vec<NodeId>, NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
-    fx.fig.layout.row_weights = vec![top, 1.0];
+    fx.fig.layout.row_weights = vec![TrackSize::Weight(top), TrackSize::Weight(1.0)];
     let ax = fx.axes2d(0, 0);
     let lines = (0..n)
         .map(|k| fx.named_line(ax, &format!("S{k}"), |_| {}))

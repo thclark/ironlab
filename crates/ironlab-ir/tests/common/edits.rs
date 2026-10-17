@@ -325,6 +325,16 @@ pub fn perturb(value: &Value) -> Value {
         Value::String(s) => Value::String(format!("{s} (edited)")),
         Value::DataId(id) => Value::DataId(DataId(id.0 + 1)),
         Value::Doubles(values) if values.is_empty() => Value::Doubles(vec![1.0]),
+        Value::TrackSizes(sizes) if sizes.is_empty() => Value::TrackSizes(vec![TrackSize::Fit]),
+        Value::TrackSizes(sizes) => Value::TrackSizes(
+            sizes
+                .iter()
+                .map(|size| match size {
+                    TrackSize::Weight(_) => TrackSize::Fit,
+                    TrackSize::Fit => TrackSize::Weight(1.5),
+                })
+                .collect(),
+        ),
         Value::Doubles(values) => Value::Doubles(values.iter().map(|v| v + 0.25).collect()),
         Value::Strings(values) if values.is_empty() => Value::Strings(vec!["edited".to_owned()]),
         Value::Strings(values) => Value::Strings(values.iter().skip(1).cloned().collect()),
@@ -378,12 +388,12 @@ pub fn perturb(value: &Value) -> Value {
         Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
         Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
             boxed: !legend.boxed,
-            ..*legend
+            ..legend.clone()
         })),
         Value::Legend(Legend::Panel(panel)) => Value::Legend(Legend::Panel(NodeId(panel.0 + 1))),
         Value::InsideLegend(legend) => Value::InsideLegend(InsideLegend {
             boxed: !legend.boxed,
-            ..*legend
+            ..legend.clone()
         }),
         Value::LegendEntryLayout(layout) => Value::LegendEntryLayout(LegendEntryLayout {
             order: match layout.order {
@@ -481,7 +491,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 46;
+pub const VALUE_VARIANTS: usize = 47;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -536,6 +546,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::LegendEntryColumns(_) => 43,
         Value::LegendEntryOrder(_) => 44,
         Value::NodeId(_) => 45,
+        Value::TrackSizes(_) => 46,
     }
 }
 
@@ -553,6 +564,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::String("k–ω $\\alpha$".to_owned()),
         Value::DataId(DataId((1 << 53) + 1)),
         Value::Doubles(vec![-1.0, 0.0, 2.5]),
+        Value::TrackSizes(vec![TrackSize::Fit, TrackSize::Weight(2.5)]),
         Value::Strings(vec!["surface".to_owned(), "k–ω".to_owned()]),
         Value::Text(Text::plain("Plain $5")),
         Value::Interpreter(Interpreter::None),
@@ -609,6 +621,13 @@ pub fn sample_values() -> Vec<Value> {
                 columns: LegendEntryColumns::Count(3),
                 order: LegendEntryOrder::RowMajor,
             },
+            entries: LegendEntries::Explicit(vec![
+                LegendItem {
+                    full_row: true,
+                    ..LegendItem::artist(NodeId((1 << 53) + 5))
+                },
+                LegendItem::custom(LegendSample::swatch(blue), Text::plain("Upper $s$")),
+            ]),
         }),
         Value::LegendEntryLayout(LegendEntryLayout {
             columns: LegendEntryColumns::Auto,

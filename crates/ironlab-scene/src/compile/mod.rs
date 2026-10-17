@@ -3,12 +3,16 @@
 //! The work is split into private modules, run in this order by [`compile`]:
 //!
 //! 1. `data` resolves every artist's arrays, checks their shapes and reports invalid artists.
-//! 2. `layout` divides the page into tile cells.
-//! 3. `limits` computes axis limits (over link groups), colour limits and ticks.
-//! 4. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle.
-//! 5. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for a legend inside the plot
-//!    area; the entries of an axes whose legend names a legend panel are collected instead.
-//! 6. `layout` places the legend panels, and `legend` draws each with the entries collected for it.
+//! 2. `legend` chooses and measures the entries of every legend panel, from which `layout` sizes the fitted rows and
+//!    columns of the tile layout.
+//! 3. `layout` divides the page into tile cells.
+//! 4. `limits` computes axis limits (over link groups), colour limits and ticks.
+//! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
+//!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
+//!    until the sizes settle.
+//! 6. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for a legend inside the plot
+//!    area.
+//! 7. `layout` places the legend panels, and `legend` draws each with its entries.
 //!
 //! `text`, `style`, `paths` and `image` hold shared helpers for text placement, colours, path geometry and the
 //! pixels of images.
@@ -34,6 +38,11 @@ use crate::hit::{HitMap, LegendOwner, LegendPanelHit};
 
 /// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
 const MAX_TICK_FITTING_PASSES: usize = 10;
+
+/// The largest number of passes that lay the figure out again with the sizes of its fitted rows and columns
+/// recomputed from the margins of the previous pass. The margins of the axes depend on the sizes of their cells only
+/// through their tick labels, so the sizes settle within two or three passes.
+const MAX_FIT_PASSES: usize = 4;
 
 /// A problem found while compiling a figure that did not prevent the figure from being drawn.
 #[derive(Clone, Debug, PartialEq)]
@@ -226,13 +235,31 @@ impl Ctx<'_> {
 ///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
-/// - **Tile weights.** The rows of the tile layout share the height of the area below the figure title, and the
-///   columns its width, in proportion to their weights; a missing weight, and one that is not finite and positive,
-///   counts as one, so that equal weights draw exactly what no weights draw. A cell block takes the sum of the
-///   weights of its rows and columns.
-/// - **Legend.** Only artists with a display name and usable data have legend entries. An axes whose legend is inside
-///   its plot area lists its entries there, in artist order. An axes whose legend names a legend panel lists its
-///   entries in that panel and draws none of its own; a panel the figure does not have lists them nowhere. A legend
+/// - **Tile sizes.** A fitted row of the tile layout is as tall as the tallest area that a legend panel lying in that
+///   row alone needs for its block of entries (with the border inset of a boxed panel), plus the aligned margins of
+///   the row's axes above and below it, or the page padding on a side whose row holds no axes; a fitted column is as
+///   wide as the widest such area in the same way, and a fitted track in which no panel lies alone has no size. The
+///   weighted rows share the rest of the height of the area below the figure title, and the columns the rest of its
+///   width, in proportion to their weights; a missing size, and a weight that is not finite and positive, counts as a
+///   weight of one, so that equal weights draw exactly what no weights draw. Fitted tracks that need more than the
+///   area share it in proportion to their sizes and leave the weighted tracks nothing. A cell block takes the sum of
+///   the sizes of its rows and columns. The margins depend on the sizes through the tick labels, so a layout with
+///   fitted tracks is laid out again with the sizes recomputed until they settle, at most four times; only the
+///   warnings of the last pass are kept.
+/// - **Legend.** Only artists with usable data have legend entries, and only those with a display name have
+///   automatic ones. An axes whose legend is inside its plot area lists its entries there, in artist order, or the
+///   items of its explicit list, in their order, an artist item naming an artist of another axes being left out. An
+///   axes whose legend names a legend panel lists its entries in that panel and draws none of its own; a panel the
+///   figure does not have lists them nowhere. A panel with an explicit list lists its items in their order: an
+///   artist item names an artist of any axes, is left out when the figure has no such artist with usable data, and
+///   stands for that artist and for every artist of the axes that name the panel with an equal display name and an
+///   equal sample, in reading order; an artist without a display name is listed with an empty label. A custom item
+///   draws its own sample (a line sample as a line artist's, its automatic line colour being the ink of the labels and
+///   its automatic marker colours the line colour; a swatch as a filled patch), is never greyed and is not recorded
+///   in the hit map. An item on a row of its own spans every column at its position in the list, and the items
+///   between such rows form groups that each fill the columns, with shared column widths; its label sets no column's
+///   width. A panel in fitted rows alone chooses automatic columns as the fewest rows its width allows, in the fewest
+///   columns that give that many rows. A legend
 ///   panel is placed in its cells as an axes is and inset by the aligned margins of the rows and columns it occupies
 ///   (by the page padding on a side whose row or column holds no axes), and its area is recorded in the hit map
 ///   whether or not it lists anything. A panel lists the entries of every axes that names it in reading order: the
@@ -301,77 +328,73 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
 
     let page = Rect::new(0.0, 0.0, width, height);
     let grid_area = layout::figure_title(&mut ctx, page, &mut items);
-    let outer: Vec<Rect> = figure
-        .axes
-        .iter()
-        .map(|axes| layout::cell_rect(&figure.layout, axes.cell, grid_area))
-        .collect();
 
     let prepared: Vec<Vec<data::Prepared>> = figure
         .axes
         .iter()
         .map(|axes| data::prepare_axes(&mut ctx, axes))
         .collect();
-    let mut targets: Vec<[usize; 3]> = figure
+    let colour_scales: Vec<style::ColourScale> = figure
         .axes
         .iter()
-        .zip(&outer)
-        .map(|(axes, rect)| limits::tick_targets(&ctx, axes, *rect))
+        .zip(&prepared)
+        .map(|(axes, prepared)| limits::colour_scale(&mut ctx, axes, prepared))
         .collect();
-    let mut ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
-    // Thin the x ticks until their labels fit. Every pass lowers at least one target or stops, and repeated passes
-    // would only repeat the warnings of the first, so those are discarded.
-    let kept = ctx.warnings.len();
-    for _ in 0..MAX_TICK_FITTING_PASSES {
-        let fitted: Vec<[usize; 3]> = figure
-            .axes
-            .iter()
-            .enumerate()
-            .map(|(i, axes)| {
-                let [x, y, z] = targets[i];
-                [
-                    decor::fit_x_target(&mut ctx, axes, ranges[i][0], x, outer[i]),
-                    y,
-                    z,
-                ]
-            })
-            .collect();
-        ctx.warnings.truncate(kept);
-        if fitted == targets {
-            break;
-        }
-        targets = fitted;
-        ranges = limits::axis_ranges(&mut ctx, &prepared, &targets);
-        ctx.warnings.truncate(kept);
-    }
+    let primaries: Vec<Vec<style::Paint>> = figure.axes.iter().map(style::primaries).collect();
 
-    let decorations: Vec<decor::Decor> = figure
+    // The entries of the legend panels are chosen and measured before the layout, because a fitted row or column
+    // takes its size from them.
+    let candidates: Vec<Vec<legend::Candidate>> = figure
         .axes
         .iter()
         .enumerate()
-        .map(|(i, axes)| decor::measure(&mut ctx, axes, &ranges[i], &targets[i]))
+        .map(|(i, axes)| legend::candidates(axes, &prepared[i], &colour_scales[i], &primaries[i]))
         .collect();
-    let margins: Vec<layout::Margins> = figure
-        .axes
-        .iter()
-        .zip(&decorations)
-        .map(|(axes, d)| match axes.projection {
-            Projection::TwoD => axes2d::margins(&ctx, d),
-            Projection::ThreeD { .. } => axes3d::margins(&ctx, d),
-        })
-        .collect();
+    let listings = panel_listings(&mut ctx, &candidates);
+    let font_size = ctx.font_size;
+    let content = |p: usize, along: layout::Along, cross: f64| {
+        let panel = &figure.panel_legends[p];
+        let inset = legend::panel_inset(font_size, panel);
+        let (fill, max) = match along {
+            layout::Along::Rows => (legend::Fill::Width, (cross - 2.0 * inset, f64::INFINITY)),
+            layout::Along::Cols => (legend::Fill::Height, (f64::INFINITY, cross - 2.0 * inset)),
+        };
+        let (w, h) = listings[p].size(font_size, panel.layout, fill, max);
+        2.0 * inset
+            + match along {
+                layout::Along::Rows => h,
+                layout::Along::Cols => w,
+            }
+    };
+    let mut fits = layout::Fits::new(&figure.layout);
+    if fits.any() {
+        fits = layout::fit_tracks(&ctx, grid_area, None, &fits, content);
+    }
+
+    // The warnings of a pass that is repeated would only repeat those of the next, so they are discarded.
+    let pass_start = ctx.warnings.len();
+    let mut pass = 0;
+    let (outer, ranges, _, decorations, margins) = loop {
+        ctx.warnings.truncate(pass_start);
+        let laid_out = lay_out(&mut ctx, &fits, grid_area, &prepared);
+        pass += 1;
+        if !fits.any() || pass == MAX_FIT_PASSES {
+            break laid_out;
+        }
+        let next = layout::fit_tracks(&ctx, grid_area, Some(&laid_out.4), &fits, content);
+        if next.settled(&fits) {
+            break laid_out;
+        }
+        fits = next;
+    };
     let plots = layout::plot_rects(figure, &outer, &margins);
 
-    // The entries each axes lists in a legend panel, with the top-left tile of the axes' clamped cell and the panel
-    // it names.
-    let mut panel_entries: Vec<((u32, u32), NodeId, Vec<legend::Entry>)> = Vec::new();
     for (i, axes) in figure.axes.iter().enumerate() {
-        let colour_scale = limits::colour_scale(&mut ctx, axes, &prepared[i]);
         let input = artists::AxesInput {
             axes,
             prepared: &prepared[i],
             ranges: &ranges[i],
-            colours: colour_scale,
+            colours: colour_scales[i],
             decor: &decorations[i],
             plot: plots[i],
             outer: outer[i],
@@ -382,30 +405,29 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
             }
         }
-        if let Some(Legend::Panel(panel)) = axes.legend {
-            let entries = legend::collect(&input, &style::primaries(axes));
-            let (row, col, _, _) = layout::clamp_cell(&figure.layout, axes.cell);
-            panel_entries.push(((row, col), panel, entries));
-        }
     }
-    // Panels list their entries in the reading order of the axes' cells: by row, then by column. The sort is stable,
-    // so axes whose cells start at the same tile keep the order of the figure.
-    panel_entries.sort_by_key(|(tile, _, _)| *tile);
 
-    // Legend panels are drawn after every axes. An axes naming a panel the figure does not have lists its entries
-    // nowhere, and when two panels share an identifier the first takes the entries.
-    let panel_areas = layout::panel_rects(&ctx, grid_area, &margins);
-    for (panel, area) in figure.panel_legends.iter().zip(panel_areas) {
+    // Legend panels are drawn after every axes.
+    let panel_areas = layout::panel_rects(&ctx, &fits, grid_area, &margins);
+    for ((panel, area), listing) in figure.panel_legends.iter().zip(panel_areas).zip(&listings) {
         hit_map.legend_panels.push(LegendPanelHit {
             id: panel.id,
             rect: area,
         });
-        let entries: Vec<legend::Entry> = panel_entries
-            .iter_mut()
-            .filter(|(_, id, _)| *id == panel.id)
-            .flat_map(|(_, _, entries)| std::mem::take(entries))
-            .collect();
-        legend::draw_panel(&mut ctx, panel, area, entries, &mut items, &mut hit_map);
+        let fill = if layout::in_fitted_rows(&fits, &figure.layout, panel.cell) {
+            legend::Fill::Width
+        } else {
+            legend::Fill::Height
+        };
+        legend::draw_panel(
+            &mut ctx,
+            panel,
+            area,
+            listing,
+            fill,
+            &mut items,
+            &mut hit_map,
+        );
     }
 
     Scene {
@@ -418,4 +440,113 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         hit_map,
         warnings: ctx.warnings,
     }
+}
+
+/// The outer rectangles, axis ranges, tick targets, decorations and margins of every axes, from one layout pass.
+type LaidOut = (
+    Vec<Rect>,
+    Vec<[limits::Range; 3]>,
+    Vec<[usize; 3]>,
+    Vec<decor::Decor>,
+    Vec<layout::Margins>,
+);
+
+/// Divides the page into cells with the given sizes of the fitted rows and columns, and computes the limits, ticks,
+/// decorations and margins of every axes in its cell.
+fn lay_out(
+    ctx: &mut Ctx,
+    fits: &layout::Fits,
+    grid_area: Rect,
+    prepared: &[Vec<data::Prepared>],
+) -> LaidOut {
+    let figure = ctx.figure;
+    let outer: Vec<Rect> = figure
+        .axes
+        .iter()
+        .map(|axes| layout::cell_rect(&figure.layout, fits, axes.cell, grid_area))
+        .collect();
+    let mut targets: Vec<[usize; 3]> = figure
+        .axes
+        .iter()
+        .zip(&outer)
+        .map(|(axes, rect)| limits::tick_targets(ctx, axes, *rect))
+        .collect();
+    let mut ranges = limits::axis_ranges(ctx, prepared, &targets);
+    // Thin the x ticks until their labels fit. Every pass lowers at least one target or stops, and repeated passes
+    // would only repeat the warnings of the first, so those are discarded.
+    let kept = ctx.warnings.len();
+    for _ in 0..MAX_TICK_FITTING_PASSES {
+        let fitted: Vec<[usize; 3]> = figure
+            .axes
+            .iter()
+            .enumerate()
+            .map(|(i, axes)| {
+                let [x, y, z] = targets[i];
+                [
+                    decor::fit_x_target(ctx, axes, ranges[i][0], x, outer[i]),
+                    y,
+                    z,
+                ]
+            })
+            .collect();
+        ctx.warnings.truncate(kept);
+        if fitted == targets {
+            break;
+        }
+        targets = fitted;
+        ranges = limits::axis_ranges(ctx, prepared, &targets);
+        ctx.warnings.truncate(kept);
+    }
+
+    let decorations: Vec<decor::Decor> = figure
+        .axes
+        .iter()
+        .enumerate()
+        .map(|(i, axes)| decor::measure(ctx, axes, &ranges[i], &targets[i]))
+        .collect();
+    let margins: Vec<layout::Margins> = figure
+        .axes
+        .iter()
+        .zip(&decorations)
+        .map(|(axes, d)| match axes.projection {
+            Projection::TwoD => axes2d::margins(ctx, d),
+            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+        })
+        .collect();
+    (outer, ranges, targets, decorations, margins)
+}
+
+/// Chooses and measures the entries of every legend panel of the figure, in the order the figure lists them.
+///
+/// A panel gathers the candidates of the axes that name it in the reading order of their cells: the axes are
+/// ordered by the top-left tile of their clamped cells, by row and then by column, and axes whose cells start at the
+/// same tile keep the order of the figure. When two panels share an identifier, the first gathers the axes that
+/// name it, and the later ones gather none. An axes naming a panel the figure does not have lists its entries
+/// nowhere.
+fn panel_listings<'a>(
+    ctx: &mut Ctx<'a>,
+    candidates: &[Vec<legend::Candidate<'a>>],
+) -> Vec<legend::Listing<'a>> {
+    let figure = ctx.figure;
+    let mut order: Vec<usize> = (0..figure.axes.len()).collect();
+    order.sort_by_key(|&i| {
+        let (row, col, _, _) = layout::clamp_cell(&figure.layout, figure.axes[i].cell);
+        (row, col)
+    });
+    let mut gathered_by: Vec<NodeId> = Vec::new();
+    figure
+        .panel_legends
+        .iter()
+        .map(|panel| {
+            let first = !gathered_by.contains(&panel.id);
+            gathered_by.push(panel.id);
+            let gathered: Vec<&legend::Candidate> = order
+                .iter()
+                .filter(|&&i| first && figure.axes[i].legend == Some(Legend::Panel(panel.id)))
+                .flat_map(|&i| &candidates[i])
+                .collect();
+            let entries = legend::panel_entries(ctx, panel, &gathered, candidates);
+            legend::Listing::new(ctx, panel.id, entries)
+        })
+        .collect()
 }

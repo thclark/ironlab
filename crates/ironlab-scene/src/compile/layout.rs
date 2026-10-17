@@ -1,6 +1,6 @@
 //! Page size, the figure title and the division of the page into tiles and plot rectangles.
 
-use ironlab_ir::{Cell, Figure, TileLayout};
+use ironlab_ir::{Cell, Figure, TileLayout, TrackSize};
 
 use crate::display::{Item, Point, Rect};
 
@@ -102,15 +102,66 @@ pub(super) fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32
     (row, col, row_end, col_end)
 }
 
+/// The sizes, in points, of the fitted rows and columns of the tile layout, from the top and from the left; a
+/// weighted row or column has none.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Fits {
+    rows: Vec<Option<f64>>,
+    cols: Vec<Option<f64>>,
+}
+
+impl Fits {
+    /// Returns a size of zero for every fitted row and column of the layout, which is the size of a fitted track
+    /// that holds no legend panel.
+    pub(super) fn new(layout: &TileLayout) -> Self {
+        let fitted = |sizes: &[TrackSize], count: u32| -> Vec<Option<f64>> {
+            (0..count.max(1) as usize)
+                .map(|k| (sizes.get(k) == Some(&TrackSize::Fit)).then_some(0.0))
+                .collect()
+        };
+        Self {
+            rows: fitted(&layout.row_weights, layout.rows),
+            cols: fitted(&layout.col_weights, layout.cols),
+        }
+    }
+
+    /// Returns whether the layout has any fitted row or column.
+    pub(super) fn any(&self) -> bool {
+        self.rows.iter().chain(&self.cols).any(Option::is_some)
+    }
+
+    /// Returns whether every size differs from that of `other` by less than a millionth of a point, so that laying
+    /// the figure out again would move nothing visibly.
+    pub(super) fn settled(&self, other: &Fits) -> bool {
+        let close = |a: &[Option<f64>], b: &[Option<f64>]| {
+            a.iter().zip(b).all(|(a, b)| match (a, b) {
+                (Some(a), Some(b)) => (a - b).abs() < 1e-6,
+                (a, b) => a == b,
+            })
+        };
+        close(&self.rows, &other.rows) && close(&self.cols, &other.cols)
+    }
+}
+
+/// The dimension of a legend panel's content that a fitted track takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Along {
+    /// The height, which a fitted row takes.
+    Rows,
+    /// The width, which a fitted column takes.
+    Cols,
+}
+
 /// Returns the rectangle of the tile cells an axes or a legend panel occupies.
 ///
-/// The rows share the height of `area`, and the columns its width, in proportion to their weights; a cell block
-/// spanning several rows or columns takes the sum of their weights.
-pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
+/// The fitted rows take their sizes from `fits`, and the weighted rows share the rest of the height of `area` in
+/// proportion to their weights; the columns share its width in the same way. A cell block spanning several rows or
+/// columns takes the sum of their sizes.
+pub(super) fn cell_rect(layout: &TileLayout, fits: &Fits, cell: Cell, area: Rect) -> Rect {
     let (row, col, row_end, col_end) = clamp_cell(layout, cell);
     let (x, width) = span(
         &layout.col_weights,
-        layout.cols,
+        &fits.cols,
         col,
         col_end,
         area.x,
@@ -118,7 +169,7 @@ pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
     );
     let (y, height) = span(
         &layout.row_weights,
-        layout.rows,
+        &fits.rows,
         row,
         row_end,
         area.y,
@@ -127,24 +178,120 @@ pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
     Rect::new(x, y, width, height)
 }
 
-/// Returns the start and length of the tracks `[first, end)` of `count` weighted tracks that share the interval
-/// `[start, start + len]`.
+/// Returns the start and length of the tracks `[first, end)` of the tracks that share the interval `[start, start +
+/// len]`, where `fitted` holds the size of every fitted track and `None` for every weighted one.
 ///
-/// A track without a weight, and a track whose weight is not finite and positive, has a weight of one: compilation
-/// never fails, and validation reports such weights. Equal weights therefore divide the interval exactly as no
-/// weights do.
-fn span(weights: &[f64], count: u32, first: u32, end: u32, start: f64, len: f64) -> (f64, f64) {
+/// The fitted tracks take their sizes, scaled down together when they need more than `len`, and the weighted tracks
+/// share the rest in proportion to their weights. A weighted track without a weight, and a track whose weight is not
+/// finite and positive, has a weight of one: compilation never fails, and validation reports such weights. Equal
+/// weights therefore divide the interval exactly as no weights do.
+fn span(
+    weights: &[TrackSize],
+    fitted: &[Option<f64>],
+    first: u32,
+    end: u32,
+    start: f64,
+    len: f64,
+) -> (f64, f64) {
+    let count = fitted.len() as u32;
+    let fit = |k: u32| fitted[k as usize];
     let given = |k: u32| match weights.get(k as usize) {
-        Some(&w) if w.is_finite() && w > 0.0 => w,
+        Some(&TrackSize::Weight(w)) if w.is_finite() && w > 0.0 => w,
         _ => 1.0,
     };
-    let count = count.max(1);
+    let weighted: Vec<u32> = (0..count).filter(|&k| fit(k).is_none()).collect();
     // Equal weights are replaced by ones, so that the boundaries match the unweighted division bit for bit.
-    let uniform = (0..count).all(|k| given(k) == given(0));
-    let weight = |k: u32| if uniform { 1.0 } else { given(k) };
-    let sum = |from: u32, to: u32| (from..to).map(weight).sum::<f64>();
-    let unit = len / sum(0, count);
-    (start + sum(0, first) * unit, sum(first, end) * unit)
+    let uniform = weighted.iter().all(|&k| given(k) == given(weighted[0]));
+    let weight = |k: u32| match fit(k) {
+        Some(_) => 0.0,
+        None if uniform => 1.0,
+        None => given(k),
+    };
+    let needed: f64 = (0..count).filter_map(fit).sum();
+    // Fitted tracks that need more than the interval share it in proportion to their sizes, leaving the weighted
+    // tracks nothing; the legends they hold then report that they overflow.
+    let shrink = if needed > len { len / needed } else { 1.0 };
+    let size = |k: u32| fit(k).map_or(0.0, |s| s * shrink);
+    let total_weight: f64 = (0..count).map(weight).sum();
+    let unit = if total_weight > 0.0 {
+        (len - needed * shrink).max(0.0) / total_weight
+    } else {
+        0.0
+    };
+    let fitted_in = |from: u32, to: u32| (from..to).map(size).sum::<f64>();
+    let weight_in = |from: u32, to: u32| (from..to).map(weight).sum::<f64>();
+    (
+        start + fitted_in(0, first) + weight_in(0, first) * unit,
+        fitted_in(first, end) + weight_in(first, end) * unit,
+    )
+}
+
+/// Computes the size of every fitted row and column from the content of the legend panels that lie in it alone.
+///
+/// `content(p, along, cross)` returns the height (for [`Along::Rows`]) or width (for [`Along::Cols`]) of the area
+/// that legend panel `p`, in the order the figure lists them, needs for its entries when the other dimension of its
+/// area is `cross`, which is infinite when that dimension is fitted too. A fitted track is as large as the largest
+/// such area of its panels with the margins that align each with the plot areas around it (the page padding on a
+/// side whose row or column holds no axes) added, and zero when no panel lies in it alone. `margins` are the margins
+/// of the axes, or `None` before they are known, when every side takes the page padding. The cross dimension of a
+/// panel is measured with the sizes of `previous`: the columns are fitted to the rows of `previous`, the rows to
+/// those columns, and the columns again to those rows. A panel whose row is fitted as well as its column is given
+/// an unbounded height when its column is fitted, and its row is then fitted to the width that results.
+pub(super) fn fit_tracks(
+    ctx: &Ctx,
+    grid_area: Rect,
+    margins: Option<&[Margins]>,
+    previous: &Fits,
+    content: impl Fn(usize, Along, f64) -> f64,
+) -> Fits {
+    let figure = ctx.figure;
+    let layout = &figure.layout;
+    let aligned = match margins {
+        Some(margins) => AlignedMargins::new(figure, margins),
+        None => AlignedMargins::none(figure),
+    };
+    let pad = page_padding(ctx);
+    let side = |slot: Option<f64>| slot.unwrap_or(pad);
+    let mut fits = previous.clone();
+    let fit_cols = |fits: &mut Fits| {
+        let mut sizes = Fits::new(layout).cols;
+        for (p, panel) in figure.panel_legends.iter().enumerate() {
+            let (r, c, re, ce) = span_indices(layout, panel.cell);
+            if c != ce || sizes[c].is_none() {
+                continue;
+            }
+            let cross = if r == re && fits.rows[r].is_some() {
+                f64::INFINITY
+            } else {
+                let outer = cell_rect(layout, fits, panel.cell, grid_area);
+                aligned.inset(layout, panel.cell, outer, pad).height
+            };
+            let need =
+                content(p, Along::Cols, cross) + side(aligned.left[c]) + side(aligned.right[c]);
+            sizes[c] = sizes[c].map(|s| s.max(need));
+        }
+        fits.cols = sizes;
+    };
+    let fit_rows = |fits: &mut Fits| {
+        let mut sizes = Fits::new(layout).rows;
+        for (p, panel) in figure.panel_legends.iter().enumerate() {
+            let (r, _, re, _) = span_indices(layout, panel.cell);
+            if r != re || sizes[r].is_none() {
+                continue;
+            }
+            // The width is known even when the columns are fitted too, because they are fitted first.
+            let outer = cell_rect(layout, fits, panel.cell, grid_area);
+            let cross = aligned.inset(layout, panel.cell, outer, pad).width;
+            let need =
+                content(p, Along::Rows, cross) + side(aligned.top[r]) + side(aligned.bottom[r]);
+            sizes[r] = sizes[r].map(|s| s.max(need));
+        }
+        fits.rows = sizes;
+    };
+    fit_cols(&mut fits);
+    fit_rows(&mut fits);
+    fit_cols(&mut fits);
+    fits
 }
 
 /// The margins of the plot areas, aligned across the tile layout: the largest left margin of the axes starting in
@@ -158,6 +305,11 @@ struct AlignedMargins {
 }
 
 impl AlignedMargins {
+    /// Returns aligned margins in which no row or column has a margin, as before the margins of the axes are known.
+    fn none(figure: &Figure) -> Self {
+        Self::new(figure, &[])
+    }
+
     fn new(figure: &Figure, margins: &[Margins]) -> Self {
         let rows = figure.layout.rows.max(1) as usize;
         let cols = figure.layout.cols.max(1) as usize;
@@ -225,7 +377,12 @@ pub(super) fn plot_rects(figure: &Figure, outer: &[Rect], margins: &[Margins]) -
 /// A panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
 /// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row
 /// or column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
-pub(super) fn panel_rects(ctx: &Ctx, grid_area: Rect, margins: &[Margins]) -> Vec<Rect> {
+pub(super) fn panel_rects(
+    ctx: &Ctx,
+    fits: &Fits,
+    grid_area: Rect,
+    margins: &[Margins],
+) -> Vec<Rect> {
     let figure = ctx.figure;
     let aligned = AlignedMargins::new(figure, margins);
     let pad = page_padding(ctx);
@@ -233,10 +390,17 @@ pub(super) fn panel_rects(ctx: &Ctx, grid_area: Rect, margins: &[Margins]) -> Ve
         .panel_legends
         .iter()
         .map(|panel| {
-            let outer = cell_rect(&figure.layout, panel.cell, grid_area);
+            let outer = cell_rect(&figure.layout, fits, panel.cell, grid_area);
             aligned.inset(&figure.layout, panel.cell, outer, pad)
         })
         .collect()
+}
+
+/// Returns whether a legend panel lies in fitted rows alone, so that its height follows its entries rather than the
+/// other way round.
+pub(super) fn in_fitted_rows(fits: &Fits, layout: &TileLayout, cell: Cell) -> bool {
+    let (r, _, re, _) = span_indices(layout, cell);
+    (r..=re).all(|k| fits.rows[k].is_some())
 }
 
 /// Insets the interval `[start, start + len]` by `lo` and `hi`, keeping at least a minimum fraction of its length.

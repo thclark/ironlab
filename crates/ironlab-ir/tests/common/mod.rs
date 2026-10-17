@@ -239,9 +239,10 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
 /// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
 /// absent, ascending and mirrored. Its tile layout has weights for some of its rows and
-/// all of its columns, and its last row holds two legend panels, which between them and
-/// the inside legends use every variant of the layout of legend entries, each listing a
-/// named line of an axes whose legend names it.
+/// all of its columns but the last, which is fitted, and its last row holds two legend
+/// panels, which between them and the inside legends use every variant of the layout of
+/// legend entries, each listing a named line of an axes whose legend names it; one panel
+/// lists its entries automatically and the other lists an explicit item of every kind.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -251,11 +252,23 @@ pub fn kitchen_sink_figure() -> Figure {
     };
     b.fig.font_size_pt = 8.5;
     b.fig.background = Color::rgba(1.0, 1.0, 1.0, 128.0 / 255.0);
-    // Fewer row weights than rows, so that a missing weight is exercised.
+    // Fewer row sizes than rows, so that a missing size is exercised, and a fitted last
+    // column, which holds only a legend panel and an axes that also spans a weighted
+    // column, because an axes in fitted columns alone is invalid.
     b.fig.layout = TileLayout {
-        row_weights: vec![1.0, 1.5, 0.75],
-        col_weights: vec![2.0, 1.0, 1.0, 0.5],
-        ..TileLayout::new(4, 4)
+        row_weights: vec![
+            TrackSize::Weight(1.0),
+            TrackSize::Weight(1.5),
+            TrackSize::Weight(0.75),
+        ],
+        col_weights: vec![
+            TrackSize::Weight(2.0),
+            TrackSize::Weight(1.0),
+            TrackSize::Weight(1.0),
+            TrackSize::Weight(0.5),
+            TrackSize::Fit,
+        ],
+        ..TileLayout::new(4, 5)
     };
     b.fig.provenance = Provenance {
         ironlab_version: "0.1.0".to_owned(),
@@ -781,11 +794,14 @@ pub fn kitchen_sink_figure() -> Figure {
                 columns: LegendEntryColumns::Count(3),
                 order: LegendEntryOrder::RowMajor,
             },
+            entries: LegendEntries::Auto,
         }));
     }
 
-    // Axes 10: an axes without a legend or title.
-    let _plain = b.axes2d(2, 3);
+    // Axes 10: an axes without a legend or title, which spans the last weighted column and
+    // the fitted column.
+    let plain = b.axes2d(2, 3);
+    b.axes(plain).cell.col_span = 2;
 
     // Axes 11 and 12 and two legend panels: two axes that each list a named line in a
     // panel, so that neither panel is empty; a boxed panel with a fixed number of columns
@@ -797,11 +813,13 @@ pub fn kitchen_sink_figure() -> Figure {
     let auto_panel = b.node();
     b.axes(listed).legend = Some(Legend::Panel(fixed_panel));
     b.axes(also_listed).legend = Some(Legend::Panel(auto_panel));
+    let mut auto_listed_line = NodeId(0);
     for (axes, name) in [
         (listed, "in a fixed panel"),
         (also_listed, "in an automatic panel"),
     ] {
         let id = b.node();
+        auto_listed_line = id;
         b.push(
             axes,
             Artist::Line(Line {
@@ -816,9 +834,10 @@ pub fn kitchen_sink_figure() -> Figure {
     b.fig.panel_legends = vec![
         PanelLegend {
             id: fixed_panel,
+            // In the fitted column alone, which takes the width of this panel.
             cell: Cell {
                 row: 3,
-                col: 1,
+                col: 4,
                 row_span: 1,
                 col_span: 1,
             },
@@ -828,6 +847,7 @@ pub fn kitchen_sink_figure() -> Figure {
                 columns: LegendEntryColumns::Count(2),
                 order: LegendEntryOrder::RowMajor,
             },
+            entries: LegendEntries::Auto,
         },
         PanelLegend {
             id: auto_panel,
@@ -843,6 +863,42 @@ pub fn kitchen_sink_figure() -> Figure {
                 columns: LegendEntryColumns::Auto,
                 order: LegendEntryOrder::ColumnMajor,
             },
+            // An explicit list of every kind of item: the artist of the axes that names
+            // the panel, on a row of its own, then two items that stand for no artist,
+            // one of each kind of sample.
+            entries: LegendEntries::Explicit(vec![
+                LegendItem {
+                    full_row: true,
+                    ..LegendItem::artist(auto_listed_line)
+                },
+                LegendItem::custom(
+                    LegendSample::Line {
+                        line: LineStyle {
+                            color: ColorSpec::None,
+                            width_pt: 1.25,
+                            dash: DashStyle::None,
+                        },
+                        marker: MarkerStyle {
+                            shape: MarkerShape::TriangleUp,
+                            size_pt: 5.5,
+                            face: ColorSpec::Rgba {
+                                color: Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0),
+                            },
+                            edge: ColorSpec::Auto,
+                        },
+                    },
+                    Text::new("Separation $x_s$"),
+                ),
+                LegendItem::custom(
+                    LegendSample::swatch(Color::rgba(
+                        0.0,
+                        128.0 / 255.0,
+                        64.0 / 255.0,
+                        128.0 / 255.0,
+                    )),
+                    Text::plain("Lower surface"),
+                ),
+            ]),
         },
     ];
 
@@ -1032,8 +1088,9 @@ pub const SPECIAL_F64: [f64; 12] = [
 
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
 /// figure outside colours: sizes, numeric figure parameters, limits, views, style widths
-/// and sizes, artist parameters, explicit levels and every value of every `f64` data
-/// array. An array of 8-bit values holds no floats and is skipped.
+/// and sizes (of artists and of the custom line samples of legends), artist parameters,
+/// explicit levels and every value of every `f64` data array. An array of 8-bit values
+/// holds no floats and is skipped.
 ///
 /// A single traversal serves both to set special values and to read them back, so
 /// that a field cannot be set without also being checked.
@@ -1041,11 +1098,15 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
     visit("size.width_mm".into(), &mut fig.size.width_mm);
     visit("size.height_mm".into(), &mut fig.size.height_mm);
     visit("font_size_pt".into(), &mut fig.font_size_pt);
-    for (i, weight) in fig.layout.row_weights.iter_mut().enumerate() {
-        visit(format!("layout.row_weights[{i}]"), weight);
+    for (i, size) in fig.layout.row_weights.iter_mut().enumerate() {
+        if let TrackSize::Weight(weight) = size {
+            visit(format!("layout.row_weights[{i}]"), weight);
+        }
     }
-    for (i, weight) in fig.layout.col_weights.iter_mut().enumerate() {
-        visit(format!("layout.col_weights[{i}]"), weight);
+    for (i, size) in fig.layout.col_weights.iter_mut().enumerate() {
+        if let TrackSize::Weight(weight) = size {
+            visit(format!("layout.col_weights[{i}]"), weight);
+        }
     }
     for (name, parameter) in fig.parameters.iter_mut() {
         if let Parameter::Number(value) = parameter {
@@ -1117,6 +1178,35 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 Artist::IndexedImage(image) => visit_placement(visit, &at, &mut image.placement),
                 Artist::MappedImage(image) => visit_placement(visit, &at, &mut image.placement),
             }
+        }
+        if let Some(Legend::Inside(inside)) = &mut axes.legend {
+            visit_legend_entries(visit, &at("legend.entries"), &mut inside.entries);
+        }
+    }
+    for (p, panel) in fig.panel_legends.iter_mut().enumerate() {
+        let at = format!("panel_legends[{p}].entries");
+        visit_legend_entries(visit, &at, &mut panel.entries);
+    }
+}
+
+/// Calls `visit` with the width of the line and the size of the marker of every custom
+/// line sample of an explicit list of legend entries.
+fn visit_legend_entries(
+    visit: &mut dyn FnMut(String, &mut f64),
+    at: &str,
+    entries: &mut LegendEntries,
+) {
+    let LegendEntries::Explicit(items) = entries else {
+        return;
+    };
+    for (i, item) in items.iter_mut().enumerate() {
+        if let LegendItemContent::Custom {
+            sample: LegendSample::Line { line, marker },
+            ..
+        } = &mut item.content
+        {
+            visit(format!("{at}[{i}].line.width_pt"), &mut line.width_pt);
+            visit(format!("{at}[{i}].marker.size_pt"), &mut marker.size_pt);
         }
     }
 }

@@ -97,9 +97,10 @@ pub use ironlab_ir::ImagePlane;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Color, ColorSpec, InsideLegend, Interpreter, IssueKind, Legend, LegendEntryColumns,
-    LegendEntryLayout, LegendEntryOrder, LegendLocation, NodeId, PanelLegend, Parameter, Scale,
-    Text, ValidationIssue, ValidationReport,
+    Color, ColorSpec, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
+    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
+    LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, PanelLegend, Parameter, Scale,
+    Text, TrackSize, ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
@@ -166,9 +167,10 @@ pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
         ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
-        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendEntryColumns,
-        LegendEntryOrder, LegendLocation, LineMut, MappedImageMut, Marker, Matrix, NodeId,
-        OutOfRange, PanelLegendMut, Parameter, Pixels, QuiverMut, RasterOptions, RasterPolicy,
-        Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
+        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendEntries,
+        LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation, LegendSample, LineMut,
+        MappedImageMut, Marker, Matrix, NodeId, OutOfRange, PanelLegendMut, Parameter, Pixels,
+        QuiverMut, RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, TrackSize,
+        linspace, logspace, meshgrid,
     };
 }

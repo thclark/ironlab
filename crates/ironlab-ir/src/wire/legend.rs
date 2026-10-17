@@ -33,6 +33,8 @@ proto_file! {
         optional bool boxed = 2;
         /// How the entries are arranged in columns.
         message LegendEntryLayout layout = 3;
+        /// Which entries the legend lists, and in what order; absent means automatic.
+        message LegendEntries entries = 4;
     }
 
     /// A legend of the figure that occupies cells of the tile layout and lists the
@@ -49,6 +51,86 @@ proto_file! {
         optional bool boxed = 4;
         /// How the entries are arranged in columns.
         message LegendEntryLayout layout = 5;
+        /// Which entries the panel lists, and in what order; absent means automatic.
+        message LegendEntries entries = 6;
+    }
+
+    /// Which entries a legend lists, and in what order.
+    message LegendEntries {
+        /// The kind of list; unset means automatic.
+        oneof kind: LegendEntriesKind {
+            /// Every artist with a display name, in the order of the legend.
+            Auto(LegendEntriesAuto) automatic = 1;
+            /// Exactly the given items, in the given order.
+            Explicit(LegendEntriesExplicit) explicit_items = 2;
+        }
+    }
+
+    /// Every artist with a display name, in the order of the legend.
+    message LegendEntriesAuto {}
+
+    /// Exactly the given items, in the given order.
+    message LegendEntriesExplicit {
+        /// The items, in the order the legend lists them.
+        repeated message LegendItem items = 1;
+    }
+
+    /// One item of an explicit list of legend entries.
+    message LegendItem {
+        /// What the item lists; it must be present.
+        message LegendItemContent content = 1;
+        /// Whether the item spans every column of the legend, on a row of its own.
+        optional bool full_row = 2;
+    }
+
+    /// What an item of an explicit list of legend entries lists.
+    message LegendItemContent {
+        /// The kind of content; it must be set.
+        oneof kind: LegendItemContentKind {
+            /// An artist of the figure.
+            Artist(LegendItemContentArtist) artist = 1;
+            /// A label beside a sample, standing for no artist.
+            Custom(LegendItemContentCustom) custom = 2;
+        }
+    }
+
+    /// An artist of the figure, labelled by its display name.
+    message LegendItemContentArtist {
+        /// The node identifier of the artist; it must be present.
+        optional uint64 artist = 1;
+    }
+
+    /// A label beside a sample, standing for no artist.
+    message LegendItemContentCustom {
+        /// The label shown beside the sample.
+        message Text label = 1;
+        /// The sample drawn beside the label; it must be present.
+        message LegendSample sample = 2;
+    }
+
+    /// The sample of a legend item that stands for no artist.
+    message LegendSample {
+        /// The kind of sample; it must be set.
+        oneof kind: LegendSampleKind {
+            /// A sample drawn as the sample of a line artist is drawn.
+            Line(LegendSampleLine) line = 1;
+            /// A filled rectangle of a colour.
+            Swatch(LegendSampleSwatch) swatch = 2;
+        }
+    }
+
+    /// A sample drawn as the sample of a line artist is drawn.
+    message LegendSampleLine {
+        /// The style of the line.
+        message LineStyle line = 1;
+        /// The style of the marker at the centre of the line.
+        message MarkerStyle marker = 2;
+    }
+
+    /// A filled rectangle of a colour.
+    message LegendSampleSwatch {
+        /// The colour of the rectangle.
+        message Color color = 1;
     }
 
     /// How the entries of a legend are arranged in columns.

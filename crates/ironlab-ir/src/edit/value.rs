@@ -12,7 +12,7 @@ use crate::artist::{
 use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, View3d};
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
-use crate::layout::{Cell, TileLayout};
+use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
 };
@@ -56,9 +56,10 @@ pub enum Value {
     DataId(DataId),
     /// A reference to a node, such as the legend panel named by the legend of an axes.
     NodeId(NodeId),
-    /// A list of double-precision numbers, such as explicit contour levels or the
-    /// weights of the rows of the tile layout.
+    /// A list of double-precision numbers, such as explicit contour levels.
     Doubles(Vec<f64>),
+    /// A list of sizes of the rows or columns of the tile layout.
+    TrackSizes(Vec<TrackSize>),
     /// A list of strings: the labels of a figure.
     Strings(Vec<String>),
     /// A text, such as a title.
@@ -153,6 +154,8 @@ pub enum ValueType {
     DataId,
     /// See [`Value::NodeId`].
     NodeId,
+    /// See [`Value::TrackSizes`].
+    TrackSizes,
     /// See [`Value::Doubles`].
     Doubles,
     /// See [`Value::Strings`].
@@ -246,6 +249,7 @@ impl Value {
             Value::String(_) => ValueType::String,
             Value::DataId(_) => ValueType::DataId,
             Value::NodeId(_) => ValueType::NodeId,
+            Value::TrackSizes(_) => ValueType::TrackSizes,
             Value::Doubles(_) => ValueType::Doubles,
             Value::Strings(_) => ValueType::Strings,
             Value::Text(_) => ValueType::Text,

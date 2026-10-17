@@ -27,7 +27,7 @@ use crate::edit::registry::{NodeKind, Property};
 use crate::edit::value::{Value, ValueType};
 use crate::figure::{Figure, FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
-use crate::layout::{Cell, TileLayout};
+use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
     PanelLegend,
@@ -378,6 +378,7 @@ ir_leaf! {
     DataId => DataId;
     NodeId => NodeId;
     Vec<f64> => Doubles;
+    Vec<TrackSize> => TrackSizes;
     Vec<String> => Strings;
     Vec<AxisLink> => Links;
     BTreeMap<String, Parameter> => Parameters;
@@ -447,6 +448,7 @@ ir_node! {
         plain "boxed" => boxed: bool =
             "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+        hidden "entries" => entries: () = "";
     }
 
     Line {
@@ -590,10 +592,10 @@ ir_value! {
     TileLayout as TileLayout {
         plain "rows" => rows: u32 = "The number of rows; at least one.";
         plain "cols" => cols: u32 = "The number of columns; at least one.";
-        plain "row_weights" => row_weights: Vec<f64> =
-            "The relative heights of the rows, from the top; a row without a weight has a weight of one.";
-        plain "col_weights" => col_weights: Vec<f64> =
-            "The relative widths of the columns, from the left; a column without a weight has a weight of one.";
+        plain "row_weights" => row_weights: Vec<TrackSize> =
+            "The sizes of the rows, from the top: a relative weight, or fitted to the legend panels in the row; a row without a size has a weight of one.";
+        plain "col_weights" => col_weights: Vec<TrackSize> =
+            "The sizes of the columns, from the left: a relative weight, or fitted to the legend panels in the column; a column without a size has a weight of one.";
     }
 
     Color as Color {
@@ -638,6 +640,7 @@ ir_value! {
         plain "boxed" => boxed: bool =
             "Whether the legend is drawn with a background and outline.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+        hidden "entries" => entries: () = "";
     }
 
     LegendEntryLayout as LegendEntryLayout {
