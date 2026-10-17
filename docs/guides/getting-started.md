@@ -61,7 +61,7 @@ ax.plot(&x, &y)
     .display_name("$x^2$")
     .color(Color::rgb(0.0, 0.45, 0.7))
     .line_width(1.5)
-    .dash(Dash::DashDot)       // Solid, Dashed, Dotted, DashDot, or None to draw only markers
+    .dash(Dash::DashDot)       // Solid, Dashed, Dotted, DashDot, DashDotDot, LongDash, or None to draw only markers
     .marker(Marker::Square)    // Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine
     .marker_size(5.0)
     .marker_face(Color::WHITE)
@@ -282,6 +282,15 @@ ax.title("Pressure field")
     .zlabel("$z$");
 ```
 
+A title is centred over the plot area unless `title_align` says otherwise. `title_align(TitleAlign::Left)` puts its left edge on the left edge of the plot area, not of the tile, which suits a long title that names the parameter a panel varies and the ones it holds fixed; `TitleAlign::Right` does the same on the right.
+
+```rust
+ax.title("Position of maximum camber $p$ ($m = 0.04$, $t = 0.12$)")
+    .title_align(TitleAlign::Left);
+```
+
+A title, an axis label or a tick label too long for the page is drawn clipped by the edge of the page, and the scene warning `TextOutsidePage`, which names the axes or the figure and quotes the text, says so. It is returned by `fig.layout_warnings()` and in the report of an [export](#exporting-pdf), so a program learns of a clipped title without looking at the page.
+
 Every piece of text is stored as its source. By default, segments delimited by `$…$` are typeset as LaTeX mathematics and the rest is set as plain text, so `"$x$ (m)"` shows an italic x followed by an upright unit. A literal dollar sign inside such text is written `\$`. Text that should be shown exactly as written, dollar signs included, is created with `Text::plain`:
 
 ```rust
@@ -309,6 +318,9 @@ The remaining axes properties are also set on the axes handle.
 | `xtick_step(step)`, `xtick_step_from(step, origin)` and the same for y and z | Places a tick at every multiple of the step, or at every `origin + k × step`, within the limits. |
 | `xtick_labels(texts)`, `ytick_labels(texts)`, `ztick_labels(texts)` | Labels the ticks given by `xticks`, `yticks` or `zticks` with the texts, one per value. |
 | `xtick_labels_hidden()`, `ytick_labels_hidden()`, `ztick_labels_hidden()` | Draws the ticks of an axis without labels and reserves no space for them. |
+| `aspect(aspect)` | Fixes the ratio of the drawn length of a unit of y to that of a unit of x: `Aspect::Equal` or `Aspect::Ratio(r)`; see [equal aspect](#equal-aspect). |
+| `aspect_adjust(adjust)` | Keeps a fixed aspect by shrinking the plot area (`AspectAdjust::Box`, the default) or by widening the limits of one axis (`AspectAdjust::Limits`). |
+| `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
 | `colormap(name)` | Sets the colormap: `Viridis` (the default), `Cividis`, `Magma`, `Inferno`, `Plasma`, `Coolwarm` or `Gray`. |
@@ -436,6 +448,23 @@ Labels are kept in the order they were given. A label must not be empty, and add
 Labels, with parameters, are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and between them they are the whole of what it has to work with (see [describing figures](describing-figures.md)): the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Label a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `surface`, if those are words anyone would search by. Which of them belong in a label and which in a parameter is covered in [describing figures](describing-figures.md).
 
 A label need not be shared with another figure to be worth adding. The browser lists every label it finds, with the number of figures behind each, so a label carried by a single figure is how that figure is found rather than a label wasted: the list of labels is itself what tells a reader what the collection can be narrowed by.
+
+## Equal aspect
+
+Where the data is geometry, such as an aerofoil section, a mesh or a map, one data unit must be drawn at the same length along x and y, or the figure misrepresents the shape. `aspect(Aspect::Equal)` asks for that, as MATLAB's `axis equal` and matplotlib's `set_aspect("equal")` do, and `aspect(Aspect::Ratio(r))` draws a unit of y `r` times as long as a unit of x, as MATLAB's `daspect` does. On a logarithmic axis the unit is one decade.
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.plot(&x, &y);
+ax.aspect(Aspect::Equal)
+    .aspect_adjust(AspectAdjust::Limits) // or AspectAdjust::Box, the default
+    .xlim(-0.2, 1.2)
+    .ylim(-0.4, 0.4)
+    .xtick_step(0.2)
+    .ytick_step(0.2);
+```
+
+The aspect is kept once the margins of the layout are known, so it survives a change of fonts, of tick labels or of the figure size, and it is kept by export and while the figure is panned and zoomed in the viewer. `AspectAdjust::Box` keeps the limits exactly as they are, manual or automatic, and shrinks the plot area along one dimension, centred in its tile. `AspectAdjust::Limits` keeps the plot area and widens the limits of the axis that is too short for it, symmetrically about their centre; manual limits are then the least range shown, and only the axis that must grow is widened. Axes [linked](#linking-axes) along a dimension widen together, and every panel of a linked family keeps its aspect. Panels linked in both x and y whose plot areas differ in shape cannot all keep the aspect by widening shared limits, so they keep it by their plot areas instead, and a warning says so; `AspectAdjust::Box` is the adjustment to choose for such a family. The aspect applies to two-dimensional axes only, and [`validate`](#validating-a-figure) reports a fixed aspect on a three-dimensional axes, and a ratio that is not a finite positive number, as the error `InvalidAspect`. The [NACA 4-digit family sheet](../gallery/aerofoil_family.md) and the [equal aspect](../gallery/equal_aspect.md) figure of the gallery show both adjustments, and the decision is recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#the-aspect-of-an-axes-is-kept-everywhere).
 
 ## Validating a figure
 
