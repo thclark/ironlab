@@ -1,13 +1,15 @@
 //! Legends: entry selection and order, placement, LaTeX names and hidden artists.
 
-use ironlab_ir::{Artist, Legend, LegendLocation, Limits, NodeId};
+use ironlab_ir::{Artist, InsideLegend, Legend, LegendLocation, Limits, NodeId};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::LegendHit;
 use ironlab_text::FontId;
 
 use crate::common::{COLOUR_ORDER, Fx, compile_figure, linspace, rgb8, rgb8_close, text, xy};
-use crate::probe::{Leaf, axes_hit, from_source, inside, leaves};
+use crate::probe::{
+    Leaf, axes_hit, axes_legend_entries, entry_artist, from_source, inside, leaves,
+};
 
 /// An axes with a NorthEast legend over three lines, of which the second has no display name.
 fn legend_axes() -> (Fx, NodeId, [NodeId; 3]) {
@@ -22,21 +24,16 @@ fn legend_axes() -> (Fx, NodeId, [NodeId; 3]) {
     });
     let axes = fx.ax(ax);
     axes.y.limits = Limits::Manual { min: 0.0, max: 2.0 };
-    axes.legend = Some(Legend {
+    axes.legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthEast,
         boxed: true,
-    });
+        ..InsideLegend::default()
+    }));
     (fx, ax, [first, unnamed, third])
 }
 
 fn entries(scene: &Scene, ax: NodeId) -> Vec<LegendHit> {
-    scene
-        .hit_map
-        .legend_entries
-        .iter()
-        .filter(|e| e.axes == ax)
-        .cloned()
-        .collect()
+    axes_legend_entries(scene, ax)
 }
 
 /// Returns the leaves drawn wholly inside a legend entry rectangle.
@@ -54,7 +51,10 @@ fn leaves_in(leaves: &[Leaf], rect: Rect) -> Vec<Leaf> {
 fn legend_lists_named_artists_in_artist_order() {
     let (fx, ax, [first, _, third]) = legend_axes();
     let scene = compile_figure(&fx.build());
-    let artists: Vec<NodeId> = entries(&scene, ax).iter().map(|e| e.artist).collect();
+    let artists: Vec<NodeId> = entries(&scene, ax)
+        .iter()
+        .map(|e| entry_artist(e))
+        .collect();
     assert_eq!(artists, vec![first, third]);
 }
 
@@ -97,7 +97,7 @@ fn entry_holds_a_sample_in_the_artist_colour_and_a_label_attributed_to_the_axes(
     let scene = compile_figure(&fx.build());
     let entry = entries(&scene, ax)
         .into_iter()
-        .find(|e| e.artist == third)
+        .find(|e| entry_artist(e) == third)
         .expect("entry for the third line");
     let leaves = leaves(&scene);
     let in_entry = leaves_in(&leaves, entry.rect);
@@ -162,7 +162,7 @@ fn latex_display_name_is_typeset_as_math_in_its_entry() {
     let scene = compile_figure(&fx.build());
     let entry = entries(&scene, ax)
         .into_iter()
-        .find(|e| e.artist == third)
+        .find(|e| entry_artist(e) == third)
         .expect("entry for the LaTeX-named line");
     let leaves = leaves(&scene);
     let inside_entry = leaves_in(&leaves, entry.rect);
@@ -184,7 +184,7 @@ fn hidden_artist_is_not_drawn_but_keeps_a_greyed_legend_entry() {
     }
     let scene = compile_figure(&fx.build());
     let e = entries(&scene, ax);
-    let artists: Vec<NodeId> = e.iter().map(|e| e.artist).collect();
+    let artists: Vec<NodeId> = e.iter().map(|e| entry_artist(e)).collect();
     assert_eq!(
         artists,
         vec![first, third],
@@ -267,7 +267,7 @@ fn legend_lists_named_artists_of_every_kind_in_artist_order() {
     let scene = compile_figure(&fx.build());
     let e = entries(&scene, ax);
     assert_eq!(
-        e.iter().map(|e| e.artist).collect::<Vec<_>>(),
+        e.iter().map(|e| entry_artist(e)).collect::<Vec<_>>(),
         ids,
         "one entry per named artist of every kind, in artist order"
     );
@@ -277,19 +277,19 @@ fn legend_lists_named_artists_of_every_kind_in_artist_order() {
         assert!(
             in_entry.iter().any(|l| l.glyphs().is_some()),
             "the entry of {} holds a label",
-            entry.artist
+            entry_artist(entry)
         );
         assert!(
             in_entry
                 .iter()
                 .any(|l| l.path().is_some() || l.markers().is_some()),
             "the entry of {} holds a sample",
-            entry.artist
+            entry_artist(entry)
         );
         assert!(
             in_entry.iter().all(|l| l.source == Some(ax)),
             "the entry of {} names the axes as its source",
-            entry.artist
+            entry_artist(entry)
         );
     }
 }

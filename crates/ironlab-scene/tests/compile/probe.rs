@@ -7,7 +7,7 @@ use ironlab_scene::display::{
     Depth, DepthPlane, GlyphsItem, ImageItem, ItemKind, MarkerInstance, MarkersItem, PathItem,
     PathSegment, Point, Rect, Rgba, Transform,
 };
-use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
+use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap, LegendHit, LegendOwner};
 use ironlab_text::FontId;
 use kurbo::Shape;
 
@@ -518,4 +518,74 @@ pub fn pixel(image: &ImageItem, row: usize, column: usize) -> [u8; 4] {
     let start = (row * image.width as usize + column) * channels;
     let s = &image.samples[start..start + channels];
     [s[0], s[1], s[2], if channels == 4 { s[3] } else { 255 }]
+}
+
+/// Returns the entries of the legend drawn inside the plot area of axes `ax`, in the order they are listed.
+pub fn axes_legend_entries(scene: &Scene, ax: NodeId) -> Vec<LegendHit> {
+    scene
+        .hit_map
+        .legend_entries
+        .iter()
+        .filter(|e| e.legend == LegendOwner::Axes(ax))
+        .cloned()
+        .collect()
+}
+
+/// Returns the artist that an entry of a legend inside a plot area stands for, which is its only target.
+#[track_caller]
+pub fn entry_artist(entry: &LegendHit) -> NodeId {
+    assert_eq!(
+        entry.targets.len(),
+        1,
+        "an entry of an inside legend stands for one artist: {entry:?}"
+    );
+    entry.targets[0].1
+}
+
+/// Returns the area of the legend panel `id`, as the hit map publishes it.
+#[track_caller]
+pub fn panel_rect(scene: &Scene, id: NodeId) -> Rect {
+    scene
+        .hit_map
+        .legend_panels
+        .iter()
+        .find(|p| p.id == id)
+        .unwrap_or_else(|| panic!("hit map has no legend panel {id}"))
+        .rect
+}
+
+/// Returns the entries of the legend panel `id`, in the order they are listed.
+pub fn panel_entries(scene: &Scene, id: NodeId) -> Vec<LegendHit> {
+    scene
+        .hit_map
+        .legend_entries
+        .iter()
+        .filter(|e| e.legend == LegendOwner::Panel(id))
+        .cloned()
+        .collect()
+}
+
+/// Returns the rectangular outlines a node draws: path leaves with a stroke and no fill whose only subpath is a
+/// closed axis-aligned rectangle of positive size. These are the box of an axes and the border of a legend panel;
+/// tick marks, grid lines and legend samples have other shapes, so they are not mistaken for one.
+pub fn outlines(scene: &Scene, id: NodeId) -> Vec<Leaf> {
+    from_source(&leaves(scene), id)
+        .into_iter()
+        .filter(|leaf| {
+            let Some(path) = leaf.path() else {
+                return false;
+            };
+            let subpaths = leaf.subpaths();
+            let closed = path.segments.last() == Some(&PathSegment::Close);
+            let rectangle = match subpaths.as_slice() {
+                [corners] if corners.len() == 4 => (0..4).all(|k| {
+                    let (a, b) = (corners[k], corners[(k + 1) % 4]);
+                    (a.x - b.x).abs() < 1e-9 || (a.y - b.y).abs() < 1e-9
+                }),
+                _ => false,
+            };
+            let sized = leaf.bbox().is_some_and(|b| b.width > 0.0 && b.height > 0.0);
+            path.fill.is_none() && path.stroke.is_some() && closed && rectangle && sized
+        })
+        .collect()
 }

@@ -13,14 +13,16 @@
 //! [`Edit::Set`] addresses a property by a [`PropertyPath`] of Protocol Buffers field
 //! names that starts at the fields of the node: the figure (`title`, `size.width_mm`,
 //! `layout.rows`, `links`, `parameters`, ...), an axes (`x.limits`, `colormap`,
-//! `projection.view3d.azimuth_deg`, ...) or the variant struct of an artist
-//! (`line.width_pt`, `visible`, `levels`, ...). A path descends into a tagged value by
+//! `projection.view3d.azimuth_deg`, `legend.inside.location`, ...), the variant struct
+//! of an artist (`line.width_pt`, `visible`, `levels`, ...) or a legend panel (`align`,
+//! `layout.columns`, ...). A path descends into a tagged value by
 //! naming a field of the variant that is currently set, and into an optional value only
 //! while it is present. The settable paths of each kind of node are listed by
 //! [`properties`].
 //!
 //! Identifiers (`id`), the schema version (`schema_version`), the provenance
-//! (`provenance`), the node lists (`axes`, `artists`) and the data table (`data`) are
+//! (`provenance`), the node lists (`axes`, `artists`, `panel_legends`) and the data
+//! table (`data`) are
 //! read-only: nodes and data change only through the structural and data edits.
 //!
 //! # Transactions
@@ -56,6 +58,7 @@ use crate::data::{NdArray, NdArrayElement, Values};
 use crate::error::IrError;
 use crate::figure::Figure;
 use crate::ids::{DataId, NodeId};
+use crate::legend::PanelLegend;
 use crate::validate::{IssueKind, ValidationIssue, ValidationReport};
 use crate::wire;
 use walk::Step;
@@ -88,9 +91,11 @@ pub enum Edit {
         /// [`Value::Unset`] to clear an optional property.
         value: Value,
     },
-    /// Inserts an axes into the figure, or an artist into an axes, with its subtree.
+    /// Inserts an axes or a legend panel into the figure, or an artist into an axes,
+    /// with its subtree.
     Insert {
-        /// The parent: the figure for an axes, or an axes for an artist.
+        /// The parent: the figure for an axes or a legend panel, or an axes for an
+        /// artist.
         parent: NodeId,
         /// The position in the parent's list at which the node is inserted, from zero
         /// to the length of the list, or `None` to append it.
@@ -101,15 +106,16 @@ pub enum Edit {
     },
     /// Removes a node and its subtree.
     Remove {
-        /// The axes or artist to remove.
+        /// The axes, artist or legend panel to remove.
         node: NodeId,
     },
-    /// Moves an axes within the figure's list, or an artist within its axes or to
-    /// another axes.
+    /// Moves an axes or a legend panel within the figure's list of its kind, or an
+    /// artist within its axes or to another axes.
     Move {
-        /// The axes or artist to move.
+        /// The axes, artist or legend panel to move.
         node: NodeId,
-        /// The new parent: the figure for an axes, or an axes for an artist.
+        /// The new parent: the figure for an axes or a legend panel, or an axes for an
+        /// artist.
         parent: NodeId,
         /// The position in the new parent's list after the node has been removed from
         /// its old position, from zero to the length of that list, or `None` to append.
@@ -148,6 +154,8 @@ pub enum Node {
     Axes(Box<Axes>),
     /// An artist.
     Artist(Artist),
+    /// A legend panel.
+    PanelLegend(PanelLegend),
 }
 
 impl Node {
@@ -156,6 +164,7 @@ impl Node {
         match self {
             Node::Axes(axes) => axes.id,
             Node::Artist(artist) => artist.id(),
+            Node::PanelLegend(panel) => panel.id,
         }
     }
 
@@ -166,6 +175,7 @@ impl Node {
                 .chain(axes.artists.iter().map(Artist::id))
                 .collect(),
             Node::Artist(artist) => vec![artist.id()],
+            Node::PanelLegend(panel) => vec![panel.id],
         }
     }
 }
@@ -573,7 +583,7 @@ impl Figure {
             node: parent,
         })?;
         let fits = match node {
-            Node::Axes(_) => parent_kind == NodeKind::Figure,
+            Node::Axes(_) | Node::PanelLegend(_) => parent_kind == NodeKind::Figure,
             Node::Artist(_) => parent_kind == NodeKind::Axes,
         };
         if !fits {
@@ -594,6 +604,7 @@ impl Figure {
         }
         let len = match &node {
             Node::Axes(_) => self.axes.len(),
+            Node::PanelLegend(_) => self.panel_legends.len(),
             Node::Artist(_) => self
                 .axes(parent)
                 .expect("the parent was found to be an axes")
@@ -612,6 +623,7 @@ impl Figure {
         let ids = node.subtree_ids();
         match node {
             Node::Axes(axes) => self.axes.insert(at as usize, *axes),
+            Node::PanelLegend(panel) => self.panel_legends.insert(at as usize, panel),
             Node::Artist(artist) => self
                 .axes_mut(parent)
                 .expect("the parent was found to be an axes")
@@ -635,6 +647,14 @@ impl Figure {
                 parent: figure,
                 index: Some(as_index(position)),
                 node: Node::Axes(Box::new(axes)),
+            });
+        }
+        if let Some(position) = self.panel_legends.iter().position(|panel| panel.id == node) {
+            let panel = self.panel_legends.remove(position);
+            return Ok(Edit::Insert {
+                parent: figure,
+                index: Some(as_index(position)),
+                node: Node::PanelLegend(panel),
             });
         }
         for axes in &mut self.axes {
@@ -667,7 +687,7 @@ impl Figure {
             edit: index,
             node: parent,
         })?;
-        let wanted = if kind == NodeKind::Axes {
+        let wanted = if matches!(kind, NodeKind::Axes | NodeKind::PanelLegend) {
             NodeKind::Figure
         } else {
             NodeKind::Axes
@@ -677,6 +697,30 @@ impl Figure {
                 edit: index,
                 node,
                 parent,
+            });
+        }
+        if kind == NodeKind::PanelLegend {
+            let from = self
+                .panel_legends
+                .iter()
+                .position(|panel| panel.id == node)
+                .expect("the node was found to be a legend panel");
+            let len = self.panel_legends.len() - 1;
+            let to = at.unwrap_or_else(|| as_index(len));
+            if to as usize > len {
+                return Err(EditError::IndexOutOfRange {
+                    edit: index,
+                    parent,
+                    index: to,
+                    len,
+                });
+            }
+            let panel = self.panel_legends.remove(from);
+            self.panel_legends.insert(to as usize, panel);
+            return Ok(Edit::Move {
+                node,
+                parent,
+                index: Some(as_index(from)),
             });
         }
         if kind == NodeKind::Axes {
@@ -892,6 +936,8 @@ impl Transaction {
 pub(crate) struct NodeTree {
     /// The artists of each axes, in tree order.
     axes: Vec<(NodeId, Vec<NodeId>)>,
+    /// The legend panels, which have no descendants.
+    panels: Vec<NodeId>,
 }
 
 impl NodeTree {
@@ -903,12 +949,16 @@ impl NodeTree {
                 .iter()
                 .map(|axes| (axes.id, axes.artists.iter().map(Artist::id).collect()))
                 .collect(),
+            panels: figure.panel_legends.iter().map(|panel| panel.id).collect(),
         }
     }
 
     /// Returns the node and its descendants, or nothing when the tree does not hold the
     /// node.
     pub(crate) fn subtree(&self, node: NodeId) -> Vec<NodeId> {
+        if self.panels.contains(&node) {
+            return vec![node];
+        }
         for (axes, artists) in &self.axes {
             if *axes == node {
                 return std::iter::once(node)
@@ -932,10 +982,13 @@ impl NodeTree {
                     .axes
                     .push((axes.id, axes.artists.iter().map(Artist::id).collect())),
                 Node::Artist(artist) => self.push_artist(*parent, artist.id()),
+                Node::PanelLegend(panel) => self.panels.push(panel.id),
             },
             Edit::Remove { node } => self.remove(*node),
-            // Moving an axes only reorders the figure's list.
-            Edit::Move { node, parent, .. } if !self.axes.iter().any(|(id, _)| id == node) => {
+            // Moving an axes or a legend panel only reorders the figure's list.
+            Edit::Move { node, parent, .. }
+                if !self.axes.iter().any(|(id, _)| id == node) && !self.panels.contains(node) =>
+            {
                 self.remove(*node);
                 self.push_artist(*parent, *node);
             }
@@ -950,6 +1003,7 @@ impl NodeTree {
     }
 
     fn remove(&mut self, node: NodeId) {
+        self.panels.retain(|id| *id != node);
         if let Some(position) = self.axes.iter().position(|(id, _)| *id == node) {
             self.axes.remove(position);
             return;

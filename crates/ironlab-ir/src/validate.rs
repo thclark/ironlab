@@ -10,6 +10,8 @@ use crate::axes::{Axes, Axis, Limits, Projection, Scale};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
+use crate::layout::Cell;
+use crate::legend::{Legend, LegendEntryColumns, LegendEntryLayout};
 use crate::link::Dimension;
 
 /// The outcome of validating a figure.
@@ -61,8 +63,25 @@ pub enum IssueKind {
     DanglingLink,
     /// Two nodes share an identifier.
     DuplicateNodeId,
-    /// An axes cell lies outside the figure's tile layout or has a zero span.
+    /// The cell of an axes or of a legend panel lies outside the figure's tile layout or
+    /// has a zero span.
     CellOutOfLayout,
+    /// The cells of two nodes placed in the tile layout, axes or legend panels, share at
+    /// least one tile, so that the later is drawn over the earlier. This is a warning, not
+    /// an error, because the figure can still be drawn. Each overlapping pair is reported
+    /// once, against the later of the two nodes in the order axes first, then legend
+    /// panels, each in the order the figure lists them, and the message names both nodes.
+    /// A cell outside the tile layout, which is reported as [`IssueKind::CellOutOfLayout`],
+    /// is not compared with any other.
+    OverlappingCells,
+    /// The legend of an axes names a legend panel that the figure does not have.
+    DanglingPanelLegend,
+    /// The tile layout has more row weights than rows or more column weights than
+    /// columns, or a weight that is not a finite positive number.
+    InvalidLayoutWeights,
+    /// A legend, inside a plot area or in a panel, has a fixed number of columns of
+    /// zero.
+    InvalidLegendColumns,
     /// The figure's width, height or base font size is not a finite positive number.
     InvalidSize,
     /// Manual limits (of a coordinate axis or of the colour limits) are not finite,
@@ -82,7 +101,9 @@ pub enum IssueKind {
     /// warning, not an error, because empty and singleton data are valid: a figure built
     /// before its data arrives, or streamed from nothing, passes through these states. It
     /// is reported only when the artist's references and shapes are otherwise valid, so
-    /// that an artist reported for an error is not reported twice.
+    /// that an artist reported for an error is not reported twice. It is also reported
+    /// against a legend panel that has no entries to list, because no axes names it in
+    /// its legend or no axes that names it has an artist with a display name.
     NothingToDraw,
     /// A figure parameter has an empty name, or is a number that is not finite (which
     /// JSON cannot represent).
@@ -118,8 +139,11 @@ impl Figure {
     /// and shapes within an artist (for an image, pixels that are not an array of shape
     /// `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional),
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), links to
-    /// identifiers that are not axes, duplicate node identifiers, cells outside the tile
-    /// layout, a non-positive figure size or font size, invalid manual limits, invalid
+    /// identifiers that are not axes, duplicate node identifiers, cells of axes and
+    /// legend panels outside the tile layout, layout weights that are too many or not
+    /// finite and positive, legends that name a legend panel the figure does not have,
+    /// legends with a fixed number of zero columns, a non-positive figure size or font
+    /// size, invalid manual limits, invalid
     /// contour levels, parameters with an empty name or a non-finite number, labels that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
@@ -132,7 +156,12 @@ impl Figure {
     /// drawn, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
-    /// column, which has no cell between its nodes); data that is not plotted along an
+    /// column, which has no cell between its nodes), and a legend panel with no entries
+    /// to list, which no axes names or whose axes have no artist with a display name, and
+    /// two nodes of the tile layout, axes or legend panels, whose cells share a tile, once
+    /// per pair against the later node (axes before legend panels, each in the order the
+    /// figure lists them), comparing only cells that lie within the layout;
+    /// data that is not plotted along an
     /// axis (such as quiver components, colour data or the pixels of an image) never
     /// produces the first of these. An array of 8-bit values that no artist refers to
     /// is not an error.
@@ -154,6 +183,13 @@ impl Figure {
             report: ValidationReport::default(),
         };
         validator.check_figure();
+        validator.check_layout_weights();
+        for panel in &self.panel_legends {
+            validator.check_cell(panel.id, panel.cell);
+            validator.check_legend_entry_layout(panel.id, panel.layout);
+            validator.check_panel_has_entries(panel.id);
+        }
+        validator.check_overlapping_cells();
         for axes in &self.axes {
             validator.check_axes(axes);
             for artist in &axes.artists {
@@ -168,6 +204,15 @@ impl Figure {
 struct Validator<'a> {
     figure: &'a Figure,
     report: ValidationReport,
+}
+
+/// Returns whether two cells, each spanning at least one row and one column, share a tile.
+fn share_a_tile(a: Cell, b: Cell) -> bool {
+    let overlap = |start_a: u32, span_a: u32, start_b: u32, span_b: u32| {
+        u64::from(start_a) < u64::from(start_b) + u64::from(span_b)
+            && u64::from(start_b) < u64::from(start_a) + u64::from(span_a)
+    };
+    overlap(a.row, a.row_span, b.row, b.row_span) && overlap(a.col, a.col_span, b.col, b.col_span)
 }
 
 /// Returns whether an array's number of values equals the product of its shape.
@@ -300,22 +345,120 @@ impl Validator<'_> {
         }
     }
 
-    /// Checks the cell and limits of an axes.
-    fn check_axes(&mut self, axes: &Axes) {
-        let (cell, layout) = (axes.cell, self.figure.layout);
-        let outside = cell.row_span == 0
-            || cell.col_span == 0
-            || u64::from(cell.row) + u64::from(cell.row_span) > u64::from(layout.rows)
-            || u64::from(cell.col) + u64::from(cell.col_span) > u64::from(layout.cols);
-        if outside {
-            self.error(
-                Some(axes.id),
-                IssueKind::CellOutOfLayout,
-                format!(
-                    "the cell {cell:?} does not lie within the {} × {} tile layout",
-                    layout.rows, layout.cols
-                ),
+    /// Checks that the tile layout has no more weights than rows and columns, and that
+    /// every weight is a finite positive number.
+    fn check_layout_weights(&mut self) {
+        let figure = self.figure;
+        let layout = &figure.layout;
+        let lists = [
+            ("row", &layout.row_weights, layout.rows),
+            ("column", &layout.col_weights, layout.cols),
+        ];
+        for (name, weights, count) in lists {
+            if weights.len() > count as usize {
+                self.error(
+                    Some(figure.id),
+                    IssueKind::InvalidLayoutWeights,
+                    format!(
+                        "the tile layout has {} {name} weights but only {count} {name}s",
+                        weights.len()
+                    ),
+                );
+            }
+            for (index, &weight) in weights.iter().enumerate() {
+                if !(weight.is_finite() && weight > 0.0) {
+                    self.error(
+                        Some(figure.id),
+                        IssueKind::InvalidLayoutWeights,
+                        format!(
+                            "the weight {weight} of {name} {index} is not a finite positive number"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Returns whether a cell lies within the tile layout and spans at least one row and one
+    /// column.
+    fn in_layout(&self, cell: Cell) -> bool {
+        let layout = &self.figure.layout;
+        cell.row_span > 0
+            && cell.col_span > 0
+            && u64::from(cell.row) + u64::from(cell.row_span) <= u64::from(layout.rows)
+            && u64::from(cell.col) + u64::from(cell.col_span) <= u64::from(layout.cols)
+    }
+
+    /// Checks that a cell of an axes or a legend panel lies within the tile layout.
+    fn check_cell(&mut self, node: NodeId, cell: Cell) {
+        if !self.in_layout(cell) {
+            let layout = &self.figure.layout;
+            let message = format!(
+                "the cell {cell:?} does not lie within the {} × {} tile layout",
+                layout.rows, layout.cols
             );
+            self.error(Some(node), IssueKind::CellOutOfLayout, message);
+        }
+    }
+
+    /// Warns of every pair of nodes in the tile layout whose cells share a tile, against the
+    /// later node of the pair, taking the axes first and then the legend panels. Cells
+    /// outside the layout are reported by [`Self::check_cell`] and are not compared.
+    fn check_overlapping_cells(&mut self) {
+        let figure = self.figure;
+        let placed: Vec<(NodeId, Cell)> = figure
+            .axes
+            .iter()
+            .map(|axes| (axes.id, axes.cell))
+            .chain(
+                figure
+                    .panel_legends
+                    .iter()
+                    .map(|panel| (panel.id, panel.cell)),
+            )
+            .filter(|&(_, cell)| self.in_layout(cell))
+            .collect();
+        for (j, &(later, b)) in placed.iter().enumerate() {
+            for &(earlier, a) in &placed[..j] {
+                if share_a_tile(a, b) {
+                    self.warning(
+                        Some(later),
+                        IssueKind::OverlappingCells,
+                        format!(
+                            "the cell {b:?} of {later} shares a tile with the cell {a:?} of \
+                             {earlier}, so {later} is drawn over {earlier}"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Checks that the layout of the entries of a legend has at least one column.
+    fn check_legend_entry_layout(&mut self, node: NodeId, layout: LegendEntryLayout) {
+        if layout.columns == LegendEntryColumns::Count(0) {
+            self.error(
+                Some(node),
+                IssueKind::InvalidLegendColumns,
+                "the legend has a fixed number of columns of zero".to_owned(),
+            );
+        }
+    }
+
+    /// Checks the cell, legend and limits of an axes.
+    fn check_axes(&mut self, axes: &Axes) {
+        self.check_cell(axes.id, axes.cell);
+
+        match axes.legend {
+            Some(Legend::Inside(inside)) => self.check_legend_entry_layout(axes.id, inside.layout),
+            Some(Legend::Panel(panel)) if self.figure.panel_legend(panel).is_none() => {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::DanglingPanelLegend,
+                    format!("the legend lists its entries in {panel}, which is not a legend panel"),
+                );
+            }
+            Some(Legend::Panel(_)) | None => {}
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });
@@ -494,6 +637,30 @@ impl Validator<'_> {
             // number of pixels along each axis of the image.
             Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => true,
         }
+    }
+
+    /// Warns of a legend panel that has no entries to list, because no axes names it or
+    /// no axes that names it has an artist with a display name.
+    fn check_panel_has_entries(&mut self, panel: NodeId) {
+        let mut axes = self
+            .figure
+            .axes
+            .iter()
+            .filter(|axes| axes.legend == Some(Legend::Panel(panel)))
+            .peekable();
+        let message = if axes.peek().is_none() {
+            "no axes lists its entries in the legend panel, so the panel is empty"
+        } else if axes.any(|axes| {
+            axes.artists
+                .iter()
+                .any(|artist| artist.display_name().is_some())
+        }) {
+            return;
+        } else {
+            "no artist of the axes that list their entries in the legend panel has a display \
+             name, so the panel is empty"
+        };
+        self.warning(Some(panel), IssueKind::NothingToDraw, message.to_string());
     }
 
     /// Warns of an artist other than an image whose arrays, which exist and agree in

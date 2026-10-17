@@ -26,11 +26,13 @@ pub enum NodeKind {
     IndexedImage,
     /// A colour-mapped image artist.
     MappedImage,
+    /// A legend panel.
+    PanelLegend,
 }
 
 impl NodeKind {
     /// Every kind of node, in declaration order.
-    pub const ALL: [NodeKind; 10] = [
+    pub const ALL: [NodeKind; 11] = [
         NodeKind::Figure,
         NodeKind::Axes,
         NodeKind::Line,
@@ -41,6 +43,7 @@ impl NodeKind {
         NodeKind::Image,
         NodeKind::IndexedImage,
         NodeKind::MappedImage,
+        NodeKind::PanelLegend,
     ];
 }
 

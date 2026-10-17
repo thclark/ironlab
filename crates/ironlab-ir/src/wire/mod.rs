@@ -88,14 +88,16 @@
 //! - the kind of an artist, the dimension of an axis link, and the kind of a figure
 //!   parameter together with its value when it is a boolean, an integer or a number;
 //! - every identifier that refers to a node or a data array and is not optional in the
-//!   domain: the identifier of the figure, of each axes and of each artist, the x and y
+//!   domain: the identifier of the figure, of each axes, of each artist and of each
+//!   legend panel, the legend panel that the legend of an axes names, the x and y
 //!   data of a line, scatter or quiver, the u and v data of a quiver, the z data of a
 //!   contour or surface, the grid of a contour or surface (its kind and both of its
 //!   coordinate arrays), the data of per-point scatter sizes and colours, and the
-//!   pixels, indices or values of an image. Zero is a valid identifier, so substituting
-//!   it would silently attach an artist to the wrong data;
-//! - the bounds of manual limits, the factor of a quiver scale, and both centres of a
-//!   pixel range of an image that is present (one centre alone places nothing);
+//!   pixels, indices or values of an image. Zero is a valid identifier, so
+//!   substituting it would silently attach an artist to the wrong data;
+//! - the bounds of manual limits, the factor of a quiver scale, the number of a fixed
+//!   number of legend columns, and both centres of a pixel range of an image that is
+//!   present (one centre alone places nothing);
 //! - in a transaction (`edit.proto`), the kind of an edit, of a node and of a value, the
 //!   identifiers that an edit names, the value of a set, the node of an insertion, the
 //!   array of a data edit, and the value held by a value message (an unspecified enum
@@ -425,6 +427,8 @@ mod axes;
 mod data;
 mod edit;
 mod figure;
+mod layout;
+mod legend;
 mod link;
 mod style;
 mod text;
@@ -434,6 +438,8 @@ pub use axes::*;
 pub use data::*;
 pub use edit::*;
 pub use figure::*;
+pub use layout::*;
+pub use legend::*;
 pub use link::*;
 pub use style::*;
 pub use text::*;
@@ -479,6 +485,8 @@ breaking:
 pub(crate) const FILES: &[schema::FileDef] = &[
     figure::FILE,
     axes::FILE,
+    legend::FILE,
+    layout::FILE,
     artist::FILE,
     style::FILE,
     text::FILE,

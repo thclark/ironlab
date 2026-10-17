@@ -171,7 +171,7 @@ fn surface_figure_of(
     ]);
     Figure {
         id: NodeId(1),
-        layout: TileLayout { rows: 1, cols: 1 },
+        layout: TileLayout::new(1, 1),
         data,
         axes: vec![Axes {
             id: NodeId(2),
@@ -475,7 +475,7 @@ fn crossing_planes_figure() -> Figure {
     ]);
     Figure {
         id: NodeId(1),
-        layout: TileLayout { rows: 1, cols: 1 },
+        layout: TileLayout::new(1, 1),
         data,
         axes: vec![Axes {
             id: NodeId(2),
@@ -809,7 +809,7 @@ fn verified_and_embedded_figure() -> Figure {
     };
     Figure {
         id: NodeId(1),
-        layout: TileLayout { rows: 1, cols: 2 },
+        layout: TileLayout::new(1, 2),
         data,
         axes: vec![
             axes(

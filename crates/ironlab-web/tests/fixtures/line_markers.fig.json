@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3.1",
+  "schema_version": "0.4.0",
   "id": 0,
   "title": {
     "content": "A damped oscillator",
@@ -403,8 +403,18 @@
         "type": "auto"
       },
       "legend": {
-        "location": "north_east",
-        "boxed": true
+        "type": "inside",
+        "value": {
+          "location": "north_east",
+          "boxed": true,
+          "layout": {
+            "columns": {
+              "type": "count",
+              "value": 1
+            },
+            "order": "column_major"
+          }
+        }
       },
       "artists": [
         {
@@ -500,9 +510,9 @@
   ],
   "links": [],
   "provenance": {
-    "ironlab_version": "0.9.1",
+    "ironlab_version": "0.11.0",
     "typesetter": "latex-rust",
-    "typesetter_version": "1.0.2",
+    "typesetter_version": "2.1.1",
     "fonts": [
       "STIX Two Text",
       "STIX Two Math"

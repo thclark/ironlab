@@ -9,11 +9,13 @@ use crate::artist::{
     ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
     QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{
-    Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
+use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, View3d};
+use crate::figure::{FigureSize, FontSetId, Parameter};
+use crate::ids::{DataId, NodeId};
+use crate::layout::{Cell, TileLayout};
+use crate::legend::{
+    InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
 };
-use crate::figure::{FigureSize, FontSetId, Parameter, TileLayout};
-use crate::ids::DataId;
 use crate::link::AxisLink;
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
@@ -52,7 +54,10 @@ pub enum Value {
     String(String),
     /// A reference to a data array, such as the x data of a line.
     DataId(DataId),
-    /// A list of double-precision numbers: explicit contour levels.
+    /// A reference to a node, such as the legend panel named by the legend of an axes.
+    NodeId(NodeId),
+    /// A list of double-precision numbers, such as explicit contour levels or the
+    /// weights of the rows of the tile layout.
     Doubles(Vec<f64>),
     /// A list of strings: the labels of a figure.
     Strings(Vec<String>),
@@ -72,7 +77,7 @@ pub enum Value {
     Links(Vec<AxisLink>),
     /// The named parameters of a figure.
     Parameters(BTreeMap<String, Parameter>),
-    /// The cells occupied by an axes.
+    /// The cells occupied by an axes or a legend panel.
     Cell(Cell),
     /// The projection of an axes.
     Projection(Projection),
@@ -86,10 +91,18 @@ pub enum Value {
     Limits(Limits),
     /// A colormap name.
     ColormapName(ColormapName),
-    /// A legend.
+    /// The legend of an axes.
     Legend(Legend),
-    /// The placement of a legend.
+    /// A legend drawn inside the plot area of its axes.
+    InsideLegend(InsideLegend),
+    /// The placement of a legend, or of the entries within a legend panel.
     LegendLocation(LegendLocation),
+    /// How the entries of a legend are arranged in columns.
+    LegendEntryLayout(LegendEntryLayout),
+    /// The number of columns of a legend.
+    LegendEntryColumns(LegendEntryColumns),
+    /// The order in which the entries of a legend fill its columns.
+    LegendEntryOrder(LegendEntryOrder),
     /// How a colour is chosen.
     ColorSpec(ColorSpec),
     /// The style of a stroked line.
@@ -138,6 +151,8 @@ pub enum ValueType {
     String,
     /// See [`Value::DataId`].
     DataId,
+    /// See [`Value::NodeId`].
+    NodeId,
     /// See [`Value::Doubles`].
     Doubles,
     /// See [`Value::Strings`].
@@ -174,8 +189,16 @@ pub enum ValueType {
     ColormapName,
     /// See [`Value::Legend`].
     Legend,
+    /// See [`Value::InsideLegend`].
+    InsideLegend,
     /// See [`Value::LegendLocation`].
     LegendLocation,
+    /// See [`Value::LegendEntryLayout`].
+    LegendEntryLayout,
+    /// See [`Value::LegendEntryColumns`].
+    LegendEntryColumns,
+    /// See [`Value::LegendEntryOrder`].
+    LegendEntryOrder,
     /// See [`Value::ColorSpec`].
     ColorSpec,
     /// See [`Value::LineStyle`].
@@ -222,6 +245,7 @@ impl Value {
             Value::Float(_) => ValueType::Float,
             Value::String(_) => ValueType::String,
             Value::DataId(_) => ValueType::DataId,
+            Value::NodeId(_) => ValueType::NodeId,
             Value::Doubles(_) => ValueType::Doubles,
             Value::Strings(_) => ValueType::Strings,
             Value::Text(_) => ValueType::Text,
@@ -240,7 +264,11 @@ impl Value {
             Value::Limits(_) => ValueType::Limits,
             Value::ColormapName(_) => ValueType::ColormapName,
             Value::Legend(_) => ValueType::Legend,
+            Value::InsideLegend(_) => ValueType::InsideLegend,
             Value::LegendLocation(_) => ValueType::LegendLocation,
+            Value::LegendEntryLayout(_) => ValueType::LegendEntryLayout,
+            Value::LegendEntryColumns(_) => ValueType::LegendEntryColumns,
+            Value::LegendEntryOrder(_) => ValueType::LegendEntryOrder,
             Value::ColorSpec(_) => ValueType::ColorSpec,
             Value::LineStyle(_) => ValueType::LineStyle,
             Value::DashStyle(_) => ValueType::DashStyle,

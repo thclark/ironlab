@@ -92,7 +92,7 @@ pub(super) fn figure_title(ctx: &mut Ctx, page: Rect, out: &mut Vec<Item>) -> Re
 }
 
 /// Clamps a cell into the tile layout, returning `(row, col, row_end, col_end)` with exclusive ends.
-fn clamp_cell(layout: TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
+pub(super) fn clamp_cell(layout: &TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
     let rows = layout.rows.max(1);
     let cols = layout.cols.max(1);
     let row = cell.row.min(rows - 1);
@@ -102,17 +102,107 @@ fn clamp_cell(layout: TileLayout, cell: Cell) -> (u32, u32, u32, u32) {
     (row, col, row_end, col_end)
 }
 
-/// Returns the rectangle of the tile cells an axes occupies.
-pub(super) fn cell_rect(layout: TileLayout, cell: Cell, area: Rect) -> Rect {
+/// Returns the rectangle of the tile cells an axes or a legend panel occupies.
+///
+/// The rows share the height of `area`, and the columns its width, in proportion to their weights; a cell block
+/// spanning several rows or columns takes the sum of their weights.
+pub(super) fn cell_rect(layout: &TileLayout, cell: Cell, area: Rect) -> Rect {
     let (row, col, row_end, col_end) = clamp_cell(layout, cell);
-    let cw = area.width / f64::from(layout.cols.max(1));
-    let rh = area.height / f64::from(layout.rows.max(1));
-    Rect::new(
-        area.x + f64::from(col) * cw,
-        area.y + f64::from(row) * rh,
-        f64::from(col_end - col) * cw,
-        f64::from(row_end - row) * rh,
-    )
+    let (x, width) = span(
+        &layout.col_weights,
+        layout.cols,
+        col,
+        col_end,
+        area.x,
+        area.width,
+    );
+    let (y, height) = span(
+        &layout.row_weights,
+        layout.rows,
+        row,
+        row_end,
+        area.y,
+        area.height,
+    );
+    Rect::new(x, y, width, height)
+}
+
+/// Returns the start and length of the tracks `[first, end)` of `count` weighted tracks that share the interval
+/// `[start, start + len]`.
+///
+/// A track without a weight, and a track whose weight is not finite and positive, has a weight of one: compilation
+/// never fails, and validation reports such weights. Equal weights therefore divide the interval exactly as no
+/// weights do.
+fn span(weights: &[f64], count: u32, first: u32, end: u32, start: f64, len: f64) -> (f64, f64) {
+    let given = |k: u32| match weights.get(k as usize) {
+        Some(&w) if w.is_finite() && w > 0.0 => w,
+        _ => 1.0,
+    };
+    let count = count.max(1);
+    // Equal weights are replaced by ones, so that the boundaries match the unweighted division bit for bit.
+    let uniform = (0..count).all(|k| given(k) == given(0));
+    let weight = |k: u32| if uniform { 1.0 } else { given(k) };
+    let sum = |from: u32, to: u32| (from..to).map(weight).sum::<f64>();
+    let unit = len / sum(0, count);
+    (start + sum(0, first) * unit, sum(first, end) * unit)
+}
+
+/// The margins of the plot areas, aligned across the tile layout: the largest left margin of the axes starting in
+/// each column, the largest right margin of those ending in each column, and likewise the top and bottom margins by
+/// row. A row or column in which no axes starts or ends has no margin on that side.
+struct AlignedMargins {
+    left: Vec<Option<f64>>,
+    right: Vec<Option<f64>>,
+    top: Vec<Option<f64>>,
+    bottom: Vec<Option<f64>>,
+}
+
+impl AlignedMargins {
+    fn new(figure: &Figure, margins: &[Margins]) -> Self {
+        let rows = figure.layout.rows.max(1) as usize;
+        let cols = figure.layout.cols.max(1) as usize;
+        let mut aligned = Self {
+            left: vec![None; cols],
+            right: vec![None; cols],
+            top: vec![None; rows],
+            bottom: vec![None; rows],
+        };
+        let widen = |slot: &mut Option<f64>, m: f64| *slot = Some(slot.map_or(m, |s| s.max(m)));
+        for (axes, m) in figure.axes.iter().zip(margins) {
+            let (r, c, re, ce) = span_indices(&figure.layout, axes.cell);
+            widen(&mut aligned.left[c], m.left);
+            widen(&mut aligned.right[ce], m.right);
+            widen(&mut aligned.top[r], m.top);
+            widen(&mut aligned.bottom[re], m.bottom);
+        }
+        aligned
+    }
+
+    /// Insets the rectangle of `cell` by the aligned margins of the rows and columns it starts and ends in, using
+    /// `default` on a side whose row or column has no margin.
+    fn inset(&self, layout: &TileLayout, cell: Cell, outer: Rect, default: f64) -> Rect {
+        let (r, c, re, ce) = span_indices(layout, cell);
+        let side = |slot: Option<f64>| slot.unwrap_or(default);
+        let (x, width) = inset(
+            outer.x,
+            outer.width,
+            side(self.left[c]),
+            side(self.right[ce]),
+        );
+        let (y, height) = inset(
+            outer.y,
+            outer.height,
+            side(self.top[r]),
+            side(self.bottom[re]),
+        );
+        Rect::new(x, y, width, height)
+    }
+}
+
+/// Returns the first and last row and column of a cell block, clamped into the layout, as indices.
+fn span_indices(layout: &TileLayout, cell: Cell) -> (usize, usize, usize, usize) {
+    let (r, c, re, ce) = clamp_cell(layout, cell);
+    (r as usize, c as usize, re as usize - 1, ce as usize - 1)
 }
 
 /// Computes the plot rectangle of every axes.
@@ -121,33 +211,30 @@ pub(super) fn cell_rect(layout: TileLayout, cell: Cell, area: Rect) -> Rect {
 /// axes starting there, and likewise for right margins by end column and for top and bottom margins by row, so the
 /// plot areas of neighbouring tiles line up.
 pub(super) fn plot_rects(figure: &Figure, outer: &[Rect], margins: &[Margins]) -> Vec<Rect> {
-    let rows = figure.layout.rows.max(1) as usize;
-    let cols = figure.layout.cols.max(1) as usize;
-    let mut left = vec![0.0f64; cols];
-    let mut right = vec![0.0f64; cols];
-    let mut top = vec![0.0f64; rows];
-    let mut bottom = vec![0.0f64; rows];
-    let spans: Vec<(usize, usize, usize, usize)> = figure
+    let aligned = AlignedMargins::new(figure, margins);
+    figure
         .axes
         .iter()
-        .map(|axes| {
-            let (r, c, re, ce) = clamp_cell(figure.layout, axes.cell);
-            (r as usize, c as usize, re as usize - 1, ce as usize - 1)
-        })
-        .collect();
-    for (&(r, c, re, ce), m) in spans.iter().zip(margins) {
-        left[c] = left[c].max(m.left);
-        right[ce] = right[ce].max(m.right);
-        top[r] = top[r].max(m.top);
-        bottom[re] = bottom[re].max(m.bottom);
-    }
-    spans
-        .iter()
         .zip(outer)
-        .map(|(&(r, c, re, ce), o)| {
-            let (x, width) = inset(o.x, o.width, left[c], right[ce]);
-            let (y, height) = inset(o.y, o.height, top[r], bottom[re]);
-            Rect::new(x, y, width, height)
+        .map(|(axes, o)| aligned.inset(&figure.layout, axes.cell, *o, 0.0))
+        .collect()
+}
+
+/// Computes the area of every legend panel of the figure, in the order the figure lists them.
+///
+/// A panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
+/// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row
+/// or column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
+pub(super) fn panel_rects(ctx: &Ctx, grid_area: Rect, margins: &[Margins]) -> Vec<Rect> {
+    let figure = ctx.figure;
+    let aligned = AlignedMargins::new(figure, margins);
+    let pad = page_padding(ctx);
+    figure
+        .panel_legends
+        .iter()
+        .map(|panel| {
+            let outer = cell_rect(&figure.layout, panel.cell, grid_area);
+            aligned.inset(&figure.layout, panel.cell, outer, pad)
         })
         .collect()
 }

@@ -137,10 +137,7 @@ fn axes(id: u64, artists: Vec<Artist>) -> Axes {
 fn figure(axes: Vec<Axes>, data: &[(u64, NdArray)]) -> Figure {
     Figure {
         id: NodeId(1),
-        layout: TileLayout {
-            rows: 1,
-            cols: axes.len().max(1) as u32,
-        },
+        layout: TileLayout::new(1, axes.len().max(1) as u32),
         axes,
         data: data
             .iter()

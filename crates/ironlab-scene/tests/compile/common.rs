@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 
 use ironlab_ir::{
     Artist, Axes, Cell, Contour, DataId, Figure, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Line, MappedImage, NdArray, NodeId, PixelRange, Projection, Quiver, Scatter,
-    Surface, Text, View3d,
+    IndexedImage, Legend, Line, MappedImage, NdArray, NodeId, PanelLegend, PixelRange, Projection,
+    Quiver, Scatter, Surface, Text, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::Lut;
@@ -425,6 +425,39 @@ impl Fx {
         id
     }
 
+    /// Adds a legend panel with default properties in the given cell block and returns its identifier.
+    pub fn panel(&mut self, cell: Cell) -> NodeId {
+        let id = self.node();
+        self.fig.panel_legends.push(PanelLegend {
+            id,
+            cell,
+            ..PanelLegend::default()
+        });
+        id
+    }
+
+    /// Returns the legend panel with the given identifier for modification.
+    pub fn panel_mut(&mut self, id: NodeId) -> &mut PanelLegend {
+        self.fig
+            .panel_legends
+            .iter_mut()
+            .find(|p| p.id == id)
+            .expect("fixture legend panel exists")
+    }
+
+    /// Lists the entries of an axes in the legend panel `panel`.
+    pub fn legend_in(&mut self, axes: NodeId, panel: NodeId) {
+        self.ax(axes).legend = Some(Legend::Panel(panel));
+    }
+
+    /// Adds a line from (0, 0) to (1, 1) with the given display name, customised by `edit`.
+    pub fn named_line(&mut self, axes: NodeId, name: &str, edit: impl FnOnce(&mut Line)) -> NodeId {
+        self.line(axes, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
+            l.display_name = text(name);
+            edit(l);
+        })
+    }
+
     /// Finishes the figure.
     pub fn build(self) -> Figure {
         self.fig
@@ -434,4 +467,14 @@ impl Fx {
 /// Shorthand for LaTeX-interpreted text.
 pub fn text(content: &str) -> Option<Text> {
     Some(Text::new(content))
+}
+
+/// A cell block of the tile layout.
+pub fn cell(row: u32, col: u32, row_span: u32, col_span: u32) -> Cell {
+    Cell {
+        row,
+        col,
+        row_span,
+        col_span,
+    }
 }

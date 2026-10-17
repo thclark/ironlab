@@ -13,7 +13,10 @@ use ironlab_scene::maths::colormap::{VIRIDIS, sample};
 use ironlab_scene::maths::decimate::Sample;
 
 use crate::common::{COLOUR_ORDER, Fx, compile_figure, linspace, rgb8, rgb8_close, rgba, text};
-use crate::probe::{Leaf, axis_maps, from_source, inside, leaves, marker_instances, points_close};
+use crate::probe::{
+    Leaf, axes_legend_entries, axis_maps, entry_artist, from_source, inside, leaves,
+    marker_instances, points_close,
+};
 
 /// Returns the markers leaves of a node, in paint order.
 fn markers_of(leaves: &[Leaf], id: NodeId) -> Vec<&Leaf> {
@@ -48,13 +51,7 @@ fn samples_of(scene: &Scene, id: NodeId) -> &[Sample] {
 
 /// Returns the legend entries of an axes.
 fn entries(scene: &Scene, ax: NodeId) -> Vec<LegendHit> {
-    scene
-        .hit_map
-        .legend_entries
-        .iter()
-        .filter(|e| e.axes == ax)
-        .cloned()
-        .collect()
+    axes_legend_entries(scene, ax)
 }
 
 /// Returns the end points of an outline's segments, dropping any repeat of an earlier point (the return of a
@@ -631,7 +628,7 @@ fn the_legend_sample_of_a_marked_line_and_of_a_scatter_is_one_instance_in_the_ar
     let leaves = leaves(&scene);
     let entries = entries(&scene, ax);
     assert_eq!(
-        entries.iter().map(|e| e.artist).collect::<Vec<_>>(),
+        entries.iter().map(|e| entry_artist(e)).collect::<Vec<_>>(),
         vec![line, scatter],
         "one entry per named artist"
     );
@@ -644,22 +641,22 @@ fn the_legend_sample_of_a_marked_line_and_of_a_scatter_is_one_instance_in_the_ar
             in_entry.len(),
             1,
             "the entry of {} holds one markers item of the legend",
-            entry.artist
+            entry_artist(entry)
         );
         let instances = in_entry[0].instances();
         assert_eq!(
             instances.len(),
             1,
             "the sample of {} is one marker",
-            entry.artist
+            entry_artist(entry)
         );
         let edge = instances[0]
             .edge
-            .unwrap_or_else(|| panic!("the sample of {} has an edge", entry.artist));
+            .unwrap_or_else(|| panic!("the sample of {} has an edge", entry_artist(entry)));
         assert!(
             rgb8_close(rgb8(edge), colour),
             "the sample of {} takes the artist's colour {colour:?}, not {edge:?}",
-            entry.artist
+            entry_artist(entry)
         );
     }
 }

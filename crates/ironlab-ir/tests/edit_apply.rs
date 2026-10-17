@@ -30,7 +30,7 @@ fn bytes(shape: Vec<usize>, values: Vec<u8>) -> NdArray {
 /// 2D axes. Returns the figure, the first axes, its lines in order and the second axes.
 fn three_lines_figure() -> (Figure, NodeId, [NodeId; 3], NodeId) {
     let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout { rows: 1, cols: 2 };
+    b.fig.layout = TileLayout::new(1, 2);
     let axes = b.axes2d(0, 0);
     let x = b.vector(&[1.0, 2.0]);
     let y = b.vector(&[3.0, 4.0]);
@@ -1621,4 +1621,124 @@ fn the_inverse_of_an_append_with_retain_restores_the_discarded_entries() {
     assert_eq!(edited.data[&s.x].shape, vec![3]);
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, s.fig);
+}
+
+// ---------------------------------------------------------------------------------
+// Legend panels
+// ---------------------------------------------------------------------------------
+
+// Why: a legend panel is a node of the figure like an axes, so a client mirroring a
+// figure must be able to insert, move and remove one, each restored exactly by its
+// inverse; otherwise a program that adds a panel while a viewer watches could not send
+// the change, and undoing it would leave the panel behind.
+#[test]
+fn a_legend_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() {
+    let fig = kitchen_sink_figure();
+    let [first, second] = [fig.panel_legends[0].id, fig.panel_legends[1].id];
+    let spare = PanelLegend {
+        id: NodeId(1_000),
+        cell: Cell {
+            row: 0,
+            col: 0,
+            row_span: 1,
+            col_span: 1,
+        },
+        ..PanelLegend::default()
+    };
+    let panel_ids =
+        |fig: &Figure| -> Vec<NodeId> { fig.panel_legends.iter().map(|panel| panel.id).collect() };
+
+    let insert = Edit::Insert {
+        parent: fig.id,
+        index: Some(1),
+        node: Node::PanelLegend(spare),
+    };
+    let (inserted, inverse) = applied(&fig, &tx([insert])).unwrap();
+    assert_eq!(panel_ids(&inserted), [first, spare.id, second]);
+    assert_eq!(inserted.node_kind(spare.id), Some(NodeKind::PanelLegend));
+    assert_eq!(applied(&inserted, &inverse).unwrap().0, fig);
+
+    let reorder = Edit::Move {
+        node: second,
+        parent: fig.id,
+        index: Some(0),
+    };
+    let (moved, inverse) = applied(&fig, &tx([reorder])).unwrap();
+    assert_eq!(panel_ids(&moved), [second, first]);
+    assert_eq!(applied(&moved, &inverse).unwrap().0, fig);
+
+    // The inserted panel is named by no legend, so removing it leaves the figure valid.
+    let (removed, inverse) = applied(&inserted, &tx([Edit::Remove { node: spare.id }])).unwrap();
+    assert_eq!(panel_ids(&removed), [first, second]);
+    assert_eq!(applied(&removed, &inverse).unwrap().0, inserted);
+}
+
+// Why: a legend panel belongs to the figure, so an axes cannot hold one and a panel
+// cannot be moved into an axes; and removing a panel that a legend still names would
+// leave that legend listing its entries nowhere, which validation refuses.
+#[test]
+fn a_legend_panel_has_only_the_figure_as_parent_and_cannot_be_removed_while_named() {
+    let fig = kitchen_sink_figure();
+    let named = fig.panel_legends[0].id;
+    let axes = fig.axes[0].id;
+    let spare = PanelLegend {
+        id: NodeId(1_000),
+        ..PanelLegend::default()
+    };
+
+    let result = applied(
+        &fig,
+        &tx([Edit::Insert {
+            parent: axes,
+            index: None,
+            node: Node::PanelLegend(spare),
+        }]),
+    );
+    assert!(
+        matches!(result, Err(EditError::InvalidParent { edit: Some(0), .. })),
+        "{result:?}"
+    );
+
+    let result = applied(
+        &fig,
+        &tx([Edit::Move {
+            node: named,
+            parent: axes,
+            index: None,
+        }]),
+    );
+    assert!(
+        matches!(result, Err(EditError::InvalidParent { edit: Some(0), .. })),
+        "{result:?}"
+    );
+
+    let result = applied(&fig, &tx([Edit::Remove { node: named }]));
+    assert!(
+        matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::DanglingPanelLegend)),
+        "{result:?}"
+    );
+}
+
+// Why: the property editor reaches a legend panel's properties by its identifier, so a
+// set addressed to a panel must change that panel and no other node.
+#[test]
+fn a_set_addressed_to_a_legend_panel_changes_that_panel() {
+    let fig = kitchen_sink_figure();
+    let panel = fig.panel_legends[1].id;
+    let (edited, _) = applied(
+        &fig,
+        &tx([
+            set(panel, "align", Value::LegendLocation(LegendLocation::North)),
+            set(
+                panel,
+                "layout.columns",
+                Value::LegendEntryColumns(LegendEntryColumns::Count(4)),
+            ),
+        ]),
+    )
+    .unwrap();
+    let mut expected = fig.clone();
+    expected.panel_legends[1].align = LegendLocation::North;
+    expected.panel_legends[1].layout.columns = LegendEntryColumns::Count(4);
+    assert_eq!(edited, expected);
 }

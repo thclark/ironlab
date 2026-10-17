@@ -15,6 +15,7 @@ mod images;
 mod layout;
 mod legend;
 mod markers;
+mod panel_legend;
 mod robustness;
 mod scales;
 mod surfaces_2d;

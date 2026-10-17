@@ -4,7 +4,7 @@
 mod common;
 
 use common::{axes, has_error_at};
-use ironlab::ir::{ColormapName, IssueKind, Legend, Limits};
+use ironlab::ir::{ColormapName, InsideLegend, IssueKind, Legend, Limits};
 use ironlab::prelude::*;
 
 // WHY: titles and labels are the most common calls in user code; each must reach its
@@ -187,10 +187,10 @@ fn legend_is_shown_at_a_location_and_can_be_removed() {
     let id = fig.axes(0, 0).legend(LegendLocation::SouthWest).id();
     assert_eq!(
         axes(&fig, id).legend,
-        Some(Legend {
+        Some(Legend::Inside(InsideLegend {
             location: LegendLocation::SouthWest,
-            ..Legend::default()
-        })
+            ..InsideLegend::default()
+        }))
     );
 
     fig.axes(0, 0).legend_off();

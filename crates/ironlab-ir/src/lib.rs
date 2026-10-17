@@ -46,6 +46,12 @@
 //!   of the plane; a colour-indexed or colour-mapped image draws nothing for a pixel it
 //!   cannot colour, whether the pixel lies below or above its range or is not finite.
 //! - Artists are visible and have no display name.
+//! - A legend inside a plot area sits in the top-right corner, is boxed and lists its
+//!   entries in one column. A legend panel is outlined by a border drawn as the box of
+//!   an axes is drawn, centres its entries and arranges them in as few columns as fit
+//!   it. Entries fill each column before the next.
+//! - The rows and columns of a tile layout all have a weight of one, so its cells are of
+//!   equal size.
 
 mod artist;
 mod axes;
@@ -55,6 +61,8 @@ mod edit;
 mod error;
 mod figure;
 mod ids;
+mod layout;
+mod legend;
 mod link;
 pub mod overlay;
 pub mod selection;
@@ -68,9 +76,7 @@ pub use artist::{
     Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
     ScatterSize, Surface,
 };
-pub use axes::{
-    Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
-};
+pub use axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
 pub use data::{NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
@@ -79,9 +85,13 @@ pub use edit::{
 pub use error::{IrError, ProtobufError};
 pub use figure::{
     Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
-    TileLayout,
 };
 pub use ids::{DataId, NodeId};
+pub use layout::{Cell, TileLayout};
+pub use legend::{
+    InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
+    PanelLegend,
+};
 pub use link::{AxisLink, Dimension};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 pub use text::{Interpreter, Text};

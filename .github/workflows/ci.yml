@@ -102,8 +102,20 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/main-target" \
             cargo run --manifest-path "$RUNNER_TEMP/main/Cargo.toml" -p ironlab-ir --bin generate-proto
           echo "generated=true" >> "$GITHUB_OUTPUT"
-      - name: Check the .proto files for breaking changes against main
+      - name: Decide whether the commits declare a breaking change
+        id: commits
         if: steps.main.outputs.generated == 'true'
+        # A commit declares a deliberate breaking change with a BREAKING-CHANGE paragraph in its body, as the commit
+        # conventions require; any incompatible change that no commit declares is a mistake that buf reports.
+        run: |
+          if git log --format=%B FETCH_HEAD..HEAD | grep -qE '^BREAKING[ -]CHANGE:'; then
+            echo "::notice title=buf breaking skipped::A commit of this pull request declares a breaking change."
+            echo "breaking=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "breaking=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check the .proto files for breaking changes against main
+        if: steps.main.outputs.generated == 'true' && steps.commits.outputs.breaking != 'true'
         working-directory: target/ironlab-proto
         run: buf breaking --against "$RUNNER_TEMP/main-target/ironlab-proto"
 

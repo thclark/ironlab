@@ -14,7 +14,7 @@ use ironlab_ir::{
     Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
-use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit};
+use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
@@ -23,6 +23,7 @@ fn single_2d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -34,6 +35,7 @@ fn single_3d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_3d(2, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -103,6 +105,7 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -136,6 +139,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -161,6 +165,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -185,6 +190,7 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -307,6 +313,7 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -360,6 +367,7 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
             hit_2d(4, rect_c),
         ],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -604,6 +612,7 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
     let hit = HitMap {
         axes: vec![hit_2d(2, rect_a), hit_2d(3, rect_b), hit_2d(4, rect_c)],
         legend_entries: vec![],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -718,10 +727,11 @@ fn figure_with_legend() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![LegendHit {
-            axes: NodeId(2),
-            artist: NodeId(10),
+            legend: LegendOwner::Axes(NodeId(2)),
+            targets: vec![(NodeId(2), NodeId(10))],
             rect: Rect::new(200.0, 25.0, 45.0, 10.0),
         }],
+        legend_panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -748,6 +758,63 @@ fn clicking_a_legend_entry_toggles_its_artist_and_other_clicks_do_nothing() {
         "a click in the plot area is not a legend click"
     );
     assert!(visible(&state, 10));
+}
+
+/// Two axes, each with a line named "shared", and a hit map in which one entry of a legend panel stands for both.
+fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
+    let mut left = axes_2d(2);
+    left.artists.push(Artist::Line(Line {
+        id: NodeId(10),
+        display_name: Some(Text::new("shared")),
+        ..Line::default()
+    }));
+    let mut right = axes_2d(3);
+    right.artists.push(Artist::Line(Line {
+        id: NodeId(11),
+        display_name: Some(Text::new("shared")),
+        ..Line::default()
+    }));
+    let state = FigureState::new(figure_with(vec![left, right], vec![]));
+    let hit = HitMap {
+        axes: vec![hit_2d(2, PLOT)],
+        legend_entries: vec![LegendHit {
+            legend: LegendOwner::Panel(NodeId(50)),
+            targets: vec![(NodeId(2), NodeId(10)), (NodeId(3), NodeId(11))],
+            rect: Rect::new(60.0, 200.0, 45.0, 10.0),
+        }],
+        legend_panels: vec![],
+        artists: vec![],
+        images: vec![],
+    };
+    (state, hit)
+}
+
+// Why: a merged entry in a legend panel stands for one series drawn in several subplots, so a click on it must
+// hide or show the series everywhere at once; and because the entry shows as visible while any of its artists is,
+// a click when only some are hidden hides the rest, so the series is never left half shown by the click.
+#[test]
+fn clicking_a_merged_panel_entry_toggles_every_artist_it_stands_for() {
+    let (mut state, hit) = figure_with_a_merged_panel_entry();
+    let entry = Point::new(80.0, 205.0);
+
+    assert!(state.click(&hit, entry));
+    assert!(!visible(&state, 10) && !visible(&state, 11), "both hidden");
+    assert!(state.click(&hit, entry));
+    assert!(visible(&state, 10) && visible(&state, 11), "both shown");
+
+    // Hide one artist through its own property, as the property editor would.
+    state.record(&ironlab_ir::Transaction {
+        edits: vec![ironlab_ir::Edit::Set {
+            node: NodeId(10),
+            path: ironlab_ir::PropertyPath::new(["visible"]).expect("a valid path"),
+            value: Value::Bool(false),
+        }],
+    });
+    assert!(
+        state.click(&hit, entry),
+        "the click hides the artist still shown"
+    );
+    assert!(!visible(&state, 10) && !visible(&state, 11), "both hidden");
 }
 
 // Why: the viewer reports the first click of a double-click as a click and the second as a double-click. On a legend

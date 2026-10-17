@@ -12,10 +12,12 @@ use crate::wire as w;
 use crate::{
     Artist, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName, Contour, ContourPlacement,
     DashStyle, DataId, Dimension, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
-    ImagePlane, IndexedImage, Interpreter, Legend, LegendLocation, Levels, Limits, Line, LineStyle,
+    ImagePlane, IndexedImage, InsideLegend, Interpreter, Legend, LegendEntryColumns,
+    LegendEntryLayout, LegendEntryOrder, LegendLocation, Levels, Limits, Line, LineStyle,
     MappedImage, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
-    Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter,
-    ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values, View3d,
+    PanelLegend, Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale,
+    Scatter, ScatterColor, ScatterSize, Surface, Text, TileLayout, Transaction, Value, Values,
+    View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -62,8 +64,9 @@ wire_enum! {
     Scale => Scale { Linear, Log }
     ColormapName => ColormapName { Viridis, Cividis, Magma, Inferno, Plasma, Coolwarm, Gray }
     LegendLocation => LegendLocation {
-        NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Best,
+        NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Center, Best,
     }
+    LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None }
     MarkerShape => MarkerShape {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point,
@@ -86,7 +89,7 @@ impl From<&Figure> for w::Figure {
             font_set: figure.font_set.to_wire(),
             font_size_pt: Some(figure.font_size_pt),
             background: Some(encode_color(figure.background)),
-            layout: Some(encode_tile_layout(figure.layout)),
+            layout: Some(encode_tile_layout(&figure.layout)),
             data: figure
                 .data
                 .iter()
@@ -110,6 +113,11 @@ impl From<&Figure> for w::Figure {
             // Labels are a sequence rather than a map, so they are written in the order the
             // figure carries them rather than sorted; that order is part of the figure's value.
             labels: figure.labels.clone(),
+            panel_legends: figure
+                .panel_legends
+                .iter()
+                .map(encode_panel_legend)
+                .collect(),
         }
     }
 }
@@ -136,10 +144,12 @@ fn encode_figure_size(size: FigureSize) -> w::FigureSize {
     }
 }
 
-fn encode_tile_layout(layout: TileLayout) -> w::TileLayout {
+fn encode_tile_layout(layout: &TileLayout) -> w::TileLayout {
     w::TileLayout {
         rows: Some(layout.rows),
         cols: Some(layout.cols),
+        row_weights: layout.row_weights.clone(),
+        col_weights: layout.col_weights.clone(),
     }
 }
 
@@ -266,10 +276,50 @@ fn encode_cell(cell: Cell) -> w::Cell {
 }
 
 fn encode_legend(legend: Legend) -> w::Legend {
-    w::Legend {
+    let kind = match legend {
+        Legend::Inside(inside) => w::LegendKind::Inside(w::LegendInside {
+            inside: Some(encode_inside_legend(inside)),
+        }),
+        Legend::Panel(panel) => w::LegendKind::Panel(w::LegendPanel {
+            panel: Some(panel.0),
+        }),
+    };
+    w::Legend { kind: Some(kind) }
+}
+
+fn encode_inside_legend(legend: InsideLegend) -> w::InsideLegend {
+    w::InsideLegend {
         location: legend.location.to_wire(),
         boxed: Some(legend.boxed),
+        layout: Some(encode_legend_entry_layout(legend.layout)),
     }
+}
+
+fn encode_panel_legend(panel: &PanelLegend) -> w::PanelLegend {
+    w::PanelLegend {
+        id: Some(panel.id.0),
+        cell: Some(encode_cell(panel.cell)),
+        align: panel.align.to_wire(),
+        boxed: Some(panel.boxed),
+        layout: Some(encode_legend_entry_layout(panel.layout)),
+    }
+}
+
+fn encode_legend_entry_layout(layout: LegendEntryLayout) -> w::LegendEntryLayout {
+    w::LegendEntryLayout {
+        columns: Some(encode_legend_entry_columns(layout.columns)),
+        order: layout.order.to_wire(),
+    }
+}
+
+fn encode_legend_entry_columns(columns: LegendEntryColumns) -> w::LegendEntryColumns {
+    let kind = match columns {
+        LegendEntryColumns::Auto => w::LegendEntryColumnsKind::Auto(w::LegendEntryColumnsAuto {}),
+        LegendEntryColumns::Count(count) => {
+            w::LegendEntryColumnsKind::Count(w::LegendEntryColumnsCount { count: Some(count) })
+        }
+    };
+    w::LegendEntryColumns { kind: Some(kind) }
 }
 
 fn encode_axes(axes: &Axes) -> w::Axes {
@@ -561,6 +611,12 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         .enumerate()
         .map(|(i, axes)| decode_axes(axes, &format!("axes[{i}]")))
         .collect::<Result<Vec<_>>>()?;
+    let panel_legends = wire
+        .panel_legends
+        .into_iter()
+        .enumerate()
+        .map(|(i, panel)| decode_panel_legend(panel, &format!("panel_legends[{i}]")))
+        .collect::<Result<Vec<_>>>()?;
     let links = decode_links(wire.links, "")?;
     let parameters = wire
         .parameters
@@ -581,6 +637,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         layout: wire.layout.map_or(default.layout, decode_tile_layout),
         data,
         axes,
+        panel_legends,
         links,
         provenance: Provenance {
             ironlab_version: provenance.ironlab_version,
@@ -680,6 +737,8 @@ fn decode_tile_layout(wire: w::TileLayout) -> TileLayout {
     TileLayout {
         rows: wire.rows.unwrap_or(default.rows),
         cols: wire.cols.unwrap_or(default.cols),
+        row_weights: wire.row_weights,
+        col_weights: wire.col_weights,
     }
 }
 
@@ -705,10 +764,64 @@ fn decode_view3d(wire: w::View3d) -> View3d {
 }
 
 fn decode_legend(wire: w::Legend, at: &str) -> Result<Legend> {
-    let default = Legend::default();
-    Ok(Legend {
+    Ok(match wire.kind {
+        None => Legend::default(),
+        Some(w::LegendKind::Inside(inside)) => Legend::Inside(match inside.inside {
+            None => InsideLegend::default(),
+            Some(legend) => decode_inside_legend(legend, &join(at, "inside.inside"))?,
+        }),
+        Some(w::LegendKind::Panel(panel)) => {
+            Legend::Panel(NodeId(required(panel.panel, &join(at, "panel"), "panel")?))
+        }
+    })
+}
+
+fn decode_inside_legend(wire: w::InsideLegend, at: &str) -> Result<InsideLegend> {
+    let default = InsideLegend::default();
+    Ok(InsideLegend {
         location: decode_enum(wire.location, Some(default.location), at, "location")?,
         boxed: wire.boxed.unwrap_or(default.boxed),
+        layout: decode_legend_entry_layout(wire.layout, default.layout, &join(at, "layout"))?,
+    })
+}
+
+fn decode_panel_legend(wire: w::PanelLegend, at: &str) -> Result<PanelLegend> {
+    let default = PanelLegend::default();
+    Ok(PanelLegend {
+        id: node_id(wire.id, at)?,
+        cell: wire.cell.map_or(default.cell, decode_cell),
+        align: decode_enum(wire.align, Some(default.align), at, "align")?,
+        boxed: wire.boxed.unwrap_or(default.boxed),
+        layout: decode_legend_entry_layout(wire.layout, default.layout, &join(at, "layout"))?,
+    })
+}
+
+/// Decodes the layout of the entries of a legend, whose absent parts take the parts of
+/// the default layout of its context.
+fn decode_legend_entry_layout(
+    wire: Option<w::LegendEntryLayout>,
+    default: LegendEntryLayout,
+    at: &str,
+) -> Result<LegendEntryLayout> {
+    let wire = wire.unwrap_or_default();
+    Ok(LegendEntryLayout {
+        columns: decode_legend_entry_columns(wire.columns, default.columns, &join(at, "columns"))?,
+        order: decode_enum(wire.order, Some(default.order), at, "order")?,
+    })
+}
+
+/// Decodes a number of legend columns; a fixed number has no default.
+fn decode_legend_entry_columns(
+    wire: Option<w::LegendEntryColumns>,
+    default: LegendEntryColumns,
+    at: &str,
+) -> Result<LegendEntryColumns> {
+    Ok(match wire.and_then(|columns| columns.kind) {
+        None => default,
+        Some(w::LegendEntryColumnsKind::Auto(_)) => LegendEntryColumns::Auto,
+        Some(w::LegendEntryColumnsKind::Count(count)) => {
+            LegendEntryColumns::Count(required(count.count, &join(at, "count"), "count")?)
+        }
     })
 }
 
@@ -1195,6 +1308,7 @@ fn encode_node(node: &Node) -> w::Node {
     let kind = match node {
         Node::Axes(axes) => w::NodeKind::Axes(encode_axes(axes)),
         Node::Artist(artist) => w::NodeKind::Artist(encode_artist(artist)),
+        Node::PanelLegend(panel) => w::NodeKind::PanelLegend(encode_panel_legend(panel)),
     };
     w::Node { kind: Some(kind) }
 }
@@ -1208,6 +1322,7 @@ fn encode_value(value: &Value) -> w::Value {
         Value::Float(v) => w::ValueKind::Float(w::ValueFloat { value: Some(*v) }),
         Value::String(v) => w::ValueKind::String(w::ValueString { value: v.clone() }),
         Value::DataId(v) => w::ValueKind::DataId(w::ValueDataId { value: Some(v.0) }),
+        Value::NodeId(v) => w::ValueKind::NodeId(w::ValueNodeId { value: Some(v.0) }),
         Value::Doubles(v) => w::ValueKind::Doubles(w::ValueDoubles { values: v.clone() }),
         Value::Strings(v) => w::ValueKind::Strings(w::ValueStrings { values: v.clone() }),
         Value::Text(v) => w::ValueKind::Text(w::ValueText {
@@ -1224,7 +1339,7 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_color(*v)),
         }),
         Value::TileLayout(v) => w::ValueKind::TileLayout(w::ValueTileLayout {
-            value: Some(encode_tile_layout(*v)),
+            value: Some(encode_tile_layout(v)),
         }),
         Value::Links(v) => w::ValueKind::Links(w::ValueLinks {
             links: encode_links(v),
@@ -1257,8 +1372,22 @@ fn encode_value(value: &Value) -> w::Value {
         Value::Legend(v) => w::ValueKind::Legend(w::ValueLegend {
             value: Some(encode_legend(*v)),
         }),
+        Value::InsideLegend(v) => w::ValueKind::InsideLegend(w::ValueInsideLegend {
+            value: Some(encode_inside_legend(*v)),
+        }),
         Value::LegendLocation(v) => {
             w::ValueKind::LegendLocation(w::ValueLegendLocation { value: v.to_wire() })
+        }
+        Value::LegendEntryLayout(v) => w::ValueKind::LegendEntryLayout(w::ValueLegendEntryLayout {
+            value: Some(encode_legend_entry_layout(*v)),
+        }),
+        Value::LegendEntryColumns(v) => {
+            w::ValueKind::LegendEntryColumns(w::ValueLegendEntryColumns {
+                value: Some(encode_legend_entry_columns(*v)),
+            })
+        }
+        Value::LegendEntryOrder(v) => {
+            w::ValueKind::LegendEntryOrder(w::ValueLegendEntryOrder { value: v.to_wire() })
         }
         Value::ColorSpec(v) => w::ValueKind::ColorSpec(w::ValueColorSpec {
             value: Some(encode_color_spec(*v)),
@@ -1386,6 +1515,9 @@ fn decode_node(wire: w::Node, at: &str) -> Result<Node> {
     Ok(match required(wire.kind, at, "kind")? {
         w::NodeKind::Axes(axes) => Node::Axes(Box::new(decode_axes(axes, &join(at, "axes"))?)),
         w::NodeKind::Artist(artist) => Node::Artist(decode_artist(artist, &join(at, "artist"))?),
+        w::NodeKind::PanelLegend(panel) => {
+            Node::PanelLegend(decode_panel_legend(panel, &join(at, "panel_legend"))?)
+        }
     })
 }
 
@@ -1422,6 +1554,11 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         )?)),
         w::ValueKind::Doubles(v) => Value::Doubles(v.values),
         w::ValueKind::Strings(v) => Value::Strings(v.values),
+        w::ValueKind::NodeId(v) => Value::NodeId(NodeId(required(
+            v.value,
+            &join(at, "node_id_value"),
+            "value",
+        )?)),
         w::ValueKind::Text(v) => {
             let (text, at) = value_message(v.value, at, "text_value")?;
             Value::Text(decode_text(text, &at)?)
@@ -1506,6 +1643,32 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "legend_location_value"),
+            "value",
+        )?),
+        w::ValueKind::InsideLegend(v) => {
+            let (legend, at) = value_message(v.value, at, "inside_legend_value")?;
+            Value::InsideLegend(decode_inside_legend(legend, &at)?)
+        }
+        w::ValueKind::LegendEntryLayout(v) => {
+            let (layout, at) = value_message(v.value, at, "legend_entry_layout_value")?;
+            Value::LegendEntryLayout(decode_legend_entry_layout(
+                Some(layout),
+                LegendEntryLayout::default(),
+                &at,
+            )?)
+        }
+        w::ValueKind::LegendEntryColumns(v) => {
+            let (columns, at) = value_message(v.value, at, "legend_entry_columns_value")?;
+            Value::LegendEntryColumns(decode_legend_entry_columns(
+                Some(columns),
+                LegendEntryLayout::default().columns,
+                &at,
+            )?)
+        }
+        w::ValueKind::LegendEntryOrder(v) => Value::LegendEntryOrder(decode_enum(
+            v.value,
+            None,
+            &join(at, "legend_entry_order_value"),
             "value",
         )?),
         w::ValueKind::ColorSpec(v) => {

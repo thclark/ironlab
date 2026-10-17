@@ -4,11 +4,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use ironlab_ir::{Axes, Cell, Dimension, NodeId, Parameter, Projection, Text, ValidationReport};
+use ironlab_ir::{
+    Axes, Cell, Dimension, NodeId, PanelLegend, Parameter, Projection, Text, ValidationReport,
+};
 use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
 use crate::error::Error;
+use crate::legend::PanelLegendMut;
 use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
@@ -80,6 +83,48 @@ impl Figure {
     pub fn tiles(mut self, rows: u32, cols: u32) -> Self {
         self.ir.layout.rows = rows;
         self.ir.layout.cols = cols;
+        self
+    }
+
+    /// Sets the relative heights of the rows of tiles, from the top.
+    ///
+    /// The rows share the height of the figure in proportion to their weights. A row
+    /// without a weight, because fewer weights than rows are given, has a weight of one,
+    /// so equal weights give the same layout as none. Weights that are not finite and
+    /// positive, or more weights than rows, are reported by
+    /// [`validate`](Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// // The top row is three times the height of the bottom row.
+    /// let fig = Figure::new().tiles(2, 1).row_weights([3.0, 1.0]);
+    /// assert_eq!(fig.ir().layout.row_weights, vec![3.0, 1.0]);
+    /// ```
+    #[must_use]
+    pub fn row_weights(mut self, weights: impl IntoIterator<Item = f64>) -> Self {
+        self.ir.layout.row_weights = weights.into_iter().collect();
+        self
+    }
+
+    /// Sets the relative widths of the columns of tiles, from the left.
+    ///
+    /// The columns share the width of the figure in proportion to their weights. A
+    /// column without a weight, because fewer weights than columns are given, has a
+    /// weight of one, so equal weights give the same layout as none. Weights that are not
+    /// finite and positive, or more weights than columns, are reported by
+    /// [`validate`](Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// // Two wide columns of plots and a narrow column for a legend panel.
+    /// let fig = Figure::new().tiles(1, 3).col_weights([2.0, 2.0, 1.0]);
+    /// assert_eq!(fig.ir().layout.col_weights, vec![2.0, 2.0, 1.0]);
+    /// ```
+    #[must_use]
+    pub fn col_weights(mut self, weights: impl IntoIterator<Item = f64>) -> Self {
+        self.ir.layout.col_weights = weights.into_iter().collect();
         self
     }
 
@@ -223,6 +268,76 @@ impl Figure {
             None => self.add_axes(cell),
         };
         AxesMut::new(&mut self.ir, id)
+    }
+
+    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
+    /// creating one in that single tile if there is none.
+    ///
+    /// A new panel centres its entries, has no box, and arranges its entries in as few
+    /// columns as fit its height. Axes list their entries in it once their legend names
+    /// it, with [`AxesMut::legend_in`] or [`PanelLegendMut::collect_all`].
+    ///
+    /// The panel is placed in the tile whether or not an axes already covers it. A panel
+    /// over an axes is drawn on top of the plot, and [`Figure::validate`] reports the pair
+    /// with the warning `OverlappingCells`.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// let key = fig.panel_legend(0, 1).boxed(false).id();
+    /// assert_eq!(fig.panel_legend(0, 1).id(), key);
+    /// ```
+    pub fn panel_legend(&mut self, row: u32, col: u32) -> PanelLegendMut<'_> {
+        let id = match self.panel_legend_at(row, col) {
+            Some(index) => self.ir.panel_legends[index].id,
+            None => self.add_panel_legend(Cell {
+                row,
+                col,
+                ..Cell::default()
+            }),
+        };
+        PanelLegendMut::new(&mut self.ir, id)
+    }
+
+    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
+    /// and makes it span the given numbers of rows and columns.
+    ///
+    /// A panel is created, with the defaults of [`panel_legend`](Figure::panel_legend),
+    /// when no panel has that top-left tile. As with `panel_legend`, a panel whose cells
+    /// cover a tile of an axes is placed there all the same and reported by
+    /// [`Figure::validate`] with the warning `OverlappingCells`.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// // A legend panel across the full width of the bottom row.
+    /// let mut fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
+    /// let key = fig.panel_legend_span(1, 0, 1, 2).id();
+    /// assert_eq!(fig.panel_legend(1, 0).id(), key);
+    /// ```
+    pub fn panel_legend_span(
+        &mut self,
+        row: u32,
+        col: u32,
+        row_span: u32,
+        col_span: u32,
+    ) -> PanelLegendMut<'_> {
+        let cell = Cell {
+            row,
+            col,
+            row_span,
+            col_span,
+        };
+        let id = match self.panel_legend_at(row, col) {
+            Some(index) => {
+                let panel = &mut self.ir.panel_legends[index];
+                panel.cell = cell;
+                panel.id
+            }
+            None => self.add_panel_legend(cell),
+        };
+        PanelLegendMut::new(&mut self.ir, id)
     }
 
     /// Links the limits of the given axes along a dimension, so that zooming or
@@ -624,6 +739,26 @@ impl Figure {
             cell,
             projection: Projection::TwoD,
             ..Axes::default()
+        });
+        id
+    }
+
+    /// Returns the index of the legend panel whose top-left tile is at a row and column.
+    fn panel_legend_at(&self, row: u32, col: u32) -> Option<usize> {
+        self.ir
+            .panel_legends
+            .iter()
+            .position(|panel| (panel.cell.row, panel.cell.col) == (row, col))
+    }
+
+    /// Adds a legend panel with the default properties at a cell and returns its
+    /// identifier.
+    fn add_panel_legend(&mut self, cell: Cell) -> NodeId {
+        let id = self.ir.alloc_node_id();
+        self.ir.panel_legends.push(PanelLegend {
+            id,
+            cell,
+            ..PanelLegend::default()
         });
         id
     }

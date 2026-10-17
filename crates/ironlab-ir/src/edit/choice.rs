@@ -24,12 +24,13 @@
 use crate::artist::{
     ContourPlacement, Grid, ImagePlane, Levels, OutOfRange, QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{ColormapName, LegendLocation, Limits, Projection, Scale, View3d};
+use crate::axes::{ColormapName, Limits, Projection, Scale, View3d};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, properties};
 use crate::edit::value::{Value, ValueType};
 use crate::figure::{Figure, FontSetId};
 use crate::ids::{DataId, NodeId};
+use crate::legend::{InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
 use crate::text::Interpreter;
 
@@ -102,6 +103,15 @@ const FALLBACK_LEVEL_COUNT: u32 = 10;
 /// length that the automatic scale gives them.
 const FALLBACK_QUIVER_FACTOR: f64 = 1.0;
 
+/// The number of columns that a fixed number of legend columns starts from, which is the
+/// number of columns of an inside legend by default.
+const FALLBACK_LEGEND_COLUMNS: u32 = 1;
+
+/// The legend panel that a legend listing its entries in a panel refers to when the value
+/// it replaces names none. The figure need not have it, in which case the choice is
+/// unavailable at the property and applying it is refused.
+const FALLBACK_PANEL: NodeId = NodeId(0);
+
 /// Returns the choices of a value type, in the order in which they are offered, each
 /// carrying a value that suits the value it replaces.
 ///
@@ -139,9 +149,12 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::QuiverScale => quiver_scale_choices(replacing),
         ValueType::ImagePlane => image_plane_choices(replacing),
         ValueType::OutOfRange => out_of_range_choices(replacing),
+        ValueType::Legend => legend_choices(replacing),
+        ValueType::LegendEntryColumns => legend_entry_columns_choices(replacing),
         ValueType::Scale => scale_choices(),
         ValueType::ColormapName => colormap_name_choices(),
         ValueType::LegendLocation => legend_location_choices(),
+        ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
         ValueType::Interpreter => interpreter_choices(),
@@ -152,6 +165,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Float
         | ValueType::String
         | ValueType::DataId
+        | ValueType::NodeId
         | ValueType::Doubles
         | ValueType::Strings
         | ValueType::Text
@@ -163,7 +177,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Cell
         | ValueType::View3d
         | ValueType::Axis
-        | ValueType::Legend
+        | ValueType::InsideLegend
+        | ValueType::LegendEntryLayout
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -179,7 +194,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// A user who can see a value they cannot pick, and read what would make it available,
 /// learns what the figure can do; a value removed from the list teaches nothing.
 ///
-/// Two choices are unavailable somewhere. A colormapped colour is looked up in the axes'
+/// Three choices are unavailable somewhere. A colormapped colour is looked up in the axes'
 /// colormap only where the IR gives it a value to be looked up by: the level of each
 /// isoline of a contour (`line.color`), and the height or colour data of each face of a
 /// surface (`face` and `edge`). The colour of a line or of a quiver, and the single
@@ -190,7 +205,10 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// to look the colour up by. A clamp, which paints a pixel of an image in the nearest end
 /// colour of the colormap, is unavailable at the `non_finite` category of a
 /// colour-indexed or colour-mapped image, because a non-finite value has no nearest end;
-/// it stays available at the `below` and `above` categories.
+/// it stays available at the `below` and `above` categories. A legend that lists the
+/// entries of its axes in a legend panel is unavailable when the figure has no legend
+/// panel of the identifier it names, because the figure would then list the entries
+/// nowhere.
 ///
 /// Returns an empty list when the node is not in the figure, when the path is not a
 /// property of its kind, when the path is not currently reachable (a property of a
@@ -231,9 +249,10 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 ///
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
-const RULES: [Rule; 2] = [
+const RULES: [Rule; 3] = [
     colormapped_without_a_value_to_index_by,
     clamp_without_a_nearest_end_of_the_colormap,
+    legend_panel_that_the_figure_lacks,
 ];
 
 /// Completes the reason a colormapped colour is unavailable at a property, which is why
@@ -317,7 +336,8 @@ fn colormapped_without_a_value_to_index_by(
         | NodeKind::Axes
         | NodeKind::Image
         | NodeKind::IndexedImage
-        | NodeKind::MappedImage => COLORMAPPED_ELSEWHERE,
+        | NodeKind::MappedImage
+        | NodeKind::PanelLegend => COLORMAPPED_ELSEWHERE,
     })
 }
 
@@ -338,6 +358,29 @@ fn clamp_without_a_nearest_end_of_the_colormap(
     let clamp = matches!(value, Value::OutOfRange(OutOfRange::Clamp));
     let image = matches!(kind, NodeKind::IndexedImage | NodeKind::MappedImage);
     (clamp && image && path.segments() == ["non_finite"]).then_some(CLAMP_AT_NON_FINITE)
+}
+
+/// Why listing the entries of an axes in a legend panel is unavailable when the figure
+/// has no legend panel of the identifier the choice names.
+const NO_SUCH_LEGEND_PANEL: &str = "The figure has no legend panel of this identifier in \
+     which to list the entries. A legend panel is added by the program that builds the \
+     figure, and the entries of an axes can then be listed in it.";
+
+/// Marks a legend that lists its entries in a legend panel unavailable when the figure has
+/// no legend panel of the identifier it names, and leaves every other choice alone.
+fn legend_panel_that_the_figure_lacks(
+    figure: &Figure,
+    _kind: NodeKind,
+    _node: NodeId,
+    _path: &PropertyPath,
+    value: &Value,
+) -> Option<&'static str> {
+    match value {
+        Value::Legend(Legend::Panel(panel)) if figure.panel_legend(*panel).is_none() => {
+            Some(NO_SUCH_LEGEND_PANEL)
+        }
+        _ => None,
+    }
 }
 
 /// Returns whether the IR gives the colour at this property of this kind of node a value
@@ -362,7 +405,8 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         | NodeKind::Quiver
         | NodeKind::Image
         | NodeKind::IndexedImage
-        | NodeKind::MappedImage => false,
+        | NodeKind::MappedImage
+        | NodeKind::PanelLegend => false,
     }
 }
 
@@ -384,9 +428,12 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::QuiverScale(v) => quiver_scale_label(v),
         Value::ImagePlane(v) => image_plane_label(v),
         Value::OutOfRange(v) => out_of_range_label(v),
+        Value::Legend(v) => legend_label(v),
+        Value::LegendEntryColumns(v) => legend_entry_columns_label(v),
         Value::Scale(v) => scale_label(v),
         Value::ColormapName(v) => colormap_name_label(v),
         Value::LegendLocation(v) => legend_location_label(v),
+        Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
         Value::Interpreter(v) => interpreter_label(v),
@@ -398,6 +445,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Float(_)
         | Value::String(_)
         | Value::DataId(_)
+        | Value::NodeId(_)
         | Value::Doubles(_)
         | Value::Strings(_)
         | Value::Text(_)
@@ -409,7 +457,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Cell(_)
         | Value::View3d(_)
         | Value::Axis(_)
-        | Value::Legend(_)
+        | Value::InsideLegend(_)
+        | Value::LegendEntryLayout(_)
         | Value::LineStyle(_)
         | Value::MarkerStyle(_)
         | Value::ImagePlacement(_)
@@ -609,6 +658,25 @@ tagged_choices! {
             color: replaced_color(replacing),
         };
     }
+
+    Legend as Legend (legend_choices, legend_label) replacing replacing {
+        Legend::Inside(_) => "Inside the plot area" = Legend::Inside(match replacing {
+            Some(Value::Legend(Legend::Inside(inside))) => *inside,
+            _ => InsideLegend::default(),
+        });
+        Legend::Panel(_) => "In a legend panel" = Legend::Panel(match replacing {
+            Some(Value::Legend(Legend::Panel(panel))) => *panel,
+            _ => FALLBACK_PANEL,
+        });
+    }
+
+    LegendEntryColumns as LegendEntryColumns (legend_entry_columns_choices, legend_entry_columns_label) replacing replacing {
+        LegendEntryColumns::Auto => "Automatic" = LegendEntryColumns::Auto;
+        LegendEntryColumns::Count(_) => "Fixed number" = LegendEntryColumns::Count(match replacing {
+            Some(Value::LegendEntryColumns(LegendEntryColumns::Count(count))) => *count,
+            _ => FALLBACK_LEGEND_COLUMNS,
+        });
+    }
 }
 
 plain_choices! {
@@ -636,7 +704,13 @@ plain_choices! {
         LegendLocation::South => "South";
         LegendLocation::East => "East";
         LegendLocation::West => "West";
+        LegendLocation::Center => "Centre";
         LegendLocation::Best => "Best";
+    }
+
+    LegendEntryOrder as LegendEntryOrder (legend_entry_order_choices, legend_entry_order_label) {
+        LegendEntryOrder::ColumnMajor => "Column by column";
+        LegendEntryOrder::RowMajor => "Row by row";
     }
 
     MarkerShape as MarkerShape (marker_shape_choices, marker_shape_label) {

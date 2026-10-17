@@ -11,6 +11,7 @@ nav = [
   { "Home" = "index.md" },
   { "Guides" = [
     { "Getting started" = "guides/getting-started.md" },
+    { "Legends" = "guides/legends.md" },
     { "Describing figures" = "guides/describing-figures.md" },
     { "Using the viewer" = "guides/viewer.md" },
     { "Embedding figures in a web page" = "guides/embedding.md" },
@@ -40,6 +41,7 @@ nav = [
     { "0015 Figures are described by their authors, and the viewer derives nothing" = "adrs/0015-figures-are-described-by-their-authors.md" },
     { "0016 Two hosts over one canvas: the native egui viewer and figures embedded in HTML" = "adrs/0016-two-hosts-over-one-canvas.md" },
     { "0017 Embedded LaTeX mathematics with latex-rust applying TeX's conventions" = "adrs/0017-latex-rust-applies-tex-conventions.md" },
+    { "0018 Legend panels in the tile layout, with entries merged by name and look" = "adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

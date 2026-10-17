@@ -6,7 +6,9 @@
 //! 2. `layout` divides the page into tile cells.
 //! 3. `limits` computes axis limits (over link groups), colour limits and ticks.
 //! 4. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle.
-//! 5. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for the legend.
+//! 5. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for a legend inside the plot
+//!    area; the entries of an axes whose legend names a legend panel are collected instead.
+//! 6. `layout` places the legend panels, and `legend` draws each with the entries collected for it.
 //!
 //! `text`, `style`, `paths` and `image` hold shared helpers for text placement, colours, path geometry and the
 //! pixels of images.
@@ -24,11 +26,11 @@ mod paths;
 mod style;
 mod text;
 
-use ironlab_ir::{Figure, NodeId, Projection};
+use ironlab_ir::{Figure, Legend, NodeId, Projection};
 use ironlab_text::TextEngine;
 
 use crate::display::{DisplayList, Item, Rect};
-use crate::hit::HitMap;
+use crate::hit::{HitMap, LegendOwner, LegendPanelHit};
 
 /// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
 const MAX_TICK_FITTING_PASSES: usize = 10;
@@ -39,6 +41,30 @@ pub struct SceneWarning {
     /// The IR node the warning concerns, when it concerns a specific node.
     pub node: Option<NodeId>,
     pub message: String,
+    /// What the warning is about, for the warnings a front end or a test tells apart by more than their message.
+    pub kind: SceneWarningKind,
+}
+
+/// What a [`SceneWarning`] is about.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum SceneWarningKind {
+    /// A problem described by the message alone.
+    #[default]
+    General,
+    /// Two entries of one legend have the same display name but different samples, so that the reader cannot tell
+    /// which series each name stands for. Both entries are listed.
+    LegendNameClash {
+        /// The legend that lists both entries.
+        legend: LegendOwner,
+        /// The source text of the display name the entries share.
+        name: String,
+    },
+    /// The entries of a legend do not fit the area available to them, even in as many columns as fit its width, so
+    /// that the entries beyond that area are not drawn.
+    LegendOverflow {
+        /// The legend whose entries do not fit.
+        legend: LegendOwner,
+    },
 }
 
 /// The compiled form of a figure: everything a backend draws, and everything a front end needs to interact with it.
@@ -64,6 +90,7 @@ impl Ctx<'_> {
         self.warnings.push(SceneWarning {
             node,
             message: message.into(),
+            kind: SceneWarningKind::General,
         });
     }
 }
@@ -82,10 +109,12 @@ impl Ctx<'_> {
 /// - **Page.** The display list is `size.width_mm × 72 / 25.4` points wide and `size.height_mm × 72 / 25.4` points
 ///   high, and its background is the figure background.
 /// - **Sources.** Geometry drawn for an artist names the artist as its source. Axes decorations (box, tick marks,
-///   tick labels, common exponent labels, grid lines, axis labels, the axes title) and every part of the legend (its
-///   box, entry samples and entry labels) name the axes. The figure title names the figure.
+///   tick labels, common exponent labels, grid lines, axis labels, the axes title) and every part of the legend inside
+///   its plot area (its box, entry samples and entry labels) name the axes. Every part of a legend panel (its box,
+///   entry samples and entry labels) names the panel. The figure title names the figure.
 /// - **Paint order.** In 2D axes, artists are painted in the order in which the axes lists them, so a later artist
-///   covers an earlier one. The legend is painted after every artist of its axes.
+///   covers an earlier one. The legend inside a plot area is painted after every artist of its axes, and the legend
+///   panels are painted after every axes, in the order the figure lists them.
 /// - **Visibility.** An artist whose `visible` flag is false emits no items, but otherwise takes part in compilation
 ///   as if it were visible: it keeps its colour-order entry, and its data still contributes to automatic axis limits
 ///   and automatic colour limits. Its legend entry is still drawn, and every colour in the entry has an alpha below
@@ -197,8 +226,32 @@ impl Ctx<'_> {
 ///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
 ///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
 ///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
-/// - **Legend.** Only artists with a display name have legend entries, listed in artist order. The hit rectangle of
-///   an entry encloses both its sample and its label. The sample of an image is a filled patch: the middle colour
+/// - **Tile weights.** The rows of the tile layout share the height of the area below the figure title, and the
+///   columns its width, in proportion to their weights; a missing weight, and one that is not finite and positive,
+///   counts as one, so that equal weights draw exactly what no weights draw. A cell block takes the sum of the
+///   weights of its rows and columns.
+/// - **Legend.** Only artists with a display name and usable data have legend entries. An axes whose legend is inside
+///   its plot area lists its entries there, in artist order. An axes whose legend names a legend panel lists its
+///   entries in that panel and draws none of its own; a panel the figure does not have lists them nowhere. A legend
+///   panel is placed in its cells as an axes is and inset by the aligned margins of the rows and columns it occupies
+///   (by the page padding on a side whose row or column holds no axes), and its area is recorded in the hit map
+///   whether or not it lists anything. A panel lists the entries of every axes that names it in reading order: the
+///   axes are ordered by the top-left tile of their cells, clamped into the layout, by row and then by column, with
+///   the order of the axes in the figure breaking ties, and the artists of each axes follow in their own order. It
+///   merges entries whose display names are equal and whose samples draw the same picture into one entry that
+///   stands for every one of their artists, at the position of the first of them.
+///   Entries that share a display name but not a sample are all listed, with one
+///   [`SceneWarningKind::LegendNameClash`] for the name. A merged entry is greyed only when all of its artists are
+///   hidden. Entries are arranged in rows and columns: a fixed count of columns is used as given, but never more
+///   columns than entries, and automatic columns are the fewest for which the block of entries fits the height
+///   available, which is the plot height less the legend inset for an inside legend and the panel height for a
+///   panel. Rows are as tall as their tallest entry and columns as wide as their widest, and column-major order
+///   fills each column from the top before the next, row-major order each row from the left. A block that does not
+///   fit the available area, even in as many columns as fit its width, raises one
+///   [`SceneWarningKind::LegendOverflow`], is drawn from the top-left corner of that area inside a group clipped to
+///   it, and leaves out the entries that do not lie wholly inside it. A panel places its block by its alignment, the
+///   `best` alignment meaning the centre, and an empty panel draws nothing. The hit rectangle of an entry encloses
+///   both its sample and its label. The sample of an image is a filled patch: the middle colour
 ///   of the colormap for a colour-indexed or colour-mapped image, and for a true-colour image the mean of the
 ///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
 ///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
@@ -251,7 +304,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     let outer: Vec<Rect> = figure
         .axes
         .iter()
-        .map(|axes| layout::cell_rect(figure.layout, axes.cell, grid_area))
+        .map(|axes| layout::cell_rect(&figure.layout, axes.cell, grid_area))
         .collect();
 
     let prepared: Vec<Vec<data::Prepared>> = figure
@@ -309,6 +362,9 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .collect();
     let plots = layout::plot_rects(figure, &outer, &margins);
 
+    // The entries each axes lists in a legend panel, with the top-left tile of the axes' clamped cell and the panel
+    // it names.
+    let mut panel_entries: Vec<((u32, u32), NodeId, Vec<legend::Entry>)> = Vec::new();
     for (i, axes) in figure.axes.iter().enumerate() {
         let colour_scale = limits::colour_scale(&mut ctx, axes, &prepared[i]);
         let input = artists::AxesInput {
@@ -326,6 +382,30 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
             }
         }
+        if let Some(Legend::Panel(panel)) = axes.legend {
+            let entries = legend::collect(&input, &style::primaries(axes));
+            let (row, col, _, _) = layout::clamp_cell(&figure.layout, axes.cell);
+            panel_entries.push(((row, col), panel, entries));
+        }
+    }
+    // Panels list their entries in the reading order of the axes' cells: by row, then by column. The sort is stable,
+    // so axes whose cells start at the same tile keep the order of the figure.
+    panel_entries.sort_by_key(|(tile, _, _)| *tile);
+
+    // Legend panels are drawn after every axes. An axes naming a panel the figure does not have lists its entries
+    // nowhere, and when two panels share an identifier the first takes the entries.
+    let panel_areas = layout::panel_rects(&ctx, grid_area, &margins);
+    for (panel, area) in figure.panel_legends.iter().zip(panel_areas) {
+        hit_map.legend_panels.push(LegendPanelHit {
+            id: panel.id,
+            rect: area,
+        });
+        let entries: Vec<legend::Entry> = panel_entries
+            .iter_mut()
+            .filter(|(_, id, _)| *id == panel.id)
+            .flat_map(|(_, _, entries)| std::mem::take(entries))
+            .collect();
+        legend::draw_panel(&mut ctx, panel, area, entries, &mut items, &mut hit_map);
     }
 
     Scene {

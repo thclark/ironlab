@@ -71,6 +71,11 @@ pub fn nodes(fig: &Figure) -> Vec<(NodeId, NodeKind)> {
         nodes.push((axes.id, NodeKind::Axes));
         nodes.extend(axes.artists.iter().map(|a| (a.id(), artist_kind(a))));
     }
+    nodes.extend(
+        fig.panel_legends
+            .iter()
+            .map(|panel| (panel.id, NodeKind::PanelLegend)),
+    );
     nodes
 }
 
@@ -246,7 +251,7 @@ pub struct Streaming {
 /// logarithmic x axis over it produces a warning.
 pub fn streaming_figure() -> Streaming {
     let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout { rows: 1, cols: 2 };
+    b.fig.layout = TileLayout::new(1, 2);
     let axes = b.axes2d(0, 0);
     let x = b.vector(&[0.0, 1.0, 2.0, 3.0, 4.0]);
     let y = b.vector(&[10.0, 11.0, 12.0, 13.0, 14.0]);
@@ -341,7 +346,7 @@ pub fn perturb(value: &Value) -> Value {
         }
         Value::TileLayout(layout) => Value::TileLayout(TileLayout {
             rows: layout.rows + 1,
-            cols: layout.cols,
+            ..layout.clone()
         }),
         Value::Links(links) => Value::Links(links[..links.len().saturating_sub(1)].to_vec()),
         Value::Parameters(parameters) => {
@@ -371,10 +376,35 @@ pub fn perturb(value: &Value) -> Value {
         Value::Limits(Limits::Manual { .. }) => Value::Limits(Limits::Auto),
         Value::ColormapName(ColormapName::Gray) => Value::ColormapName(ColormapName::Viridis),
         Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
-        Value::Legend(legend) => Value::Legend(Legend {
+        Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
+            boxed: !legend.boxed,
+            ..*legend
+        })),
+        Value::Legend(Legend::Panel(panel)) => Value::Legend(Legend::Panel(NodeId(panel.0 + 1))),
+        Value::InsideLegend(legend) => Value::InsideLegend(InsideLegend {
             boxed: !legend.boxed,
             ..*legend
         }),
+        Value::LegendEntryLayout(layout) => Value::LegendEntryLayout(LegendEntryLayout {
+            order: match layout.order {
+                LegendEntryOrder::ColumnMajor => LegendEntryOrder::RowMajor,
+                LegendEntryOrder::RowMajor => LegendEntryOrder::ColumnMajor,
+            },
+            ..*layout
+        }),
+        Value::LegendEntryColumns(LegendEntryColumns::Auto) => {
+            Value::LegendEntryColumns(LegendEntryColumns::Count(2))
+        }
+        Value::LegendEntryColumns(LegendEntryColumns::Count(_)) => {
+            Value::LegendEntryColumns(LegendEntryColumns::Auto)
+        }
+        Value::LegendEntryOrder(LegendEntryOrder::ColumnMajor) => {
+            Value::LegendEntryOrder(LegendEntryOrder::RowMajor)
+        }
+        Value::LegendEntryOrder(LegendEntryOrder::RowMajor) => {
+            Value::LegendEntryOrder(LegendEntryOrder::ColumnMajor)
+        }
+        Value::NodeId(id) => Value::NodeId(NodeId(id.0 + 1)),
         Value::LegendLocation(LegendLocation::Best) => {
             Value::LegendLocation(LegendLocation::NorthEast)
         }
@@ -451,7 +481,7 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 41;
+pub const VALUE_VARIANTS: usize = 46;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -501,6 +531,11 @@ pub fn value_variant(value: &Value) -> usize {
         Value::ImagePlane(_) => 38,
         Value::OutOfRange(_) => 39,
         Value::Strings(_) => 40,
+        Value::InsideLegend(_) => 41,
+        Value::LegendEntryLayout(_) => 42,
+        Value::LegendEntryColumns(_) => 43,
+        Value::LegendEntryOrder(_) => 44,
+        Value::NodeId(_) => 45,
     }
 }
 
@@ -527,7 +562,7 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::FontSetId(FontSetId::StixTwo),
         Value::Color(Color::rgba(1.0, 0.0, 128.0 / 255.0, 64.0 / 255.0)),
-        Value::TileLayout(TileLayout { rows: 2, cols: 3 }),
+        Value::TileLayout(TileLayout::new(2, 3)),
         Value::Links(vec![AxisLink {
             dimension: Dimension::Z,
             axes: vec![NodeId(4), NodeId(u64::MAX)],
@@ -561,11 +596,27 @@ pub fn sample_values() -> Vec<Value> {
         Value::Scale(Scale::Log),
         Value::Limits(manual(-1.0, 1.0)),
         Value::ColormapName(ColormapName::Coolwarm),
-        Value::Legend(Legend {
+        Value::Legend(Legend::Inside(InsideLegend {
             location: LegendLocation::SouthWest,
             boxed: false,
-        }),
+            ..InsideLegend::default()
+        })),
         Value::LegendLocation(LegendLocation::Best),
+        Value::InsideLegend(InsideLegend {
+            location: LegendLocation::Center,
+            boxed: false,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(3),
+                order: LegendEntryOrder::RowMajor,
+            },
+        }),
+        Value::LegendEntryLayout(LegendEntryLayout {
+            columns: LegendEntryColumns::Auto,
+            order: LegendEntryOrder::RowMajor,
+        }),
+        Value::LegendEntryColumns(LegendEntryColumns::Count(u32::MAX)),
+        Value::LegendEntryOrder(LegendEntryOrder::RowMajor),
+        Value::NodeId(NodeId((1 << 53) + 3)),
         Value::ColorSpec(ColorSpec::Rgba { color: blue }),
         Value::LineStyle(LineStyle {
             color: ColorSpec::Colormapped,

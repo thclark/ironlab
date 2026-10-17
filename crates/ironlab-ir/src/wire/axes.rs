@@ -30,19 +30,6 @@ proto_file! {
         repeated message Artist artists = 12;
     }
 
-    /// A rectangular block of cells in the figure's tile layout, numbered from zero
-    /// starting at the top-left cell.
-    message Cell {
-        /// The zero-based index of the top row occupied.
-        optional uint32 row = 1;
-        /// The zero-based index of the leftmost column occupied.
-        optional uint32 col = 2;
-        /// The number of rows occupied; at least one.
-        optional uint32 row_span = 3;
-        /// The number of columns occupied; at least one.
-        optional uint32 col_span = 4;
-    }
-
     /// The projection of an axes.
     message Projection {
         /// The kind of projection; unset means the default of the context.
@@ -141,35 +128,5 @@ proto_file! {
         Coolwarm = 6;
         /// The linear black–white colormap.
         Gray = 7;
-    }
-
-    /// A legend listing the artists of an axes that have a display name.
-    message Legend {
-        /// Where the legend is placed inside the plot area.
-        enum LegendLocation location = 1;
-        /// Whether the legend is drawn with a background and outline.
-        optional bool boxed = 2;
-    }
-
-    /// The placement of a legend inside the plot area.
-    enum LegendLocation {
-        /// The top-right corner.
-        NorthEast = 1;
-        /// The top-left corner.
-        NorthWest = 2;
-        /// The bottom-right corner.
-        SouthEast = 3;
-        /// The bottom-left corner.
-        SouthWest = 4;
-        /// The centre of the top edge.
-        North = 5;
-        /// The centre of the bottom edge.
-        South = 6;
-        /// The centre of the right edge.
-        East = 7;
-        /// The centre of the left edge.
-        West = 8;
-        /// The corner that overlaps the least data.
-        Best = 9;
     }
 }

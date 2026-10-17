@@ -37,15 +37,15 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 - **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
 - **Versioning.** Field 1 of `Figure` is `schema_version` in every version of the schema, so that a reader can check the version of a file before decoding the rest of it, as described in [versioning](#versioning).
 
-Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch.
+Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch, except when a commit of the pull request declares a breaking change, as described in [versioning](#versioning).
 
 ### JSON encoding
 
 The JSON encoding follows these conventions.
 
-- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. A [parameter](#parameters), whose forms are single values, holds its value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
+- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. An entity whose forms each hold a single value, namely a [parameter](#parameters), the [legend](#legend) of an axes and the [number of legend columns](#legend-entry-layout), holds that value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
 - **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters` and the `labels` of a figure, each of which is omitted when the figure has none.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters`, the `labels` and the `panel_legends` of a figure, each of which is omitted when the figure has none, and the `row_weights` and `col_weights` of the [tile layout](#tile-layout), each of which is omitted when it is empty.
 - **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
 - **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array of floating-point values, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Data arrays.** An array of 8-bit values carries `"element": "u8"` and writes its values as integers. An array of floating-point values has no `element` property, and an `element` of `null` or `"f64"` is read in the same way, so a file written before the element existed still loads. Under `"u8"`, every value must be an integer from 0 to 255: a whole number written with a fraction, such as `1.0`, is accepted as the byte it denotes, and `null`, a fraction, a number outside the range, a string and any other element name are refused.
@@ -75,24 +75,25 @@ Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set,
 The following conventions apply throughout the model, in both encodings.
 
 - **Units.** Physical sizes are in millimetres (`_mm`), font sizes and line widths are in points (`_pt`, 1/72 inch), and angles are in degrees (`_deg`).
-- **Identifiers.** Nodes (the figure, its axes and their artists) are identified by a `NodeId`, and arrays by a `DataId`. Both are unsigned 64-bit integers.
+- **Identifiers.** Nodes (the figure, its axes, their artists and its legend panels) are identified by a `NodeId`, and arrays by a `DataId`. Both are unsigned 64-bit integers.
 
 ## Figure
 
-The figure is the root of the model: a page of a fixed physical size holding axes, the data they plot and the links between them.
+The figure is the root of the model: a page of a fixed physical size holding axes, the data they plot, the links between them and the legend panels that list their entries.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.3.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.4.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
 | `font_set` | string | The font set used for all text. The only font set is `"stix_two"`: STIX Two Text for text and STIX Two Math for mathematics. |
 | `font_size_pt` | number | The base font size, from which titles and tick labels are scaled. The default is 9 pt. |
 | `background` | Color | The colour of the page. The default is white. |
-| `layout` | object | `rows` and `cols`, the grid of tiles in which axes are placed. The default is one tile. |
+| `layout` | TileLayout | The grid of tiles in which axes and legend panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
 | `data` | map | The [data arrays](#data-arrays), keyed by DataId. |
 | `axes` | array of Axes | The axes of the figure, in drawing order. |
+| `panel_legends` | array of PanelLegend | The [legend panels](#legend-panels) of the figure, which occupy tiles of the layout as axes do and are drawn after every axes. Omitted from JSON when the figure has none. |
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
 | `provenance` | Provenance | A record of the software that wrote the figure; see [provenance](#provenance). |
 | `parameters` | map | Named values that describe the figure, used to sort, filter and search collections of figures; see [parameters](#parameters). Omitted from JSON when the figure has none. |
@@ -101,6 +102,19 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
 Every property of this table and of the tables below can be read in the viewer's [property editor](../guides/viewer.md#the-property-editor), and most of them can be changed there; the editor leaves the structure of a figure and its data to the program that builds it.
+
+### Tile layout
+
+The tile layout divides the page below the figure title into a grid of tiles. Axes and legend panels each occupy a rectangular block of tiles, named by a `cell`.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `rows` | integer | The number of rows, at least one. The default is 1. |
+| `cols` | integer | The number of columns, at least one. The default is 1. |
+| `row_weights` | array of number | The relative heights of the rows, from the top. Omitted from JSON when it is empty. |
+| `col_weights` | array of number | The relative widths of the columns, from the left. Omitted from JSON when it is empty. |
+
+The rows share the height of the grid in proportion to their weights, and the columns share its width in the same way. A row or column without a weight, because the list is shorter than the number of rows or columns, has a weight of 1, so empty lists, which are the default, give tiles of equal size. A list must not be longer than the number of rows or columns it weights, and every weight must be a finite positive number. For example, `"col_weights": [2, 1]` in a layout of three columns makes the first column twice as wide as each of the other two. The number of rows and columns is part of the arrangement of the figure, so the property editor shows it read-only; the weights can be changed there. Two nodes whose cells share a tile are both drawn, the later over the earlier, and [validation](#validation) warns of them.
 
 ## Axes
 
@@ -116,7 +130,7 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 | `box` | boolean | Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels. The default is `true`. |
 | `colormap` | string | The colormap used by colormapped colours: `viridis` (the default), `cividis`, `magma`, `inferno`, `plasma`, `coolwarm` or `gray`. |
 | `clim` | Limits | The data values mapped to the first and last colours of the colormap. Automatic colour limits are the exact range of the axes' colour data, the values of its colour-mapped images included. |
-| `legend` | Legend or `null` | The legend, or `null` when no legend is shown. |
+| `legend` | Legend or `null` | Where the entries of the axes are listed: in a legend inside the plot area, or in a legend panel of the figure; `null` when they are not listed. See [legend](#legend). |
 | `artists` | array of Artist | The plots drawn in the axes, in drawing order: a later artist covers an earlier one. |
 
 ### Projection
@@ -150,12 +164,49 @@ A View3d has five properties:
 
 ### Legend
 
+The legend of an axes lists every artist of the axes that has a display name, in artist order. It takes one of two forms, each of which holds its content in a `value` property:
+
+- `{"type": "inside", "value": InsideLegend}` draws the entries in a legend inside the plot area of the axes. This is the form that a legend takes by default.
+- `{"type": "panel", "value": NodeId}` lists the entries in the [legend panel](#legend-panels) with that identifier, together with the entries of every other axes that names the same panel. The identifier must be that of a legend panel of the figure. Which panel an axes uses is part of the arrangement of the figure, so the property editor shows it read-only.
+
+An axes therefore shows its entries either inside its plot area or in a panel, never in both. In Protocol Buffers the two forms are the variants `inside`, a `LegendInside` whose field `inside` holds the InsideLegend, and `panel`, a `LegendPanel` whose field `panel` holds the identifier.
+
+How to build each form, and how a legend panel merges the entries of several axes, is explained in the [legends guide](../guides/legends.md).
+
+An InsideLegend has three properties:
+
 | Property | Meaning |
 | --- | --- |
-| `location` | Where the legend is placed inside the plot area: `north_east` (the default), `north_west`, `south_east`, `south_west`, `north`, `south`, `east`, `west`, or `best`, which chooses the corner that overlaps the least data. |
+| `location` | Where the legend is placed inside the plot area, as a [legend location](#legend-location). The default is `north_east`. |
 | `boxed` | Whether the legend has a background and an outline. The default is `true`. |
+| `layout` | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is one column, filled from top to bottom. |
 
-A legend lists every artist of its axes that has a display name, in artist order.
+#### Legend location
+
+A legend location is one of `north_east`, `north_west`, `south_east`, `south_west` (the corners), `north`, `south`, `east`, `west` (the centres of the edges), `center`, or `best`. Inside a plot area, `best` chooses the corner that overlaps the least data, and `center` places the legend over the centre of the plot, where it covers the data. Within a legend panel, which holds no data to avoid, `best` places the entries at the centre.
+
+#### Legend entry layout
+
+A legend entry layout arranges the entries of a legend in columns.
+
+| Property | Meaning |
+| --- | --- |
+| `columns` | The number of columns: `{"type": "auto"}` chooses the fewest columns in which the entries fit the height available to the legend, and `{"type": "count", "value": n}` uses exactly `n` columns, which must be at least one. |
+| `order` | The order in which the entries fill the columns: `column_major` fills each column from top to bottom before starting the next, and `row_major` fills each row from left to right before starting the next. The default is `column_major`. |
+
+The default layout depends on where the entries are shown: an inside legend uses one column, and a legend panel uses automatic columns.
+
+## Legend panels
+
+A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend. A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same display name and are drawn the same way; the entries are listed in the reading order of the cells of their axes, by the row and then the column of the top-left tile of each cell, with the order of the axes in the figure breaking ties, and then in the order of the artists of each axes. The merge rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `id` | NodeId | The identifier of the legend panel, unique among the nodes of the figure. |
+| `cell` | object | The block of tiles occupied, with the same properties as the `cell` of an [axes](#axes). The property editor shows it read-only, as it does the cell of an axes. |
+| `align` | string | Where the block of entries is placed within the panel, as a [legend location](#legend-location). The default is `center`. |
+| `boxed` | boolean | Whether the area of the panel is outlined by a border, drawn as the box of an [axes](#axes) is drawn and without a background. The area is aligned with the plot areas around it, so the border continues the edges of their boxes, and the entries are kept inset from it. The default is `true`. |
+| `layout` | object | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is automatic columns, filled column by column. |
 
 ## Artists
 
@@ -433,7 +484,7 @@ Labels are edited in the viewer's [property editor](../guides/viewer.md#labels) 
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a link to an identifier that is not an axes, two nodes with the same identifier, a cell outside the tile layout or with a zero span, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The last warning, `NothingToDraw`, names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column weights than rows or columns or a weight that is not a finite positive number, a legend that names a legend panel the figure does not have, a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; an image whose plane has a logarithmic axis, which is not drawn either; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list, because no axes names it in its legend or no axes that names it has an artist with a display name. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
 
 ## A minimal JSON file
 
@@ -441,7 +492,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 
 ```json
 {
-  "schema_version": "0.3.0",
+  "schema_version": "0.4.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -491,13 +542,13 @@ The following JSON file describes one two-dimensional axes with a line through t
 }
 ```
 
-The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, so the file has no `parameters` property.
+The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, labels or legend panels, and its tile layout has no weights, so the file has none of those properties.
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.3.1`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.4.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
-The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). Independently of the version, `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch.
+The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
 
 Changes to the schema are versioned as follows.
 
@@ -509,6 +560,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.4.0** added [legend panels](#legend-panels) (`panel_legends`), changed the [legend](#legend) of an axes from a single object into a choice between a legend inside the plot area and a legend panel, added the [layout of legend entries](#legend-entry-layout) in columns and the legend location `center`, and added the row and column weights of the [tile layout](#tile-layout). A file of version 0.3 is rejected.
 - **0.3.1** added the [labels](#labels) of a figure. It is a patch version because a reader of version 0.3.0 that ignores labels still draws the figure correctly, so files are exchanged in both directions between the two.
 - **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
 - **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.

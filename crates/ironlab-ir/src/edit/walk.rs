@@ -21,14 +21,17 @@ use crate::artist::{
     Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
     ScatterSize, Surface,
 };
-use crate::axes::{
-    Axes, Axis, Cell, ColormapName, Legend, LegendLocation, Limits, Projection, Scale, View3d,
-};
+use crate::axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, View3d};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, Property};
 use crate::edit::value::{Value, ValueType};
-use crate::figure::{Figure, FigureSize, FontSetId, Parameter, TileLayout};
+use crate::figure::{Figure, FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
+use crate::layout::{Cell, TileLayout};
+use crate::legend::{
+    InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
+    PanelLegend,
+};
 use crate::link::AxisLink;
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
@@ -265,11 +268,14 @@ macro_rules! ir_value {
 
 /// Declares a tagged value of the IR: an enumeration whose variants carry fields, which
 /// a path descends into by naming a field of the variant that is currently set.
+///
+/// A field of a variant is named by its identifier, or by its position (`0`) for a
+/// variant that holds a single unnamed value, which the declaration gives a name.
 macro_rules! ir_tagged {
     ($(
         $ty:ident as $variant:ident {
             $( $case:ident {
-                $( $rule:tt $name:literal => $field:ident : $fty:ty = $docs:literal; )*
+                $( $rule:tt $name:literal => $field:tt : $fty:ty = $docs:literal; )*
             } )*
         }
     )*) => {$(
@@ -281,7 +287,7 @@ macro_rules! ir_tagged {
                     return Ok(Value::$variant(cloned(self)));
                 };
                 match (self, head.as_str()) {
-                    $($( ($ty::$case { $field, .. }, $name) => walk_get!($rule, $field, rest), )*)*
+                    $($( ($ty::$case { $field: bound, .. }, $name) => walk_get!($rule, bound, rest), )*)*
                     (_, other) => Err(inactive_or_unknown(other, &[$($($name,)*)*])),
                 }
             }
@@ -300,7 +306,7 @@ macro_rules! ir_tagged {
                     };
                 };
                 match (self, head.as_str()) {
-                    $($( ($ty::$case { $field, .. }, $name) => walk_set!($rule, $field, rest, value), )*)*
+                    $($( ($ty::$case { $field: bound, .. }, $name) => walk_set!($rule, bound, rest, value), )*)*
                     (_, other) => Err(inactive_or_unknown(other, &[$($($name,)*)*])),
                 }
             }
@@ -370,6 +376,7 @@ ir_leaf! {
     f32 => Float;
     String => String;
     DataId => DataId;
+    NodeId => NodeId;
     Vec<f64> => Doubles;
     Vec<String> => Strings;
     Vec<AxisLink> => Links;
@@ -379,6 +386,7 @@ ir_leaf! {
     Scale => Scale;
     ColormapName => ColormapName;
     LegendLocation => LegendLocation;
+    LegendEntryOrder => LegendEntryOrder;
     DashStyle => DashStyle;
     MarkerShape => MarkerShape;
 }
@@ -393,9 +401,11 @@ ir_node! {
         plain "font_size_pt" => font_size_pt: f64 =
             "The base font size in points; titles and tick labels are scaled from it.";
         plain "background" => background: Color = "The colour of the figure background.";
-        plain "layout" => layout: TileLayout = "The grid of cells in which axes are placed.";
+        plain "layout" => layout: TileLayout =
+            "The grid of cells in which axes and legend panels are placed.";
         hidden "data" => data: () = "";
         hidden "axes" => axes: () = "";
+        hidden "panel_legends" => panel_legends: () = "";
         plain "links" => links: Vec<AxisLink> =
             "The groups of axes whose limits are linked along a dimension.";
         hidden "provenance" => provenance: () = "";
@@ -423,8 +433,20 @@ ir_node! {
             "The colormap used by colormapped artists in this axes.";
         plain "clim" => clim: Limits =
             "The data values mapped to the first and last colours of the colormap.";
-        optional "legend" => legend: Legend = "The legend, or absent when no legend is shown.";
+        optional "legend" => legend: Legend =
+            "Where the legend entries of the axes are listed, or absent when they are not listed.";
         hidden "artists" => artists: () = "";
+    }
+
+    PanelLegend {
+        hidden "id" => id: () = "";
+        plain "cell" => cell: Cell =
+            "The cells of the figure's tile layout that the legend panel occupies.";
+        plain "align" => align: LegendLocation =
+            "Where the block of entries is placed within the panel.";
+        plain "boxed" => boxed: bool =
+            "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
+        plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
     }
 
     Line {
@@ -568,6 +590,10 @@ ir_value! {
     TileLayout as TileLayout {
         plain "rows" => rows: u32 = "The number of rows; at least one.";
         plain "cols" => cols: u32 = "The number of columns; at least one.";
+        plain "row_weights" => row_weights: Vec<f64> =
+            "The relative heights of the rows, from the top; a row without a weight has a weight of one.";
+        plain "col_weights" => col_weights: Vec<f64> =
+            "The relative widths of the columns, from the left; a column without a weight has a weight of one.";
     }
 
     Color as Color {
@@ -606,11 +632,18 @@ ir_value! {
             "Whether grid lines are drawn at the major ticks of this axis.";
     }
 
-    Legend as Legend {
+    InsideLegend as InsideLegend {
         plain "location" => location: LegendLocation =
             "Where the legend is placed inside the plot area.";
         plain "boxed" => boxed: bool =
             "Whether the legend is drawn with a background and outline.";
+        plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+    }
+
+    LegendEntryLayout as LegendEntryLayout {
+        plain "columns" => columns: LegendEntryColumns = "The number of columns.";
+        plain "order" => order: LegendEntryOrder =
+            "The order in which the entries fill the columns.";
     }
 
     LineStyle as LineStyle {
@@ -648,6 +681,24 @@ ir_tagged! {
         TwoD {}
         ThreeD {
             plain "view3d" => view3d: View3d = "The camera view.";
+        }
+    }
+
+    Legend as Legend {
+        Inside {
+            plain "inside" => 0: InsideLegend =
+                "The legend drawn inside the plot area of the axes.";
+        }
+        Panel {
+            plain "panel" => 0: NodeId =
+                "The legend panel of the figure in which the entries are listed.";
+        }
+    }
+
+    LegendEntryColumns as LegendEntryColumns {
+        Auto {}
+        Count {
+            plain "count" => 0: u32 = "The number of columns; at least one.";
         }
     }
 
@@ -769,6 +820,7 @@ pub(crate) fn node_properties(kind: NodeKind) -> Vec<Property> {
         NodeKind::Image => Image::node_describe(&mut properties),
         NodeKind::IndexedImage => IndexedImage::node_describe(&mut properties),
         NodeKind::MappedImage => MappedImage::node_describe(&mut properties),
+        NodeKind::PanelLegend => PanelLegend::node_describe(&mut properties),
     }
     let mut seen = std::collections::BTreeSet::new();
     properties.retain(|property| seen.insert(property.path.clone()));
@@ -783,6 +835,9 @@ pub(crate) fn kind_of(figure: &Figure, node: NodeId) -> Option<NodeKind> {
     }
     if figure.axes(node).is_some() {
         return Some(NodeKind::Axes);
+    }
+    if figure.panel_legend(node).is_some() {
+        return Some(NodeKind::PanelLegend);
     }
     figure.artist(node).map(|(_, artist)| match artist {
         Artist::Line(_) => NodeKind::Line,
@@ -808,6 +863,9 @@ pub(crate) fn get_in(
     }
     if let Some(axes) = figure.axes(node) {
         return Some(axes.node_get(path));
+    }
+    if let Some(panel) = figure.panel_legend(node) {
+        return Some(panel.node_get(path));
     }
     Some(match figure.artist(node)?.1 {
         Artist::Line(a) => a.node_get(path),
@@ -835,6 +893,12 @@ pub(crate) fn set_in(
     if figure.axes(node).is_some() {
         let axes = figure.axes_mut(node).expect("the axes was just found");
         return Some(axes.node_set(path, value));
+    }
+    if figure.panel_legend(node).is_some() {
+        let panel = figure
+            .panel_legend_mut(node)
+            .expect("the legend panel was just found");
+        return Some(panel.node_set(path, value));
     }
     Some(match figure.artist_mut(node)? {
         Artist::Line(a) => a.node_set(path, value),

@@ -59,6 +59,7 @@ mod color;
 mod error;
 mod figure;
 mod grid;
+mod legend;
 mod matrix;
 mod pixels;
 
@@ -73,6 +74,7 @@ pub use color::IntoColorSpec;
 pub use error::Error;
 pub use figure::Figure;
 pub use grid::GridCoords;
+pub use legend::PanelLegendMut;
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
 
@@ -95,8 +97,9 @@ pub use ironlab_ir::ImagePlane;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Color, ColorSpec, Interpreter, IssueKind, LegendLocation, NodeId, Parameter, Scale, Text,
-    ValidationIssue, ValidationReport,
+    Color, ColorSpec, InsideLegend, Interpreter, IssueKind, Legend, LegendEntryColumns,
+    LegendEntryLayout, LegendEntryOrder, LegendLocation, NodeId, PanelLegend, Parameter, Scale,
+    Text, ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
@@ -122,7 +125,7 @@ pub const DEFAULT_PNG_DPI: f64 = 150.0;
 
 /// A problem the scene compiler found while drawing a figure that did not prevent the
 /// figure from being drawn, naming the node it concerns. See [`ExportReport`].
-pub use ironlab_scene::SceneWarning;
+pub use ironlab_scene::{SceneWarning, SceneWarningKind};
 
 /// What an export left off the page, and what reached it other than as vectors, returned
 /// by [`Figure::export_pdf`], [`Figure::export_pdf_with`], [`Figure::export_png`] and
@@ -163,9 +166,9 @@ pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
         ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Dash, Dim, Error, Figure, GridCoords,
-        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendLocation, LineMut,
-        MappedImageMut, Marker, Matrix, NodeId, OutOfRange, Parameter, Pixels, QuiverMut,
-        RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, linspace, logspace,
-        meshgrid,
+        ImageMut, ImagePlane, ImageValues, IndexedImageMut, IntoColorSpec, LegendEntryColumns,
+        LegendEntryOrder, LegendLocation, LineMut, MappedImageMut, Marker, Matrix, NodeId,
+        OutOfRange, PanelLegendMut, Parameter, Pixels, QuiverMut, RasterOptions, RasterPolicy,
+        Scale, ScatterMut, SurfaceMut, Text, linspace, logspace, meshgrid,
     };
 }

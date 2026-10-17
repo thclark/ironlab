@@ -2,8 +2,9 @@
 
 use ironlab_ir::{
     Artist, Axes, Axis, ColorSpec, ColormapName, Contour, ContourPlacement, Dimension, Image,
-    IndexedImage, IrError, Legend, LegendLocation, Limits, Line, MappedImage, NdArray, NodeId,
-    Projection, Quiver, Scale, Scatter, Surface, Text, View3d,
+    IndexedImage, InsideLegend, IrError, Legend, LegendEntryColumns, LegendEntryOrder,
+    LegendLocation, Limits, Line, MappedImage, NdArray, NodeId, Projection, Quiver, Scale, Scatter,
+    Surface, Text, View3d,
 };
 
 use crate::artists::{
@@ -523,10 +524,94 @@ impl AxesMut<'_> {
     /// Shows a boxed legend of every artist that has a display name, at the given
     /// location.
     pub fn legend(&mut self, location: LegendLocation) -> &mut Self {
-        self.axes().legend = Some(Legend {
+        self.axes().legend = Some(Legend::Inside(InsideLegend {
             location,
-            ..Legend::default()
-        });
+            ..InsideLegend::default()
+        }));
+        self
+    }
+
+    /// Lists the entries of the axes in the legend panel with the given identifier,
+    /// replacing any legend inside the plot area.
+    ///
+    /// The identifier is that of a panel created with [`Figure::panel_legend`] or
+    /// [`Figure::panel_legend_span`](crate::Figure::panel_legend_span); one that names no
+    /// panel is reported by [`validate`](crate::Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// let key = fig.panel_legend(0, 1).id();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]).display_name("Linear");
+    /// ax.legend_in(key);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    ///
+    /// [`Figure::panel_legend`]: crate::Figure::panel_legend
+    pub fn legend_in(&mut self, panel: NodeId) -> &mut Self {
+        self.axes().legend = Some(Legend::Panel(panel));
+        self
+    }
+
+    /// Sets the number of columns of the legend inside the plot area, showing a legend
+    /// with the default location and box if the axes has none or lists its entries in a
+    /// legend panel.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .legend(LegendLocation::South)
+    ///     .legend_columns(LegendEntryColumns::Count(3));
+    /// ```
+    pub fn legend_columns(&mut self, columns: LegendEntryColumns) -> &mut Self {
+        self.inside_legend(|inside| inside.layout.columns = columns)
+    }
+
+    /// Sets the order in which the entries of the legend inside the plot area fill its
+    /// columns, showing a legend with the default location and box if the axes has none or
+    /// lists its entries in a legend panel.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .legend(LegendLocation::North)
+    ///     .legend_columns(LegendEntryColumns::Count(3))
+    ///     .legend_order(LegendEntryOrder::RowMajor);
+    /// ```
+    pub fn legend_order(&mut self, order: LegendEntryOrder) -> &mut Self {
+        self.inside_legend(|inside| inside.layout.order = order)
+    }
+
+    /// Sets whether the legend inside the plot area is drawn with a background and
+    /// outline, showing a legend with the default location if the axes has none or lists
+    /// its entries in a legend panel.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).legend(LegendLocation::NorthWest).legend_boxed(false);
+    /// ```
+    pub fn legend_boxed(&mut self, boxed: bool) -> &mut Self {
+        self.inside_legend(|inside| inside.boxed = boxed)
+    }
+
+    /// Applies `change` to the legend inside the plot area, starting from the default
+    /// inside legend if the axes has none or lists its entries in a legend panel.
+    fn inside_legend(&mut self, change: impl FnOnce(&mut InsideLegend)) -> &mut Self {
+        let axes = self.axes();
+        let mut inside = match axes.legend {
+            Some(Legend::Inside(inside)) => inside,
+            Some(Legend::Panel(_)) | None => InsideLegend::default(),
+        };
+        change(&mut inside);
+        axes.legend = Some(Legend::Inside(inside));
         self
     }
 

@@ -1,6 +1,8 @@
 //! Two-dimensional axes: margins, grid, box, ticks, labels, title, artists and legend.
 
-use crate::display::{Item, ItemKind, Point};
+use ironlab_ir::NodeId;
+
+use crate::display::{Item, ItemKind, Point, Rect, Stroke};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
 
 use super::Ctx;
@@ -10,6 +12,24 @@ use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
 use super::{legend, limits::Range};
+
+/// The width of the axes box and tick marks, in points.
+const FRAME_WIDTH: f64 = 0.5;
+
+/// Returns the stroke of the axes box and tick marks.
+pub(super) fn frame_stroke() -> Stroke {
+    paths::solid(INK, FRAME_WIDTH)
+}
+
+/// Returns the outline of `rect` drawn as the box of an axes is drawn, with no fill.
+///
+/// Why: a legend panel draws its border with this function, so that the border and the boxes of the axes beside it
+/// are the same lines, laid on the same edges of the aligned layout.
+pub(super) fn frame(source: NodeId, rect: Rect) -> Option<Item> {
+    let mut b = PathBuilder::new();
+    b.rect(rect);
+    paths::item(source, b.finish(), None, Some(frame_stroke()))
+}
 
 /// Distances used to arrange the decorations of a 2D axes, in points.
 struct Spacing {
@@ -130,7 +150,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
-    legend::draw(ctx, input, &primaries, &data_points, out, hits);
+    legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
     hits.axes.push(AxesHit {
         id: axes.id,
@@ -187,22 +207,17 @@ fn draw_grid(input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
 /// Draws the axes box (or its left and bottom edges) and inward tick marks.
 fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
     let (axes, plot) = (input.axes, input.plot);
-    let mut b = PathBuilder::new();
     let (l, r, t, bt) = (plot.x, plot.right(), plot.y, plot.bottom());
     if axes.box_ {
-        b.rect(plot);
+        out.extend(frame(axes.id, plot));
     } else {
+        let mut b = PathBuilder::new();
         b.polyline(
             &[Point::new(l, t), Point::new(l, bt), Point::new(r, bt)],
             false,
         );
+        out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     }
-    out.extend(paths::item(
-        axes.id,
-        b.finish(),
-        None,
-        Some(paths::solid(INK, 0.5)),
-    ));
 
     let length =
         (0.012 * plot.width.max(plot.height)).clamp(0.25 * ctx.font_size, 0.5 * ctx.font_size);
@@ -232,12 +247,7 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
     };
     yt.major.iter().for_each(|v| horizontal(*v, length));
     yt.minor.iter().for_each(|v| horizontal(*v, 0.6 * length));
-    out.extend(paths::item(
-        axes.id,
-        b.finish(),
-        None,
-        Some(paths::solid(INK, 0.5)),
-    ));
+    out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
 }
 
 /// Draws tick labels, common exponent labels, axis labels and the title.
