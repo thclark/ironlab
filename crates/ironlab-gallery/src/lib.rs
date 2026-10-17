@@ -97,6 +97,8 @@ gallery!(
     legend_toggle,
     panel_legend_shared,
     panel_legend_wide,
+    reference_and_variants,
+    two_keys,
     contour,
     contourf,
     quiver,
