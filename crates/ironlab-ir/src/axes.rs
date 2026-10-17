@@ -20,12 +20,21 @@ pub struct Axes {
     pub projection: Projection,
     /// The title drawn above the axes.
     pub title: Option<Text>,
+    /// How the title is aligned with the plot area: centred over it, or with its left or
+    /// right edge on the left or right edge of the plot area.
+    pub title_align: TitleAlign,
     /// The horizontal axis in 2D, or the first horizontal axis in 3D.
     pub x: Axis,
     /// The vertical axis in 2D, or the second horizontal axis in 3D.
     pub y: Axis,
     /// The vertical axis in 3D; ignored by 2D axes.
     pub z: Axis,
+    /// The ratio of the length of one data unit of y to the length of one data unit of
+    /// x. Applies to 2D axes only; validation refuses any aspect but `Auto` on a 3D axes.
+    pub aspect: Aspect,
+    /// How a fixed aspect is kept: by shrinking the plot area or by widening the limits
+    /// of one axis. Ignored when the aspect is `Auto`.
+    pub aspect_adjust: AspectAdjust,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels.
     #[serde(rename = "box")]
@@ -47,9 +56,12 @@ impl Default for Axes {
             cell: Cell::default(),
             projection: Projection::TwoD,
             title: None,
+            title_align: TitleAlign::Center,
             x: Axis::default(),
             y: Axis::default(),
             z: Axis::default(),
+            aspect: Aspect::Auto,
+            aspect_adjust: AspectAdjust::Box,
             box_: true,
             colormap: ColormapName::Viridis,
             clim: Limits::Auto,
@@ -57,6 +69,66 @@ impl Default for Axes {
             artists: Vec::new(),
         }
     }
+}
+
+/// The ratio of the length of one data unit of y to the length of one data unit of x in a
+/// 2D axes, as MATLAB's `daspect` gives it.
+///
+/// On a logarithmic axis the data unit is one decade, so `Equal` on log–log axes draws a
+/// decade of x and a decade of y at the same length.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum Aspect {
+    /// The plot area fills its space and the limits are those of the data, whatever the
+    /// ratio of their lengths.
+    #[default]
+    Auto,
+    /// One data unit of y is drawn as long as one data unit of x, which is `Ratio(1.0)`.
+    Equal,
+    /// One data unit of y is drawn this many times as long as one data unit of x; finite
+    /// and positive.
+    Ratio(f64),
+}
+
+impl Aspect {
+    /// Returns the ratio of the length of a unit of y to that of a unit of x, or `None`
+    /// when the aspect is automatic.
+    #[must_use]
+    pub fn ratio(self) -> Option<f64> {
+        match self {
+            Aspect::Auto => None,
+            Aspect::Equal => Some(1.0),
+            Aspect::Ratio(r) => Some(r),
+        }
+    }
+}
+
+/// How a 2D axes keeps a fixed [`Aspect`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AspectAdjust {
+    /// The plot area is shrunk along one dimension, and centred in the space the layout
+    /// gives it, so that the limits are drawn at the aspect. The limits are kept as they
+    /// are, manual or automatic.
+    #[default]
+    Box,
+    /// The limits of one axis are widened symmetrically about their centre, so that the
+    /// plot area keeps the space the layout gives it. The limits of the other axis are kept
+    /// as they are, manual or automatic.
+    Limits,
+}
+
+/// How the title of an axes is aligned with its plot area.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleAlign {
+    /// The title is centred over the plot area.
+    #[default]
+    Center,
+    /// The left edge of the title is on the left edge of the plot area.
+    Left,
+    /// The right edge of the title is on the right edge of the plot area.
+    Right,
 }
 
 /// The projection of an axes.

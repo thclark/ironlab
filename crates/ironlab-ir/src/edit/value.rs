@@ -9,7 +9,10 @@ use crate::artist::{
     ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
     QuiverScale, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
+use crate::axes::{
+    Aspect, AspectAdjust, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
+    TitleAlign, View3d,
+};
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::{DataId, NodeId};
 use crate::layout::{Cell, TileLayout};
@@ -95,6 +98,12 @@ pub enum Value {
     Ticks(Ticks),
     /// What is written at the major ticks of an axis.
     TickLabels(TickLabels),
+    /// The ratio of the length of a data unit of y to that of x in a 2D axes.
+    Aspect(Aspect),
+    /// How a 2D axes keeps a fixed aspect.
+    AspectAdjust(AspectAdjust),
+    /// How the title of an axes is aligned with its plot area.
+    TitleAlign(TitleAlign),
     /// A colormap name.
     ColormapName(ColormapName),
     /// The legend of an axes.
@@ -197,6 +206,12 @@ pub enum ValueType {
     Ticks,
     /// See [`Value::TickLabels`].
     TickLabels,
+    /// See [`Value::Aspect`].
+    Aspect,
+    /// See [`Value::AspectAdjust`].
+    AspectAdjust,
+    /// See [`Value::TitleAlign`].
+    TitleAlign,
     /// See [`Value::ColormapName`].
     ColormapName,
     /// See [`Value::Legend`].
@@ -277,6 +292,9 @@ impl Value {
             Value::Limits(_) => ValueType::Limits,
             Value::Ticks(_) => ValueType::Ticks,
             Value::TickLabels(_) => ValueType::TickLabels,
+            Value::Aspect(_) => ValueType::Aspect,
+            Value::AspectAdjust(_) => ValueType::AspectAdjust,
+            Value::TitleAlign(_) => ValueType::TitleAlign,
             Value::ColormapName(_) => ValueType::ColormapName,
             Value::Legend(_) => ValueType::Legend,
             Value::InsideLegend(_) => ValueType::InsideLegend,

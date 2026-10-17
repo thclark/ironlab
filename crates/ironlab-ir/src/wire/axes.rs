@@ -28,6 +28,56 @@ proto_file! {
         message Legend legend = 11;
         /// The artists drawn in this axes, in drawing order.
         repeated message Artist artists = 12;
+        /// How the title is aligned with the plot area.
+        enum TitleAlign title_align = 13;
+        /// The ratio of the length of one data unit of y to that of one data unit of x.
+        message Aspect aspect = 14;
+        /// How a fixed aspect is kept.
+        enum AspectAdjust aspect_adjust = 15;
+    }
+
+    /// How the title of an axes is aligned with its plot area.
+    enum TitleAlign {
+        /// The title is centred over the plot area.
+        Center = 1;
+        /// The left edge of the title is on the left edge of the plot area.
+        Left = 2;
+        /// The right edge of the title is on the right edge of the plot area.
+        Right = 3;
+    }
+
+    /// The ratio of the length of one data unit of y to that of one data unit of x in a
+    /// 2D axes; on a logarithmic axis the data unit is one decade.
+    message Aspect {
+        /// The kind of aspect; unset means the default of the context.
+        oneof kind: AspectKind {
+            /// The plot area fills its space whatever the ratio.
+            Auto(AspectAuto) automatic = 1;
+            /// One data unit of y is drawn as long as one data unit of x.
+            Equal(AspectEqual) equal = 2;
+            /// One data unit of y is drawn this many times as long as one of x.
+            Ratio(AspectRatio) ratio = 3;
+        }
+    }
+
+    /// The plot area fills its space whatever the ratio of the data units.
+    message AspectAuto {}
+
+    /// One data unit of y is drawn as long as one data unit of x.
+    message AspectEqual {}
+
+    /// One data unit of y is drawn a fixed number of times as long as one of x.
+    message AspectRatio {
+        /// The ratio; finite and positive.
+        optional double value = 1;
+    }
+
+    /// How a 2D axes keeps a fixed aspect.
+    enum AspectAdjust {
+        /// The plot area is shrunk along one dimension and centred in its space.
+        Box = 1;
+        /// The limits of one axis are widened symmetrically about their centre.
+        Limits = 2;
     }
 
     /// The projection of an axes.

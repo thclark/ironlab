@@ -1,6 +1,6 @@
 //! Two-dimensional axes: margins, grid, box, ticks, labels, title, artists and legend.
 
-use ironlab_ir::NodeId;
+use ironlab_ir::{NodeId, TitleAlign};
 
 use crate::display::{Item, ItemKind, Point, Rect, Stroke};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
@@ -257,9 +257,18 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
     out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
 }
 
+/// Returns the left edge of a title of the given width aligned with the plot area as `align` says.
+pub(super) fn title_left(align: TitleAlign, plot: Rect, width: f64) -> f64 {
+    match align {
+        TitleAlign::Center => plot.x + (plot.width - width) / 2.0,
+        TitleAlign::Left => plot.x,
+        TitleAlign::Right => plot.right() - width,
+    }
+}
+
 /// Draws tick labels, common exponent labels, axis labels and the title.
 fn draw_labels(
-    ctx: &Ctx,
+    ctx: &mut Ctx,
     input: &AxesInput,
     x: &AxisMap,
     y: &AxisMap,
@@ -274,7 +283,8 @@ fn draw_labels(
     let x_baseline = plot.bottom() + s.tick_pad + xt.max_height();
     for (v, label) in xt.major.iter().zip(&xt.labels) {
         let fx = x.to_figure(*v);
-        label.draw(
+        label.draw_on_page(
+            ctx,
             Point::new(fx - label.width() / 2.0, x_baseline),
             INK,
             id,
@@ -291,7 +301,7 @@ fn draw_labels(
             plot.right() + s.exponent_gap,
             below_ticks + s.exponent_gap + e.height(),
         );
-        e.draw(origin, INK, id, out);
+        e.draw_on_page(ctx, origin, INK, id, out);
     }
 
     // y tick labels are right-aligned beside the plot and centred on their ticks.
@@ -299,11 +309,11 @@ fn draw_labels(
     for (v, label) in yt.major.iter().zip(&yt.labels) {
         let fy = y.to_figure(*v);
         let origin = label.origin_for_centre(Point::new(y_right - label.width() / 2.0, fy));
-        label.draw(origin, INK, id, out);
+        label.draw_on_page(ctx, origin, INK, id, out);
     }
     if let Some(e) = &yt.exponent {
         let origin = Point::new(plot.x, plot.y - s.exponent_gap - e.depth());
-        e.draw(origin, INK, id, out);
+        e.draw_on_page(ctx, origin, INK, id, out);
     }
 
     if let Some(label) = &decor.labels[0] {
@@ -311,7 +321,7 @@ fn draw_labels(
             plot.x + (plot.width - label.width()) / 2.0,
             below_ticks + s.label_gap + label.height(),
         );
-        label.draw(origin, INK, id, out);
+        label.draw_on_page(ctx, origin, INK, id, out);
     }
     if let Some(label) = &decor.labels[1] {
         let right = if yt.labels.is_empty() {
@@ -323,14 +333,14 @@ fn draw_labels(
             right - label.depth(),
             plot.y + (plot.height + label.width()) / 2.0,
         );
-        label.draw_upwards(origin, INK, id, out);
+        label.draw_upwards_on_page(ctx, origin, INK, id, out);
     }
     if let Some(title) = &decor.title {
         let bottom = plot.y - top_band(decor, &s) - s.title_gap;
         let origin = Point::new(
-            plot.x + (plot.width - title.width()) / 2.0,
+            title_left(input.axes.title_align, plot, title.width()),
             bottom - title.depth(),
         );
-        title.draw(origin, INK, id, out);
+        title.draw_on_page(ctx, origin, INK, id, out);
     }
 }

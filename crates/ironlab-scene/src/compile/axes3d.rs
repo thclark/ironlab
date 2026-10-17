@@ -311,7 +311,7 @@ fn crowds(a: Rect, b: Rect, clearance: f64) -> bool {
 /// its tick mark. Labels are placed axis by axis in x, y, z order, and a label that would come closer than
 /// [`LABEL_CLEARANCE`] font sizes to a label already placed (of any axis) is left out, so where rows of labels meet at
 /// a corner of the box the earlier axis keeps its label.
-fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Vec<Item>) {
+fn draw_labels(ctx: &mut Ctx, input: &AxesInput, projector: &Projector, out: &mut Vec<Item>) {
     let fs = ctx.font_size;
     let tick_length = TICK_LENGTH * fs;
     let pad = tick_length + 0.3 * fs;
@@ -352,7 +352,7 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
             if placed.iter().any(|p| crowds(*p, bounds, clearance)) {
                 continue;
             }
-            label.draw(origin, INK, id, out);
+            label.draw_on_page(ctx, origin, INK, id, out);
             placed.push(bounds);
         }
         let boxes = &placed[first_box..];
@@ -362,7 +362,7 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
                 + gap
                 + half_extent(a, e.width(), e.total_height());
             let c = Point::new(centre.x + a.x * shift, centre.y + a.y * shift);
-            e.draw(e.origin_for_centre(c), INK, id, out);
+            e.draw_on_page(ctx, e.origin_for_centre(c), INK, id, out);
         }
         let Some(label) = &decor.labels[dim] else {
             continue;
@@ -370,7 +370,7 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
         if dim == 2 {
             let right = boxes.iter().map(|b| b.x).fold(edge.mid.x - pad, f64::min) - gap;
             let origin = Point::new(right - label.depth(), edge.mid.y + label.width() / 2.0);
-            label.draw_upwards(origin, INK, id, out);
+            label.draw_upwards_on_page(ctx, origin, INK, id, out);
         } else {
             let tick_extent = ticks
                 .labels
@@ -380,7 +380,7 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
             let offset =
                 pad + tick_extent + gap + half_extent(d, label.width(), label.total_height());
             let centre = Point::new(edge.mid.x + d.x * offset, edge.mid.y + d.y * offset);
-            label.draw(label.origin_for_centre(centre), INK, id, out);
+            label.draw_on_page(ctx, label.origin_for_centre(centre), INK, id, out);
         }
     }
     out.extend(paths::item(
@@ -392,9 +392,9 @@ fn draw_labels(ctx: &Ctx, input: &AxesInput, projector: &Projector, out: &mut Ve
     if let Some(title) = &decor.title {
         let plot = input.plot;
         let origin = Point::new(
-            plot.x + (plot.width - title.width()) / 2.0,
+            super::axes2d::title_left(input.axes.title_align, plot, title.width()),
             plot.y - 0.5 * fs - title.depth(),
         );
-        title.draw(origin, INK, id, out);
+        title.draw_on_page(ctx, origin, INK, id, out);
     }
 }

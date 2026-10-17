@@ -3,6 +3,7 @@
 //! Nothing in this module depends on the figure IR or on text shaping. Each submodule is a
 //! self-contained piece of plotting mathematics that the scene compiler composes:
 //!
+//! - [`aspect`] widens limits and fits plot areas to a fixed ratio of the lengths of data units.
 //! - [`ticks`] chooses tick positions, axis limits and tick label strings.
 //! - [`colormap`] holds the 256-entry colour lookup tables and maps values into them.
 //! - [`image`] resolves the pixels of images: it classifies mapped values and indices against the colormap and
@@ -13,6 +14,7 @@
 //! - [`polygon`] moves the edges of a convex polygon inwards, for the edge rings of surface faces.
 //! - [`decimate`] thins large point series to the resolution the current view can show.
 
+pub mod aspect;
 pub mod camera;
 pub mod colormap;
 mod colormap_data;

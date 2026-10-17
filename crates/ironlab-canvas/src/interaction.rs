@@ -62,11 +62,12 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NdArray, NodeId,
-    PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
+    Artist, AspectAdjust, Axes, Axis, DataId, Dimension, Edit, EditError, Figure, Limits, NdArray,
+    NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
+use ironlab_scene::maths::aspect;
 
 use crate::problems::{Origin, Problem};
 
@@ -183,8 +184,12 @@ struct Drag {
 
 #[derive(Clone, Debug, PartialEq)]
 enum DragKind {
-    /// A 2D axes, with its x and y axis maps at the start of the drag.
-    TwoD { x: AxisMap, y: AxisMap },
+    /// A 2D axes, with its x and y axis maps at the start of the drag and whether it keeps a fixed aspect.
+    TwoD {
+        x: AxisMap,
+        y: AxisMap,
+        fixed_aspect: bool,
+    },
     /// A 3D axes, with its view at the start of the drag.
     ThreeD { view: View3d },
 }
@@ -418,8 +423,7 @@ impl FigureState {
         };
         match (&axes_hit.kind, axes.projection) {
             (AxesHitKind::TwoD { x, y }, Projection::TwoD) => {
-                let x = current_map(&axes.x, x);
-                let y = current_map(&axes.y, y);
+                let (x, y) = current_maps(axes, x, y);
                 let zoom = |map: &AxisMap, coord: f64| {
                     let (a, b) = scale_limits(map);
                     let t = (coord - map.start) / (map.end - map.start);
@@ -458,10 +462,14 @@ impl FigureState {
             return;
         };
         let kind = match (&axes_hit.kind, axes.projection) {
-            (AxesHitKind::TwoD { x, y }, Projection::TwoD) => DragKind::TwoD {
-                x: current_map(&axes.x, x),
-                y: current_map(&axes.y, y),
-            },
+            (AxesHitKind::TwoD { x, y }, Projection::TwoD) => {
+                let (x, y) = current_maps(axes, x, y);
+                DragKind::TwoD {
+                    x,
+                    y,
+                    fixed_aspect: fixed_ratio(axes).is_some(),
+                }
+            }
             (AxesHitKind::ThreeD, Projection::ThreeD { view3d }) => {
                 DragKind::ThreeD { view: view3d }
             }
@@ -489,7 +497,7 @@ impl FigureState {
         let drag = drag.clone();
         let (dx, dy) = (at.x - drag.start.x, at.y - drag.start.y);
         match (self.tool, &drag.kind) {
-            (Tool::Pan, DragKind::TwoD { x, y }) => {
+            (Tool::Pan, DragKind::TwoD { x, y, .. }) => {
                 let pan = |map: &AxisMap, from: f64, to: f64| {
                     let (a, b) = scale_limits(map);
                     let per_point = (b - a) / (map.end - map.start);
@@ -561,15 +569,16 @@ impl FigureState {
                 drag.last = at;
             }
             if let (
+                Some(drawn),
                 Some(band),
                 Some(Drag {
                     axes,
-                    kind: DragKind::TwoD { x, y },
+                    kind: DragKind::TwoD { x, y, .. },
                     ..
                 }),
-            ) = (self.rubber_band(), self.drag.clone())
-                && band.width >= MIN_BOX_ZOOM_POINTS
-                && band.height >= MIN_BOX_ZOOM_POINTS
+            ) = (self.drawn_band(), self.rubber_band(), self.drag.clone())
+                && drawn.width >= MIN_BOX_ZOOM_POINTS
+                && drawn.height >= MIN_BOX_ZOOM_POINTS
             {
                 let span = |map: &AxisMap, p: f64, q: f64| {
                     let (u, v) = (to_scale(map, map.to_data(p)), to_scale(map, map.to_data(q)));
@@ -588,9 +597,25 @@ impl FigureState {
         changed
     }
 
-    /// Returns the rubber band of an ongoing Zoom-tool drag, in figure space.
+    /// Returns the rubber band of an ongoing Zoom-tool drag, in figure space: the rectangle from the start of the
+    /// drag to the pointer, clamped to the plot rectangle, and, on an axes with a fixed aspect, with its shorter side
+    /// expanded about its centre to the shape of the plot rectangle, so that the band is exactly the region the zoom
+    /// will show.
     #[must_use]
     pub fn rubber_band(&self) -> Option<Rect> {
+        let band = self.drawn_band()?;
+        let drag = self.drag.as_ref()?;
+        match drag.kind {
+            DragKind::TwoD {
+                fixed_aspect: true, ..
+            } => Some(to_shape_of(band, drag.plot_rect)),
+            _ => Some(band),
+        }
+    }
+
+    /// Returns the rectangle the pointer has drawn in an ongoing Zoom-tool drag, from the start of the drag to the
+    /// pointer and clamped to the plot rectangle, before any expansion for a fixed aspect.
+    fn drawn_band(&self) -> Option<Rect> {
         if self.tool != Tool::Zoom {
             return None;
         }
@@ -1020,6 +1045,65 @@ fn axis(axes: &Axes, dimension: Dimension) -> &Axis {
         Dimension::Y => &axes.y,
         Dimension::Z => &axes.z,
     }
+}
+
+/// Returns the x and y axis maps of a 2D axes to navigate from, as [`current_map`] gives them.
+///
+/// An axes whose fixed aspect is kept by widening its limits draws wider limits than the manual limits it stores, so
+/// the manual limits are widened here exactly as the scene compiler widens them for the plot rectangle of the hit map;
+/// a gesture then starts from the limits the reader sees, and a gesture from limits already widened finds nothing to
+/// widen.
+fn current_maps(axes: &Axes, x: &AxisMap, y: &AxisMap) -> (AxisMap, AxisMap) {
+    let (mut x, mut y) = (current_map(&axes.x, x), current_map(&axes.y, y));
+    if let Some(ratio) = fixed_ratio(axes)
+        && axes.aspect_adjust == AspectAdjust::Limits
+    {
+        let ((x0, x1), (y0, y1)) = aspect::widen(
+            scale_limits(&x),
+            scale_limits(&y),
+            (x.end - x.start).abs(),
+            (y.end - y.start).abs(),
+            ratio,
+        );
+        let unscaled = |map: &AxisMap, a: f64, b: f64| (from_scale(map, a), from_scale(map, b));
+        let ((xmin, xmax), (ymin, ymax)) = (unscaled(&x, x0, x1), unscaled(&y, y0, y1));
+        if xmin.is_finite() && xmax.is_finite() && xmin < xmax {
+            (x.min, x.max) = (xmin, xmax);
+        }
+        if ymin.is_finite() && ymax.is_finite() && ymin < ymax {
+            (y.min, y.max) = (ymin, ymax);
+        }
+    }
+    (x, y)
+}
+
+/// Returns the ratio of a 2D axes whose aspect is fixed and can be kept, or `None`.
+fn fixed_ratio(axes: &Axes) -> Option<f64> {
+    let ratio = axes.aspect.ratio()?;
+    (axes.projection == Projection::TwoD && ratio.is_finite() && ratio > 0.0).then_some(ratio)
+}
+
+/// Returns `band` with its shorter side, relative to the shape of `plot`, expanded about its centre so that the band
+/// has the shape of `plot`.
+///
+/// A plot drawn at a fixed aspect and zoomed to a band of its own shape keeps that aspect without changing the shape
+/// of its plot area or widening its limits, and expanding rather than shrinking keeps everything the reader selected.
+fn to_shape_of(band: Rect, plot: Rect) -> Rect {
+    if !(band.width > 0.0 && band.height > 0.0 && plot.width > 0.0 && plot.height > 0.0) {
+        return band;
+    }
+    let shape = plot.height / plot.width;
+    let (width, height) = if band.height / band.width < shape {
+        (band.width, band.width * shape)
+    } else {
+        (band.height / shape, band.height)
+    };
+    Rect::new(
+        band.x + (band.width - width) / 2.0,
+        band.y + (band.height - height) / 2.0,
+        width,
+        height,
+    )
 }
 
 /// Returns the axis map to navigate from: the figure-space extent always comes from the hit map, but manual limits

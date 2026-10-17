@@ -866,6 +866,9 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels
+        | ValueType::Aspect
+        | ValueType::AspectAdjust
+        | ValueType::TitleAlign
         | ValueType::ColorSpec
         | ValueType::ScatterSize
         | ValueType::ScatterColor

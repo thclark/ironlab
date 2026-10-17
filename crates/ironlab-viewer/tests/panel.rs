@@ -348,6 +348,39 @@ fn the_z_axis_is_shown_only_while_the_axes_is_three_dimensional() {
     }
 }
 
+// Why: the aspect, its adjustment and the alignment of the title are properties of how an
+// axes is drawn, which the viewer may change; the aspect shapes the plot area of a
+// two-dimensional axes only, so a three-dimensional axes must not offer it, while the
+// title of either is aligned with its plot area. The two new dash patterns are choices of
+// a line's dash like the others.
+#[test]
+fn the_aspect_is_offered_on_2d_axes_only_and_the_title_alignment_on_every_axes() {
+    let state = state_with_artists();
+    let flat = groups_of(&state, FLAT);
+    assert_eq!(
+        offered(&flat, "aspect", ""),
+        ["Automatic", "Equal", "Ratio"]
+    );
+    assert_eq!(
+        offered(&flat, "aspect_adjust", ""),
+        ["Shrink the plot area", "Widen the limits"]
+    );
+    assert_eq!(
+        offered(&flat, "title_align", ""),
+        ["Centre", "Left", "Right"]
+    );
+    let solid = row_paths(&groups_of(&state, SOLID));
+    assert!(
+        !solid.iter().any(|row| row.starts_with("aspect")),
+        "a 3D axes offers no aspect: {solid:?}"
+    );
+    assert!(solid.contains(&"title_align/".to_owned()), "{solid:?}");
+    let dashes = offered(&groups_of(&state, LINE), "line", "dash");
+    for label in ["Dash-dot-dot", "Long dash"] {
+        assert!(dashes.contains(&label), "{dashes:?}");
+    }
+}
+
 // Why: a property below a variant that is not set, or below an optional value that is
 // absent, cannot be read; showing it as a broken row would fill the inspector with
 // errors that mean nothing. The value itself must still be offered, so that the user can
@@ -1816,6 +1849,7 @@ fn the_inspector_is_ordered_by_the_names_it_shows() {
             "legend",
             "projection",
             "title",
+            "title_align",
             "x",
             "y",
             "z"

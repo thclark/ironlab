@@ -141,6 +141,8 @@ pub(super) fn dash_array(style: DashStyle, width: f64) -> Option<Vec<f64>> {
         DashStyle::Dashed => Some(vec![5.0 * u, 3.0 * u]),
         DashStyle::Dotted => Some(vec![u, 2.0 * u]),
         DashStyle::DashDot => Some(vec![5.0 * u, 2.0 * u, u, 2.0 * u]),
+        DashStyle::DashDotDot => Some(vec![5.0 * u, 2.0 * u, u, 2.0 * u, u, 2.0 * u]),
+        DashStyle::LongDash => Some(vec![10.0 * u, 3.0 * u]),
         DashStyle::None => None,
     }
 }

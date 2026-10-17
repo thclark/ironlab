@@ -80,7 +80,7 @@ pub(super) fn figure_title(ctx: &mut Ctx, page: Rect, out: &mut Vec<Item>) -> Re
             page.x + (page.width - block.width()) / 2.0,
             top + block.height(),
         );
-        block.draw(origin, INK, figure.id, out);
+        block.draw_on_page(ctx, origin, INK, figure.id, out);
         top += block.total_height() + 0.3 * ctx.font_size;
     }
     Rect::new(

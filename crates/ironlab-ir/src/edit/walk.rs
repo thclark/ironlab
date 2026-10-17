@@ -21,7 +21,10 @@ use crate::artist::{
     Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
     ScatterSize, Surface,
 };
-use crate::axes::{Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks, View3d};
+use crate::axes::{
+    Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
+    TitleAlign, View3d,
+};
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::{NodeKind, Property};
 use crate::edit::value::{Value, ValueType};
@@ -388,6 +391,8 @@ ir_leaf! {
     ColormapName => ColormapName;
     LegendLocation => LegendLocation;
     LegendEntryOrder => LegendEntryOrder;
+    AspectAdjust => AspectAdjust;
+    TitleAlign => TitleAlign;
     DashStyle => DashStyle;
     MarkerShape => MarkerShape;
 }
@@ -422,12 +427,18 @@ ir_node! {
         plain "projection" => projection: Projection =
             "Whether the axes is two- or three-dimensional, with its three-dimensional view.";
         optional "title" => title: Text = "The title drawn above the axes.";
+        plain "title_align" => title_align: TitleAlign =
+            "How the title is aligned with the plot area: centred over it, or with its left or right edge on the left or right edge of the plot area.";
         plain "x" => x: Axis =
             "The horizontal axis in two dimensions, or the first horizontal axis in three.";
         plain "y" => y: Axis =
             "The vertical axis in two dimensions, or the second horizontal axis in three.";
         plain "z" => z: Axis =
             "The vertical axis in three dimensions; ignored by two-dimensional axes.";
+        plain "aspect" => aspect: Aspect =
+            "The ratio of the length of one data unit of y to the length of one data unit of x, in two-dimensional axes; on a logarithmic axis the unit is one decade.";
+        plain "aspect_adjust" => aspect_adjust: AspectAdjust =
+            "How a fixed aspect is kept: by shrinking the plot area, or by widening the limits of one axis.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
         plain "colormap" => colormap: ColormapName =
@@ -713,6 +724,15 @@ ir_tagged! {
         Manual {
             plain "min" => min: f64 = "The lower bound of the range.";
             plain "max" => max: f64 = "The upper bound of the range.";
+        }
+    }
+
+    Aspect as Aspect {
+        Auto {}
+        Equal {}
+        Ratio {
+            plain "value" => 0: f64 =
+                "How many times as long one data unit of y is drawn as one data unit of x; finite and positive.";
         }
     }
 

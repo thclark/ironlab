@@ -218,6 +218,12 @@ proto_file! {
             TickLabels(ValueTickLabels) tick_labels_value = 48;
             /// A list of texts.
             Texts(ValueTexts) texts_value = 49;
+            /// The aspect of an axes.
+            Aspect(ValueAspect) aspect_value = 50;
+            /// How an axes keeps a fixed aspect.
+            AspectAdjust(ValueAspectAdjust) aspect_adjust_value = 51;
+            /// How the title of an axes is aligned with its plot area.
+            TitleAlign(ValueTitleAlign) title_align_value = 52;
         }
     }
 
@@ -402,6 +408,24 @@ proto_file! {
     message ValueNodeId {
         /// The node identifier; it must be present.
         optional uint64 value = 1;
+    }
+
+    /// An aspect value.
+    message ValueAspect {
+        /// The aspect; it must be present.
+        message Aspect value = 1;
+    }
+
+    /// An aspect adjustment value.
+    message ValueAspectAdjust {
+        /// The adjustment; it must be specified.
+        enum AspectAdjust value = 1;
+    }
+
+    /// A title alignment value.
+    message ValueTitleAlign {
+        /// The alignment; it must be specified.
+        enum TitleAlign value = 1;
     }
 
     /// A list of texts value.

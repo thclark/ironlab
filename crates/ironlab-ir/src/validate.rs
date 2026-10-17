@@ -6,7 +6,7 @@ use crate::artist::{
     Artist, Contour, ContourPlacement, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange,
     PixelRange, ScatterColor, ScatterSize,
 };
-use crate::axes::{Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
+use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::data::{NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::{DataId, NodeId};
@@ -100,6 +100,10 @@ pub enum IssueKind {
     /// the ticks are not explicit values, or the number of labels differs from the
     /// number of values.
     InvalidTickLabels,
+    /// The aspect of an axes cannot be kept: a ratio that is not a finite positive
+    /// number, or an aspect other than automatic on a three-dimensional axes, which has
+    /// no plot area of its own data units to shape.
+    InvalidAspect,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
@@ -475,6 +479,22 @@ impl Validator<'_> {
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+        if let Aspect::Ratio(ratio) = axes.aspect
+            && !(ratio.is_finite() && ratio > 0.0)
+        {
+            self.error(
+                Some(axes.id),
+                IssueKind::InvalidAspect,
+                format!("the aspect ratio {ratio} is not a finite positive number"),
+            );
+        } else if three_d && axes.aspect != Aspect::Auto {
+            self.error(
+                Some(axes.id),
+                IssueKind::InvalidAspect,
+                "a three-dimensional axes has a fixed aspect, which applies to two-dimensional axes only"
+                    .to_owned(),
+            );
+        }
         let mut limits = vec![
             ("x limits", axes.x.limits, axes.x.scale),
             ("y limits", axes.y.limits, axes.y.scale),

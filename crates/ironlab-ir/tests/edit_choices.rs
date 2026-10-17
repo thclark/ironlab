@@ -13,12 +13,15 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 23] = [
+const WITH_CHOICES: [ValueType; 26] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
     ValueType::Ticks,
     ValueType::TickLabels,
+    ValueType::Aspect,
+    ValueType::AspectAdjust,
+    ValueType::TitleAlign,
     ValueType::ColormapName,
     ValueType::Legend,
     ValueType::LegendLocation,

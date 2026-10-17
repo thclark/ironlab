@@ -99,6 +99,7 @@ gallery!(
     panel_legend_wide,
     strip_chart,
     pressure_distribution,
+    aerofoil_family,
     contour,
     contourf,
     quiver,

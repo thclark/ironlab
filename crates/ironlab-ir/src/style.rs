@@ -179,6 +179,10 @@ pub enum DashStyle {
     Dotted,
     /// A line of alternating dashes and dots.
     DashDot,
+    /// A line of dashes, each followed by two dots.
+    DashDotDot,
+    /// A line of long dashes.
+    LongDash,
     /// No line is drawn.
     None,
 }
