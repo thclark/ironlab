@@ -2840,3 +2840,145 @@ fn fractions_on_a_logarithmic_axis_are_not_non_positive_data() {
         "the data dimension is still checked: {report:?}"
     );
 }
+
+// Why: a regular step places a tick at every `origin + k × step`, which cannot be
+// enumerated for a step that is zero, negative or not finite, nor anchored at an origin
+// that is not finite; such ticks cannot be drawn, so they are errors on the axes rather
+// than silently replaced by automatic ticks.
+#[test]
+fn a_tick_step_that_is_not_finite_and_positive_is_an_error_on_the_axes() {
+    let bad = [
+        (0.0, 0.0),
+        (-0.5, 0.0),
+        (f64::NAN, 0.0),
+        (f64::INFINITY, 0.0),
+        (0.5, f64::NAN),
+        (0.5, f64::NEG_INFINITY),
+    ];
+    for (step, origin) in bad {
+        let (mut fig, axes, _) = single_line_figure();
+        fig.axes[0].x.ticks = Ticks::Step { step, origin };
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::InvalidTicks, Some(axes)),
+            "step {step}, origin {origin}: {report:?}"
+        );
+    }
+    // Any finite positive step from any finite origin is valid, however it relates to the
+    // limits: ticks outside the limits are simply not drawn.
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].y.ticks = Ticks::Step {
+        step: 1e-3,
+        origin: -1e6,
+    };
+    assert_eq!(fig.validate().errors, vec![]);
+}
+
+// Why: an explicit tick is drawn at its value through the axis map, which has no place
+// for a value that is not finite, and on a logarithmic axis none for a value that is not
+// positive; the author asked for that tick explicitly, so its omission must be reported
+// as an error on the axes, as invalid manual limits are.
+#[test]
+fn explicit_tick_values_that_cannot_be_placed_are_errors_on_the_axes() {
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let (mut fig, axes, _) = single_line_figure();
+        fig.axes[0].y.ticks = Ticks::Values(vec![0.0, value]);
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::InvalidTicks, Some(axes)),
+            "{value}: {report:?}"
+        );
+    }
+    for value in [0.0, -1.0] {
+        let (mut fig, axes, _) = single_line_figure();
+        fig.axes[0].x.scale = Scale::Log;
+        fig.axes[0].x.ticks = Ticks::Values(vec![1.0, value, 10.0]);
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::InvalidTicks, Some(axes)),
+            "{value} on a log axis: {report:?}"
+        );
+    }
+    // Zero and negative ticks are ordinary on a linear axis, in any order, and an empty
+    // list asks for an axis without ticks.
+    for values in [vec![0.0, -1.0, 2.0], vec![]] {
+        let (mut fig, _, _) = single_line_figure();
+        fig.axes[0].x.ticks = Ticks::Values(values.clone());
+        assert_eq!(fig.validate().errors, vec![], "{values:?}");
+    }
+}
+
+// Why: explicit tick labels are paired with tick values by position, so labels without
+// explicit values, or of a different number, would leave ticks unnamed or names without
+// a tick, and the pairing the author meant cannot be recovered; both are errors.
+#[test]
+fn explicit_tick_labels_must_name_explicit_tick_values_one_by_one() {
+    let names = || TickLabels::Text(vec![Text::plain("first"), Text::plain("second")]);
+    let bad = [
+        Ticks::Auto,
+        Ticks::Step {
+            step: 1.0,
+            origin: 0.0,
+        },
+        Ticks::Values(vec![0.0]),
+        Ticks::Values(vec![0.0, 1.0, 2.0]),
+    ];
+    for ticks in bad {
+        let (mut fig, axes, _) = single_line_figure();
+        fig.axes[0].y.ticks = ticks.clone();
+        fig.axes[0].y.tick_labels = names();
+        let report = fig.validate();
+        assert!(
+            has_error(&report, IssueKind::InvalidTickLabels, Some(axes)),
+            "{ticks:?}: {report:?}"
+        );
+    }
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].y.ticks = Ticks::Values(vec![0.0, 1.0]);
+    fig.axes[0].y.tick_labels = names();
+    assert_eq!(fig.validate().errors, vec![]);
+    // Hidden and automatic labels suit every kind of ticks.
+    for labels in [TickLabels::Hidden, TickLabels::Auto] {
+        let (mut fig, _, _) = single_line_figure();
+        fig.axes[0].x.ticks = Ticks::Step {
+            step: 0.5,
+            origin: 0.0,
+        };
+        fig.axes[0].x.tick_labels = labels;
+        assert_eq!(fig.validate().errors, vec![]);
+    }
+}
+
+// Why: a two-dimensional axes draws no z axis, so its z ticks are ignored when drawing and
+// must be ignored by validation too, as its z limits are; a three-dimensional axes draws
+// all three, so its z ticks are checked like the others.
+#[test]
+fn z_ticks_are_checked_only_in_three_dimensional_axes() {
+    let (mut fig, axes, _) = single_line_figure();
+    fig.axes[0].z.ticks = Ticks::Values(vec![f64::NAN]);
+    fig.axes[0].z.tick_labels = TickLabels::Text(vec![Text::plain("a"), Text::plain("b")]);
+    assert_eq!(fig.validate().errors, vec![]);
+
+    fig.axes[0].projection = Projection::ThreeD {
+        view3d: View3d::default(),
+    };
+    let report = fig.validate();
+    assert!(has_error(&report, IssueKind::InvalidTicks, Some(axes)));
+    assert!(has_error(&report, IssueKind::InvalidTickLabels, Some(axes)));
+}
+
+// Why: a reversed axis is drawn from its upper limit, but its limits keep their meaning, so
+// reversing an axis must not make manual limits that run downwards valid; they remain an
+// error, and the direction is expressed by `reverse` alone.
+#[test]
+fn a_reversed_axis_still_requires_increasing_limits() {
+    let (mut fig, axes, _) = single_line_figure();
+    fig.axes[0].y.reverse = true;
+    assert_eq!(fig.validate().errors, vec![]);
+    fig.axes[0].y.limits = Limits::Manual {
+        min: 1.0,
+        max: -1.5,
+    };
+    let report = fig.validate();
+    assert!(has_error(&report, IssueKind::InvalidLimits, Some(axes)));
+}

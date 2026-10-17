@@ -243,7 +243,15 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
     let labels: Vec<&str> = x.rows.iter().map(|row| row.label.as_str()).collect();
     assert_eq!(
         labels,
-        ["grid", "label", "limits", "scale"],
+        [
+            "grid",
+            "label",
+            "limits",
+            "reverse",
+            "scale",
+            "tick_labels",
+            "ticks"
+        ],
         "the rows of a group are labelled by the rest of their path"
     );
     assert_eq!(x.rows[2].path.to_string(), "x.limits");

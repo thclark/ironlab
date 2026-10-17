@@ -42,6 +42,7 @@ nav = [
     { "0016 Two hosts over one canvas: the native egui viewer and figures embedded in HTML" = "adrs/0016-two-hosts-over-one-canvas.md" },
     { "0017 Embedded LaTeX mathematics with latex-rust applying TeX's conventions" = "adrs/0017-latex-rust-applies-tex-conventions.md" },
     { "0018 Legend panels in the tile layout, with entries merged by name and look" = "adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md" },
+    { "0019 Axis direction, ticks, blended coordinates and aspect" = "adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

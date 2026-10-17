@@ -376,6 +376,13 @@
         "limits": {
           "type": "auto"
         },
+        "reverse": false,
+        "ticks": {
+          "type": "auto"
+        },
+        "tick_labels": {
+          "type": "auto"
+        },
         "grid": true
       },
       "y": {
@@ -387,12 +394,26 @@
         "limits": {
           "type": "auto"
         },
+        "reverse": false,
+        "ticks": {
+          "type": "auto"
+        },
+        "tick_labels": {
+          "type": "auto"
+        },
         "grid": true
       },
       "z": {
         "label": null,
         "scale": "linear",
         "limits": {
+          "type": "auto"
+        },
+        "reverse": false,
+        "ticks": {
+          "type": "auto"
+        },
+        "tick_labels": {
           "type": "auto"
         },
         "grid": true
@@ -519,7 +540,7 @@
   ],
   "links": [],
   "provenance": {
-    "ironlab_version": "0.11.0",
+    "ironlab_version": "0.12.0",
     "typesetter": "latex-rust",
     "typesetter_version": "2.1.1",
     "fonts": [

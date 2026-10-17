@@ -332,30 +332,19 @@ fn uniform_tiles(rows: u32, cols: u32) -> (Fx, Vec<ironlab_ir::NodeId>) {
     (fx, ids)
 }
 
-/// Returns the widths of the cells of a row of plot areas whose axes all have the same margins.
-///
-/// The gap between neighbouring plot areas is the right margin of one plus the left margin of the next, which is
-/// the total horizontal margin of every cell, so a cell is its plot width plus that gap.
-fn cell_widths(plots: &[Rect]) -> Vec<f64> {
-    let gap = plots[1].x - plots[0].right();
-    for pair in plots.windows(2) {
-        assert_close(pair[1].x - pair[0].right(), gap, 1e-6);
-    }
-    plots.iter().map(|p| p.width + gap).collect()
+/// Returns the widths of a row of plot areas.
+fn widths(plots: &[Rect]) -> Vec<f64> {
+    plots.iter().map(|p| p.width).collect()
 }
 
-/// Returns the heights of the cells of a column of plot areas whose axes all have the same margins.
-fn cell_heights(plots: &[Rect]) -> Vec<f64> {
-    let gap = plots[1].y - plots[0].bottom();
-    for pair in plots.windows(2) {
-        assert_close(pair[1].y - pair[0].bottom(), gap, 1e-6);
-    }
-    plots.iter().map(|p| p.height + gap).collect()
+/// Returns the heights of a column of plot areas.
+fn heights(plots: &[Rect]) -> Vec<f64> {
+    plots.iter().map(|p| p.height).collect()
 }
 
 // Why: column weights exist so that a wide plot and a narrow neighbour (a legend panel, a profile) can share a row;
-// a weight of 2 against 1 must give the first column exactly twice the width of the second, measured on the cells
-// themselves rather than on the plot areas, whose shared margins would otherwise hide the ratio.
+// a weight of 2 against 1 must give the first plot area exactly twice the width of the second, because the weights
+// say how large the plots are relative to one another, and the margins around them are added outside that share.
 #[test]
 fn column_weights_share_the_width_in_proportion() {
     let (mut fx, ids) = uniform_tiles(1, 2);
@@ -365,7 +354,7 @@ fn column_weights_share_the_width_in_proportion() {
         .iter()
         .map(|id| axes_hit(&scene, *id).plot_rect)
         .collect();
-    let widths = cell_widths(&plots);
+    let widths = widths(&plots);
     assert_close(widths[0], 2.0 * widths[1], 1e-6);
 }
 
@@ -380,7 +369,7 @@ fn row_weights_share_the_height_in_proportion() {
         .iter()
         .map(|id| axes_hit(&scene, *id).plot_rect)
         .collect();
-    let heights = cell_heights(&plots);
+    let heights = heights(&plots);
     assert_close(heights[1], 3.0 * heights[0], 1e-6);
 }
 
@@ -396,7 +385,7 @@ fn a_missing_weight_is_one() {
         .iter()
         .map(|id| axes_hit(&scene, *id).plot_rect)
         .collect();
-    let widths = cell_widths(&plots);
+    let widths = widths(&plots);
     assert_close(widths[0], 2.0 * widths[1], 1e-6);
     assert_close(widths[1], widths[2], 1e-6);
 }

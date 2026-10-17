@@ -99,7 +99,7 @@ pub use ironlab_ir::OutOfRange;
 pub use ironlab_ir::{
     Color, ColorSpec, Coords, InsideLegend, Interpreter, IssueKind, Legend, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, LegendLocation, NodeId, PanelLegend, Parameter, Scale,
-    Text, ValidationIssue, ValidationReport,
+    Text, TickLabels, Ticks, ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,

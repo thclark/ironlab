@@ -501,3 +501,44 @@ fn an_artist_in_data_coordinates_is_clipped_whatever_its_clip_flag() {
     assert!(!leaves.is_empty());
     assert!(leaves.iter().all(|l| l.clip == Some(plot)));
 }
+
+// A reversed axis maps its data from its upper limit, but a fraction of the plot area is a physical position: 0 is
+// always the left or bottom edge. On axes reversed in both directions, an edge tick at a data x is placed through the
+// reversed x map, and its fraction of the height still counts from the bottom; a reference line at a data y is
+// placed through the reversed y map and still spans from the left edge to the right.
+#[test]
+fn blended_coordinates_compose_with_reversed_axes() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.ax(ax).x.limits = Limits::Manual {
+        min: 0.0,
+        max: 10.0,
+    };
+    fx.ax(ax).x.reverse = true;
+    fx.ax(ax).y.limits = Limits::Manual { min: 0.0, max: 4.0 };
+    fx.ax(ax).y.reverse = true;
+    let ticks = fx.line(ax, &[2.0], &[0.1], None, |l| {
+        l.y_coords = Coords::AxesFraction;
+        l.marker.shape = MarkerShape::VLine;
+    });
+    let reference = hline(&mut fx, ax, 1.0);
+    let scene = compile_figure(&fx.build());
+    let plot = plot(&scene, ax);
+
+    let tick = drawn(&scene, ticks);
+    assert_eq!(tick.len(), 1);
+    // x = 2 of 0..10 drawn from the right: a fifth of the width in from the right edge.
+    assert_close(tick[0].1.x, plot.right() - 0.2 * plot.width, TOL);
+    // A tenth of the height up from the bottom edge, whatever the direction of y.
+    assert_close(tick[0].1.y, fraction_y(plot, 0.1), TOL);
+
+    let line = drawn(&scene, reference);
+    assert_eq!(line.len(), 2);
+    // The fraction 0 is the left edge and 1 the right edge, although x runs from the right.
+    assert_close(line[0].1.x, plot.x, TOL);
+    assert_close(line[1].1.x, plot.right(), TOL);
+    // y = 1 of 0..4 drawn from the top: a quarter of the height down from the top edge.
+    for (_, p) in line {
+        assert_close(p.y, plot.y + 0.25 * plot.height, TOL);
+    }
+}

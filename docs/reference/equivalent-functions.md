@@ -13,6 +13,7 @@ Every IronLAB function in the table is a method of `AxesMut` and is described in
 | Line on logarithmic axes | `loglog`, `semilogx`, `semilogy` | `loglog`, `semilogx`, `semilogy` | `Scatter` on an axis with `type="log"` | `loglog`, `semilogx`, `semilogy`, or `xscale`, `yscale` and `zscale` on the axes |
 | Markers in two dimensions | `scatter` | `scatter` | `Scatter` with `mode="markers"` | `scatter` |
 | Markers in three dimensions | `scatter3` | `Axes3D.scatter` | `Scatter3d` with `mode="markers"` | `scatter3` |
+| Markers along named rows (a categorical strip chart) | `scatter` with `yticks` and `yticklabels`, or `swarmchart` | `scatter` with `set_yticks` and `set_yticklabels` | `px.strip` | `scatter` with `yticks`, `ytick_labels` and `yreverse` on the axes |
 | Horizontal reference line across the axes | `yline` | `axhline` | `add_hline` | `hline` |
 | Vertical reference line across the axes | `xline` | `axvline` | `add_vline` | `vline` |
 

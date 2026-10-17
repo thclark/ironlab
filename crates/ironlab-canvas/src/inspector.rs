@@ -445,6 +445,11 @@ const PANEL_REFERENCE_REASON: &str = "The legend panel in which an axes lists it
      is set by the program that builds the figure, as part of how its axes and legends \
      relate to one another.";
 
+/// The reason the explicit labels of the ticks of an axis are not changed here.
+const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one by one, and \
+     both are set together by the program that builds the figure, which is where they are \
+     changed.";
+
 /// The reason the groups of linked axes are not changed here.
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
      program that builds the figure, as part of how its axes relate to one another.";
@@ -557,6 +562,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::NodeId
         | ValueType::Doubles
         | ValueType::Strings
+        | ValueType::Texts
         | ValueType::Text
         | ValueType::Interpreter
         | ValueType::FontSetId
@@ -566,6 +572,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Projection
         | ValueType::Scale
         | ValueType::Limits
+        | ValueType::Ticks
+        | ValueType::TickLabels
         | ValueType::ColormapName
         | ValueType::Legend
         | ValueType::LegendLocation
@@ -619,6 +627,9 @@ fn editor_for(
         ValueType::Color => Editor::Color,
         ValueType::Doubles => Editor::Numbers,
         ValueType::Strings => Editor::Words,
+        ValueType::Texts => Editor::ReadOnly {
+            reason: TICK_LABELS_REASON,
+        },
         ValueType::Parameters => Editor::Parameters,
         ValueType::Links => Editor::ReadOnly {
             reason: LINKS_REASON,
@@ -636,6 +647,8 @@ fn editor_for(
         },
         ValueType::Projection
         | ValueType::Limits
+        | ValueType::Ticks
+        | ValueType::TickLabels
         | ValueType::ColorSpec
         | ValueType::ScatterSize
         | ValueType::ScatterColor

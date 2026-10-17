@@ -842,6 +842,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::String => Some(Value::String(String::new())),
         ValueType::Doubles => Some(Value::Doubles(Vec::new())),
         ValueType::Strings => Some(Value::Strings(Vec::new())),
+        ValueType::Texts => Some(Value::Texts(Vec::new())),
         ValueType::Text => Some(Value::Text(Text::default())),
         ValueType::Color => Some(Value::Color(Color::BLACK)),
         ValueType::FigureSize => Some(Value::FigureSize(FigureSize::default())),
@@ -863,6 +864,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
         | ValueType::Limits
+        | ValueType::Ticks
+        | ValueType::TickLabels
         | ValueType::ColorSpec
         | ValueType::ScatterSize
         | ValueType::ScatterColor

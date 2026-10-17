@@ -98,6 +98,8 @@ gallery!(
     panel_legend_shared,
     panel_legend_wide,
     comparison_sheet,
+    strip_chart,
+    pressure_distribution,
     contour,
     contourf,
     quiver,

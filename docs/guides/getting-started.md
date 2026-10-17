@@ -304,6 +304,11 @@ The remaining axes properties are also set on the axes handle.
 | --- | --- |
 | `xlim(min, max)`, `ylim(min, max)`, `zlim(min, max)` | Fixes the range of an axis, and of every axes linked with it along that dimension. |
 | `xscale(scale)`, `yscale(scale)`, `zscale(scale)` | Sets an axis to `Scale::Linear` or `Scale::Log`. |
+| `xreverse(on)`, `yreverse(on)`, `zreverse(on)` | Reverses an axis, so that it runs from its upper limit to its lower limit; see [axis direction and ticks](#axis-direction-and-ticks). |
+| `xticks(values)`, `yticks(values)`, `zticks(values)` | Places the ticks of an axis at the given values. |
+| `xtick_step(step)`, `xtick_step_from(step, origin)` and the same for y and z | Places a tick at every multiple of the step, or at every `origin + k × step`, within the limits. |
+| `xtick_labels(texts)`, `ytick_labels(texts)`, `ztick_labels(texts)` | Labels the ticks given by `xticks`, `yticks` or `zticks` with the texts, one per value. |
+| `xtick_labels_hidden()`, `ytick_labels_hidden()`, `ztick_labels_hidden()` | Draws the ticks of an axis without labels and reserves no space for them. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
 | `colormap(name)` | Sets the colormap: `Viridis` (the default), `Cividis`, `Magma`, `Inferno`, `Plasma`, `Coolwarm` or `Gray`. |
@@ -311,6 +316,34 @@ The remaining axes properties are also set on the axes handle.
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
 Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour, surface and image plots are the exact extent of their grid or of their pixel edges instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
+
+## Axis direction and ticks
+
+An axis normally runs from its lower limit at the left or the bottom to its upper limit at the right or the top. `yreverse(true)` turns the y axis round, which is how a pressure distribution is drawn, with suction (negative $C_p$) upwards. The limits are still given lower bound first, and a datatip reports the values as they are stored:
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.plot(&x, &cp).display_name("upper surface");
+ax.ylabel("$C_p$").ylim(-2.0, 1.0).yreverse(true);
+```
+
+Reversing an axis changes only the direction in which it is drawn. Its automatic limits, its ticks and its scale are unchanged, and panning and zooming in the viewer move the data with the pointer as on any other axis. Linked axes share limits only, so a reversed axis may be linked with an unreversed one, and each keeps its own direction.
+
+Ticks are automatic unless they are set. `xtick_step(0.2)` places a tick at every multiple of 0.2 within the limits, which gives a family of panels one shared regular grid, and `xtick_step_from(0.1, 0.05)` places them at 0.05, 0.15, 0.25 and so on. `xticks(values)` places them at explicit values. Ticks never change the limits, and a tick outside the limits is not drawn. Automatic ticks on a short axis with narrow manual limits always include at least three labelled ticks on a y axis, and at least two on an x axis, wherever the limits hold that many at a round step.
+
+`xtick_labels(texts)` names explicit ticks one by one, which is how a categorical axis is made: there is no categorical axis type, and the categories are the ticks `0, 1, …, N − 1` named by their labels. A strip chart lists its rows from the top, so it also reverses its y axis:
+
+```rust
+let rows: Vec<f64> = (0..cases.len()).map(|k| k as f64).collect();
+let mut ax = fig.axes(0, 0);
+ax.scatter(&positions, &row_of_each_position);
+ax.ylim(-0.5, cases.len() as f64 - 0.5)
+    .yreverse(true)       // the first case at the top
+    .yticks(&rows)
+    .ytick_labels(cases); // one name per row
+```
+
+`ytick_labels_hidden()` keeps the ticks of an axis but draws no labels and reserves no space for them, so that a panel beside one that names the rows, or the upper rows of a stack that shares one x axis, gives the space to its plot. Plot areas of equal [weight](legends.md#sizing-rows-and-columns-with-weights) are of equal size whatever their labels, so the two panels of a strip chart have plot areas of the same width although only one of them carries the names. Labels without explicit ticks, or of a different number, are reported by [`validate`](#validating-a-figure) as the error `InvalidTickLabels`, and a step that is not a finite positive number as the error `InvalidTicks`. The [categorical strip chart](../gallery/strip_chart.md) and the [pressure distribution](../gallery/pressure_distribution.md) of the gallery show both uses in full.
 
 ## Legends
 
