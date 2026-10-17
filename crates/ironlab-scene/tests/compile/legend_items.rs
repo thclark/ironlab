@@ -509,6 +509,41 @@ fn an_automatic_colour_in_a_custom_line_sample_is_the_ink_of_its_label() {
     }
 }
 
+// Why: a vertical or horizontal tick marks where a series is not finite, or a reference value, and a key must be able
+// to explain it; such a marker is open, so its sample is stroked in its colour rather than filled, whether it is an
+// item that stands for no plot or the marker of a plot that the key lists.
+#[test]
+fn vertical_and_horizontal_tick_markers_are_drawn_in_samples() {
+    let (mut fx, ax, _, panel) = axes_over_panel(&["Unused"]);
+    let ticked = fx.named_line(ax, "Ticked", |l| {
+        l.marker.shape = MarkerShape::HLine;
+        l.line.color = ColorSpec::Rgba { color: RED };
+    });
+    explicit(
+        &mut fx,
+        panel,
+        vec![
+            LegendItem::custom(
+                LegendSample::marker(MarkerShape::VLine, AMBER),
+                "Not finite",
+            ),
+            LegendItem::artist(ticked),
+        ],
+    );
+    let scene = compile_figure(&fx.build());
+    for (text, colour) in [("Not finite", [230, 153, 0]), ("Ticked", [204, 26, 26])] {
+        let sample = sample_beside(&scene, panel, text);
+        let markers: Vec<_> = sample.iter().flat_map(Leaf::instances).collect();
+        assert_eq!(markers.len(), 1, "{text}: one marker in {sample:?}");
+        assert!(
+            markers[0].face.is_none(),
+            "{text}: an open marker has no face"
+        );
+        let edge = markers[0].edge.expect("the tick is stroked");
+        assert_eq!(rgb8(edge), colour, "{text}");
+    }
+}
+
 // Why: a line sample is drawn as the author styled it; a sample of the default marker shape, none, draws the line
 // alone, in its colour and dash.
 #[test]
