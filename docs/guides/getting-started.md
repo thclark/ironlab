@@ -35,7 +35,7 @@ Axes are placed in tiles, numbered from zero starting at the top-left tile.
 - `fig.axes3(row, col)` does the same but makes the axes three-dimensional.
 - `fig.axes_span(row, col, row_span, col_span)` returns an axes whose top-left tile is `(row, col)` and makes it cover the given numbers of rows and columns.
 
-Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans.
+Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans, and `fit_row` and `fit_col` make a row or column as large as the [legend panels it holds](legends.md#fitting-rows-and-columns-to-their-legends).
 
 Each of these returns an `AxesMut` handle. The handle borrows the figure mutably, so it is held only while one axes is being built. An axes is referred to later, for example when linking axes, by the identifier returned from `ax.id()`.
 
@@ -391,7 +391,7 @@ for issue in &report.warnings {
 }
 ```
 
-The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the weights of the tile layout are described in the [legends guide](legends.md).
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the sizes of the rows and columns of the tile layout are described in the [legends guide](legends.md).
 
 ## Saving and loading
 
