@@ -83,7 +83,7 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.4.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.5.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
@@ -580,7 +580,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 
 ```json
 {
-  "schema_version": "0.4.0",
+  "schema_version": "0.5.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -640,7 +640,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.4.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.5.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
 
@@ -654,6 +654,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.5.0** added the direction (`reverse`), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [coordinates and clipping](#coordinates-and-clipping) (`x_coords`, `y_coords`, `clip`) of lines and scatters, the markers `v_line` and `h_line`, the dash patterns `dash_dot_dot` and `long_dash`, the [aspect](#aspect) (`aspect`, `aspect_adjust`) and the title alignment (`title_align`) of an axes, the [explicit entries](#legend-entries) (`entries`) of a legend, and fitted tracks in the row and column sizes of the [tile layout](#tile-layout). A file of version 0.4 is rejected.
 - **0.4.0** added [legend panels](#legend-panels) (`panel_legends`), changed the [legend](#legend) of an axes from a single object into a choice between a legend inside the plot area and a legend panel, added the [layout of legend entries](#legend-entry-layout) in columns and the legend location `center`, and added the row and column weights of the [tile layout](#tile-layout). A file of version 0.3 is rejected.
 - **0.3.1** added the [labels](#labels) of a figure. It is a patch version because a reader of version 0.3.0 that ignores labels still draws the figure correctly, so files are exchanged in both directions between the two.
 - **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.

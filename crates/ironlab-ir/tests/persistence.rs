@@ -18,7 +18,7 @@ fn decay_figure() -> Figure {
     data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
     data.insert(DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135]));
     Figure {
-        schema_version: "0.4.0".to_owned(),
+        schema_version: "0.5.0".to_owned(),
         id: NodeId(1),
         title: Some(Text::new("Decay of $e^{-t}$")),
         size: FigureSize {
@@ -563,30 +563,31 @@ fn every_image_variant_survives_a_json_round_trip() {
     assert_eq!(restored.to_json(), text);
 }
 
-// Why: the legend of an axes changed shape (it became a choice between a legend inside
-// the plot area and a legend panel) and the figure gained legend panels, which a reader
-// of the previous release cannot interpret, so this release raises the schema version to
-// 0.4.0. The build must declare it and the fixture, which declares 0.4.0, must load. A
-// `.fig.json` document of the previous minor release, 0.3.1, must be refused, and the
-// refusal must name both versions, so that the user knows which build to use.
+// Why: the axes and their artists gained properties that a reader of the previous release
+// cannot interpret (axis direction, ticks and tick labels, blended coordinates, a fixed
+// aspect and the alignment of the title, explicit legend entries and fitted tile tracks),
+// so this release raises the schema version to 0.5.0. The build must declare it and the
+// fixture, which declares 0.5.0, must load. A `.fig.json` document of the previous minor
+// release, 0.4.0, must be refused, and the refusal must name both versions, so that the
+// user knows which build to use.
 #[test]
-fn the_build_implements_schema_version_0_4_0_and_refuses_documents_of_0_3_1() {
-    assert_eq!(SCHEMA_VERSION, "0.4.0");
+fn the_build_implements_schema_version_0_5_0_and_refuses_documents_of_0_4_0() {
+    assert_eq!(SCHEMA_VERSION, "0.5.0");
     let loaded = Figure::from_json(DECAY_FIXTURE).expect("the fixture declares the version");
-    assert_eq!(loaded.schema_version, "0.4.0");
-    let error = Figure::from_json(&decay_fixture_with_version(json!("0.3.1")))
+    assert_eq!(loaded.schema_version, "0.5.0");
+    let error = Figure::from_json(&decay_fixture_with_version(json!("0.4.0")))
         .expect_err("a document of the previous minor version is refused");
     assert!(
         matches!(
             &error,
             IrError::IncompatibleSchemaVersion { found, supported }
-                if found == "0.3.1" && *supported == "0.4.0"
+                if found == "0.4.0" && *supported == "0.5.0"
         ),
         "{error:?}"
     );
     let message = error.to_string();
     assert!(
-        message.contains("0.3.1") && message.contains("0.4.0"),
+        message.contains("0.4.0") && message.contains("0.5.0"),
         "the message must name both versions: {message}"
     );
 }
