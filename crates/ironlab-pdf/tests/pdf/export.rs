@@ -4,8 +4,8 @@
 //! implemented; tests of `PdfOptions::for_figure` do not.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, ColorSpec, Figure, FigureSize, Grid, Line, NdArray, Provenance, Scale,
-    Surface, Text,
+    Artist, Axes, Axis, Color, ColorSpec, DataId, Figure, FigureSize, Grid, Image, ImagePlacement,
+    Limits, Line, NdArray, NodeId, PixelRange, Provenance, Scale, Surface, Text,
 };
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
 
@@ -317,6 +317,110 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
         "the exported file is {} bytes, so the decimated geometry reached the vector output",
         exported.len()
     );
+}
+
+/// A figure of one 2D axes spanning x from 0 to 2 and y from 0 to 1, whose left half is a red surface with a face
+/// opacity of one half and no edges, and whose right half is a one-pixel blue true-colour image with an opacity of
+/// one half.
+fn half_opaque_surface_and_image() -> Figure {
+    let mut data = std::collections::BTreeMap::new();
+    data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
+    data.insert(
+        DataId(1),
+        NdArray::from_shape(vec![2, 2], vec![0.0; 4]).expect("2 × 2"),
+    );
+    data.insert(
+        DataId(2),
+        NdArray::from_shape_u8(vec![1, 1, 3], vec![0, 0, 255]).expect("one pixel"),
+    );
+    let limits = |min, max| Axis {
+        limits: Limits::Manual { min, max },
+        ..Axis::default()
+    };
+    Figure {
+        size: FigureSize {
+            width_mm: 80.0,
+            height_mm: 60.0,
+        },
+        data,
+        axes: vec![Axes {
+            id: NodeId(2),
+            x: limits(0.0, 2.0),
+            y: limits(0.0, 1.0),
+            artists: vec![
+                Artist::Surface(Surface {
+                    id: NodeId(3),
+                    grid: Grid::Rectilinear {
+                        x: DataId(0),
+                        y: DataId(0),
+                    },
+                    z: DataId(1),
+                    face: ColorSpec::Rgba {
+                        color: Color::rgb(1.0, 0.0, 0.0),
+                    },
+                    edge: ColorSpec::None,
+                    face_opacity: 0.5,
+                    ..Surface::default()
+                }),
+                Artist::Image(Image {
+                    id: NodeId(4),
+                    pixels: DataId(2),
+                    placement: ImagePlacement {
+                        columns: Some(PixelRange {
+                            first: 1.5,
+                            last: 1.5,
+                        }),
+                        rows: Some(PixelRange {
+                            first: 0.5,
+                            last: 0.5,
+                        }),
+                        ..ImagePlacement::default()
+                    },
+                    opacity: 0.5,
+                    ..Image::default()
+                }),
+            ],
+            ..Axes::default()
+        }],
+        ..Figure::default()
+    }
+}
+
+#[test]
+fn the_opacity_of_a_surface_and_of_an_image_reaches_the_page() {
+    // WHY: opacity is baked by the compiler into the colours of the faces and the samples of the image, so the PDF
+    // must carry it as a fill opacity and as a soft mask; an exporter that took the colour alone, or dropped the
+    // alpha of an image that was opaque before its opacity applied, would print the figure opaque.
+    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
+    let ws = Workspace::new("export-opacity");
+    let text = engine();
+    let figure = half_opaque_surface_and_image();
+    let plot = ironlab_scene::compile(&figure, &text).hit_map.axes[0].plot_rect;
+    let exported = export_pdf(&figure, &text, None).expect("export figure");
+    assert!(exported.warnings.is_empty(), "{:?}", exported.warnings);
+    let pdf = ws.write_pdf("figure", &exported.bytes);
+    let y = plot.y + plot.height / 2.0;
+    for engine in ENGINES {
+        let image = rasterise(&pdf, engine);
+        assert_pixel(
+            engine,
+            &image,
+            plot.x + plot.width / 4.0,
+            y,
+            [255, 128, 128],
+            12,
+            "the half-opaque red surface over the white page",
+        );
+        assert_pixel(
+            engine,
+            &image,
+            plot.x + 3.0 * plot.width / 4.0,
+            y,
+            [128, 128, 255],
+            12,
+            "the half-opaque blue image over the white page",
+        );
+    }
 }
 
 /// A figure of one 2D axes whose x axis is logarithmic over [1, 100], holding a surface without edges whose nodes lie

@@ -5192,3 +5192,129 @@ fn a_compiled_three_dimensional_figure_gives_draws_in_a_depth_group_beside_draws
         "every vertex and segment end outside the group lies at z = 0"
     );
 }
+
+// Why: inside a depth group the painter draws the opaque draws first, recording their depth, and the translucent
+// ones after them without recording theirs, so that a translucent face hides nothing behind it; that depends on every
+// kind of draw knowing whether it paints any colour with an alpha below 1 (a fill, a stroke, an image tile with one
+// translucent pixel, markers with one translucent face or edge), and an opaque image of four channels must not count as translucent. The list itself stays in
+// the painter's order of the display list, with draws outside every group flagged as well.
+#[test]
+fn every_draw_records_whether_it_paints_a_translucent_colour() {
+    let half = |r, g, b| Rgba::new(r, g, b, 0.5);
+    let plane = DepthPlane::constant(0.5);
+    let display = list(vec![
+        sourced(
+            filled(
+                rect_segments(0.0, 0.0, 5.0, 5.0),
+                half(1.0, 0.0, 0.0),
+                FillRule::NonZero,
+            ),
+            1,
+        ),
+        depth_group(vec![
+            sourced(square_at(0.0, 0.0, 5.0, half(1.0, 0.0, 0.0), plane), 10),
+            sourced(square_at(0.0, 0.0, 5.0, Rgba::BLACK, plane), 11),
+            sourced(
+                with_depth(
+                    stroked(
+                        rect_segments(0.0, 0.0, 5.0, 5.0),
+                        half(0.0, 1.0, 0.0),
+                        1.0,
+                        Vec::new(),
+                        0.0,
+                        LineCap::Butt,
+                        LineJoin::Miter,
+                    ),
+                    Depth::Plane(plane),
+                ),
+                12,
+            ),
+            sourced(square_at(0.0, 0.0, 5.0, Rgba::WHITE, plane), 13),
+            sourced(
+                {
+                    let mut item = image(
+                        Rect::new(0.0, 0.0, 2.0, 1.0),
+                        2,
+                        1,
+                        ImageItem::RGBA,
+                        vec![255, 0, 0, 255, 0, 0, 255, 254],
+                    );
+                    if let ItemKind::Image(image) = &mut item.kind {
+                        image.depth = Some(plane);
+                    }
+                    item
+                },
+                14,
+            ),
+            sourced(
+                {
+                    let mut item = image(
+                        Rect::new(0.0, 0.0, 2.0, 1.0),
+                        2,
+                        1,
+                        ImageItem::RGBA,
+                        vec![255, 0, 0, 255, 0, 0, 255, 255],
+                    );
+                    if let ItemKind::Image(image) = &mut item.kind {
+                        image.depth = Some(plane);
+                    }
+                    item
+                },
+                15,
+            ),
+            sourced(
+                markers(
+                    unit_square(),
+                    0.5,
+                    vec![
+                        instance(1.0, 1.0, 2.0, Some(Rgba::BLACK), Some(Rgba::BLACK)),
+                        instance(3.0, 1.0, 2.0, Some(Rgba::BLACK), Some(half(0.0, 0.0, 1.0))),
+                    ],
+                ),
+                16,
+            ),
+            sourced(
+                markers(
+                    unit_square(),
+                    0.5,
+                    vec![instance(1.0, 1.0, 2.0, Some(Rgba::BLACK), None)],
+                ),
+                17,
+            ),
+        ]),
+        sourced(
+            filled(
+                rect_segments(0.0, 0.0, 5.0, 5.0),
+                Rgba::BLACK,
+                FillRule::NonZero,
+            ),
+            2,
+        ),
+    ]);
+    let drawn = draw_list(&display);
+    let order: Vec<(u64, bool)> = drawn
+        .draws
+        .iter()
+        .map(|draw| {
+            (
+                draw.source.expect("every draw is sourced").0,
+                draw.translucent,
+            )
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [
+            (1, true),
+            (10, true),
+            (11, false),
+            (12, true),
+            (13, false),
+            (14, true),
+            (15, false),
+            (16, true),
+            (17, false),
+            (2, false),
+        ]
+    );
+}

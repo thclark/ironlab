@@ -362,9 +362,10 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
 // Why: the three image kinds and their placement and policy values are new in the
 // schema, and web clients and hand-written files produce them from the documented form
 // rather than from serde's output, so the form of each (its tag, the names and nesting
-// of its fields, `null` for an absent name, range or offset, and the colour of a fixed
-// colour as a hex string) is a contract that a renamed field or a changed tagging would
-// break; and the written form must read back as the same figure.
+// of its fields, `null` for an absent name, range or offset, the colour of a fixed colour
+// as a hex string, and an opacity or an alpha written only when it is not the default)
+// is a contract that a renamed field or a changed tagging would break; and the written
+// form must read back as the same figure.
 #[test]
 fn image_artists_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
@@ -382,6 +383,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
                     last: 0.0,
                 }),
             },
+            opacity: 0.5,
         }),
         Artist::IndexedImage(IndexedImage {
             id: NodeId(6),
@@ -396,6 +398,8 @@ fn image_artists_are_written_in_the_documented_json_form() {
             below: OutOfRange::Strict,
             above: OutOfRange::Strict,
             non_finite: OutOfRange::Transparent,
+            alpha: Some(DataId(13)),
+            opacity: 1.0,
         }),
         Artist::MappedImage(MappedImage {
             id: NodeId(7),
@@ -415,6 +419,8 @@ fn image_artists_are_written_in_the_documented_json_form() {
             non_finite: OutOfRange::Rgba {
                 color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
             },
+            alpha: None,
+            opacity: 0.0,
         }),
     ]);
     let text = fig.to_json();
@@ -432,7 +438,8 @@ fn image_artists_are_written_in_the_documented_json_form() {
                 "plane": {"type": "xz", "y": -2.0},
                 "columns": null,
                 "rows": {"first": 3.0, "last": 0.0}
-            }
+            },
+            "opacity": 0.5
         })
     );
     assert_eq!(
@@ -450,7 +457,8 @@ fn image_artists_are_written_in_the_documented_json_form() {
             },
             "below": {"type": "strict"},
             "above": {"type": "strict"},
-            "non_finite": {"type": "transparent"}
+            "non_finite": {"type": "transparent"},
+            "alpha": 13
         })
     );
     assert_eq!(
@@ -468,7 +476,8 @@ fn image_artists_are_written_in_the_documented_json_form() {
             },
             "below": {"type": "transparent"},
             "above": {"type": "clamp"},
-            "non_finite": {"type": "rgba", "color": "#ff000080"}
+            "non_finite": {"type": "rgba", "color": "#ff000080"},
+            "opacity": 0.0
         })
     );
     assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
@@ -477,9 +486,10 @@ fn image_artists_are_written_in_the_documented_json_form() {
 // Why: the defaults of the image kinds are what a figure holds when a program sets only
 // the pixels, so they are as much a contract of the format as the field names are: an
 // image is visible and unnamed, it lies on the floor with no offset and its pixel centres
-// at 0 to n − 1 (no ranges), and a mapped kind paints every pixel it cannot colour
-// transparent. A default that drifted (a strict policy, a wall, a hidden image) would
-// change every figure written without those fields.
+// at 0 to n − 1 (no ranges), it has no alpha and an opacity of 1, which are left out of
+// the JSON, and a mapped kind paints every pixel it cannot colour transparent. A default
+// that drifted (a strict policy, a wall, a hidden or translucent image) would change
+// every figure written without those fields.
 #[test]
 fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_policies() {
     let (mut fig, _, _) = single_line_figure();
@@ -866,4 +876,134 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
     value["panel_legends"][0]["entries"] = json!({ "type": "auto" });
     let read = Figure::from_json(&value.to_string()).unwrap();
     assert_eq!(read.panel_legends[0].entries, LegendEntries::Auto);
+}
+
+// Why: files written before surfaces, images and contours had alpha and opacity, and files
+// written by hand or by web clients that leave the defaults out, have none of these properties;
+// they must still load, as opaque artists without alpha, rather than be refused as
+// incomplete, and a figure that uses the defaults must write them out of the JSON, so
+// that such files are unchanged by a load and a save.
+#[test]
+fn surfaces_images_and_contours_without_alpha_or_opacity_load_as_opaque_and_save_without_them() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].artists.extend([
+        Artist::Surface(Surface {
+            id: NodeId(5),
+            ..Surface::default()
+        }),
+        Artist::Image(Image {
+            id: NodeId(6),
+            ..Image::default()
+        }),
+        Artist::IndexedImage(IndexedImage {
+            id: NodeId(7),
+            ..IndexedImage::default()
+        }),
+        Artist::MappedImage(MappedImage {
+            id: NodeId(8),
+            ..MappedImage::default()
+        }),
+        Artist::Contour(Contour {
+            id: NodeId(9),
+            ..Contour::default()
+        }),
+    ]);
+    let text = fig.to_json();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    for artist in value["axes"][0]["artists"].as_array().unwrap() {
+        for key in [
+            "alpha",
+            "opacity",
+            "face_alpha",
+            "edge_alpha",
+            "face_opacity",
+            "edge_opacity",
+            "line_opacity",
+            "fill_opacity",
+        ] {
+            assert!(
+                artist.get(key).is_none(),
+                "{key} is written for {}",
+                artist["type"]
+            );
+        }
+    }
+    let restored = Figure::from_json(&text).expect("a file without the properties loads");
+    let artists = &restored.axes[0].artists;
+    let Artist::Surface(surface) = &artists[1] else {
+        panic!("expected a surface, found {:?}", artists[1]);
+    };
+    assert_eq!(
+        (
+            surface.face_alpha,
+            surface.edge_alpha,
+            surface.face_opacity,
+            surface.edge_opacity
+        ),
+        (None, None, 1.0, 1.0)
+    );
+    let Artist::Image(image) = &artists[2] else {
+        panic!("expected an image, found {:?}", artists[2]);
+    };
+    assert_eq!(image.opacity, 1.0);
+    let Artist::IndexedImage(indexed) = &artists[3] else {
+        panic!("expected an indexed image, found {:?}", artists[3]);
+    };
+    assert_eq!((indexed.alpha, indexed.opacity), (None, 1.0));
+    let Artist::MappedImage(mapped) = &artists[4] else {
+        panic!("expected a mapped image, found {:?}", artists[4]);
+    };
+    assert_eq!((mapped.alpha, mapped.opacity), (None, 1.0));
+    let Artist::Contour(contour) = &artists[5] else {
+        panic!("expected a contour, found {:?}", artists[5]);
+    };
+    assert_eq!((contour.line_opacity, contour.fill_opacity), (1.0, 1.0));
+    assert_eq!(restored, fig);
+}
+
+// Why: the face and edge transparency of a surface are written under their own names, an
+// opacity of 0 (a hidden fill, not a default) is written although it is falsy, and one
+// array may be named by both alpha properties; a reader that confused the faces with the
+// edges, or dropped a zero, would draw a different surface.
+#[test]
+fn surface_alpha_and_opacities_are_written_in_the_documented_json_form() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].artists.push(Artist::Surface(Surface {
+        id: NodeId(5),
+        face_alpha: Some(DataId(9)),
+        edge_alpha: Some(DataId(9)),
+        face_opacity: 0.0,
+        edge_opacity: 0.25,
+        ..Surface::default()
+    }));
+    let text = fig.to_json();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    let surface = &value["axes"][0]["artists"][1];
+    assert_eq!(surface["face_alpha"], json!(9));
+    assert_eq!(surface["edge_alpha"], json!(9));
+    assert_eq!(surface["face_opacity"], json!(0.0));
+    assert_eq!(surface["edge_opacity"], json!(0.25));
+    assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
+}
+
+// Why: the isoline and band opacities of a contour are written under their own names, and
+// an opacity of 0 (hidden bands, not a default) is written although it is falsy; a reader
+// that confused the lines with the bands, or dropped a zero, would draw a different
+// contour.
+#[test]
+fn contour_opacities_are_written_in_the_documented_json_form() {
+    let (mut fig, _, _) = single_line_figure();
+    fig.axes[0].artists.push(Artist::Contour(Contour {
+        id: NodeId(5),
+        fill: true,
+        line_opacity: 0.25,
+        fill_opacity: 0.0,
+        ..Contour::default()
+    }));
+    let text = fig.to_json();
+    let value: Value = serde_json::from_str(&text).unwrap();
+    let contour = &value["axes"][0]["artists"][1];
+    assert_eq!(contour["line_opacity"], json!(0.25));
+    assert_eq!(contour["fill_opacity"], json!(0.0));
+    assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
 }

@@ -288,6 +288,36 @@ The second recipe gives an image of n rows the matrix orientation that MATLAB's 
 
 The [Image orientation](../gallery/image_orientation.md) gallery entry draws the three recipes side by side in axes with the same limits, and the [figure schema](../reference/figure-schema.md#image-placement) states how a placement is stored.
 
+### Alpha and opacity
+
+Surfaces, images and contours can be drawn partly transparent. **Alpha** has the shape of the data: an array that gives every node of a surface, or every pixel of an image, its own transparency, so that it varies over the artist. **Opacity** is one number from 0 (transparent) to 1 (opaque, the default) for the whole artist. What is drawn is their product: a pixel whose alpha is 0.6 in an image whose opacity is 0.5 is drawn with an alpha of 0.3.
+
+Use alpha when the transparency is part of the data, such as a mask or the confidence of each measurement, and opacity when the whole artist should be fainter, for example so that what lies beneath it shows through. An opacity can be changed in the [property editor](viewer.md#changing-a-property) of the viewer without regenerating any data, and it is the compact way to make an artist uniformly translucent: an RGB image with an opacity of 0.5 says the same as an RGBA image whose alpha is 0.5 everywhere, in three quarters of the bytes.
+
+```rust
+let mut fig = Figure::new().tiles(1, 2);
+
+// A colour-mapped image whose pixels fade with the confidence of each measurement. A NaN confidence makes its pixel
+// transparent, and a `ByteMatrix` of alpha from 0 to 255 is read as fractions of 255.
+fig.axes(0, 0)
+    .mapped_image(&speed)
+    .alpha(&confidence)
+    .opacity(0.9);
+
+// A surface whose faces take their alpha from the confidence and are translucent throughout, so that the contours
+// beneath them show through, and whose mesh lines are fainter still.
+let mut ax = fig.axes3(0, 1);
+ax.contour(&x, &y, &speed);
+ax.surf(&x, &y, &speed)
+    .face_alpha(&confidence) // one alpha per node: a face takes the mean of its corners
+    .face_opacity(0.8)
+    .edge_opacity(0.25);     // `edge_alpha` gives the edges an alpha of their own
+```
+
+`alpha` is available on `indexed_image` and `mapped_image`, whose pixels are a single value each; a true-colour `image` carries its alpha in its pixels, built with `Pixels::from_rgba8`, `Pixels::rgba_from_fn` or `with_alpha`, and takes an `opacity` like the other two. A surface has `face_alpha` and `edge_alpha`, one value per node of its field, and `face_opacity` and `edge_opacity`, so that its faces and the mesh of edges that borders them are controlled independently. A contour has `line_opacity` for its isolines and `fill_opacity` for its filled bands, and no alpha array, because each isoline and band is drawn in a single colour. An alpha value outside 0 to 1 is clamped, a NaN makes its pixel or face transparent, and the alpha of an image also applies to a pixel drawn in the fixed colour of an [out-of-range policy](#images). An opacity outside 0 to 1 is reported by [validation](#validating-a-figure) as `InvalidOpacity`.
+
+In a three-dimensional axes a translucent face or image never hides what lies behind it, wherever it comes in the order in which the axes sorts its artists; [three-dimensional axes in PDF](#three-dimensional-axes-in-pdf) explains when such an axes is written to a PDF as an image. The legend sample of a translucent artist takes its opacity. The [Measured speed faded by its confidence](../gallery/piv_confidence.md) gallery entry draws both examples above, and the [figure schema](../reference/figure-schema.md#alpha-and-opacity) states exactly how the two combine.
+
 ## Titles, labels and LaTeX
 
 Axes titles and labels are set on the axes handle, and each setter returns the handle so that they can be chained.
@@ -597,9 +627,9 @@ fig.export_pdf_with("pressure.pdf", RasterOptions {
 
 Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else. A dense artist drawn as an image is reported in the `export` list of the report as `RasterisedForSize`, with its cell count.
 
-### Three-dimensional axes
+### Three-dimensional axes in PDF
 
-The viewer draws the artists of a three-dimensional axes with a depth buffer, so that surfaces, lines, markers and images which cross one another are shown correctly wherever they cross. A PDF has no depth buffer: it can only paint one thing over another in a fixed order. `export_pdf` therefore proves, for each three-dimensional axes, whether painting its artists back to front shows the same picture as the depth buffer, by rendering the axes both ways through the viewer's own renderer at the export resolution. Where the two agree, the axes is written as vector paths, as a single `surf` or `contour3` is. Where they differ, as for two surfaces that intersect, arrows standing on a surface, a line lying along one, or a sharply folded wireframe whose edges show through its folds by the width of the depth bias, the depth-tested render is embedded as an image, exactly as a dense surface is, and the report says so as `RasterisedForDepth`. Two renders agree when no patch of six points differs by more than four levels of 255 on average, which admits the slivers that anti-aliasing leaves along the shared edges of faces and refuses any misdrawn face, marker or stretch of line.
+The viewer draws the artists of a three-dimensional axes with a depth buffer, so that surfaces, lines, markers and images which cross one another are shown correctly wherever they cross. A PDF has no depth buffer: it can only paint one thing over another in a fixed order. `export_pdf` therefore proves, for each three-dimensional axes, whether painting its artists back to front shows the same picture as the depth buffer, by rendering the axes both ways through the viewer's own renderer at the export resolution. Where the two agree, the axes is written as vector paths, as a single `surf` or `contour3` is. Where they differ, as for two surfaces that intersect, arrows standing on a surface, a line lying along one, a sharply folded wireframe whose edges show through its folds by the width of the depth bias, or a translucent surface with something behind it that comes after it in the painter's order, the depth-tested render is embedded as an image, exactly as a dense surface is, and the report says so as `RasterisedForDepth`. The depth buffer draws the opaque artists of the axes first and the translucent ones after them, without letting a translucent face or image hide anything, so the depth-tested render shows through a translucent surface whatever the order. Two renders agree when no patch of six points differs by more than four levels of 255 on average, which admits the slivers that anti-aliasing leaves along the shared edges of faces and refuses any misdrawn face, marker or stretch of line.
 
 `export_pdf_with` overrides the decision through `RasterOptions::depth`:
 
@@ -662,7 +692,7 @@ Because the whole image is drawn by the renderer, every PNG export needs a graph
 
 Nothing in IronLAB needs a window: exporting a figure, rendering the documentation gallery and running the tests all draw through the same headless renderer, so they run on a server, in a container and in continuous integration. What they need, for some figures, is a graphics adapter for wgpu to draw with.
 
-- Verifying a three-dimensional axes for [export](#three-dimensional-axes), and drawing one as an image, needs an adapter.
+- Verifying a three-dimensional axes for [export](#three-dimensional-axes-in-pdf), and drawing one as an image, needs an adapter.
 - Drawing a [dense surface](#dense-surfaces) as an image needs an adapter.
 - [Exporting PNG](#exporting-png) needs an adapter, because the whole image is drawn by the renderer.
 - Everything else, including every two-dimensional figure and a three-dimensional figure exported with `DepthPolicy::Vector`, needs none.

@@ -1,5 +1,5 @@
-//! Images: the pixel edges of a placement, the raster of samples resolved under the out-of-range policies of an
-//! artist, and the mean colour of a true-colour image for its legend sample.
+//! Images: the pixel edges of a placement, the raster of samples resolved under the out-of-range policies, the alpha
+//! and the opacity of an artist, and the mean colour of a true-colour image for its legend sample.
 
 use std::sync::Arc;
 
@@ -96,7 +96,9 @@ fn opaque(rgb: [u8; 3]) -> [u8; 4] {
 /// and draws a pixel with a non-finite component transparent. A colour-mapped image looks each value up through the
 /// colour limits and a colour-indexed image looks each index up in the colormap directly, a value being widened
 /// from 8 bits where the array holds bytes; a pixel that either lookup cannot colour takes what the policy of its
-/// category says, and a strict policy refuses the whole image at its first such pixel.
+/// category says, and a strict policy refuses the whole image at its first such pixel. The alpha of every pixel is
+/// then multiplied by its value in the alpha array of the artist and by the opacity of the artist, as
+/// [`apply_alpha`] describes.
 pub(super) fn resolve(image: &ImageData, scale: &ColourScale) -> Result<Raster, Refused> {
     let mut pixels: Vec<[u8; 4]> = Vec::with_capacity(image.nx * image.ny);
     match image.kind {
@@ -153,7 +155,37 @@ pub(super) fn resolve(image: &ImageData, scale: &ColourScale) -> Result<Raster, 
             }
         }
     }
+    apply_alpha(&mut pixels, image);
     Ok(pack(pixels))
+}
+
+/// Multiplies the alpha of every pixel, resolved from its colour, by its value in the alpha array of the image and
+/// by the opacity of the image, and quantises the product.
+///
+/// A floating-point alpha is clamped to `[0, 1]` and a non-finite one is 0, and an 8-bit alpha is divided by 255,
+/// as the components of a true-colour image are read. The product applies to every pixel alike, including one
+/// drawn in the fixed colour of an out-of-range policy, whose own alpha it multiplies. A pixel whose product is 0
+/// is made wholly transparent. An image without an alpha array and with an opacity of 1 is left exactly as its
+/// colours resolved, so that its samples are those it had before alpha and opacity existed.
+fn apply_alpha(pixels: &mut [[u8; 4]], image: &ImageData) {
+    let opacity = style::unit_opacity(image.opacity);
+    if image.alpha.is_none() && opacity == 1.0 {
+        return;
+    }
+    let alpha_at = |k: usize| match image.alpha.map(|alpha| &alpha.values) {
+        None => 1.0,
+        Some(Values::F64(values)) if values[k].is_finite() => values[k].clamp(0.0, 1.0),
+        Some(Values::F64(_)) => 0.0,
+        Some(Values::U8(values)) => f64::from(values[k]) / 255.0,
+    };
+    for (k, pixel) in pixels.iter_mut().enumerate() {
+        let alpha = quantise(f64::from(pixel[3]) / 255.0 * alpha_at(k) * opacity);
+        *pixel = if alpha == 0 {
+            TRANSPARENT
+        } else {
+            [pixel[0], pixel[1], pixel[2], alpha]
+        };
+    }
 }
 
 /// Decides the colour of the pixel at row-major index `k` of an image `nx` columns wide from its lookup: an entry

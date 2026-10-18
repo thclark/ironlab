@@ -312,3 +312,13 @@ pub(super) fn marker_item(
         }),
     }
 }
+
+/// Returns an opacity held to `[0, 1]`, with a NaN, which validation refuses, taken as transparent as a non-finite
+/// alpha is.
+pub(super) fn unit_opacity(opacity: f64) -> f64 {
+    if opacity.is_nan() {
+        0.0
+    } else {
+        opacity.clamp(0.0, 1.0)
+    }
+}

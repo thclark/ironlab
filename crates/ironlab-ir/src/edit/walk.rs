@@ -522,6 +522,10 @@ ir_node! {
             "Where the contours are placed in three-dimensional axes.";
         plain "line" => line: LineStyle =
             "The style of the isolines; a colormapped colour takes each isoline's level.";
+        plain "line_opacity" => line_opacity: f64 =
+            "The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
+        plain "fill_opacity" => fill_opacity: f64 =
+            "The opacity of the filled bands, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
     }
 
     Quiver {
@@ -557,6 +561,14 @@ ir_node! {
         plain "face" => face: ColorSpec = "The colour of the faces.";
         plain "edge" => edge: ColorSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";
+        optional "face_alpha" => face_alpha: DataId =
+            "The alpha of the faces at every node, with the same shape as the field; a face takes the mean of its corners' alpha, which is clamped to [0, 1], and a non-finite alpha makes the face transparent. When absent the faces are uniformly opaque before their opacity applies.";
+        optional "edge_alpha" => edge_alpha: DataId =
+            "The alpha of the face edges at every node, with the same shape as the field; the edges of a face take the mean of its corners' edge alpha. When absent the edges are uniformly opaque before their opacity applies.";
+        plain "face_opacity" => face_opacity: f64 =
+            "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the face colour's alpha and the face alpha.";
+        plain "edge_opacity" => edge_opacity: f64 =
+            "The opacity of the face edges, from 0 (transparent) to 1 (opaque), which multiplies the edge colour's alpha and the edge alpha.";
     }
 
     Image {
@@ -567,6 +579,8 @@ ir_node! {
         plain "pixels" => pixels: DataId =
             "The pixels, a three-dimensional array of shape [ny, nx, 3] or [ny, nx, 4] holding the red, green, blue and optionally alpha components of every pixel: floating-point components from 0 to 1, or 8-bit components from 0 to 255.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
+        plain "opacity" => opacity: f64 =
+            "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
     }
 
     IndexedImage {
@@ -583,6 +597,10 @@ ir_node! {
             "What is drawn for a pixel whose truncated index is greater than 255.";
         plain "non_finite" => non_finite: OutOfRange =
             "What is drawn for a pixel whose index is not finite.";
+        optional "alpha" => alpha: DataId =
+            "The alpha of every pixel, with the same shape as the indices: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
+        plain "opacity" => opacity: f64 =
+            "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
     }
 
     MappedImage {
@@ -599,6 +617,10 @@ ir_node! {
             "What is drawn for a pixel whose value is greater than the upper colour limit.";
         plain "non_finite" => non_finite: OutOfRange =
             "What is drawn for a pixel whose value is not finite.";
+        optional "alpha" => alpha: DataId =
+            "The alpha of every pixel, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
+        plain "opacity" => opacity: f64 =
+            "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
     }
 }
 

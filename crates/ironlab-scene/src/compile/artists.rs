@@ -339,8 +339,20 @@ pub(super) fn draw_artists(
                     scale,
                 },
             ) => draw_quiver(&mut draw, q, points, vectors, scale, *primary),
-            (Artist::Surface(s), ArtistData::Surface { grid, colours }) => {
-                draw_surface(&mut draw, s, &grid, colours)
+            (
+                Artist::Surface(s),
+                ArtistData::Surface {
+                    grid,
+                    colours,
+                    face_alpha,
+                    edge_alpha,
+                },
+            ) => {
+                let alpha = SurfaceAlpha {
+                    face: face_alpha,
+                    edge: edge_alpha,
+                };
+                draw_surface(&mut draw, s, &grid, colours, alpha)
             }
             (
                 Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_),
@@ -765,17 +777,20 @@ pub(super) fn contour_levels(levels: &Levels, zmin: f64, zmax: f64) -> Vec<f64> 
     out
 }
 
-/// Draws the filled bands and isolines of a contour.
+/// Draws the filled bands and isolines of a contour, the bands faded by its fill opacity and the isolines by its
+/// line opacity; an opacity of 0 draws nothing.
 fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     let Some((zmin, zmax)) = field_range(grid.z) else {
         return;
     };
+    let fill_opacity = style::unit_opacity(c.fill_opacity);
+    let line_opacity = style::unit_opacity(c.line_opacity);
     let levels = contour_levels(&c.levels, zmin, zmax);
     let plane = match c.placement {
         ContourPlacement::Plane { z: Some(z) } => z,
         _ => draw.low[2],
     };
-    if c.fill {
+    if c.fill && fill_opacity > 0.0 {
         for (lo, hi) in contour::band_edges(&levels, zmin, zmax) {
             let mid = (lo.max(zmin) + hi.min(zmax)) / 2.0;
             let Some(colour) = draw.scale.colour(mid) else {
@@ -793,18 +808,24 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
                 b.polyline(&positions(&mapped), true);
                 mapped_all.extend(mapped);
             }
-            let item = paths::item(c.id, b.finish(), Some(paths::fill(colour)), None);
+            let fill = paths::fill(colour.with_alpha_factor(fill_opacity as f32));
+            let item = paths::item(c.id, b.finish(), Some(fill), None);
             draw.push_at(mean_depth(&mapped_all), item, || {
                 Depth::Plane(face_plane(&mapped_all))
             });
         }
     }
     let scale = draw.scale;
-    let line_colour = |level: f64| match c.line.color {
-        ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-        ColorSpec::None => None,
-        ColorSpec::Auto | ColorSpec::Colormapped if !c.fill => scale.colour(level),
-        ColorSpec::Auto | ColorSpec::Colormapped => None,
+    let line_colour = |level: f64| {
+        let colour = match c.line.color {
+            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+            ColorSpec::None => None,
+            ColorSpec::Auto | ColorSpec::Colormapped if !c.fill => scale.colour(level),
+            ColorSpec::Auto | ColorSpec::Colormapped => None,
+        };
+        colour
+            .filter(|_| line_opacity > 0.0)
+            .map(|colour| colour.with_alpha_factor(line_opacity as f32))
     };
     for level in levels {
         let Some(stroke) = line_stroke(&c.line, line_colour(level)) else {
@@ -914,7 +935,37 @@ fn node_xy(grid: &GridRef, i: usize, j: usize) -> [f64; 2] {
     }
 }
 
+/// The alpha arrays of a surface, one value per node of its field, for its faces and for their edges.
+#[derive(Clone, Copy)]
+struct SurfaceAlpha<'a> {
+    face: Option<&'a [f64]>,
+    edge: Option<&'a [f64]>,
+}
+
+/// Returns the alpha of a face from an alpha array at the nodes of its four corners: the mean of the four values,
+/// each clamped to `[0, 1]`, or 0 when any of them is not finite, so that the face is transparent; a surface without
+/// such an array is opaque, with an alpha of 1.
+fn corner_alpha(alpha: Option<&[f64]>, corners: [usize; 4]) -> f64 {
+    let Some(alpha) = alpha else {
+        return 1.0;
+    };
+    let values = corners.map(|k| alpha[k]);
+    if values.iter().any(|value| !value.is_finite()) {
+        return 0.0;
+    }
+    values
+        .iter()
+        .map(|value| value.clamp(0.0, 1.0))
+        .sum::<f64>()
+        / 4.0
+}
+
 /// Draws one flat face per grid cell of a surface, and records how many faces it drew.
+///
+/// The alpha of the fill of a face is the alpha of its colour multiplied by its face alpha (see [`corner_alpha`])
+/// and by the face opacity, and the alpha of its edge likewise by its edge alpha and the edge opacity. A fill or an
+/// edge whose alpha and opacity multiply to 0 is not drawn, and a face with neither is not drawn at all; a surface
+/// without alpha arrays and with both opacities 1 is drawn in exactly the colours it names.
 ///
 /// In a 2D axes a face is one item carrying its fill and its edge. In a 3D axes the two are separate items, the
 /// fill and then the edge, both on the plane fitted to the projected corners of the face pushed back by
@@ -924,9 +975,17 @@ fn node_xy(grid: &GridRef, i: usize, j: usize) -> [f64; 2] {
 /// spills over the neighbouring faces: the painter's order and the depth test then agree along every fold, and the
 /// rings of two neighbours meet to make an edge of the full width. A face whose outline has no inset (one seen
 /// edge-on, or too small for its edge) is stroked instead. A face counts once however many items it is.
-fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[f64]>) {
+fn draw_surface(
+    draw: &mut Draw,
+    s: &Surface,
+    grid: &GridRef,
+    colours: Option<&[f64]>,
+    alpha: SurfaceAlpha,
+) {
     let values = colours.unwrap_or(grid.z);
     let width = style::width_or(s.edge_width_pt, 0.5);
+    let face_opacity = style::unit_opacity(s.face_opacity);
+    let edge_opacity = style::unit_opacity(s.edge_opacity);
     let mut faces: u64 = 0;
     for j in 0..grid.ny - 1 {
         for i in 0..grid.nx - 1 {
@@ -952,8 +1011,15 @@ fn draw_surface(draw: &mut Draw, s: &Surface, grid: &GridRef, colours: Option<&[
                 Paint::Fixed(c) => c,
                 Paint::Colormapped => draw.scale.colour(mean),
             };
-            let fill = paint(s.face).map(paths::fill);
-            let stroke = paint(s.edge).map(|c| paths::stroke(c, width, Vec::new()));
+            let nodes = corners.map(index);
+            let face_factor = corner_alpha(alpha.face, nodes) * face_opacity;
+            let edge_factor = corner_alpha(alpha.edge, nodes) * edge_opacity;
+            let fill = paint(s.face)
+                .filter(|_| face_factor > 0.0)
+                .map(|c| paths::fill(c.with_alpha_factor(face_factor as f32)));
+            let stroke = paint(s.edge)
+                .filter(|_| edge_factor > 0.0)
+                .map(|c| paths::stroke(c.with_alpha_factor(edge_factor as f32), width, Vec::new()));
             let mut b = PathBuilder::new();
             b.polyline(&positions(&mapped), true);
             let segments = b.finish();

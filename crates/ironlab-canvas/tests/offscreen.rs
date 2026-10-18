@@ -3905,6 +3905,7 @@ fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
             depth_group: None,
             clip: None,
             source: None,
+            translucent: false,
         }],
     })
 }
@@ -4985,4 +4986,147 @@ fn a_rendered_image_whose_buffer_does_not_match_its_size_does_not_encode() {
         error.to_string().contains("PNG"),
         "the message says what failed: {error}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Translucency inside depth groups. The compiler sorts the items of a depth group by a key per item (the mean depth
+// of a face, the depth of a marker), which can put an item behind a translucent face after it in the group, where a
+// translucent face that recorded its depth would hide it completely, as if it were opaque.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The opaque blue face that lies behind the translucent items of these tests, at depth 0, the farther end.
+fn far_blue_face() -> Item {
+    face(
+        10.0,
+        10.0,
+        90.0,
+        90.0,
+        Rgba::new(0.0, 0.0, 1.0, 1.0),
+        DepthPlane::constant(0.0),
+    )
+}
+
+// Why: a translucent surface is drawn over the data around it (points inside a translucent isosurface, a line
+// beneath a translucent fit), and its faces are sorted by their mean depth, so an item behind a face at some pixel
+// can follow it in the group; the translucent face must not hide it there, as an opaque face would, but let it show
+// through, dimmed, whatever kind of item the translucent one is (a fill, a stroke such as a translucent edge, or an
+// image with alpha), as the picture would be drawn in an order that put the item first.
+#[test]
+fn a_translucent_item_listed_before_an_opaque_face_behind_it_lets_the_face_show_through() {
+    let half_red = Rgba::new(1.0, 0.0, 0.0, 0.5);
+    let near = DepthPlane::constant(1.0);
+    let cases: Vec<(&str, Item, (u32, u32))> = vec![
+        (
+            "a translucent fill",
+            face(10.0, 10.0, 90.0, 90.0, half_red, near),
+            (50, 50),
+        ),
+        (
+            "a translucent stroke",
+            edge(30.0, 30.0, 70.0, 70.0, 10.0, half_red, near),
+            (30, 50),
+        ),
+        (
+            "an image with translucent pixels",
+            translucent_floor(Rect::new(30.0, 30.0, 40.0, 40.0), [255, 0, 0, 128], near),
+            (50, 50),
+        ),
+    ];
+    for (what, translucent, (x, y)) in cases {
+        let Some(image) = render_page(
+            Rgba::WHITE,
+            vec![depth_group(vec![translucent, far_blue_face()])],
+        ) else {
+            return;
+        };
+        assert_pixel(
+            &image,
+            x,
+            y,
+            [128, 0, 128, 255],
+            4,
+            &format!("{what} over the blue face listed after it"),
+        );
+    }
+}
+
+// Why: two translucent faces that cover each other (the front and back of a translucent surface) must both remain
+// visible whatever order the group lists them in, because neither is opaque; a translucent face that recorded its
+// depth would cut the other out where they overlap. Among translucent items the painter's order of the group stands,
+// so the face listed later blends over the one listed earlier.
+#[test]
+fn a_translucent_face_never_hides_another_translucent_face_behind_it() {
+    let items = vec![
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            DepthPlane::constant(1.0),
+        ),
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            DepthPlane::constant(0.0),
+        ),
+    ];
+    let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+        return;
+    };
+    // Half-transparent red over white is (255, 128, 128); half-transparent blue over that is (128, 64, 191).
+    assert_pixel(
+        &image,
+        50,
+        50,
+        [128, 64, 191, 255],
+        4,
+        "both translucent faces, in the order of the group",
+    );
+}
+
+// Why: drawing the opaque items of a group before its translucent ones must not let a translucent face that lies
+// behind an opaque one show over it: the opaque face records its depth, and the translucent one is still tested
+// against it, so the nearer opaque face hides it whichever of the two the group lists first.
+#[test]
+fn a_translucent_face_behind_an_opaque_one_stays_hidden_whichever_is_listed_first() {
+    let translucent = || {
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            DepthPlane::constant(0.0),
+        )
+    };
+    let opaque = || {
+        face(
+            10.0,
+            10.0,
+            90.0,
+            90.0,
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+            DepthPlane::constant(1.0),
+        )
+    };
+    for (order, items) in [
+        ("translucent first", vec![translucent(), opaque()]),
+        ("opaque first", vec![opaque(), translucent()]),
+    ] {
+        let Some(image) = render_page(Rgba::WHITE, vec![depth_group(items)]) else {
+            return;
+        };
+        assert_pixel(
+            &image,
+            50,
+            50,
+            BLUE_PX,
+            2,
+            &format!("the opaque face, {order}"),
+        );
+    }
 }

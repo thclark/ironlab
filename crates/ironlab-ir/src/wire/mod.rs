@@ -109,8 +109,9 @@
 //!   path that is not valid.
 //!
 //! Optional references and values (the z data of a line, scatter or quiver, the w data
-//! of a quiver, the colour data of a surface, and the pixel ranges and plane offset of
-//! an image) are absent in the domain when they are absent on the wire, and the encoder
+//! of a quiver, the colour data and the face and edge alpha of a surface, the alpha of
+//! a colour-indexed or colour-mapped image, and the pixel ranges and plane offset of an
+//! image) are absent in the domain when they are absent on the wire, and the encoder
 //! writes them as absent rather than as a zero, which would move an image. An absent
 //! [`Provenance`](crate::Provenance) decodes as an empty
 //! provenance (empty strings and no fonts) rather than as the provenance of this build,

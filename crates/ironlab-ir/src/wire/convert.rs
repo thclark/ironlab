@@ -601,6 +601,8 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             fill: Some(contour.fill),
             placement: Some(encode_contour_placement(contour.placement)),
             line: Some(encode_line_style(contour.line)),
+            line_opacity: Some(contour.line_opacity),
+            fill_opacity: Some(contour.fill_opacity),
         }),
         Artist::Quiver(quiver) => w::ArtistKind::Quiver(w::Quiver {
             id: Some(quiver.id.0),
@@ -626,6 +628,10 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             face: Some(encode_color_spec(surface.face)),
             edge: Some(encode_color_spec(surface.edge)),
             edge_width_pt: Some(surface.edge_width_pt),
+            face_alpha: surface.face_alpha.map(|id| id.0),
+            edge_alpha: surface.edge_alpha.map(|id| id.0),
+            face_opacity: Some(surface.face_opacity),
+            edge_opacity: Some(surface.edge_opacity),
         }),
         Artist::Image(image) => w::ArtistKind::Image(w::Image {
             id: Some(image.id.0),
@@ -633,6 +639,7 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             visible: Some(image.visible),
             pixels: Some(image.pixels.0),
             placement: Some(encode_image_placement(image.placement)),
+            opacity: Some(image.opacity),
         }),
         Artist::IndexedImage(image) => w::ArtistKind::IndexedImage(w::IndexedImage {
             id: Some(image.id.0),
@@ -643,6 +650,8 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             below: Some(encode_out_of_range(image.below)),
             above: Some(encode_out_of_range(image.above)),
             non_finite: Some(encode_out_of_range(image.non_finite)),
+            alpha: image.alpha.map(|id| id.0),
+            opacity: Some(image.opacity),
         }),
         Artist::MappedImage(image) => w::ArtistKind::MappedImage(w::MappedImage {
             id: Some(image.id.0),
@@ -653,6 +662,8 @@ fn encode_artist(artist: &Artist) -> w::Artist {
             below: Some(encode_out_of_range(image.below)),
             above: Some(encode_out_of_range(image.above)),
             non_finite: Some(encode_out_of_range(image.non_finite)),
+            alpha: image.alpha.map(|id| id.0),
+            opacity: Some(image.opacity),
         }),
     };
     w::Artist { kind: Some(kind) }
@@ -1400,6 +1411,8 @@ fn decode_contour(wire: w::Contour, at: &str) -> Result<Contour> {
         fill: wire.fill.unwrap_or(default.fill),
         placement,
         line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+        line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
+        fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
     })
 }
 
@@ -1434,6 +1447,10 @@ fn decode_surface(wire: w::Surface, at: &str) -> Result<Surface> {
         face: decode_color_spec(wire.face, default.face),
         edge: decode_color_spec(wire.edge, default.edge),
         edge_width_pt: wire.edge_width_pt.unwrap_or(default.edge_width_pt),
+        face_alpha: wire.face_alpha.map(DataId),
+        edge_alpha: wire.edge_alpha.map(DataId),
+        face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+        edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
     })
 }
 
@@ -1497,6 +1514,7 @@ fn decode_image(wire: w::Image, at: &str) -> Result<Image> {
         visible: wire.visible.unwrap_or(default.visible),
         pixels: data_id(wire.pixels, at, "pixels")?,
         placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+        opacity: wire.opacity.unwrap_or(default.opacity),
     })
 }
 
@@ -1511,6 +1529,8 @@ fn decode_indexed_image(wire: w::IndexedImage, at: &str) -> Result<IndexedImage>
         below: decode_out_of_range(wire.below),
         above: decode_out_of_range(wire.above),
         non_finite: decode_out_of_range(wire.non_finite),
+        alpha: wire.alpha.map(DataId),
+        opacity: wire.opacity.unwrap_or(default.opacity),
     })
 }
 
@@ -1525,6 +1545,8 @@ fn decode_mapped_image(wire: w::MappedImage, at: &str) -> Result<MappedImage> {
         below: decode_out_of_range(wire.below),
         above: decode_out_of_range(wire.above),
         non_finite: decode_out_of_range(wire.non_finite),
+        alpha: wire.alpha.map(DataId),
+        opacity: wire.opacity.unwrap_or(default.opacity),
     })
 }
 

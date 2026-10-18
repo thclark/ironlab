@@ -53,6 +53,10 @@
 //! every group instead takes a depth of its own from its params, decreasing with every such stroke since the list
 //! or the last depth group began, which is how the painter keeps a stroke from blending with itself (see
 //! [`crate::gpu`]).
+//!
+//! Every draw records whether it is [`translucent`](Draw::translucent): whether any colour it paints, a vertex
+//! colour, a stroke or marker colour or a pixel of its image tile, has an alpha below 1, which decides how the
+//! painter draws it inside a depth group (see [`crate::gpu`]).
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -294,7 +298,8 @@ impl ListBuilder {
     }
 
     /// Adds one markers draw of the outline's `vertices` and `indices` and the `instances` (each with its depth),
-    /// unless there is nothing to draw. Outside every group the instances lie at `z = 0`.
+    /// unless there is nothing to draw. Outside every group the instances lie at `z = 0`. The draw is translucent
+    /// when the face or the edge of any instance has an alpha between 0 and 1, exclusive.
     fn push_markers(
         &mut self,
         vertices: Vec<MarkerVertex>,
@@ -320,6 +325,12 @@ impl ListBuilder {
             self.marker_depths.push(depth);
         }
         let last_instance = self.markers.len() as u32;
+        // An absent face or edge is an alpha of 0, which paints nothing, so only an alpha strictly between 0 and 1
+        // makes markers translucent; an opaque edge around an absent face still records its depth.
+        let partial = |alpha: u8| alpha > 0 && alpha < 255;
+        let translucent = self.markers[first_instance as usize..]
+            .iter()
+            .any(|m| partial(m.face[3]) || partial(m.edge[3]));
         let index = self.stroke_params.len() as u32;
         self.stroke_params.push(params);
         self.draws.push(Draw {
@@ -332,16 +343,19 @@ impl ListBuilder {
             depth_group: self.depth_group(),
             clip,
             source,
+            translucent,
         });
     }
 
     /// Adds one triangle draw of `vertices` (each with its depth) and `indices` relative to them, unless a vertex is
-    /// not finite or the indices do not address the vertices.
+    /// not finite or the indices do not address the vertices. The draw is translucent when a vertex colour is, or
+    /// when `translucent_texture` says that a pixel of its texture is.
     fn push(
         &mut self,
         vertices: impl IntoIterator<Item = (Vertex, f64)>,
         indices: impl IntoIterator<Item = u32>,
         texture: Option<TileKey>,
+        translucent_texture: bool,
         clip: Option<Rect>,
         source: Option<ironlab_ir::NodeId>,
     ) {
@@ -374,17 +388,23 @@ impl ListBuilder {
             self.depths.truncate(base as usize);
             return;
         }
+        let translucent = translucent_texture
+            || self.vertices[base as usize..]
+                .iter()
+                .any(|vertex| vertex.color[3] < 255);
         self.draws.push(Draw {
             kind: DrawKind::Triangles(first_index..first_index + count),
             texture,
             depth_group: self.depth_group(),
             clip,
             source,
+            translucent,
         });
     }
 
     /// Adds one stroke draw of `segments` (each with the depths at its ends) with `params`, unless there are none.
-    /// Outside every group the draw takes the next depth of the flat strokes.
+    /// Outside every group the draw takes the next depth of the flat strokes. The draw is translucent when the colour
+    /// of the stroke is.
     fn push_stroke(
         &mut self,
         segments: Vec<(Segment, f64, f64)>,
@@ -411,6 +431,7 @@ impl ListBuilder {
         }
         let end = self.segments.len() as u32;
         let index = self.stroke_params.len() as u32;
+        let translucent = params.color[3] < 1.0;
         self.stroke_params.push(params);
         self.draws.push(Draw {
             kind: DrawKind::Stroke {
@@ -421,6 +442,7 @@ impl ListBuilder {
             depth_group: self.depth_group(),
             clip,
             source,
+            translucent,
         });
     }
 
@@ -953,6 +975,7 @@ fn tessellate_path(
             vertices,
             buffers.indices.iter().copied(),
             None,
+            false,
             context.clip,
             source,
         );
@@ -1235,7 +1258,7 @@ fn tessellate_glyphs(
         }
         indices.extend(buffers.indices.iter().map(|&i| base + i));
     }
-    builder.push(vertices, indices, None, context.clip, source);
+    builder.push(vertices, indices, None, false, context.clip, source);
 }
 
 /// Adds an image to the list as one draw per tile that may show through the clip.
@@ -1266,6 +1289,15 @@ fn tessellate_image(
     } else {
         None
     };
+    // A pixel whose alpha is below 255 makes the image translucent, which matters only inside a depth group.
+    let translucent = builder.in_group()
+        && item.channels == ImageItem::RGBA
+        && item
+            .samples
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] < 255);
     let columns = item.width.div_ceil(max_tile_side);
     let rows = item.height.div_ceil(max_tile_side);
     let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
@@ -1326,6 +1358,7 @@ fn tessellate_image(
             vertices,
             [0, 1, 2, 2, 1, 3],
             Some(key),
+            translucent,
             context.clip,
             source,
         );

@@ -160,6 +160,10 @@ proto_file! {
         message ContourPlacement placement = 8;
         /// The style of the isolines.
         message LineStyle line = 9;
+        /// The opacity of the isolines, from 0 to 1; absent means 1.
+        optional double line_opacity = 10;
+        /// The opacity of the filled bands, from 0 to 1; absent means 1.
+        optional double fill_opacity = 11;
     }
 
     /// The grid on which a field of shape `[ny, nx]` is sampled.
@@ -310,6 +314,16 @@ proto_file! {
         message ColorSpec edge = 8;
         /// The width of the face edges in points.
         optional double edge_width_pt = 9;
+        /// The data identifier of the alpha of the faces at every node, of shape
+        /// `[ny, nx]`; absent when the faces are uniformly opaque before their opacity.
+        optional uint64 face_alpha = 10;
+        /// The data identifier of the alpha of the face edges at every node, of shape
+        /// `[ny, nx]`; absent when the edges are uniformly opaque before their opacity.
+        optional uint64 edge_alpha = 11;
+        /// The opacity of the faces, from 0 to 1; absent means 1.
+        optional double face_opacity = 12;
+        /// The opacity of the face edges, from 0 to 1; absent means 1.
+        optional double edge_opacity = 13;
     }
 
     /// A true-colour image: a raster of pixels, each with its own colour.
@@ -326,6 +340,9 @@ proto_file! {
         optional uint64 pixels = 4;
         /// Where the pixels lie in the axes.
         message ImagePlacement placement = 5;
+        /// The opacity of the image, from 0 to 1, which multiplies the alpha of every
+        /// pixel; absent means 1.
+        optional double opacity = 6;
     }
 
     /// A colour-indexed image: a raster of pixels whose values name entries of the axes
@@ -349,6 +366,13 @@ proto_file! {
         message OutOfRange above = 7;
         /// What is drawn for a pixel whose index is not finite.
         message OutOfRange non_finite = 8;
+        /// The data identifier of the alpha of every pixel, of shape `[ny, nx]`,
+        /// holding floating-point values from 0 to 1 or 8-bit values from 0 to 255;
+        /// absent when the pixels are uniformly opaque before the opacity.
+        optional uint64 alpha = 9;
+        /// The opacity of the image, from 0 to 1, which multiplies the alpha of every
+        /// pixel; absent means 1.
+        optional double opacity = 10;
     }
 
     /// A colour-mapped image: a raster of data values, each scaled through the colour
@@ -372,6 +396,13 @@ proto_file! {
         message OutOfRange above = 7;
         /// What is drawn for a pixel whose value is not finite.
         message OutOfRange non_finite = 8;
+        /// The data identifier of the alpha of every pixel, of shape `[ny, nx]`,
+        /// holding floating-point values from 0 to 1 or 8-bit values from 0 to 255;
+        /// absent when the pixels are uniformly opaque before the opacity.
+        optional uint64 alpha = 9;
+        /// The opacity of the image, from 0 to 1, which multiplies the alpha of every
+        /// pixel; absent means 1.
+        optional double opacity = 10;
     }
 
     /// Where the pixels of an image lie in its axes: the plane of the image and the

@@ -114,6 +114,7 @@ gallery!(
     image_orientation,
     cylinder_flow,
     sweep_spectrogram,
+    piv_confidence,
     surf,
     mesh,
     scatter3,

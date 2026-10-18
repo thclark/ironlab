@@ -13,13 +13,13 @@ use std::collections::BTreeMap;
 use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
-/// legend, display name, coordinate array, pixel range or plane offset), by full Protocol
-/// Buffers name.
+/// legend, display name, coordinate array, colour or alpha array, pixel range or plane
+/// offset), by full Protocol Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 23] = [
+pub const OPTIONAL_IN_IR: [&str; 27] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
@@ -35,9 +35,13 @@ pub const OPTIONAL_IN_IR: [&str; 23] = [
     "ironlab.ir.v0.Quiver.w",
     "ironlab.ir.v0.Surface.display_name",
     "ironlab.ir.v0.Surface.c",
+    "ironlab.ir.v0.Surface.face_alpha",
+    "ironlab.ir.v0.Surface.edge_alpha",
     "ironlab.ir.v0.Image.display_name",
     "ironlab.ir.v0.IndexedImage.display_name",
+    "ironlab.ir.v0.IndexedImage.alpha",
     "ironlab.ir.v0.MappedImage.display_name",
+    "ironlab.ir.v0.MappedImage.alpha",
     "ironlab.ir.v0.ImagePlacement.columns",
     "ironlab.ir.v0.ImagePlacement.rows",
     "ironlab.ir.v0.ImagePlaneXy.z",
@@ -505,6 +509,8 @@ pub fn kitchen_sink_figure() -> Figure {
             },
             fill: true,
             placement: ContourPlacement::Plane { z: Some(-1.5) },
+            line_opacity: 0.5,
+            fill_opacity: 0.75,
             ..Contour::default()
         }),
     );
@@ -658,6 +664,11 @@ pub fn kitchen_sink_figure() -> Figure {
             },
             edge: ColorSpec::Colormapped,
             edge_width_pt: 0.3,
+            // One array is shared by the faces and the edges, as the IR allows.
+            face_alpha: Some(cx),
+            edge_alpha: Some(cx),
+            face_opacity: 0.25,
+            edge_opacity: 0.75,
         }),
     );
     // Images on the walls of the 3D axes: a hidden true-colour image of floating-point
@@ -681,6 +692,7 @@ pub fn kitchen_sink_figure() -> Figure {
                 }),
                 rows: None,
             },
+            opacity: 0.5,
         }),
     );
     let id = b.node();
@@ -773,6 +785,8 @@ pub fn kitchen_sink_figure() -> Figure {
             below: OutOfRange::Strict,
             above: OutOfRange::Strict,
             non_finite: OutOfRange::Strict,
+            alpha: Some(bytes),
+            opacity: 0.6,
             ..IndexedImage::default()
         }),
     );
@@ -805,6 +819,8 @@ pub fn kitchen_sink_figure() -> Figure {
             non_finite: OutOfRange::Rgba {
                 color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
             },
+            alpha: Some(cx),
+            opacity: 0.9,
             ..MappedImage::default()
         }),
     );

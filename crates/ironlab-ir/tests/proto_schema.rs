@@ -607,6 +607,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             (3, "visible", "bool"),
             (4, "pixels", "uint64"),
             (5, "placement", "ImagePlacement"),
+            (6, "opacity", "double"),
         ],
     );
     expect(
@@ -620,6 +621,8 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             (6, "below", "OutOfRange"),
             (7, "above", "OutOfRange"),
             (8, "non_finite", "OutOfRange"),
+            (9, "alpha", "uint64"),
+            (10, "opacity", "double"),
         ],
     );
     expect(
@@ -633,6 +636,8 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             (6, "below", "OutOfRange"),
             (7, "above", "OutOfRange"),
             (8, "non_finite", "OutOfRange"),
+            (9, "alpha", "uint64"),
+            (10, "opacity", "double"),
         ],
     );
     expect(
@@ -723,6 +728,90 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             .containing_oneof()
             .map(|oneof| oneof.name().to_owned());
         assert_eq!(oneof.as_deref(), Some("kind"), "{message}.{field}");
+    }
+}
+
+// Why: the alpha arrays and opacities of a surface were added to a message that clients
+// in other languages already read, so they must continue its numbering after its last
+// field, leaving every existing number with its meaning, and each must have presence
+// (`optional`), because an absent opacity means 1 and an absent alpha means none, which
+// a reader cannot tell from 0 without it.
+#[test]
+fn the_surface_message_declares_its_alpha_and_opacities_after_its_existing_fields() {
+    let pool = compile();
+    assert_eq!(
+        declared_fields(&pool, "Surface"),
+        [
+            (1, "id", "uint64"),
+            (2, "display_name", "Text"),
+            (3, "visible", "bool"),
+            (4, "grid", "Grid"),
+            (5, "z", "uint64"),
+            (6, "c", "uint64"),
+            (7, "face", "ColorSpec"),
+            (8, "edge", "ColorSpec"),
+            (9, "edge_width_pt", "double"),
+            (10, "face_alpha", "uint64"),
+            (11, "edge_alpha", "uint64"),
+            (12, "face_opacity", "double"),
+            (13, "edge_opacity", "double"),
+        ]
+        .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
+    );
+    for (message, field) in [
+        ("Surface", "face_alpha"),
+        ("Surface", "edge_alpha"),
+        ("Surface", "face_opacity"),
+        ("Surface", "edge_opacity"),
+        ("Image", "opacity"),
+        ("IndexedImage", "alpha"),
+        ("IndexedImage", "opacity"),
+        ("MappedImage", "alpha"),
+        ("MappedImage", "opacity"),
+    ] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        let field = descriptor
+            .get_field_by_name(field)
+            .unwrap_or_else(|| panic!("{message} declares {field}"));
+        assert!(field.supports_presence(), "{message}.{}", field.name());
+    }
+}
+
+// Why: the opacities of a contour were added to a message that clients in other
+// languages already read, so they must continue its numbering after its last field,
+// leaving every existing number with its meaning, and each must have presence
+// (`optional`), because an absent opacity means 1, which a reader cannot tell from 0
+// without it.
+#[test]
+fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
+    let pool = compile();
+    assert_eq!(
+        declared_fields(&pool, "Contour"),
+        [
+            (1, "id", "uint64"),
+            (2, "display_name", "Text"),
+            (3, "visible", "bool"),
+            (4, "grid", "Grid"),
+            (5, "z", "uint64"),
+            (6, "levels", "Levels"),
+            (7, "fill", "bool"),
+            (8, "placement", "ContourPlacement"),
+            (9, "line", "LineStyle"),
+            (10, "line_opacity", "double"),
+            (11, "fill_opacity", "double"),
+        ]
+        .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
+    );
+    let descriptor = pool
+        .get_message_by_name("ironlab.ir.v0.Contour")
+        .expect("the package declares the message");
+    for field in ["line_opacity", "fill_opacity"] {
+        let field = descriptor
+            .get_field_by_name(field)
+            .unwrap_or_else(|| panic!("Contour declares {field}"));
+        assert!(field.supports_presence(), "Contour.{}", field.name());
     }
 }
 

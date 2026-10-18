@@ -863,6 +863,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             )),
                         }),
                         line: wire_line_style(wire_auto_color(), 1.5, wire::DashStyle::Dotted),
+                        line_opacity: Some(0.0),
+                        fill_opacity: Some(0.5),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(34),
@@ -880,6 +882,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             )),
                         }),
                         line: wire_line_style(wire_no_color(), 1.75, wire::DashStyle::Dashed),
+                        line_opacity: Some(0.875),
+                        fill_opacity: Some(0.0),
                     })),
                     wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
                         id: Some(35),
@@ -939,6 +943,10 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         face: wire_rgba(0.25, 0.5, 0.75, 1.0),
                         edge: wire_auto_color(),
                         edge_width_pt: Some(0.625),
+                        face_alpha: Some(D),
+                        edge_alpha: Some(A),
+                        face_opacity: Some(0.125),
+                        edge_opacity: Some(0.375),
                     })),
                     wire_artist(wire::ArtistKind::Surface(wire::Surface {
                         id: Some(39),
@@ -950,6 +958,10 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         face: wire_no_color(),
                         edge: wire_colormapped(),
                         edge_width_pt: Some(0.875),
+                        face_alpha: Some(B),
+                        edge_alpha: None,
+                        face_opacity: Some(0.625),
+                        edge_opacity: Some(0.25),
                     })),
                     wire_artist(wire::ArtistKind::Image(wire::Image {
                         id: Some(40),
@@ -961,6 +973,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_range(22.0, 23.0),
                             wire_range(24.0, 25.0),
                         ),
+                        opacity: Some(0.75),
                     })),
                     wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
                         id: Some(41),
@@ -975,6 +988,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         below: wire_strict(),
                         above: wire_clamp(),
                         non_finite: wire_painted(0.5, 0.375, 0.25, 0.125),
+                        alpha: Some(C),
+                        opacity: Some(0.875),
                     })),
                     wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
                         id: Some(42),
@@ -989,6 +1004,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         below: wire_painted(0.125, 0.25, 0.375, 0.5),
                         above: wire_transparent(),
                         non_finite: wire_clamp(),
+                        alpha: Some(A),
+                        opacity: Some(0.0625),
                     })),
                 ],
             },
@@ -1349,6 +1366,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             width_pt: 1.5,
                             dash: DashStyle::Dotted,
                         },
+                        line_opacity: 0.0,
+                        fill_opacity: 0.5,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(34),
@@ -1367,6 +1386,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             width_pt: 1.75,
                             dash: DashStyle::Dashed,
                         },
+                        line_opacity: 0.875,
+                        fill_opacity: 0.0,
                     }),
                     Artist::Quiver(Quiver {
                         id: NodeId(35),
@@ -1437,6 +1458,10 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         edge: ColorSpec::Auto,
                         edge_width_pt: 0.625,
+                        face_alpha: Some(DataId(D)),
+                        edge_alpha: Some(DataId(A)),
+                        face_opacity: 0.125,
+                        edge_opacity: 0.375,
                     }),
                     Artist::Surface(Surface {
                         id: NodeId(39),
@@ -1451,6 +1476,10 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         face: ColorSpec::None,
                         edge: ColorSpec::Colormapped,
                         edge_width_pt: 0.875,
+                        face_alpha: Some(DataId(B)),
+                        edge_alpha: None,
+                        face_opacity: 0.625,
+                        edge_opacity: 0.25,
                     }),
                     Artist::Image(Image {
                         id: NodeId(40),
@@ -1468,6 +1497,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                                 last: 25.0,
                             }),
                         },
+                        opacity: 0.75,
                     }),
                     Artist::IndexedImage(IndexedImage {
                         id: NodeId(41),
@@ -1487,6 +1517,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         non_finite: OutOfRange::Rgba {
                             color: Color::rgba(0.5, 0.375, 0.25, 0.125),
                         },
+                        alpha: Some(DataId(C)),
+                        opacity: 0.875,
                     }),
                     Artist::MappedImage(MappedImage {
                         id: NodeId(42),
@@ -1506,6 +1538,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         above: OutOfRange::Transparent,
                         non_finite: OutOfRange::Clamp,
+                        alpha: Some(DataId(A)),
+                        opacity: 0.0625,
                     }),
                 ],
             },
@@ -1792,8 +1826,9 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
 
 // Why: a decoder that treats a protobuf zero or `false` as absent, or that applies the
 // default of a context over a value that is present, would silently change figures:
-// hidden artists would reappear, zero widths would widen, and an explicitly automatic
-// contour colour would become colormapped. Every value here is present on the wire and
+// hidden artists would reappear, zero widths would widen, transparent images and
+// surfaces (an opacity of 0) would become opaque, and an explicitly automatic contour
+// colour would become colormapped. Every value here is present on the wire and
 // differs from the default that its absence would produce.
 #[test]
 fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_context() {
@@ -1889,6 +1924,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     }),
                     // A contour's line is colormapped by default.
                     line: wire_line_style(wire_auto_color(), 0.0, wire::DashStyle::Solid),
+                    line_opacity: Some(0.0),
+                    fill_opacity: Some(0.0),
                     ..wire::Contour::default()
                 })),
                 wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
@@ -1911,6 +1948,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     face: wire_auto_color(),
                     edge: wire_no_color(),
                     edge_width_pt: Some(0.0),
+                    face_opacity: Some(0.0),
+                    edge_opacity: Some(0.0),
                     ..wire::Surface::default()
                 })),
                 // A floor offset and pixel centres of zero are values, not absences: an
@@ -1924,12 +1963,15 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                         wire_range(0.0, 0.0),
                         wire_range(0.0, 0.0),
                     ),
+                    opacity: Some(0.0),
                     ..wire::Image::default()
                 })),
                 wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
                     id: Some(9),
                     indices: Some(0),
                     placement: wire_placement(wire_xz(Some(0.0)), None, None),
+                    alpha: Some(0),
+                    opacity: Some(0.0),
                     ..wire::IndexedImage::default()
                 })),
             ],
@@ -2023,6 +2065,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     levels: Levels::Auto { count: 0 },
                     placement: ContourPlacement::Plane { z: Some(0.0) },
                     line: zero_line,
+                    line_opacity: 0.0,
+                    fill_opacity: 0.0,
                     ..Contour::default()
                 }),
                 Artist::Quiver(Quiver {
@@ -2036,6 +2080,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     face: ColorSpec::Auto,
                     edge: ColorSpec::None,
                     edge_width_pt: 0.0,
+                    face_opacity: 0.0,
+                    edge_opacity: 0.0,
                     ..Surface::default()
                 }),
                 Artist::Image(Image {
@@ -2051,14 +2097,18 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                             last: 0.0,
                         }),
                     },
+                    opacity: 0.0,
                     ..Image::default()
                 }),
+                // Data identifier 0 is a reference like any other, not an absent alpha.
                 Artist::IndexedImage(IndexedImage {
                     id: NodeId(9),
                     placement: ImagePlacement {
                         plane: ImagePlane::Xz { y: Some(0.0) },
                         ..ImagePlacement::default()
                     },
+                    alpha: Some(DataId(0)),
+                    opacity: 0.0,
                     ..IndexedImage::default()
                 }),
             ],
@@ -2197,6 +2247,7 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     marker: Some(wire::MarkerStyle::default()),
                     ..wire::Scatter::default()
                 })),
+                // Absent opacities: isolines and bands opaque.
                 artist(wire::ArtistKind::Contour(wire::Contour {
                     id: Some(8),
                     grid: wire_rectilinear(0, 0),
@@ -2207,6 +2258,7 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     line: Some(empty_line_style()),
                     ..wire::Contour::default()
                 })),
+                // Absent alpha and opacities: no alpha arrays, and faces and edges opaque.
                 artist(wire::ArtistKind::Surface(wire::Surface {
                     id: Some(9),
                     grid: wire_rectilinear(0, 0),
@@ -2782,8 +2834,9 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
 }
 
 // Why: the references and values that the IR itself makes optional (the z data of a
-// line, scatter or quiver, the w data of a quiver, the colour data of a surface, the
-// height of a contour plane, and the pixel ranges and plane offset of an image) must not
+// line, scatter or quiver, the w data of a quiver, the colour data and the face and edge
+// alpha of a surface, the height of a contour plane, the alpha of a colour-indexed or
+// colour-mapped image, and the pixel ranges and plane offset of an image) must not
 // become errors or defaults when absent, because a figure without them is complete; and
 // the encoder must write them as absent rather than as a zero, which would move the
 // image.
@@ -2844,7 +2897,9 @@ fn absent_optional_references_decode_as_absent() {
             wire::ArtistKind::Line(line) => line.z.is_none(),
             wire::ArtistKind::Scatter(scatter) => scatter.z.is_none(),
             wire::ArtistKind::Quiver(quiver) => quiver.z.is_none() && quiver.w.is_none(),
-            wire::ArtistKind::Surface(surface) => surface.c.is_none(),
+            wire::ArtistKind::Surface(surface) => {
+                surface.c.is_none() && surface.face_alpha.is_none() && surface.edge_alpha.is_none()
+            }
             wire::ArtistKind::Contour(contour) => matches!(
                 contour.placement.as_ref().and_then(|p| p.kind.as_ref()),
                 Some(wire::ContourPlacementKind::Plane(plane)) if plane.z.is_none()
@@ -2857,14 +2912,20 @@ fn absent_optional_references_decode_as_absent() {
                         Some(wire::ImagePlaneKind::Xy(xy)) if xy.z.is_none()
                     )
             }
-            wire::ArtistKind::IndexedImage(image) => matches!(
-                plane_kind(image.placement.as_ref()),
-                Some(wire::ImagePlaneKind::Xz(xz)) if xz.y.is_none()
-            ),
-            wire::ArtistKind::MappedImage(image) => matches!(
-                plane_kind(image.placement.as_ref()),
-                Some(wire::ImagePlaneKind::Yz(yz)) if yz.x.is_none()
-            ),
+            wire::ArtistKind::IndexedImage(image) => {
+                image.alpha.is_none()
+                    && matches!(
+                        plane_kind(image.placement.as_ref()),
+                        Some(wire::ImagePlaneKind::Xz(xz)) if xz.y.is_none()
+                    )
+            }
+            wire::ArtistKind::MappedImage(image) => {
+                image.alpha.is_none()
+                    && matches!(
+                        plane_kind(image.placement.as_ref()),
+                        Some(wire::ImagePlaneKind::Yz(yz)) if yz.x.is_none()
+                    )
+            }
         };
         assert!(absent, "the encoder wrote an absent reference: {artist:?}");
     }
@@ -2976,8 +3037,9 @@ fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
 /// with an RGBA colour and a marker, explicit legend entries of every kind of item and
 /// sample, row and column sizes of every kind, an image of each kind (on each plane, with and
-/// without an offset, with a pixel range or none, and with every out-of-range policy at
-/// some category), three data arrays (floats without an element as every writer wrote
+/// without an offset, with a pixel range or none, with every out-of-range policy at some
+/// category, and with an opacity and an alpha array or none), a surface with alpha arrays
+/// and opacities for its faces and its edges, three data arrays (floats without an element as every writer wrote
 /// them before the element type existed, floats holding NaN with the element written,
 /// and bytes), a link, provenance and a parameter of every kind.
 ///
@@ -3092,9 +3154,9 @@ fn hand_encoded_bytes() -> Vec<u8> {
         )
     };
 
-    // A true-colour image (Artist variant 6): id, name, visible, pixels (data 8), and a
+    // A true-colour image (Artist variant 6): id, name, visible, pixels (data 8), a
     // placement (field 5) on the xy plane (field 1) at z = 1.5 with column centres
-    // (field 2) from 0 to 1 and no row range.
+    // (field 2) from 0 to 1 and no row range, and an opacity of 0.5 (field 6).
     let image = [
         varint_field(1, 4),
         length_delimited(2, &text("pixels", 2)),
@@ -3108,12 +3170,14 @@ fn hand_encoded_bytes() -> Vec<u8> {
             ]
             .concat(),
         ),
+        double_field(6, 0.5),
     ]
     .concat();
     // A colour-indexed image (Artist variant 7): hidden, indices from data 8, on the xz
     // wall without an offset with row centres (field 3) mirrored from 3 to 0, strict
-    // below (field 6), clamped above (field 7) and a half-transparent red for
-    // non-finite indices (field 8).
+    // below (field 6), clamped above (field 7), a half-transparent red for non-finite
+    // indices (field 8), the bytes of data 8 as its alpha (field 9) and an opacity of
+    // 0.25 (field 10).
     let indexed_image = [
         varint_field(1, 5),
         varint_field(3, 0),
@@ -3129,11 +3193,14 @@ fn hand_encoded_bytes() -> Vec<u8> {
         length_delimited(6, &policy(1, None)),
         length_delimited(7, &policy(3, None)),
         length_delimited(8, &policy(4, Some(colour(1.0, 0.0, 0.0, 0.5)))),
+        varint_field(9, 8),
+        double_field(10, 0.25),
     ]
     .concat();
     // A colour-mapped image (Artist variant 8) of the values of data 7, on the yz wall
-    // at x = -2 with no pixel ranges, transparent below, opaque blue above and strict
-    // for non-finite values.
+    // at x = -2 with no pixel ranges, transparent below, opaque blue above, strict for
+    // non-finite values, and the values of data 7 as its alpha (field 9) without an
+    // opacity, which is therefore 1.
     let mapped_image = [
         varint_field(1, 6),
         varint_field(3, 1),
@@ -3142,6 +3209,25 @@ fn hand_encoded_bytes() -> Vec<u8> {
         length_delimited(6, &policy(2, None)),
         length_delimited(7, &policy(4, Some(colour(0.0, 0.0, 1.0, 1.0)))),
         length_delimited(8, &policy(1, None)),
+        varint_field(9, 7),
+    ]
+    .concat();
+    // A surface (Artist variant 5) on a rectilinear grid (field 4, variant 1) of data 0
+    // and 7, of the field of data 7 (field 5), with the alpha of its faces from data 7
+    // (field 10) and of its edges from data 0 (field 11), a face opacity of 0.75 (field
+    // 12) and an edge opacity of 0 (field 13), which is written and kept although it is
+    // zero.
+    let surface = [
+        varint_field(1, 7),
+        length_delimited(
+            4,
+            &length_delimited(1, &[varint_field(1, 0), varint_field(2, 7)].concat()),
+        ),
+        varint_field(5, 7),
+        varint_field(10, 7),
+        varint_field(11, 0),
+        double_field(12, 0.75),
+        double_field(13, 0.0),
     ]
     .concat();
 
@@ -3230,6 +3316,7 @@ fn hand_encoded_bytes() -> Vec<u8> {
         length_delimited(12, &length_delimited(6, &image)),
         length_delimited(12, &length_delimited(7, &indexed_image)),
         length_delimited(12, &length_delimited(8, &mapped_image)),
+        length_delimited(12, &length_delimited(5, &surface)),
         // Title aligned right (field 13, value 3), an automatic aspect (field 14, oneof
         // variant 1) and an aspect kept by the limits (field 15, value 2).
         varint_field(13, 3),
@@ -3548,6 +3635,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             }),
                             rows: None,
                         },
+                        opacity: 0.5,
                     }),
                     Artist::IndexedImage(IndexedImage {
                         id: NodeId(5),
@@ -3567,6 +3655,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         non_finite: OutOfRange::Rgba {
                             color: Color::rgba(1.0, 0.0, 0.0, 0.5),
                         },
+                        alpha: Some(DataId(8)),
+                        opacity: 0.25,
                     }),
                     Artist::MappedImage(MappedImage {
                         id: NodeId(6),
@@ -3583,6 +3673,21 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             color: Color::rgba(0.0, 0.0, 1.0, 1.0),
                         },
                         non_finite: OutOfRange::Strict,
+                        alpha: Some(DataId(7)),
+                        opacity: 1.0,
+                    }),
+                    Artist::Surface(Surface {
+                        id: NodeId(7),
+                        grid: Grid::Rectilinear {
+                            x: DataId(0),
+                            y: DataId(7),
+                        },
+                        z: DataId(7),
+                        face_alpha: Some(DataId(7)),
+                        edge_alpha: Some(DataId(0)),
+                        face_opacity: 0.75,
+                        edge_opacity: 0.0,
+                        ..Surface::default()
                     }),
                 ],
             },
