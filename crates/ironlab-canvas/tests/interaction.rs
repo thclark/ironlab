@@ -1943,6 +1943,38 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
     }
 }
 
+// Why: an image cannot be placed on a logarithmic axis, so switching the scale of an axis beneath one in the property
+// editor would leave the figure invalid. The edit must be refused like any other edit that validation rejects: the
+// displayed figure keeps its linear axis, and the problems indicator gives the reason, which names the property and
+// tells the user to draw the values as a surface, so that the user learns what to do instead.
+#[test]
+fn switching_the_axis_beneath_an_image_to_a_logarithmic_scale_is_refused_with_the_reason() {
+    let figure = figure_of(
+        vec![numbered(2, 2)],
+        vec![mapped_image(3, 0, ImagePlacement::default())],
+    );
+    let mut state = FigureState::new(figure);
+    let before = state.figure().clone();
+
+    let changed = state.try_record(&set(2, "x.scale", Value::Scale(Scale::Log)));
+
+    assert!(!changed, "a refused edit changes nothing");
+    assert_eq!(state.figure(), &before);
+    assert_eq!(state.problems().len(), 1, "{:?}", state.problems());
+    let problem = &state.problems()[0];
+    assert_eq!(problem.origin, Origin::Refused);
+    assert_eq!(
+        problem.path.as_ref().map(ToString::to_string),
+        Some("x.scale".to_owned()),
+        "the problem names the property"
+    );
+    assert!(
+        problem.detail.contains("surface"),
+        "the reason says what to draw instead: {}",
+        problem.detail
+    );
+}
+
 // Why: a fraction of the plot area is where a mark was drawn, not a measurement, so a datatip that reported it as `y`
 // would tell the reader that a tick along the top edge sits at y = 0.985 whatever the axis shows. The datatip of a
 // blended artist reports its data coordinate only, both in its values and in the text of its callout.

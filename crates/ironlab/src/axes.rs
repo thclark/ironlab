@@ -387,7 +387,11 @@ impl AxesMut<'_> {
     /// [`pixel_columns`](ImageMut::pixel_columns) and [`pixel_rows`](ImageMut::pixel_rows)
     /// place the pixel centres over other coordinates, and [`plane`](ImageMut::plane)
     /// puts the image on the floor or a wall of a three-dimensional axes. The axes is
-    /// left as it is: a two-dimensional axes stays two-dimensional.
+    /// left as it is: a two-dimensional axes stays two-dimensional. An axis of the
+    /// image's plane must not be logarithmic: a raster of evenly spaced pixels has no
+    /// placement on a logarithmic axis, so validation refuses the figure with an
+    /// `ImageOnLogAxis` error, and values sampled along such an axis are drawn with
+    /// [`surface`](AxesMut::surface) instead.
     ///
     /// ```
     /// use ironlab::prelude::*;

@@ -113,6 +113,7 @@ gallery!(
     indexed_image,
     image_orientation,
     cylinder_flow,
+    sweep_spectrogram,
     surf,
     mesh,
     scatter3,

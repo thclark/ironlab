@@ -3,7 +3,10 @@
 //! Tests that call `export_pdf` or `write_pdf` depend on the scene compiler and pass once `ironlab_scene::compile` is
 //! implemented; tests of `PdfOptions::for_figure` do not.
 
-use ironlab_ir::{Artist, Axes, Axis, Figure, FigureSize, Line, NdArray, Provenance, Text};
+use ironlab_ir::{
+    Artist, Axes, Axis, ColorSpec, Figure, FigureSize, Grid, Line, NdArray, Provenance, Scale,
+    Surface, Text,
+};
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
 
 use crate::common::*;
@@ -314,4 +317,84 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
         "the exported file is {} bytes, so the decimated geometry reached the vector output",
         exported.len()
     );
+}
+
+/// A figure of one 2D axes whose x axis is logarithmic over [1, 100], holding a surface without edges whose nodes lie
+/// at x = 1, 10 and 100. The field is 0 at the first two columns of nodes and 1 at the last, so the face over
+/// [1, 10] takes the colour of 0 and the face over [10, 100] the colour of 0.5, which differ.
+fn surface_on_a_logarithmic_axis() -> Figure {
+    let mut figure = Figure::new();
+    figure.size = FigureSize {
+        width_mm: WIDTH_MM,
+        height_mm: HEIGHT_MM,
+    };
+    let x = figure.add_data(NdArray::vector(vec![1.0, 10.0, 100.0]));
+    let y = figure.add_data(NdArray::vector(vec![0.0, 1.0]));
+    let z = figure.add_data(
+        NdArray::from_shape(vec![2, 3], vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0])
+            .expect("the shape matches the values"),
+    );
+    let axes_id = figure.alloc_node_id();
+    let surface_id = figure.alloc_node_id();
+    figure.axes.push(Axes {
+        id: axes_id,
+        x: Axis {
+            scale: Scale::Log,
+            ..Axis::default()
+        },
+        artists: vec![Artist::Surface(Surface {
+            id: surface_id,
+            grid: Grid::Rectilinear { x, y },
+            z,
+            edge: ColorSpec::None,
+            ..Surface::default()
+        })],
+        ..Axes::default()
+    });
+    figure
+}
+
+#[test]
+fn a_surface_on_a_logarithmic_axis_exports_with_each_face_where_the_log_map_puts_it() {
+    // WHY: a surface is what validation sends values on a logarithmic axis to, in place of an image, so the exported
+    // page must show it as the screen does: every face present, nothing reported as left out, and each face placed
+    // through the logarithmic map, which puts the node at x = 10 halfway across the plot area. On a linear axis that
+    // node would lie a tenth of the way across, so the colour at 45% of the width tells the two maps apart.
+    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1]);
+    let ws = Workspace::new("export-log-surface");
+    let text = engine();
+    let figure = surface_on_a_logarithmic_axis();
+    assert!(figure.validate().is_valid(), "{:?}", figure.validate());
+    let exported = export_pdf(&figure, &text, None).expect("export figure");
+    assert!(
+        exported.warnings.is_empty(),
+        "nothing was left off the page: {:?}",
+        exported.warnings
+    );
+    let plot = ironlab_scene::compile(&figure, &text).hit_map.axes[0].plot_rect;
+    let pdf = ws.write_pdf("figure", &exported.bytes);
+    let middle = plot.y + plot.height / 2.0;
+    let at = |fraction: f64| plot.x + plot.width * fraction;
+    for engine in ENGINES {
+        let image = rasterise(&pdf, engine);
+        let (first, still_first, second) = (
+            pixel(&image, at(0.25), middle),
+            pixel(&image, at(0.45), middle),
+            pixel(&image, at(0.75), middle),
+        );
+        for (what, px) in [("first", first), ("second", second)] {
+            assert!(
+                !close_to(px, WHITE_PX, 8),
+                "{engine:?}: the {what} face is painted, but the pixel is {px:?}"
+            );
+        }
+        assert!(
+            close_to(still_first, first, 4),
+            "{engine:?}: 45% of the way across lies on the face over [1, 10]: {still_first:?} against {first:?}"
+        );
+        assert!(
+            !close_to(second, first, 16),
+            "{engine:?}: the two faces have different colours: {second:?} against {first:?}"
+        );
+    }
 }

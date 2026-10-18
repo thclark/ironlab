@@ -1964,15 +1964,17 @@ fn coincident_pixel_centres_are_invalid_unless_the_image_has_one_pixel_along_tha
 }
 
 // WHY: the scene compiler places a plane by the coordinate of its offset along the third
-// axis, and a logarithmic axis has no place for zero or a negative coordinate, so such an
-// image is not drawn; without this warning the figure would validate cleanly and the
-// image would vanish silently. A positive offset, an absent offset (the low end of the
-// axis, which is positive on a logarithmic axis) and a two-dimensional axes, which
-// ignores the offset, must not warn.
+// axis, and a logarithmic axis has no place for zero or a negative coordinate, so such a
+// placement cannot be drawn at all, which makes it an error of placement, like a
+// non-finite offset, and not a reason to draw the values as a surface: the plane itself
+// is linear and the remedy is a positive offset. The message must therefore name the
+// offset and the axis and say what to change. A positive offset, an absent offset (the
+// low end of the axis, which is positive on a logarithmic axis) and a two-dimensional
+// axes, which ignores the offset, are sound.
 #[test]
-fn a_non_positive_offset_along_a_logarithmic_third_axis_is_a_warning() {
-    // Whether the axes is 3D, the plane, the dimension made logarithmic, and whether a
-    // warning is expected.
+fn a_non_positive_offset_along_a_logarithmic_third_axis_is_an_invalid_placement() {
+    // Whether the axes is 3D, the plane, the dimension made logarithmic, and whether an
+    // error is expected.
     let cases = [
         (true, ImagePlane::Xy { z: Some(0.0) }, Dimension::Z, true),
         (true, ImagePlane::Xy { z: Some(-1.0) }, Dimension::Z, true),
@@ -1982,7 +1984,7 @@ fn a_non_positive_offset_along_a_logarithmic_third_axis_is_a_warning() {
         (true, ImagePlane::Xy { z: None }, Dimension::Z, false),
         (false, ImagePlane::Xy { z: Some(-1.0) }, Dimension::Z, false),
     ];
-    for (three_d, plane, dimension, warns) in cases {
+    for (three_d, plane, dimension, fails) in cases {
         for (name, make, data) in image_kinds() {
             let mut fx = grid_fixture(three_d, |id, d| make(id, data(d), on(plane)));
             let axes = &mut fx.fig.axes[0];
@@ -1994,79 +1996,153 @@ fn a_non_positive_offset_along_a_logarithmic_third_axis_is_a_warning() {
             axis.scale = Scale::Log;
             let report = fx.fig.validate();
             let at = format!("{name} on {plane:?} with a logarithmic {dimension:?} axis");
-            assert_eq!(report.errors, vec![], "{at}: {report:?}");
-            let kinds: Vec<IssueKind> = report.warnings.iter().map(|issue| issue.kind).collect();
-            if warns {
-                assert_eq!(kinds, vec![IssueKind::ImageOnLogAxis], "{at}");
-                assert!(
-                    report.warnings[0].message.contains("logarithmic"),
-                    "{at}: {}",
-                    report.warnings[0].message
+            assert_eq!(report.warnings, vec![], "{at}: {report:?}");
+            if fails {
+                assert_eq!(
+                    error_kinds(&report),
+                    vec![IssueKind::InvalidImagePlacement],
+                    "{at}: {report:?}"
                 );
+                assert!(
+                    has_error(&report, IssueKind::InvalidImagePlacement, Some(fx.artist)),
+                    "{at}: the error must be reported against the image: {report:?}"
+                );
+                let message = &report.errors[0].message;
+                let axis_name = format!("{dimension:?}").to_lowercase();
+                for needed in [
+                    fx.artist.to_string(),
+                    format!("{axis_name} axis"),
+                    "logarithmic".to_owned(),
+                    "positive offset".to_owned(),
+                ] {
+                    assert!(message.contains(&needed), "{at}: {needed:?} in {message}");
+                }
             } else {
-                assert_eq!(kinds, vec![], "{at}");
+                assert_eq!(report.errors, vec![], "{at}: {report:?}");
             }
         }
     }
 }
 
-// Why: an image is drawn as one rectangle mapped affinely through the two axes of its
-// plane, which a logarithmic axis cannot do, so such an image is not drawn and the user
-// must be told; the figure is still drawable, so it is a warning, given for a
-// logarithmic axis of the image's plane only (not for the axis it is offset along, and
-// not for the z axis of a 2D axes, which is ignored), and it is not the warning for
-// non-positive data, which concerns positions and not pixels.
+// Why: an image is a raster of evenly spaced pixels, drawn as one rectangle mapped
+// affinely through the two axes of its plane, and a logarithmic axis has no such
+// mapping, so an image whose plane has a logarithmic axis cannot be drawn as what it is.
+// Rather than quietly leaving it out, validation refuses the figure, because the user has
+// chosen the wrong artist: values sampled along a logarithmic axis belong on a surface,
+// whose every node is placed through the logarithmic scale. The error must name the
+// image, its plane and the logarithmic axis, and must say what to use instead, so that a
+// person or an agent can act on it without reading the documentation. Only an axis of the
+// image's plane counts: the axis it is offset along may be logarithmic, and the z axis of
+// a 2D axes, which is never drawn, is ignored.
 #[test]
-fn an_image_on_a_logarithmic_plane_axis_is_a_warning_and_nothing_else() {
-    // Whether the axes is 3D, the plane, the dimension made logarithmic, and whether a
-    // warning is expected.
-    let cases = [
-        (false, ImagePlane::Xy { z: None }, Dimension::X, true),
-        (false, ImagePlane::Xy { z: Some(1.0) }, Dimension::Y, true),
-        (false, ImagePlane::Xy { z: None }, Dimension::Z, false),
-        (true, ImagePlane::Xy { z: Some(1.0) }, Dimension::Z, false),
-        (true, ImagePlane::Xy { z: None }, Dimension::X, true),
-        (true, ImagePlane::Xz { y: None }, Dimension::X, true),
-        (true, ImagePlane::Xz { y: None }, Dimension::Z, true),
-        (true, ImagePlane::Xz { y: Some(1.0) }, Dimension::Y, false),
-        (true, ImagePlane::Yz { x: None }, Dimension::Y, true),
-        (true, ImagePlane::Yz { x: None }, Dimension::Z, true),
-        (true, ImagePlane::Yz { x: Some(1.0) }, Dimension::X, false),
+fn an_image_on_a_logarithmic_plane_axis_is_an_error_that_points_to_a_surface() {
+    // Whether the axes is 3D, the plane, the dimensions made logarithmic, and the
+    // logarithmic axes of the plane, which the error must name.
+    let cases: [(bool, ImagePlane, &[Dimension], &[&str]); 12] = [
+        (false, ImagePlane::Xy { z: None }, &[Dimension::X], &["x"]),
+        (
+            false,
+            ImagePlane::Xy { z: Some(1.0) },
+            &[Dimension::Y],
+            &["y"],
+        ),
+        (
+            false,
+            ImagePlane::Xy { z: None },
+            &[Dimension::X, Dimension::Y],
+            &["x", "y"],
+        ),
+        (false, ImagePlane::Xy { z: None }, &[Dimension::Z], &[]),
+        (true, ImagePlane::Xy { z: Some(1.0) }, &[Dimension::Z], &[]),
+        (true, ImagePlane::Xy { z: None }, &[Dimension::X], &["x"]),
+        (true, ImagePlane::Xz { y: None }, &[Dimension::X], &["x"]),
+        (true, ImagePlane::Xz { y: None }, &[Dimension::Z], &["z"]),
+        (true, ImagePlane::Xz { y: Some(1.0) }, &[Dimension::Y], &[]),
+        (true, ImagePlane::Yz { x: None }, &[Dimension::Y], &["y"]),
+        (true, ImagePlane::Yz { x: None }, &[Dimension::Z], &["z"]),
+        (true, ImagePlane::Yz { x: Some(1.0) }, &[Dimension::X], &[]),
     ];
-    for (three_d, plane, dimension, warns) in cases {
+    for (three_d, plane, dimensions, named) in cases {
         for (name, make, data) in image_kinds() {
             let mut fx = grid_fixture(three_d, |id, d| make(id, data(d), on(plane)));
             let axes = &mut fx.fig.axes[0];
-            let axis = match dimension {
-                Dimension::X => &mut axes.x,
-                Dimension::Y => &mut axes.y,
-                Dimension::Z => &mut axes.z,
-            };
-            axis.scale = Scale::Log;
+            for dimension in dimensions {
+                let axis = match dimension {
+                    Dimension::X => &mut axes.x,
+                    Dimension::Y => &mut axes.y,
+                    Dimension::Z => &mut axes.z,
+                };
+                axis.scale = Scale::Log;
+            }
             let report = fx.fig.validate();
-            let at = format!("{name} on {plane:?} with a logarithmic {dimension:?} axis");
-            assert_eq!(report.errors, vec![], "{at}: {report:?}");
-            let expected = if warns {
-                vec![IssueKind::ImageOnLogAxis]
-            } else {
-                vec![]
-            };
+            let at = format!("{name} on {plane:?} with logarithmic {dimensions:?}");
+            assert_eq!(report.warnings, vec![], "{at}: {report:?}");
+            if named.is_empty() {
+                assert_eq!(report.errors, vec![], "{at}: {report:?}");
+                continue;
+            }
             assert_eq!(
-                report
-                    .warnings
-                    .iter()
-                    .map(|issue| issue.kind)
-                    .collect::<Vec<_>>(),
-                expected,
+                error_kinds(&report),
+                vec![IssueKind::ImageOnLogAxis],
                 "{at}: {report:?}"
             );
-            if warns {
+            assert!(
+                has_error(&report, IssueKind::ImageOnLogAxis, Some(fx.artist)),
+                "{at}: the error must be reported against the image: {report:?}"
+            );
+            let message = &report.errors[0].message;
+            let plane_name = match plane {
+                ImagePlane::Xy { .. } => "xy plane",
+                ImagePlane::Xz { .. } => "xz plane",
+                ImagePlane::Yz { .. } => "yz plane",
+            };
+            let axes_named = if named.len() == 1 {
+                format!("{} axis is logarithmic", named[0])
+            } else {
+                format!("{} axes are logarithmic", named.join(" and "))
+            };
+            for needed in [
+                fx.artist.to_string(),
+                plane_name.to_owned(),
+                axes_named,
+                "evenly spaced pixels".to_owned(),
+                "surface".to_owned(),
+                "colour data".to_owned(),
+            ] {
+                assert!(message.contains(&needed), "{at}: {needed:?} in {message}");
+            }
+            if !three_d {
                 assert!(
-                    has_warning(&report, IssueKind::ImageOnLogAxis, Some(fx.artist)),
-                    "{at}: the warning must name the image: {report:?}"
+                    message.contains("pseudocolour"),
+                    "{at}: in a 2D axes the surface is a pseudocolour plot: {message}"
                 );
             }
         }
+    }
+}
+
+// Why: an error is what must be fixed, so it stands alone: an image with no pixels on a
+// logarithmic axis is reported for its logarithmic axis and not also as having nothing
+// to draw, which would suggest that adding pixels is the remedy.
+#[test]
+fn an_empty_image_on_a_logarithmic_axis_is_reported_for_the_axis_alone() {
+    let kinds: [(&str, MakeImage, Vec<usize>, bool); 3] = [
+        ("an image", image_at, vec![0, 4, 3], false),
+        ("an indexed image", indexed_at, vec![0, 4], true),
+        ("a mapped image", mapped_at, vec![0, 4], false),
+    ];
+    for (name, make, shape, bytes) in kinds {
+        let mut fx = image_fixture(false, shape, bytes, |id, data| {
+            make(id, data, ImagePlacement::default())
+        });
+        fx.fig.axes[0].x.scale = Scale::Log;
+        let report = fx.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::ImageOnLogAxis],
+            "{name}: {report:?}"
+        );
+        assert_eq!(report.warnings, vec![], "{name}: {report:?}");
     }
 }
 

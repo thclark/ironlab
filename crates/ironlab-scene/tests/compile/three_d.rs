@@ -1,6 +1,8 @@
 //! Three-dimensional axes: surfaces, painter's ordering, 3D artists and box decorations.
 
-use ironlab_ir::{Color, ColorSpec, ContourPlacement, Levels, Limits, NodeId, View3d};
+use ironlab_ir::{
+    Color, ColorSpec, ContourPlacement, Levels, Limits, NodeId, Scale, TickLabels, View3d,
+};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::AxesHitKind;
@@ -761,5 +763,121 @@ fn three_d_zoom_scales_the_projection_about_the_plot_centre() {
     for (p, q) in ca.iter().zip(&cb) {
         crate::probe::assert_close(q.x - centre.x, 2.0 * (p.x - centre.x), 1e-6);
         crate::probe::assert_close(q.y - centre.y, 2.0 * (p.y - centre.y), 1e-6);
+    }
+}
+
+/// Raises ten to an exponent when the axis is logarithmic, and leaves the exponent as it is when it is linear.
+fn lift(log: bool, exponent: f64) -> f64 {
+    if log { 10f64.powf(exponent) } else { exponent }
+}
+
+/// Compiles a 3D axes holding one surface over a grid of exponents: along each axis made logarithmic by `log`
+/// (x, y, z), the coordinates and manual limits are ten raised to the exponents, and along each linear axis they are
+/// the exponents themselves. The grid is uneven in y and the heights are a sloping plane of the exponents, so that
+/// each axis carries a distinct map. Tick labels are hidden, because a logarithmic axis labels its ticks as powers of
+/// ten, whose size would otherwise move the plot area between the two figures being compared.
+fn exponent_surface(log: [bool; 3]) -> (Scene, NodeId) {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, View3d::default());
+    let x: Vec<f64> = [0.0, 1.0, 2.0, 3.0]
+        .iter()
+        .map(|&e| lift(log[0], e))
+        .collect();
+    let y: Vec<f64> = [0.0, 0.5, 2.0].iter().map(|&e| lift(log[1], e)).collect();
+    let exponent = |on: bool, v: f64| if on { v.log10() } else { v };
+    let surf = fx.surface(
+        ax,
+        &x,
+        &y,
+        |x, y| lift(log[2], 0.5 * exponent(log[0], x) + exponent(log[1], y)),
+        |_| {},
+    );
+    let axes = fx.ax(ax);
+    let limits = [(0.0, 3.0), (0.0, 2.0), (0.0, 3.5)];
+    for ((axis, on), (min, max)) in [&mut axes.x, &mut axes.y, &mut axes.z]
+        .into_iter()
+        .zip(log)
+        .zip(limits)
+    {
+        axis.limits = Limits::Manual {
+            min: lift(on, min),
+            max: lift(on, max),
+        };
+        axis.tick_labels = TickLabels::Hidden;
+        if on {
+            axis.scale = Scale::Log;
+        }
+    }
+    (compile_figure(&fx.build()), surf)
+}
+
+// Why: a surface is the artist to which values sampled along a logarithmic axis are sent, because, unlike an image,
+// it is made of vertices that each go through the log map; validation refuses an image on such an axis on the
+// strength of this. In a 3D axes every one of the three axes may be logarithmic, so each, alone and all together,
+// must place every vertex exactly where a linear axis places the logarithm of its coordinate: the surface over
+// powers of ten on logarithmic axes and the surface over the exponents on linear axes must be drawn identically,
+// with nothing lost and nothing warned of.
+#[test]
+fn logarithmic_axes_place_every_vertex_of_a_3d_surface_through_the_log_map() {
+    let (linear, linear_id) = exponent_surface([false; 3]);
+    let expected = vertices(&linear, linear_id);
+    assert!(!expected.is_empty());
+    for log in [
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+        [true, true, true],
+    ] {
+        let (scene, surf) = exponent_surface(log);
+        assert!(
+            same_geometry(&vertices(&scene, surf), &expected, 1e-6),
+            "logarithmic {log:?}: the vertices differ from those of the exponents on linear axes"
+        );
+        assert!(
+            scene.warnings.is_empty(),
+            "logarithmic {log:?}: positive coordinates lose nothing: {:?}",
+            scene.warnings
+        );
+    }
+}
+
+// Why: a node at a coordinate or height that is not positive has no position on a logarithmic axis, so the faces
+// that touch it cannot be drawn in a 3D axes any more than in a 2D one; they must be left out, with a warning naming
+// the surface, rather than emitted with non-finite geometry, and the faces clear of the node must still be drawn.
+#[test]
+fn faces_of_a_3d_surface_touching_a_non_positive_node_on_a_log_axis_are_dropped_with_a_warning() {
+    // The logarithmic axis, the x coordinates, and the heights: the first column of nodes lies at x = −1 in the
+    // first case and at height 0 in the second, and every other coordinate and height is positive.
+    type Height = fn(f64, f64) -> f64;
+    let cases: [(&str, [f64; 4], Height); 2] = [
+        ("x", [-1.0, 1.0, 2.0, 3.0], |_, y| y),
+        ("z", [0.0, 1.0, 2.0, 3.0], |x, y| x * y),
+    ];
+    for (axis, x, height) in cases {
+        let mut fx = Fx::new();
+        let ax = fx.axes3d(0, 0, View3d::default());
+        let surf = fx.surface(ax, &x, &[1.0, 2.0, 3.0], height, |_| {});
+        let axes = fx.ax(ax);
+        match axis {
+            "x" => axes.x.scale = Scale::Log,
+            _ => axes.z.scale = Scale::Log,
+        }
+        let scene = compile_figure(&fx.build());
+        assert_eq!(
+            filled(&leaves(&scene), surf).len(),
+            2 * 2,
+            "log {axis}: of the 3 × 2 faces, the two that touch the first column are dropped"
+        );
+        assert!(
+            vertices(&scene, surf)
+                .iter()
+                .all(|p| p.x.is_finite() && p.y.is_finite()),
+            "log {axis}: every vertex drawn is finite"
+        );
+        assert!(
+            scene.warnings.iter().any(|w| w.node == Some(surf)),
+            "log {axis}: a warning names the surface: {:?}",
+            scene.warnings
+        );
     }
 }

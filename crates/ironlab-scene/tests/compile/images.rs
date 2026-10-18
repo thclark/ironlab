@@ -2058,11 +2058,12 @@ fn alpha_and_non_finite_components_make_pixels_transparent_and_add_an_alpha_chan
 // Logarithmic axes
 // ---------------------------------------------------------------------------------------------------------------
 
-// WHY: flat pixels of one pitch cannot be placed on a logarithmic axis, where equal pitches are unequal distances,
-// so an image whose plane touches such an axis is skipped with one warning naming it (the follow-up of per-pixel
-// paths is not this compiler's job), while the other artists of the axes are still drawn and the skipped image
-// contributes nothing to the limits, as any skipped artist does; the third axis of the plane, which only sets the
-// offset, may be logarithmic without harm.
+// WHY: flat pixels of one pitch cannot be placed on a logarithmic axis, where equal pitches are unequal distances.
+// Validation refuses such a figure with an error that points to a surface, but the compiler draws whatever it is
+// given, so it must still behave soundly: an image whose plane touches such an axis is skipped with one warning
+// naming it, while the other artists of the axes are still drawn and the skipped image contributes nothing to the
+// limits, as any skipped artist does; the third axis of the plane, which only sets the offset, may be logarithmic
+// without harm.
 #[test]
 fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning() {
     // A 2D axes with a logarithmic x axis holding a line over [1, 100] × [1, 2] and, when asked, an image whose

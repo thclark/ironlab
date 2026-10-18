@@ -3,7 +3,7 @@
 //! A 2D axes shows a surface from directly above, so the grid alone places the faces and the field only colours them.
 //! The marking of the faces as dense content, which a 2D axes shares with a 3D one, is pinned in `dense`.
 
-use ironlab_ir::{Artist, ColorSpec, Grid, Limits, NodeId, Scale, Surface};
+use ironlab_ir::{Artist, ColorSpec, Grid, Limits, NodeId, Scale, Surface, TickLabels};
 use ironlab_scene::Scene;
 use ironlab_scene::maths::colormap::VIRIDIS;
 
@@ -492,6 +492,68 @@ fn a_logarithmic_x_axis_places_the_vertices_through_the_log_map() {
         "positive coordinates lose nothing: {:?}",
         scene.warnings
     );
+}
+
+/// Compiles a 2D axes holding one surface over a grid of exponents: along each axis made logarithmic by `log` (x,
+/// y), the coordinates and manual limits are ten raised to the exponents, and along each linear axis they are the
+/// exponents themselves. Tick labels are hidden, because a logarithmic axis labels its ticks as powers of ten, whose
+/// size would otherwise move the plot area between the figures being compared. Returns the figure-space position of
+/// every vertex the surface drew, in paint order.
+fn exponent_surface_vertices(log: [bool; 2]) -> Vec<[f64; 2]> {
+    let lift = |on: bool, e: f64| if on { 10f64.powf(e) } else { e };
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let x: Vec<f64> = [0.0, 1.0, 2.0, 3.0]
+        .iter()
+        .map(|&e| lift(log[0], e))
+        .collect();
+    let y: Vec<f64> = [0.0, 0.5, 2.0].iter().map(|&e| lift(log[1], e)).collect();
+    let surface = fx.surface(ax, &x, &y, |x, y| x + y, |_| {});
+    let axes = fx.ax(ax);
+    for ((axis, on), (min, max)) in [&mut axes.x, &mut axes.y]
+        .into_iter()
+        .zip(log)
+        .zip([(0.0, 3.0), (0.0, 2.0)])
+    {
+        axis.limits = Limits::Manual {
+            min: lift(on, min),
+            max: lift(on, max),
+        };
+        axis.tick_labels = TickLabels::Hidden;
+        if on {
+            axis.scale = Scale::Log;
+        }
+    }
+    let scene = compile_figure(&fx.build());
+    assert!(
+        scene.warnings.is_empty(),
+        "logarithmic {log:?}: positive coordinates lose nothing: {:?}",
+        scene.warnings
+    );
+    from_source(&leaves(&scene), surface)
+        .iter()
+        .flat_map(|l| l.subpaths().into_iter().flatten())
+        .map(|p| [p.x, p.y])
+        .collect()
+}
+
+// Why: the test above proves the log map along x on evenly spaced decades; a pseudocolour plot of log-spaced data,
+// such as a spectrogram with a logarithmic frequency axis, may put that axis vertically, or make both axes
+// logarithmic. Each must place every vertex exactly where a linear axis places the logarithm of its coordinate, on
+// a grid that is uneven in its exponents, so that the surface over powers of ten on logarithmic axes and the
+// surface over the exponents on linear axes are drawn identically.
+#[test]
+fn a_logarithmic_y_axis_alone_or_with_x_places_the_vertices_through_the_log_map() {
+    let expected = exponent_surface_vertices([false, false]);
+    assert!(!expected.is_empty());
+    for log in [[false, true], [true, true]] {
+        let actual = exponent_surface_vertices(log);
+        assert_eq!(actual.len(), expected.len(), "logarithmic {log:?}");
+        for (a, e) in actual.iter().zip(&expected) {
+            assert_close(a[0], e[0], 1e-6);
+            assert_close(a[1], e[1], 1e-6);
+        }
+    }
 }
 
 // Why: a node at a non-positive coordinate has no position on a logarithmic axis, so the faces that touch it cannot
