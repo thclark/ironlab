@@ -145,8 +145,8 @@ pub use ironlab_scene::{SceneWarning, SceneWarningKind};
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExportReport {
     /// The warnings of the figure's validation, as [`Figure::validate`] returns them: an
-    /// artist with nothing to draw, data that a logarithmic axis cannot show, or an image
-    /// that cannot be placed. Each names the node it concerns.
+    /// artist with nothing to draw, or data that a logarithmic axis cannot show. Each
+    /// names the node it concerns.
     pub validation: Vec<ValidationIssue>,
     /// The warnings the scene compiler raised while drawing the figure, each naming the
     /// node it concerns.

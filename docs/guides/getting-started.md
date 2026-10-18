@@ -72,7 +72,7 @@ Non-finite values (such as `f64::NAN`) break a line into separate pieces.
 
 ### Logarithmic axes
 
-`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them.
+`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image cannot be drawn on a logarithmic axis at all, and data sampled along one is drawn as a surface instead, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
 
 ```rust
 let f = logspace(0.0, 4.0, 200);
@@ -194,7 +194,7 @@ Out of the box, a surface in a two-dimensional axes and a [colour-mapped image](
 | A value belongs to | the centre of a pixel | a vertex of the grid |
 | A field of n rows and m columns draws | n × m pixels, each in the colour of its own value | (n − 1) × (m − 1) faces, each in the colour of the mean of its four corner values |
 | Placement | evenly spaced pixel centres, given by the first and last centre along each axis | any rectilinear grid (two coordinate vectors) or curvilinear grid (two coordinate matrices) |
-| Logarithmic axes | not drawn, with a validation warning | drawn, because every vertex is placed through the scale of its axis |
+| Logarithmic axes | refused by validation with an `ImageOnLogAxis` error | drawn, because every vertex is placed through the scale of its axis |
 | Drawn as | one flat raster at its own resolution | one quadrilateral per face, with optional edges |
 
 An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
@@ -237,7 +237,24 @@ A pixel of a colour-indexed or colour-mapped image that the colormap cannot colo
 
 In a three-dimensional axes an image lies in one of the three coordinate planes, chosen with `plane`. `ImagePlane::Xy { z }` is the floor, `ImagePlane::Xz { y }` and `ImagePlane::Yz { x }` are the walls, and the offset is the coordinate of the plane along the third axis, or `None` for the low end of that axis, so `plane(ImagePlane::Xz { y: Some(0.0) })` stands the image on the wall at y = 0. The columns of the image run along the first axis of its plane and the rows along the second. Placing an image on a wall converts a two-dimensional axes to three dimensions, as `surf` does, whereas the xy plane leaves the axes as it is, because it is the only plane a two-dimensional axes can show. An image on a face of the axes box, as an image without an offset is, is painted behind everything else in the axes when its face is at the back of the current view and in front of everything else when it is at the front; an image at an interior offset is sorted among the faces, lines and markers by its depth.
 
-The pixels of an image are flat, so an image cannot be placed on a logarithmic axis: an image whose plane has a logarithmic axis is not drawn, and validation warns about it.
+#### Images on logarithmic axes
+
+An image is a raster of evenly spaced pixels, and a logarithmic axis has no place for one: equal steps in the data are unequal distances on the page, so the pixels of one image would have to be of different widths, and the width of each would span an interval of the data that the image does not describe. An image whose plane has a logarithmic axis is therefore a validation error, `ImageOnLogAxis`, and the figure is neither exported nor shown. Only the two axes of the image's plane count. The third axis of a three-dimensional axes, along which the plane is only offset, may be logarithmic, provided that an explicit offset along it is positive; a plane offset to zero or to a negative coordinate along a logarithmic third axis has no position and is an `InvalidImagePlacement` error. The z axis of a two-dimensional axes is never drawn, so its scale does not matter.
+
+Data sampled along a logarithmic axis, such as a spectrogram with a logarithmic frequency axis, is drawn as a [surface](#surfaces-in-two-dimensional-axes) instead. A surface is made of vertices, each of which is placed through the scale of its axis, so its faces stretch and shrink with the logarithmic axis exactly as the data does. The values that would have been the pixels become the field of a surface whose grid holds the coordinates of the pixel centres:
+
+```rust
+let time = linspace(0.0, 8.0, 241);                            // the centres of the columns
+let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the centres of the rows
+// `psd` stands for whatever computes the power spectral density at one time and frequency.
+let power = Matrix::from_fn(frequency.len(), time.len(), |row, col| psd(time[col], frequency[row]));
+
+let mut ax = fig.axes(0, 0);
+ax.surface(&time, &frequency, &power).edge_color(None);
+ax.yscale(Scale::Log);
+```
+
+The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. A true-colour image has no values for a colormap to colour, so its colours must be given as the values from which they were made. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
 
 An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
@@ -489,7 +506,7 @@ if !report.is_valid() {
 }
 ```
 
-Exporting and showing a figure validate it first, and return `Error::Invalid` with the report when it has errors. Warnings do not prevent a figure from being exported or shown: they describe an artist that is drawn with less than its data holds, or not at all. Each warning names the artist it concerns and has a kind that says why. `NonPositiveOnLogAxis` reports data that a logarithmic axis cannot show, `ImageOnLogAxis` an image that cannot be placed on a logarithmic axis, and `NothingToDraw` an artist whose data gives it nothing to draw: a line, scatter or quiver of no points, an image with no rows or no columns, or a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. Empty and singleton data are valid in every artist, so a figure built before its data arrives is valid at every step, and the warning is how a program learns that an artist is missing from the picture:
+Exporting and showing a figure validate it first, and return `Error::Invalid` with the report when it has errors. Warnings do not prevent a figure from being exported or shown: they describe an artist that is drawn with less than its data holds, or not at all. Each warning names the artist it concerns and has a kind that says why. `NonPositiveOnLogAxis` reports data that a logarithmic axis cannot show, and `NothingToDraw` an artist whose data gives it nothing to draw: a line, scatter or quiver of no points, an image with no rows or no columns, or a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. Empty and singleton data are valid in every artist, so a figure built before its data arrives is valid at every step, and the warning is how a program learns that an artist is missing from the picture:
 
 ```rust
 use ironlab::IssueKind;

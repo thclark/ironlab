@@ -160,17 +160,23 @@ pub enum IssueKind {
     /// meant, so both are errors.
     InvalidLabel,
     /// The placement of an image cannot be drawn: a pixel centre or the offset of its
-    /// plane is not finite, or the centres of the first and last pixels along an axis
-    /// coincide although the image has more than one pixel along that axis.
+    /// plane is not finite, the centres of the first and last pixels along an axis
+    /// coincide although the image has more than one pixel along that axis, or, in a
+    /// three-dimensional axes, the plane is offset to a coordinate that is not positive
+    /// along a logarithmic third axis, which has no place for it.
     InvalidImagePlacement,
     /// A pixel of a colour-indexed or colour-mapped image falls in a category whose
     /// out-of-range policy is strict: an index outside the colormap, a value outside
     /// manual colour limits, or an index or value that is not finite.
     PixelOutOfRange,
-    /// An image lies in a plane of which an axis is logarithmic, on which a raster of
-    /// flat pixels cannot be placed, or its plane is offset to a non-positive
-    /// coordinate along a logarithmic third axis, where the plane cannot be placed, so
-    /// the image is not drawn.
+    /// An image lies in a plane of which an axis is logarithmic. An image is a raster of
+    /// evenly spaced pixels, which has no placement on a logarithmic axis, where equal
+    /// steps in the data are unequal distances on the page, so the figure is refused
+    /// rather than drawn without the image. Values sampled along a logarithmic axis are
+    /// drawn as a [`Surface`](crate::Surface) instead, whose every node is placed
+    /// through the logarithmic scale; the message says how. Only the axes of the plane
+    /// count: the third axis, along which the plane is offset, may be logarithmic, and
+    /// the z axis of a two-dimensional axes is ignored.
     ImageOnLogAxis,
 }
 
@@ -198,14 +204,15 @@ impl Figure {
     /// contour levels, parameters with an empty name or a non-finite number, labels that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
-    /// last centres coincide along an axis of more than one pixel, and pixels of a
-    /// colour-indexed or colour-mapped image that fall in a category whose out-of-range
-    /// policy is strict (for a colour-mapped image, a value lies below or above the range
+    /// last centres coincide along an axis of more than one pixel, an image whose plane
+    /// has a logarithmic axis (which must be drawn as a surface instead) or, in a 3D
+    /// axes, is offset to a coordinate that is not positive along a logarithmic third
+    /// axis, and pixels of a colour-indexed or colour-mapped image that fall in a
+    /// category whose out-of-range policy is strict (for a colour-mapped image, a value lies below or above the range
     /// only when the colour limits are manual and valid, because automatic limits are
     /// the range of the data). Warnings report finite non-positive data plotted along
-    /// logarithmic axes, an image whose plane has a logarithmic axis, which is not
-    /// drawn, a line or scatter whose released clip has no effect because it places no
-    /// dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
+    /// logarithmic axes, a line or scatter whose released clip has no effect because it
+    /// places no dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), a legend panel with no entries
@@ -992,7 +999,7 @@ impl Validator<'_> {
             None
         };
         self.check_image_placement(node, image.placement, pixels);
-        self.check_image_plane_scales(axes, three_d, node, image.placement.plane);
+        self.check_image_plane_scales(axes, three_d, node, image);
         let Some([ny, nx]) = pixels else {
             return;
         };
@@ -1088,17 +1095,24 @@ impl Validator<'_> {
         }
     }
 
-    /// Warns of an image whose plane has a logarithmic axis, on which a raster of flat
-    /// pixels cannot be placed, or whose plane is offset to a non-positive coordinate
-    /// along a logarithmic third axis, where the plane cannot be placed, so that the
-    /// image is not drawn; the z axis of a 2D axes is ignored, as it is when drawing.
+    /// Reports an image whose plane cannot be placed on the logarithmic axes of the axes;
+    /// the z axis of a 2D axes is ignored, as it is when drawing.
+    ///
+    /// An image whose plane has a logarithmic axis is an [`IssueKind::ImageOnLogAxis`]
+    /// error, because a raster of evenly spaced pixels has no placement on such an axis;
+    /// its message tells the user how to draw the same values as a surface, whose every
+    /// node is placed through the logarithmic scale. Otherwise, a plane offset to a
+    /// non-positive coordinate along a logarithmic third axis is an
+    /// [`IssueKind::InvalidImagePlacement`] error, because the plane itself could be
+    /// drawn but its offset has no place on that axis.
     fn check_image_plane_scales(
         &mut self,
         axes: &Axes,
         three_d: bool,
         node: NodeId,
-        plane: ImagePlane,
+        image: &ImageView,
     ) {
+        let plane = image.placement.plane;
         let [columns, rows] = plane.axes();
         let logarithmic: Vec<&str> = [columns, rows]
             .into_iter()
@@ -1116,12 +1130,14 @@ impl Validator<'_> {
                 && offset <= 0.0
                 && axis_of(axes, third).scale == Scale::Log
             {
-                self.warning(
+                self.error(
                     Some(node),
-                    IssueKind::ImageOnLogAxis,
+                    IssueKind::InvalidImagePlacement,
                     format!(
-                        "the plane of the image is offset to {offset} along the logarithmic {} \
-                         axis, where it cannot be placed, so the image is not drawn",
+                        "the plane of the image ({node}) is offset to {offset} along the {} \
+                         axis, which is logarithmic and so has no place for a coordinate that \
+                         is not positive; give the plane a positive offset, or no offset to \
+                         place it at the lower limit of the axis",
                         dimension_name(third)
                     ),
                 );
@@ -1133,13 +1149,46 @@ impl Validator<'_> {
         } else {
             ("axes", "are")
         };
-        self.warning(
+        let surface = match (three_d, plane) {
+            (false, _) => "a rectilinear grid of the pixel-centre coordinates along x and y, and \
+                 the values as its field `z`, which is the colour data of its nodes: in a \
+                 two-dimensional axes a surface is seen from directly above as a pseudocolour \
+                 plot, and every node of its grid is placed through the logarithmic scale"
+                .to_owned(),
+            (true, ImagePlane::Xy { .. }) => "a rectilinear grid of the pixel-centre coordinates \
+                 along x and y, a field `z` that holds the height of the plane at every node, and \
+                 the values as its colour data `c`; every node of a surface is placed through \
+                 the logarithmic scale"
+                .to_owned(),
+            (true, ImagePlane::Xz { .. } | ImagePlane::Yz { .. }) => {
+                let (along, across) = if matches!(plane, ImagePlane::Xz { .. }) {
+                    ("x", "y")
+                } else {
+                    ("y", "x")
+                };
+                format!(
+                    "a curvilinear grid whose {along} coordinates are the pixel-centre \
+                     coordinates along {along} and whose {across} coordinates all equal the \
+                     offset of the plane, a field `z` of the pixel-centre coordinates along z, \
+                     and the values as its colour data `c`; every node of a surface is placed \
+                     through the logarithmic scale"
+                )
+            }
+        };
+        let true_colour = if image.channels {
+            "; a surface is coloured through the colormap, so the colours of a true-colour \
+             image must be given as the values from which they were made"
+        } else {
+            ""
+        };
+        self.error(
             Some(node),
             IssueKind::ImageOnLogAxis,
             format!(
-                "the image lies in the {} plane, whose {} {noun} {verb} logarithmic, and a \
-                 raster of flat pixels cannot be placed on a logarithmic axis, so the image \
-                 is not drawn",
+                "the image ({node}) lies in the {} plane, whose {} {noun} {verb} logarithmic, \
+                 but an image is a raster of evenly spaced pixels, which has no placement on a \
+                 logarithmic axis, where equal steps in the data are unequal distances on the \
+                 page; draw the values as a surface instead, with {surface}{true_colour}",
                 plane_name(plane),
                 logarithmic.join(" and ")
             ),
