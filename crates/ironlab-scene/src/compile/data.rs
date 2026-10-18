@@ -81,6 +81,11 @@ pub(crate) struct ImageData<'a> {
     /// The number of values per pixel: 3 or 4 for a true-colour image, 1 for the other kinds.
     pub components: usize,
     pub placement: ImagePlacement,
+    /// The alpha of every pixel of a colour-indexed or colour-mapped image, an array of `ny` rows and `nx` columns
+    /// of either element type, or `None` when the image has none.
+    pub alpha: Option<&'a NdArray>,
+    /// The opacity of the image, which multiplies the alpha of every pixel.
+    pub opacity: f64,
 }
 
 impl ImageData<'_> {
@@ -115,6 +120,10 @@ pub(crate) enum ArtistData<'a> {
     Surface {
         grid: GridRef<'a>,
         colours: Option<&'a [f64]>,
+        /// The alpha of the faces at every node, one value per node of the field.
+        face_alpha: Option<&'a [f64]>,
+        /// The alpha of the face edges at every node, one value per node of the field.
+        edge_alpha: Option<&'a [f64]>,
     },
     /// An image of any kind.
     Image(ImageData<'a>),
@@ -318,44 +327,78 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
         }
         Artist::Surface(surface) => {
             let grid = grid(figure, &surface.grid, surface.z)?;
-            let colours = surface
-                .c
-                .map(|c| {
-                    let values = f64_values(figure, c, "colour")?;
+            let per_node = |id: Option<DataId>, what: &str| {
+                id.map(|id| {
+                    let values = f64_values(figure, id, what)?;
                     if values.len() == grid.z.len() {
                         Ok(values)
                     } else {
                         Err(format!(
-                            "its colour array {c} holds {} values but its field holds {}",
+                            "its {what} array {id} holds {} values but its field holds {}",
                             values.len(),
                             grid.z.len()
                         ))
                     }
                 })
-                .transpose()?;
-            ArtistData::Surface { grid, colours }
+                .transpose()
+            };
+            ArtistData::Surface {
+                colours: per_node(surface.c, "colour")?,
+                face_alpha: per_node(surface.face_alpha, "face alpha")?,
+                edge_alpha: per_node(surface.edge_alpha, "edge alpha")?,
+                grid,
+            }
         }
-        Artist::Image(i) => image_data(figure, axes, i.pixels, ImageKind::TrueColour, i.placement)?,
+        Artist::Image(i) => {
+            let look = Look {
+                alpha: None,
+                opacity: i.opacity,
+            };
+            image_data(
+                figure,
+                axes,
+                i.pixels,
+                ImageKind::TrueColour,
+                i.placement,
+                look,
+            )?
+        }
         Artist::IndexedImage(i) => {
             let kind = ImageKind::Indexed(policies(i.below, i.above, i.non_finite));
-            image_data(figure, axes, i.indices, kind, i.placement)?
+            let look = Look {
+                alpha: i.alpha,
+                opacity: i.opacity,
+            };
+            image_data(figure, axes, i.indices, kind, i.placement, look)?
         }
         Artist::MappedImage(i) => {
             let kind = ImageKind::Mapped(policies(i.below, i.above, i.non_finite));
-            image_data(figure, axes, i.values, kind, i.placement)?
+            let look = Look {
+                alpha: i.alpha,
+                opacity: i.opacity,
+            };
+            image_data(figure, axes, i.values, kind, i.placement, look)?
         }
     })
 }
 
-/// Resolves the array of an image artist of any kind, and checks that its shape suits the kind, that the placement
-/// of the image can be drawn, that the axes can show its plane, and that it has at least one row and one column of
-/// pixels, because an image with none draws nothing and is left out with a warning that names it.
+/// The transparency of an image artist: the identifier of its alpha array, if it has one, and its opacity.
+struct Look {
+    alpha: Option<DataId>,
+    opacity: f64,
+}
+
+/// Resolves the array of an image artist of any kind, and checks that its shape suits the kind, that its alpha, if
+/// it has one, has a value for every pixel, that the placement of the image can be drawn, that the axes can show its
+/// plane, and that it has at least one row and one column of pixels, because an image with none draws nothing and
+/// is left out with a warning that names it.
 fn image_data<'a>(
     figure: &'a Figure,
     axes: &Axes,
     id: DataId,
     kind: ImageKind,
     placement: ImagePlacement,
+    look: Look,
 ) -> Result<ArtistData<'a>, String> {
     let array = array(figure, id)?;
     let what = match kind {
@@ -378,6 +421,21 @@ fn image_data<'a>(
             ));
         }
     };
+    let alpha = look
+        .alpha
+        .map(|alpha_id| {
+            let alpha = self::array(figure, alpha_id)?;
+            if alpha.shape == [ny, nx] {
+                Ok(alpha)
+            } else {
+                Err(format!(
+                    "its alpha {alpha_id} has shape {:?}, but its {what} {id} have shape {:?}",
+                    alpha.shape,
+                    [ny, nx]
+                ))
+            }
+        })
+        .transpose()?;
     check_placement(placement, nx, ny)?;
     check_plane(axes, placement.plane)?;
     let empty = match (ny, nx) {
@@ -405,6 +463,8 @@ fn image_data<'a>(
         ny,
         components,
         placement,
+        alpha,
+        opacity: look.opacity,
     }))
 }
 

@@ -300,6 +300,18 @@ pub struct Contour {
     pub placement: ContourPlacement,
     /// The style of the isolines; a colormapped colour takes each isoline's level.
     pub line: LineStyle,
+    /// The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of their colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub line_opacity: f64,
+    /// The opacity of the filled bands, from 0 (transparent) to 1 (opaque), which
+    /// multiplies the alpha of their colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub fill_opacity: f64,
 }
 
 impl Default for Contour {
@@ -317,6 +329,8 @@ impl Default for Contour {
                 color: ColorSpec::Colormapped,
                 ..LineStyle::default()
             },
+            line_opacity: 1.0,
+            fill_opacity: 1.0,
         }
     }
 }
@@ -491,6 +505,40 @@ pub struct Surface {
     pub edge: ColorSpec,
     /// The width of the face edges in points.
     pub edge_width_pt: f64,
+    /// The alpha of the faces at every node, an array of 64-bit floating-point values
+    /// with the same shape as `z`, or `None` for faces that are uniformly opaque before
+    /// [`face_opacity`](Surface::face_opacity) applies. A face takes the mean of the
+    /// alpha at its four corners, as it takes the mean of their colour data. A value
+    /// outside `[0, 1]` is clamped to that range, and a face with a corner whose alpha
+    /// is not finite is transparent.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_alpha: Option<DataId>,
+    /// The alpha of the face edges at every node, an array of 64-bit floating-point
+    /// values with the same shape as `z`, or `None` for edges that are uniformly opaque
+    /// before [`edge_opacity`](Surface::edge_opacity) applies. The edges of a face take
+    /// the mean of the edge alpha at its four corners, clamped and made transparent by
+    /// a non-finite value as the face alpha is. It may name the same array as
+    /// `face_alpha`.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_alpha: Option<DataId>,
+    /// The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of every face: the face colour's own alpha and, when present, the
+    /// [`face_alpha`](Surface::face_alpha) of the face.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub face_opacity: f64,
+    /// The opacity of the face edges, from 0 (transparent) to 1 (opaque), which
+    /// multiplies the alpha of every edge: the edge colour's own alpha and, when
+    /// present, the [`edge_alpha`](Surface::edge_alpha) of the face it borders.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub edge_opacity: f64,
 }
 
 impl Default for Surface {
@@ -507,8 +555,22 @@ impl Default for Surface {
                 color: Color::BLACK,
             },
             edge_width_pt: 0.5,
+            face_alpha: None,
+            edge_alpha: None,
+            face_opacity: 1.0,
+            edge_opacity: 1.0,
         }
     }
+}
+
+/// Returns the opacity of an opaque artist, which an opacity absent from JSON takes.
+fn opaque() -> f64 {
+    1.0
+}
+
+/// Returns whether an opacity is exactly 1, in which case JSON omits it.
+fn is_opaque(opacity: &f64) -> bool {
+    *opacity == 1.0
 }
 
 /// A true-colour image: a raster of pixels, each with its own colour (image with a
@@ -534,6 +596,14 @@ pub struct Image {
     pub pixels: DataId,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
+    /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of every pixel: its alpha component in a four-channel array, and 1 in
+    /// a three-channel array. A true-colour image has no separate alpha array, because
+    /// a four-channel array already gives every pixel its own alpha.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub opacity: f64,
 }
 
 impl Default for Image {
@@ -544,6 +614,7 @@ impl Default for Image {
             visible: true,
             pixels: DataId::default(),
             placement: ImagePlacement::default(),
+            opacity: 1.0,
         }
     }
 }
@@ -575,6 +646,24 @@ pub struct IndexedImage {
     pub above: OutOfRange,
     /// What is drawn for a pixel whose index is NaN or infinite.
     pub non_finite: OutOfRange,
+    /// The alpha of every pixel, a two-dimensional array with the same shape as
+    /// `indices`, or `None` for pixels that are uniformly opaque before
+    /// [`opacity`](IndexedImage::opacity) applies. The array may hold floating-point values from
+    /// 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image
+    /// may. A value outside the range is clamped to it, and a pixel whose alpha is not
+    /// finite is transparent. The alpha also applies to a pixel drawn in the fixed
+    /// colour of an out-of-range policy.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<DataId>,
+    /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of every pixel: the alpha of its colour and, when present, its value
+    /// in [`alpha`](IndexedImage::alpha).
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub opacity: f64,
 }
 
 impl Default for IndexedImage {
@@ -588,6 +677,8 @@ impl Default for IndexedImage {
             below: OutOfRange::default(),
             above: OutOfRange::default(),
             non_finite: OutOfRange::default(),
+            alpha: None,
+            opacity: 1.0,
         }
     }
 }
@@ -618,6 +709,24 @@ pub struct MappedImage {
     pub above: OutOfRange,
     /// What is drawn for a pixel whose value is NaN or infinite.
     pub non_finite: OutOfRange,
+    /// The alpha of every pixel, a two-dimensional array with the same shape as
+    /// `values`, or `None` for pixels that are uniformly opaque before
+    /// [`opacity`](MappedImage::opacity) applies. The array may hold floating-point values from
+    /// 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image
+    /// may. A value outside the range is clamped to it, and a pixel whose alpha is not
+    /// finite is transparent. The alpha also applies to a pixel drawn in the fixed
+    /// colour of an out-of-range policy.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<DataId>,
+    /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of every pixel: the alpha of its colour and, when present, its value
+    /// in [`alpha`](MappedImage::alpha).
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub opacity: f64,
 }
 
 impl Default for MappedImage {
@@ -631,6 +740,8 @@ impl Default for MappedImage {
             below: OutOfRange::default(),
             above: OutOfRange::default(),
             non_finite: OutOfRange::default(),
+            alpha: None,
+            opacity: 1.0,
         }
     }
 }

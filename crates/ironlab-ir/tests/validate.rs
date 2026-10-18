@@ -3417,3 +3417,357 @@ fn a_reversed_axis_still_requires_increasing_limits() {
     let report = fig.validate();
     assert!(has_error(&report, IssueKind::InvalidLimits, Some(axes)));
 }
+
+// ---------------------------------------------------------------------------------
+// Alpha and opacity
+// ---------------------------------------------------------------------------------
+
+/// Builds a [`GridFixture`] holding a 2D surface of the fixture's field and grid, changed
+/// by `change`.
+fn surface_fixture(change: impl FnOnce(&mut Surface, &GridData)) -> GridFixture {
+    grid_fixture(false, |id, d| {
+        let mut surface = Surface {
+            id,
+            grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+            z: d.field,
+            ..Surface::default()
+        };
+        change(&mut surface, d);
+        Artist::Surface(surface)
+    })
+}
+
+// Why: an opacity is a fraction of full coverage, so a value outside [0, 1] or a NaN
+// has no meaning, and a renderer would clamp or propagate it silently; validation must
+// refuse it on every artist that has one, naming the artist, while accepting both ends
+// of the range, which are the transparent and the opaque artist.
+#[test]
+fn an_opacity_outside_zero_to_one_is_an_error_on_every_artist_that_has_one() {
+    type SetOpacity = fn(&mut Artist, f64);
+    let artists: [(&str, MakeArtist, SetOpacity); 7] = [
+        (
+            "surface faces",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    ..Surface::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::Surface(s) = artist {
+                    s.face_opacity = value;
+                }
+            },
+        ),
+        (
+            "surface edges",
+            Box::new(|id, d: &GridData| {
+                Artist::Surface(Surface {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    ..Surface::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::Surface(s) = artist {
+                    s.edge_opacity = value;
+                }
+            },
+        ),
+        (
+            "true-colour image",
+            Box::new(|id, d: &GridData| {
+                Artist::Image(Image {
+                    id,
+                    pixels: d.rgb,
+                    ..Image::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::Image(i) = artist {
+                    i.opacity = value;
+                }
+            },
+        ),
+        (
+            "colour-indexed image",
+            Box::new(|id, d: &GridData| {
+                Artist::IndexedImage(IndexedImage {
+                    id,
+                    indices: d.bytes,
+                    ..IndexedImage::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::IndexedImage(i) = artist {
+                    i.opacity = value;
+                }
+            },
+        ),
+        (
+            "colour-mapped image",
+            Box::new(|id, d: &GridData| {
+                Artist::MappedImage(MappedImage {
+                    id,
+                    values: d.field,
+                    ..MappedImage::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::MappedImage(i) = artist {
+                    i.opacity = value;
+                }
+            },
+        ),
+        (
+            "contour lines",
+            Box::new(|id, d: &GridData| {
+                Artist::Contour(Contour {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    fill: true,
+                    ..Contour::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::Contour(c) = artist {
+                    c.line_opacity = value;
+                }
+            },
+        ),
+        (
+            "contour fill",
+            Box::new(|id, d: &GridData| {
+                Artist::Contour(Contour {
+                    id,
+                    grid: Grid::Rectilinear { x: d.gx, y: d.gy },
+                    z: d.field,
+                    fill: true,
+                    ..Contour::default()
+                })
+            }),
+            |artist, value| {
+                if let Artist::Contour(c) = artist {
+                    c.fill_opacity = value;
+                }
+            },
+        ),
+    ];
+    for (what, make, set) in artists {
+        let mut fx = grid_fixture(false, make);
+        for value in [0.0, 0.5, 1.0] {
+            set(&mut fx.fig.axes[0].artists[0], value);
+            assert_no_issues(&fx.fig.validate(), &format!("{what} at {value}"));
+        }
+        for value in [-0.01, 1.01, f64::NAN, f64::INFINITY] {
+            set(&mut fx.fig.axes[0].artists[0], value);
+            let report = fx.fig.validate();
+            assert_eq!(
+                error_kinds(&report),
+                [IssueKind::InvalidOpacity],
+                "{what} at {value}: {report:?}"
+            );
+            assert!(
+                has_error(&report, IssueKind::InvalidOpacity, Some(fx.artist)),
+                "{what} at {value}: {report:?}"
+            );
+        }
+    }
+}
+
+// Why: the alpha of a surface is sampled at its nodes, as its colour data is, so an array
+// of another shape leaves nodes without an alpha (or alpha without a node) for the faces
+// or for the edges, each of which is checked on its own; and a surface reads floats like
+// every artist other than an image, so an alpha of bytes cannot be read.
+#[test]
+fn surface_alpha_must_be_floats_of_the_field_shape() {
+    for (what, set) in [
+        (
+            "face",
+            (|s: &mut Surface, id| s.face_alpha = Some(id)) as fn(&mut Surface, DataId),
+        ),
+        ("edge", |s: &mut Surface, id| s.edge_alpha = Some(id)),
+    ] {
+        let valid = surface_fixture(|s, d| set(s, d.cx));
+        assert_no_issues(&valid.fig.validate(), what);
+
+        let flat = surface_fixture(|s, d| set(s, d.p));
+        let report = flat.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::ShapeMismatch],
+            "{what}: {report:?}"
+        );
+        assert!(
+            report.errors[0].message.contains(&format!("{what} alpha")),
+            "{what}: {report:?}"
+        );
+
+        let bytes = surface_fixture(|s, d| set(s, d.bytes));
+        let report = bytes.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::ElementTypeMismatch],
+            "{what}: {report:?}"
+        );
+
+        let missing = surface_fixture(|s, _| set(s, DataId(999)));
+        let report = missing.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::UnknownData],
+            "{what}: {report:?}"
+        );
+    }
+}
+
+// Why: the issue allows one array to serve as the alpha of both the faces and the edges,
+// so naming the same array twice must neither be refused nor reported twice when it is
+// wrong.
+#[test]
+fn one_array_may_be_the_alpha_of_both_the_faces_and_the_edges() {
+    let shared = surface_fixture(|s, d| {
+        s.face_alpha = Some(d.cx);
+        s.edge_alpha = Some(d.cx);
+    });
+    assert_no_issues(&shared.fig.validate(), "shared alpha");
+
+    let missing = surface_fixture(|s, _| {
+        s.face_alpha = Some(DataId(999));
+        s.edge_alpha = Some(DataId(999));
+    });
+    let report = missing.fig.validate();
+    assert_eq!(error_kinds(&report), [IssueKind::UnknownData], "{report:?}");
+}
+
+// Why: the alpha of a colour-indexed or colour-mapped image gives every pixel its own
+// alpha, so it must have exactly the rows and columns of the indices or values; an image
+// reads its arrays as floats from 0 to 1 or as bytes from 0 to 255, so either element
+// type is valid for the alpha, as it is for the pixels.
+#[test]
+fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
+    type Make = fn(NodeId, DataId, DataId) -> Artist;
+    let kinds: [(&str, Make); 2] = [
+        ("indexed", |id, data, alpha| {
+            Artist::IndexedImage(IndexedImage {
+                id,
+                indices: data,
+                alpha: Some(alpha),
+                ..IndexedImage::default()
+            })
+        }),
+        ("mapped", |id, data, alpha| {
+            Artist::MappedImage(MappedImage {
+                id,
+                values: data,
+                alpha: Some(alpha),
+                ..MappedImage::default()
+            })
+        }),
+    ];
+    for (what, make) in kinds {
+        let floats = grid_fixture(false, |id, d| make(id, d.field, d.cx));
+        assert_no_issues(&floats.fig.validate(), &format!("{what}, float alpha"));
+
+        let bytes = grid_fixture(false, |id, d| make(id, d.field, d.bytes));
+        assert_no_issues(&bytes.fig.validate(), &format!("{what}, byte alpha"));
+
+        let vector = grid_fixture(false, |id, d| make(id, d.field, d.p));
+        let report = vector.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::ShapeMismatch],
+            "{what}: {report:?}"
+        );
+        assert!(
+            has_error(&report, IssueKind::ShapeMismatch, Some(vector.artist)),
+            "{what}: {report:?}"
+        );
+
+        let missing = grid_fixture(false, |id, d| make(id, d.field, DataId(999)));
+        let report = missing.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            [IssueKind::UnknownData],
+            "{what}: {report:?}"
+        );
+    }
+}
+
+// Why: alpha values outside [0, 1] and non-finite alpha are defined (clamped, and
+// transparent), as non-finite pixels are, so data that holds them, such as a confidence
+// with NaN where no measurement was made, must be drawable rather than refused.
+#[test]
+fn alpha_values_outside_zero_to_one_or_not_finite_are_valid() {
+    let mut fx = surface_fixture(|s, d| {
+        s.face_alpha = Some(d.cx);
+        s.edge_alpha = Some(d.cy);
+    });
+    let Artist::Surface(surface) = &fx.fig.axes[0].artists[0] else {
+        unreachable!()
+    };
+    let alpha = surface.face_alpha.expect("the fixture sets it");
+    let values = floats_mut(fx.fig.data.get_mut(&alpha).expect("the array exists"));
+    values[0] = -1.0;
+    values[1] = 2.0;
+    values[2] = f64::NAN;
+    values[3] = f64::INFINITY;
+    assert_no_issues(&fx.fig.validate(), "alpha outside [0, 1]");
+}
+
+// Why: an error is what must be fixed, so it stands alone: an artist with an invalid
+// opacity whose data also gives it nothing to draw is reported for its opacity and not
+// also as having nothing to draw, as every other error of an artist is.
+#[test]
+fn an_invalid_opacity_stands_alone_against_an_artist_with_nothing_to_draw() {
+    let kinds: [(&str, MakeImage, Vec<usize>, bool); 3] = [
+        ("an image", image_at, vec![0, 4, 3], false),
+        ("an indexed image", indexed_at, vec![0, 4], true),
+        ("a mapped image", mapped_at, vec![0, 4], false),
+    ];
+    for (name, make, shape, bytes) in kinds {
+        let fx = image_fixture(false, shape, bytes, |id, data| {
+            let mut image = make(id, data, ImagePlacement::default());
+            match &mut image {
+                Artist::Image(i) => i.opacity = 2.0,
+                Artist::IndexedImage(i) => i.opacity = 2.0,
+                Artist::MappedImage(i) => i.opacity = 2.0,
+                _ => unreachable!("the maker builds an image"),
+            }
+            image
+        });
+        let report = fx.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::InvalidOpacity],
+            "{name}: {report:?}"
+        );
+        assert_eq!(report.warnings, vec![], "{name}: {report:?}");
+    }
+
+    // A surface whose field has a single row has no face to draw.
+    let mut fx = surface_fixture(|surface, _| surface.face_opacity = -1.0);
+    let Artist::Surface(surface) = &fx.fig.axes[0].artists[0] else {
+        unreachable!("the fixture holds a surface");
+    };
+    let (gy, field) = match surface.grid {
+        Grid::Rectilinear { y, .. } => (y, surface.z),
+        Grid::Curvilinear { .. } => unreachable!("the fixture grid is rectilinear"),
+    };
+    fx.fig.data.insert(gy, NdArray::vector(vec![0.0]));
+    fx.fig.data.insert(
+        field,
+        NdArray::from_shape(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("the shape matches"),
+    );
+    let report = fx.fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::InvalidOpacity],
+        "a single-row surface: {report:?}"
+    );
+    assert_eq!(report.warnings, vec![], "a single-row surface: {report:?}");
+}

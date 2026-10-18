@@ -9,9 +9,9 @@
 //! drawn ([`render`]).
 
 use ironlab_ir::{
-    Artist, ColorSpec, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, LineStyle,
-    MarkerStyle, NodeId, PanelLegend, ScatterSize, Text,
+    Artist, ColorSpec, IndexedImage, Interpreter, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation,
+    LegendSample, LineStyle, MappedImage, MarkerStyle, NodeId, PanelLegend, ScatterSize, Text,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
@@ -871,21 +871,25 @@ fn sample(artist: &Artist, data: &ArtistData, colour: Option<Rgba>, middle: Rgba
                 ..stroke
             }))
         }
+        // The opacities of a contour carry into its sample, as those of a surface do.
         Artist::Contour(c) => {
+            let fade = |colour: Rgba, opacity: f64| {
+                Some(colour.with_alpha_factor(style::unit_opacity(opacity) as f32))
+            };
             let explicit = match c.line.color {
-                ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+                ColorSpec::Rgba { color } => fade(style::ir_colour(color), c.line_opacity),
                 _ => None,
             };
             if c.fill {
                 SampleLook::Patch {
-                    fill: Some(middle),
+                    fill: fade(middle, c.fill_opacity),
                     edge: explicit,
                 }
             } else {
                 let colour = match c.line.color {
                     ColorSpec::None => None,
-                    ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-                    ColorSpec::Auto | ColorSpec::Colormapped => Some(middle),
+                    ColorSpec::Rgba { .. } => explicit,
+                    ColorSpec::Auto | ColorSpec::Colormapped => fade(middle, c.line_opacity),
                 };
                 SampleLook::Line {
                     stroke: sample_stroke(&c.line, colour),
@@ -898,24 +902,32 @@ fn sample(artist: &Artist, data: &ArtistData, colour: Option<Rgba>, middle: Rgba
                 Paint::Fixed(c) => c,
                 Paint::Colormapped => Some(middle),
             };
+            // The opacities, but not the alpha arrays, which vary over the surface, carry into the sample, so that
+            // a translucent surface is keyed by a translucent patch.
+            let fade = |colour: Option<Rgba>, opacity: f64| {
+                colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
+            };
             SampleLook::Patch {
-                fill: paint(s.face),
-                edge: paint(s.edge),
+                fill: fade(paint(s.face), s.face_opacity),
+                edge: fade(paint(s.edge), s.edge_opacity),
             }
         }
         // The mean colour of the raster, so that the patch resembles it; an image with no pixel to average, every
         // pixel being transparent, has no patch.
-        Artist::Image(_) => SampleLook::Patch {
+        // The opacity of an image carries into its patch, but not its alpha, which varies over the image.
+        Artist::Image(i) => SampleLook::Patch {
             fill: match data {
-                ArtistData::Image(image) => image::mean_colour(image),
+                ArtistData::Image(image) => image::mean_colour(image)
+                    .map(|c| c.with_alpha_factor(style::unit_opacity(i.opacity) as f32)),
                 _ => None,
             },
             edge: None,
         },
         // The middle colour of the colormap, as for other colormapped artists without a single value: a stopgap
         // for the colormap redesign, until a colourbar (issue #8) shows the scale itself.
-        Artist::IndexedImage(_) | Artist::MappedImage(_) => SampleLook::Patch {
-            fill: Some(middle),
+        Artist::IndexedImage(IndexedImage { opacity, .. })
+        | Artist::MappedImage(MappedImage { opacity, .. }) => SampleLook::Patch {
+            fill: Some(middle.with_alpha_factor(style::unit_opacity(*opacity) as f32)),
             edge: None,
         },
     }

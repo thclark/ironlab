@@ -7,6 +7,7 @@
 mod common;
 mod probe;
 
+mod alpha;
 mod artists;
 mod aspect;
 mod blended;

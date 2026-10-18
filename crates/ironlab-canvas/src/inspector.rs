@@ -709,13 +709,17 @@ fn editor_for(
 /// range that the IR requires of it.
 ///
 /// The ranges are the ones the IR states: an elevation lies between -90 and 90 degrees,
-/// and a count of rows, columns, spans or levels is at least one. Every other bound (a
+/// an opacity between 0 and 1, and a count of rows, columns, spans or levels is at least
+/// one. Every other bound (a
 /// positive figure size or font size, for example) is left to validation, which refuses
 /// the change and says why, because the IR states no usable upper or lower value for it.
 fn number_editor(path: &PropertyPath, value: &Value, integer: bool) -> Editor {
     let last = path.segments().last().map_or("", String::as_str);
     let range = match last {
         "elevation_deg" => Some((-90.0, 90.0)),
+        "opacity" | "face_opacity" | "edge_opacity" | "line_opacity" | "fill_opacity" => {
+            Some((0.0, 1.0))
+        }
         "rows" | "cols" | "row_span" | "col_span" | "count" => Some((1.0, f64::from(u32::MAX))),
         _ if integer => Some((0.0, f64::from(u32::MAX))),
         _ => None,
@@ -728,7 +732,8 @@ fn number_editor(path: &PropertyPath, value: &Value, integer: bool) -> Editor {
     let speed = match last {
         _ if integer => 1.0,
         "azimuth_deg" | "elevation_deg" => 0.5,
-        "r" | "g" | "b" | "a" | "zoom" | "pan_x" | "pan_y" | "head_size" => 0.01,
+        "r" | "g" | "b" | "a" | "zoom" | "pan_x" | "pan_y" | "head_size" | "opacity"
+        | "face_opacity" | "edge_opacity" | "line_opacity" | "fill_opacity" => 0.01,
         _ => 0.01 * magnitude.max(1.0),
     };
     Editor::Number {

@@ -19,7 +19,10 @@
 //! over the item's local space, or one depth per endpoint of a path. Larger depths are nearer the viewer. A backend
 //! with a depth buffer clears it at the group and tests every item against it, so that faces, lines, markers and
 //! images which cross one another are resolved pixel by pixel; a backend without one draws the items in order and
-//! gets the painter's picture. Depths are literal: no backend biases or reorders them. Inside a depth group every
+//! gets the painter's picture. Depths are literal: no backend biases them. A translucent item (one whose colour, or
+//! a pixel of whose image, has an alpha below 1) must not hide what lies behind it, so a backend with a depth buffer
+//! draws the opaque items of the group first and the translucent ones after them, each in the order of the group,
+//! testing the translucent ones against the depth of the opaque ones without recording their own. Inside a depth group every
 //! path and image carries a depth, a path's vertex depths are one finite value per endpoint, and no glyph run or
 //! further depth group appears.
 
@@ -540,7 +543,8 @@ pub enum ItemKind {
     /// in order and gets the painter's picture, which agrees with the depth-tested one wherever the painter's order
     /// is exact. Every path and image inside carries a depth; groups and dense groups may appear inside; glyph runs
     /// and further depth groups never do; and the group is never empty. A backend with a depth buffer clears the
-    /// buffer at the group and tests every item against it.
+    /// buffer at the group and tests every item against it, drawing the translucent items after the opaque ones
+    /// without recording their depth, as the module documentation describes.
     Depth {
         items: Vec<Item>,
     },

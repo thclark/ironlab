@@ -2627,3 +2627,78 @@ fn coordinates_are_read_only_and_clipping_is_editable() {
         );
     }
 }
+
+// Why: the issue asks for the opacity of every image, surface and contour to be adjusted
+// in the property editor without regenerating data, so each opacity must be a number field held
+// to the range the IR allows, 0 to 1 (so that a drag cannot leave the range and be
+// refused), and the alpha arrays, which are data, must be listed like every other data
+// reference rather than offered for typing.
+#[test]
+fn every_opacity_is_a_number_from_zero_to_one_and_every_alpha_a_data_reference() {
+    let state = FigureState::new(figure_with_every_artist());
+    let contour = NodeId(5);
+    let surface = NodeId(7);
+    let images = [NodeId(8), NodeId(9), NodeId(10)];
+    let number_from_zero_to_one = |node: NodeId, name: &str| {
+        let groups = groups_of(&state, node);
+        match &row(&groups, name, "").editor {
+            Editor::Number { range, .. } => assert_eq!(
+                *range,
+                Some((0.0, 1.0)),
+                "the {name} of {node} is held to [0, 1]"
+            ),
+            other => panic!("the {name} of {node} is a number field, not {other:?}"),
+        }
+    };
+    number_from_zero_to_one(surface, "face_opacity");
+    number_from_zero_to_one(surface, "edge_opacity");
+    number_from_zero_to_one(contour, "line_opacity");
+    number_from_zero_to_one(contour, "fill_opacity");
+    for image in images {
+        number_from_zero_to_one(image, "opacity");
+    }
+
+    let groups = groups_of(&state, surface);
+    for name in ["face_alpha", "edge_alpha"] {
+        let alpha = row(&groups, name, "");
+        assert!(alpha.optional, "the {name} of a surface may be absent");
+        assert_eq!(
+            alpha.value,
+            Value::Unset,
+            "the fixture surface has no {name}"
+        );
+    }
+    for image in [NodeId(9), NodeId(10)] {
+        let groups = groups_of(&state, image);
+        let alpha = row(&groups, "alpha", "");
+        assert!(alpha.optional, "the alpha of {image} may be absent");
+    }
+}
+
+// Why: a row that the inspector lists but the panel does not draw is a property the user
+// cannot reach; with a surface selected the panel must show both of its opacities.
+#[test]
+fn the_panel_shows_the_opacities_of_a_selected_surface() {
+    let mut harness = panel_harness(figure_with_every_artist(), Some(NodeId(7)));
+    harness.run();
+    for name in ["face_opacity", "edge_opacity"] {
+        assert!(
+            harness.query_by_label(name).is_some(),
+            "the panel shows a row named {name}"
+        );
+    }
+}
+
+// Why: as for a surface, a contour's opacities are reachable only if the panel draws
+// them; with a contour selected the panel must show both of them.
+#[test]
+fn the_panel_shows_the_opacities_of_a_selected_contour() {
+    let mut harness = panel_harness(figure_with_every_artist(), Some(NodeId(5)));
+    harness.run();
+    for name in ["line_opacity", "fill_opacity"] {
+        assert!(
+            harness.query_by_label(name).is_some(),
+            "the panel shows a row named {name}"
+        );
+    }
+}

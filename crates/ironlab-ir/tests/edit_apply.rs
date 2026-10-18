@@ -1775,3 +1775,183 @@ fn a_set_addressed_to_a_legend_panel_changes_that_panel() {
     expected.panel_legends[1].layout.columns = LegendEntryColumns::Count(4);
     assert_eq!(edited, expected);
 }
+
+// ---------------------------------------------------------------------------------
+// Alpha and opacity
+// ---------------------------------------------------------------------------------
+
+/// A figure with one 2D axes holding a surface, a true-colour image, a colour-indexed
+/// image, a colour-mapped image and a filled contour, each opaque and without alpha, and
+/// a 3 × 4 array of floats that none of them refers to. Returns the figure, the five
+/// artists in that order and the unused array.
+fn translucency_figure() -> (Figure, [NodeId; 5], DataId) {
+    let mut b = FigureBuilder::new();
+    let axes = b.axes2d(0, 0);
+    let gx = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+    let gy = b.vector(&[0.0, 1.0, 2.0]);
+    let field = b.matrix(3, 4, |j, i| (j + i) as f64);
+    let spare = b.matrix(3, 4, |j, i| (j * 4 + i) as f64 / 11.0);
+    let rgb = b.bytes(vec![3, 4, 3], (0..36).collect());
+    let ids = [b.node(), b.node(), b.node(), b.node(), b.node()];
+    b.push(
+        axes,
+        Artist::Surface(Surface {
+            id: ids[0],
+            grid: Grid::Rectilinear { x: gx, y: gy },
+            z: field,
+            ..Surface::default()
+        }),
+    );
+    b.push(
+        axes,
+        Artist::Image(Image {
+            id: ids[1],
+            pixels: rgb,
+            ..Image::default()
+        }),
+    );
+    b.push(
+        axes,
+        Artist::IndexedImage(IndexedImage {
+            id: ids[2],
+            indices: field,
+            ..IndexedImage::default()
+        }),
+    );
+    b.push(
+        axes,
+        Artist::MappedImage(MappedImage {
+            id: ids[3],
+            values: field,
+            ..MappedImage::default()
+        }),
+    );
+    b.push(
+        axes,
+        Artist::Contour(Contour {
+            id: ids[4],
+            grid: Grid::Rectilinear { x: gx, y: gy },
+            z: field,
+            fill: true,
+            ..Contour::default()
+        }),
+    );
+    (b.build(), ids, spare)
+}
+
+// Why: the issue asks for opacity to be adjusted in the property editor without
+// regenerating data, so every opacity must be a settable number that reads back as set;
+// and an opacity outside [0, 1] must be refused as a whole transaction, leaving the
+// figure as it was, rather than stored and drawn as something undefined.
+#[test]
+fn every_opacity_is_settable_within_zero_to_one_and_refused_outside_it() {
+    let (fig, [surface, image, indexed, mapped, contour], _) = translucency_figure();
+    for (node, property) in [
+        (surface, "face_opacity"),
+        (surface, "edge_opacity"),
+        (image, "opacity"),
+        (indexed, "opacity"),
+        (mapped, "opacity"),
+        (contour, "line_opacity"),
+        (contour, "fill_opacity"),
+    ] {
+        assert_eq!(
+            fig.get(node, &path(property)).unwrap(),
+            Value::Double(1.0),
+            "{property} of {node} defaults to opaque"
+        );
+        let (edited, _) = applied(&fig, &tx([set(node, property, Value::Double(0.25))])).unwrap();
+        assert_eq!(
+            edited.get(node, &path(property)).unwrap(),
+            Value::Double(0.25),
+            "{property} of {node}"
+        );
+
+        let mut refused = fig.clone();
+        let result = refused.apply(&tx([set(node, property, Value::Double(1.5))]));
+        assert!(
+            matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::InvalidOpacity)),
+            "{property} of {node}: {result:?}"
+        );
+        assert_eq!(refused, fig, "{property} of {node}");
+    }
+}
+
+// Why: alpha arrays are data that code writes, but an editor can still name another
+// array or remove the alpha (an optional reference, like the colour data of a surface),
+// and a reference to an array of the wrong shape must be refused as any shape mismatch is.
+#[test]
+fn an_alpha_reference_is_set_and_unset_like_any_optional_data_reference() {
+    let (fig, [surface, _, indexed, mapped, _], spare) = translucency_figure();
+    for (node, property) in [
+        (surface, "face_alpha"),
+        (surface, "edge_alpha"),
+        (indexed, "alpha"),
+        (mapped, "alpha"),
+    ] {
+        assert_eq!(fig.get(node, &path(property)).unwrap(), Value::Unset);
+        let (edited, _) = applied(&fig, &tx([set(node, property, Value::DataId(spare))])).unwrap();
+        assert_eq!(
+            edited.get(node, &path(property)).unwrap(),
+            Value::DataId(spare),
+            "{property} of {node}"
+        );
+        let (cleared, _) = applied(&edited, &tx([set(node, property, Value::Unset)])).unwrap();
+        assert_eq!(cleared, fig, "{property} of {node}");
+    }
+    let mut wrong = fig.clone();
+    let x = match &fig.axes[0].artists[0] {
+        Artist::Surface(Surface {
+            grid: Grid::Rectilinear { x, .. },
+            ..
+        }) => *x,
+        other => panic!("expected a surface, found {other:?}"),
+    };
+    let result = wrong.apply(&tx([set(surface, "face_alpha", Value::DataId(x))]));
+    assert!(
+        matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::ShapeMismatch)),
+        "{result:?}"
+    );
+}
+
+// Why: the property editor lists what the registry describes, so every opacity must be
+// described as a required number (it always has a value, 1 when untouched) and every
+// alpha as an optional data reference, with documentation that says what the value does.
+#[test]
+fn the_registry_describes_opacities_as_numbers_and_alpha_as_optional_data() {
+    for (kind, opacities, alphas) in [
+        (
+            NodeKind::Surface,
+            &["face_opacity", "edge_opacity"][..],
+            &["face_alpha", "edge_alpha"][..],
+        ),
+        (NodeKind::Image, &["opacity"][..], &[][..]),
+        (NodeKind::IndexedImage, &["opacity"][..], &["alpha"][..]),
+        (NodeKind::MappedImage, &["opacity"][..], &["alpha"][..]),
+        (
+            NodeKind::Contour,
+            &["line_opacity", "fill_opacity"][..],
+            &[][..],
+        ),
+    ] {
+        let registry = properties(kind);
+        let find = |name: &str| {
+            registry
+                .iter()
+                .find(|p| p.path.to_string() == name)
+                .unwrap_or_else(|| panic!("{kind:?} lists {name}"))
+        };
+        for name in opacities {
+            let property = find(name);
+            assert_eq!(property.value_type, ValueType::Double, "{kind:?}.{name}");
+            assert!(!property.optional, "{kind:?}.{name}");
+            assert!(property.docs.contains("opacity"), "{kind:?}.{name}");
+        }
+        for name in alphas {
+            let property = find(name);
+            assert_eq!(property.value_type, ValueType::DataId, "{kind:?}.{name}");
+            assert!(property.optional, "{kind:?}.{name}");
+            assert!(property.docs.contains("alpha"), "{kind:?}.{name}");
+        }
+    }
+}

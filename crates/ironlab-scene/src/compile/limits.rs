@@ -305,7 +305,7 @@ fn colour_values(artist: &Artist, data: &ArtistData, visit: &mut dyn FnMut(f64))
             _ => return,
         },
         (Artist::Contour(c), ArtistData::Contour(grid)) if c.fill || mapped(c.line.color) => grid.z,
-        (Artist::Surface(s), ArtistData::Surface { grid, colours })
+        (Artist::Surface(s), ArtistData::Surface { grid, colours, .. })
             if mapped(s.face) || mapped(s.edge) =>
         {
             colours.unwrap_or(grid.z)

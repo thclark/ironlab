@@ -30,9 +30,12 @@
 //! dynamic offset per draw. The stroke fragment shader dashes by arc length, giving each dash the caps of the
 //! stroke and anti-aliasing its ends over a pixel.
 //!
-//! Two depth states serve everything: the draws of a depth group are depth-tested against one another
+//! Three depth states serve everything: the opaque draws of a depth group are depth-tested against one another
 //! (`LessEqual` with writes; strokes there take `z` from their segments), after the depth buffer is cleared for the
-//! group; every other triangle draw is drawn without the depth test (`Always`, no writes). A stroke outside every
+//! group, and its translucent draws, which the list holds after its opaque ones (see [`crate::canvas`]), are tested
+//! against them without recording their own depth (`LessEqual`, no writes), so that a translucent face hides nothing
+//! that lies behind it, whichever order the group lists them in, while a nearer opaque face still hides a
+//! translucent one; every other triangle draw is drawn without the depth test (`Always`, no writes). A stroke outside every
 //! group is depth-tested with `Less` and writes the `z` of its own params: the k-th such stroke since the last
 //! clear lies at `1 - (k + 1) · 2⁻²⁰`, so later strokes pass over earlier ones while the parts of one stroke that
 //! overlap, on the inner side of a turn or under a round join, take its colour exactly once, as a stroke does in
@@ -303,6 +306,9 @@ pub struct Draw {
     /// The clip rectangle of the draw in figure points, applied as a scissor, or `None` for an unclipped draw.
     pub clip: Option<Rect>,
     pub source: Option<NodeId>,
+    /// Whether any colour the draw paints has an alpha below 1. Inside a depth group a translucent draw is tested
+    /// against the depth buffer without writing to it, so that it hides nothing behind it.
+    pub translucent: bool,
 }
 
 /// The geometry of one figure, ready to upload: every item in paint order.
@@ -411,16 +417,22 @@ const BLEND: wgpu::BlendState = wgpu::BlendState {
 
 /// The pipelines for one [`GpuConfig`].
 struct Pipelines {
-    /// Triangles inside a depth group.
+    /// Opaque triangles inside a depth group.
     tested: wgpu::RenderPipeline,
+    /// Translucent triangles inside a depth group, tested without writing their depth.
+    tested_translucent: wgpu::RenderPipeline,
     /// Triangles outside every depth group.
     untested: wgpu::RenderPipeline,
-    /// Strokes inside a depth group, with the depth of their segments.
+    /// Opaque strokes inside a depth group, with the depth of their segments.
     stroke_tested: wgpu::RenderPipeline,
+    /// Translucent strokes inside a depth group, tested without writing their depth.
+    stroke_tested_translucent: wgpu::RenderPipeline,
     /// Strokes outside every depth group, at the depth of their params.
     stroke_flat: wgpu::RenderPipeline,
-    /// Markers inside a depth group, with the depth of their instances.
+    /// Opaque markers inside a depth group, with the depth of their instances.
     markers_tested: wgpu::RenderPipeline,
+    /// Translucent markers inside a depth group, tested without writing their depth.
+    markers_tested_translucent: wgpu::RenderPipeline,
     /// Markers outside every depth group.
     markers_flat: wgpu::RenderPipeline,
     clear: wgpu::RenderPipeline,
@@ -611,43 +623,37 @@ impl GpuPainter {
             pass.set_pipeline(&pipelines.clear);
             pass.draw(0..3, 0..1);
         };
-        clear_depth(pass);
-        let mut group = None;
-        for draw in &list.draws {
-            if draw.depth_group != group {
-                group = draw.depth_group;
-                clear_depth(pass);
-            }
+        let paint_draw = |pass: &mut wgpu::RenderPass<'static>, draw: &Draw| {
             let clip = match draw.clip {
                 Some(clip) => to_points(clip, viewport.to_screen).intersect(viewport.clip),
                 None => viewport.clip,
             };
             let Some((x, y, w, h)) = scissor(clip, viewport.pixels_per_point, [width, height])
             else {
-                continue;
+                return;
             };
             match &draw.kind {
                 DrawKind::Triangles(indices) => {
                     if indices.is_empty() || indices.end as usize > list.indices.len() {
-                        continue;
+                        return;
                     }
                     let (Some(vertices), Some(index_buffer)) =
                         (&buffers.vertices, &buffers.indices)
                     else {
-                        continue;
+                        return;
                     };
                     let texture = match &draw.texture {
                         Some(tile) => match self.tiles.get(&tile.id()) {
                             Some(tile) => &tile.bind_group,
-                            None => continue,
+                            None => return,
                         },
                         None => &pipelines.white,
                     };
                     pass.set_scissor_rect(x, y, w, h);
-                    pass.set_pipeline(if draw.depth_group.is_some() {
-                        &pipelines.tested
-                    } else {
-                        &pipelines.untested
+                    pass.set_pipeline(match (draw.depth_group, draw.translucent) {
+                        (Some(_), false) => &pipelines.tested,
+                        (Some(_), true) => &pipelines.tested_translucent,
+                        (None, _) => &pipelines.untested,
                     });
                     pass.set_bind_group(1, texture, &[]);
                     pass.set_vertex_buffer(0, vertices.slice(..));
@@ -659,18 +665,18 @@ impl GpuPainter {
                         || segments.end as usize > list.segments.len()
                         || *params as usize >= list.stroke_params.len()
                     {
-                        continue;
+                        return;
                     }
                     let (Some(segment_buffer), Some(params_group)) =
                         (&buffers.segments, &buffers.params)
                     else {
-                        continue;
+                        return;
                     };
                     pass.set_scissor_rect(x, y, w, h);
-                    pass.set_pipeline(if draw.depth_group.is_some() {
-                        &pipelines.stroke_tested
-                    } else {
-                        &pipelines.stroke_flat
+                    pass.set_pipeline(match (draw.depth_group, draw.translucent) {
+                        (Some(_), false) => &pipelines.stroke_tested,
+                        (Some(_), true) => &pipelines.stroke_tested_translucent,
+                        (None, _) => &pipelines.stroke_flat,
                     });
                     pass.set_bind_group(
                         1,
@@ -691,7 +697,7 @@ impl GpuPainter {
                         || instances.end as usize > list.markers.len()
                         || *params as usize >= list.stroke_params.len()
                     {
-                        continue;
+                        return;
                     }
                     let (
                         Some(vertices),
@@ -705,13 +711,13 @@ impl GpuPainter {
                         &buffers.params,
                     )
                     else {
-                        continue;
+                        return;
                     };
                     pass.set_scissor_rect(x, y, w, h);
-                    pass.set_pipeline(if draw.depth_group.is_some() {
-                        &pipelines.markers_tested
-                    } else {
-                        &pipelines.markers_flat
+                    pass.set_pipeline(match (draw.depth_group, draw.translucent) {
+                        (Some(_), false) => &pipelines.markers_tested,
+                        (Some(_), true) => &pipelines.markers_tested_translucent,
+                        (None, _) => &pipelines.markers_flat,
                     });
                     pass.set_bind_group(
                         1,
@@ -724,6 +730,32 @@ impl GpuPainter {
                     pass.draw_indexed(indices.clone(), 0, instances.clone());
                 }
             }
+        };
+        // The depth buffer is cleared at the start of the list and wherever the depth group changes. Inside a group
+        // the opaque draws are drawn first, recording their depth, and the translucent draws after them, tested
+        // against it without recording their own, each in the order of the list.
+        let mut start = 0;
+        while start < list.draws.len() {
+            let group = list.draws[start].depth_group;
+            let len = list.draws[start..]
+                .iter()
+                .take_while(|draw| draw.depth_group == group)
+                .count();
+            let run = &list.draws[start..start + len];
+            clear_depth(pass);
+            if group.is_some() {
+                for draw in run.iter().filter(|draw| !draw.translucent) {
+                    paint_draw(pass, draw);
+                }
+                for draw in run.iter().filter(|draw| draw.translucent) {
+                    paint_draw(pass, draw);
+                }
+            } else {
+                for draw in run {
+                    paint_draw(pass, draw);
+                }
+            }
+            start += len;
         }
     }
 
@@ -991,6 +1023,16 @@ impl Pipelines {
             wgpu::ColorWrites::ALL,
             Some(BLEND),
         );
+        let tested_translucent = pipeline(
+            "ironlab depth-tested translucent",
+            &triangle_layout,
+            "vs_main",
+            &[Vertex::LAYOUT],
+            "fs_main",
+            depth(false, wgpu::CompareFunction::LessEqual),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
         let untested = pipeline(
             "ironlab untested",
             &triangle_layout,
@@ -1011,6 +1053,16 @@ impl Pipelines {
             wgpu::ColorWrites::ALL,
             Some(BLEND),
         );
+        let stroke_tested_translucent = pipeline(
+            "ironlab stroke depth-tested translucent",
+            &stroke_layout,
+            "vs_stroke",
+            &[Segment::LAYOUT],
+            "fs_stroke",
+            depth(false, wgpu::CompareFunction::LessEqual),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
         let stroke_flat = pipeline(
             "ironlab stroke flat",
             &stroke_layout,
@@ -1028,6 +1080,16 @@ impl Pipelines {
             &[MarkerVertex::LAYOUT, MarkerGpu::LAYOUT],
             "fs_marker",
             depth(true, wgpu::CompareFunction::LessEqual),
+            wgpu::ColorWrites::ALL,
+            Some(BLEND),
+        );
+        let markers_tested_translucent = pipeline(
+            "ironlab markers depth-tested translucent",
+            &stroke_layout,
+            "vs_marker",
+            &[MarkerVertex::LAYOUT, MarkerGpu::LAYOUT],
+            "fs_marker",
+            depth(false, wgpu::CompareFunction::LessEqual),
             wgpu::ColorWrites::ALL,
             Some(BLEND),
         );
@@ -1081,8 +1143,11 @@ impl Pipelines {
         let white = texture_bind_group(device, &texture_layout, &sampler, &white_view);
         Self {
             tested,
+            tested_translucent,
             untested,
             stroke_tested,
+            stroke_tested_translucent,
+            markers_tested_translucent,
             stroke_flat,
             markers_tested,
             markers_flat,

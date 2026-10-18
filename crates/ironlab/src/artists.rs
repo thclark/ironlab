@@ -14,6 +14,7 @@ use crate::axes::AxesMut;
 use crate::color::IntoColorSpec;
 use crate::grid::matrix_array;
 use crate::matrix::Matrix;
+use crate::pixels::ImageValues;
 
 /// Defines the constructor of an artist handle and the accessor of its artist.
 macro_rules! artist_handle {
@@ -102,6 +103,44 @@ macro_rules! image_handle {
             pub fn plane(&mut self, plane: ImagePlane) -> &mut Self {
                 self.artist().placement.plane = plane;
                 make_3d_for_wall(self.fig, self.id, plane);
+                self
+            }
+
+            /// Sets the opacity of the image, from 0 (transparent) to 1 (opaque, the
+            /// default), which multiplies the alpha of every pixel, so that the whole
+            /// image fades without its data being regenerated.
+            ///
+            /// An opacity outside that range, or one that is not finite, is reported by
+            /// [`Figure::validate`](crate::Figure::validate).
+            pub fn opacity(&mut self, opacity: f64) -> &mut Self {
+                self.artist().opacity = opacity;
+                self
+            }
+        }
+    };
+}
+
+/// Defines the setter of the alpha array of a colour-indexed or colour-mapped image.
+macro_rules! image_alpha {
+    ($handle:ident, $what:literal) => {
+        impl $handle<'_> {
+            #[doc = concat!(
+                "Gives every pixel its own alpha (MATLAB's `AlphaData`), from 0 (transparent) to 1 ",
+                "(opaque), as a matrix of the shape of the ", $what, ".
+
+",
+                "The alpha may be a [`Matrix`] of values from 0 to 1, which are clamped to that range ",
+                "and of which a NaN makes its pixel transparent, or a ",
+                "[`ByteMatrix`](crate::ByteMatrix) of values from 0 to 255. It multiplies the alpha of ",
+                "the colour of each pixel, including a colour given by an out-of-range policy, and is ",
+                "multiplied in turn by the [`opacity`](Self::opacity). A matrix of another shape is ",
+                "reported by [`Figure::validate`](crate::Figure::validate)."
+            )]
+            pub fn alpha(&mut self, alpha: impl Into<ImageValues>) -> &mut Self {
+                let data = self.fig.add_data(alpha.into().into_array());
+                if let Some(previous) = self.artist().alpha.replace(data) {
+                    release_data(self.fig, previous);
+                }
                 self
             }
         }
@@ -400,6 +439,27 @@ impl ContourMut<'_> {
         self.artist().line.color = color.into_color_spec();
         self
     }
+
+    /// Sets the opacity of the isolines, from 0 (transparent) to 1 (opaque, the
+    /// default), which multiplies the alpha of their colour.
+    ///
+    /// An opacity outside that range, or one that is not finite, is reported by
+    /// [`Figure::validate`](crate::Figure::validate).
+    pub fn line_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().line_opacity = opacity;
+        self
+    }
+
+    /// Sets the opacity of the filled bands (MATLAB's scalar `FaceAlpha` of `contourf`),
+    /// from 0 (transparent) to 1 (opaque, the default), which multiplies the alpha of
+    /// their colour; it has no effect on contours that are not filled.
+    ///
+    /// An opacity outside that range, or one that is not finite, is reported by
+    /// [`Figure::validate`](crate::Figure::validate).
+    pub fn fill_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().fill_opacity = opacity;
+        self
+    }
 }
 
 /// A handle to arrows created by [`quiver`](crate::AxesMut::quiver) or
@@ -518,6 +578,52 @@ impl SurfaceMut<'_> {
         }
         self
     }
+
+    /// Gives the faces an alpha at every node (MATLAB's `AlphaData` with interpolated
+    /// face alpha), from 0 (transparent) to 1 (opaque); the matrix must have the same
+    /// shape as the field.
+    ///
+    /// A face takes the mean of the alpha at its four corners, each clamped to the range
+    /// 0 to 1, and a face with a NaN corner is transparent. The alpha multiplies the
+    /// alpha of the face colour and is multiplied in turn by the
+    /// [`face_opacity`](Self::face_opacity).
+    pub fn face_alpha(&mut self, alpha: &Matrix) -> &mut Self {
+        let data = self.fig.add_data(matrix_array(alpha));
+        if let Some(previous) = self.artist().face_alpha.replace(data) {
+            release_data(self.fig, previous);
+        }
+        self
+    }
+
+    /// Gives the face edges an alpha at every node, as [`face_alpha`](Self::face_alpha)
+    /// gives the faces theirs: the edges of a face take the mean of the alpha at its
+    /// corners, multiplied by the alpha of the edge colour and by the
+    /// [`edge_opacity`](Self::edge_opacity).
+    pub fn edge_alpha(&mut self, alpha: &Matrix) -> &mut Self {
+        let data = self.fig.add_data(matrix_array(alpha));
+        if let Some(previous) = self.artist().edge_alpha.replace(data) {
+            release_data(self.fig, previous);
+        }
+        self
+    }
+
+    /// Sets the opacity of the faces (MATLAB's scalar `FaceAlpha`), from 0 (transparent)
+    /// to 1 (opaque, the default), which multiplies the alpha of every face.
+    ///
+    /// An opacity outside that range, or one that is not finite, is reported by
+    /// [`Figure::validate`](crate::Figure::validate).
+    pub fn face_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().face_opacity = opacity;
+        self
+    }
+
+    /// Sets the opacity of the face edges (MATLAB's scalar `EdgeAlpha`), from 0
+    /// (transparent) to 1 (opaque, the default), which multiplies the alpha of every
+    /// edge, as [`face_opacity`](Self::face_opacity) does for the faces.
+    pub fn edge_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().edge_opacity = opacity;
+        self
+    }
 }
 
 /// A handle to a true-colour image created by [`image`](crate::AxesMut::image).
@@ -564,6 +670,7 @@ pub struct IndexedImageMut<'a> {
 }
 
 image_handle!(IndexedImageMut, IndexedImage);
+image_alpha!(IndexedImageMut, "indices");
 
 impl IndexedImageMut<'_> {
     /// Sets what is drawn for a pixel whose truncated index is less than 0.
@@ -619,6 +726,7 @@ pub struct MappedImageMut<'a> {
 }
 
 image_handle!(MappedImageMut, MappedImage);
+image_alpha!(MappedImageMut, "values");
 
 impl MappedImageMut<'_> {
     /// Sets what is drawn for a pixel whose value is less than the lower colour limit.
@@ -716,11 +824,26 @@ fn data_ids(artist: &Artist) -> Vec<DataId> {
         Artist::Quiver(Quiver {
             x, y, z, u, v, w, ..
         }) => [*x, *y, *u, *v].into_iter().chain(*z).chain(*w).collect(),
-        Artist::Surface(Surface { grid, z, c, .. }) => {
-            grid_ids(grid).into_iter().chain([*z]).chain(*c).collect()
-        }
+        Artist::Surface(Surface {
+            grid,
+            z,
+            c,
+            face_alpha,
+            edge_alpha,
+            ..
+        }) => grid_ids(grid)
+            .into_iter()
+            .chain([*z])
+            .chain(*c)
+            .chain(*face_alpha)
+            .chain(*edge_alpha)
+            .collect(),
         Artist::Image(Image { pixels, .. }) => vec![*pixels],
-        Artist::IndexedImage(IndexedImage { indices, .. }) => vec![*indices],
-        Artist::MappedImage(MappedImage { values, .. }) => vec![*values],
+        Artist::IndexedImage(IndexedImage { indices, alpha, .. }) => {
+            [*indices].into_iter().chain(*alpha).collect()
+        }
+        Artist::MappedImage(MappedImage { values, alpha, .. }) => {
+            [*values].into_iter().chain(*alpha).collect()
+        }
     }
 }

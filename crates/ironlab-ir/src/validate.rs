@@ -54,8 +54,9 @@ pub enum IssueKind {
     ShapeMismatch,
     /// An artist refers to an array whose element type it cannot use: every artist
     /// other than an image requires 64-bit floating-point values, so such an artist
-    /// cannot plot an array of 8-bit values. The three image kinds accept either
-    /// element type.
+    /// cannot plot an array of 8-bit values, and the alpha of a surface must hold
+    /// 64-bit floating-point values too. The three image kinds accept either element
+    /// type, for their alpha as for their pixels, indices or values.
     ElementTypeMismatch,
     /// An artist or placement that needs the z axis (z or w data, contours at their
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
@@ -178,6 +179,9 @@ pub enum IssueKind {
     /// count: the third axis, along which the plane is offset, may be logarithmic, and
     /// the z axis of a two-dimensional axes is ignored.
     ImageOnLogAxis,
+    /// The opacity of an artist (of an image, or of the faces or edges of a surface) is
+    /// not a finite number from 0 to 1.
+    InvalidOpacity,
 }
 
 impl Figure {
@@ -185,9 +189,13 @@ impl Figure {
     ///
     /// Errors report unknown data identifiers, arrays whose values do not match their
     /// shape, arrays of 8-bit values referenced by an artist other than an image (every
-    /// other artist requires 64-bit floating-point values), inconsistent array lengths
-    /// and shapes within an artist (for an image, pixels that are not an array of shape
-    /// `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional),
+    /// other artist requires 64-bit floating-point values, the alpha of a surface among
+    /// them), inconsistent array lengths and shapes within an artist (for an image,
+    /// pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices
+    /// or values that are not two-dimensional; for a surface, colour data or alpha whose
+    /// shape differs from the field's; for a colour-indexed or colour-mapped image, alpha
+    /// whose shape differs from the indices' or values'), an opacity that is not a finite
+    /// number from 0 to 1,
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
     /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
     /// identifiers that are not axes, duplicate node identifiers, cells of axes and
@@ -769,12 +777,26 @@ impl Validator<'_> {
         if let Artist::Contour(contour) = artist {
             self.check_levels(contour);
         }
+        // An artist reported for an invalid opacity is not also reported as having nothing to
+        // draw, so that the error stands alone.
+        let errors_before = self.report.errors.len();
+        self.check_opacities(id, artist);
 
         let references_are_valid =
             self.check_references(id, &usage.references, usage.accepts_bytes);
         match ImageView::of(artist) {
-            Some(image) => self.check_image(axes, three_d, id, &image, references_are_valid),
-            None if references_are_valid && self.check_shapes(id, artist) => {
+            Some(image) => self.check_image(
+                axes,
+                three_d,
+                id,
+                &image,
+                references_are_valid,
+                errors_before,
+            ),
+            None if references_are_valid
+                && self.check_shapes(id, artist)
+                && self.report.errors.len() == errors_before =>
+            {
                 self.check_something_to_draw(id, artist);
             }
             None => {}
@@ -803,6 +825,33 @@ impl Validator<'_> {
                         "{data} contains values less than or equal to zero along the \
                          logarithmic {dimension:?} axis, which are not drawn"
                     ),
+                );
+            }
+        }
+    }
+
+    /// Reports each opacity of an artist that is not a finite number from 0 to 1.
+    fn check_opacities(&mut self, node: NodeId, artist: &Artist) {
+        let opacities: &[(&str, f64)] = match artist {
+            Artist::Surface(surface) => &[
+                ("face opacity", surface.face_opacity),
+                ("edge opacity", surface.edge_opacity),
+            ],
+            Artist::Image(image) => &[("opacity", image.opacity)],
+            Artist::IndexedImage(image) => &[("opacity", image.opacity)],
+            Artist::MappedImage(image) => &[("opacity", image.opacity)],
+            Artist::Contour(contour) => &[
+                ("line opacity", contour.line_opacity),
+                ("fill opacity", contour.fill_opacity),
+            ],
+            Artist::Line(_) | Artist::Scatter(_) | Artist::Quiver(_) => &[],
+        };
+        for &(what, opacity) in opacities {
+            if !(0.0..=1.0).contains(&opacity) {
+                self.error(
+                    Some(node),
+                    IssueKind::InvalidOpacity,
+                    format!("the {what} is {opacity}, but it must be a number from 0 to 1"),
                 );
             }
         }
@@ -884,20 +933,27 @@ impl Validator<'_> {
             Artist::Contour(contour) => self.check_grid(node, contour.grid, contour.z),
             Artist::Surface(surface) => {
                 let grid_agrees = self.check_grid(node, surface.grid, surface.z);
-                if let Some(c) = surface.c
-                    && data[&c].shape != data[&surface.z].shape
-                {
-                    self.error(
-                        Some(node),
-                        IssueKind::ShapeMismatch,
-                        format!(
-                            "the colour data has shape {:?}, but the field has shape {:?}",
-                            data[&c].shape, data[&surface.z].shape
-                        ),
-                    );
-                    return false;
+                let mut agree = true;
+                for (what, array) in [
+                    ("the colour data", surface.c),
+                    ("the face alpha", surface.face_alpha),
+                    ("the edge alpha", surface.edge_alpha),
+                ] {
+                    if let Some(array) = array
+                        && data[&array].shape != data[&surface.z].shape
+                    {
+                        self.error(
+                            Some(node),
+                            IssueKind::ShapeMismatch,
+                            format!(
+                                "{what} has shape {:?}, but the field has shape {:?}",
+                                data[&array].shape, data[&surface.z].shape
+                            ),
+                        );
+                        agree = false;
+                    }
                 }
-                grid_agrees
+                grid_agrees && agree
             }
             // The shape of an image is checked by `check_image`, which also needs the
             // number of pixels along each axis of the image.
@@ -983,7 +1039,8 @@ impl Validator<'_> {
 
     /// Checks an image: the shape of its array when the array is valid, its placement,
     /// the scales of the axes of its plane, the pixels that its strict policies cover,
-    /// and, when no error was reported against it, whether it has any pixel to draw.
+    /// and, when no error was reported against it since `errors_before` errors were
+    /// reported, whether it has any pixel to draw.
     fn check_image(
         &mut self,
         axes: &Axes,
@@ -991,10 +1048,11 @@ impl Validator<'_> {
         node: NodeId,
         image: &ImageView,
         data_is_valid: bool,
+        errors_before: usize,
     ) {
-        let errors_before = self.report.errors.len();
         let pixels = if data_is_valid {
             self.check_image_shape(node, image)
+                .filter(|&pixels| self.check_image_alpha_shape(node, image, pixels))
         } else {
             None
         };
@@ -1044,6 +1102,30 @@ impl Validator<'_> {
         };
         self.error(Some(node), IssueKind::ShapeMismatch, message);
         None
+    }
+
+    /// Checks that the alpha of a colour-indexed or colour-mapped image, if it has one,
+    /// is an array of `pixels` rows and columns, as its indices or values are, and
+    /// returns whether it is.
+    fn check_image_alpha_shape(
+        &mut self,
+        node: NodeId,
+        image: &ImageView,
+        pixels: [usize; 2],
+    ) -> bool {
+        let Some(alpha) = image.alpha else {
+            return true;
+        };
+        let shape = &self.figure.data[&alpha].shape;
+        if shape.as_slice() == pixels {
+            return true;
+        }
+        let message = format!(
+            "the alpha has shape {shape:?}, but the {} have shape {pixels:?}",
+            image.what
+        );
+        self.error(Some(node), IssueKind::ShapeMismatch, message);
+        false
     }
 
     /// Checks the placement of an image: its pixel centres and plane offset must be
@@ -1400,6 +1482,9 @@ struct ImageView<'a> {
     /// Whether the array holds the colour components of every pixel along a third
     /// dimension, as the pixels of a true-colour image do.
     channels: bool,
+    /// The alpha of every pixel of a colour-indexed or colour-mapped image, if it has
+    /// one.
+    alpha: Option<DataId>,
     /// Where the pixels lie in the axes.
     placement: &'a ImagePlacement,
     /// The out-of-range policies of a colour-indexed or colour-mapped image, or `None`
@@ -1436,6 +1521,7 @@ impl<'a> ImageView<'a> {
                 data: image.pixels,
                 what: "pixels",
                 channels: true,
+                alpha: None,
                 placement: &image.placement,
                 policies: None,
             },
@@ -1443,6 +1529,7 @@ impl<'a> ImageView<'a> {
                 data: image.indices,
                 what: "indices",
                 channels: false,
+                alpha: image.alpha,
                 placement: &image.placement,
                 policies: Some(Policies {
                     below: image.below,
@@ -1455,6 +1542,7 @@ impl<'a> ImageView<'a> {
                 data: image.values,
                 what: "values",
                 channels: false,
+                alpha: image.alpha,
                 placement: &image.placement,
                 policies: Some(Policies {
                     below: image.below,
@@ -1490,12 +1578,12 @@ struct ArtistUsage {
 }
 
 impl ArtistUsage {
-    /// The usage of an image, which refers to one array of either element type, plots
-    /// nothing as a position along an axis, and needs a three-dimensional axes when it
-    /// lies on a wall.
-    fn image(data: DataId, placement: &ImagePlacement) -> Self {
+    /// The usage of an image, which refers to its pixels, indices or values and to its
+    /// alpha, if it has one, each of either element type, plots nothing as a position
+    /// along an axis, and needs a three-dimensional axes when it lies on a wall.
+    fn image(data: DataId, alpha: Option<DataId>, placement: &ImagePlacement) -> Self {
         Self {
-            references: vec![data],
+            references: [Some(data), alpha].into_iter().flatten().collect(),
             positions: Vec::new(),
             three_d: !matches!(placement.plane, ImagePlane::Xy { .. }),
             accepts_bytes: true,
@@ -1583,6 +1671,8 @@ impl ArtistUsage {
                 positions.push((Dimension::Z, surface.z));
                 let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
                 references.extend(surface.c);
+                references.extend(surface.face_alpha);
+                references.extend(surface.edge_alpha);
                 // A surface is valid in either projection. In a two-dimensional axes it is
                 // seen from directly above, so its field positions nothing there; the
                 // caller passes over positions along z in a two-dimensional axes.
@@ -1594,9 +1684,11 @@ impl ArtistUsage {
                     fraction: [false; 2],
                 }
             }
-            Artist::Image(image) => Self::image(image.pixels, &image.placement),
-            Artist::IndexedImage(image) => Self::image(image.indices, &image.placement),
-            Artist::MappedImage(image) => Self::image(image.values, &image.placement),
+            Artist::Image(image) => Self::image(image.pixels, None, &image.placement),
+            Artist::IndexedImage(image) => {
+                Self::image(image.indices, image.alpha, &image.placement)
+            }
+            Artist::MappedImage(image) => Self::image(image.values, image.alpha, &image.placement),
         }
     }
 }
