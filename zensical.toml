@@ -43,6 +43,8 @@ nav = [
     { "0017 Embedded LaTeX mathematics with latex-rust applying TeX's conventions" = "adrs/0017-latex-rust-applies-tex-conventions.md" },
     { "0018 Legend panels in the tile layout, with entries merged by name and look" = "adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md" },
     { "0019 Axis direction, ticks, blended coordinates and aspect" = "adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md" },
+    { "0020 Explicit legend entries and rows and columns fitted to their legends" = "adrs/0020-explicit-legend-entries-and-fitted-tracks.md" },
+    { "0021 Images refused on logarithmic axes, and alpha data and opacity" = "adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },
