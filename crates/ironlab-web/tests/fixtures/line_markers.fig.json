@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.5.0",
+  "schema_version": "0.6.0",
   "id": 0,
   "title": {
     "content": "A damped oscillator",
@@ -545,7 +545,7 @@
   ],
   "links": [],
   "provenance": {
-    "ironlab_version": "0.13.0",
+    "ironlab_version": "0.14.0",
     "typesetter": "latex-rust",
     "typesetter_version": "2.1.1",
     "fonts": [
