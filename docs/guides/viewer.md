@@ -10,27 +10,27 @@ Every interaction described on this page changes the figure by setting a propert
 
 When the viewer opens more than one figure, a browser appears down the left-hand side. It narrows the open figures
 down to the one to look at, and clicking a figure in its list shows that figure; the row of the figure shown is
-marked in the selection colour, and every row shows the figure's labels beneath its title, or the value the list is
+marked in the selection colour, and every row shows the figure's tags beneath its title, or the value the list is
 ordered by. Dragging the browser's edge past its narrowest width shuts it, leaving a handle to drag it open again. A
 viewer holding a single figure has nothing to browse, and opens without it.
 
-The browser is built around the [labels and parameters](describing-figures.md) of a figure, which exist so that a collection of figures can be sorted,
+The browser is built around the [tags and parameters](describing-figures.md) of a figure, which exist so that a collection of figures can be sorted,
 filtered and searched. It offers exactly what the figures carry and nothing else: the viewer works out no
 properties of its own, because the program that built the figures is the only thing that knows which of their
-properties matter. A collection whose figures carry no labels and no parameters can still be searched by title and
+properties matter. A collection whose figures carry no tags and no parameters can still be searched by title and
 listed, but there is nothing to filter it by until its author says what there should be.
 
-When no figure of a collection carries a label or a parameter, there is nothing to narrow it by, and the browser
+When no figure of a collection carries a tag or a parameter, there is nothing to narrow it by, and the browser
 says so rather than offering an empty menu: it explains that descriptions are added where the figures are built,
 and links to [describing figures](describing-figures.md). The figures are still listed and can still be searched by
 title.
 
-An empty label, or one a figure carries twice, is shown once and reported in the problems list: neither is possible
+An empty tag, or one a figure carries twice, is shown once and reported in the problems list: neither is possible
 in a figure IronLAB wrote, but a file written by another program can carry either.
 
 ### Searching
 
-The field at the top of the browser searches the titles, the labels and the parameters. Typing `surface` leaves the
+The field at the top of the browser searches the titles, the tags and the parameters. Typing `surface` leaves the
 figures that mention it anywhere; the list narrows as each character is typed.
 
 A word can also ask about one parameter, which is how a search becomes precise:
@@ -42,7 +42,7 @@ A word can also ask about one parameter, which is how a search becomes precise:
 | `rig:CFD` | its `rig` parameter contains "CFD", ignoring case |
 | `rig=CFD` | its `rig` parameter is exactly "CFD", ignoring case |
 | `angle>=8` | its `angle` parameter is 8 or more, and `>`, `<` and `<=` compare in the same way |
-| `label:piv` | one of its labels contains "piv" |
+| `tag:piv` | one of its tags contains "piv"; `tags:` asks the same |
 
 Words are cumulative: every one of them must hold. A word only asks about a parameter when the collection has one
 of that name, so a colon in a title, a file path or a web address searches rather than asking about a parameter
@@ -76,7 +76,7 @@ range keeps. Widening the ends to the whole of the parameter removes the filter,
 figure narrows nothing.
 
 Each filter reads back as a chip beneath the menu, where chips can come and go without moving the menu, naming
-the parameter, what it was narrowed to, and a cross; a chip on the labels is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all**, which
+the parameter, what it was narrowed to, and a cross; a chip that narrows the tags is drawn in the green of a tag. Clicking a chip removes that filter, and **Clear all**, which
 appears beside **Add** while there is a filter and carries a restore mark, removes every filter. **Show all**, at the foot of the panel, removes every filter and empties the search field at
 once.
 
@@ -89,12 +89,12 @@ combo box beside the word pointing up or down to match.
 Numbers in a title are read as numbers, so "Run 9" comes before "Run 10". A figure that does not carry the parameter
 comes last whichever way the order runs, because it has no place in an order taken from a value it does not have.
 When the list is ordered by a parameter, each row shows that parameter's value beneath the title; otherwise it shows
-the figure's labels.
+the figure's tags.
 
 **Group** breaks the list into runs under a heading that names the value the figures share and counts them.
-Clicking a heading closes the group. Grouping by labels lists a figure under each of the labels it carries, because
-that is how browsing by labels is meant to read. The figures the grouping does not apply to are gathered last, under
-"not set" or "no labels".
+Clicking a heading closes the group. Grouping by tags lists a figure under each of the tags it carries, because
+that is how browsing by tags is meant to read. The figures the grouping does not apply to are gathered last, under
+"not set" or "no tags".
 
 The foot of the panel says how much of the collection is left, such as "12 of 26 figures".
 
@@ -170,7 +170,7 @@ Resting the pointer over an image (see [images](getting-started.md#images)) outl
 
 ## Details
 
-Beneath the canvas, a strip says what the figure carries: its [labels](describing-figures.md) as a row of tags, then
+Beneath the canvas, a strip says what the figure carries: its [tags](describing-figures.md) as a row of tag chips, then
 its parameters as a table in ascending order of name. It is the same information the property editor edits, shown
 where it can be read at a glance beside the figure it describes, because it is what the browser narrows a
 collection by and a reader choosing between figures wants to see it without opening an editor. A figure that
@@ -184,7 +184,7 @@ The panel has three parts: the objects of the figure at the top, the properties 
 
 ### Selecting an object
 
-The upper part lists the figure, its axes in drawing order, the plots of each axes in drawing order, and then its legend panels, as a tree that can be collapsed. Every row names the kind of the object first and the name the object carries after it in brackets, so that "Figure (A damped oscillator)", "Axes (Speed)" and "Line ($\sin \omega t$)" each say what they are as well as which one they are. The name in brackets is the title of the figure or of the axes, or the display name of the plot — the name its legend entry carries — written as its source, because the tree does not typeset mathematics. An axes with no title is named by the cell it occupies, as "Axes (row 0, col 1)", which is what tells two untitled axes apart, and a legend panel is always named by its cell, as "Legend panel (row 2, col 0)". A figure with no title and a plot with no display name are named by their kind alone. A hidden plot is greyed, so a plot missing from the canvas can be found and shown again.
+The upper part lists the figure, a group named "Data arrays" holding its data arrays, its axes in drawing order with the plots of each axes in drawing order beneath it, and a group named "Panels" holding its panels, as a tree that can be collapsed. A group is listed only when the figure has something to put in it. Every row names the kind of the object first and the name the object carries after it in brackets, so that "Figure (A damped oscillator)", "Axes (Speed)" and "Line ($\sin \omega t$)" each say what they are as well as which one they are. The name in brackets is the title of the figure or of the axes, or the label of the plot — the text its legend entry carries — written as its source, because the tree does not typeset mathematics. An axes with no title is named by the cell it occupies, as "Axes (row 0, col 1)", which is what tells two untitled axes apart. A panel is always named by the kind of its content and the cells it occupies, as "Legend panel (row 2, col 0)" or "Legend panel (rows 0–1, col 2)". A data array draws nothing on the page, so it is named by the name its program gave it, as "Data array (time (s))", or, when it has none, by its shape, as "Data array (1000 × 3)". A figure with no title and a plot with no label are named by their kind alone. A hidden plot is greyed, so a plot missing from the canvas can be found and shown again.
 
 Clicking a row selects that object and shows its properties below. Clicking inside an axes on the canvas selects that axes, and clicking a legend entry selects its plot as well as hiding or showing it. The canvas cannot pick an individual plot ([issue #1](https://github.com/thclark/ironlab/issues/1)), so the tree is the way to reach one. No gesture changes the selection: panning, zooming and rotating leave the panel showing what it was showing.
 
@@ -220,26 +220,27 @@ The properties of the figure include its **parameters**: the named values that d
 
 While the table cannot be committed — an entry has no name, two entries share a name, or a number has not been typed in full — the reason is shown below it and the figure keeps the parameters it had. Typing is never interrupted; the change reaches the figure as soon as the table makes sense again.
 
-### Labels
+### Tags
 
-The properties of the figure also include its **labels**: the free words that describe it, which are what the
-[figure browser](#the-figure-browser) filters and groups by (see [labels](getting-started.md#labels) and the
-[figure schema](../reference/figure-schema.md#labels)). They are edited as one text field holding them separated by
+The properties of the figure also include its **tags**: the free words that describe it, which are what the
+[figure browser](#the-figure-browser) filters and groups by (see [tags](getting-started.md#tags) and the
+[figure schema](../reference/figure-schema.md#tags)). They are edited as one text field holding them separated by
 commas, because they are short words and there are a handful of them. The spaces around a word are trimmed and an
-empty word is dropped, so a trailing comma while typing never makes a label of nothing.
+empty word is dropped, so a trailing comma while typing never makes a tag of nothing.
 
-A label added twice is refused, and the reason appears in the problems list. The labels the browser reads off the
-figure itself are not shown here and cannot be edited, because they are not part of the figure: they are worked out
-from what it draws each time it is opened.
+A tag added twice is refused, and the reason appears in the problems list. Tags were called labels in earlier
+versions; [ADR 0023](../adrs/0023-titles-labels-names-and-tags.md) records why the word label is now kept for text that
+is drawn.
 
 ### What the editor does not change
 
-The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes sits in it, which axes there are and which plots they hold — and the data those plots draw come from the program that builds the figure.
+The editor changes the properties of the objects a figure already has. Its structure — the tile layout, where each axes and panel sits in it, which axes, plots and panels there are, and what each panel holds — and the data those plots draw come from the program that builds the figure.
 
-**A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Five kinds of property are shown this way.
+**A property the editor cannot change is shown with its value, drawn dimmed, and the reason it cannot be changed in its tooltip, and with nothing else beside it.** The dimmed value is what says the property is not yours to set here; hovering it says why. Six kinds of property are shown this way.
 
 - **The data a plot draws**, shown as the array it names and that array's shape.
-- **The rows and columns of the figure's tile layout, and the cell each axes or legend panel occupies within it.** Where an axes or a legend panel sits is part of how the figure is arranged, which the program that builds it defines. The relative sizes of the rows and columns are not part of that arrangement, and stay editable, as a list of weights in which the word `fit` stands for a row or column [fitted to its legends](legends.md#fitting-rows-and-columns-to-their-legends).
+- **The data arrays of the figure.** Selecting a data array shows its name and its shape, and neither can be changed, because the values come from the program that wrote the figure. An array may be shared by several plots, and [sharing data between plots](getting-started.md#sharing-data-between-plots) explains how.
+- **The rows and columns of the figure's tile layout, the cell each axes or panel occupies within it, and the kind of content a panel holds.** Where an axes or a panel sits, and whether a panel holds a legend, is part of how the figure is arranged, which the program that builds it defines. The relative sizes of the rows and columns are not part of that arrangement, and stay editable, as a list of weights in which the word `fit` stands for a row or column [fitted to its legends](legends.md#fitting-rows-and-columns-to-their-legends).
 - **The legend panel in which an axes lists its entries**, shown as the identifier of the panel, because which axes share a legend is part of how the figure is arranged.
 - **The groups of axes whose limits are linked**, shown as a count.
 - **The marker size of a scatter**, because a scatter sizes its markers by its own **size**, which overrides it. Change **size** instead, to give every marker the same size or to take each marker's size from an array. Every other plot draws its markers at the size in its marker style, which stays editable.
