@@ -88,7 +88,7 @@ fig.axes(0, 0).loglog(&f, &gain);
 fig.axes(0, 0)
     .scatter(&x, &y)
     .sizes(&sizes)           // one size in points per marker; or .size(6.0) for all markers
-    .colors(&values)         // one value per marker, mapped through the colormap; or .color(Color::BLACK)
+    .colors(&values)         // one value per marker, mapped through a colour scale; or .color(Color::BLACK)
     .marker(Marker::Diamond)
     .filled();
 ```
@@ -128,7 +128,7 @@ Only a two-dimensional axes has a plot area to take a fraction of, so axes-fract
 
 ### Contours
 
-`contour(x, y, z)` draws isolines of the field `z`, `contourf(x, y, z)` fills the bands between levels, and `contour3(x, y, z)` draws each isoline at the height of its level in a three-dimensional axes. Ten levels are chosen automatically, and each isoline is coloured from the colormap by its level.
+`contour(x, y, z)` draws isolines of the field `z`, `contourf(x, y, z)` fills the bands between levels, and `contour3(x, y, z)` draws each isoline at the height of its level in a three-dimensional axes. Each isoline and band is coloured by its level through the [colour scale](colour.md) of the axes. A contour without levels of its own takes them from its scale: ten levels at round values through a continuous scale, and the band edges of a discrete scale, as [discrete scales and filled contours](colour.md#discrete-scales-and-filled-contours) shows.
 
 ```rust
 let mut ax = fig.axes(0, 0);
@@ -154,7 +154,7 @@ fig.axes(0, 0)
 
 ### Surfaces
 
-`surf(x, y, z)` draws the surface of the heights `z` over a grid, whose faces are coloured from the colormap by height and outlined by thin black edges. `mesh(x, y, z)` draws a wireframe whose faces are filled with the background colour, so that they hide the edges behind them, and whose edges are coloured from the colormap. Both convert the axes to three dimensions.
+`surf(x, y, z)` draws the surface of the heights `z` over a grid, whose faces are coloured by height through the [colour scale](colour.md) of the axes and outlined by thin black edges. `mesh(x, y, z)` draws a wireframe whose faces are filled with the background colour, so that they hide the edges behind them, and whose edges are coloured through the colour scale. Both convert the axes to three dimensions.
 
 ```rust
 fig.axes3(0, 0)
@@ -165,7 +165,7 @@ fig.axes3(0, 0)
     .color_data(&c);                    // colour by another matrix instead of by height
 ```
 
-Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, and a `ColorSpec` chooses the automatic colour (`ColorSpec::Auto`) or a colour taken from the colormap (`ColorSpec::Colormapped`).
+Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, and a `ColorSpec` chooses the automatic colour (`ColorSpec::Auto`) or a colour mapped through the artist's colour scale (`ColorSpec::Colormapped`). On the faces and edges of a surface and the isolines of a contour, which have no colour of their own, the automatic colour is the mapped colour.
 
 A surface of ten thousand faces or more is exported as an image rather than as one path per face; see [dense surfaces](#dense-surfaces).
 
@@ -184,12 +184,12 @@ let field = Matrix::from_fn(r.rows(), r.cols(), |row, col| r[(row, col)].ln() * 
 let mut ax = fig.axes(0, 0);
 ax.surface(x, y, &field)   // coordinate matrices make a curvilinear grid
     .edge_color(None);     // no edges, as MATLAB's `shading flat`
-ax.colormap(Colormap::Viridis);
+ax.color_scale().colormap(Colormap::Viridis);
 ```
 
-Out of the box, a surface in a two-dimensional axes and a [colour-mapped image](#images) differ in one respect only: the values of an image are pixels, and the values of a surface are vertices.
+Out of the box, a surface in a two-dimensional axes and a [scalar image](#images) differ in one respect only: the values of an image are pixels, and the values of a surface are vertices.
 
-| | `mapped_image` | `surface` in a two-dimensional axes |
+| | `scalar_image` | `surface` in a two-dimensional axes |
 | --- | --- | --- |
 | A value belongs to | the centre of a pixel | a vertex of the grid |
 | A field of n rows and m columns draws | n × m pixels, each in the colour of its own value | (n − 1) × (m − 1) faces, each in the colour of the mean of its four corner values |
@@ -203,13 +203,12 @@ A surface added with `surface` is an ordinary surface, so a later `surf` or `mes
 
 ### Images
 
-An image is a raster of pixels, each with one flat colour, placed by the coordinates of its pixel centres. Three functions draw the three kinds of image, which differ in where the colour of a pixel comes from.
+An image is a raster of pixels, each with one flat colour, placed by the coordinates of its pixel centres. Two functions draw the two kinds of image, which differ in where the colour of a pixel comes from.
 
 - `image(&pixels)` draws a true-colour image (MATLAB's `image` with a true-colour array). Its argument is a `Pixels`: the red, green and blue components of every pixel, with an optional alpha component, one byte each. Pixels are built from the bytes of a decoded image with `Pixels::from_rgb8` or `Pixels::from_rgba8`, from a function of the row and column with `Pixels::rgb_from_fn` or `Pixels::rgba_from_fn`, or from one `Matrix` per component with `Pixels::from_planes`, to which `with_alpha` attaches a plane of opacities.
-- `indexed_image(&indices)` draws a colour-indexed image, whose pixels name entries of the axes colormap directly (MATLAB's `image` with an indexed array). An index from 0 to 255 takes that entry of the 256-entry colormap, a floating-point index is truncated toward zero first, and the colour limits play no part.
-- `mapped_image(&values)` draws a colour-mapped image, whose pixels are data values scaled through the colour limits of the axes into its colormap, exactly as the colour data of a surface is (MATLAB's `imagesc`).
+- `scalar_image(&values)` draws a scalar image, whose pixels each hold one number, mapped to a colour through a [colour scale](colour.md) exactly as the colour data of a surface is. Through the default scale of the axes, a continuous scale, it is MATLAB's `imagesc`. Through an indexed scale, each whole number names an entry of a palette, as MATLAB's `image` with an indexed array does; [indexed and categorical scales](colour.md#indexed-and-categorical-scales) shows how.
 
-The indices and values of the two mapped kinds come from a `Matrix`, stored as floating-point values, or from a `ByteMatrix`, its 8-bit counterpart, which stores bytes exactly and at a quarter of the size.
+The values of a scalar image come from a `Matrix`, stored as floating-point values, or from a `ByteMatrix`, its 8-bit counterpart, which stores bytes exactly and at a quarter of the size.
 
 ```rust
 let x = linspace(-2.0, 2.0, 81);
@@ -220,20 +219,26 @@ let pixels = Pixels::rgb_from_fn(64, 64, |row, col| Color::rgb(row as f32 / 63.0
 
 let mut fig = Figure::new().tiles(1, 3);
 let mut ax = fig.axes(0, 0);
-ax.mapped_image(&field)
+ax.scalar_image(&field)
     .pixel_columns(-2.0, 2.0)  // the centres of the first and last columns
     .pixel_rows(-1.0, 1.0)     // the centres of the first and last rows
-    .above(OutOfRange::Clamp)  // a value above the colour limits takes the last colour
-    .non_finite(Color::BLACK)  // a NaN is drawn in black instead of being left transparent
     .label(r"$\sin xy$");
-ax.colormap(Colormap::Magma).clim(-1.0, 1.0);
-fig.axes(0, 1).indexed_image(&classes).pixel_columns(-2.0, 2.0).pixel_rows(-1.0, 1.0);
+ax.color_scale()               // the scale the image created as the default of its axes
+    .colormap(Colormap::Magma)
+    .limits(-1.0, 1.0)
+    .non_finite(Color::BLACK); // a NaN is drawn in black instead of being left transparent
+let palette = fig.indexed_scale(Colormap::Viridis.sample(256)).id();
+fig.axes(0, 1)
+    .scalar_image(&classes)    // each byte names an entry of the 256-colour palette
+    .color_scale(palette)
+    .pixel_columns(-2.0, 2.0)
+    .pixel_rows(-1.0, 1.0);
 fig.axes(0, 2).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0); // rows count down from the top
 ```
 
-An image is placed by the centres of its first and last pixels along each axis of its plane: `pixel_columns(first, last)` places its columns and `pixel_rows(first, last)` its rows. The pitch between centres follows from the number of pixels, and the image extends half a pitch beyond each centre, so the mapped image above, with 81 columns centred from −2 to 2, has a pitch of 0.05 and covers −2.025 to 2.025. Without a range the centres lie at 0, 1, …, n − 1, so an image of n columns covers −0.5 to n − 0.5. Row 0 of the array always lies at the first row centre and column 0 at the first column centre, so a range whose `last` is less than its `first` mirrors the image along that axis, as the row range of the `image` call above does. [Image orientation](#image-orientation) shows how the two ranges turn, stretch and shift an image. The x and y limits of an axes that holds only images are the exact edges of their pixels, as they are for the grid of a contour or surface.
+An image is placed by the centres of its first and last pixels along each axis of its plane: `pixel_columns(first, last)` places its columns and `pixel_rows(first, last)` its rows. The pitch between centres follows from the number of pixels, and the image extends half a pitch beyond each centre, so the scalar image above, with 81 columns centred from −2 to 2, has a pitch of 0.05 and covers −2.025 to 2.025. Without a range the centres lie at 0, 1, …, n − 1, so an image of n columns covers −0.5 to n − 0.5. Row 0 of the array always lies at the first row centre and column 0 at the first column centre, so a range whose `last` is less than its `first` mirrors the image along that axis, as the row range of the `image` call above does. [Image orientation](#image-orientation) shows how the two ranges turn, stretch and shift an image. The x and y limits of an axes that holds only images are the exact edges of their pixels, as they are for the grid of a contour or surface.
 
-A pixel of a colour-indexed or colour-mapped image that the colormap cannot colour falls in one of three categories, and each category has a policy of its own: `below` (an index less than 0, or a value below the lower colour limit), `above` (an index greater than 255, or a value above the upper colour limit) and `non_finite` (an index or value that is NaN or infinite). A policy is `OutOfRange::Transparent`, the default, which draws nothing for the pixel; `OutOfRange::Clamp`, which draws the nearest end colour of the colormap, its first entry below the range and its last above it, and nothing for a non-finite value, which has no nearest end; a `Color`, which draws the pixel in that fixed colour; or `OutOfRange::Strict`, which makes such a pixel a validation error. The policies are lenient by default so that a figure reaches the page whatever its data holds, and strict on any combination of the three categories when the data must be good: leaving `non_finite` transparent while making `below` and `above` strict tolerates missing values but refuses a value outside the range, and the reverse refuses missing values while tolerating those outside the range.
+What a pixel draws when its value lies outside the range of its colour scale, names no entry of a palette, or is not finite, is decided by the scale rather than by the image, so that every artist that names the scale treats such values alike. [Values out of range](colour.md#values-out-of-range) describes the policies.
 
 In a three-dimensional axes an image lies in one of the three coordinate planes, chosen with `plane`. `ImagePlane::Xy { z }` is the floor, `ImagePlane::Xz { y }` and `ImagePlane::Yz { x }` are the walls, and the offset is the coordinate of the plane along the third axis, or `None` for the low end of that axis, so `plane(ImagePlane::Xz { y: Some(0.0) })` stands the image on the wall at y = 0. The columns of the image run along the first axis of its plane and the rows along the second. Placing an image on a wall converts a two-dimensional axes to three dimensions, as `surf` does, whereas the xy plane leaves the axes as it is, because it is the only plane a two-dimensional axes can show. An image on a face of the axes box, as an image without an offset is, is painted behind everything else in the axes when its face is at the back of the current view and in front of everything else when it is at the front; an image at an interior offset is sorted among the faces, lines and markers by its depth.
 
@@ -254,11 +259,11 @@ ax.surface(&time, &frequency, &power).edge_color(None);
 ax.yscale(Scale::Log);
 ```
 
-The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. A true-colour image has no values for a colormap to colour, so its colours must be given as the values from which they were made. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
+The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. A true-colour image has no values for a colour scale to colour, so its colours must be given as the values from which they were made. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
 
 An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
-In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show each kind, [Image orientation](../gallery/image_orientation.md) shows one photograph with three placements, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the three kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show a true-colour image and a scalar image through a continuous and through an indexed scale, [Image orientation](../gallery/image_orientation.md) shows one photograph with three placements, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the image artists are recorded in [ADR 0011](../adrs/0011-image-artists.md), and the replacement of its colour-indexed and colour-mapped kinds by the scalar image in [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md).
 
 #### Image orientation
 
@@ -297,10 +302,10 @@ Use alpha when the transparency is part of the data, such as a mask or the confi
 ```rust
 let mut fig = Figure::new().tiles(1, 2);
 
-// A colour-mapped image whose pixels fade with the confidence of each measurement. A NaN confidence makes its pixel
+// A scalar image whose pixels fade with the confidence of each measurement. A NaN confidence makes its pixel
 // transparent, and a `ByteMatrix` of alpha from 0 to 255 is read as fractions of 255.
 fig.axes(0, 0)
-    .mapped_image(&speed)
+    .scalar_image(&speed)
     .alpha(&confidence)
     .opacity(0.9);
 
@@ -314,7 +319,7 @@ ax.surf(&x, &y, &speed)
     .edge_opacity(0.25);     // `edge_alpha` gives the edges an alpha of their own
 ```
 
-`alpha` is available on `indexed_image` and `mapped_image`, whose pixels are a single value each; a true-colour `image` carries its alpha in its pixels, built with `Pixels::from_rgba8`, `Pixels::rgba_from_fn` or `with_alpha`, and takes an `opacity` like the other two. A surface has `face_alpha` and `edge_alpha`, one value per node of its field, and `face_opacity` and `edge_opacity`, so that its faces and the mesh of edges that borders them are controlled independently. A contour has `line_opacity` for its isolines and `fill_opacity` for its filled bands, and no alpha array, because each isoline and band is drawn in a single colour. An alpha value outside 0 to 1 is clamped, a NaN makes its pixel or face transparent, and the alpha of an image also applies to a pixel drawn in the fixed colour of an [out-of-range policy](#images). An opacity outside 0 to 1 is reported by [validation](#validating-a-figure) as `InvalidOpacity`.
+`alpha` is available on `scalar_image`, whose pixels are a single value each; a true-colour `image` carries its alpha in its pixels, built with `Pixels::from_rgba8`, `Pixels::rgba_from_fn` or `with_alpha`, and takes an `opacity` like a scalar image. A surface has `face_alpha` and `edge_alpha`, one value per node of its field, and `face_opacity` and `edge_opacity`, so that its faces and the mesh of edges that borders them are controlled independently. A contour has `line_opacity` for its isolines and `fill_opacity` for its filled bands, and no alpha array, because each isoline and band is drawn in a single colour. An alpha value outside 0 to 1 is clamped, a NaN makes its pixel or face transparent, and the alpha of an image also applies to a pixel drawn in the fixed colour of an [out-of-range policy](colour.md#values-out-of-range). An opacity outside 0 to 1 is reported by [validation](#validating-a-figure) as `InvalidOpacity`.
 
 In a three-dimensional axes a translucent face or image never hides what lies behind it, wherever it comes in the order in which the axes sorts its artists; [three-dimensional axes in PDF](#three-dimensional-axes-in-pdf) explains when such an axes is written to a PDF as an image. The legend sample of a translucent artist takes its opacity. The [Measured speed faded by its confidence](../gallery/piv_confidence.md) gallery entry draws both examples above, and the [figure schema](../reference/figure-schema.md#alpha-and-opacity) states exactly how the two combine.
 
@@ -401,8 +406,7 @@ The remaining axes properties are also set on the axes handle.
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
-| `colormap(name)` | Sets the colormap: `Viridis` (the default), `Cividis`, `Magma`, `Inferno`, `Plasma`, `Coolwarm` or `Gray`. |
-| `clim(min, max)` | Fixes the data values mapped to the ends of the colormap. Limits that are not set are the range of the colour data of the axes, to which a mapped image contributes its values; an indexed image, whose indices name colours directly, contributes nothing. |
+| `color_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colormap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
 Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour, surface and image plots are the exact extent of their grid or of their pixel edges instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
