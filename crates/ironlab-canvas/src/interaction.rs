@@ -62,7 +62,8 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, AspectAdjust, Axes, Axis, Coords, Dimension, Edit, EditError, Figure, Limits, NdArray,
+    Artist, AspectAdjust, Axes, Axis, CategoricalColorScale, ColorScaleClass, ColorScaleDomain,
+    ColorScaleKind, ColorScaleSlot, Coords, Dimension, Edit, EditError, Figure, Limits, NdArray,
     NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
@@ -143,10 +144,20 @@ pub enum PixelValue {
     /// The red, green and blue components of a pixel of a true-colour image, and its alpha component when the
     /// array has one: bytes from 0 to 255 or fractions from 0 to 1, as stored.
     Components(Vec<f64>),
-    /// The index of a pixel of a colour-indexed image, as stored: a floating-point index is not truncated, because
-    /// 2.9 and 2 take the same entry of the colormap but are different data.
+    /// The index of a pixel of a scalar image mapped through an indexed colour scale, as stored: a floating-point
+    /// index is not truncated, because 2.9 names no entry while 2 does.
     Index(f64),
-    /// The value of a pixel of a colour-mapped image.
+    /// The index of a pixel of a scalar image mapped through a categorical colour scale, as stored, with the label
+    /// of the category it names, or `None` when it names none (it is fractional, negative or past the last
+    /// category).
+    Category {
+        /// The index, as stored.
+        index: f64,
+        /// The label of the category the index names, as its source text.
+        label: Option<String>,
+    },
+    /// The value of a pixel of a scalar image mapped through a continuous or discrete colour scale, or through no
+    /// usable scale.
     Value(f64),
 }
 
@@ -770,8 +781,18 @@ impl FigureState {
         let (_, artist) = self.composed.artist(drawn.artist)?;
         let (data, placement, kind) = match artist {
             Artist::Image(image) => (image.pixels, image.placement, PixelKind::Components),
-            Artist::IndexedImage(image) => (image.indices, image.placement, PixelKind::Index),
-            Artist::MappedImage(image) => (image.values, image.placement, PixelKind::Value),
+            Artist::ScalarImage(image) => {
+                let kind = match image
+                    .color_scale
+                    .and_then(|scale| self.composed.color_scale(scale))
+                    .map(|scale| &scale.kind)
+                {
+                    Some(ColorScaleKind::Indexed(_)) => PixelKind::Index,
+                    Some(ColorScaleKind::Categorical(scale)) => PixelKind::Category(scale),
+                    _ => PixelKind::Value,
+                };
+                (image.values, image.placement, kind)
+            }
             _ => return None,
         };
         let value = pixel_value(&self.composed.data_array(data)?.array, kind, row, column)?;
@@ -998,12 +1019,15 @@ fn path(segments: &[&str]) -> PropertyPath {
 
 /// The kind of image a pixel is read from, which decides the shape of its array and the form of its value.
 #[derive(Clone, Copy)]
-enum PixelKind {
+enum PixelKind<'a> {
     /// A true-colour image, whose array has a third dimension of components.
     Components,
-    /// A colour-indexed image, whose two-dimensional array holds indices.
+    /// A scalar image through an indexed colour scale, whose two-dimensional array holds indices.
     Index,
-    /// A colour-mapped image, whose two-dimensional array holds values.
+    /// A scalar image through a categorical colour scale, whose two-dimensional array holds the indices of its
+    /// categories.
+    Category(&'a CategoricalColorScale),
+    /// A scalar image through a continuous or discrete colour scale, whose two-dimensional array holds values.
     Value,
 }
 
@@ -1015,7 +1039,7 @@ enum PixelKind {
 fn pixel_value(array: &NdArray, kind: PixelKind, row: usize, column: usize) -> Option<PixelValue> {
     let (ny, nx, channels) = match (kind, array.shape.as_slice()) {
         (PixelKind::Components, &[ny, nx, channels]) => (ny, nx, channels),
-        (PixelKind::Index | PixelKind::Value, &[ny, nx]) => (ny, nx, 1),
+        (PixelKind::Index | PixelKind::Category(_) | PixelKind::Value, &[ny, nx]) => (ny, nx, 1),
         _ => return None,
     };
     if row >= ny || column >= nx {
@@ -1029,6 +1053,20 @@ fn pixel_value(array: &NdArray, kind: PixelKind, row: usize, column: usize) -> O
                 .collect::<Option<Vec<f64>>>()?,
         ),
         PixelKind::Index => PixelValue::Index(array.get(start)?),
+        PixelKind::Category(scale) => {
+            let index = array.get(start)?;
+            let entries = ColorScaleDomain::Entries {
+                count: scale.categories.len(),
+            };
+            let label = match entries.classify(index) {
+                ColorScaleClass::Inside(ColorScaleSlot::Entry(entry)) => scale
+                    .categories
+                    .get(entry)
+                    .map(|category| category.label.content.clone()),
+                _ => None,
+            };
+            PixelValue::Category { index, label }
+        }
         PixelKind::Value => PixelValue::Value(array.get(start)?),
     })
 }

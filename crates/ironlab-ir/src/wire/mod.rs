@@ -89,15 +89,16 @@
 //!
 //! - the kind of an artist, the dimension of an axis link, and the kind of a figure
 //!   parameter together with its value when it is a boolean, an integer or a number;
-//! - the content of a panel, and the array of a data array;
+//! - the content of a panel, the array of a data array, and the label of a category of
+//!   a categorical colour scale, which every key that shows the scale draws;
 //! - every identifier that refers to a node and is not optional in the domain: the
-//!   identifier of the figure, of each data array, of each axes, of each artist and of
-//!   each panel, the panel that the legend of an axes names, the x and y
-//!   data of a line, scatter or quiver, the u and v data of a quiver, the z data of a
-//!   contour or surface, the grid of a contour or surface (its kind and both of its
-//!   coordinate arrays), the data of per-point scatter sizes and colours, and the
-//!   pixels, indices or values of an image. Zero is a valid identifier, so
-//!   substituting it would silently attach an artist to the wrong data;
+//!   identifier of the figure, of each data array, of each colour scale, of each axes,
+//!   of each artist and of each panel, the panel that the legend of an axes names, the x
+//!   and y data of a line, scatter or quiver, the u and v data of a quiver, the z data
+//!   of a contour or surface, the grid of a contour or surface (its kind and both of its
+//!   coordinate arrays), the data of per-point scatter sizes and colours, and the pixels
+//!   or values of an image. Zero is a valid identifier, so substituting it would
+//!   silently attach an artist to the wrong data;
 //! - the bounds of manual limits, the step and origin of regularly stepped ticks, the
 //!   factor of a quiver scale, the number of a fixed
 //!   number of legend columns, and both centres of a pixel range of an image that is
@@ -113,8 +114,10 @@
 //!
 //! Optional references and values (the z data of a line, scatter or quiver, the w data
 //! of a quiver, the colour data and the face and edge alpha of a surface, the alpha of
-//! a colour-indexed or colour-mapped image, the pixel ranges and plane offset of an
-//! image, and the name of a data array) are absent in the domain when they are absent on the wire, and the encoder
+//! a scalar image, the colour scale of a scalar image, contour, surface or scatter, the
+//! levels of a contour, the pixel ranges and plane offset of an image, the title of a
+//! colour scale, and the name of a data array) are absent in the domain when they are
+//! absent on the wire, and the encoder
 //! writes them as absent rather than as a zero, which would move an image. An absent
 //! [`Provenance`](crate::Provenance) decodes as an empty
 //! provenance (empty strings and no fonts) rather than as the provenance of this build,
@@ -429,6 +432,7 @@ pub(crate) mod schema;
 
 mod artist;
 mod axes;
+mod color_scale;
 mod data;
 mod edit;
 mod figure;
@@ -441,6 +445,7 @@ mod text;
 
 pub use artist::*;
 pub use axes::*;
+pub use color_scale::*;
 pub use data::*;
 pub use edit::*;
 pub use figure::*;
@@ -495,6 +500,7 @@ breaking:
 /// The `.proto` file of every module, in the order in which they are generated.
 pub(crate) const FILES: &[schema::FileDef] = &[
     figure::FILE,
+    color_scale::FILE,
     axes::FILE,
     legend::FILE,
     panel::FILE,

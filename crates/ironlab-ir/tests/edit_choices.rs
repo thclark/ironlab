@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 29] = [
+const WITH_CHOICES: [ValueType; 33] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -41,6 +41,10 @@ const WITH_CHOICES: [ValueType; 29] = [
     ValueType::QuiverScale,
     ValueType::ImagePlane,
     ValueType::OutOfRange,
+    ValueType::ColorScaleKind,
+    ValueType::Colormap,
+    ValueType::ColorScaleNorm,
+    ValueType::ColorScaleLevels,
     ValueType::Interpreter,
     ValueType::FontSetId,
 ];
@@ -480,6 +484,46 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ],
     );
     covered(
+        ValueType::ColorScaleKind,
+        vec![
+            Value::ColorScaleKind(ColorScaleKind::Continuous(ContinuousColorScale::default())),
+            Value::ColorScaleKind(ColorScaleKind::Discrete(DiscreteColorScale::default())),
+            Value::ColorScaleKind(ColorScaleKind::Indexed(IndexedColorScale::default())),
+            Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale::default())),
+        ],
+    );
+    covered(
+        ValueType::Colormap,
+        vec![
+            Value::Colormap(Colormap::Named {
+                name: ColormapName::Magma,
+                reverse: true,
+            }),
+            Value::Colormap(Colormap::Listed {
+                colors: vec![Color::BLACK, Color::WHITE],
+            }),
+        ],
+    );
+    covered(
+        ValueType::ColorScaleLevels,
+        vec![
+            Value::ColorScaleLevels(ColorScaleLevels::Auto {
+                count: 3,
+                limits: Limits::Auto,
+            }),
+            Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+                values: vec![0.0, 1.0],
+            }),
+        ],
+    );
+    covered(
+        ValueType::ColorScaleNorm,
+        vec![
+            Value::ColorScaleNorm(ColorScaleNorm::Linear),
+            Value::ColorScaleNorm(ColorScaleNorm::Log),
+        ],
+    );
+    covered(
         ValueType::Scale,
         vec![Value::Scale(Scale::Linear), Value::Scale(Scale::Log)],
     );
@@ -603,15 +647,15 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
 // The choices of one property of one node, and whether each is available there
 // ---------------------------------------------------------------------------------
 
-/// The paths at which the scene compiler looks a colour up in the colormap, written by
-/// hand per kind of node so that the test checks [`property_choices`] against the
-/// behaviour of the compiler rather than against itself.
+/// The paths at which the scene compiler looks a colour up through a colour scale, when
+/// the artist names one, written by hand per kind of node so that the test checks
+/// [`property_choices`] against the behaviour of the compiler rather than against itself.
 ///
 /// Each isoline of a contour is coloured by its own level, and each face of a surface by
 /// its colour data or by its height. Nowhere else does the IR hold a value to look a
 /// colour up by: the compiler paints a colormapped line, quiver or single scatter colour
-/// in the middle colour of the colormap, and draws a colormapped marker in the colour of
-/// the plot it belongs to, exactly as an automatic one.
+/// in the middle colour of viridis, and draws a colormapped marker in the colour of the
+/// plot it belongs to, exactly as an automatic one.
 fn colormap_indexed(kind: NodeKind) -> Vec<&'static str> {
     match kind {
         NodeKind::Contour => vec!["line.color"],
@@ -673,12 +717,38 @@ fn every_choice_of_a_property_is_listed_whether_or_not_it_is_available() {
 
 // Why: a colormapped colour promises that the plot is coloured by its data, and the scene
 // compiler can keep that promise only where the IR gives it a value to look the colour up
-// by. Marking it available where it is not would deliver a flat colour with no
-// explanation; marking it unavailable where it works would make a surface uncolourable.
+// by and the artist names a colour scale to look it up in. Marking it available where it
+// is not would deliver a flat colour with no explanation; marking it unavailable where it
+// works would make a surface uncolourable.
 #[test]
 fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap() {
-    for figure in representative_figures() {
+    let mut figures = representative_figures();
+    // A copy in which no artist names a scale, where nothing can be colormapped.
+    let mut unscaled = figures[0].clone();
+    for artist in unscaled
+        .axes
+        .iter_mut()
+        .flat_map(|axes| axes.artists.iter_mut())
+    {
+        match artist {
+            Artist::Contour(a) => a.color_scale = None,
+            Artist::Surface(a) => a.color_scale = None,
+            Artist::Scatter(a) => a.color_scale = None,
+            Artist::ScalarImage(a) => a.color_scale = None,
+            Artist::Line(_) | Artist::Quiver(_) | Artist::Image(_) => {}
+        }
+    }
+    figures.push(unscaled);
+    for figure in figures {
         for (node, kind) in nodes(&figure) {
+            let names_a_scale = figure
+                .artist(node)
+                .and_then(|(_, artist)| match artist {
+                    Artist::Contour(a) => a.color_scale,
+                    Artist::Surface(a) => a.color_scale,
+                    _ => None,
+                })
+                .is_some_and(|scale| figure.color_scales.iter().any(|s| s.id == scale));
             let indexed = colormap_indexed(kind);
             let paths = color_spec_paths(kind);
             assert!(
@@ -699,7 +769,7 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
                     .unwrap_or_else(|| panic!("{kind:?} lists no colormapped colour at {path}"));
                 assert_eq!(
                     colormapped.available(),
-                    indexed.contains(&path.as_str()),
+                    names_a_scale && indexed.contains(&path.as_str()),
                     "{kind:?} marks the colormapped colour at {path} wrongly: {:?}",
                     colormapped.unavailable
                 );
@@ -796,33 +866,42 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
     );
 }
 
-// Why: clamping paints a pixel in the nearest end colour of the colormap, which a value
-// below or above the range has and a non-finite value has not, so offering it at the
-// non-finite category would offer a policy that paints nothing. It must be listed there
-// like every other choice, disabled, and stay available at the two categories where it
-// means something, on both kinds of image that have policies; and every other policy
-// must be available at every category, because each of them paints something everywhere.
+// Why: clamping paints a value in the nearest end colour of its scale, which a value
+// below or above the range, or outside the entries, has and a non-finite value has not, so
+// offering it at the non-finite category would offer a policy that paints nothing. It must
+// be listed there like every other choice, disabled, and stay available at the categories
+// where it means something, on every kind of scale; and every other policy must be
+// available at every category, because each of them paints something everywhere.
 #[test]
 fn clamping_is_unavailable_at_the_non_finite_category_and_available_below_and_above() {
     let mut checked = 0usize;
+    let mut kinds_seen = std::collections::BTreeSet::new();
     for figure in representative_figures() {
-        for (node, kind) in nodes(&figure) {
-            if !matches!(kind, NodeKind::IndexedImage | NodeKind::MappedImage) {
-                continue;
-            }
-            for category in ["below", "above", "non_finite"] {
-                let offered = property_choices(&figure, node, &path(category));
+        for scale in &figure.color_scales {
+            let (kind, own): (&str, &[&str]) = match &scale.kind {
+                ColorScaleKind::Continuous(_) => ("continuous", &["below", "above"]),
+                ColorScaleKind::Discrete(_) => ("discrete", &["below", "above"]),
+                ColorScaleKind::Indexed(_) => ("indexed", &["outside"]),
+                ColorScaleKind::Categorical(_) => ("categorical", &["outside"]),
+            };
+            kinds_seen.insert(kind);
+            let categories = own
+                .iter()
+                .map(|category| format!("kind.{kind}.{category}.policy"))
+                .chain(["non_finite.policy".to_owned()]);
+            for category in categories {
+                let offered = property_choices(&figure, scale.id, &path(&category));
                 assert_eq!(
                     labels(&offered),
                     labels(&choices(ValueType::OutOfRange, None)),
-                    "{kind:?} offers the wrong policies at {category}"
+                    "a {kind} scale offers the wrong policies at {category}"
                 );
                 for choice in &offered {
-                    let expected = !(choice.label == "Clamp" && category == "non_finite");
+                    let expected = !(choice.label == "Clamp" && category == "non_finite.policy");
                     assert_eq!(
                         choice.available(),
                         expected,
-                        "{kind:?} marks {:?} at {category} wrongly: {:?}",
+                        "a {kind} scale marks {:?} at {category} wrongly: {:?}",
                         choice.label,
                         choice.unavailable
                     );
@@ -831,31 +910,33 @@ fn clamping_is_unavailable_at_the_non_finite_category_and_available_below_and_ab
             }
         }
     }
-    assert!(
-        checked >= 6,
-        "the representative figures hold both kinds of image with policies"
+    assert_eq!(
+        kinds_seen.len(),
+        4,
+        "the representative figures hold every kind of scale: {kinds_seen:?}"
     );
+    assert!(checked >= 12, "only {checked} categories were checked");
 }
 
 // Why: the reason is the only thing a user has to go on when a choice is shown disabled,
-// so it must say what a non-finite value lacks (a nearest end of the colormap) and where
+// so it must say what a non-finite value lacks (a nearest end of the scale) and where
 // clamping does work (the categories below and above the range), or the user would be
 // left in front of a policy they can see but cannot pick.
 #[test]
 fn the_reason_clamping_is_unavailable_names_what_a_non_finite_value_lacks_and_where_it_works() {
     let figure = representative_figures().remove(0);
-    let (mapped, _) = nodes(&figure)
+    let (scale, _) = nodes(&figure)
         .into_iter()
-        .find(|(_, kind)| *kind == NodeKind::MappedImage)
-        .expect("a representative figure has a mapped image");
-    let reason = property_choices(&figure, mapped, &path("non_finite"))
+        .find(|(_, kind)| *kind == NodeKind::ColorScale)
+        .expect("a representative figure has a colour scale");
+    let reason = property_choices(&figure, scale, &path("non_finite.policy"))
         .into_iter()
         .find(|choice| choice.label == "Clamp")
-        .expect("a mapped image lists clamping for non-finite values")
+        .expect("a scale lists clamping for non-finite values")
         .unavailable
         .expect("clamping cannot be taken for non-finite values");
     assert!(
-        reason.contains("non-finite") && reason.contains("colormap"),
+        reason.contains("non-finite") && reason.contains("nearest end"),
         "the reason must say what a non-finite value lacks: {reason}"
     );
     assert!(

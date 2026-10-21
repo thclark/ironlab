@@ -16,7 +16,8 @@ use ironlab_canvas::inspector::{
 };
 use ironlab_canvas::{FigureState, Origin};
 use ironlab_ir::{
-    Choice, ColormapName, Dimension, Figure, NodeId, NodeKind, Parameter, Projection, Value, View3d,
+    Choice, ColorScaleKind, Colormap, ColormapName, ContinuousColorScale, Dimension, Figure,
+    NodeId, NodeKind, Parameter, Projection, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{HitMap, LegendHit, LegendOwner};
@@ -25,7 +26,7 @@ use ironlab_viewer::{PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
-/// The 2D axes, the 3D axes, the line, the scatter and the surface of
+/// The 2D axes, the 3D axes, the line, the scatter, the surface and the colour scale of
 /// [`figure_with_artists`].
 const FIGURE: NodeId = NodeId(1);
 const FLAT: NodeId = NodeId(2);
@@ -33,6 +34,18 @@ const SOLID: NodeId = NodeId(3);
 const LINE: NodeId = NodeId(4);
 const SCATTER: NodeId = NodeId(5);
 const SURFACE: NodeId = NodeId(6);
+const SCALE: NodeId = NodeId(7);
+
+/// The colormap name of the continuous colour scale [`SCALE`] of a figure.
+fn scale_colormap(figure: &Figure) -> ColormapName {
+    match figure.color_scale(SCALE).map(|scale| &scale.kind) {
+        Some(ColorScaleKind::Continuous(ContinuousColorScale {
+            colormap: Colormap::Named { name, .. },
+            ..
+        })) => *name,
+        other => panic!("the colour scale is continuous with a named colormap: {other:?}"),
+    }
+}
 
 fn state_with_artists() -> FigureState {
     FigureState::new(figure_with_artists())
@@ -92,6 +105,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             (Some(array_id(2)), 2, "Data array (3)"),
             (Some(array_id(3)), 2, "Data array (2)"),
             (Some(array_id(4)), 2, "Data array (2 × 3)"),
+            (None, 1, "Colour scales"),
+            (Some(SCALE), 2, "Colour scale (continuous)"),
             (Some(FLAT), 1, "Axes (Speed)"),
             (Some(LINE), 2, "Line (Measured)"),
             (Some(SCATTER), 2, "Scatter"),
@@ -99,7 +114,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             (Some(SURFACE), 2, "Surface"),
         ],
         "every row names its kind first, and the name of the object itself follows in \
-         brackets when it has one; the data arrays are gathered in a group of their own"
+         brackets when it has one; the data arrays and the colour scales are each gathered \
+         in a group of their own"
     );
     assert_eq!(
         rows.iter().map(|row| row.kind).collect::<Vec<NodeKind>>(),
@@ -111,6 +127,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             NodeKind::DataArray,
             NodeKind::DataArray,
             NodeKind::DataArray,
+            NodeKind::ColorScale,
+            NodeKind::ColorScale,
             NodeKind::Axes,
             NodeKind::Line,
             NodeKind::Scatter,
@@ -118,6 +136,79 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             NodeKind::Surface,
         ]
     );
+}
+
+// Why: a colour scale draws nothing of its own until a colourbar shows it, so the tree
+// names it by what is drawn with it, its title, or, when it has none, by its kind, which is
+// what tells an untitled continuous scale from an untitled categorical one. The scales are
+// gathered in a group of their own between the data arrays and the axes, in the order of
+// the figure's tree, and an artist names its scale through a read-only row that says where
+// the scale itself is edited.
+#[test]
+fn colour_scales_are_gathered_in_a_group_and_named_by_their_title_or_their_kind() {
+    use ironlab_ir::{
+        CategoricalColorScale, ColorScale, DiscreteColorScale, IndexedColorScale, Text,
+    };
+
+    let mut figure = figure_with_artists();
+    figure.color_scales.extend([
+        ColorScale {
+            id: NodeId(20),
+            title: Some(Text::new(r"$T$ (K)")),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: NodeId(21),
+            kind: ColorScaleKind::Discrete(DiscreteColorScale::default()),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: NodeId(22),
+            kind: ColorScaleKind::Indexed(IndexedColorScale::default()),
+            title: Some(Text::plain("  ")),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: NodeId(23),
+            kind: ColorScaleKind::Categorical(CategoricalColorScale::default()),
+            ..ColorScale::default()
+        },
+    ]);
+    let rows: Vec<(Option<NodeId>, usize, String)> = tree_rows(&figure)
+        .into_iter()
+        .filter(|row| row.kind == NodeKind::ColorScale)
+        .map(|row| (row.node, row.depth, row.label))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (None, 1, "Colour scales".to_owned()),
+            (Some(SCALE), 2, "Colour scale (continuous)".to_owned()),
+            (Some(NodeId(20)), 2, r"Colour scale ($T$ (K))".to_owned()),
+            (Some(NodeId(21)), 2, "Colour scale (discrete)".to_owned()),
+            (Some(NodeId(22)), 2, "Colour scale (indexed)".to_owned()),
+            (Some(NodeId(23)), 2, "Colour scale (categorical)".to_owned()),
+        ],
+        "a scale is named by its title as its source, or by its kind when it has no title \
+         or a blank one"
+    );
+    let kinds: Vec<NodeKind> = tree_rows(&figure).iter().map(|row| row.kind).collect();
+    let first_scale = kinds.iter().position(|kind| *kind == NodeKind::ColorScale);
+    let last_array = kinds.iter().rposition(|kind| *kind == NodeKind::DataArray);
+    let first_axes = kinds.iter().position(|kind| *kind == NodeKind::Axes);
+    assert!(
+        last_array < first_scale && first_scale < first_axes,
+        "the scales lie between the data arrays and the axes: {kinds:?}"
+    );
+
+    let state = FigureState::new(figure_with_artists());
+    match &row(&groups_of(&state, SURFACE), "color_scale", "").editor {
+        Editor::ReadOnly { reason } => assert!(
+            reason.contains("Colour scales") && reason.ends_with('.'),
+            "the reason says where the scale is edited: {reason}"
+        ),
+        other => panic!("the colour scale of an artist is read-only, not {other:?}"),
+    }
 }
 
 // Why: the tree mixes objects of six kinds, and a title such as "Speed" says nothing
@@ -129,8 +220,7 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
 #[test]
 fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
     use ironlab_ir::{
-        Artist, Axes, Cell, Contour, Image, IndexedImage, Line, MappedImage, Quiver, Scatter,
-        Surface, Text,
+        Artist, Axes, Cell, Contour, Image, Line, Quiver, ScalarImage, Scatter, Surface, Text,
     };
 
     let titled = Axes {
@@ -164,14 +254,14 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
                 id: NodeId(8),
                 ..Image::default()
             }),
-            Artist::IndexedImage(IndexedImage {
+            Artist::ScalarImage(ScalarImage {
                 id: NodeId(9),
                 label: Some(Text::plain("Classes")),
-                ..IndexedImage::default()
+                ..ScalarImage::default()
             }),
-            Artist::MappedImage(MappedImage {
+            Artist::ScalarImage(ScalarImage {
                 id: NodeId(10),
-                ..MappedImage::default()
+                ..ScalarImage::default()
             }),
         ],
         ..Axes::default()
@@ -207,8 +297,8 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
             "Quiver (Wind)",
             "Surface",
             "Image",
-            "Indexed image (Classes)",
-            "Mapped image",
+            "Scalar image (Classes)",
+            "Scalar image",
             "Axes (row 1, col 2)",
         ],
         "a title or label is shown in brackets after the kind, as its source; an \
@@ -378,7 +468,7 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
         "each axis is its own group"
     );
     assert!(
-        group(&groups, "clim")
+        group(&groups, "box")
             .rows
             .iter()
             .any(|row| row.label.is_empty()),
@@ -534,12 +624,19 @@ fn a_property_of_an_inactive_variant_or_an_absent_optional_value_is_hidden_not_b
     assert_eq!(title.value, Value::Unset, "an absent value reads as unset");
     assert!(title.optional, "an unset row offers to give the value one");
 
-    // The limits of the 3D axes are manual, so their bounds are shown; the colour limits
-    // are automatic, so theirs are not.
+    // The limits of the 3D axes are manual, so their bounds are shown; the limits of the
+    // colour scale are automatic, so theirs are not.
     assert!(rows.contains(&"x/limits.min".to_owned()), "{rows:?}");
+    let scale_rows = row_paths(&groups_of(&state, SCALE));
     assert!(
-        !rows.iter().any(|row| row.starts_with("clim/min")),
-        "the bounds of automatic limits belong to a variant that is not set: {rows:?}"
+        scale_rows.contains(&"kind/continuous.limits".to_owned()),
+        "the automatic limits are offered: {scale_rows:?}"
+    );
+    assert!(
+        !scale_rows
+            .iter()
+            .any(|row| row.starts_with("kind/continuous.limits.min")),
+        "the bounds of automatic limits belong to a variant that is not set: {scale_rows:?}"
     );
 }
 
@@ -602,11 +699,7 @@ fn a_data_reference_is_read_only_and_carries_the_shape_of_its_array() {
 #[test]
 fn exactly_the_properties_the_overlay_overrides_are_marked() {
     let mut state = state_with_artists();
-    state.record(&set(
-        FLAT.0,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
-    ));
+    state.record(&set(FLAT.0, "box", Value::Bool(false)));
 
     let overridden: Vec<String> = groups_of(&state, FLAT)
         .iter()
@@ -614,7 +707,7 @@ fn exactly_the_properties_the_overlay_overrides_are_marked() {
         .filter(|row| row.overridden)
         .map(|row| row.path.to_string())
         .collect();
-    assert_eq!(overridden, ["colormap".to_owned()]);
+    assert_eq!(overridden, ["box".to_owned()]);
 }
 
 // ---------------------------------------------------------------------------------
@@ -853,11 +946,7 @@ fn the_selection_survives_a_gesture() {
 #[test]
 fn a_refused_edit_leaves_the_figure_unchanged_with_a_problem_and_no_undo_step() {
     let mut state = state_with_artists();
-    state.try_record(&set(
-        FLAT.0,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
-    ));
+    state.try_record(&set(FLAT.0, "box", Value::Bool(false)));
     let before = state.figure().clone();
     assert_eq!(state.problems(), &[]);
 
@@ -914,27 +1003,29 @@ fn the_edits_of_one_drag_of_a_field_are_one_undo_step() {
 #[test]
 fn reverting_a_property_removes_its_entry_and_shows_the_source_again() {
     let mut state = state_with_artists();
+    let colormap = "kind.continuous.colormap.name";
     state.try_record(&set(
-        FLAT.0,
-        "colormap",
+        SCALE.0,
+        colormap,
         Value::ColormapName(ColormapName::Gray),
     ));
     state.try_record(&set(LINE.0, "visible", Value::Bool(false)));
+    assert_eq!(
+        state.overlay().entries().len(),
+        2,
+        "both changes are recorded"
+    );
 
-    assert!(state.revert(FLAT, &path("colormap")));
+    assert!(state.revert(SCALE, &path(colormap)));
 
     assert_eq!(
-        state
-            .figure()
-            .axes(FLAT)
-            .expect("the axes is in the figure")
-            .colormap,
+        scale_colormap(state.figure()),
         ColormapName::Viridis,
         "the source colormap is shown again"
     );
     assert_eq!(state.overlay().entries().len(), 1, "the other entry stays");
     assert!(
-        !state.revert(FLAT, &path("colormap")),
+        !state.revert(SCALE, &path(colormap)),
         "there is no second entry to revert"
     );
 }
@@ -1288,7 +1379,7 @@ fn typing_into_a_text_field_is_one_undo_step_that_closes_when_the_field_is_left(
 // value behind its label, every such property would be unreachable.
 #[test]
 fn choosing_from_a_combo_box_commits_the_value_behind_its_label() {
-    let mut harness = panel_harness(figure_with_artists(), Some(FLAT));
+    let mut harness = panel_harness(figure_with_artists(), Some(SCALE));
     harness.run();
 
     widget_showing(&harness, egui::accesskit::Role::ComboBox, "Viridis").scroll_to_me();
@@ -1300,22 +1391,14 @@ fn choosing_from_a_combo_box_commits_the_value_behind_its_label() {
     harness.run();
 
     let state = &harness.state().figure;
-    assert_eq!(
-        state
-            .figure()
-            .axes(FLAT)
-            .expect("the axes is in the figure")
-            .colormap,
-        ColormapName::Gray
-    );
+    assert_eq!(scale_colormap(state.figure()), ColormapName::Gray);
     assert_eq!(state.overlay().entries().len(), 1);
-    assert_eq!(state.overlay().entries()[0].path.to_string(), "colormap");
     assert_eq!(
-        state
-            .source()
-            .axes(FLAT)
-            .expect("the axes is in the source")
-            .colormap,
+        state.overlay().entries()[0].path.to_string(),
+        "kind.continuous.colormap.name"
+    );
+    assert_eq!(
+        scale_colormap(state.source()),
         ColormapName::Viridis,
         "the source keeps its colormap"
     );
@@ -1570,7 +1653,7 @@ fn the_marker_size_of_a_scatter_is_read_only_and_that_of_a_line_is_not() {
 fn every_read_only_property_carries_a_reason() {
     let state = FigureState::new(figure_with_every_artist());
     let mut seen = 0;
-    for node in (1..=10).map(NodeId) {
+    for node in (1..=13).map(NodeId) {
         for group in groups_of(&state, node) {
             for row in group.rows {
                 if let Editor::ReadOnly { reason } = row.editor {
@@ -1587,22 +1670,25 @@ fn every_read_only_property_carries_a_reason() {
     assert!(seen > 0, "the figure has read-only properties to check");
 }
 
-// Why: an image is placed by a plane, two pixel ranges and, for the two mapped kinds,
-// three policies, and the inspector is where a user reads those off a figure. The kinds
-// must be named as a user would say them; the placement and each range must be headings
-// whose members are the rows beneath them, never a value printed through Debug; the
-// plane must be chosen from the three planes; the pixels must be shown read-only with
-// their shape like every other data reference; and clamping must be listed disabled at
-// the non-finite category with its reason, as the IR marks it, and live at the others.
+// Why: an image is placed by a plane and two pixel ranges, a scalar image maps its numbers
+// through a colour scale whose categories each hold a policy, and the inspector is where a
+// user reads those off a figure. The kinds must be named as a user would say them; the
+// placement and each range must be headings whose members are the rows beneath them, never
+// a value printed through Debug; the plane must be chosen from the three planes; the pixels
+// and values must be shown read-only with their shape like every other data reference; and
+// clamping must be listed disabled at the non-finite category of a scale with its reason,
+// as the IR marks it, and live at the others.
 #[test]
 fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_where_it_means_nothing()
  {
     const IMAGE: NodeId = NodeId(8);
     const INDEXED_IMAGE: NodeId = NodeId(9);
     const MAPPED_IMAGE: NodeId = NodeId(10);
+    const CONTINUOUS_SCALE: NodeId = NodeId(12);
+    const INDEXED_SCALE: NodeId = NodeId(13);
     assert_eq!(kind_name(NodeKind::Image), "Image");
-    assert_eq!(kind_name(NodeKind::IndexedImage), "Indexed image");
-    assert_eq!(kind_name(NodeKind::MappedImage), "Mapped image");
+    assert_eq!(kind_name(NodeKind::ScalarImage), "Scalar image");
+    assert_eq!(kind_name(NodeKind::ColorScale), "Colour scale");
 
     let figure = figure_with_every_artist();
     let labels: Vec<String> = tree_rows(&figure)
@@ -1613,14 +1699,14 @@ fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_
         .collect();
     assert_eq!(
         &labels[labels.len() - 3..],
-        ["Image", "Indexed image", "Mapped image"],
+        ["Image", "Scalar image", "Scalar image"],
         "the images are the last three artists of the axes"
     );
 
     let state = FigureState::new(figure);
     for (node, data, shape) in [
         (IMAGE, "pixels", vec![2usize, 2, 4]),
-        (INDEXED_IMAGE, "indices", vec![3, 3]),
+        (INDEXED_IMAGE, "values", vec![3, 3]),
         (MAPPED_IMAGE, "values", vec![3, 3]),
     ] {
         let groups = groups_of(&state, node);
@@ -1676,23 +1762,36 @@ fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_
         }
     }
 
-    for node in [INDEXED_IMAGE, MAPPED_IMAGE] {
+    for (node, categories) in [
+        (
+            CONTINUOUS_SCALE,
+            &[
+                ("kind", "continuous.below.policy"),
+                ("kind", "continuous.above.policy"),
+                ("non_finite", "policy"),
+            ][..],
+        ),
+        (
+            INDEXED_SCALE,
+            &[("kind", "indexed.outside.policy"), ("non_finite", "policy")][..],
+        ),
+    ] {
         let groups = groups_of(&state, node);
-        for category in ["below", "above", "non_finite"] {
+        for &(group_name, label) in categories {
             assert_eq!(
-                offered(&groups, category, ""),
+                offered(&groups, group_name, label),
                 ["Strict", "Transparent", "Clamp", "Fixed colour"],
-                "{category} of {node} offers every policy"
+                "{group_name}.{label} of {node} offers every policy"
             );
-            let clamp = choice(&groups, category, "", "Clamp");
+            let clamp = choice(&groups, group_name, label, "Clamp");
             assert_eq!(
                 clamp.available(),
-                category != "non_finite",
-                "{category} of {node} marks clamping wrongly: {:?}",
+                group_name != "non_finite",
+                "{group_name}.{label} of {node} marks clamping wrongly: {:?}",
                 clamp.unavailable
             );
         }
-        let reason = choice(&groups, "non_finite", "", "Clamp")
+        let reason = choice(&groups, "non_finite", "policy", "Clamp")
             .unavailable
             .expect("clamping cannot be taken for non-finite values");
         assert!(
@@ -1975,7 +2074,7 @@ fn the_inspector_is_ordered_by_the_names_it_shows() {
     }
 
     // The three-dimensional axes is the node with the most groups, and mixes headings
-    // (cell, x, y, z) with properties that belong to no group (colormap, title).
+    // (cell, x, y, z) with properties that belong to no group (box, title).
     let names: Vec<String> = groups_of(&state, SOLID)
         .iter()
         .map(|group| group.name.clone())
@@ -1987,8 +2086,6 @@ fn the_inspector_is_ordered_by_the_names_it_shows() {
             "aspect_adjust",
             "box",
             "cell",
-            "clim",
-            "colormap",
             "legend",
             "projection",
             "title",
@@ -2031,6 +2128,8 @@ fn the_object_tree_keeps_drawing_order_rather_than_taking_the_inspectors() {
             "Data array (3)",
             "Data array (2)",
             "Data array (2 × 3)",
+            "Colour scales",
+            "Colour scale (continuous)",
             "Axes (Speed)",
             "Line (Measured)",
             "Scatter",
@@ -2059,8 +2158,8 @@ fn state_with_three_changes() -> FigureState {
     record_limits(&mut state, FLAT.0, Dimension::X, manual(2.0, 3.0));
     state.try_record(&set(LINE.0, "visible", Value::Bool(false)));
     state.try_record(&set(
-        FLAT.0,
-        "colormap",
+        SCALE.0,
+        "kind.continuous.colormap.name",
         Value::ColormapName(ColormapName::Gray),
     ));
     assert_eq!(state.change_count(), 3, "three changes of three kinds");
@@ -2475,9 +2574,9 @@ fn a_group_heading_is_a_row_in_the_same_text_as_its_members_with_them_indented_b
             .unwrap_or_else(|| panic!("the inspector paints {words:?}"))
             .clone()
     };
-    // The cell of the axes gathers its column and row; the colormap belongs to no group.
+    // The cell of the axes gathers its column and row; the projection belongs to no group.
     let heading = run("cell");
-    let alone = run("colormap");
+    let alone = run("projection");
     let inside = run("col");
 
     assert!(
@@ -2526,7 +2625,7 @@ fn a_group_is_closed_and_opened_again_from_its_heading() {
         "closing a group takes its rows out of the panel"
     );
     assert!(
-        harness.query_by_label("colormap").is_some(),
+        harness.query_by_label("projection").is_some(),
         "and leaves every other property where it was"
     );
 

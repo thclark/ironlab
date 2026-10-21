@@ -13,13 +13,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
-/// legend, label, name of a data array, coordinate array, colour or alpha array, pixel range or plane
-/// offset), by full Protocol Buffers name.
+/// legend, label, name of a data array, coordinate array, colour or alpha array, colour
+/// scale reference, contour levels, pixel range or plane offset), by full Protocol Buffers
+/// name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 28] = [
+pub const OPTIONAL_IN_IR: [&str; 33] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.DataArray.name",
     "ironlab.ir.v0.Axes.title",
@@ -29,7 +30,10 @@ pub const OPTIONAL_IN_IR: [&str; 28] = [
     "ironlab.ir.v0.Line.z",
     "ironlab.ir.v0.Scatter.label",
     "ironlab.ir.v0.Scatter.z",
+    "ironlab.ir.v0.Scatter.color_scale",
     "ironlab.ir.v0.Contour.label",
+    "ironlab.ir.v0.Contour.levels",
+    "ironlab.ir.v0.Contour.color_scale",
     "ironlab.ir.v0.ContourPlacementPlane.z",
     "ironlab.ir.v0.Quiver.label",
     "ironlab.ir.v0.Quiver.z",
@@ -38,11 +42,13 @@ pub const OPTIONAL_IN_IR: [&str; 28] = [
     "ironlab.ir.v0.Surface.c",
     "ironlab.ir.v0.Surface.face_alpha",
     "ironlab.ir.v0.Surface.edge_alpha",
+    "ironlab.ir.v0.Surface.color_scale",
     "ironlab.ir.v0.Image.label",
-    "ironlab.ir.v0.IndexedImage.label",
-    "ironlab.ir.v0.IndexedImage.alpha",
-    "ironlab.ir.v0.MappedImage.label",
-    "ironlab.ir.v0.MappedImage.alpha",
+    "ironlab.ir.v0.ScalarImage.label",
+    "ironlab.ir.v0.ScalarImage.color_scale",
+    "ironlab.ir.v0.ScalarImage.alpha",
+    "ironlab.ir.v0.ColorScale.title",
+    "ironlab.ir.v0.ColorScaleOutOfRange.label",
     "ironlab.ir.v0.ImagePlacement.columns",
     "ironlab.ir.v0.ImagePlacement.rows",
     "ironlab.ir.v0.ImagePlaneXy.z",
@@ -173,6 +179,385 @@ impl FigureBuilder {
     }
 }
 
+impl FigureBuilder {
+    /// Adds a colour scale of the given kind under a fresh node identifier, with no title
+    /// and the default non-finite category (transparent, no key, default label).
+    pub fn color_scale(&mut self, kind: ColorScaleKind) -> NodeId {
+        let id = self.node();
+        self.fig.color_scales.push(ColorScale {
+            id,
+            title: None,
+            kind,
+            non_finite: out_of_range(OutOfRange::Transparent),
+        });
+        id
+    }
+
+    /// Returns the colour scale with the given identifier, found without the API under test.
+    pub fn scale(&mut self, id: NodeId) -> &mut ColorScale {
+        self.fig
+            .color_scales
+            .iter_mut()
+            .find(|s| s.id == id)
+            .expect("fixture colour scale exists")
+    }
+
+    /// Adds a scalar image of the given values, mapped through the given scale (or none),
+    /// in the default placement, and returns its identifier.
+    pub fn scalar_image(
+        &mut self,
+        axes: NodeId,
+        values: NodeId,
+        color_scale: Option<NodeId>,
+    ) -> NodeId {
+        let id = self.node();
+        self.push(
+            axes,
+            Artist::ScalarImage(ScalarImage {
+                id,
+                values,
+                color_scale,
+                ..ScalarImage::default()
+            }),
+        );
+        id
+    }
+}
+
+/// An out-of-range category of a colour scale with the given policy, no key and the
+/// default label.
+pub fn out_of_range(policy: OutOfRange) -> ColorScaleOutOfRange {
+    ColorScaleOutOfRange {
+        policy,
+        show_key: false,
+        label: None,
+    }
+}
+
+/// A continuous scale with the defaults of its kind, except for the given colormap and
+/// limits.
+pub fn continuous(colormap: Colormap, limits: Limits) -> ColorScaleKind {
+    ColorScaleKind::Continuous(ContinuousColorScale {
+        colormap,
+        limits,
+        ..ContinuousColorScale::default()
+    })
+}
+
+/// A discrete scale with the defaults of its kind, except for explicit band edges.
+pub fn discrete(edges: &[f64]) -> ColorScaleKind {
+    ColorScaleKind::Discrete(DiscreteColorScale {
+        levels: ColorScaleLevels::Explicit {
+            values: edges.to_vec(),
+        },
+        ..DiscreteColorScale::default()
+    })
+}
+
+/// An indexed scale of the given colours whose out-of-range indices follow `outside`.
+pub fn indexed(colors: Vec<Color>, outside: OutOfRange) -> ColorScaleKind {
+    ColorScaleKind::Indexed(IndexedColorScale {
+        colors,
+        outside: out_of_range(outside),
+        ..IndexedColorScale::default()
+    })
+}
+
+/// A categorical scale of the given colours, labelled "category 0", "category 1", and so
+/// on, whose out-of-range indices follow `outside`.
+pub fn categorical(colors: Vec<Color>, outside: OutOfRange) -> ColorScaleKind {
+    ColorScaleKind::Categorical(CategoricalColorScale {
+        categories: colors
+            .into_iter()
+            .enumerate()
+            .map(|(k, color)| ColorCategory {
+                color,
+                label: Text::plain(format!("category {k}")),
+            })
+            .collect(),
+        outside: out_of_range(outside),
+    })
+}
+
+/// The named colormap of the given name, not reversed.
+pub fn named(name: ColormapName) -> Colormap {
+    Colormap::Named {
+        name,
+        reverse: false,
+    }
+}
+
+/// A valid figure that sets every variant of every colour-scale type: a scale of each of
+/// the four kinds; both colormap variants, a named one reversed; both norms; automatic and
+/// manual limits; automatic and explicit band edges, the automatic ones with manual
+/// limits; every out-of-range policy at some category of some scale, with keys shown and
+/// hidden and labels present and absent; a title present and absent; ticks and tick labels
+/// of every kind on the kinds that have them; and one scale that no artist uses. Every
+/// artist that takes a scale names one: scalar images of floats and of bytes, a filled
+/// contour with no levels of its own on the discrete scale, a contour with explicit levels,
+/// a scatter coloured by data and a surface in a three-dimensional axes.
+///
+/// The strict policies fall on data that cannot violate them, so the figure validates
+/// without issues.
+pub fn color_scale_variants_figure() -> Figure {
+    // Colours are multiples of 1/255, so that the eight-bit colour of the JSON form
+    // reloads exactly.
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    let green = Color::rgb(0.0, 1.0, 0.0);
+    let blue = Color::rgb(0.0, 0.0, 1.0);
+    let gray = Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
+
+    let mut b = FigureBuilder::new();
+    b.fig.layout = TileLayout::new(2, 2);
+    let flat = b.axes2d(0, 0);
+    let contours = b.axes2d(0, 1);
+    let solid = b.axes3d(1, 0);
+    let more = b.axes2d(1, 1);
+
+    let magma = b.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+        colormap: Colormap::Named {
+            name: ColormapName::Magma,
+            reverse: true,
+        },
+        limits: Limits::Manual {
+            min: 0.0,
+            max: 10.0,
+        },
+        norm: ColorScaleNorm::Linear,
+        below: ColorScaleOutOfRange {
+            policy: OutOfRange::Rgba { color: blue },
+            show_key: true,
+            label: Some(Text::plain("too cold")),
+        },
+        above: ColorScaleOutOfRange {
+            policy: OutOfRange::Transparent,
+            show_key: true,
+            label: None,
+        },
+        ticks: Ticks::Step {
+            step: 2.5,
+            origin: 0.0,
+        },
+        tick_labels: TickLabels::Auto,
+    }));
+    b.scale(magma).title = Some(Text::new("$T$ (K)"));
+    b.scale(magma).non_finite = ColorScaleOutOfRange {
+        policy: OutOfRange::Rgba { color: gray },
+        show_key: true,
+        label: Some(Text::plain("no data")),
+    };
+
+    let listed_log = b.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+        colormap: Colormap::Listed {
+            colors: vec![red, green, blue],
+        },
+        limits: Limits::Auto,
+        norm: ColorScaleNorm::Log,
+        below: out_of_range(OutOfRange::Strict),
+        above: out_of_range(OutOfRange::Clamp),
+        ticks: Ticks::Values(vec![1.0, 10.0, 100.0]),
+        tick_labels: TickLabels::Text(vec![
+            Text::plain("one"),
+            Text::new("$10$"),
+            Text::plain("hundred"),
+        ]),
+    }));
+
+    let bands = b.color_scale(ColorScaleKind::Discrete(DiscreteColorScale {
+        colormap: named(ColormapName::Cividis),
+        levels: ColorScaleLevels::Explicit {
+            values: vec![0.0, 2.5, 5.0, 12.0],
+        },
+        norm: ColorScaleNorm::Linear,
+        below: out_of_range(OutOfRange::Clamp),
+        above: out_of_range(OutOfRange::Rgba { color: red }),
+        ticks: Ticks::Auto,
+        tick_labels: TickLabels::Hidden,
+    }));
+    b.scale(bands).title = Some(Text::plain("bands"));
+
+    let log_bands = b.color_scale(ColorScaleKind::Discrete(DiscreteColorScale {
+        colormap: Colormap::Listed {
+            colors: vec![red, green],
+        },
+        levels: ColorScaleLevels::Auto {
+            count: 5,
+            limits: Limits::Manual {
+                min: 1.0,
+                max: 100.0,
+            },
+        },
+        norm: ColorScaleNorm::Log,
+        below: out_of_range(OutOfRange::Transparent),
+        above: out_of_range(OutOfRange::Strict),
+        ticks: Ticks::Values(vec![1.0, 100.0]),
+        tick_labels: TickLabels::Auto,
+    }));
+
+    let four = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+        colors: vec![red, green, blue, gray],
+        outside: ColorScaleOutOfRange {
+            policy: OutOfRange::Clamp,
+            show_key: true,
+            label: Some(Text::plain("clipped")),
+        },
+        ticks: Ticks::Values(vec![0.0, 3.0]),
+        tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::plain("high")]),
+    }));
+
+    // A 256-entry grey palette with the default, strict, policy outside its entries.
+    let palette = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+        colors: (0..=255u8)
+            .map(|k| {
+                let v = f32::from(k) / 255.0;
+                Color::rgb(v, v, v)
+            })
+            .collect(),
+        ..IndexedColorScale::default()
+    }));
+
+    let status = b.color_scale(ColorScaleKind::Categorical(CategoricalColorScale {
+        categories: vec![
+            ColorCategory {
+                color: green,
+                label: Text::plain("converged"),
+            },
+            ColorCategory {
+                color: red,
+                label: Text::new(r"$\infty$"),
+            },
+            ColorCategory {
+                color: gray,
+                label: Text::plain("not entered"),
+            },
+        ],
+        outside: out_of_range(OutOfRange::Transparent),
+    }));
+    b.scale(status).non_finite = out_of_range(OutOfRange::Strict);
+
+    // A scale that no artist uses, as a custom colourbar would need.
+    let unused = b.node();
+    b.fig.color_scales.push(ColorScale {
+        id: unused,
+        ..ColorScale::default()
+    });
+
+    // A field with values below, inside and above the manual limits of `magma`, and a NaN.
+    let field = b.data(
+        NdArray::from_shape(
+            vec![3, 4],
+            vec![
+                -1.0,
+                0.0,
+                2.5,
+                5.0,
+                7.5,
+                10.0,
+                11.0,
+                f64::NAN,
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+            ],
+        )
+        .expect("the shape matches the values"),
+    );
+    let alpha = b.matrix(3, 4, |j, i| (j * 4 + i) as f64 / 11.0);
+    let bytes = b.bytes(vec![2, 2], vec![0, 1, 254, 255]);
+    // Category codes, one of them outside the categories, which `status` leaves transparent.
+    let codes = b.matrix(2, 2, |j, i| [0.0, 1.0, 2.0, 5.0][j * 2 + i]);
+    let gx = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+    let gy = b.vector(&[0.0, 0.5, 1.0]);
+    // A positive field, so that the logarithmic norms see no value they cannot place.
+    let positive = b.matrix(3, 4, |j, i| 1.0 + 4.0 * (j * 4 + i) as f64);
+    let ramp = b.matrix(3, 4, |j, i| (j * 4 + i) as f64);
+    let px = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+    let classes = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+
+    let id = b.node();
+    b.push(
+        flat,
+        Artist::ScalarImage(ScalarImage {
+            id,
+            label: Some(Text::plain("temperature")),
+            visible: true,
+            values: field,
+            color_scale: Some(magma),
+            placement: ImagePlacement {
+                plane: ImagePlane::Xy { z: None },
+                columns: Some(PixelRange {
+                    first: 0.0,
+                    last: 3.0,
+                }),
+                rows: Some(PixelRange {
+                    first: 2.0,
+                    last: 0.0,
+                }),
+            },
+            alpha: Some(alpha),
+            opacity: 0.5,
+        }),
+    );
+    b.scalar_image(flat, bytes, Some(palette));
+    b.scalar_image(more, codes, Some(status));
+
+    let id = b.node();
+    b.push(
+        contours,
+        Artist::Contour(Contour {
+            id,
+            grid: Grid::Rectilinear { x: gx, y: gy },
+            z: ramp,
+            levels: None,
+            fill: true,
+            color_scale: Some(bands),
+            ..Contour::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        contours,
+        Artist::Contour(Contour {
+            id,
+            grid: Grid::Rectilinear { x: gx, y: gy },
+            z: positive,
+            levels: Some(Levels::Explicit {
+                values: vec![2.0, 20.0],
+            }),
+            color_scale: Some(log_bands),
+            ..Contour::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        contours,
+        Artist::Scatter(Scatter {
+            id,
+            x: px,
+            y: px,
+            color: ScatterColor::Data { data: classes },
+            color_scale: Some(four),
+            ..Scatter::default()
+        }),
+    );
+
+    let id = b.node();
+    b.push(
+        solid,
+        Artist::Surface(Surface {
+            id,
+            grid: Grid::Rectilinear { x: gx, y: gy },
+            z: positive,
+            face: ColorSpec::Colormapped,
+            edge: ColorSpec::Colormapped,
+            color_scale: Some(listed_log),
+            ..Surface::default()
+        }),
+    );
+    b.build()
+}
+
 /// Returns the values of an `f64` array, panicking for an array of 8-bit values.
 pub fn floats(array: &NdArray) -> &[f64] {
     array.as_f64().expect("the array holds f64 values")
@@ -240,8 +625,7 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
             .chain(a.edge_alpha)
             .collect(),
         Artist::Image(a) => vec![a.pixels],
-        Artist::IndexedImage(a) => [a.indices].into_iter().chain(a.alpha).collect(),
-        Artist::MappedImage(a) => [a.values].into_iter().chain(a.alpha).collect(),
+        Artist::ScalarImage(a) => [a.values].into_iter().chain(a.alpha).collect(),
     }
 }
 
@@ -287,11 +671,7 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
             .chain(a.edge_alpha.as_mut())
             .collect(),
         Artist::Image(a) => vec![&mut a.pixels],
-        Artist::IndexedImage(a) => [&mut a.indices]
-            .into_iter()
-            .chain(a.alpha.as_mut())
-            .collect(),
-        Artist::MappedImage(a) => [&mut a.values]
+        Artist::ScalarImage(a) => [&mut a.values]
             .into_iter()
             .chain(a.alpha.as_mut())
             .collect(),
@@ -408,10 +788,12 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// A valid figure that uses every artist variant and every variant of every enum in
 /// the schema, including NaN data, non-default styles, links on every dimension, a
 /// figure parameter of every kind, tags that are not in alphabetical order, data arrays
-/// with and without a name, data shared by artists of several axes, and images
-/// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
-/// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
-/// absent, ascending and mirrored. Its tile layout has weights for some of its rows and
+/// with and without a name, data shared by artists of several axes, colour scales of every
+/// kind (named by the colour-mapped artists of every axes, with every colormap name, both
+/// colormap variants, both norms, every out-of-range policy and two scales that no artist
+/// names), and images of both kinds on the floor of a 2D axes and on the walls of a 3D
+/// axes, of floats and of bytes, with every plane and pixel ranges that are absent,
+/// ascending and mirrored. Its tile layout has weights for some of its rows and
 /// all of its columns but the last, which is fitted, and its last row holds two legend
 /// panels, which between them and the inside legends use every variant of the layout of
 /// legend entries, each listing a named line of an axes whose legend names it; one panel
@@ -476,8 +858,9 @@ pub fn kitchen_sink_figure() -> Figure {
     let field = b.matrix(ny, nx, |j, i| (j * nx + i) as f64 + 0.5);
     let cx = b.matrix(ny, nx, |j, i| i as f64 + 0.1 * j as f64);
     let cy = b.matrix(ny, nx, |j, i| j as f64 - 0.1 * i as f64);
-    // An array of 8-bit values, the indices of a colour-indexed image, so that the
-    // element type is exercised by every format and edit that covers the data table.
+    // An array of 8-bit values, the indices of a scalar image through an indexed scale, so
+    // that the element type is exercised by every format and edit that covers the data
+    // table.
     let bytes = b.bytes(vec![2, 3], vec![0, 1, 2, 253, 254, 255]);
     // The pixels of true-colour images: 8-bit red, green and blue components of a 2 × 3
     // image, and floating-point red, green, blue and alpha components of a 2 × 2 image.
@@ -496,6 +879,195 @@ pub fn kitchen_sink_figure() -> Figure {
         )
         .expect("the shape matches the values"),
     );
+
+    // Colour scales, numbered from 900 so that the identifiers of the axes and artists
+    // below are those they had before the figure held scales. One scale of every kind and
+    // variant is named by the colour-mapped artists of some axes; between them the scales
+    // use every colormap name, both colormap variants, both norms and every out-of-range
+    // policy at some category, and two scales are named by no artist, as a custom
+    // colourbar needs. A strict policy falls only on values that cannot violate it.
+    let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
+    let grey = Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
+    let [
+        scatter_scale,
+        contour_scale,
+        three_scale,
+        surface_scale,
+        classes_scale,
+        wall_scale,
+        palette_scale,
+        west_scale,
+        gray_scale,
+        status_scale,
+    ] = std::array::from_fn(|k| NodeId(900 + k as u64));
+    b.fig.color_scales = vec![
+        ColorScale {
+            id: scatter_scale,
+            title: Some(Text::new("colour $c$")),
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: Colormap::Named {
+                    name: ColormapName::Cividis,
+                    reverse: true,
+                },
+                limits: Limits::Manual {
+                    min: -1.0,
+                    max: 1.0,
+                },
+                norm: ColorScaleNorm::Linear,
+                below: out_of_range(OutOfRange::Clamp),
+                above: ColorScaleOutOfRange {
+                    policy: OutOfRange::Rgba { color: blue },
+                    show_key: true,
+                    label: Some(Text::plain("too high")),
+                },
+                ticks: Ticks::Step {
+                    step: 0.5,
+                    origin: 0.0,
+                },
+                tick_labels: TickLabels::Hidden,
+            }),
+            non_finite: out_of_range(OutOfRange::Transparent),
+        },
+        ColorScale {
+            id: contour_scale,
+            title: None,
+            kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                colormap: named(ColormapName::Magma),
+                levels: ColorScaleLevels::Explicit {
+                    values: vec![0.0, 2.5, 5.0, 12.0],
+                },
+                ticks: Ticks::Values(vec![0.0, 5.0, 12.0]),
+                ..DiscreteColorScale::default()
+            }),
+            non_finite: out_of_range(OutOfRange::Transparent),
+        },
+        ColorScale {
+            id: three_scale,
+            title: None,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: named(ColormapName::Plasma),
+                norm: ColorScaleNorm::Log,
+                ticks: Ticks::Values(vec![1.0, 10.0]),
+                tick_labels: TickLabels::Text(vec![Text::plain("one"), Text::new("$10$")]),
+                ..ContinuousColorScale::default()
+            }),
+            non_finite: out_of_range(OutOfRange::Transparent),
+        },
+        ColorScale {
+            id: surface_scale,
+            title: Some(Text::plain("height")),
+            kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                colormap: named(ColormapName::Coolwarm),
+                levels: ColorScaleLevels::Auto {
+                    count: 6,
+                    limits: Limits::Manual {
+                        min: 0.0,
+                        max: 12.0,
+                    },
+                },
+                norm: ColorScaleNorm::Linear,
+                below: out_of_range(OutOfRange::Transparent),
+                above: out_of_range(OutOfRange::Clamp),
+                ticks: Ticks::Auto,
+                tick_labels: TickLabels::Auto,
+            }),
+            non_finite: out_of_range(OutOfRange::Transparent),
+        },
+        ColorScale {
+            id: classes_scale,
+            title: None,
+            kind: ColorScaleKind::Indexed(IndexedColorScale {
+                colors: vec![Color::BLACK, blue, grey, Color::WHITE],
+                outside: ColorScaleOutOfRange {
+                    policy: OutOfRange::Clamp,
+                    show_key: true,
+                    label: Some(Text::plain("clipped")),
+                },
+                ticks: Ticks::Values(vec![0.0, 3.0]),
+                tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::plain("high")]),
+            }),
+            non_finite: out_of_range(OutOfRange::Transparent),
+        },
+        ColorScale {
+            id: wall_scale,
+            title: None,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: named(ColormapName::Inferno),
+                below: out_of_range(OutOfRange::Rgba { color: blue }),
+                above: out_of_range(OutOfRange::Transparent),
+                ..ContinuousColorScale::default()
+            }),
+            // The field holds no NaN, so a strict non-finite category refuses nothing.
+            non_finite: out_of_range(OutOfRange::Strict),
+        },
+        ColorScale {
+            id: palette_scale,
+            title: None,
+            // A 256-entry grey palette, strict outside its entries and for non-finite
+            // values, which 8-bit indices cannot violate.
+            kind: ColorScaleKind::Indexed(IndexedColorScale {
+                colors: (0..=255u8)
+                    .map(|k| {
+                        let v = f32::from(k) / 255.0;
+                        Color::rgb(v, v, v)
+                    })
+                    .collect(),
+                outside: out_of_range(OutOfRange::Strict),
+                ticks: Ticks::Auto,
+                tick_labels: TickLabels::Auto,
+            }),
+            non_finite: out_of_range(OutOfRange::Strict),
+        },
+        ColorScale {
+            id: west_scale,
+            title: Some(Text::new("$T$ (K)")),
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: Colormap::Listed {
+                    colors: vec![Color::BLACK, blue, Color::WHITE],
+                },
+                below: out_of_range(OutOfRange::Transparent),
+                above: out_of_range(OutOfRange::Clamp),
+                ..ContinuousColorScale::default()
+            }),
+            non_finite: ColorScaleOutOfRange {
+                policy: OutOfRange::Rgba {
+                    color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+                },
+                show_key: true,
+                label: None,
+            },
+        },
+        ColorScale {
+            id: gray_scale,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: named(ColormapName::Gray),
+                ..ContinuousColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: status_scale,
+            title: Some(Text::plain("status")),
+            kind: ColorScaleKind::Categorical(CategoricalColorScale {
+                categories: vec![
+                    ColorCategory {
+                        color: blue,
+                        label: Text::plain("converged"),
+                    },
+                    ColorCategory {
+                        color: grey,
+                        label: Text::new(r"$\infty$"),
+                    },
+                ],
+                outside: out_of_range(OutOfRange::Transparent),
+            }),
+            non_finite: ColorScaleOutOfRange {
+                policy: OutOfRange::Transparent,
+                show_key: true,
+                label: Some(Text::plain("not entered")),
+            },
+        },
+    ];
 
     let shapes = [
         MarkerShape::None,
@@ -561,11 +1133,6 @@ pub fn kitchen_sink_figure() -> Figure {
         a.y.tick_labels = TickLabels::Hidden;
         a.y.scale = Scale::Log;
         a.box_ = false;
-        a.colormap = ColormapName::Viridis;
-        a.clim = Limits::Manual {
-            min: -1.0,
-            max: 1.0,
-        };
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::NorthEast,
             boxed: false,
@@ -608,7 +1175,6 @@ pub fn kitchen_sink_figure() -> Figure {
         boxed: true,
         ..InsideLegend::default()
     }));
-    b.axes(scatters).colormap = ColormapName::Cividis;
     let sizes = b.vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     let colours = b.vector(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
     let id = b.node();
@@ -627,6 +1193,7 @@ pub fn kitchen_sink_figure() -> Figure {
                     color: Color::BLACK,
                 },
             },
+            color_scale: None,
             marker: MarkerStyle {
                 shape: MarkerShape::Diamond,
                 ..MarkerStyle::default()
@@ -645,6 +1212,7 @@ pub fn kitchen_sink_figure() -> Figure {
             y: t_nan,
             size: ScatterSize::Data { data: sizes },
             color: ScatterColor::Data { data: colours },
+            color_scale: Some(scatter_scale),
             ..Scatter::default()
         }),
     );
@@ -656,7 +1224,6 @@ pub fn kitchen_sink_figure() -> Figure {
         boxed: true,
         ..InsideLegend::default()
     }));
-    b.axes(contours).colormap = ColormapName::Magma;
     let id = b.node();
     b.push(
         contours,
@@ -664,9 +1231,10 @@ pub fn kitchen_sink_figure() -> Figure {
             id,
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
-            levels: Levels::Auto { count: 7 },
+            levels: Some(Levels::Auto { count: 7 }),
             fill: false,
             placement: ContourPlacement::Plane { z: None },
+            color_scale: Some(contour_scale),
             ..Contour::default()
         }),
     );
@@ -677,11 +1245,12 @@ pub fn kitchen_sink_figure() -> Figure {
             id,
             grid: Grid::Curvilinear { x: cx, y: cy },
             z: field,
-            levels: Levels::Explicit {
+            levels: Some(Levels::Explicit {
                 values: vec![1.0, 2.5, 4.0],
-            },
+            }),
             fill: true,
             placement: ContourPlacement::Plane { z: Some(-1.5) },
+            color_scale: Some(contour_scale),
             line_opacity: 0.5,
             fill_opacity: 0.75,
             ..Contour::default()
@@ -695,7 +1264,6 @@ pub fn kitchen_sink_figure() -> Figure {
         boxed: true,
         ..InsideLegend::default()
     }));
-    b.axes(quivers).colormap = ColormapName::Inferno;
     let id = b.node();
     b.push(
         quivers,
@@ -751,7 +1319,6 @@ pub fn kitchen_sink_figure() -> Figure {
             boxed: true,
             ..InsideLegend::default()
         }));
-        a.colormap = ColormapName::Plasma;
     }
     let id = b.node();
     b.push(
@@ -783,6 +1350,8 @@ pub fn kitchen_sink_figure() -> Figure {
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
             placement: ContourPlacement::AtLevel,
+            // No levels of its own, so that it takes those of its scale.
+            color_scale: Some(three_scale),
             ..Contour::default()
         }),
     );
@@ -809,7 +1378,6 @@ pub fn kitchen_sink_figure() -> Figure {
         boxed: true,
         ..InsideLegend::default()
     }));
-    b.axes(surfaces).colormap = ColormapName::Coolwarm;
     let id = b.node();
     b.push(
         surfaces,
@@ -819,6 +1387,7 @@ pub fn kitchen_sink_figure() -> Figure {
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
             c: Some(cx),
+            color_scale: Some(surface_scale),
             ..Surface::default()
         }),
     );
@@ -837,6 +1406,7 @@ pub fn kitchen_sink_figure() -> Figure {
             },
             edge: ColorSpec::Colormapped,
             edge_width_pt: 0.3,
+            color_scale: Some(surface_scale),
             // One array is shared by the faces and the edges, as the IR allows.
             face_alpha: Some(cx),
             edge_alpha: Some(cx),
@@ -845,10 +1415,10 @@ pub fn kitchen_sink_figure() -> Figure {
         }),
     );
     // Images on the walls of the 3D axes: a hidden true-colour image of floating-point
-    // RGBA pixels on the xz wall, a colour-indexed image of floating-point indices on
-    // the yz wall, and a colour-mapped image on the xz wall that is strict only for
-    // non-finite values, so that an edit of the axes' colour limits is not refused. With
-    // the 2D images, every policy occurs at some category.
+    // RGBA pixels on the xz wall, a scalar image of fractional indices through an indexed
+    // scale that clamps them on the yz wall, and a scalar image of values on the xz wall
+    // through a scale that is strict only for non-finite values, so that an edit of the
+    // scale's limits is not refused.
     let id = b.node();
     b.push(
         surfaces,
@@ -871,10 +1441,11 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         surfaces,
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
             label: Some(Text::plain("classes")),
-            indices: cx,
+            values: cx,
+            color_scale: Some(classes_scale),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: None },
                 columns: None,
@@ -883,20 +1454,16 @@ pub fn kitchen_sink_figure() -> Figure {
                     last: 1.0,
                 }),
             },
-            below: OutOfRange::Clamp,
-            above: OutOfRange::Rgba {
-                color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
-            },
-            non_finite: OutOfRange::Transparent,
-            ..IndexedImage::default()
+            ..ScalarImage::default()
         }),
     );
     let id = b.node();
     b.push(
         surfaces,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
             values: field,
+            color_scale: Some(wall_scale),
             placement: ImagePlacement {
                 plane: ImagePlane::Xz { y: Some(-1.0) },
                 columns: Some(PixelRange {
@@ -908,28 +1475,22 @@ pub fn kitchen_sink_figure() -> Figure {
                     last: 2.0,
                 }),
             },
-            below: OutOfRange::Rgba {
-                color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
-            },
-            above: OutOfRange::Transparent,
-            non_finite: OutOfRange::Strict,
-            ..MappedImage::default()
+            ..ScalarImage::default()
         }),
     );
 
-    // Axes 7 to 9: the remaining legend locations and colormaps, and a spanning cell.
-    // The east axes holds the 2D images of 8-bit data: a true-colour image in the default
-    // placement and a hidden colour-indexed image whose floor offset is ignored, whose
-    // columns are mirrored and whose every policy is strict (which 8-bit indices cannot
-    // violate). The west axes holds a colour-mapped image with both pixel ranges and a
-    // lenient policy of each kind.
+    // Axes 7 to 9: the remaining legend locations, and a spanning cell. The east axes
+    // holds the 2D images of 8-bit data: a true-colour image in the default placement and
+    // a hidden scalar image whose floor offset is ignored, whose columns are mirrored and
+    // whose 256-entry palette is strict at every category (which 8-bit indices cannot
+    // violate). The west axes holds a scalar image with both pixel ranges through a scale
+    // with a lenient policy of each kind.
     let east = b.axes2d(1, 2);
     b.axes(east).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::East,
         boxed: true,
         ..InsideLegend::default()
     }));
-    b.axes(east).colormap = ColormapName::Gray;
     let id = b.node();
     b.push(
         east,
@@ -943,10 +1504,11 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         east,
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
             visible: false,
-            indices: bytes,
+            values: bytes,
+            color_scale: Some(palette_scale),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: Some(-2.0) },
                 columns: Some(PixelRange {
@@ -955,12 +1517,9 @@ pub fn kitchen_sink_figure() -> Figure {
                 }),
                 rows: None,
             },
-            below: OutOfRange::Strict,
-            above: OutOfRange::Strict,
-            non_finite: OutOfRange::Strict,
             alpha: Some(bytes),
             opacity: 0.6,
-            ..IndexedImage::default()
+            ..ScalarImage::default()
         }),
     );
     let west = b.axes2d(1, 3);
@@ -972,10 +1531,11 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         west,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
             label: Some(Text::new("$T$ (K)")),
             values: field,
+            color_scale: Some(west_scale),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: None },
                 columns: Some(PixelRange {
@@ -987,14 +1547,9 @@ pub fn kitchen_sink_figure() -> Figure {
                     last: 1.0,
                 }),
             },
-            below: OutOfRange::Transparent,
-            above: OutOfRange::Clamp,
-            non_finite: OutOfRange::Rgba {
-                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
-            },
             alpha: Some(cx),
             opacity: 0.9,
-            ..MappedImage::default()
+            ..ScalarImage::default()
         }),
     );
     let best = b.axes2d(2, 0);
@@ -1143,17 +1698,19 @@ pub fn kitchen_sink_figure() -> Figure {
     b.build()
 }
 
-/// A valid figure that sets every variant of the placement and of the out-of-range
-/// policies of images, beyond what the kitchen-sink figure holds: in a 3D axes, an artist
-/// of each image kind on each plane, with and without an offset and with offsets of both
-/// signs, the two mapped kinds cycling through the policies so that every policy occurs
-/// at every category, and pixel ranges that are absent, ascending and mirrored; and in a
-/// 2D axes, a true-colour image whose floor offset is ignored and whose single row has
-/// coincident centres, a colour-indexed image of floating-point indices and a
-/// colour-mapped image of 8-bit values, both in the default placement.
+/// A valid figure that sets every variant of the placement of images and of the
+/// out-of-range policies of the scales they name, beyond what the kitchen-sink figure
+/// holds: in a 3D axes, on each plane, with and without an offset and with offsets of both
+/// signs, a true-colour image, a scalar image of 8-bit indices through an indexed scale of
+/// its own and a scalar image of values through a continuous scale of its own, the scales
+/// cycling through the policies so that every policy occurs at every category, and pixel
+/// ranges that are absent, ascending and mirrored; and in a 2D axes, a true-colour image
+/// whose floor offset is ignored and whose single row has coincident centres, a scalar
+/// image of floating-point indices through an indexed scale and a scalar image of 8-bit
+/// values through a continuous scale, both in the default placement.
 ///
-/// The strict policies fall on 8-bit indices and on finite values under automatic colour
-/// limits, which cannot violate them, so the figure validates without issues.
+/// The strict policies fall on 8-bit indices into 256 entries and on finite values under
+/// automatic limits, which cannot violate them, so the figure validates without issues.
 pub fn image_variants_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.layout = TileLayout::new(1, 2);
@@ -1199,6 +1756,13 @@ pub fn image_variants_figure() -> Figure {
             last: -1.0,
         }),
     ];
+    // A 256-entry palette, which every 8-bit index names.
+    let palette: Vec<Color> = (0..=255u8)
+        .map(|k| {
+            let v = f32::from(k) / 255.0;
+            Color::rgb(v, v, v)
+        })
+        .collect();
     for (k, plane) in planes.into_iter().enumerate() {
         let id = b.node();
         b.push(
@@ -1214,38 +1778,46 @@ pub fn image_variants_figure() -> Figure {
                 ..Image::default()
             }),
         );
+        let indexed_scale = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+            colors: palette.clone(),
+            outside: out_of_range(policies[k % 4]),
+            ..IndexedColorScale::default()
+        }));
+        b.scale(indexed_scale).non_finite = out_of_range(policies[(k + 2) % 4]);
         let id = b.node();
         b.push(
             solid,
-            Artist::IndexedImage(IndexedImage {
+            Artist::ScalarImage(ScalarImage {
                 id,
-                indices: byte_indices,
+                values: byte_indices,
+                color_scale: Some(indexed_scale),
                 placement: ImagePlacement {
                     plane,
                     columns: ranges[(k + 1) % 3],
                     rows: ranges[(k + 2) % 3],
                 },
-                below: policies[k % 4],
-                above: policies[(k + 1) % 4],
-                non_finite: policies[(k + 2) % 4],
-                ..IndexedImage::default()
+                ..ScalarImage::default()
             }),
         );
+        let continuous_scale = b.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+            below: out_of_range(policies[(k + 3) % 4]),
+            above: out_of_range(policies[(k + 2) % 4]),
+            ..ContinuousColorScale::default()
+        }));
+        b.scale(continuous_scale).non_finite = out_of_range(policies[(k + 1) % 4]);
         let id = b.node();
         b.push(
             solid,
-            Artist::MappedImage(MappedImage {
+            Artist::ScalarImage(ScalarImage {
                 id,
                 values,
+                color_scale: Some(continuous_scale),
                 placement: ImagePlacement {
                     plane,
                     columns: ranges[(k + 2) % 3],
                     rows: ranges[k % 3],
                 },
-                below: policies[(k + 3) % 4],
-                above: policies[(k + 2) % 4],
-                non_finite: policies[(k + 1) % 4],
-                ..MappedImage::default()
+                ..ScalarImage::default()
             }),
         );
     }
@@ -1270,22 +1842,29 @@ pub fn image_variants_figure() -> Figure {
             ..Image::default()
         }),
     );
+    let indexed_scale = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+        colors: palette,
+        ..IndexedColorScale::default()
+    }));
     let id = b.node();
     b.push(
         flat,
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
-            indices: float_indices,
-            ..IndexedImage::default()
+            values: float_indices,
+            color_scale: Some(indexed_scale),
+            ..ScalarImage::default()
         }),
     );
+    let continuous_scale = b.color_scale(ColorScaleKind::default());
     let id = b.node();
     b.push(
         flat,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id,
             values: byte_indices,
-            ..MappedImage::default()
+            color_scale: Some(continuous_scale),
+            ..ScalarImage::default()
         }),
     );
     b.build()
@@ -1310,9 +1889,10 @@ pub const SPECIAL_F64: [f64; 12] = [
 ];
 
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
-/// figure outside colours: sizes, numeric figure parameters, limits, views, style widths
-/// and sizes (of artists and of the custom line samples of legends), artist parameters,
-/// explicit levels and every value of every `f64` data array. An array of 8-bit values
+/// figure outside colours and ticks: sizes, numeric figure parameters, limits (of axes
+/// and of colour scales), views, style widths and sizes (of artists and of the custom line
+/// samples of legends), artist parameters, explicit levels and band edges, and every value
+/// of every `f64` data array. An array of 8-bit values
 /// holds no floats and is skipped.
 ///
 /// A single traversal serves both to set special values and to read them back, so
@@ -1356,7 +1936,6 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             ("x.limits", &mut axes.x.limits),
             ("y.limits", &mut axes.y.limits),
             ("z.limits", &mut axes.z.limits),
-            ("clim", &mut axes.clim),
         ] {
             if let Limits::Manual { min, max } = limits {
                 visit(at(&format!("{name}.min")), min);
@@ -1377,7 +1956,7 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                     visit(at("marker.size_pt"), &mut scatter.marker.size_pt);
                 }
                 Artist::Contour(contour) => {
-                    if let Levels::Explicit { values } = &mut contour.levels {
+                    if let Some(Levels::Explicit { values }) = &mut contour.levels {
                         for (i, value) in values.iter_mut().enumerate() {
                             visit(at(&format!("levels[{i}]")), value);
                         }
@@ -1398,12 +1977,29 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                     visit(at("edge_width_pt"), &mut surface.edge_width_pt);
                 }
                 Artist::Image(image) => visit_placement(visit, &at, &mut image.placement),
-                Artist::IndexedImage(image) => visit_placement(visit, &at, &mut image.placement),
-                Artist::MappedImage(image) => visit_placement(visit, &at, &mut image.placement),
+                Artist::ScalarImage(image) => visit_placement(visit, &at, &mut image.placement),
             }
         }
         if let Some(Legend::Inside(inside)) = &mut axes.legend {
             visit_legend_entries(visit, &at("legend.entries"), &mut inside.entries);
+        }
+    }
+    for (c, scale) in fig.color_scales.iter_mut().enumerate() {
+        let at = |field: &str| format!("color_scales[{c}].{field}");
+        let (limits, edges) = match &mut scale.kind {
+            ColorScaleKind::Continuous(continuous) => (Some(&mut continuous.limits), None),
+            ColorScaleKind::Discrete(discrete) => match &mut discrete.levels {
+                ColorScaleLevels::Auto { limits, .. } => (Some(limits), None),
+                ColorScaleLevels::Explicit { values } => (None, Some(values)),
+            },
+            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => (None, None),
+        };
+        if let Some(Limits::Manual { min, max }) = limits {
+            visit(at("limits.min"), min);
+            visit(at("limits.max"), max);
+        }
+        for (i, edge) in edges.into_iter().flatten().enumerate() {
+            visit(at(&format!("levels[{i}]")), edge);
         }
     }
     for (p, panel) in fig.panels.iter_mut().enumerate() {

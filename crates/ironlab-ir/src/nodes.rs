@@ -2,9 +2,9 @@
 //! tree that they form.
 //!
 //! A figure is a tree. Its root is the figure, which holds one list of each top-level
-//! kind of node (its data arrays, its axes and its panels), and an axes holds the list of
-//! its artists. Every kind of node is declared exactly once, in the `figure_nodes!`
-//! invocation below. From that declaration the macro generates:
+//! kind of node (its data arrays, its colour scales, its axes and its panels), and an axes
+//! holds the list of its artists. Every kind of node is declared exactly once, in the
+//! `figure_nodes!` invocation below. From that declaration the macro generates:
 //!
 //! - [`Node`] and [`NodeKind`], with [`NodeKind::ALL`];
 //! - the lookup of a node of each top-level kind by identifier (such as
@@ -35,10 +35,9 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::artist::{
-    Artist, Contour, Image, IndexedImage, Line, MappedImage, Quiver, Scatter, Surface,
-};
+use crate::artist::{Artist, Contour, Image, Line, Quiver, ScalarImage, Scatter, Surface};
 use crate::axes::Axes;
+use crate::color_scale::ColorScale;
 use crate::data::DataArray;
 use crate::edit::walk::{Step, WalkNode};
 use crate::edit::{Edit, Property, Value};
@@ -513,6 +512,9 @@ figure_nodes! {
         /// A data array, which artists refer to by its identifier.
         DataArray in data, found by data_array and data_array_mut as "data array",
             encoded as data_array;
+        /// A colour scale, which colour-mapped artists refer to by its identifier.
+        ColorScale in color_scales, found by color_scale and color_scale_mut
+            as "colour scale", encoded as color_scale;
         /// An axes with its artists, boxed in a [`Node`] because an axes is much larger
         /// than any other node.
         Axes(boxed) in axes, found by axes and axes_mut as "axes",
@@ -534,10 +536,9 @@ figure_nodes! {
         Surface encoded as surface,
         /// A true-colour image artist.
         Image encoded as image,
-        /// A colour-indexed image artist.
-        IndexedImage encoded as indexed_image,
-        /// A colour-mapped image artist.
-        MappedImage encoded as mapped_image,
+        /// A scalar image artist, whose pixels each hold one number mapped through a
+        /// colour scale.
+        ScalarImage encoded as scalar_image,
     }
 }
 
@@ -625,7 +626,7 @@ impl Node {
 
 impl Figure {
     /// Returns the identifiers of every node, in tree order: the figure, its data arrays,
-    /// its axes each followed by its artists, and its panels.
+    /// its colour scales, its axes each followed by its artists, and its panels.
     pub(crate) fn node_ids(&self) -> Vec<NodeId> {
         subtree_ids(self)
     }

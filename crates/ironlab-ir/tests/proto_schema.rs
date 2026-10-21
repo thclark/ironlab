@@ -51,8 +51,18 @@ use prost_reflect::{
 };
 
 /// The modules of the IR whose types appear on the wire, each of which has one file.
-const MODULES: [&str; 11] = [
-    "artist", "axes", "data", "edit", "figure", "layout", "legend", "link", "panel", "style",
+const MODULES: [&str; 12] = [
+    "artist",
+    "axes",
+    "color_scale",
+    "data",
+    "edit",
+    "figure",
+    "layout",
+    "legend",
+    "link",
+    "panel",
+    "style",
     "text",
 ];
 
@@ -611,34 +621,19 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             (6, "opacity", "double"),
         ],
     );
+    // The scalar image replaced the colour-indexed and colour-mapped images, whose
+    // policies moved to the colour scale it names.
     expect(
-        "IndexedImage",
-        &[
-            (1, "id", "uint64"),
-            (2, "label", "Text"),
-            (3, "visible", "bool"),
-            (4, "indices", "uint64"),
-            (5, "placement", "ImagePlacement"),
-            (6, "below", "OutOfRange"),
-            (7, "above", "OutOfRange"),
-            (8, "non_finite", "OutOfRange"),
-            (9, "alpha", "uint64"),
-            (10, "opacity", "double"),
-        ],
-    );
-    expect(
-        "MappedImage",
+        "ScalarImage",
         &[
             (1, "id", "uint64"),
             (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "values", "uint64"),
-            (5, "placement", "ImagePlacement"),
-            (6, "below", "OutOfRange"),
-            (7, "above", "OutOfRange"),
-            (8, "non_finite", "OutOfRange"),
-            (9, "alpha", "uint64"),
-            (10, "opacity", "double"),
+            (5, "color_scale", "uint64"),
+            (6, "placement", "ImagePlacement"),
+            (7, "alpha", "uint64"),
+            (8, "opacity", "double"),
         ],
     );
     expect(
@@ -687,16 +682,19 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
     }
 
     let artist = declared_fields(&pool, "Artist");
-    for (number, field, kind) in [
-        (6, "image", "Image"),
-        (7, "indexed_image", "IndexedImage"),
-        (8, "mapped_image", "MappedImage"),
-    ] {
+    for (number, field, kind) in [(6, "image", "Image"), (9, "scalar_image", "ScalarImage")] {
         assert!(
             artist.contains(&(number, field.to_owned(), kind.to_owned())),
             "Artist lacks {field} = {number} of {kind}: {artist:?}"
         );
     }
+    // The numbers of the replaced image kinds are never reused with another meaning.
+    assert!(
+        artist
+            .iter()
+            .all(|(number, ..)| *number != 7 && *number != 8),
+        "{artist:?}"
+    );
     let value = declared_fields(&pool, "Value");
     for (number, field, kind) in [
         (37, "image_placement_value", "ValueImagePlacement"),
@@ -711,8 +709,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
     }
     for (message, field) in [
         ("Artist", "image"),
-        ("Artist", "indexed_image"),
-        ("Artist", "mapped_image"),
+        ("Artist", "scalar_image"),
         ("Value", "image_placement_value"),
         ("Value", "out_of_range_value"),
         ("ImagePlane", "xy"),
@@ -756,6 +753,7 @@ fn the_surface_message_declares_its_alpha_and_opacities_after_its_existing_field
             (11, "edge_alpha", "uint64"),
             (12, "face_opacity", "double"),
             (13, "edge_opacity", "double"),
+            (14, "color_scale", "uint64"),
         ]
         .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
     );
@@ -765,10 +763,8 @@ fn the_surface_message_declares_its_alpha_and_opacities_after_its_existing_field
         ("Surface", "face_opacity"),
         ("Surface", "edge_opacity"),
         ("Image", "opacity"),
-        ("IndexedImage", "alpha"),
-        ("IndexedImage", "opacity"),
-        ("MappedImage", "alpha"),
-        ("MappedImage", "opacity"),
+        ("ScalarImage", "alpha"),
+        ("ScalarImage", "opacity"),
     ] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
@@ -802,6 +798,7 @@ fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
             (9, "line", "LineStyle"),
             (10, "line_opacity", "double"),
             (11, "fill_opacity", "double"),
+            (12, "color_scale", "uint64"),
         ]
         .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
     );
@@ -814,6 +811,93 @@ fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
             .unwrap_or_else(|| panic!("Contour declares {field}"));
         assert!(field.supports_presence(), "Contour.{}", field.name());
     }
+}
+
+// Why: clients in other languages read colour scales and scalar images from the schema, so the figure, node and artist oneofs must carry them, every scale reference must have presence (absent means none), and the replaced image kinds and axes colormap must be gone.
+#[test]
+fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_them() {
+    let pool = compile();
+    let has_field = |message: &str, field: &str, kind: &str| {
+        declared_fields(&pool, message)
+            .iter()
+            .any(|(_, name, k)| name == field && k == kind)
+    };
+    assert!(has_field("Figure", "color_scales", "ColorScale"));
+    assert!(has_field("Node", "color_scale", "ColorScale"));
+    assert!(has_field("Artist", "scalar_image", "ScalarImage"));
+    let names = |message: &str| -> BTreeSet<String> {
+        declared_fields(&pool, message)
+            .into_iter()
+            .map(|(_, name, _)| name)
+            .collect()
+    };
+    assert_eq!(
+        names("ColorScale"),
+        BTreeSet::from(["id", "title", "kind", "non_finite"].map(str::to_owned)),
+    );
+    assert_eq!(
+        names("ColorScaleOutOfRange"),
+        BTreeSet::from(["policy", "show_key", "label"].map(str::to_owned)),
+    );
+    assert_eq!(
+        names("ScalarImage"),
+        BTreeSet::from(
+            [
+                "id",
+                "label",
+                "visible",
+                "values",
+                "color_scale",
+                "placement",
+                "alpha",
+                "opacity",
+            ]
+            .map(str::to_owned)
+        ),
+    );
+    for message in [
+        "ContinuousColorScale",
+        "DiscreteColorScale",
+        "IndexedColorScale",
+        "CategoricalColorScale",
+        "ColorCategory",
+    ] {
+        assert!(
+            pool.get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+                .is_some(),
+            "the package declares {message}"
+        );
+    }
+    for message in ["ScalarImage", "Contour", "Surface", "Scatter"] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        let field = descriptor
+            .get_field_by_name("color_scale")
+            .unwrap_or_else(|| panic!("{message} declares color_scale"));
+        assert_eq!(field.kind(), Kind::Uint64, "{message}.color_scale");
+        assert!(field.supports_presence(), "{message}.color_scale");
+    }
+    let levels = pool
+        .get_message_by_name("ironlab.ir.v0.Contour")
+        .and_then(|contour| contour.get_field_by_name("levels"))
+        .expect("Contour declares levels");
+    assert!(
+        levels.supports_presence(),
+        "absent contour levels mean the scale's"
+    );
+    for gone in ["IndexedImage", "MappedImage"] {
+        assert!(
+            pool.get_message_by_name(&format!("ironlab.ir.v0.{gone}"))
+                .is_none(),
+            "{gone} is still declared"
+        );
+    }
+    let axes = names("Axes");
+    assert!(
+        !axes.contains("colormap") && !axes.contains("clim"),
+        "{axes:?}"
+    );
 }
 
 // Why: proto3 decodes an absent enum as its zero value, so the zero value must mean

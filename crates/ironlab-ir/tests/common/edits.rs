@@ -58,16 +58,21 @@ pub fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
         Artist::Image(_) => NodeKind::Image,
-        Artist::IndexedImage(_) => NodeKind::IndexedImage,
-        Artist::MappedImage(_) => NodeKind::MappedImage,
+        Artist::ScalarImage(_) => NodeKind::ScalarImage,
     }
 }
 
 /// Every node of a figure with its kind, in tree order (the figure, its data arrays, its
-/// axes each followed by its artists, and its panels), found without the API under test.
+/// colour scales, its axes each followed by its artists, and its panels), found without
+/// the API under test.
 pub fn nodes(fig: &Figure) -> Vec<(NodeId, NodeKind)> {
     let mut nodes = vec![(fig.id, NodeKind::Figure)];
     nodes.extend(fig.data.iter().map(|data| (data.id, NodeKind::DataArray)));
+    nodes.extend(
+        fig.color_scales
+            .iter()
+            .map(|scale| (scale.id, NodeKind::ColorScale)),
+    );
     for axes in &fig.axes {
         nodes.push((axes.id, NodeKind::Axes));
         nodes.extend(axes.artists.iter().map(|a| (a.id(), artist_kind(a))));
@@ -120,17 +125,20 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 
 /// The figures on which every settable property of every kind of node is reachable
 /// somewhere: the kitchen-sink figure, and a copy of it in which every optional title,
-/// axis label, legend, artist label and data array name is present, every automatic axis limit is manual (and
-/// positive, for logarithmic axes), every colour specification of an artist is a fixed
-/// colour, so that the colour components below it are reachable, every out-of-range
-/// policy of an image is a fixed colour for the same reason, both pixel ranges and the
-/// plane offset of every image are present, and every image on a wall of a
+/// axis label, legend, artist label and data array name is present, every automatic axis
+/// limit is manual (and positive, for logarithmic axes), every colour specification of an
+/// artist is a fixed colour, so that the colour components below it are reachable, every
+/// out-of-range category of a colour scale has a label and a fixed colour for the same
+/// reason, every automatic limit of a colour scale is manual, the ticks of every colour
+/// scale take another variant, every contour has levels of its own, both pixel ranges and
+/// the plane offset of every image are present, and every image on a wall of a
 /// three-dimensional axes is moved to the other wall.
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
-/// both projections, both grids, both kinds of levels, scatter sizes and colours, every
-/// quiver scale, both contour placements, and for each image kind every plane), so a
-/// path below any variant is reachable in one of them.
+/// both projections, both grids, both kinds of levels and of band edges, both colormaps,
+/// scatter sizes and colours, every quiver scale, both contour placements, every kind of
+/// colour scale, and for each image kind every plane), so a path below any variant is
+/// reachable in one of them.
 pub fn representative_figures() -> Vec<Figure> {
     /// Gives the plane offset and both pixel ranges a value, and moves an image on a wall
     /// to the other wall, so that between the kitchen-sink figure (where each kind lies on
@@ -241,21 +249,65 @@ pub fn representative_figures() -> Vec<Figure> {
                     a.label.get_or_insert_with(|| Text::new("image"));
                     fill_placement(&mut a.placement);
                 }
-                Artist::IndexedImage(a) => {
-                    a.label.get_or_insert_with(|| Text::new("indexed image"));
+                Artist::ScalarImage(a) => {
+                    a.label.get_or_insert_with(|| Text::new("scalar image"));
                     fill_placement(&mut a.placement);
-                    a.below = painted;
-                    a.above = painted;
-                    a.non_finite = painted;
-                }
-                Artist::MappedImage(a) => {
-                    a.label.get_or_insert_with(|| Text::new("mapped image"));
-                    fill_placement(&mut a.placement);
-                    a.below = painted;
-                    a.above = painted;
-                    a.non_finite = painted;
                 }
             }
+            if let Artist::Contour(a) = artist {
+                a.levels.get_or_insert(Levels::Auto { count: 5 });
+            }
+        }
+    }
+    for scale in &mut full.color_scales {
+        scale.title.get_or_insert_with(|| Text::plain("scale"));
+        let paint = |category: &mut ColorScaleOutOfRange| {
+            category.policy = painted;
+            category.label.get_or_insert_with(|| Text::plain("key"));
+        };
+        paint(&mut scale.non_finite);
+        // The ticks of each scale take a variant they do not have in the kitchen-sink
+        // figure, as the ticks of the axes do.
+        let rotate = |ticks: &mut Ticks, labels: &mut TickLabels| {
+            (*ticks, *labels) = match ticks {
+                Ticks::Auto => (
+                    Ticks::Values(vec![2.0, 5.0]),
+                    TickLabels::Text(vec![Text::plain("two"), Text::new("$5$")]),
+                ),
+                Ticks::Values(_) => (
+                    Ticks::Step {
+                        step: 0.5,
+                        origin: 1.0,
+                    },
+                    TickLabels::Hidden,
+                ),
+                Ticks::Step { .. } => (Ticks::Values(vec![2.0, 4.0]), TickLabels::Auto),
+            };
+        };
+        match &mut scale.kind {
+            ColorScaleKind::Continuous(c) => {
+                paint(&mut c.below);
+                paint(&mut c.above);
+                rotate(&mut c.ticks, &mut c.tick_labels);
+                if c.limits == Limits::Auto {
+                    c.limits = manual(1.0, 10.0);
+                }
+            }
+            ColorScaleKind::Discrete(d) => {
+                paint(&mut d.below);
+                paint(&mut d.above);
+                rotate(&mut d.ticks, &mut d.tick_labels);
+                if let ColorScaleLevels::Auto { limits, .. } = &mut d.levels
+                    && *limits == Limits::Auto
+                {
+                    *limits = manual(1.0, 10.0);
+                }
+            }
+            ColorScaleKind::Indexed(i) => {
+                paint(&mut i.outside);
+                rotate(&mut i.ticks, &mut i.tick_labels);
+            }
+            ColorScaleKind::Categorical(k) => paint(&mut k.outside),
         }
     }
     vec![base, full]
@@ -308,6 +360,12 @@ pub fn streaming_figure() -> Streaming {
     let other_y = b.vector(&[1.0, 4.0, 9.0]);
     let other_line = b.node();
     b.push(other_axes, line(other_line, other_x, other_y));
+    // The colour scale of the contour, added last so that the other identifiers are
+    // those the figure had before contours named scales.
+    let scale = b.color_scale(ColorScaleKind::default());
+    if let Some(Artist::Contour(c)) = b.fig.artist_mut(contour) {
+        c.color_scale = Some(scale);
+    }
     Streaming {
         fig: b.build(),
         axes,
@@ -565,6 +623,97 @@ pub fn perturb(value: &Value) -> Value {
             color: Color::rgb(0.25, 0.5, 0.75),
         }),
         Value::OutOfRange(OutOfRange::Rgba { .. }) => Value::OutOfRange(OutOfRange::Strict),
+        Value::ColorScaleOutOfRange(category) => {
+            Value::ColorScaleOutOfRange(ColorScaleOutOfRange {
+                show_key: !category.show_key,
+                ..category.clone()
+            })
+        }
+        // A kind keeps its kind and changes a property that keeps a valid scale valid.
+        Value::ColorScaleKind(ColorScaleKind::Continuous(c)) => {
+            Value::ColorScaleKind(ColorScaleKind::Continuous(ContinuousColorScale {
+                above: ColorScaleOutOfRange {
+                    show_key: !c.above.show_key,
+                    ..c.above.clone()
+                },
+                ..c.clone()
+            }))
+        }
+        Value::ColorScaleKind(ColorScaleKind::Discrete(d)) => {
+            Value::ColorScaleKind(ColorScaleKind::Discrete(DiscreteColorScale {
+                above: ColorScaleOutOfRange {
+                    show_key: !d.above.show_key,
+                    ..d.above.clone()
+                },
+                ..d.clone()
+            }))
+        }
+        Value::ColorScaleKind(ColorScaleKind::Indexed(i)) => {
+            Value::ColorScaleKind(ColorScaleKind::Indexed(IndexedColorScale {
+                outside: ColorScaleOutOfRange {
+                    show_key: !i.outside.show_key,
+                    ..i.outside.clone()
+                },
+                ..i.clone()
+            }))
+        }
+        Value::ColorScaleKind(ColorScaleKind::Categorical(k)) => {
+            Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale {
+                outside: ColorScaleOutOfRange {
+                    show_key: !k.outside.show_key,
+                    ..k.outside.clone()
+                },
+                ..k.clone()
+            }))
+        }
+        Value::ContinuousColorScale(c) => Value::ContinuousColorScale(ContinuousColorScale {
+            tick_labels: match c.tick_labels {
+                TickLabels::Hidden => TickLabels::Auto,
+                _ => TickLabels::Hidden,
+            },
+            ..c.clone()
+        }),
+        Value::DiscreteColorScale(d) => Value::DiscreteColorScale(DiscreteColorScale {
+            tick_labels: match d.tick_labels {
+                TickLabels::Hidden => TickLabels::Auto,
+                _ => TickLabels::Hidden,
+            },
+            ..d.clone()
+        }),
+        Value::IndexedColorScale(i) => Value::IndexedColorScale(IndexedColorScale {
+            tick_labels: match i.tick_labels {
+                TickLabels::Hidden => TickLabels::Auto,
+                _ => TickLabels::Hidden,
+            },
+            ..i.clone()
+        }),
+        Value::CategoricalColorScale(k) => Value::CategoricalColorScale(CategoricalColorScale {
+            outside: ColorScaleOutOfRange {
+                show_key: !k.outside.show_key,
+                ..k.outside.clone()
+            },
+            ..k.clone()
+        }),
+        Value::Colormap(Colormap::Named { name, reverse }) => Value::Colormap(Colormap::Named {
+            name: *name,
+            reverse: !reverse,
+        }),
+        Value::Colormap(Colormap::Listed { colors }) => Value::Colormap(Colormap::Listed {
+            colors: colors.iter().rev().copied().collect(),
+        }),
+        Value::ColorScaleNorm(ColorScaleNorm::Linear) => Value::ColorScaleNorm(ColorScaleNorm::Log),
+        Value::ColorScaleNorm(ColorScaleNorm::Log) => Value::ColorScaleNorm(ColorScaleNorm::Linear),
+        Value::ColorScaleLevels(ColorScaleLevels::Auto { count, limits }) => {
+            Value::ColorScaleLevels(ColorScaleLevels::Auto {
+                count: count + 1,
+                limits: *limits,
+            })
+        }
+        Value::ColorScaleLevels(ColorScaleLevels::Explicit { values }) => {
+            Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+                values: values.iter().map(|v| v * 2.0).collect(),
+            })
+        }
     }
 }
 
@@ -572,7 +721,7 @@ pub fn perturb(value: &Value) -> Value {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 56;
+pub const VALUE_VARIANTS: usize = 65;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -637,6 +786,15 @@ pub fn value_variant(value: &Value) -> usize {
         Value::TitleAlign(_) => 53,
         Value::PanelLocation(_) => 54,
         Value::PanelLegend(_) => 55,
+        Value::ColorScaleOutOfRange(_) => 56,
+        Value::ColorScaleKind(_) => 57,
+        Value::ContinuousColorScale(_) => 58,
+        Value::DiscreteColorScale(_) => 59,
+        Value::IndexedColorScale(_) => 60,
+        Value::CategoricalColorScale(_) => 61,
+        Value::Colormap(_) => 62,
+        Value::ColorScaleNorm(_) => 63,
+        Value::ColorScaleLevels(_) => 64,
     }
 }
 
@@ -806,6 +964,77 @@ pub fn sample_values() -> Vec<Value> {
         Value::OutOfRange(OutOfRange::Rgba {
             color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
         }),
+        Value::ColorScaleOutOfRange(ColorScaleOutOfRange {
+            policy: OutOfRange::Strict,
+            show_key: true,
+            label: Some(Text::new("$> 10$")),
+        }),
+        Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale {
+            categories: vec![ColorCategory {
+                color: blue,
+                label: Text::plain("water"),
+            }],
+            outside: ColorScaleOutOfRange {
+                policy: OutOfRange::Clamp,
+                show_key: false,
+                label: None,
+            },
+        })),
+        Value::ContinuousColorScale(ContinuousColorScale {
+            colormap: Colormap::Named {
+                name: ColormapName::Magma,
+                reverse: true,
+            },
+            limits: manual(1.0, 1000.0),
+            norm: ColorScaleNorm::Log,
+            below: ColorScaleOutOfRange {
+                policy: OutOfRange::Rgba { color: blue },
+                show_key: true,
+                label: Some(Text::plain("too low")),
+            },
+            ..ContinuousColorScale::default()
+        }),
+        Value::DiscreteColorScale(DiscreteColorScale {
+            levels: ColorScaleLevels::Auto {
+                count: 4,
+                limits: manual(-1.0, 1.0),
+            },
+            ticks: Ticks::Values(vec![-1.0, 1.0]),
+            tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::plain("high")]),
+            ..DiscreteColorScale::default()
+        }),
+        Value::IndexedColorScale(IndexedColorScale {
+            colors: vec![blue, Color::BLACK, Color::WHITE],
+            ticks: Ticks::Step {
+                step: 1.0,
+                origin: 0.0,
+            },
+            ..IndexedColorScale::default()
+        }),
+        Value::CategoricalColorScale(CategoricalColorScale {
+            categories: vec![
+                ColorCategory {
+                    color: Color::BLACK,
+                    label: Text::plain("land"),
+                },
+                ColorCategory {
+                    color: blue,
+                    label: Text::new("$\\infty$"),
+                },
+            ],
+            outside: ColorScaleOutOfRange {
+                policy: OutOfRange::Transparent,
+                show_key: true,
+                label: Some(Text::plain("other")),
+            },
+        }),
+        Value::Colormap(Colormap::Listed {
+            colors: vec![blue, Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0)],
+        }),
+        Value::ColorScaleNorm(ColorScaleNorm::Log),
+        Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+            values: vec![-2.0, 0.0, 2.5],
+        }),
     ]
 }
 
@@ -862,6 +1091,11 @@ pub fn every_kind_transaction() -> Transaction {
             parent: NodeId(1),
             index: None,
             node: Node::Panel(kitchen_sink.panels[1].clone()),
+        },
+        Edit::Insert {
+            parent: NodeId(1),
+            index: Some(1),
+            node: Node::ColorScale(kitchen_sink.color_scales[0].clone()),
         },
         Edit::ReplaceData {
             node: NodeId(u64::MAX),

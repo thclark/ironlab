@@ -1118,7 +1118,7 @@ fn a_transaction_that_introduces_a_validation_error_is_rolled_back() {
     let (fig, axes, _) = single_line_figure();
     let mut edited = fig.clone();
     let result = edited.apply(&tx([
-        set(axes, "colormap", Value::ColormapName(ColormapName::Gray)),
+        set(axes, "title_align", Value::TitleAlign(TitleAlign::Left)),
         set(axes, "x.limits", Value::Limits(manual(2.0, 1.0))),
     ]));
     assert!(
@@ -1138,12 +1138,12 @@ fn an_error_the_figure_already_has_does_not_prevent_editing() {
         &fig,
         &tx([set(
             axes,
-            "colormap",
-            Value::ColormapName(ColormapName::Gray),
+            "title_align",
+            Value::TitleAlign(TitleAlign::Left),
         )]),
     )
     .unwrap();
-    assert_eq!(find_axes(&edited, axes).colormap, ColormapName::Gray);
+    assert_eq!(find_axes(&edited, axes).title_align, TitleAlign::Left);
 
     let (fixed, _) = applied(
         &fig,
@@ -1226,12 +1226,14 @@ fn switching_the_axis_of_an_image_to_a_logarithmic_scale_is_refused() {
     let axes = b.axes2d(0, 0);
     let values = b.matrix(2, 3, |j, i| (j + i) as f64);
     let image = b.node();
+    let scale = b.color_scale(ColorScaleKind::default());
     b.push(
         axes,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id: image,
             values,
-            ..MappedImage::default()
+            color_scale: Some(scale),
+            ..ScalarImage::default()
         }),
     );
     let fig = b.build();
@@ -1506,8 +1508,7 @@ fn set_artist_id(artist: &mut Artist, id: NodeId) {
         Artist::Quiver(a) => a.id = id,
         Artist::Surface(a) => a.id = id,
         Artist::Image(a) => a.id = id,
-        Artist::IndexedImage(a) => a.id = id,
-        Artist::MappedImage(a) => a.id = id,
+        Artist::ScalarImage(a) => a.id = id,
     }
 }
 
@@ -1917,10 +1918,10 @@ fn a_set_addressed_to_a_panel_changes_that_panel() {
 // Alpha and opacity
 // ---------------------------------------------------------------------------------
 
-/// A figure with one 2D axes holding a surface, a true-colour image, a colour-indexed
-/// image, a colour-mapped image and a filled contour, each opaque and without alpha, and
-/// a 3 × 4 array of floats that none of them refers to. Returns the figure, the five
-/// artists in that order and the unused array.
+/// A figure with one 2D axes holding a surface, a true-colour image, a scalar image
+/// through an indexed scale, a scalar image through a continuous scale and a filled
+/// contour, each opaque and without alpha, and a 3 × 4 array of floats that none of them
+/// refers to. Returns the figure, the five artists in that order and the unused array.
 fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
@@ -1930,12 +1931,19 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
     let spare = b.matrix(3, 4, |j, i| (j * 4 + i) as f64 / 11.0);
     let rgb = b.bytes(vec![3, 4, 3], (0..36).collect());
     let ids = [b.node(), b.node(), b.node(), b.node(), b.node()];
+    let continuous = b.color_scale(ColorScaleKind::default());
+    // The field holds the whole numbers 0 to 5, each an entry of this palette.
+    let palette = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+        colors: vec![Color::BLACK; 6],
+        ..IndexedColorScale::default()
+    }));
     b.push(
         axes,
         Artist::Surface(Surface {
             id: ids[0],
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
+            color_scale: Some(continuous),
             ..Surface::default()
         }),
     );
@@ -1949,18 +1957,20 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
     );
     b.push(
         axes,
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: ids[2],
-            indices: field,
-            ..IndexedImage::default()
+            values: field,
+            color_scale: Some(palette),
+            ..ScalarImage::default()
         }),
     );
     b.push(
         axes,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id: ids[3],
             values: field,
-            ..MappedImage::default()
+            color_scale: Some(continuous),
+            ..ScalarImage::default()
         }),
     );
     b.push(
@@ -1970,6 +1980,7 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
             fill: true,
+            color_scale: Some(continuous),
             ..Contour::default()
         }),
     );
@@ -2063,8 +2074,7 @@ fn the_registry_describes_opacities_as_numbers_and_alpha_as_optional_data() {
             &["face_alpha", "edge_alpha"][..],
         ),
         (NodeKind::Image, &["opacity"][..], &[][..]),
-        (NodeKind::IndexedImage, &["opacity"][..], &["alpha"][..]),
-        (NodeKind::MappedImage, &["opacity"][..], &["alpha"][..]),
+        (NodeKind::ScalarImage, &["opacity"][..], &["alpha"][..]),
         (
             NodeKind::Contour,
             &["line_opacity", "fill_opacity"][..],

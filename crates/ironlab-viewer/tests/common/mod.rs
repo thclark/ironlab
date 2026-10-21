@@ -144,6 +144,7 @@ pub fn figure_with_artists() -> Figure {
             id: NodeId(6),
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
+            color_scale: Some(NodeId(7)),
             ..Surface::default()
         })],
         ..axes_3d(3)
@@ -152,6 +153,10 @@ pub fn figure_with_artists() -> Figure {
         id: NodeId(1),
         layout: TileLayout::new(1, 2),
         data,
+        color_scales: vec![ironlab_ir::ColorScale {
+            id: NodeId(7),
+            ..ironlab_ir::ColorScale::default()
+        }],
         axes: vec![flat, solid],
         ..Figure::new()
     }
@@ -266,18 +271,22 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// A three-dimensional axes (node 2) holds a line (3), a scatter (4) whose size and
 /// colour come from data, a contour (5) with explicit levels, a quiver (6) with a scale
 /// factor, a surface (7), a true-colour image (8) of 8-bit RGBA pixels on the xz wall, a
-/// colour-indexed image (9) of 8-bit indices on the yz wall and a colour-mapped image
-/// (10) of the field on the floor, the images with both pixel ranges set and the two
-/// mapped kinds with a fixed colour, a clamp and a transparent policy between them.
-/// Every artist is three-dimensional or planar, so the figure is valid. The axes lies in
-/// the first of two columns, and a legend panel (11) in the second, so that the figure
-/// holds a node of every kind.
+/// scalar image (9) of 8-bit indices on the yz wall and a scalar image (10) of the field on
+/// the floor, the images with both pixel ranges set. The scatter, the contour, the surface
+/// and the image of the field map their numbers through a continuous colour scale (12)
+/// that draws nothing below and above its limits and a fixed colour for a non-finite
+/// value, and the image of indices through an indexed colour scale (13) of nine entries
+/// that clamps an index outside them, so that the scales hold a fixed colour, a clamp and a
+/// transparent policy between them. Every artist is three-dimensional or planar, so the
+/// figure is valid. The axes lies in the first of two columns, and a legend panel (11) in
+/// the second, so that the figure holds a node of every kind.
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
-        Artist, Color, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, Levels,
-        Line, MappedImage, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
-        ScatterColor, ScatterSize, Surface,
+        Artist, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ContinuousColorScale,
+        Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale, Levels, Line, NdArray,
+        OutOfRange, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor,
+        ScatterSize, Surface,
     };
 
     let ids: Vec<NodeId> = (0..10).map(array_id).collect();
@@ -334,16 +343,18 @@ pub fn figure_with_every_artist() -> Figure {
             z: Some(z),
             size: ScatterSize::Data { data: u },
             color: ScatterColor::Data { data: v },
+            color_scale: Some(NodeId(12)),
             ..Scatter::default()
         }),
         Artist::Contour(Contour {
             id: NodeId(5),
             grid: Grid::Rectilinear { x: gx, y: gx },
             z: field,
-            levels: Levels::Explicit {
+            levels: Some(Levels::Explicit {
                 values: vec![1.0, 4.0],
-            },
+            }),
             placement: ContourPlacement::Plane { z: Some(0.0) },
+            color_scale: Some(NodeId(12)),
             ..Contour::default()
         }),
         Artist::Quiver(Quiver {
@@ -362,6 +373,7 @@ pub fn figure_with_every_artist() -> Figure {
             grid: Grid::Rectilinear { x: gx, y: gx },
             z: field,
             c: Some(field),
+            color_scale: Some(NodeId(12)),
             ..Surface::default()
         }),
         Artist::Image(Image {
@@ -373,39 +385,55 @@ pub fn figure_with_every_artist() -> Figure {
             },
             ..Image::default()
         }),
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(9),
-            indices,
+            values: indices,
+            color_scale: Some(NodeId(13)),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: Some(0.5) },
                 ..ranges
             },
-            below: OutOfRange::Rgba {
-                color: Color::BLACK,
-            },
-            above: OutOfRange::Clamp,
-            non_finite: OutOfRange::Transparent,
-            ..IndexedImage::default()
+            ..ScalarImage::default()
         }),
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(10),
             values: field,
+            color_scale: Some(NodeId(12)),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: Some(1.0) },
                 ..ranges
             },
-            below: OutOfRange::Transparent,
-            above: OutOfRange::Transparent,
-            non_finite: OutOfRange::Rgba {
-                color: Color::BLACK,
-            },
-            ..MappedImage::default()
+            ..ScalarImage::default()
         }),
     ];
+    let continuous = ColorScale {
+        id: NodeId(12),
+        kind: ColorScaleKind::Continuous(ContinuousColorScale {
+            below: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+            above: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+            ..ContinuousColorScale::default()
+        }),
+        non_finite: ColorScaleOutOfRange::new(OutOfRange::Rgba {
+            color: Color::BLACK,
+        }),
+        ..ColorScale::default()
+    };
+    let indexed = ColorScale {
+        id: NodeId(13),
+        kind: ColorScaleKind::Indexed(IndexedColorScale {
+            colors: (0..9u8)
+                .map(|k| Color::rgb(f32::from(k) / 8.0, 0.5, 1.0 - f32::from(k) / 8.0))
+                .collect(),
+            outside: ColorScaleOutOfRange::new(OutOfRange::Clamp),
+            ..IndexedColorScale::default()
+        }),
+        ..ColorScale::default()
+    };
     Figure {
         id: NodeId(1),
         layout: ironlab_ir::TileLayout::new(1, 2),
         data,
+        color_scales: vec![continuous, indexed],
         axes: vec![Axes {
             artists,
             ..axes_3d(2)
@@ -486,12 +514,13 @@ pub fn figure_with_many_axes() -> Figure {
     }
 }
 
-/// A figure of one two-dimensional axes (node 2) holding a colour-mapped image (node 3) of
-/// `ny` rows and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, placed by
+/// A figure of one two-dimensional axes (node 2) holding a scalar image (node 3) of `ny`
+/// rows and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, mapped through a
+/// continuous colour scale of viridis (node 4) between automatic limits and placed by
 /// default, so that the image fills the axes and neighbouring pixels differ in colour along
 /// both axes: by one step of the colormap along a row and by `nx` steps down a column.
-pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
-    use ironlab_ir::{Artist, MappedImage, NdArray};
+pub fn figure_with_scalar_image(ny: usize, nx: usize) -> Figure {
+    use ironlab_ir::{Artist, ColorScale, NdArray, ScalarImage};
 
     let values: Vec<f64> = (0..ny * nx).map(|k| k as f64).collect();
     let data = data_arrays([(
@@ -503,29 +532,34 @@ pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
         data,
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::MappedImage(MappedImage {
+            artists: vec![Artist::ScalarImage(ScalarImage {
                 id: NodeId(3),
                 values: array_id(0),
-                ..MappedImage::default()
+                color_scale: Some(NodeId(4)),
+                ..ScalarImage::default()
             })],
             ..Axes::default()
+        }],
+        color_scales: vec![ColorScale {
+            id: NodeId(4),
+            ..ColorScale::default()
         }],
         ..Figure::new()
     }
 }
 
-/// The colour-mapped image of [`figure_with_mapped_image`], `ny` × `nx`, named "Temperature", so that a callout
+/// The scalar image of [`figure_with_scalar_image`], `ny` × `nx`, named "Temperature", so that a callout
 /// over it names the image, and so that any position inside the plot rectangle lies over a pixel with no drawn
 /// point anywhere near it.
 pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
     use ironlab_ir::{Artist, Text};
 
-    let mut figure = figure_with_mapped_image(ny, nx);
+    let mut figure = figure_with_scalar_image(ny, nx);
     match figure.artist_mut(NodeId(3)) {
-        Some(Artist::MappedImage(image)) => {
+        Some(Artist::ScalarImage(image)) => {
             image.label = Some(Text::plain("Temperature"));
         }
-        other => panic!("node 3 is the mapped image, not {other:?}"),
+        other => panic!("node 3 is the scalar image, not {other:?}"),
     }
     figure
 }

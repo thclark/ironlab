@@ -328,10 +328,12 @@ fn a_single_row_of_nodes_has_no_cells_and_is_skipped_with_a_warning() {
         y: fx.vector(&[10.0]),
     };
     let surface = fx.node();
+    let color_scale = Some(fx.axes_scale(ax));
     fx.ax(ax).artists.push(Artist::Surface(Surface {
         id: surface,
         grid,
         z,
+        color_scale,
         ..Surface::default()
     }));
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
@@ -360,10 +362,12 @@ fn an_empty_field_is_left_out_with_a_warning_naming_each_artist() {
         let x = fx.vector(&X[..nx]);
         let y = fx.vector(&Y[..ny]);
         let surface = fx.node();
+        let color_scale = Some(fx.axes_scale(ax));
         fx.ax(ax).artists.push(Artist::Surface(Surface {
             id: surface,
             grid: Grid::Rectilinear { x, y },
             z,
+            color_scale,
             ..Surface::default()
         }));
         let contour = fx.node();
@@ -371,6 +375,7 @@ fn an_empty_field_is_left_out_with_a_warning_naming_each_artist() {
             id: contour,
             grid: Grid::Rectilinear { x, y },
             z,
+            color_scale,
             ..ironlab_ir::Contour::default()
         }));
         let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
@@ -420,10 +425,12 @@ fn a_curvilinear_grid_places_every_node_at_its_own_position() {
     };
     let z = fx.matrix(ny, nx, (0..ny * nx).map(|k| k as f64).collect());
     let surface = fx.node();
+    let color_scale = Some(fx.axes_scale(ax));
     fx.ax(ax).artists.push(Artist::Surface(Surface {
         id: surface,
         grid,
         z,
+        color_scale,
         ..Surface::default()
     }));
     let scene = compile_figure(&fx.build());

@@ -55,8 +55,6 @@
       "aspect": { "type": "ratio", "value": { "y": 0.5, "z": 2.0 } },
       "aspect_adjust": "limits",
       "box": true,
-      "colormap": "viridis",
-      "clim": { "type": "auto" },
       "legend": {
         "type": "inside",
         "value": {

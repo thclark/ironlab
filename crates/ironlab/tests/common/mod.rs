@@ -4,7 +4,9 @@
 #![allow(dead_code)]
 
 use ironlab::ir::{self, Artist, Axes, IssueKind, NdArray, NodeId, ValidationReport};
-use ironlab::{ByteMatrix, Color, Figure, ImagePlane, Matrix, OutOfRange, Pixels};
+use ironlab::{
+    ByteMatrix, Color, Colormap, ColormapSample, Figure, ImagePlane, Matrix, OutOfRange, Pixels,
+};
 
 /// Returns the axes with the given identifier, panicking if it does not exist.
 pub fn axes(fig: &Figure, id: NodeId) -> &Axes {
@@ -71,17 +73,10 @@ pub fn image(fig: &Figure, id: NodeId) -> &ir::Image {
     }
 }
 
-pub fn indexed_image(fig: &Figure, id: NodeId) -> &ir::IndexedImage {
+pub fn scalar_image(fig: &Figure, id: NodeId) -> &ir::ScalarImage {
     match artist(fig, id) {
-        Artist::IndexedImage(a) => a,
-        other => panic!("expected an indexed image, found {other:?}"),
-    }
-}
-
-pub fn mapped_image(fig: &Figure, id: NodeId) -> &ir::MappedImage {
-    match artist(fig, id) {
-        Artist::MappedImage(a) => a,
-        other => panic!("expected a mapped image, found {other:?}"),
+        Artist::ScalarImage(a) => a,
+        other => panic!("expected a scalar image, found {other:?}"),
     }
 }
 
@@ -122,11 +117,11 @@ pub fn small_grid() -> (Vec<f64>, Vec<f64>, Matrix) {
 }
 
 /// A valid figure holding one image of each kind, built through the facade: a 2 by 2
-/// true-colour image of RGBA bytes with mirrored rows and a display name; a 2 by 3
-/// colour-indexed image of bytes with explicit column centres and strict and clamped
-/// policies; and a 3 by 2 colour-mapped image of floats holding a NaN, on the xz wall
-/// of a three-dimensional axes at an offset, with a fixed colour for its non-finite
-/// pixels and manual colour limits.
+/// true-colour image of RGBA bytes with mirrored rows and a label; a 2 by 3 scalar image
+/// of bytes with explicit column centres, through an indexed scale of six entries whose
+/// out-of-range policy is a clamp; and a 3 by 2 scalar image of floats holding a NaN, on
+/// the xz wall of a three-dimensional axes at an offset, through the axes' default scale
+/// with manual limits and a fixed colour for non-finite values.
 pub fn image_figure() -> Figure {
     let pixels = Pixels::from_rgba8(
         2,
@@ -148,16 +143,21 @@ pub fn image_figure() -> Figure {
         .pixel_columns(-1.0, 1.0)
         .pixel_rows(1.0, -1.0)
         .label("photo");
+    let palette = fig
+        .indexed_scale(Colormap::Viridis.sample(6))
+        .outside(OutOfRange::Clamp)
+        .id();
     fig.axes(0, 1)
-        .indexed_image(&indices)
+        .scalar_image(&indices)
         .pixel_columns(0.5, 2.5)
-        .below(OutOfRange::Strict)
-        .above(OutOfRange::Clamp);
+        .color_scale(palette);
     fig.axes(0, 2)
-        .mapped_image(&values)
-        .plane(ImagePlane::Xz { y: Some(0.5) })
+        .scalar_image(&values)
+        .plane(ImagePlane::Xz { y: Some(0.5) });
+    fig.axes(0, 2)
+        .color_scale()
+        .limits(0.0, 1.0)
         // A multiple of 1/255, so that the eight-bit colour of the JSON form reloads exactly.
         .non_finite(Color::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
-    fig.axes(0, 2).clim(0.0, 1.0);
     fig
 }

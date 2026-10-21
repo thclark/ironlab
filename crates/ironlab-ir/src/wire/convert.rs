@@ -10,15 +10,17 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName,
-    Contour, ContourPlacement, Coords, DashStyle, DataArray, Dimension, Edit, Figure, FigureSize,
-    FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter,
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
-    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, Line, LineStyle, MappedImage,
-    MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
-    PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
-    Quiver, QuiverScale, Scale, Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels,
-    Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, CategoricalColorScale, Cell, Color,
+    ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    ColorScaleOutOfRange, ColorSpec, Colormap, ColormapName, ContinuousColorScale, Contour,
+    ContourPlacement, Coords, DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Figure,
+    FigureSize, FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
+    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
+    Line, LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
+    Panel, PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
+    Quiver, QuiverScale, ScalarImage, Scale, Scatter, ScatterColor, ScatterSize, Surface, Text,
+    TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -96,6 +98,7 @@ wire_enum! {
     Interpreter => Interpreter { Latex, None }
     Scale => Scale { Linear, Log }
     ColormapName => ColormapName { Viridis, Cividis, Magma, Inferno, Plasma, Coolwarm, Gray }
+    ColorScaleNorm => ColorScaleNorm { Linear, Log }
     LegendLocation => LegendLocation {
         NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Center, Best,
     }
@@ -130,6 +133,7 @@ impl From<&Figure> for w::Figure {
             background: Some(encode_color(figure.background)),
             layout: Some(encode_tile_layout(&figure.layout)),
             data: figure.data.iter().map(DataArray::encode).collect(),
+            color_scales: figure.color_scales.iter().map(ColorScale::encode).collect(),
             axes: figure.axes.iter().map(Axes::encode).collect(),
             links: encode_links(&figure.links),
             provenance: Some(w::Provenance {
@@ -490,8 +494,6 @@ impl Encode for Axes {
             y: Some(encode_axis(&self.y)),
             z: Some(encode_axis(&self.z)),
             r#box: Some(self.box_),
-            colormap: self.colormap.to_wire(),
-            clim: Some(encode_limits(self.clim)),
             legend: self.legend.as_ref().map(encode_legend),
             artists: self.artists.iter().map(Artist::encode).collect(),
             title_align: self.title_align.to_wire(),
@@ -661,6 +663,7 @@ impl Encode for Scatter {
             x_coords: self.x_coords.to_wire(),
             y_coords: self.y_coords.to_wire(),
             clip: Some(self.clip),
+            color_scale: self.color_scale.map(|id| id.0),
         }
     }
 }
@@ -675,12 +678,13 @@ impl Encode for Contour {
             visible: Some(self.visible),
             grid: Some(encode_grid(self.grid)),
             z: Some(self.z.0),
-            levels: Some(encode_levels(&self.levels)),
+            levels: self.levels.as_ref().map(encode_levels),
             fill: Some(self.fill),
             placement: Some(encode_contour_placement(self.placement)),
             line: Some(encode_line_style(self.line)),
             line_opacity: Some(self.line_opacity),
             fill_opacity: Some(self.fill_opacity),
+            color_scale: self.color_scale.map(|id| id.0),
         }
     }
 }
@@ -724,6 +728,7 @@ impl Encode for Surface {
             edge_alpha: self.edge_alpha.map(|id| id.0),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
+            color_scale: self.color_scale.map(|id| id.0),
         }
     }
 }
@@ -743,42 +748,149 @@ impl Encode for Image {
     }
 }
 
-impl Encode for IndexedImage {
-    type Message = w::IndexedImage;
+impl Encode for ScalarImage {
+    type Message = w::ScalarImage;
 
-    fn encode(&self) -> w::IndexedImage {
-        w::IndexedImage {
+    fn encode(&self) -> w::ScalarImage {
+        w::ScalarImage {
             id: Some(self.id.0),
             label: self.label.as_ref().map(encode_text),
             visible: Some(self.visible),
-            indices: Some(self.indices.0),
+            values: Some(self.values.0),
+            color_scale: self.color_scale.map(|id| id.0),
             placement: Some(encode_image_placement(self.placement)),
-            below: Some(encode_out_of_range(self.below)),
-            above: Some(encode_out_of_range(self.above)),
-            non_finite: Some(encode_out_of_range(self.non_finite)),
             alpha: self.alpha.map(|id| id.0),
             opacity: Some(self.opacity),
         }
     }
 }
 
-impl Encode for MappedImage {
-    type Message = w::MappedImage;
+impl Encode for ColorScale {
+    type Message = w::ColorScale;
 
-    fn encode(&self) -> w::MappedImage {
-        w::MappedImage {
+    fn encode(&self) -> w::ColorScale {
+        w::ColorScale {
             id: Some(self.id.0),
-            label: self.label.as_ref().map(encode_text),
-            visible: Some(self.visible),
-            values: Some(self.values.0),
-            placement: Some(encode_image_placement(self.placement)),
-            below: Some(encode_out_of_range(self.below)),
-            above: Some(encode_out_of_range(self.above)),
-            non_finite: Some(encode_out_of_range(self.non_finite)),
-            alpha: self.alpha.map(|id| id.0),
-            opacity: Some(self.opacity),
+            title: self.title.as_ref().map(encode_text),
+            kind: Some(encode_color_scale_kind(&self.kind)),
+            non_finite: Some(encode_color_scale_out_of_range(&self.non_finite)),
         }
     }
+}
+
+fn encode_color_scale_out_of_range(category: &ColorScaleOutOfRange) -> w::ColorScaleOutOfRange {
+    w::ColorScaleOutOfRange {
+        policy: Some(encode_out_of_range(category.policy)),
+        show_key: Some(category.show_key),
+        label: category.label.as_ref().map(encode_text),
+    }
+}
+
+fn encode_color_scale_kind(kind: &ColorScaleKind) -> w::ColorScaleKind {
+    let kind = match kind {
+        ColorScaleKind::Continuous(scale) => {
+            w::ColorScaleKindKind::Continuous(w::ColorScaleKindContinuous {
+                continuous: Some(encode_continuous_color_scale(scale)),
+            })
+        }
+        ColorScaleKind::Discrete(scale) => {
+            w::ColorScaleKindKind::Discrete(w::ColorScaleKindDiscrete {
+                discrete: Some(encode_discrete_color_scale(scale)),
+            })
+        }
+        ColorScaleKind::Indexed(scale) => {
+            w::ColorScaleKindKind::Indexed(w::ColorScaleKindIndexed {
+                indexed: Some(encode_indexed_color_scale(scale)),
+            })
+        }
+        ColorScaleKind::Categorical(scale) => {
+            w::ColorScaleKindKind::Categorical(w::ColorScaleKindCategorical {
+                categorical: Some(encode_categorical_color_scale(scale)),
+            })
+        }
+    };
+    w::ColorScaleKind { kind: Some(kind) }
+}
+
+fn encode_continuous_color_scale(scale: &ContinuousColorScale) -> w::ContinuousColorScale {
+    w::ContinuousColorScale {
+        colormap: Some(encode_colormap(&scale.colormap)),
+        limits: Some(encode_limits(scale.limits)),
+        norm: scale.norm.to_wire(),
+        below: Some(encode_color_scale_out_of_range(&scale.below)),
+        above: Some(encode_color_scale_out_of_range(&scale.above)),
+        ticks: Some(encode_ticks(&scale.ticks)),
+        tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
+    }
+}
+
+fn encode_discrete_color_scale(scale: &DiscreteColorScale) -> w::DiscreteColorScale {
+    w::DiscreteColorScale {
+        colormap: Some(encode_colormap(&scale.colormap)),
+        levels: Some(encode_color_scale_levels(&scale.levels)),
+        norm: scale.norm.to_wire(),
+        below: Some(encode_color_scale_out_of_range(&scale.below)),
+        above: Some(encode_color_scale_out_of_range(&scale.above)),
+        ticks: Some(encode_ticks(&scale.ticks)),
+        tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
+    }
+}
+
+fn encode_indexed_color_scale(scale: &IndexedColorScale) -> w::IndexedColorScale {
+    w::IndexedColorScale {
+        colors: scale
+            .colors
+            .iter()
+            .map(|&color| encode_color(color))
+            .collect(),
+        outside: Some(encode_color_scale_out_of_range(&scale.outside)),
+        ticks: Some(encode_ticks(&scale.ticks)),
+        tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
+    }
+}
+
+fn encode_categorical_color_scale(scale: &CategoricalColorScale) -> w::CategoricalColorScale {
+    w::CategoricalColorScale {
+        categories: scale
+            .categories
+            .iter()
+            .map(|category| w::ColorCategory {
+                color: Some(encode_color(category.color)),
+                label: Some(encode_text(&category.label)),
+            })
+            .collect(),
+        outside: Some(encode_color_scale_out_of_range(&scale.outside)),
+    }
+}
+
+fn encode_colormap(colormap: &Colormap) -> w::Colormap {
+    let kind = match colormap {
+        Colormap::Named { name, reverse } => w::ColormapKind::Named(w::ColormapNamed {
+            name: name.to_wire(),
+            reverse: Some(*reverse),
+        }),
+        Colormap::Listed { colors } => w::ColormapKind::Listed(w::ColormapListed {
+            colors: colors.iter().map(|&color| encode_color(color)).collect(),
+        }),
+    };
+    w::Colormap { kind: Some(kind) }
+}
+
+fn encode_color_scale_levels(levels: &ColorScaleLevels) -> w::ColorScaleLevels {
+    let kind = match levels {
+        ColorScaleLevels::Auto { count, limits } => {
+            w::ColorScaleLevelsKind::Auto(w::ColorScaleLevelsAuto {
+                count: Some(*count),
+                limits: Some(encode_limits(*limits)),
+            })
+        }
+        ColorScaleLevels::Explicit { values } => {
+            w::ColorScaleLevelsKind::Explicit(w::ColorScaleLevelsExplicit {
+                values: values.clone(),
+            })
+        }
+    };
+    w::ColorScaleLevels { kind: Some(kind) }
 }
 
 // ---------------------------------------------------------------------------------
@@ -845,6 +957,12 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         .enumerate()
         .map(|(i, data)| DataArray::decode(data, &format!("data[{i}]")))
         .collect::<Result<Vec<_>>>()?;
+    let color_scales = wire
+        .color_scales
+        .into_iter()
+        .enumerate()
+        .map(|(i, scale)| ColorScale::decode(scale, &format!("color_scales[{i}]")))
+        .collect::<Result<Vec<_>>>()?;
     let axes = wire
         .axes
         .into_iter()
@@ -880,6 +998,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             .transpose()?
             .unwrap_or(default.layout),
         data,
+        color_scales,
         axes,
         panels,
         links,
@@ -1383,8 +1502,6 @@ impl Decode for Axes {
             y: decode_axis(wire.y, &join(at, "y"))?,
             z: decode_axis(wire.z, &join(at, "z"))?,
             box_: wire.r#box.unwrap_or(default.box_),
-            colormap: decode_enum(wire.colormap, Some(default.colormap), at, "colormap")?,
-            clim: decode_limits(wire.clim, default.clim, &join(at, "clim"))?,
             legend,
             artists,
         })
@@ -1503,6 +1620,7 @@ impl Decode for Scatter {
             z: wire.z.map(NodeId),
             size,
             color,
+            color_scale: wire.color_scale.map(NodeId),
             marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
             x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
             y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
@@ -1540,7 +1658,7 @@ impl Decode for Contour {
 
     fn decode(wire: w::Contour, at: &str) -> Result<Self> {
         let default = Contour::default();
-        let levels = decode_levels(wire.levels);
+        let levels = wire.levels.map(|levels| decode_levels(Some(levels)));
         let placement = decode_contour_placement(wire.placement);
         Ok(Contour {
             id: node_id(wire.id, at)?,
@@ -1552,6 +1670,7 @@ impl Decode for Contour {
             fill: wire.fill.unwrap_or(default.fill),
             placement,
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+            color_scale: wire.color_scale.map(NodeId),
             line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
         })
@@ -1596,6 +1715,7 @@ impl Decode for Surface {
             face: decode_color_spec(wire.face, default.face),
             edge: decode_color_spec(wire.edge, default.edge),
             edge_width_pt: wire.edge_width_pt.unwrap_or(default.edge_width_pt),
+            color_scale: wire.color_scale.map(NodeId),
             face_alpha: wire.face_alpha.map(NodeId),
             edge_alpha: wire.edge_alpha.map(NodeId),
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
@@ -1642,11 +1762,12 @@ fn decode_image_placement(wire: Option<w::ImagePlacement>, at: &str) -> Result<I
     })
 }
 
-/// Decodes an out-of-range policy, taking an unset policy as the default and a fixed
-/// colour without a colour as black, as a fixed colour specification is taken.
-fn decode_out_of_range(wire: Option<w::OutOfRange>) -> OutOfRange {
+/// Decodes an out-of-range policy, taking an unset policy as `default`, the default of
+/// its context, and a fixed colour without a colour as black, as a fixed colour
+/// specification is taken.
+fn decode_out_of_range(wire: Option<w::OutOfRange>, default: OutOfRange) -> OutOfRange {
     match wire.and_then(|policy| policy.kind) {
-        None => OutOfRange::default(),
+        None => default,
         Some(w::OutOfRangeKind::Strict(_)) => OutOfRange::Strict,
         Some(w::OutOfRangeKind::Transparent(_)) => OutOfRange::Transparent,
         Some(w::OutOfRangeKind::Clamp(_)) => OutOfRange::Clamp,
@@ -1672,44 +1793,235 @@ impl Decode for Image {
     }
 }
 
-impl Decode for IndexedImage {
-    type Message = w::IndexedImage;
+impl Decode for ScalarImage {
+    type Message = w::ScalarImage;
 
-    fn decode(wire: w::IndexedImage, at: &str) -> Result<Self> {
-        let default = IndexedImage::default();
-        Ok(IndexedImage {
+    fn decode(wire: w::ScalarImage, at: &str) -> Result<Self> {
+        let default = ScalarImage::default();
+        Ok(ScalarImage {
             id: node_id(wire.id, at)?,
             label: decode_label(wire.label, at)?,
             visible: wire.visible.unwrap_or(default.visible),
-            indices: reference(wire.indices, at, "indices")?,
+            values: reference(wire.values, at, "values")?,
+            color_scale: wire.color_scale.map(NodeId),
             placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
-            below: decode_out_of_range(wire.below),
-            above: decode_out_of_range(wire.above),
-            non_finite: decode_out_of_range(wire.non_finite),
             alpha: wire.alpha.map(NodeId),
             opacity: wire.opacity.unwrap_or(default.opacity),
         })
     }
 }
 
-impl Decode for MappedImage {
-    type Message = w::MappedImage;
+impl Decode for ColorScale {
+    type Message = w::ColorScale;
 
-    fn decode(wire: w::MappedImage, at: &str) -> Result<Self> {
-        let default = MappedImage::default();
-        Ok(MappedImage {
+    fn decode(wire: w::ColorScale, at: &str) -> Result<Self> {
+        let default = ColorScale::default();
+        Ok(ColorScale {
             id: node_id(wire.id, at)?,
-            label: decode_label(wire.label, at)?,
-            visible: wire.visible.unwrap_or(default.visible),
-            values: reference(wire.values, at, "values")?,
-            placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
-            below: decode_out_of_range(wire.below),
-            above: decode_out_of_range(wire.above),
-            non_finite: decode_out_of_range(wire.non_finite),
-            alpha: wire.alpha.map(NodeId),
-            opacity: wire.opacity.unwrap_or(default.opacity),
+            title: wire
+                .title
+                .map(|title| decode_text(title, &join(at, "title")))
+                .transpose()?,
+            kind: decode_color_scale_kind(wire.kind, &join(at, "kind"))?,
+            non_finite: decode_color_scale_out_of_range(
+                wire.non_finite,
+                default.non_finite.policy,
+                &join(at, "non_finite"),
+            )?,
         })
     }
+}
+
+/// Decodes an out-of-range category of a colour scale, whose policy takes
+/// `default_policy`, the default of the category, when it is absent; `at` is the path of
+/// the category itself.
+fn decode_color_scale_out_of_range(
+    wire: Option<w::ColorScaleOutOfRange>,
+    default_policy: OutOfRange,
+    at: &str,
+) -> Result<ColorScaleOutOfRange> {
+    let wire = wire.unwrap_or_default();
+    let default = ColorScaleOutOfRange::new(default_policy);
+    Ok(ColorScaleOutOfRange {
+        policy: decode_out_of_range(wire.policy, default.policy),
+        show_key: wire.show_key.unwrap_or(default.show_key),
+        label: wire
+            .label
+            .map(|label| decode_text(label, &join(at, "label")))
+            .transpose()?,
+    })
+}
+
+/// Decodes the kind of a colour scale, taking an absent or unset kind, and an absent
+/// scale of a kind, as the defaults; `at` is the path of the kind itself.
+fn decode_color_scale_kind(wire: Option<w::ColorScaleKind>, at: &str) -> Result<ColorScaleKind> {
+    Ok(match wire.and_then(|kind| kind.kind) {
+        None => ColorScaleKind::default(),
+        Some(w::ColorScaleKindKind::Continuous(kind)) => {
+            let at = join(at, "continuous");
+            ColorScaleKind::Continuous(decode_continuous_color_scale(
+                kind.continuous.unwrap_or_default(),
+                &join(&at, "continuous"),
+            )?)
+        }
+        Some(w::ColorScaleKindKind::Discrete(kind)) => {
+            let at = join(at, "discrete");
+            ColorScaleKind::Discrete(decode_discrete_color_scale(
+                kind.discrete.unwrap_or_default(),
+                &join(&at, "discrete"),
+            )?)
+        }
+        Some(w::ColorScaleKindKind::Indexed(kind)) => {
+            let at = join(at, "indexed");
+            ColorScaleKind::Indexed(decode_indexed_color_scale(
+                kind.indexed.unwrap_or_default(),
+                &join(&at, "indexed"),
+            )?)
+        }
+        Some(w::ColorScaleKindKind::Categorical(kind)) => {
+            let at = join(at, "categorical");
+            ColorScaleKind::Categorical(decode_categorical_color_scale(
+                kind.categorical.unwrap_or_default(),
+                &join(&at, "categorical"),
+            )?)
+        }
+    })
+}
+
+fn decode_continuous_color_scale(
+    wire: w::ContinuousColorScale,
+    at: &str,
+) -> Result<ContinuousColorScale> {
+    let default = ContinuousColorScale::default();
+    Ok(ContinuousColorScale {
+        colormap: decode_colormap(wire.colormap, &join(at, "colormap"))?,
+        limits: decode_limits(wire.limits, default.limits, &join(at, "limits"))?,
+        norm: decode_enum(wire.norm, Some(default.norm), at, "norm")?,
+        below: decode_color_scale_out_of_range(
+            wire.below,
+            default.below.policy,
+            &join(at, "below"),
+        )?,
+        above: decode_color_scale_out_of_range(
+            wire.above,
+            default.above.policy,
+            &join(at, "above"),
+        )?,
+        ticks: decode_ticks(wire.ticks, &join(at, "ticks"))?,
+        tick_labels: decode_tick_labels(wire.tick_labels, &join(at, "tick_labels"))?,
+    })
+}
+
+fn decode_discrete_color_scale(
+    wire: w::DiscreteColorScale,
+    at: &str,
+) -> Result<DiscreteColorScale> {
+    let default = DiscreteColorScale::default();
+    Ok(DiscreteColorScale {
+        colormap: decode_colormap(wire.colormap, &join(at, "colormap"))?,
+        levels: decode_color_scale_levels(wire.levels, &join(at, "levels"))?,
+        norm: decode_enum(wire.norm, Some(default.norm), at, "norm")?,
+        below: decode_color_scale_out_of_range(
+            wire.below,
+            default.below.policy,
+            &join(at, "below"),
+        )?,
+        above: decode_color_scale_out_of_range(
+            wire.above,
+            default.above.policy,
+            &join(at, "above"),
+        )?,
+        ticks: decode_ticks(wire.ticks, &join(at, "ticks"))?,
+        tick_labels: decode_tick_labels(wire.tick_labels, &join(at, "tick_labels"))?,
+    })
+}
+
+fn decode_indexed_color_scale(wire: w::IndexedColorScale, at: &str) -> Result<IndexedColorScale> {
+    let default = IndexedColorScale::default();
+    Ok(IndexedColorScale {
+        colors: wire.colors.into_iter().map(decode_color).collect(),
+        outside: decode_color_scale_out_of_range(
+            wire.outside,
+            default.outside.policy,
+            &join(at, "outside"),
+        )?,
+        ticks: decode_ticks(wire.ticks, &join(at, "ticks"))?,
+        tick_labels: decode_tick_labels(wire.tick_labels, &join(at, "tick_labels"))?,
+    })
+}
+
+/// Decodes a categorical colour scale, whose every category must have a label.
+fn decode_categorical_color_scale(
+    wire: w::CategoricalColorScale,
+    at: &str,
+) -> Result<CategoricalColorScale> {
+    let default = CategoricalColorScale::default();
+    Ok(CategoricalColorScale {
+        categories: wire
+            .categories
+            .into_iter()
+            .enumerate()
+            .map(|(i, category)| {
+                let at = join(at, &format!("categories[{i}]"));
+                Ok(ColorCategory {
+                    color: category.color.map(decode_color).unwrap_or_default(),
+                    label: decode_text(
+                        required(category.label, &at, "label")?,
+                        &join(&at, "label"),
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+        outside: decode_color_scale_out_of_range(
+            wire.outside,
+            default.outside.policy,
+            &join(at, "outside"),
+        )?,
+    })
+}
+
+/// Decodes a colormap, taking an absent or unset colormap as viridis and an unspecified
+/// name as viridis; `at` is the path of the colormap itself.
+fn decode_colormap(wire: Option<w::Colormap>, at: &str) -> Result<Colormap> {
+    Ok(match wire.and_then(|colormap| colormap.kind) {
+        None => Colormap::default(),
+        Some(w::ColormapKind::Named(named)) => Colormap::Named {
+            name: decode_enum(
+                named.name,
+                Some(ColormapName::default()),
+                &join(at, "named"),
+                "name",
+            )?,
+            reverse: named.reverse.unwrap_or_default(),
+        },
+        Some(w::ColormapKind::Listed(listed)) => Colormap::Listed {
+            colors: listed.colors.into_iter().map(decode_color).collect(),
+        },
+    })
+}
+
+/// Decodes the band edges of a discrete colour scale, taking absent or unset edges as the
+/// default and the absent count or limits of automatic edges as theirs; `at` is the path
+/// of the edges themselves.
+fn decode_color_scale_levels(
+    wire: Option<w::ColorScaleLevels>,
+    at: &str,
+) -> Result<ColorScaleLevels> {
+    Ok(match wire.and_then(|levels| levels.kind) {
+        None => ColorScaleLevels::default(),
+        Some(w::ColorScaleLevelsKind::Auto(auto)) => {
+            let ColorScaleLevels::Auto { count, limits } = ColorScaleLevels::default() else {
+                unreachable!("the default band edges are automatic");
+            };
+            ColorScaleLevels::Auto {
+                count: auto.count.unwrap_or(count),
+                limits: decode_limits(auto.limits, limits, &join(at, "automatic.limits"))?,
+            }
+        }
+        Some(w::ColorScaleLevelsKind::Explicit(explicit)) => ColorScaleLevels::Explicit {
+            values: explicit.values,
+        },
+    })
 }
 
 // ---------------------------------------------------------------------------------
@@ -1914,6 +2226,41 @@ fn encode_value(value: &Value) -> w::Value {
         }),
         Value::OutOfRange(v) => w::ValueKind::OutOfRange(w::ValueOutOfRange {
             value: Some(encode_out_of_range(*v)),
+        }),
+        Value::ColorScaleOutOfRange(v) => {
+            w::ValueKind::ColorScaleOutOfRange(w::ValueColorScaleOutOfRange {
+                value: Some(encode_color_scale_out_of_range(v)),
+            })
+        }
+        Value::ColorScaleKind(v) => w::ValueKind::ColorScaleKind(w::ValueColorScaleKind {
+            value: Some(encode_color_scale_kind(v)),
+        }),
+        Value::ContinuousColorScale(v) => {
+            w::ValueKind::ContinuousColorScale(w::ValueContinuousColorScale {
+                value: Some(encode_continuous_color_scale(v)),
+            })
+        }
+        Value::DiscreteColorScale(v) => {
+            w::ValueKind::DiscreteColorScale(w::ValueDiscreteColorScale {
+                value: Some(encode_discrete_color_scale(v)),
+            })
+        }
+        Value::IndexedColorScale(v) => w::ValueKind::IndexedColorScale(w::ValueIndexedColorScale {
+            value: Some(encode_indexed_color_scale(v)),
+        }),
+        Value::CategoricalColorScale(v) => {
+            w::ValueKind::CategoricalColorScale(w::ValueCategoricalColorScale {
+                value: Some(encode_categorical_color_scale(v)),
+            })
+        }
+        Value::Colormap(v) => w::ValueKind::Colormap(w::ValueColormap {
+            value: Some(encode_colormap(v)),
+        }),
+        Value::ColorScaleNorm(v) => {
+            w::ValueKind::ColorScaleNorm(w::ValueColorScaleNorm { value: v.to_wire() })
+        }
+        Value::ColorScaleLevels(v) => w::ValueKind::ColorScaleLevels(w::ValueColorScaleLevels {
+            value: Some(encode_color_scale_levels(v)),
         }),
     };
     w::Value { kind: Some(kind) }
@@ -2266,7 +2613,51 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         }
         w::ValueKind::OutOfRange(v) => {
             let (policy, _) = value_message(v.value, at, "out_of_range_value")?;
-            Value::OutOfRange(decode_out_of_range(Some(policy)))
+            Value::OutOfRange(decode_out_of_range(Some(policy), OutOfRange::default()))
+        }
+        // A category has no context from which to take its default policy, so an absent
+        // policy within it is transparent, the default of the policy type.
+        w::ValueKind::ColorScaleOutOfRange(v) => {
+            let (category, at) = value_message(v.value, at, "color_scale_out_of_range_value")?;
+            Value::ColorScaleOutOfRange(decode_color_scale_out_of_range(
+                Some(category),
+                OutOfRange::default(),
+                &at,
+            )?)
+        }
+        w::ValueKind::ColorScaleKind(v) => {
+            let (kind, at) = value_message(v.value, at, "color_scale_kind_value")?;
+            Value::ColorScaleKind(decode_color_scale_kind(Some(kind), &at)?)
+        }
+        w::ValueKind::ContinuousColorScale(v) => {
+            let (scale, at) = value_message(v.value, at, "continuous_color_scale_value")?;
+            Value::ContinuousColorScale(decode_continuous_color_scale(scale, &at)?)
+        }
+        w::ValueKind::DiscreteColorScale(v) => {
+            let (scale, at) = value_message(v.value, at, "discrete_color_scale_value")?;
+            Value::DiscreteColorScale(decode_discrete_color_scale(scale, &at)?)
+        }
+        w::ValueKind::IndexedColorScale(v) => {
+            let (scale, at) = value_message(v.value, at, "indexed_color_scale_value")?;
+            Value::IndexedColorScale(decode_indexed_color_scale(scale, &at)?)
+        }
+        w::ValueKind::CategoricalColorScale(v) => {
+            let (scale, at) = value_message(v.value, at, "categorical_color_scale_value")?;
+            Value::CategoricalColorScale(decode_categorical_color_scale(scale, &at)?)
+        }
+        w::ValueKind::Colormap(v) => {
+            let (colormap, at) = value_message(v.value, at, "colormap_value")?;
+            Value::Colormap(decode_colormap(Some(colormap), &at)?)
+        }
+        w::ValueKind::ColorScaleNorm(v) => Value::ColorScaleNorm(decode_enum(
+            v.value,
+            None,
+            &join(at, "color_scale_norm_value"),
+            "value",
+        )?),
+        w::ValueKind::ColorScaleLevels(v) => {
+            let (levels, at) = value_message(v.value, at, "color_scale_levels_value")?;
+            Value::ColorScaleLevels(decode_color_scale_levels(Some(levels), &at)?)
         }
     })
 }

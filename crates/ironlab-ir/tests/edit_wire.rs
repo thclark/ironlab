@@ -308,12 +308,16 @@ fn the_json_form_of_the_image_values_uses_snake_case_type_names() {
         ),
         set(
             NodeId(3),
-            "non_finite",
+            "non_finite.policy",
             Value::OutOfRange(OutOfRange::Rgba {
                 color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
             }),
         ),
-        set(NodeId(3), "below", Value::OutOfRange(OutOfRange::Clamp)),
+        set(
+            NodeId(3),
+            "kind.continuous.below.policy",
+            Value::OutOfRange(OutOfRange::Clamp),
+        ),
     ]);
     let json: serde_json::Value = serde_json::from_str(&transaction.to_json()).unwrap();
     let values: Vec<&serde_json::Value> = json["edits"]
@@ -421,6 +425,44 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
         (
             wire::ValueKind::OutOfRange(wire::ValueOutOfRange { value: None }),
             "out_of_range_value",
+        ),
+        (
+            wire::ValueKind::ColorScaleOutOfRange(wire::ValueColorScaleOutOfRange { value: None }),
+            "color_scale_out_of_range_value",
+        ),
+        (
+            wire::ValueKind::ColorScaleKind(wire::ValueColorScaleKind { value: None }),
+            "color_scale_kind_value",
+        ),
+        (
+            wire::ValueKind::ContinuousColorScale(wire::ValueContinuousColorScale { value: None }),
+            "continuous_color_scale_value",
+        ),
+        (
+            wire::ValueKind::DiscreteColorScale(wire::ValueDiscreteColorScale { value: None }),
+            "discrete_color_scale_value",
+        ),
+        (
+            wire::ValueKind::IndexedColorScale(wire::ValueIndexedColorScale { value: None }),
+            "indexed_color_scale_value",
+        ),
+        (
+            wire::ValueKind::CategoricalColorScale(wire::ValueCategoricalColorScale {
+                value: None,
+            }),
+            "categorical_color_scale_value",
+        ),
+        (
+            wire::ValueKind::Colormap(wire::ValueColormap { value: None }),
+            "colormap_value",
+        ),
+        (
+            wire::ValueKind::ColorScaleLevels(wire::ValueColorScaleLevels { value: None }),
+            "color_scale_levels_value",
+        ),
+        (
+            wire::ValueKind::ColorScaleNorm(wire::ValueColorScaleNorm { value: 0 }),
+            "color_scale_norm_value",
         ),
     ] {
         assert_missing(

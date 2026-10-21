@@ -3,11 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels,
+    Line, PixelRange, Quiver, ScalarImage, Scatter, ScatterColor, ScatterSize, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
+use crate::color_scale::{
+    ColorMapping, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind, ColorScaleLevels,
+    ColorScaleNorm, Colormap, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
+};
 use crate::data::{DataArray, NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
 use crate::ids::NodeId;
@@ -52,13 +55,32 @@ pub enum IssueKind {
     /// An artist refers to its data by an identifier that is not a node of the figure.
     UnknownData,
     /// A reference names a node of the figure that is not of the kind it requires: an
-    /// artist's data that is not a data array, the panel of a legend that is not a panel
-    /// holding a legend, or an item of an explicit list of legend entries that names a
-    /// node that is not an artist. It is reported against the node that holds the
-    /// reference, and a reference that names no node at all is reported as
-    /// [`IssueKind::UnknownData`], [`IssueKind::DanglingPanelLegend`] or
+    /// artist's data that is not a data array, an artist's colour scale that is not a
+    /// colour scale, the panel of a legend that is not a panel holding a legend, or an
+    /// item of an explicit list of legend entries that names a node that is not an
+    /// artist. It is reported against the node that holds the reference, and a reference
+    /// that names no node at all is reported as [`IssueKind::UnknownData`],
+    /// [`IssueKind::UnknownColorScale`], [`IssueKind::DanglingPanelLegend`] or
     /// [`IssueKind::DanglingLegendItem`] instead.
     WrongNodeKind,
+    /// An artist names its colour scale by an identifier that is not a node of the
+    /// figure. It is reported against the artist.
+    UnknownColorScale,
+    /// An artist maps numbers to colours but names no colour scale: a scalar image, a
+    /// contour whose bands are filled or whose isolines are colormapped or automatic, a
+    /// surface whose faces or edges are colormapped or automatic, or a scatter coloured by
+    /// data. The axes hold no
+    /// colormap to fall back on, so the artist cannot be coloured. It is reported against
+    /// the artist. A colormapped line, quiver or single scatter colour maps no number and
+    /// needs no scale.
+    MissingColorScale,
+    /// A colour scale cannot map any value: an indexed scale with no entries, or a
+    /// categorical scale with no categories. It is reported against the scale, whether or
+    /// not an artist names it, because a colourbar may show it alone.
+    InvalidColorScale,
+    /// The listed colormap of a continuous or discrete colour scale holds fewer than 2 or
+    /// more than 1024 colours. It is reported against the scale.
+    InvalidColormap,
     /// A data array's number of values differs from the product of its shape. It is
     /// reported against the data array.
     InvalidArray,
@@ -72,8 +94,8 @@ pub enum IssueKind {
     /// An artist refers to an array whose element type it cannot use: every artist
     /// other than an image requires 64-bit floating-point values, so such an artist
     /// cannot plot an array of 8-bit values, and the alpha of a surface must hold
-    /// 64-bit floating-point values too. The three image kinds accept either element
-    /// type, for their alpha as for their pixels, indices or values.
+    /// 64-bit floating-point values too. The two image kinds accept either element
+    /// type, for their alpha as for their pixels or values.
     ElementTypeMismatch,
     /// An artist or placement that needs the z axis (z or w data, contours at their
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
@@ -133,21 +155,26 @@ pub enum IssueKind {
     InvalidLegendColumns,
     /// The figure's width, height or base font size is not a finite positive number.
     InvalidSize,
-    /// Manual limits (of a coordinate axis or of the colour limits) are not finite,
-    /// are not strictly increasing, or are not positive on a logarithmic axis.
+    /// Manual limits are not finite, are not strictly increasing, or are not positive on
+    /// a logarithmic axis or under the logarithmic norm of a colour scale. The limits of
+    /// a coordinate axis are reported against the axes, and the limits of a colour scale
+    /// (or of its automatic band edges) against the scale.
     InvalidLimits,
-    /// Contour levels are empty, not finite or not strictly increasing, or an
-    /// automatic level count is zero.
+    /// Contour levels are empty, not finite or not strictly increasing, or an automatic
+    /// level count is zero, reported against the contour; or the band edges of a discrete
+    /// colour scale are fewer than two, not finite, not strictly increasing or, under a
+    /// logarithmic norm, not positive, or their automatic count is zero, reported against
+    /// the scale.
     InvalidLevels,
-    /// The ticks of a coordinate axis cannot be placed: a regular step that is not a
-    /// finite positive number or an origin that is not finite, an explicit tick value
-    /// that is not finite, or an explicit tick value that is not positive on a
-    /// logarithmic axis. Only the axes that are drawn are checked: x and y, and z in a
-    /// three-dimensional axes.
+    /// The ticks of a coordinate axis or of a colour scale cannot be placed: a regular
+    /// step that is not a finite positive number or an origin that is not finite, an
+    /// explicit tick value that is not finite, or an explicit tick value that is not
+    /// positive on a logarithmic axis or scale. Only the axes that are drawn are checked:
+    /// x and y, and z in a three-dimensional axes.
     InvalidTicks,
-    /// The explicit tick labels of a coordinate axis do not name its ticks one by one:
-    /// the ticks are not explicit values, or the number of labels differs from the
-    /// number of values.
+    /// The explicit tick labels of a coordinate axis or of a colour scale do not name its
+    /// ticks one by one: the ticks are not explicit values, or the number of labels
+    /// differs from the number of values.
     InvalidTickLabels,
     /// The aspect of an axes cannot be kept: a ratio of y or of z that is not a finite
     /// positive number. The ratio of z is checked on a two-dimensional axes too, which
@@ -184,10 +211,16 @@ pub enum IssueKind {
     /// three-dimensional axes, the plane is offset to a coordinate that is not positive
     /// along a logarithmic third axis, which has no place for it.
     InvalidImagePlacement,
-    /// A pixel of a colour-indexed or colour-mapped image falls in a category whose
-    /// out-of-range policy is strict: an index outside the colormap, a value outside
-    /// manual colour limits, or an index or value that is not finite.
-    PixelOutOfRange,
+    /// A number that an artist maps through its colour scale falls in a category of the
+    /// scale whose policy is strict: below or above the range of a continuous or discrete
+    /// scale, outside the entries of an indexed or categorical scale (a fractional index
+    /// included), or not finite. It is reported against the artist. Only the numbers of
+    /// the artist's data are checked (the values of a scalar image, the field of a
+    /// contour, the colour data of a surface or scatter), never numbers derived from them
+    /// such as the mean of a surface face's corners or the automatic levels of a contour.
+    /// No value lies beyond automatic limits, which are the range of the data, except a
+    /// value that is not positive under a logarithmic norm, which lies below.
+    ValueOutOfRange,
     /// An image lies in a plane of which an axis is logarithmic. An image is a raster of
     /// evenly spaced pixels, which has no placement on a logarithmic axis, where equal
     /// steps in the data are unequal distances on the page, so the figure is refused
@@ -206,41 +239,44 @@ impl Figure {
     /// Checks the figure for structural problems.
     ///
     /// Errors report data references that name no node, references that name a node of
-    /// the wrong kind (an artist's data that is not a data array, a legend's panel that
-    /// is not a panel holding a legend, and a legend item that is not an artist), data
-    /// arrays whose values do not match their shape, arrays of 8-bit values referenced by an artist other than an image (every
-    /// other artist requires 64-bit floating-point values, the alpha of a surface among
-    /// them), inconsistent array lengths and shapes within an artist (for an image,
-    /// pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices
-    /// or values that are not two-dimensional; for a surface, colour data or alpha whose
-    /// shape differs from the field's; for a colour-indexed or colour-mapped image, alpha
-    /// whose shape differs from the indices' or values'), an opacity that is not a finite
-    /// number from 0 to 1,
-    /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
-    /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
-    /// identifiers that are not axes, duplicate node identifiers (data arrays included),
-    /// cells of axes and panels outside the tile layout, layout sizes that are too many or weights
-    /// that are not finite and positive, axes that lie in fitted rows alone or in fitted
-    /// columns alone, legends that name no node as their panel, items of an explicit list
-    /// of legend entries that name no node (or, inside a plot area, an artist of another
-    /// axes),
-    /// legends with a fixed number of zero columns, a non-positive figure size or font
-    /// size, invalid manual limits, ticks that cannot be placed (a regular step that is
-    /// not finite and positive or an origin that is not finite, and explicit tick values
-    /// that are not finite or, on a logarithmic axis, not positive), explicit tick labels
-    /// that do not name explicit tick values one by one, invalid
-    /// contour levels, parameters with an empty name or a non-finite number, tags that
-    /// are empty or repeated, an image
+    /// the wrong kind (an artist's data that is not a data array, an artist's colour scale
+    /// that is not a colour scale, a legend's panel that is not a panel holding a legend,
+    /// and a legend item that is not an artist), colour scale references that name no
+    /// node, colour-mapped artists that name no colour scale, data arrays whose values do
+    /// not match their shape, arrays of 8-bit values referenced by an artist other than an
+    /// image (every other artist requires 64-bit floating-point values, the alpha of a
+    /// surface among them), inconsistent array lengths and shapes within an artist (for an
+    /// image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or
+    /// values of a scalar image that are not two-dimensional; for a surface, colour data
+    /// or alpha whose shape differs from the field's; for a scalar image, alpha whose shape
+    /// differs from the values'), an opacity that is not a finite number from 0 to 1, 3D
+    /// artists in 2D axes (an image on the xz or yz plane among them), lines and scatters
+    /// in 3D axes with a dimension in axes-fraction coordinates, links to identifiers that
+    /// are not axes, duplicate node identifiers (data arrays and colour scales included),
+    /// cells of axes and panels outside the tile layout, layout sizes that are too many or
+    /// weights that are not finite and positive, axes that lie in fitted rows alone or in
+    /// fitted columns alone, legends that name no node as their panel, items of an
+    /// explicit list of legend entries that name no node (or, inside a plot area, an
+    /// artist of another axes), legends with a fixed number of zero columns, a
+    /// non-positive figure size or font size, invalid manual limits of an axis or a colour
+    /// scale, ticks of an axis or a colour scale that cannot be placed (a regular step
+    /// that is not finite and positive or an origin that is not finite, and explicit tick
+    /// values that are not finite or, on a logarithmic axis or scale, not positive),
+    /// explicit tick labels that do not name explicit tick values one by one, invalid
+    /// contour levels and band edges, a listed colormap of fewer than 2 or more than 1024
+    /// colours, an indexed or categorical colour scale with no entries, parameters with an
+    /// empty name or a non-finite number, tags that are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
     /// last centres coincide along an axis of more than one pixel, an image whose plane
     /// has a logarithmic axis (which must be drawn as a surface instead) or, in a 3D
     /// axes, is offset to a coordinate that is not positive along a logarithmic third
-    /// axis, and pixels of a colour-indexed or colour-mapped image that fall in a
-    /// category whose out-of-range policy is strict (for a colour-mapped image, a value lies below or above the range
-    /// only when the colour limits are manual and valid, because automatic limits are
-    /// the range of the data). Warnings report finite non-positive data plotted along
-    /// logarithmic axes, a line or scatter whose released clip has no effect because it
-    /// places no dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
+    /// axis, and numbers that an artist maps through a colour scale which fall in a
+    /// category of the scale whose policy is strict (a value lies below or above a range
+    /// with automatic limits only when it is not positive under a logarithmic norm,
+    /// because automatic limits are the range of the data). Warnings report finite
+    /// non-positive data plotted along logarithmic axes, a line or scatter whose released
+    /// clip has no effect because it places no dimension in axes-fraction coordinates of
+    /// a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), a panel holding a legend with no
@@ -250,23 +286,24 @@ impl Figure {
     /// artist refers to, and two nodes of the tile layout, axes or panels, whose cells
     /// share a tile, once per pair against the later node (axes before panels, each in
     /// the order the figure lists them), comparing only cells that lie within the layout;
-    /// data that is not plotted along an
-    /// axis (such as quiver components, colour data, the pixels of an image, or the
-    /// values of a dimension in axes-fraction coordinates) never produces the first of
-    /// these. An array of 8-bit values that no artist refers to is not an error; it is
-    /// reported only as unused.
+    /// data that is not plotted along an axis (such as quiver components, colour data, the
+    /// pixels of an image, or the values of a dimension in axes-fraction coordinates)
+    /// never produces the first of these. An array of 8-bit values that no artist refers
+    /// to is not an error; it is reported only as unused. A colour scale that no artist
+    /// names is neither an error nor a warning, because a colourbar may show it alone.
     ///
-    /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when drawing, and
-    /// so is the offset of an image in the xy plane of a 2D axes. A line, scatter or
-    /// quiver without z data in a 3D axes is not an error: it is drawn in the plane
-    /// z = 0. Shape checks are skipped for an artist that refers to unknown or invalid
-    /// arrays, or (other than an image) to 8-bit arrays, so that one problem is not
-    /// reported repeatedly; the coincidence of an image's pixel centres and its strict
-    /// policies are checked only when its array is valid and of the right shape, because
-    /// both depend on the pixels, whereas a non-finite centre or offset is always
-    /// reported. An artist is reported as having nothing to draw only when it is
-    /// reported for no error, so that the error, which is what must be fixed, stands
-    /// alone.
+    /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when
+    /// drawing, and so is the offset of an image in the xy plane of a 2D axes. A line,
+    /// scatter or quiver without z data in a 3D axes is not an error: it is drawn in the
+    /// plane z = 0. Shape checks are skipped for an artist that refers to unknown or
+    /// invalid arrays, or (other than an image) to 8-bit arrays, so that one problem is
+    /// not reported repeatedly; the coincidence of an image's pixel centres is checked
+    /// only when its array is valid and of the right shape, because it depends on the
+    /// pixels, whereas a non-finite centre or offset is always reported. The numbers an
+    /// artist maps are checked against its colour scale only when its data references
+    /// are valid and its scale reference names a valid colour scale. An artist is
+    /// reported as having nothing to draw only when it is reported for no error, so that
+    /// the error, which is what must be fixed, stands alone.
     pub fn validate(&self) -> ValidationReport {
         let mut kinds = HashMap::new();
         let mut counts: BTreeMap<NodeId, usize> = BTreeMap::new();
@@ -282,6 +319,7 @@ impl Figure {
             figure: self,
             kinds: &kinds,
             arrays: &arrays,
+            automatic_limits: HashMap::new(),
             report: ValidationReport::default(),
         };
         self.check_nodes(&mut validator);
@@ -345,6 +383,16 @@ impl Check for DataArray {
     }
 }
 
+impl Check for ColorScale {
+    type Parent = Figure;
+
+    fn check(&self, validator: &mut Validator<'_>, _: &Figure) {
+        for (kind, message) in color_scale_problems(self) {
+            validator.error(Some(self.id), kind, message);
+        }
+    }
+}
+
 impl Check for Axes {
     type Parent = Figure;
 
@@ -372,7 +420,12 @@ impl Check for Artist {
     type Parent = Axes;
 
     fn check(&self, validator: &mut Validator<'_>, axes: &Axes) {
-        validator.check_artist(axes, self.id(), self.usage());
+        let usage = ArtistUsage {
+            color_scale: self.color_scale(),
+            color: self.color_mapping(),
+            ..self.usage()
+        };
+        validator.check_artist(axes, self.id(), usage);
     }
 }
 
@@ -384,6 +437,9 @@ pub(crate) struct Validator<'a> {
     kinds: &'a HashMap<NodeId, NodeKind>,
     /// The array of every data array, by identifier; a shared identifier takes the first.
     arrays: &'a HashMap<NodeId, &'a NdArray>,
+    /// The automatic limits of every colour scale whose limits have been needed, by
+    /// identifier, computed once for every artist that names the scale.
+    automatic_limits: HashMap<NodeId, Option<(f64, f64)>>,
     report: ValidationReport,
 }
 
@@ -405,7 +461,7 @@ fn is_consistent(array: &NdArray) -> bool {
         == Some(array.len())
 }
 
-impl Validator<'_> {
+impl<'a> Validator<'a> {
     fn error(&mut self, node: Option<NodeId>, kind: IssueKind, message: String) {
         self.report.errors.push(ValidationIssue {
             node,
@@ -769,77 +825,19 @@ impl Validator<'_> {
             axes_drawn.push(("z", &axes.z));
         }
         for (name, axis) in axes_drawn {
-            self.check_ticks(axes.id, name, axis);
+            let problems = tick_problems(
+                &format!("{name} axis"),
+                &axis.ticks,
+                &axis.tick_labels,
+                axis.scale == Scale::Log,
+            );
+            for (kind, message) in problems {
+                self.error(Some(axes.id), kind, message);
+            }
         }
-        limits.push(("colour limits", axes.clim, Scale::Linear));
         for (name, limits, scale) in limits {
-            let Limits::Manual { min, max } = limits else {
-                continue;
-            };
-            if !(min.is_finite() && max.is_finite() && min < max) {
-                self.error(
-                    Some(axes.id),
-                    IssueKind::InvalidLimits,
-                    format!("the {name} [{min}, {max}] are not finite and strictly increasing"),
-                );
-            } else if scale == Scale::Log && min <= 0.0 {
-                self.error(
-                    Some(axes.id),
-                    IssueKind::InvalidLimits,
-                    format!("the {name} [{min}, {max}] are not positive on a logarithmic axis"),
-                );
-            }
-        }
-    }
-
-    /// Checks that the ticks of one coordinate axis can be placed and that explicit tick
-    /// labels name them one by one.
-    fn check_ticks(&mut self, node: NodeId, name: &str, axis: &Axis) {
-        let log = axis.scale == Scale::Log;
-        let problem = match &axis.ticks {
-            Ticks::Auto => None,
-            Ticks::Step { step, origin } => {
-                if !(step.is_finite() && *step > 0.0) {
-                    Some(format!(
-                        "the {name} tick step {step} is not a finite positive number"
-                    ))
-                } else if !origin.is_finite() {
-                    Some(format!("the {name} tick origin {origin} is not finite"))
-                } else {
-                    None
-                }
-            }
-            Ticks::Values(values) => {
-                let not_finite = values.iter().find(|v| !v.is_finite());
-                let not_positive = values.iter().find(|v| log && **v <= 0.0);
-                match (not_finite, not_positive) {
-                    (Some(value), _) => {
-                        Some(format!("the {name} tick value {value} is not finite"))
-                    }
-                    (None, Some(value)) => Some(format!(
-                        "the {name} tick value {value} is not positive on a logarithmic axis"
-                    )),
-                    (None, None) => None,
-                }
-            }
-        };
-        if let Some(message) = problem {
-            self.error(Some(node), IssueKind::InvalidTicks, message);
-        }
-        if let TickLabels::Text(texts) = &axis.tick_labels {
-            let problem = match &axis.ticks {
-                Ticks::Values(values) if values.len() == texts.len() => None,
-                Ticks::Values(values) => Some(format!(
-                    "the {name} axis has {} tick labels for {} tick values",
-                    texts.len(),
-                    values.len()
-                )),
-                Ticks::Auto | Ticks::Step { .. } => Some(format!(
-                    "the {name} axis has explicit tick labels but its ticks are not explicit values"
-                )),
-            };
-            if let Some(message) = problem {
-                self.error(Some(node), IssueKind::InvalidTickLabels, message);
+            if let Some(message) = limits_problem(name, limits, scale == Scale::Log) {
+                self.error(Some(axes.id), IssueKind::InvalidLimits, message);
             }
         }
     }
@@ -880,6 +878,7 @@ impl Validator<'_> {
         if let Some(levels) = usage.levels {
             self.check_levels(id, levels);
         }
+        let scale = self.check_color_scale_reference(id, usage.color_scale, usage.color);
         // An artist reported for an invalid opacity is not also reported as having nothing to
         // draw, so that the error stands alone.
         let errors_before = self.report.errors.len();
@@ -887,6 +886,9 @@ impl Validator<'_> {
 
         let references_are_valid =
             self.check_references(id, &usage.references, usage.accepts_bytes);
+        if references_are_valid && let (Some(scale), Some(mapping)) = (scale, usage.color) {
+            self.check_mapped_values(id, scale, mapping.values);
+        }
         match &usage.shape {
             Shape::Image(image) => self.check_image(
                 axes,
@@ -1098,9 +1100,8 @@ impl Validator<'_> {
     }
 
     /// Checks an image: the shape of its array when the array is valid, its placement,
-    /// the scales of the axes of its plane, the pixels that its strict policies cover,
-    /// and, when no error was reported against it since `errors_before` errors were
-    /// reported, whether it has any pixel to draw.
+    /// the scales of the axes of its plane, and, when no error was reported against it
+    /// since `errors_before` errors were reported, whether it has any pixel to draw.
     fn check_image(
         &mut self,
         axes: &Axes,
@@ -1121,9 +1122,6 @@ impl Validator<'_> {
         let Some([ny, nx]) = pixels else {
             return;
         };
-        if let Some(policies) = &image.policies {
-            self.check_strict_policies(axes, node, image, policies);
-        }
         if self.report.errors.len() > errors_before {
             return;
         }
@@ -1337,63 +1335,114 @@ impl Validator<'_> {
         );
     }
 
-    /// Reports the pixels of a colour-indexed or colour-mapped image that fall in a
-    /// category whose policy is strict; the array of the image is valid.
-    fn check_strict_policies(
+    /// Checks the colour scale reference of an artist: that a reference names a colour
+    /// scale of the figure, and that an artist that maps numbers to colours names one.
+    /// Returns the scale when the reference names a colour scale that is itself valid,
+    /// against which the numbers the artist maps can be checked.
+    fn check_color_scale_reference(
         &mut self,
-        axes: &Axes,
         node: NodeId,
-        image: &ImageView,
-        policies: &Policies,
-    ) {
-        let array = self.arrays[&image.data];
-        // The range outside which a pixel lies below or above, and how such a pixel is
-        // described.
-        let (range, below, above) = match policies.range {
-            Range::Colormap => (
-                Some((0.0, 255.0)),
-                "less than 0 after truncation toward zero".to_owned(),
-                "greater than 255 after truncation toward zero".to_owned(),
-            ),
-            Range::ColourLimits => match axes.clim {
-                Limits::Manual { min, max } if min.is_finite() && max.is_finite() && min < max => (
-                    Some((min, max)),
-                    format!("less than the lower colour limit {min}"),
-                    format!("greater than the upper colour limit {max}"),
-                ),
-                _ => (None, String::new(), String::new()),
-            },
-        };
-        let truncate = policies.range == Range::Colormap;
-        let mut counts = [0usize; 3];
-        for_each_value(array, |value| {
-            if !value.is_finite() {
-                counts[2] += 1;
-                return;
-            }
-            let Some((min, max)) = range else {
-                return;
-            };
-            let value = if truncate { value.trunc() } else { value };
-            if value < min {
-                counts[0] += 1;
-            } else if value > max {
-                counts[1] += 1;
-            }
-        });
-        let categories = [
-            ("below", policies.below, below),
-            ("above", policies.above, above),
-            ("non_finite", policies.non_finite, "not finite".to_owned()),
-        ];
-        for ((name, policy, condition), count) in categories.into_iter().zip(counts) {
-            if policy == OutOfRange::Strict && count > 0 {
+        reference: Option<NodeId>,
+        mapping: Option<ColorMapping>,
+    ) -> Option<&'a ColorScale> {
+        let figure: &'a Figure = self.figure;
+        let Some(scale) = reference else {
+            if mapping.is_some() {
                 self.error(
                     Some(node),
-                    IssueKind::PixelOutOfRange,
+                    IssueKind::MissingColorScale,
+                    "the artist maps numbers to colours but names no colour scale, and the \
+                     axes hold no colormap to fall back on"
+                        .to_owned(),
+                );
+            }
+            return None;
+        };
+        match figure.color_scale(scale) {
+            Some(found) => color_scale_problems(found).is_empty().then_some(found),
+            None => {
+                let (kind, message) = match self.kinds.get(&scale) {
+                    Some(kind) => (
+                        IssueKind::WrongNodeKind,
+                        format!("{scale} is a node of kind {kind:?}, not a colour scale"),
+                    ),
+                    None => (
+                        IssueKind::UnknownColorScale,
+                        format!("the colour scale {scale} is not a node of the figure"),
+                    ),
+                };
+                self.error(Some(node), kind, message);
+                None
+            }
+        }
+    }
+
+    /// Reports the numbers of an array that an artist maps through a valid colour scale
+    /// and that fall in a category of the scale whose policy is strict, one error for
+    /// each such category; the array is a valid data array.
+    fn check_mapped_values(&mut self, node: NodeId, scale: &ColorScale, values: NodeId) {
+        let domain = match scale.fixed_domain() {
+            Some(domain) => domain,
+            None => {
+                let automatic = *self
+                    .automatic_limits
+                    .entry(scale.id)
+                    .or_insert_with(|| self.figure.automatic_color_limits(scale.id));
+                // Without a value to range over, no finite value lies beyond automatic
+                // limits, except a value that is not positive under a logarithmic norm,
+                // which the domain places below whatever its limits.
+                let (min, max) = scale
+                    .range(automatic)
+                    .unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+                ColorScaleDomain::Continuous {
+                    min,
+                    max,
+                    norm: scale.kind.norm(),
+                }
+            }
+        };
+        let Some(array) = self.arrays.get(&values) else {
+            return;
+        };
+        // The number of values in each category: below, above, outside and non-finite.
+        let mut counts = [0usize; 4];
+        for_each_value(array, |value| match domain.classify(value) {
+            ColorScaleClass::Inside(_) => {}
+            ColorScaleClass::Below => counts[0] += 1,
+            ColorScaleClass::Above => counts[1] += 1,
+            ColorScaleClass::Outside => counts[2] += 1,
+            ColorScaleClass::NonFinite => counts[3] += 1,
+        });
+        let classes = [
+            (
+                ColorScaleClass::Below,
+                "below",
+                "below the range of the scale",
+            ),
+            (
+                ColorScaleClass::Above,
+                "above",
+                "above the range of the scale",
+            ),
+            (
+                ColorScaleClass::Outside,
+                "outside",
+                "not whole numbers that name an entry of the scale",
+            ),
+            (ColorScaleClass::NonFinite, "non_finite", "not finite"),
+        ];
+        for ((class, name, condition), count) in classes.into_iter().zip(counts) {
+            let strict = scale
+                .category(class)
+                .is_some_and(|category| category.policy == OutOfRange::Strict);
+            if strict && count > 0 {
+                self.error(
+                    Some(node),
+                    IssueKind::ValueOutOfRange,
                     format!(
-                        "the {name} policy is strict, but {count} of the {} in {} are {condition}",
-                        image.what, image.data
+                        "the {name} policy of the colour scale {} is strict, but {count} of the \
+                         values in {values} are {condition}",
+                        scale.id
                     ),
                 );
             }
@@ -1552,45 +1601,19 @@ fn for_each_value(array: &NdArray, mut visit: impl FnMut(f64)) {
     }
 }
 
-/// One of the three image kinds, seen through what validation needs of it.
+/// One of the two image kinds, seen through what validation needs of it.
 pub(crate) struct ImageView<'a> {
-    /// The pixels, indices or values of the image.
+    /// The pixels or values of the image.
     data: NodeId,
     /// The name of the data field, for messages.
     what: &'static str,
     /// Whether the array holds the colour components of every pixel along a third
     /// dimension, as the pixels of a true-colour image do.
     channels: bool,
-    /// The alpha of every pixel of a colour-indexed or colour-mapped image, if it has
-    /// one.
+    /// The alpha of every pixel of a scalar image, if it has one.
     alpha: Option<NodeId>,
     /// Where the pixels lie in the axes.
     placement: &'a ImagePlacement,
-    /// The out-of-range policies of a colour-indexed or colour-mapped image, or `None`
-    /// for a true-colour image, which has none.
-    policies: Option<Policies>,
-}
-
-/// The out-of-range policies of a colour-indexed or colour-mapped image, with the range
-/// outside which its pixels fall in the below and above categories.
-struct Policies {
-    below: OutOfRange,
-    above: OutOfRange,
-    non_finite: OutOfRange,
-    range: Range,
-}
-
-/// The range of an image kind, outside which its pixels fall in the below and above
-/// categories.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Range {
-    /// The entries 0 to 255 of the colormap, in which an index truncated toward zero is
-    /// looked up.
-    Colormap,
-    /// The colour limits of the axes, when they are manual and valid. No value lies
-    /// outside automatic limits, which are the range of the data, and invalid manual
-    /// limits are reported against the axes rather than against every pixel.
-    ColourLimits,
 }
 
 /// How an artist uses its data and the dimensions of its axes, and the checks of its own
@@ -1613,8 +1636,12 @@ pub(crate) struct ArtistUsage<'a> {
     clip_released: bool,
     /// Each opacity of the artist, with its name for messages.
     opacities: Vec<(&'static str, f64)>,
-    /// The levels of a contour.
+    /// The levels of a contour, when it has levels of its own.
     levels: Option<&'a Levels>,
+    /// The colour scale that the artist names, if any.
+    color_scale: Option<NodeId>,
+    /// How the artist maps numbers to colours, when it maps any.
+    color: Option<ColorMapping>,
     /// How the arrays of the artist must agree in shape.
     shape: Shape<'a>,
 }
@@ -1662,7 +1689,8 @@ impl<'a> ArtistUsage<'a> {
     /// The usage of an artist that uses its data and its axes as `references`,
     /// `positions`, `three_d` and `shape` say, accepts only 64-bit floating-point values,
     /// places every dimension in data coordinates, keeps its clip, and has no opacity and
-    /// no levels; the kinds of artist that differ say so.
+    /// no levels; the kinds of artist that differ say so. The colour scale and the
+    /// mapping of the artist are filled in from the artist itself, for every kind alike.
     fn new(
         references: Vec<NodeId>,
         positions: Vec<(Dimension, NodeId)>,
@@ -1678,11 +1706,13 @@ impl<'a> ArtistUsage<'a> {
             clip_released: false,
             opacities: Vec::new(),
             levels: None,
+            color_scale: None,
+            color: None,
             shape,
         }
     }
 
-    /// The usage of an image, which refers to its pixels, indices or values and to its
+    /// The usage of an image, which refers to its pixels or values and to its
     /// alpha, if it has one, each of either element type, plots nothing as a position
     /// along an axis, and needs a three-dimensional axes when it lies on a wall.
     fn image(image: ImageView<'a>, opacity: f64) -> Self {
@@ -1811,7 +1841,7 @@ impl Usage for Contour {
                 ("line opacity", self.line_opacity),
                 ("fill opacity", self.fill_opacity),
             ],
-            levels: Some(&self.levels),
+            levels: self.levels.as_ref(),
             ..ArtistUsage::new(references, positions, at_level, shape)
         }
     }
@@ -1855,32 +1885,12 @@ impl Usage for Image {
             channels: true,
             alpha: None,
             placement: &self.placement,
-            policies: None,
         };
         ArtistUsage::image(image, self.opacity)
     }
 }
 
-impl Usage for IndexedImage {
-    fn usage(&self) -> ArtistUsage<'_> {
-        let image = ImageView {
-            data: self.indices,
-            what: "indices",
-            channels: false,
-            alpha: self.alpha,
-            placement: &self.placement,
-            policies: Some(Policies {
-                below: self.below,
-                above: self.above,
-                non_finite: self.non_finite,
-                range: Range::Colormap,
-            }),
-        };
-        ArtistUsage::image(image, self.opacity)
-    }
-}
-
-impl Usage for MappedImage {
+impl Usage for ScalarImage {
     fn usage(&self) -> ArtistUsage<'_> {
         let image = ImageView {
             data: self.values,
@@ -1888,12 +1898,6 @@ impl Usage for MappedImage {
             channels: false,
             alpha: self.alpha,
             placement: &self.placement,
-            policies: Some(Policies {
-                below: self.below,
-                above: self.above,
-                non_finite: self.non_finite,
-                range: Range::ColourLimits,
-            }),
         };
         ArtistUsage::image(image, self.opacity)
     }
@@ -1902,4 +1906,159 @@ impl Usage for MappedImage {
 /// Returns whether the x and y values of a line or scatter are fractions of the plot area.
 fn fractions(x: Coords, y: Coords) -> [bool; 2] {
     [x == Coords::AxesFraction, y == Coords::AxesFraction]
+}
+
+/// Returns the problems of a colour scale itself, each with its kind and message, which
+/// are reported against the scale and make it unusable for checking the numbers mapped
+/// through it.
+fn color_scale_problems(scale: &ColorScale) -> Vec<(IssueKind, String)> {
+    let mut problems = Vec::new();
+    let log = scale.kind.norm() == ColorScaleNorm::Log;
+    let mut colormap = |colormap: &Colormap| {
+        if let Colormap::Listed { colors } = colormap
+            && !(LISTED_COLORMAP_MIN..=LISTED_COLORMAP_MAX).contains(&colors.len())
+        {
+            problems.push((
+                IssueKind::InvalidColormap,
+                format!(
+                    "the listed colormap holds {} colours, but it must hold from \
+                     {LISTED_COLORMAP_MIN} to {LISTED_COLORMAP_MAX}",
+                    colors.len()
+                ),
+            ));
+        }
+    };
+    match &scale.kind {
+        ColorScaleKind::Continuous(continuous) => colormap(&continuous.colormap),
+        ColorScaleKind::Discrete(discrete) => colormap(&discrete.colormap),
+        ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+    }
+    if let Some(limits) = scale.kind.limits()
+        && let Some(message) = limits_problem("limits", limits, log)
+    {
+        problems.push((IssueKind::InvalidLimits, message));
+    }
+    let band_edges = match &scale.kind {
+        ColorScaleKind::Discrete(discrete) => match &discrete.levels {
+            ColorScaleLevels::Auto { count: 0, .. } => {
+                Some("the automatic number of bands is zero".to_owned())
+            }
+            ColorScaleLevels::Auto { .. } => None,
+            ColorScaleLevels::Explicit { values } if values.len() < 2 => Some(format!(
+                "there are {} band edges, but a band needs two",
+                values.len()
+            )),
+            ColorScaleLevels::Explicit { values } if !values.iter().all(|v| v.is_finite()) => {
+                Some("a band edge is not finite".to_owned())
+            }
+            ColorScaleLevels::Explicit { values }
+                if values.windows(2).any(|pair| pair[0] >= pair[1]) =>
+            {
+                Some("the band edges are not strictly increasing".to_owned())
+            }
+            ColorScaleLevels::Explicit { values } if log && values[0] <= 0.0 => Some(format!(
+                "the first band edge {} is not positive under a logarithmic norm",
+                values[0]
+            )),
+            ColorScaleLevels::Explicit { .. } => None,
+        },
+        _ => None,
+    };
+    problems.extend(band_edges.map(|message| (IssueKind::InvalidLevels, message)));
+    let entries = match &scale.kind {
+        ColorScaleKind::Indexed(indexed) if indexed.colors.is_empty() => {
+            Some("the indexed colour scale has no entries, so it maps no value to a colour")
+        }
+        ColorScaleKind::Categorical(categorical) if categorical.categories.is_empty() => {
+            Some("the categorical colour scale has no categories, so it maps no value to a colour")
+        }
+        _ => None,
+    };
+    problems.extend(entries.map(|message| (IssueKind::InvalidColorScale, message.to_owned())));
+    let ticks = match &scale.kind {
+        ColorScaleKind::Continuous(continuous) => {
+            Some((&continuous.ticks, &continuous.tick_labels))
+        }
+        ColorScaleKind::Discrete(discrete) => Some((&discrete.ticks, &discrete.tick_labels)),
+        ColorScaleKind::Indexed(indexed) => Some((&indexed.ticks, &indexed.tick_labels)),
+        ColorScaleKind::Categorical(_) => None,
+    };
+    if let Some((ticks, labels)) = ticks {
+        problems.extend(tick_problems("colour scale", ticks, labels, log));
+    }
+    problems
+}
+
+/// Returns why manual limits, named `name` in the message, cannot be used, or `None` when
+/// they can or are automatic: they must be finite and strictly increasing, and positive
+/// when `log` is set.
+fn limits_problem(name: &str, limits: Limits, log: bool) -> Option<String> {
+    let Limits::Manual { min, max } = limits else {
+        return None;
+    };
+    if !(min.is_finite() && max.is_finite() && min < max) {
+        Some(format!(
+            "the {name} [{min}, {max}] are not finite and strictly increasing"
+        ))
+    } else if log && min <= 0.0 {
+        Some(format!(
+            "the {name} [{min}, {max}] are not positive on a logarithmic scale"
+        ))
+    } else {
+        None
+    }
+}
+
+/// Returns the problems of the ticks of an axis or a colour scale, named `name` in the
+/// messages: ticks that cannot be placed, and explicit tick labels that do not name
+/// explicit tick values one by one. `log` says whether the ticks lie on a logarithmic
+/// axis or scale, where every explicit value must be positive.
+fn tick_problems(
+    name: &str,
+    ticks: &Ticks,
+    tick_labels: &TickLabels,
+    log: bool,
+) -> Vec<(IssueKind, String)> {
+    let mut problems = Vec::new();
+    let placement = match ticks {
+        Ticks::Auto => None,
+        Ticks::Step { step, origin } => {
+            if !(step.is_finite() && *step > 0.0) {
+                Some(format!(
+                    "the {name} tick step {step} is not a finite positive number"
+                ))
+            } else if !origin.is_finite() {
+                Some(format!("the {name} tick origin {origin} is not finite"))
+            } else {
+                None
+            }
+        }
+        Ticks::Values(values) => {
+            let not_finite = values.iter().find(|v| !v.is_finite());
+            let not_positive = values.iter().find(|v| log && **v <= 0.0);
+            match (not_finite, not_positive) {
+                (Some(value), _) => Some(format!("the {name} tick value {value} is not finite")),
+                (None, Some(value)) => Some(format!(
+                    "the {name} tick value {value} is not positive on a logarithmic scale"
+                )),
+                (None, None) => None,
+            }
+        }
+    };
+    problems.extend(placement.map(|message| (IssueKind::InvalidTicks, message)));
+    if let TickLabels::Text(texts) = tick_labels {
+        let labels = match ticks {
+            Ticks::Values(values) if values.len() == texts.len() => None,
+            Ticks::Values(values) => Some(format!(
+                "the {name} has {} tick labels for {} tick values",
+                texts.len(),
+                values.len()
+            )),
+            Ticks::Auto | Ticks::Step { .. } => Some(format!(
+                "the {name} has explicit tick labels but its ticks are not explicit values"
+            )),
+        };
+        problems.extend(labels.map(|message| (IssueKind::InvalidTickLabels, message)));
+    }
+    problems
 }

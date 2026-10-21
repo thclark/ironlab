@@ -272,12 +272,14 @@ fn the_json_schema_of_a_transaction_is_generated_in_the_edit_module() {
     );
 }
 
-// Why: the image kinds are new to the schema, and the tools that validate `.fig.json`
-// files find their definitions by name in the file of the artist module; a definition
-// missing, or one placed in another module's file (the split by module panics on a type
-// that has no wire message of its name), would leave such files unvalidatable or the
-// generation broken. The tagged types must also admit exactly the variant names of the
-// documented form, which is what a hand-written file writes.
+// Why: the image kinds and colour scales are new to the schema, and the tools that
+// validate `.fig.json` files find their definitions by name in the file of their module
+// (the image kinds in the artist module, and the colour scales with their out-of-range
+// policies in the colour scale module); a definition missing, or one placed in another
+// module's file (the split by module panics on a type that has no wire message of its
+// name), would leave such files unvalidatable or the generation broken. The tagged types
+// must also admit exactly the variant names of the documented form, which is what a
+// hand-written file writes, and the replaced image kinds must be gone.
 #[test]
 fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
     let schema = ironlab_ir::json_schema();
@@ -285,25 +287,53 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
         .into_iter()
         .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
         .collect();
-    let artist = files
-        .get(Path::new("artist.schema.json"))
-        .expect("artist.schema.json is generated");
-    for name in [
-        "Image",
-        "IndexedImage",
-        "MappedImage",
-        "ImagePlacement",
-        "PixelRange",
-        "ImagePlane",
-        "OutOfRange",
+    for (file, names) in [
+        (
+            "artist.schema.json",
+            &[
+                "Image",
+                "ScalarImage",
+                "ImagePlacement",
+                "PixelRange",
+                "ImagePlane",
+            ][..],
+        ),
+        (
+            "color_scale.schema.json",
+            &[
+                "ColorScale",
+                "ColorScaleKind",
+                "ColorScaleOutOfRange",
+                "ContinuousColorScale",
+                "DiscreteColorScale",
+                "IndexedColorScale",
+                "CategoricalColorScale",
+                "ColorCategory",
+                "Colormap",
+                "ColorScaleNorm",
+                "ColorScaleLevels",
+                "OutOfRange",
+            ][..],
+        ),
     ] {
+        let module = files
+            .get(Path::new(file))
+            .unwrap_or_else(|| panic!("{file} is generated"));
+        for name in names {
+            assert!(
+                schema.pointer(&format!("/$defs/{name}")).is_some(),
+                "the schema does not define {name}"
+            );
+            assert!(
+                module.pointer(&format!("/$defs/{name}")).is_some(),
+                "{file} does not define {name}"
+            );
+        }
+    }
+    for gone in ["IndexedImage", "MappedImage"] {
         assert!(
-            schema.pointer(&format!("/$defs/{name}")).is_some(),
-            "the schema does not define {name}"
-        );
-        assert!(
-            artist.pointer(&format!("/$defs/{name}")).is_some(),
-            "artist.schema.json does not define {name}"
+            schema.pointer(&format!("/$defs/{gone}")).is_none(),
+            "the schema still defines {gone}"
         );
     }
 
@@ -321,7 +351,14 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
             "OutOfRange",
             &["strict", "transparent", "clamp", "rgba"][..],
         ),
-        ("Artist", &["image", "indexed_image", "mapped_image"][..]),
+        ("Artist", &["image", "scalar_image"][..]),
+        (
+            "ColorScaleKind",
+            &["continuous", "discrete", "indexed", "categorical"][..],
+        ),
+        ("Colormap", &["named", "listed"][..]),
+        ("ColorScaleLevels", &["auto", "explicit"][..]),
+        ("ColorScaleNorm", &["linear", "log"][..]),
     ] {
         let allowed = strings_under(name);
         for variant in variants {
@@ -330,5 +367,9 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
                 "{name} does not admit {variant:?}; it admits {allowed:?}"
             );
         }
+    }
+    let artists = strings_under("Artist");
+    for gone in ["indexed_image", "mapped_image"] {
+        assert!(!artists.contains(gone), "Artist still admits {gone:?}");
     }
 }

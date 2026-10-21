@@ -1,8 +1,8 @@
 //! Wire types of `ironlab/ir/v0/figure.proto`.
 
 proto_file! {
-    /// A figure: the root of the retained IR, holding data arrays, axes, panels and axis
-    /// links.
+    /// A figure: the root of the retained IR, holding data arrays, colour scales, axes,
+    /// panels and axis links.
     message Figure {
         /// The version of the figure schema that the message conforms to, as
         /// `major.minor.patch`. This is field 1 in every version of the schema, so
@@ -41,6 +41,9 @@ proto_file! {
         /// The panels of the figure, which occupy cells of the tile layout and are drawn
         /// after every axes.
         repeated message Panel panels = 15;
+        /// The colour scales of the figure, which colour-mapped artists refer to by node
+        /// identifier.
+        repeated message ColorScale color_scales = 16;
     }
 
     /// The physical size of a figure.

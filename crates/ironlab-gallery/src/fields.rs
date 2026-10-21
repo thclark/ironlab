@@ -213,10 +213,10 @@ pub fn correlation_field(x: f64, y: f64, z: f64) -> f64 {
 }
 
 /// Quantises a field into `count` classes of equal width between its smallest and largest finite values, and returns
-/// the class of every value as the index of a colormap entry.
+/// the class of every value as the index of an entry of a 256-entry palette.
 ///
 /// Class `k` of `count` has the index `k · 255 / (count − 1)`, rounded down, so that the classes are spread over the
-/// whole of a 256-entry colormap rather than bunched at its start; the largest value belongs to the last class. A
+/// whole of a 256-entry palette rather than bunched at its start; the largest value belongs to the last class. A
 /// `count` of 0 or 1 puts every value in class 0, as does a field whose finite values are all equal, and a value that
 /// is not finite is in class 0.
 #[must_use]

@@ -6,12 +6,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::{
-    ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, OutOfRange, PixelRange,
-    QuiverScale, ScatterColor, ScatterSize,
+    ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, PixelRange, QuiverScale,
+    ScatterColor, ScatterSize,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
+};
+use crate::color_scale::{
+    CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
+    Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale, OutOfRange,
 };
 use crate::figure::{FigureSize, FontSetId, Parameter};
 use crate::ids::NodeId;
@@ -156,8 +160,26 @@ pub enum Value {
     PixelRange(PixelRange),
     /// The plane of an image.
     ImagePlane(ImagePlane),
-    /// The policy of an image for pixels it cannot colour.
+    /// What is drawn for a value that a colour scale cannot place.
     OutOfRange(OutOfRange),
+    /// A category of values that a colour scale cannot place, with its policy and key.
+    ColorScaleOutOfRange(ColorScaleOutOfRange),
+    /// The kind of a colour scale, with everything particular to that kind.
+    ColorScaleKind(ColorScaleKind),
+    /// A continuous colour scale.
+    ContinuousColorScale(ContinuousColorScale),
+    /// A discrete colour scale.
+    DiscreteColorScale(DiscreteColorScale),
+    /// An indexed colour scale.
+    IndexedColorScale(IndexedColorScale),
+    /// A categorical colour scale.
+    CategoricalColorScale(CategoricalColorScale),
+    /// The palette of a continuous or discrete colour scale.
+    Colormap(Colormap),
+    /// The space in which a colour scale places values.
+    ColorScaleNorm(ColorScaleNorm),
+    /// The band edges of a discrete colour scale.
+    ColorScaleLevels(ColorScaleLevels),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -274,6 +296,24 @@ pub enum ValueType {
     ImagePlane,
     /// See [`Value::OutOfRange`].
     OutOfRange,
+    /// See [`Value::ColorScaleOutOfRange`].
+    ColorScaleOutOfRange,
+    /// See [`Value::ColorScaleKind`].
+    ColorScaleKind,
+    /// See [`Value::ContinuousColorScale`].
+    ContinuousColorScale,
+    /// See [`Value::DiscreteColorScale`].
+    DiscreteColorScale,
+    /// See [`Value::IndexedColorScale`].
+    IndexedColorScale,
+    /// See [`Value::CategoricalColorScale`].
+    CategoricalColorScale,
+    /// See [`Value::Colormap`].
+    Colormap,
+    /// See [`Value::ColorScaleNorm`].
+    ColorScaleNorm,
+    /// See [`Value::ColorScaleLevels`].
+    ColorScaleLevels,
 }
 
 impl Value {
@@ -339,6 +379,15 @@ impl Value {
             Value::PixelRange(_) => ValueType::PixelRange,
             Value::ImagePlane(_) => ValueType::ImagePlane,
             Value::OutOfRange(_) => ValueType::OutOfRange,
+            Value::ColorScaleOutOfRange(_) => ValueType::ColorScaleOutOfRange,
+            Value::ColorScaleKind(_) => ValueType::ColorScaleKind,
+            Value::ContinuousColorScale(_) => ValueType::ContinuousColorScale,
+            Value::DiscreteColorScale(_) => ValueType::DiscreteColorScale,
+            Value::IndexedColorScale(_) => ValueType::IndexedColorScale,
+            Value::CategoricalColorScale(_) => ValueType::CategoricalColorScale,
+            Value::Colormap(_) => ValueType::Colormap,
+            Value::ColorScaleNorm(_) => ValueType::ColorScaleNorm,
+            Value::ColorScaleLevels(_) => ValueType::ColorScaleLevels,
         })
     }
 }

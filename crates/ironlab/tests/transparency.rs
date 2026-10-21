@@ -3,9 +3,7 @@
 
 mod common;
 
-use common::{
-    contour, data, has_error_at, image, indexed_image, mapped_image, small_grid, surface,
-};
+use common::{contour, data, has_error_at, image, scalar_image, small_grid, surface};
 use ironlab::ir::{IssueKind, NdArray, NdArrayElement};
 use ironlab::prelude::*;
 
@@ -28,9 +26,9 @@ fn opacity_setters_reach_their_ir_fields_and_default_to_opaque() {
         .edge_opacity(0.75)
         .id();
     let true_colour = ax.image(&pixels).opacity(0.5).id();
-    let indexed = ax.indexed_image(&floats).opacity(0.125).id();
-    let mapped = ax.mapped_image(&floats).opacity(0.0).id();
-    let plain = ax.mapped_image(&floats).id();
+    let indexed = ax.scalar_image(&floats).opacity(0.125).id();
+    let mapped = ax.scalar_image(&floats).opacity(0.0).id();
+    let plain = ax.scalar_image(&floats).id();
     let plain_contour = ax.contourf(&x, &y, &z).id();
     let faded_contour = ax
         .contourf(&x, &y, &z)
@@ -43,9 +41,9 @@ fn opacity_setters_reach_their_ir_fields_and_default_to_opaque() {
     let s = surface(&fig, faded);
     assert_eq!((s.face_opacity, s.edge_opacity), (0.25, 0.75));
     assert_eq!(image(&fig, true_colour).opacity, 0.5);
-    assert_eq!(indexed_image(&fig, indexed).opacity, 0.125);
-    assert_eq!(mapped_image(&fig, mapped).opacity, 0.0);
-    assert_eq!(mapped_image(&fig, plain).opacity, 1.0);
+    assert_eq!(scalar_image(&fig, indexed).opacity, 0.125);
+    assert_eq!(scalar_image(&fig, mapped).opacity, 0.0);
+    assert_eq!(scalar_image(&fig, plain).opacity, 1.0);
     let c = contour(&fig, plain_contour);
     assert_eq!((c.line_opacity, c.fill_opacity), (1.0, 1.0));
     let c = contour(&fig, faded_contour);
@@ -69,21 +67,21 @@ fn alpha_setters_store_their_arrays_and_release_the_ones_they_replace() {
         .face_alpha(&floats)
         .edge_alpha(&floats)
         .id();
-    let m = ax.mapped_image(&values).alpha(&bytes).id();
-    let i = ax.indexed_image(&values).alpha(&values).id();
+    let m = ax.scalar_image(&values).alpha(&bytes).id();
+    let i = ax.scalar_image(&values).alpha(&values).id();
 
     let surface_ir = surface(&fig, s).clone();
     let face = surface_ir.face_alpha.expect("the face alpha is set");
     let edge = surface_ir.edge_alpha.expect("the edge alpha is set");
     assert_eq!(data(&fig, face).shape, vec![z.rows(), z.cols()]);
     assert_eq!(data(&fig, edge), data(&fig, face));
-    let alpha = mapped_image(&fig, m).alpha.expect("the alpha is set");
+    let alpha = scalar_image(&fig, m).alpha.expect("the alpha is set");
     assert_eq!(data(&fig, alpha).element(), NdArrayElement::U8);
     assert_eq!(
         data(&fig, alpha),
         &NdArray::from_shape_u8(vec![2, 2], vec![0, 60, 120, 180]).unwrap()
     );
-    let alpha = indexed_image(&fig, i).alpha.expect("the alpha is set");
+    let alpha = scalar_image(&fig, i).alpha.expect("the alpha is set");
     assert_eq!(data(&fig, alpha).element(), NdArrayElement::F64);
 
     let mut again = Figure::new();
@@ -122,7 +120,7 @@ fn an_invalid_opacity_or_alpha_is_reported_at_the_handles_id() {
     let s = ax.surf(&x, &y, &z).edge_opacity(1.5).id();
     let c = ax.contourf(&x, &y, &z).fill_opacity(-0.5).id();
     let m = ax
-        .mapped_image(&values)
+        .scalar_image(&values)
         .alpha(Matrix::from_fn(1, 2, |_, _| 1.0))
         .id();
     let report = fig.validate();

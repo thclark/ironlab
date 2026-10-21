@@ -343,10 +343,9 @@ impl PathItem {
 ///
 /// The samples are resolved true colour rather than data values with a colour mapping, so that a backend draws them
 /// without consulting anything else. The scene compiler resolves the pixels of every image artist into this form,
-/// so changing the colour limits of an axes re-maps every pixel of its colour-mapped images. A second variant that
-/// carries unmapped samples with their colour mapping, so that such a change is a uniform update instead, waits for
-/// the colormap redesign, which must define the mapping it would carry; it can be added beside this one without
-/// disturbing it.
+/// so changing the limits of a colour scale re-maps every pixel of the scalar images that name it. A second variant
+/// that carries unmapped samples with their colour scale, so that such a change is a uniform update instead, can be
+/// added beside this one without disturbing it.
 ///
 /// The samples are shared behind an [`Arc`] so that cloning a display list does not copy them.
 ///

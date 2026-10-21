@@ -11,6 +11,7 @@ mod alpha;
 mod artists;
 mod aspect;
 mod blended;
+mod color_scales;
 mod decimation;
 mod dense;
 mod depth;

@@ -21,7 +21,8 @@ proto_file! {
         oneof kind: EditKind {
             /// Replaces the value of a property of a node.
             Set(EditSet) set_property = 1;
-            /// Inserts a data array, an axes, an artist or a panel, with its subtree.
+            /// Inserts a data array, a colour scale, an axes, an artist or a panel, with its
+            /// subtree.
             Insert(EditInsert) insert_node = 2;
             /// Removes a node and its subtree.
             Remove(EditRemove) remove_node = 3;
@@ -48,11 +49,11 @@ proto_file! {
         message Value value = 3;
     }
 
-    /// Inserts a data array, an axes or a panel into the figure, or an artist into an
-    /// axes, with its subtree.
+    /// Inserts a data array, a colour scale, an axes or a panel into the figure, or an
+    /// artist into an axes, with its subtree.
     message EditInsert {
-        /// The identifier of the parent: the figure for a data array, an axes or a panel,
-        /// or an axes for an artist; it must be present.
+        /// The identifier of the parent: the figure for a data array, a colour scale, an
+        /// axes or a panel, or an axes for an artist; it must be present.
         optional uint64 parent = 1;
         /// The position in the parent's list; absent to append.
         optional uint32 index = 2;
@@ -110,6 +111,8 @@ proto_file! {
             Panel(Panel) panel = 4;
             /// A data array.
             DataArray(DataArray) data_array = 5;
+            /// A colour scale.
+            ColorScale(ColorScale) color_scale = 6;
         }
         /// The number and name of the legend panel, which a panel holding a legend
         /// replaced.
@@ -196,7 +199,7 @@ proto_file! {
             PixelRange(ValuePixelRange) pixel_range_value = 38;
             /// The plane of an image.
             ImagePlane(ValueImagePlane) image_plane_value = 39;
-            /// The policy of an image for pixels it cannot colour.
+            /// What is drawn for a value that a colour scale cannot place.
             OutOfRange(ValueOutOfRange) out_of_range_value = 40;
             /// The tags of a figure.
             Strings(ValueStrings) strings_value = 41;
@@ -233,6 +236,24 @@ proto_file! {
             PanelContent(ValuePanelContent) panel_content_value = 56;
             /// The legend content of a panel.
             PanelLegend(ValuePanelLegend) panel_legend_value = 57;
+            /// A category of values that a colour scale cannot place.
+            ColorScaleOutOfRange(ValueColorScaleOutOfRange) color_scale_out_of_range_value = 58;
+            /// The kind of a colour scale.
+            ColorScaleKind(ValueColorScaleKind) color_scale_kind_value = 59;
+            /// A continuous colour scale.
+            ContinuousColorScale(ValueContinuousColorScale) continuous_color_scale_value = 60;
+            /// A discrete colour scale.
+            DiscreteColorScale(ValueDiscreteColorScale) discrete_color_scale_value = 61;
+            /// An indexed colour scale.
+            IndexedColorScale(ValueIndexedColorScale) indexed_color_scale_value = 62;
+            /// A categorical colour scale.
+            CategoricalColorScale(ValueCategoricalColorScale) categorical_color_scale_value = 63;
+            /// The palette of a continuous or discrete colour scale.
+            Colormap(ValueColormap) colormap_value = 64;
+            /// The space in which a colour scale places values.
+            ColorScaleNorm(ValueColorScaleNorm) color_scale_norm_value = 65;
+            /// The band edges of a discrete colour scale.
+            ColorScaleLevels(ValueColorScaleLevels) color_scale_levels_value = 66;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -570,5 +591,59 @@ proto_file! {
     message ValueOutOfRange {
         /// The policy; it must be present.
         message OutOfRange value = 1;
+    }
+
+    /// An out-of-range category of a colour scale.
+    message ValueColorScaleOutOfRange {
+        /// The category; it must be present.
+        message ColorScaleOutOfRange value = 1;
+    }
+
+    /// A colour scale kind value.
+    message ValueColorScaleKind {
+        /// The kind; it must be present.
+        message ColorScaleKind value = 1;
+    }
+
+    /// A continuous colour scale value.
+    message ValueContinuousColorScale {
+        /// The scale; it must be present.
+        message ContinuousColorScale value = 1;
+    }
+
+    /// A discrete colour scale value.
+    message ValueDiscreteColorScale {
+        /// The scale; it must be present.
+        message DiscreteColorScale value = 1;
+    }
+
+    /// An indexed colour scale value.
+    message ValueIndexedColorScale {
+        /// The scale; it must be present.
+        message IndexedColorScale value = 1;
+    }
+
+    /// A categorical colour scale value.
+    message ValueCategoricalColorScale {
+        /// The scale; it must be present.
+        message CategoricalColorScale value = 1;
+    }
+
+    /// A colormap value.
+    message ValueColormap {
+        /// The colormap; it must be present.
+        message Colormap value = 1;
+    }
+
+    /// A colour scale norm value.
+    message ValueColorScaleNorm {
+        /// The norm; it must be specified.
+        enum ColorScaleNorm value = 1;
+    }
+
+    /// A colour scale band edges value.
+    message ValueColorScaleLevels {
+        /// The band edges; it must be present.
+        message ColorScaleLevels value = 1;
     }
 }

@@ -12,9 +12,9 @@ use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_
 use std::f64::consts::TAU;
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Color, Coords, Dimension, Figure, Image, ImagePlacement,
-    IndexedImage, Limits, Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text,
-    Value, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Color, ColorScaleKind, Coords, Dimension, Figure, Image,
+    ImagePlacement, Limits, Line, NdArray, NodeId, OutOfRange, PixelRange, ScalarImage, Scale,
+    Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -1332,6 +1332,7 @@ fn figure_of(data: Vec<NdArray>, artists: Vec<Artist>) -> Figure {
             artists,
             ..Axes::default()
         }],
+        color_scales: image_scales(),
         ..Figure::new()
     }
 }
@@ -1360,21 +1361,23 @@ fn placed(columns: Option<(f64, f64)>, rows: Option<(f64, f64)>) -> ImagePlaceme
     }
 }
 
-/// A colour-mapped image (node `id`) of the array `values`, placed by `placement`.
-fn mapped_image(id: u64, values: u64, placement: ImagePlacement) -> Artist {
-    Artist::MappedImage(MappedImage {
+/// A scalar image (node `id`) of the array `values`, mapped through the continuous colour scale of the image
+/// fixtures and placed by `placement`.
+fn scalar_image(id: u64, values: u64, placement: ImagePlacement) -> Artist {
+    Artist::ScalarImage(ScalarImage {
         id: NodeId(id),
         values: array_id(values),
+        color_scale: Some(CONTINUOUS_SCALE),
         placement,
-        ..MappedImage::default()
+        ..ScalarImage::default()
     })
 }
 
-/// The mapped image of `figure`, for a test that changes one of its properties before opening it.
-fn mapped_image_mut(figure: &mut Figure, id: u64) -> &mut MappedImage {
+/// The scalar image of `figure`, for a test that changes one of its properties before opening it.
+fn scalar_image_mut(figure: &mut Figure, id: u64) -> &mut ScalarImage {
     match figure.artist_mut(NodeId(id)) {
-        Some(Artist::MappedImage(image)) => image,
-        other => panic!("node {id} is a mapped image, not {other:?}"),
+        Some(Artist::ScalarImage(image)) => image,
+        other => panic!("node {id} is a scalar image, not {other:?}"),
     }
 }
 
@@ -1402,8 +1405,8 @@ fn pixel_tip_at(state: &FigureState, hit: &HitMap, x: f64, y: f64) -> PixelDatat
 // must say which image of which axes it read, by name when the image has one, so the callout can be acted on.
 #[test]
 fn a_pixel_datatip_under_a_pixel_centre_names_that_pixel_its_centre_and_its_stored_value() {
-    let mut figure = figure_with_mapped_image(3, 4);
-    mapped_image_mut(&mut figure, 3).label = Some(Text::plain("Heat"));
+    let mut figure = figure_with_scalar_image(3, 4);
+    scalar_image_mut(&mut figure, 3).label = Some(Text::plain("Heat"));
     let (state, hit) = compiled(figure);
 
     for (j, i) in [(0, 0), (2, 3), (1, 2)] {
@@ -1446,7 +1449,7 @@ fn a_pixel_datatip_under_a_pixel_centre_names_that_pixel_its_centre_and_its_stor
         NdArray::from_shape_u8(vec![1, 2], vec![0, 255]).expect("the shape matches the values");
     let (state, hit) = compiled(figure_of(
         vec![bytes],
-        vec![mapped_image(3, 0, ImagePlacement::default())],
+        vec![scalar_image(3, 0, ImagePlacement::default())],
     ));
     assert_eq!(
         pixel_tip_at(&state, &hit, 0.0, 0.0).value,
@@ -1469,7 +1472,7 @@ fn a_pixel_datatip_reports_the_pixel_centre_from_its_ranges_not_the_pointer() {
     // Four columns centred on 10, 20, 30 and 40 (pitch 10) and three rows centred on 1, 2 and 3 (pitch 1).
     let (state, hit) = compiled(figure_of(
         vec![numbered(3, 4)],
-        vec![mapped_image(
+        vec![scalar_image(
             3,
             0,
             placed(Some((10.0, 40.0)), Some((1.0, 3.0))),
@@ -1516,7 +1519,7 @@ fn a_pixel_datatip_follows_a_mirrored_range_so_that_row_zero_stays_at_the_first_
     // Three columns centred on 5, 3 and 1 (pitch −2) and four rows centred on 3, 2, 1 and 0 (pitch −1).
     let (state, hit) = compiled(figure_of(
         vec![numbered(4, 3)],
-        vec![mapped_image(
+        vec![scalar_image(
             3,
             0,
             placed(Some((5.0, 1.0)), Some((3.0, 0.0))),
@@ -1556,7 +1559,7 @@ fn a_pixel_datatip_on_a_single_column_reports_the_first_centre_and_ignores_last(
     // One column centred on 2 (its `last` of 7 is ignored) and three rows centred on 0, 1 and 2.
     let (state, hit) = compiled(figure_of(
         vec![numbered(3, 1)],
-        vec![mapped_image(3, 0, placed(Some((2.0, 7.0)), None))],
+        vec![scalar_image(3, 0, placed(Some((2.0, 7.0)), None))],
     ));
 
     // The column covers x from 1.5 to 2.5.
@@ -1580,9 +1583,9 @@ fn a_transparent_pixel_still_reports_its_stored_value_including_nan() {
         .expect("the shape matches the values");
     let mut figure = figure_of(
         vec![values],
-        vec![mapped_image(3, 0, ImagePlacement::default())],
+        vec![scalar_image(3, 0, ImagePlacement::default())],
     );
-    figure.axes_mut(NodeId(2)).expect("axes exists").clim = manual(2.0, 3.0);
+    continuous_scale_mut(&mut figure).limits = manual(2.0, 3.0);
     let state = FigureState::new(figure);
     let scene = ironlab_scene::compile(state.figure(), &TEXT);
     let item = find_image(&scene.display_list.items).expect("the image is drawn");
@@ -1615,16 +1618,17 @@ fn a_transparent_pixel_still_reports_its_stored_value_including_nan() {
     );
 }
 
-// Why: an indexed image looks its colormap up by the index as stored, and the datatip shows the reader that index:
-// an 8-bit index as the number it is, and a floating-point index as stored rather than truncated, because 2.9 and
-// 2 take the same entry but are different data, and it is the data the reader asked about.
+// Why: a scalar image through an indexed colour scale looks its entries up by the index as stored, and the datatip
+// shows the reader that index: an 8-bit index as the number it is, and a floating-point index as stored rather than
+// truncated, because 2.9 names no entry while 2 does, and it is the data the reader asked about.
 #[test]
 fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
     let indexed = |id: u64, indices: u64| {
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(id),
-            indices: array_id(indices),
-            ..IndexedImage::default()
+            values: array_id(indices),
+            color_scale: Some(PALETTE_SCALE),
+            ..ScalarImage::default()
         })
     };
 
@@ -1659,8 +1663,60 @@ fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
     assert_eq!(
         pixel_tip_at(&state, &hit, 1.0, 0.0).value,
         PixelValue::Index(-1.5),
-        "an index that truncates below the colormap, drawn transparent, is still reported as stored"
+        "an index that names no entry, drawn transparent, is still reported as stored"
     );
+}
+
+// Why: a scalar image through a categorical colour scale is a map of classes, and the reader hovers a pixel to learn
+// which class it holds, so the datatip carries the label of the category the stored index names, beside the index
+// itself; an index that names no category (a fraction, or one past the last) has no label to carry, and the
+// datatip reports the index alone rather than the label of a neighbouring category.
+#[test]
+fn a_pixel_datatip_through_a_categorical_scale_names_the_category_of_the_index() {
+    use ironlab_ir::{CategoricalColorScale, ColorCategory, ColorScale, ColorScaleOutOfRange};
+
+    const CLASSES: NodeId = NodeId(92);
+    let indices =
+        NdArray::from_shape(vec![1, 3], vec![1.0, 0.5, 2.0]).expect("the shape matches the values");
+    let mut figure = figure_of(
+        vec![indices],
+        vec![Artist::ScalarImage(ScalarImage {
+            id: NodeId(3),
+            values: array_id(0),
+            color_scale: Some(CLASSES),
+            ..ScalarImage::default()
+        })],
+    );
+    figure.color_scales.push(ColorScale {
+        id: CLASSES,
+        kind: ColorScaleKind::Categorical(CategoricalColorScale {
+            categories: ["Water", "Forest"]
+                .into_iter()
+                .map(|label| ColorCategory {
+                    color: Color::rgb(0.0, 0.5, 1.0),
+                    label: Text::plain(label),
+                })
+                .collect(),
+            outside: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+        }),
+        ..ColorScale::default()
+    });
+    let (state, hit) = compiled(figure);
+    assert_eq!(
+        pixel_tip_at(&state, &hit, 0.0, 0.0).value,
+        PixelValue::Category {
+            index: 1.0,
+            label: Some("Forest".to_owned()),
+        },
+        "index 1 names the second category"
+    );
+    for (x, index) in [(1.0, 0.5), (2.0, 2.0)] {
+        assert_eq!(
+            pixel_tip_at(&state, &hit, x, 0.0).value,
+            PixelValue::Category { index, label: None },
+            "the index {index} names no category"
+        );
+    }
 }
 
 // Why: a true-colour pixel has no single number, so the datatip shows its components, in the units the array
@@ -1717,7 +1773,7 @@ fn a_pixel_datatip_is_read_only_where_a_drawn_image_lies_in_a_two_dimensional_ax
     let image = || {
         figure_of(
             vec![numbered(2, 2)],
-            vec![mapped_image(3, 0, ImagePlacement::default())],
+            vec![scalar_image(3, 0, ImagePlacement::default())],
         )
     };
 
@@ -1745,7 +1801,7 @@ fn a_pixel_datatip_is_read_only_where_a_drawn_image_lies_in_a_two_dimensional_ax
     );
 
     let mut hidden = image();
-    mapped_image_mut(&mut hidden, 3).visible = false;
+    scalar_image_mut(&mut hidden, 3).visible = false;
     let (state, hit) = compiled(hidden);
     assert!(
         state.pixel_datatip(&hit, at_data(&hit, 1.0, 1.0)).is_none(),
@@ -1755,8 +1811,9 @@ fn a_pixel_datatip_is_read_only_where_a_drawn_image_lies_in_a_two_dimensional_ax
     let solid = Figure {
         id: NodeId(1),
         data: data_arrays([(array_id(0), numbered(2, 2))]),
+        color_scales: image_scales(),
         axes: vec![Axes {
-            artists: vec![mapped_image(3, 0, ImagePlacement::default())],
+            artists: vec![scalar_image(3, 0, ImagePlacement::default())],
             ..axes_3d(2)
         }],
         ..Figure::new()
@@ -1783,8 +1840,8 @@ fn where_two_images_overlap_the_pixel_of_the_one_painted_last_is_reported() {
     let (state, hit) = compiled(figure_of(
         vec![numbered(1, 2), numbered(1, 2)],
         vec![
-            mapped_image(3, 0, ImagePlacement::default()),
-            mapped_image(4, 1, placed(Some((1.0, 2.0)), None)),
+            scalar_image(3, 0, ImagePlacement::default()),
+            scalar_image(4, 1, placed(Some((1.0, 2.0)), None)),
         ],
     ));
 
@@ -1819,7 +1876,7 @@ fn tip_at_prefers_a_drawn_point_within_reach_over_the_pixel_beneath_it() {
     let (state, hit) = compiled(figure_of(
         vec![numbered(4, 4), diagonal.clone(), diagonal],
         vec![
-            mapped_image(3, 0, ImagePlacement::default()),
+            scalar_image(3, 0, ImagePlacement::default()),
             Artist::Line(Line {
                 id: NodeId(4),
                 x: array_id(1),
@@ -1867,18 +1924,18 @@ fn tip_at_prefers_a_drawn_point_within_reach_over_the_pixel_beneath_it() {
     );
 }
 
-// Why: the property editor changes an out-of-range policy through the same overlay as every other edit, and the
-// point of a policy is what the canvas then shows: setting `below` from transparent to a colour must make the
-// recompiled image opaque in that colour where it was see-through and change nothing else, while the source figure
-// keeps its own policy so that the change can be reverted.
+// Why: the property editor changes an out-of-range policy of a colour scale through the same overlay as every other
+// edit, and the point of a policy is what the canvas then shows: setting `below` from transparent to a colour must
+// make the recompiled image opaque in that colour where it was see-through and change nothing else, while the
+// source figure keeps its own policy so that the change can be reverted.
 #[test]
 fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_recompiled_image() {
     // Values 0 and 1 lie below colour limits of [2, 3]; 2 and 3 lie at them.
     let mut figure = figure_of(
         vec![numbered(2, 2)],
-        vec![mapped_image(3, 0, ImagePlacement::default())],
+        vec![scalar_image(3, 0, ImagePlacement::default())],
     );
-    figure.axes_mut(NodeId(2)).expect("axes exists").clim = manual(2.0, 3.0);
+    continuous_scale_mut(&mut figure).limits = manual(2.0, 3.0);
     let mut state = FigureState::new(figure);
     let samples = |state: &FigureState| {
         let scene = ironlab_scene::compile(state.figure(), &TEXT);
@@ -1910,8 +1967,8 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
 
     assert!(
         state.try_record(&set(
-            3,
-            "below",
+            CONTINUOUS_SCALE.0,
+            "kind.continuous.below.policy",
             Value::OutOfRange(OutOfRange::Rgba {
                 color: Color::rgb(1.0, 0.0, 0.0)
             })
@@ -1936,13 +1993,17 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
         "a pixel inside the limits keeps its colour"
     );
     assert!(state.problems().is_empty(), "{:?}", state.problems());
-    match state.source().artist(NodeId(3)) {
-        Some((_, Artist::MappedImage(image))) => assert_eq!(
-            image.below,
+    match state
+        .source()
+        .color_scale(CONTINUOUS_SCALE)
+        .map(|scale| &scale.kind)
+    {
+        Some(ColorScaleKind::Continuous(scale)) => assert_eq!(
+            scale.below.policy,
             OutOfRange::Transparent,
             "the source keeps its own policy"
         ),
-        other => panic!("node 3 of the source is the mapped image, not {other:?}"),
+        other => panic!("the source holds its continuous scale, not {other:?}"),
     }
 }
 
@@ -1954,7 +2015,7 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
 fn switching_the_axis_beneath_an_image_to_a_logarithmic_scale_is_refused_with_the_reason() {
     let figure = figure_of(
         vec![numbered(2, 2)],
-        vec![mapped_image(3, 0, ImagePlacement::default())],
+        vec![scalar_image(3, 0, ImagePlacement::default())],
     );
     let mut state = FigureState::new(figure);
     let before = state.figure().clone();

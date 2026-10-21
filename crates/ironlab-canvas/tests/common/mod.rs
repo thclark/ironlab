@@ -169,8 +169,10 @@ pub fn axes_3d(id: u64) -> Axes {
 /// The first axes (node 2) is two-dimensional, occupies the cell in row 0 and column 0,
 /// is titled "Speed" and holds a line (node 4) named "Measured" and a hidden scatter
 /// (node 5) with no name. The second axes (node 3) is three-dimensional, occupies row 0
-/// and column 1, has no title, and holds a surface (node 6) over a rectilinear grid.
-/// Every artist refers to data of the shapes the IR requires, so the figure is valid.
+/// and column 1, has no title, and holds a surface (node 6) over a rectilinear grid, whose
+/// colormapped faces are mapped through the figure's one colour scale (node 7), continuous
+/// and untitled. Every artist refers to data of the shapes the IR requires, so the figure is
+/// valid.
 pub fn figure_with_artists() -> Figure {
     use ironlab_ir::{Artist, Cell, Grid, Line, NdArray, Scatter, Surface, Text, TileLayout};
 
@@ -217,6 +219,7 @@ pub fn figure_with_artists() -> Figure {
             id: NodeId(6),
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
+            color_scale: Some(NodeId(7)),
             ..Surface::default()
         })],
         ..axes_3d(3)
@@ -225,6 +228,10 @@ pub fn figure_with_artists() -> Figure {
         id: NodeId(1),
         layout: TileLayout::new(1, 2),
         data,
+        color_scales: vec![ironlab_ir::ColorScale {
+            id: NodeId(7),
+            ..ironlab_ir::ColorScale::default()
+        }],
         axes: vec![flat, solid],
         ..Figure::new()
     }
@@ -348,12 +355,83 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
     );
 }
 
-/// A figure of one two-dimensional axes (node 2) holding a colour-mapped image (node 3) of
-/// `ny` rows and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, placed by
-/// default, so that the image fills the axes and neighbouring pixels differ in colour along
-/// both axes: by one step of the colormap along a row and by `nx` steps down a column.
-pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
-    use ironlab_ir::{Artist, MappedImage, NdArray};
+/// The node identifier of the continuous colour scale of the image fixtures.
+pub const CONTINUOUS_SCALE: NodeId = NodeId(90);
+
+/// The node identifier of the indexed colour scale of the image fixtures.
+pub const PALETTE_SCALE: NodeId = NodeId(91);
+
+/// The colour scales of the image fixtures: a continuous scale of viridis between automatic limits
+/// ([`CONTINUOUS_SCALE`]), and an indexed scale of the 256 entries of viridis ([`PALETTE_SCALE`]), each drawing
+/// nothing for a value it cannot place, as the colour-mapped and colour-indexed images that preceded scalar images
+/// did by default.
+pub fn image_scales() -> Vec<ironlab_ir::ColorScale> {
+    use ironlab_ir::{
+        Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ContinuousColorScale,
+        IndexedColorScale, OutOfRange,
+    };
+    use ironlab_scene::maths::colormap::VIRIDIS;
+
+    let transparent = || ColorScaleOutOfRange::new(OutOfRange::Transparent);
+    vec![
+        ColorScale {
+            id: CONTINUOUS_SCALE,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                below: transparent(),
+                above: transparent(),
+                ..ContinuousColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: PALETTE_SCALE,
+            kind: ColorScaleKind::Indexed(IndexedColorScale {
+                colors: VIRIDIS
+                    .iter()
+                    .map(|rgb| {
+                        Color::rgb(
+                            f32::from(rgb[0]) / 255.0,
+                            f32::from(rgb[1]) / 255.0,
+                            f32::from(rgb[2]) / 255.0,
+                        )
+                    })
+                    .collect(),
+                outside: transparent(),
+                ..IndexedColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+    ]
+}
+
+/// A continuous colour scale of viridis between automatic limits with the given node identifier, the scale that a
+/// fixture's colormapped surfaces in one axes share, as they once shared the colormap and colour limits of their
+/// axes.
+pub fn continuous_scale(id: u64) -> ironlab_ir::ColorScale {
+    ironlab_ir::ColorScale {
+        id: NodeId(id),
+        ..ironlab_ir::ColorScale::default()
+    }
+}
+
+/// The limits of the continuous colour scale of an image fixture, for a test that changes them.
+pub fn continuous_scale_mut(figure: &mut Figure) -> &mut ironlab_ir::ContinuousColorScale {
+    match figure
+        .color_scale_mut(CONTINUOUS_SCALE)
+        .map(|scale| &mut scale.kind)
+    {
+        Some(ironlab_ir::ColorScaleKind::Continuous(scale)) => scale,
+        other => panic!("the fixture holds its continuous scale, not {other:?}"),
+    }
+}
+
+/// A figure of one two-dimensional axes (node 2) holding a scalar image (node 3) of `ny` rows
+/// and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, mapped through the
+/// continuous colour scale of [`image_scales`] and placed by default, so that the image fills the
+/// axes and neighbouring pixels differ in colour along both axes: by one step of the colormap
+/// along a row and by `nx` steps down a column.
+pub fn figure_with_scalar_image(ny: usize, nx: usize) -> Figure {
+    use ironlab_ir::{Artist, NdArray, ScalarImage};
 
     let values: Vec<f64> = (0..ny * nx).map(|k| k as f64).collect();
     let data = data_arrays([(
@@ -365,29 +443,31 @@ pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
         data,
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::MappedImage(MappedImage {
+            artists: vec![Artist::ScalarImage(ScalarImage {
                 id: NodeId(3),
                 values: array_id(0),
-                ..MappedImage::default()
+                color_scale: Some(CONTINUOUS_SCALE),
+                ..ScalarImage::default()
             })],
             ..Axes::default()
         }],
+        color_scales: image_scales(),
         ..Figure::new()
     }
 }
 
-/// The colour-mapped image of [`figure_with_mapped_image`], `ny` × `nx`, named "Temperature", so that a callout
+/// The scalar image of [`figure_with_scalar_image`], `ny` × `nx`, named "Temperature", so that a callout
 /// over it names the image, and so that any position inside the plot rectangle lies over a pixel with no drawn
 /// point anywhere near it.
 pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
     use ironlab_ir::{Artist, Text};
 
-    let mut figure = figure_with_mapped_image(ny, nx);
+    let mut figure = figure_with_scalar_image(ny, nx);
     match figure.artist_mut(NodeId(3)) {
-        Some(Artist::MappedImage(image)) => {
+        Some(Artist::ScalarImage(image)) => {
             image.label = Some(Text::plain("Temperature"));
         }
-        other => panic!("node 3 is the mapped image, not {other:?}"),
+        other => panic!("node 3 is the scalar image, not {other:?}"),
     }
     figure
 }
@@ -476,7 +556,8 @@ pub fn depth_group(items: Vec<Item>) -> Item {
 /// A figure of one three-dimensional axes (node 2) holding one surface (node 3) over a 3 × 3 rectilinear grid whose
 /// points all lie strictly inside the limits of [`axes_3d`], so that every face is drawn whole. With `visible` false
 /// the surface is hidden, which leaves the axes without a depth group; the difference between the two renders is
-/// therefore the surface alone.
+/// therefore the surface alone. The surface maps its heights through the continuous colour scale of
+/// [`image_scales`].
 pub fn figure_with_surface(visible: bool) -> Figure {
     use ironlab_ir::{Artist, Grid, NdArray, Surface};
 
@@ -502,10 +583,12 @@ pub fn figure_with_surface(visible: bool) -> Figure {
                 visible,
                 grid: Grid::Rectilinear { x: gx, y: gy },
                 z: field,
+                color_scale: Some(CONTINUOUS_SCALE),
                 ..Surface::default()
             })],
             ..axes_3d(2)
         }],
+        color_scales: image_scales(),
         ..Figure::new()
     }
 }
