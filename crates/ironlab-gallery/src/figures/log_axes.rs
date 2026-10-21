@@ -9,13 +9,13 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 60.0)
         .tiles(1, 3)
         .title("Logarithmic axes")
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("log")
-        .label("comparison")
-        .label("dashes")
-        .label("signals")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("log")
+        .tag("comparison")
+        .tag("dashes")
+        .tag("signals")
         .parameter("dimensionality", "2D")
         .parameter("artists", 6)
         .parameter("data_points", 712)
@@ -26,9 +26,9 @@ pub fn figure() -> Figure {
     let inverse: Vec<f64> = x.iter().map(|x| 1.0 / x).collect();
     let inverse_square: Vec<f64> = x.iter().map(|x| 1.0 / (x * x)).collect();
     let mut ax = fig.axes(0, 0);
-    ax.loglog(&x, &inverse).display_name("$x^{-1}$");
+    ax.loglog(&x, &inverse).label("$x^{-1}$");
     ax.loglog(&x, &inverse_square)
-        .display_name("$x^{-2}$")
+        .label("$x^{-2}$")
         .dash(Dash::Dashed);
     ax.title("loglog")
         .xlabel("$x$")
@@ -57,7 +57,7 @@ pub fn figure() -> Figure {
         // tau is the time constant in seconds.
         let decay: Vec<f64> = t.iter().map(|t| (-t / tau).exp()).collect();
         ax.semilogy(&t, &decay)
-            .display_name(format!(r"$\tau = {tau}$ s"));
+            .label(format!(r"$\tau = {tau}$ s"));
     }
     ax.title("semilogy")
         .xlabel("Time $t$ (s)")

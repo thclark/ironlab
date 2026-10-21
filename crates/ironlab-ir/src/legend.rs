@@ -1,17 +1,17 @@
-//! Legends: the legend of an axes, legend panels, and the layout of legend entries.
+//! Legends: the legend of an axes, the legend content of a panel, and the layout of legend
+//! entries.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::NodeId;
-use crate::layout::Cell;
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
-/// The legend of an axes, which lists the artists of the axes that have a display name.
+/// The legend of an axes, which lists the artists of the axes that have a label.
 ///
 /// The entries of an axes are shown either in a legend drawn inside its own plot area or
-/// in a legend panel of the figure, never in both. In JSON a legend is an object whose
+/// in a panel of the figure that holds a legend, never in both. In JSON a legend is an object whose
 /// `type` names the variant and whose `value` holds its content, such as
 /// `{"type": "inside", "value": {"location": "north_east", ...}}` or
 /// `{"type": "panel", "value": 7}`.
@@ -20,9 +20,9 @@ use crate::text::Text;
 pub enum Legend {
     /// The entries are listed in a legend drawn inside the plot area of the axes.
     Inside(InsideLegend),
-    /// The entries are listed in the legend panel of the figure with this node
-    /// identifier, together with the entries of every other axes that names the same
-    /// panel.
+    /// The entries are listed in the panel of the figure with this node identifier, which
+    /// must hold a legend, together with the entries of every other axes that names the
+    /// same panel.
     Panel(NodeId),
 }
 
@@ -42,7 +42,7 @@ pub struct InsideLegend {
     pub boxed: bool,
     /// How the entries are arranged in columns.
     pub layout: LegendEntryLayout,
-    /// Which entries the legend lists, and in what order: the named artists of its axes
+    /// Which entries the legend lists, and in what order: the labelled artists of its axes
     /// in artist order, or an explicit list of items. An item that names an artist must
     /// name an artist of the same axes.
     ///
@@ -63,17 +63,13 @@ impl Default for InsideLegend {
     }
 }
 
-/// A legend of the figure that occupies cells of the tile layout, as an axes does, and
-/// lists the entries of every axes whose legend names it.
+/// The legend content of a panel, which lists the entries of every axes whose legend
+/// names the panel.
+///
+/// Where the panel lies and where its content sits in it are properties of the
+/// [`Panel`](crate::Panel); a legend content says only what is listed and how.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PanelLegend {
-    /// The node identifier of the panel, unique within the figure.
-    pub id: NodeId,
-    /// The cells of the figure's tile layout that the panel occupies.
-    pub cell: Cell,
-    /// Where the block of entries is placed within the panel. A panel holds no data
-    /// for the legend to avoid, so the location `best` places the block at the centre.
-    pub align: LegendLocation,
     /// Whether the area of the panel is outlined by a border drawn as the box of an
     /// axes is drawn. The area of a panel is aligned with the plot areas of the axes in
     /// its rows and columns, so the border continues the edges of their boxes. The
@@ -81,8 +77,8 @@ pub struct PanelLegend {
     pub boxed: bool,
     /// How the entries are arranged in columns.
     pub layout: LegendEntryLayout,
-    /// Which entries the panel lists, and in what order: the named artists of every axes
-    /// that names the panel, merged by name and look, in the reading order of the
+    /// Which entries the panel lists, and in what order: the labelled artists of every
+    /// axes that names the panel, merged by label and look, in the reading order of the
     /// layout, or an explicit list of items. An item that names an artist may name an
     /// artist of any axes of the figure.
     ///
@@ -92,13 +88,10 @@ pub struct PanelLegend {
 }
 
 impl Default for PanelLegend {
-    /// Returns a boxed panel at the top-left cell of the tile layout, with its entries
-    /// centred and arranged in as few columns as fit the panel.
+    /// Returns a boxed legend whose entries are arranged in as few columns as fit the
+    /// panel.
     fn default() -> Self {
         Self {
-            id: NodeId::default(),
-            cell: Cell::default(),
-            align: LegendLocation::Center,
             boxed: true,
             layout: LegendEntryLayout {
                 columns: LegendEntryColumns::Auto,
@@ -116,10 +109,10 @@ impl Default for PanelLegend {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendEntries {
-    /// Every artist with a display name, in the order of the legend: for a legend inside
-    /// a plot area, the artists of its axes in artist order; for a legend panel, the
-    /// artists of every axes that names it, in the reading order of the layout, with the
-    /// entries of the same display name and look merged into one.
+    /// Every artist with a label, in the order of the legend: for a legend inside a plot
+    /// area, the artists of its axes in artist order; for the legend of a panel, the
+    /// artists of every axes that names the panel, in the reading order of the layout,
+    /// with the entries of the same label and look merged into one.
     #[default]
     Auto,
     /// Exactly these items, in this order. The order of the items is independent of the
@@ -185,8 +178,8 @@ impl From<NodeId> for LegendItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendItemContent {
-    /// The artist with this node identifier, labelled by its display name beside the
-    /// sample drawn for it. Clicking the item in the viewer hides or shows the artist.
+    /// The artist with this node identifier, labelled by its label beside the sample
+    /// drawn for it. Clicking the item in the viewer hides or shows the artist.
     Artist(NodeId),
     /// A label beside a sample, standing for no artist, such as the meaning of a marker
     /// shape that many artists share. Clicking the item does nothing.
@@ -304,8 +297,7 @@ pub enum LegendEntryOrder {
     RowMajor,
 }
 
-/// The placement of a legend inside the plot area of its axes, or of the block of
-/// entries inside a legend panel.
+/// The placement of a legend inside the plot area of its axes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LegendLocation {

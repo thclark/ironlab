@@ -28,8 +28,8 @@
 //!
 //! let mut fig = Figure::new().size_mm(120.0, 80.0).title("Trigonometric functions");
 //! let mut ax = fig.axes(0, 0);
-//! ax.plot(&x, &sin).display_name("$\\sin x$");
-//! ax.plot(&x, &cos).display_name("$\\cos x$").dash(Dash::Dashed);
+//! ax.plot(&x, &sin).label("$\\sin x$");
+//! ax.plot(&x, &cos).label("$\\cos x$").dash(Dash::Dashed);
 //! ax.xlabel("$x$").ylabel("$f(x)$").legend(LegendLocation::NorthEast);
 //!
 //! assert!(fig.validate().is_valid());
@@ -56,9 +56,9 @@
 mod artists;
 mod axes;
 mod color;
+mod data;
 mod error;
 mod figure;
-mod grid;
 mod legend;
 mod matrix;
 mod pixels;
@@ -71,10 +71,10 @@ pub use artists::{
 };
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
+pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
-pub use grid::GridCoords;
-pub use legend::PanelLegendMut;
+pub use legend::{PanelLegendMut, PanelMut};
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
 
@@ -100,8 +100,8 @@ pub use ironlab_ir::{
     Aspect, AspectAdjust, Color, ColorSpec, Coords, InsideLegend, Interpreter, IssueKind, Legend,
     LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
     LegendItemContent, LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, PanelLegend,
-    Parameter, Scale, Text, TickLabels, Ticks, TitleAlign, TrackSize, ValidationIssue,
-    ValidationReport,
+    PanelLocation, Parameter, Scale, Text, TickLabels, Ticks, TitleAlign, TrackSize,
+    ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
@@ -168,10 +168,11 @@ pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
         Aspect, AspectAdjust, ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Coords, Dash,
-        Dim, Error, Figure, GridCoords, ImageMut, ImagePlane, ImageValues, IndexedImageMut,
-        IntoColorSpec, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem,
-        LegendLocation, LegendSample, LineMut, MappedImageMut, Marker, Matrix, NodeId, OutOfRange,
-        PanelLegendMut, Parameter, Pixels, QuiverMut, RasterOptions, RasterPolicy, Scale,
-        ScatterMut, SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
+        DataArrayMut, DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues,
+        IndexedImageMut, IntoColorSpec, LegendEntries, LegendEntryColumns, LegendEntryOrder,
+        LegendItem, LegendLocation, LegendSample, LineMut, MappedImageMut, Marker, Matrix, NodeId,
+        OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut,
+        RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, TitleAlign, TrackSize,
+        linspace, logspace, meshgrid,
     };
 }

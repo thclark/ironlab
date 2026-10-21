@@ -109,10 +109,10 @@ fn three_images(figure: &Figure) -> [&Image; 3] {
 }
 
 fn pixels<'a>(figure: &'a Figure, image: &Image) -> &'a NdArray {
-    figure
-        .data
-        .get(&image.pixels)
-        .expect("the pixels of the image are in the data store of the figure")
+    &figure
+        .data_array(image.pixels)
+        .expect("the pixels of the image are a data array of the figure")
+        .array
 }
 
 /// Returns the distance between the centres of adjacent pixels that a range gives to `SIDE` pixels, which is negative

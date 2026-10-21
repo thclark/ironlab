@@ -29,8 +29,8 @@ proto_file! {
     message Line {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the x coordinates of the points.
@@ -56,8 +56,8 @@ proto_file! {
     message Scatter {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the x coordinates of the points.
@@ -142,8 +142,8 @@ proto_file! {
     message Contour {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The grid on which the field is sampled.
@@ -240,8 +240,8 @@ proto_file! {
     message Quiver {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the x coordinates of the arrow tails.
@@ -296,8 +296,8 @@ proto_file! {
     message Surface {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The grid on which the surface is sampled.
@@ -330,8 +330,8 @@ proto_file! {
     message Image {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the pixels, of shape `[ny, nx, 3]` (red, green and
@@ -351,8 +351,8 @@ proto_file! {
     message IndexedImage {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the indices, of shape `[ny, nx]`, holding
@@ -380,8 +380,8 @@ proto_file! {
     message MappedImage {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
-        /// The name shown for the artist in the legend; absent when there is none.
-        message Text display_name = 2;
+        /// The label drawn beside the artist in a legend; absent when there is none.
+        message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
         /// The data identifier of the values, of shape `[ny, nx]`, holding

@@ -4,8 +4,8 @@
 //! panel draws can be unit tested. It answers three questions:
 //!
 //! - **What is in the figure?** [`tree_rows`] turns the displayed figure into the rows of
-//!   the object tree: the figure, its axes and their artists, and its legend panels, each
-//!   labelled as a user would name it.
+//!   the object tree: the figure, its data arrays, its axes and their artists, and its
+//!   panels, each labelled as a user would name it.
 //! - **What can be changed about one node?** [`property_groups`] reads the property
 //!   registry of [`ironlab_ir::properties`], keeps the properties that the node can
 //!   actually show, gathers them under the value they belong to, orders them by the name
@@ -28,17 +28,22 @@
 //!
 //! - A reference to a data array (the x data of a line, the grid of a surface) is shown
 //!   with the shape of the array it names; [`DATA_REASON`] says why.
-//! - The rows and columns of the figure's tile layout, and the cell each axes or legend
-//!   panel occupies within it, are shown as they are, because the layout is the frame the
+//! - The rows and columns of the figure's tile layout, and the cell each axes or panel
+//!   occupies within it, are shown as they are, because the layout is the frame the
 //!   program placed its axes in and where an axes sits in that frame is part of it.
-//! - The legend panel in which an axes lists its entries is shown as the identifier of
+//! - The panel in which an axes lists its legend entries is shown as the identifier of
 //!   the panel, because which axes share a legend is part of how the figure is arranged.
+//! - What a panel holds (a legend, in this version) is shown as it is, because which key a
+//!   panel holds is part of how the figure is arranged; the properties of that key stay
+//!   editable.
+//! - The name of a data array is shown as it is, because a data array, like the data a
+//!   plot draws, comes from the program that builds the figure.
 //! - The groups of axes whose limits are linked are shown as a count.
 //! - A property that another property of the same node overrides, of which the marker
 //!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
 //!
-//! [`read_only_reason`] states the reason for each of the last four, and the panel draws
-//! all five through one function, so that a read-only row is never a dead control with
+//! [`read_only_reason`] states the reason for each of the last six, and the panel draws
+//! all seven through one function, so that a read-only row is never a dead control with
 //! nothing to say for itself and never grows an ornament of its own.
 //!
 //! A value that is only a container of the values below it is not a read-only row but a
@@ -52,88 +57,109 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Axes, Cell, Choice, DataId, Dimension, Edit, Figure, Limits, NodeId, NodeKind,
-    Parameter, Projection, Property, PropertyPath, Transaction, Value, ValueType, command,
-    properties, property_choices,
+    Artist, Cell, Choice, DataArray, Dimension, Edit, Figure, Limits, NodeId, NodeKind, Panel,
+    PanelContent, Parameter, Projection, Property, PropertyPath, Transaction, Value, ValueType,
+    command, properties, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
 // The object tree
 // ---------------------------------------------------------------------------------
 
-/// One row of the object tree.
+/// One row of the object tree: a node of the figure, or a group that gathers the nodes of
+/// one kind that the figure holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TreeRow {
-    /// The node the row selects.
-    pub node: NodeId,
-    /// The kind of the node, which decides its properties.
+    /// The node the row selects, or `None` for a group, which selects nothing.
+    pub node: Option<NodeId>,
+    /// The kind of the node, which decides its properties, or the kind of the nodes that a
+    /// group gathers.
     pub kind: NodeKind,
     /// The name shown: the kind of the node, followed in brackets by the title of the
-    /// figure or of an axes, the display name of an artist, or the cell of an axes that
-    /// has no title. A figure with no title and an artist with no display name are
-    /// shown as their kind alone.
+    /// figure or of an axes, the label of an artist, the name of a data array, or the cell
+    /// of an axes that has no title or of a panel. A figure with no title and an artist with
+    /// no label are shown as their kind alone, and a data array with no name is shown with
+    /// its shape. A group is shown as the plural of the kind it gathers.
     pub label: String,
-    /// The depth in the tree: 0 for the figure, 1 for an axes or a legend panel, 2 for an
-    /// artist.
+    /// The depth in the tree: 0 for the figure, 1 for an axes or a group, and 2 for an
+    /// artist or a member of a group.
     pub depth: usize,
     /// Whether the row is drawn greyed, which a hidden artist is.
     pub dimmed: bool,
 }
 
-/// Returns the rows of the object tree of a figure: the figure, then each axes in
-/// drawing order, each followed by its artists in drawing order, and then each legend
-/// panel.
-///
-/// A legend panel is named by the cell it occupies, as `Legend panel (row 1, col 0)`.
+/// Returns the rows of the object tree of a figure, in the order of the figure's tree: the
+/// figure; the group "Data arrays" with each data array; each axes in drawing order, each
+/// followed by its artists in drawing order; and the group "Panels" with each panel. A
+/// group is listed only when the figure has a node of its kind.
 ///
 /// Every row begins with the kind of the object, and the name the object carries follows
 /// it in brackets: `Figure (A damped oscillator)`, `Axes (Speed)`, `Line ($\sin \omega
-/// t$)`. The kind comes first because a title alone says nothing about what carries it,
-/// and the name is shown as its source, because the tree does not typeset LaTeX.
+/// t$)`, `Data array (pressure)`. The kind comes first because a title alone says nothing
+/// about what carries it, and the name is shown as its source, because the tree does not
+/// typeset LaTeX.
 ///
 /// An axes with no title is named by the cell it occupies, as `Axes (row 0, col 1)`,
-/// because that is what tells two untitled axes apart on screen. A figure with no title
-/// and an artist with no display name are named by their kind alone, with no empty
-/// brackets. A hidden artist is marked [`dimmed`](TreeRow::dimmed).
+/// because that is what tells two untitled axes apart on screen, and a panel is always
+/// named by its content and its cell, as `Legend panel (rows 0–1, col 2)`. A data array
+/// with no name is named by its shape, as `Data array (1000 × 3)`. A figure with no title
+/// and an artist with no label are named by their kind alone, with no empty brackets. A
+/// hidden artist is marked [`dimmed`](TreeRow::dimmed).
 #[must_use]
 pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
-    let mut rows = vec![TreeRow {
-        node: figure.id,
-        kind: NodeKind::Figure,
-        label: row_label(NodeKind::Figure, text_label(figure.title.as_ref())),
-        depth: 0,
+    let row = |node: NodeId, kind: NodeKind, label: String, depth: usize| TreeRow {
+        node: Some(node),
+        kind,
+        label,
+        depth,
         dimmed: false,
-    }];
+    };
+    let group = |kind: NodeKind, label: &str| TreeRow {
+        node: None,
+        kind,
+        label: label.to_owned(),
+        depth: 1,
+        dimmed: false,
+    };
+    let mut rows = vec![row(
+        figure.id,
+        NodeKind::Figure,
+        row_label(NodeKind::Figure, text_label(figure.title.as_ref())),
+        0,
+    )];
+    if !figure.data.is_empty() {
+        rows.push(group(NodeKind::DataArray, "Data arrays"));
+    }
+    for data in &figure.data {
+        let name = row_label(NodeKind::DataArray, Some(data_array_name(data)));
+        rows.push(row(data.id, NodeKind::DataArray, name, 2));
+    }
     for axes in &figure.axes {
-        rows.push(TreeRow {
-            node: axes.id,
-            kind: NodeKind::Axes,
-            label: row_label(
-                NodeKind::Axes,
-                Some(text_label(axes.title.as_ref()).unwrap_or_else(|| cell_name(axes))),
-            ),
-            depth: 1,
-            dimmed: false,
-        });
+        let name = text_label(axes.title.as_ref()).unwrap_or_else(|| cell_label(axes.cell));
+        rows.push(row(
+            axes.id,
+            NodeKind::Axes,
+            row_label(NodeKind::Axes, Some(name)),
+            1,
+        ));
         for artist in &axes.artists {
             let kind = artist_kind(artist);
             rows.push(TreeRow {
-                node: artist.id(),
-                kind,
-                label: row_label(kind, text_label(artist.display_name())),
-                depth: 2,
                 dimmed: !artist.visible(),
+                ..row(
+                    artist.id(),
+                    kind,
+                    row_label(kind, text_label(artist.label())),
+                    2,
+                )
             });
         }
     }
-    for panel in &figure.panel_legends {
-        rows.push(TreeRow {
-            node: panel.id,
-            kind: NodeKind::PanelLegend,
-            label: row_label(NodeKind::PanelLegend, Some(cell_label(panel.cell))),
-            depth: 1,
-            dimmed: false,
-        });
+    if !figure.panels.is_empty() {
+        rows.push(group(NodeKind::Panel, "Panels"));
+    }
+    for panel in &figure.panels {
+        rows.push(row(panel.id, NodeKind::Panel, panel_label(panel), 2));
     }
     rows
 }
@@ -161,7 +187,8 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
         NodeKind::Image => "Image",
         NodeKind::IndexedImage => "Indexed image",
         NodeKind::MappedImage => "Mapped image",
-        NodeKind::PanelLegend => "Legend panel",
+        NodeKind::DataArray => "Data array",
+        NodeKind::Panel => "Panel",
     }
 }
 
@@ -172,15 +199,39 @@ fn text_label(text: Option<&ironlab_ir::Text>) -> Option<String> {
     (!content.is_empty()).then(|| content.to_owned())
 }
 
-/// The name of an axes that has no title, taken from the cell it occupies.
-fn cell_name(axes: &Axes) -> String {
-    cell_label(axes.cell)
+/// The name of a data array: its name, or its shape when it has none or its name is
+/// blank.
+fn data_array_name(data: &DataArray) -> String {
+    let name = data.name.as_deref().map(str::trim).unwrap_or_default();
+    if name.is_empty() {
+        let lengths: Vec<String> = data.array.shape.iter().map(usize::to_string).collect();
+        lengths.join(" × ")
+    } else {
+        name.to_owned()
+    }
 }
 
-/// The name of a cell of the tile layout, by the row and column at its top left.
+/// The name of a panel: the kind of its content, followed in brackets by its cell.
+fn panel_label(panel: &Panel) -> String {
+    let content = match panel.content {
+        PanelContent::Legend(_) => "Legend panel",
+    };
+    format!("{content} ({})", cell_label(panel.cell))
+}
+
+/// The name of a block of cells of the tile layout, by its rows and columns: a single
+/// row or column by its index, as `row 1`, and a span by its first and last, as
+/// `rows 0–1`.
 fn cell_label(cell: Cell) -> String {
-    let Cell { row, col, .. } = cell;
-    format!("row {row}, col {col}")
+    let tracks = |noun: &str, first: u32, span: u32| match span {
+        0 | 1 => format!("{noun} {first}"),
+        span => format!("{noun}s {first}–{}", first.saturating_add(span - 1)),
+    };
+    format!(
+        "{}, {}",
+        tracks("row", cell.row, cell.row_span),
+        tracks("col", cell.col, cell.col_span)
+    )
 }
 
 fn artist_kind(artist: &Artist) -> NodeKind {
@@ -233,7 +284,7 @@ pub enum Editor {
     /// A list of numbers, typed as text, or a list of the sizes of the rows or columns
     /// of the tile layout, in which the word `fit` stands for a fitted size.
     Numbers,
-    /// A list of words, typed as text: the labels of the figure.
+    /// A list of words, typed as text: the tags of the figure.
     Words,
     /// The named parameters of the figure, which have an editor of their own.
     Parameters,
@@ -445,15 +496,25 @@ const CELL_REASON: &str = "The cell an axes occupies, like the tile layout it si
      set by the program that builds the figure. The editor changes how a figure looks, \
      not how it is arranged.";
 
-/// The reason the cell a legend panel occupies is not changed here.
-const PANEL_CELL_REASON: &str = "The cell a legend panel occupies, like the tile layout it \
-     sits in, is set by the program that builds the figure. The editor changes how a \
-     figure looks, not how it is arranged.";
+/// The reason the cell a panel occupies is not changed here.
+const PANEL_CELL_REASON: &str = "The cell a panel occupies, like the tile layout it sits \
+     in, is set by the program that builds the figure. The editor changes how a figure \
+     looks, not how it is arranged.";
 
-/// The reason the legend panel an axes lists its entries in is not changed here.
-const PANEL_REFERENCE_REASON: &str = "The legend panel in which an axes lists its entries \
+/// The reason the kind of content a panel holds is not changed here.
+const PANEL_CONTENT_REASON: &str = "What a panel holds, like the cell it occupies, is set by \
+     the program that builds the figure. The editor changes how the key in it looks, not \
+     which key the figure has.";
+
+/// The reason the panel an axes lists its legend entries in is not changed here.
+const PANEL_REFERENCE_REASON: &str = "The panel in which an axes lists its legend entries \
      is set by the program that builds the figure, as part of how its axes and legends \
      relate to one another.";
+
+/// The reason the name of a data array is not changed here.
+const DATA_ARRAY_REASON: &str = "A data array, its name included, comes from the program \
+     that builds the figure, which is where it is changed. The editor changes how the \
+     figure looks, not what it draws.";
 
 /// The reason the explicit labels of the ticks of an axis are not changed here.
 const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one by one, and \
@@ -520,9 +581,13 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // Which legend panel an axes lists its entries in relates the axes to another
         // node of the figure, which is structure as the cell of an axes is.
         NodeKind::Axes if segments == ["legend", "panel"] => Some(PANEL_REFERENCE_REASON),
-        NodeKind::PanelLegend if segments.first().is_some_and(|first| first == "cell") => {
+        NodeKind::Panel if segments.first().is_some_and(|first| first == "cell") => {
             Some(PANEL_CELL_REASON)
         }
+        // Which kind of key a panel holds is structure, as its cell is; the properties of
+        // the key it holds, which lie below `content`, stay editable.
+        NodeKind::Panel if segments == ["content"] => Some(PANEL_CONTENT_REASON),
+        NodeKind::DataArray => Some(DATA_ARRAY_REASON),
         // The pixels, indices or values of an image are a data reference, which is read-only
         // by its type, so an image has no read-only property of its own.
         NodeKind::Axes
@@ -534,7 +599,7 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::Image
         | NodeKind::IndexedImage
         | NodeKind::MappedImage
-        | NodeKind::PanelLegend => None,
+        | NodeKind::Panel => None,
     }
 }
 
@@ -559,6 +624,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
+        | ValueType::PanelLegend
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -568,7 +634,6 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Double
         | ValueType::Float
         | ValueType::String
-        | ValueType::DataId
         | ValueType::NodeId
         | ValueType::Doubles
         | ValueType::TrackSizes
@@ -591,6 +656,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ColormapName
         | ValueType::Legend
         | ValueType::LegendLocation
+        | ValueType::PanelLocation
+        | ValueType::PanelContent
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::ColorSpec
@@ -648,16 +715,13 @@ fn editor_for(
         ValueType::Links => Editor::ReadOnly {
             reason: LINKS_REASON,
         },
-        // The only reference to a node is the legend panel of an axes, which
-        // [`read_only_reason`] answered for above.
-        ValueType::NodeId => Editor::ReadOnly {
-            reason: PANEL_REFERENCE_REASON,
-        },
-        ValueType::DataId => Editor::Data {
-            shape: match value {
-                Value::DataId(id) => figure.data.get(id).map(|array| array.shape.clone()),
-                _ => None,
-            },
+        // The panel of the legend of an axes is the one reference to a node that is not a
+        // data reference, and [`read_only_reason`] answered for it above, so every
+        // reference that reaches this arm refers to a data array.
+        ValueType::NodeId => Editor::Data {
+            shape: data_id(value)
+                .and_then(|id| figure.data_array(id))
+                .map(|data| data.array.shape.clone()),
         },
         ValueType::Projection
         | ValueType::Limits
@@ -679,6 +743,8 @@ fn editor_for(
         | ValueType::ColormapName
         | ValueType::Legend
         | ValueType::LegendLocation
+        | ValueType::PanelLocation
+        | ValueType::PanelContent
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
@@ -698,6 +764,7 @@ fn editor_for(
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
+        | ValueType::PanelLegend
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -1050,9 +1117,9 @@ pub fn shape_label(shape: Option<&[usize]>) -> String {
 
 /// Returns the identifier a data reference holds, for the read-only row that shows it.
 #[must_use]
-pub fn data_id(value: &Value) -> Option<DataId> {
+pub fn data_id(value: &Value) -> Option<NodeId> {
     match value {
-        Value::DataId(id) => Some(*id),
+        Value::NodeId(id) => Some(*id),
         _ => None,
     }
 }

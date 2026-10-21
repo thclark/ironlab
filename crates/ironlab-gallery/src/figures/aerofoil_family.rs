@@ -125,12 +125,12 @@ pub fn figure() -> Figure {
         .size_mm(110.0, 190.0)
         .tiles(3, 1)
         .title("NACA 4-digit sections")
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("linked-axes")
-        .label("ticks")
-        .label("aspect")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("linked-axes")
+        .tag("ticks")
+        .tag("aspect")
         .parameter("dimensionality", "2D")
         .parameter("artists", 15)
         .parameter("data_points", 2 * 15 * 159)
@@ -142,7 +142,7 @@ pub fn figure() -> Figure {
         for (member, dash) in panel.members.iter().zip(DASHES) {
             let (x, y) = member.outline(80);
             ax.plot(&x, &y)
-                .display_name(format!("NACA {}", member.designation()))
+                .label(format!("NACA {}", member.designation()))
                 .color(Color::BLACK)
                 .dash(dash);
         }

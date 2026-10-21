@@ -132,7 +132,7 @@ fn every_required_chart_type_is_present() {
             },
         ),
         ("legend with a named series", |_, axes, artist| {
-            axes.legend.is_some() && artist.display_name().is_some()
+            axes.legend.is_some() && artist.label().is_some()
         }),
         ("LaTeX math in an axis label", |_, axes, _| {
             [&axes.x, &axes.y, &axes.z].iter().any(|axis| {
@@ -341,11 +341,11 @@ fn legend_toggle_has_four_visible_latex_named_series() {
         .iter()
         .filter(|a| a.legend.is_some())
         .flat_map(|a| a.artists.iter())
-        .filter(|artist| artist.display_name().is_some())
+        .filter(|artist| artist.label().is_some())
         .collect();
     assert_eq!(named.len(), 4);
     for artist in named {
-        let name = artist.display_name().expect("filtered on names");
+        let name = artist.label().expect("filtered on names");
         assert_eq!(name.interpreter, Interpreter::Latex);
         assert!(
             name.content.contains('$'),

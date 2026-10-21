@@ -16,6 +16,32 @@ use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::TextEngine;
 
+/// The node identifier of data array `k` of a fixture: `100 + k`, apart from the identifiers below 100 that the
+/// fixtures give the figure, its axes, its artists and its panels, with which a data array shares one space of node
+/// identifiers.
+pub const fn array_id(k: u64) -> NodeId {
+    NodeId(100 + k)
+}
+
+/// An unnamed data array of a fixture.
+pub fn data_array(id: NodeId, array: ironlab_ir::NdArray) -> ironlab_ir::DataArray {
+    ironlab_ir::DataArray {
+        id,
+        name: None,
+        array,
+    }
+}
+
+/// The unnamed data arrays of a fixture, in the order given.
+pub fn data_arrays<const N: usize>(
+    arrays: [(NodeId, ironlab_ir::NdArray); N],
+) -> Vec<ironlab_ir::DataArray> {
+    arrays
+        .into_iter()
+        .map(|(id, array)| data_array(id, array))
+        .collect()
+}
+
 /// One text engine for the whole test binary; building it parses the bundled fonts.
 pub static TEXT: LazyLock<Arc<TextEngine>> = LazyLock::new(|| Arc::new(TextEngine::new()));
 
@@ -73,13 +99,11 @@ pub fn axes_3d(id: u64) -> Axes {
 /// and column 1, has no title, and holds a surface (node 6) over a rectilinear grid.
 /// Every artist refers to data of the shapes the IR requires, so the figure is valid.
 pub fn figure_with_artists() -> Figure {
-    use ironlab_ir::{
-        Artist, Cell, DataId, Grid, Line, NdArray, Scatter, Surface, Text, TileLayout,
-    };
+    use ironlab_ir::{Artist, Cell, Grid, Line, NdArray, Scatter, Surface, Text, TileLayout};
 
-    let (x, y) = (DataId(0), DataId(1));
-    let (gx, gy, field) = (DataId(2), DataId(3), DataId(4));
-    let data = std::collections::BTreeMap::from([
+    let (x, y) = (array_id(0), array_id(1));
+    let (gx, gy, field) = (array_id(2), array_id(3), array_id(4));
+    let data = data_arrays([
         (x, NdArray::vector(vec![1.0, 2.0, 3.0])),
         (y, NdArray::vector(vec![1.0, 4.0, 9.0])),
         (gx, NdArray::vector(vec![0.0, 1.0, 2.0])),
@@ -96,7 +120,7 @@ pub fn figure_with_artists() -> Figure {
         artists: vec![
             Artist::Line(Line {
                 id: NodeId(4),
-                display_name: Some(Text::plain("Measured")),
+                label: Some(Text::plain("Measured")),
                 x,
                 y,
                 ..Line::default()
@@ -245,20 +269,22 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// colour-indexed image (9) of 8-bit indices on the yz wall and a colour-mapped image
 /// (10) of the field on the floor, the images with both pixel ranges set and the two
 /// mapped kinds with a fixed colour, a clamp and a transparent policy between them.
-/// Every artist is three-dimensional or planar, so the figure is valid.
+/// Every artist is three-dimensional or planar, so the figure is valid. The axes lies in
+/// the first of two columns, and a legend panel (11) in the second, so that the figure
+/// holds a node of every kind.
 pub fn figure_with_every_artist() -> Figure {
+    use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
         Artist, Color, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, Levels,
         Line, MappedImage, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
         ScatterColor, ScatterSize, Surface,
     };
-    use ironlab_ir::{ContourPlacement, DataId};
 
-    let ids: Vec<DataId> = (0..10).map(DataId).collect();
+    let ids: Vec<NodeId> = (0..10).map(array_id).collect();
     let (x, y, z, u, v, w) = (ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]);
     let (gx, field, pixels, indices) = (ids[6], ids[7], ids[8], ids[9]);
     let vector = |start: f64| NdArray::vector(vec![start, start + 1.0, start + 2.0]);
-    let data = std::collections::BTreeMap::from([
+    let data = data_arrays([
         (x, vector(1.0)),
         (y, vector(2.0)),
         (z, vector(3.0)),
@@ -378,10 +404,20 @@ pub fn figure_with_every_artist() -> Figure {
     ];
     Figure {
         id: NodeId(1),
+        layout: ironlab_ir::TileLayout::new(1, 2),
         data,
         axes: vec![Axes {
             artists,
             ..axes_3d(2)
+        }],
+        panels: vec![ironlab_ir::Panel {
+            id: NodeId(11),
+            cell: ironlab_ir::Cell {
+                col: 1,
+                ..ironlab_ir::Cell::default()
+            },
+            align: ironlab_ir::PanelLocation::Center,
+            content: ironlab_ir::PanelContent::Legend(ironlab_ir::PanelLegend::default()),
         }],
         ..Figure::new()
     }
@@ -395,10 +431,10 @@ pub fn figure_with_every_artist() -> Figure {
 /// one of them — and all of them draw the same two data arrays, so that the figure is
 /// valid and the object tree has thirty-one rows.
 pub fn figure_with_many_axes() -> Figure {
-    use ironlab_ir::{Artist, Cell, DataId, Line, NdArray, Scatter, Text, TileLayout};
+    use ironlab_ir::{Artist, Cell, Line, NdArray, Scatter, Text, TileLayout};
 
-    let (x, y) = (DataId(0), DataId(1));
-    let data = std::collections::BTreeMap::from([
+    let (x, y) = (array_id(0), array_id(1));
+    let data = data_arrays([
         (x, NdArray::vector(vec![1.0, 2.0, 3.0])),
         (y, NdArray::vector(vec![1.0, 4.0, 9.0])),
     ]);
@@ -415,7 +451,7 @@ pub fn figure_with_many_axes() -> Figure {
             artists.push(if plot.is_multiple_of(2) {
                 Artist::Line(Line {
                     id: artist,
-                    display_name: Some(name),
+                    label: Some(name),
                     x,
                     y,
                     ..Line::default()
@@ -423,7 +459,7 @@ pub fn figure_with_many_axes() -> Figure {
             } else {
                 Artist::Scatter(Scatter {
                     id: artist,
-                    display_name: Some(name),
+                    label: Some(name),
                     x,
                     y,
                     ..Scatter::default()
@@ -455,11 +491,11 @@ pub fn figure_with_many_axes() -> Figure {
 /// default, so that the image fills the axes and neighbouring pixels differ in colour along
 /// both axes: by one step of the colormap along a row and by `nx` steps down a column.
 pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
-    use ironlab_ir::{Artist, DataId, MappedImage, NdArray};
+    use ironlab_ir::{Artist, MappedImage, NdArray};
 
     let values: Vec<f64> = (0..ny * nx).map(|k| k as f64).collect();
-    let data = std::collections::BTreeMap::from([(
-        DataId(0),
+    let data = data_arrays([(
+        array_id(0),
         NdArray::from_shape(vec![ny, nx], values).expect("the shape matches the values"),
     )]);
     Figure {
@@ -469,7 +505,7 @@ pub fn figure_with_mapped_image(ny: usize, nx: usize) -> Figure {
             id: NodeId(2),
             artists: vec![Artist::MappedImage(MappedImage {
                 id: NodeId(3),
-                values: DataId(0),
+                values: array_id(0),
                 ..MappedImage::default()
             })],
             ..Axes::default()
@@ -487,7 +523,7 @@ pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
     let mut figure = figure_with_mapped_image(ny, nx);
     match figure.artist_mut(NodeId(3)) {
         Some(Artist::MappedImage(image)) => {
-            image.display_name = Some(Text::plain("Temperature"));
+            image.label = Some(Text::plain("Temperature"));
         }
         other => panic!("node 3 is the mapped image, not {other:?}"),
     }
@@ -498,24 +534,21 @@ pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
 /// "Samples", so that any position inside the plot rectangle is close to a drawn marker and a callout over it
 /// names the series.
 pub fn figure_with_dense_scatter(n: usize) -> Figure {
-    use ironlab_ir::{Artist, DataId, NdArray, Scatter, Text};
+    use ironlab_ir::{Artist, NdArray, Scatter, Text};
 
     let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
     let y: Vec<f64> = (0..n)
         .map(|i| ((i as u64).wrapping_mul(2_654_435_761) % 10_000) as f64 / 10_000.0)
         .collect();
-    let (xi, yi) = (DataId(0), DataId(1));
+    let (xi, yi) = (array_id(0), array_id(1));
     Figure {
         id: NodeId(1),
-        data: std::collections::BTreeMap::from([
-            (xi, NdArray::vector(x)),
-            (yi, NdArray::vector(y)),
-        ]),
+        data: data_arrays([(xi, NdArray::vector(x)), (yi, NdArray::vector(y))]),
         axes: vec![Axes {
             id: NodeId(2),
             artists: vec![Artist::Scatter(Scatter {
                 id: NodeId(3),
-                display_name: Some(Text::plain("Samples")),
+                label: Some(Text::plain("Samples")),
                 x: xi,
                 y: yi,
                 ..Scatter::default()

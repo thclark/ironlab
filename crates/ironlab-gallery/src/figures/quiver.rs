@@ -17,11 +17,11 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(120.0, 100.0)
         .title(r"Gradient of $\ln(1 + |z_3|)$")
-        .label("contour")
-        .label("quiver")
-        .label("basics")
-        .label("gradient")
-        .label("overlay")
+        .tag("contour")
+        .tag("quiver")
+        .tag("basics")
+        .tag("gradient")
+        .tag("overlay")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
         .parameter("data_points", 16_647)
@@ -31,7 +31,7 @@ pub fn figure() -> Figure {
     ax.quiver(xx.values(), yy.values(), dzdx.values(), dzdy.values())
         .color(Color::BLACK)
         .line_width(0.5)
-        .display_name(r"$\nabla f$");
+        .label(r"$\nabla f$");
     ax.xlabel("$x$").ylabel("$y$");
     fig
 }

@@ -62,9 +62,8 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, AspectAdjust, Axes, Axis, Coords, DataId, Dimension, Edit, EditError, Figure, Limits,
-    NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d,
-    command,
+    Artist, AspectAdjust, Axes, Axis, Coords, Dimension, Edit, EditError, Figure, Limits, NdArray,
+    NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
@@ -94,8 +93,8 @@ pub struct Datatip {
     pub axes: NodeId,
     /// The artist the point belongs to.
     pub artist: NodeId,
-    /// The display name of the artist, when it has one.
-    pub name: Option<String>,
+    /// The label of the artist, when it has one.
+    pub label: Option<String>,
     /// The index of the point in the artist's own data arrays.
     pub index: usize,
     /// Where the point was drawn, in figure space, which is where a callout is anchored.
@@ -121,8 +120,8 @@ pub struct PixelDatatip {
     pub axes: NodeId,
     /// The image the pixel belongs to.
     pub artist: NodeId,
-    /// The display name of the image, when it has one.
-    pub name: Option<String>,
+    /// The label of the image, when it has one.
+    pub label: Option<String>,
     /// The row of the pixel in the artist's array.
     pub row: usize,
     /// The column of the pixel in the artist's array.
@@ -736,16 +735,16 @@ impl FigureState {
             _ => return None,
         };
         let index = sample.source_index;
-        let value = |id: DataId| self.composed.data.get(&id)?.get(index);
+        let value = |id: NodeId| self.composed.data_array(id)?.array.get(index);
         // A fraction of the plot area is where the point was drawn, not a measurement, so it is not reported as data.
-        let data = |id: DataId, coords: Coords| match coords {
+        let data = |id: NodeId, coords: Coords| match coords {
             Coords::Data => value(id).map(Some),
             Coords::AxesFraction => Some(None),
         };
         Some(Datatip {
             axes: drawn.axes,
             artist: drawn.artist,
-            name: artist.display_name().map(|text| text.content.clone()),
+            label: artist.label().map(|text| text.content.clone()),
             index,
             position: sample.position,
             x: data(x, coords[0])?,
@@ -775,12 +774,12 @@ impl FigureState {
             Artist::MappedImage(image) => (image.values, image.placement, PixelKind::Value),
             _ => return None,
         };
-        let value = pixel_value(self.composed.data.get(&data)?, kind, row, column)?;
+        let value = pixel_value(&self.composed.data_array(data)?.array, kind, row, column)?;
         let centre = Point::new(column as f64 + 0.5, row as f64 + 0.5);
         Some(PixelDatatip {
             axes: drawn.axes,
             artist: drawn.artist,
-            name: artist.display_name().map(|text| text.content.clone()),
+            label: artist.label().map(|text| text.content.clone()),
             row,
             column,
             x: pixel_centre(placement.columns, drawn.columns, column),

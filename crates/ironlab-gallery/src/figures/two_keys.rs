@@ -71,23 +71,23 @@ pub fn figure() -> Figure {
         .tiles(2, 2)
         .fit_row(1)
         .title("Boundary layer on a NACA 0012 section")
-        .label("line")
-        .label("scatter")
-        .label("legend")
-        .label("markers")
-        .label("simulations")
+        .tag("line")
+        .tag("scatter")
+        .tag("legend")
+        .tag("markers")
+        .tag("simulations")
         .parameter("dimensionality", "2D")
         .parameter("artists", 14)
         .parameter("data_points", 1468)
         .parameter("has_legend", true);
-    let curves = fig.panel_legend(1, 0).id();
+    let curves = fig.panel(1, 0).id();
     let mut ax = fig.axes_span(0, 0, 1, 2);
 
     // The section itself, upper and lower surface.
     let upper: Vec<f64> = x.iter().map(|&x| half_thickness(x)).collect();
     let lower: Vec<f64> = upper.iter().map(|y| -y).collect();
     ax.plot(&x, &upper)
-        .display_name("Section")
+        .label("Section")
         .color(SECTION)
         .line_width(1.0);
     ax.plot(&x, &lower).color(SECTION).line_width(1.0);
@@ -108,7 +108,7 @@ pub fn figure() -> Figure {
             let mut curve = ax.plot(&ox, &oy);
             curve.color(THICKNESS).dash(dash);
             if side > 0.0 {
-                curve.display_name(name.as_str());
+                curve.label(name.as_str());
             }
             for (at, shape) in [(transition, Marker::Square), (separation, Marker::TriangleUp)] {
                 let y = side * half_thickness(at);
@@ -127,7 +127,7 @@ pub fn figure() -> Figure {
         .legend_in(curves);
 
     // The marker key: items that stand for no plot, explaining shape and colour once each.
-    fig.panel_legend(1, 1)
+    fig.panel(1, 1).legend()
         .custom_item(point_kind(Marker::Square), "Transition")
         .custom_item(point_kind(Marker::TriangleUp), "Separation")
         .custom_item(LegendSample::swatch(UPPER), "Upper surface")

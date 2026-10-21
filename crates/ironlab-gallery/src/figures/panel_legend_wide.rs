@@ -33,18 +33,18 @@ pub fn figure() -> Figure {
         .tiles(2, 2)
         .row_weights([3.0, 1.0])
         .title("A second-order system at twelve damping ratios")
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("log")
-        .label("signals")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("log")
+        .tag("signals")
         .parameter("dimensionality", "2D")
         .parameter("artists", 24)
         .parameter("data_points", 9648)
         .parameter("has_legend", true);
     // A full-width panel in the bottom row, drawn without the border a panel has by default; its default automatic
     // columns spread the entries across its width.
-    let key = fig.panel_legend_span(1, 0, 1, 2).boxed(false).id();
+    let key = fig.panel_span(1, 0, 1, 2).legend().boxed(false).id();
 
     for (k, &zeta) in DAMPING_RATIOS.iter().enumerate() {
         // The lightly damped responses are red and the heavily damped ones violet.
@@ -54,11 +54,11 @@ pub fn figure() -> Figure {
         let gain: Vec<f64> = omega.iter().map(|&omega| gain_db(omega, zeta)).collect();
         fig.axes(0, 0)
             .plot(&t, &response)
-            .display_name(name.as_str())
+            .label(name.as_str())
             .color(color);
         fig.axes(0, 1)
             .semilogx(&omega, &gain)
-            .display_name(name.as_str())
+            .label(name.as_str())
             .color(color);
     }
 

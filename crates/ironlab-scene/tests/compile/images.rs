@@ -7,8 +7,8 @@
 //! from the public camera for a 3D axes.
 
 use ironlab_ir::{
-    Color, ColormapName, DataId, Dimension, ImagePlane, InsideLegend, Legend, LegendLocation,
-    Limits, NodeId, OutOfRange, Scale, ScatterColor, View3d,
+    Color, ColormapName, Dimension, ImagePlane, InsideLegend, Legend, LegendLocation, Limits,
+    NodeId, OutOfRange, Scale, ScatterColor, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
@@ -2366,14 +2366,14 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
     let ax = fx.axes2d(0, 0);
     fx.ax(ax).colormap = ColormapName::Magma;
     let mapped_image = fx.mapped_image(ax, vec![2, 2], ramp(4), xy(None, None), |m| {
-        m.display_name = text("Mapped")
+        m.label = text("Mapped")
     });
     let indexed = fx.indexed_image(
         ax,
         vec![2, 2],
         vec![0u8, 50, 100, 150],
         xy(range(3.0, 4.0), None),
-        |m| m.display_name = text("Indexed"),
+        |m| m.label = text("Indexed"),
     );
     // Pure red, green and blue, and a pixel with a non-finite component that does not count: the mean is a third of
     // each component.
@@ -2395,7 +2395,7 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
             1.0,
         ],
         xy(range(6.0, 7.0), None),
-        |m| m.display_name = text("Pixels"),
+        |m| m.label = text("Pixels"),
     );
     fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthEast,
@@ -2464,7 +2464,7 @@ fn the_best_legend_location_keeps_clear_of_an_image() {
                 vec![2, 2],
                 ramp(4),
                 xy(range(first, last), range(9.375, 9.525)),
-                |m| m.display_name = text("Patch"),
+                |m| m.label = text("Patch"),
             ));
         }
         let axes = fx.ax(ax);
@@ -2544,7 +2544,7 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         (
             "image whose pixels are not in the data table",
             fx.image(ax, vec![1, 1, 3], vec![0u8; 3], xy(None, None), |i| {
-                i.pixels = DataId(999)
+                i.pixels = NodeId(999)
             }),
         ),
         (

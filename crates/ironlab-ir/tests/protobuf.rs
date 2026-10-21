@@ -7,7 +7,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::{
-    SPECIAL_F64, float_bits, floats_mut, image_variants_figure, kitchen_sink_figure,
+    SPECIAL_F64, float_bits, floats_mut, image_variants_figure, kitchen_sink_figure, legend_panel,
     single_line_figure, special_values_figure,
 };
 use ironlab_ir::*;
@@ -321,6 +321,24 @@ fn wire_bytes(shape: Vec<u64>, values: Vec<u8>) -> wire::NdArray {
     }
 }
 
+/// A wire data array with the given identifier, optional name and array.
+fn wire_data(id: u64, name: Option<&str>, array: wire::NdArray) -> wire::DataArray {
+    wire::DataArray {
+        id: Some(id),
+        array: Some(array),
+        name: name.map(str::to_owned),
+    }
+}
+
+/// The wire content of a panel that holds the given legend.
+fn wire_panel_legend(legend: wire::PanelLegend) -> Option<wire::PanelContent> {
+    Some(wire::PanelContent {
+        kind: Some(wire::PanelContentKind::Legend(wire::PanelContentLegend {
+            legend: Some(legend),
+        })),
+    })
+}
+
 /// A wire legend inside the plot area.
 fn wire_inside(
     location: wire::LegendLocation,
@@ -525,7 +543,7 @@ proptest! {
                 ..View3d::default()
             },
         };
-        floats_mut(fig.data.get_mut(&DataId(0)).unwrap())[1] = f64::from_bits(sample);
+        floats_mut(&mut fig.data[0].array)[1] = f64::from_bits(sample);
 
         let restored = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
         prop_assert_eq!(float_bits(&restored), float_bits(&fig));
@@ -558,12 +576,11 @@ fn extreme_identifiers_and_counts_survive_a_round_trip() {
         row_span: u32::MAX,
         col_span: 1,
     };
-    let array = fig.data.remove(&DataId(0)).unwrap();
-    fig.data.insert(DataId(u64::MAX), array);
+    fig.data[0].id = NodeId(u64::MAX);
     let Artist::Line(line) = &mut fig.axes[0].artists[0] else {
         panic!("fixture holds a line");
     };
-    line.x = DataId(u64::MAX);
+    line.x = NodeId(u64::MAX);
     assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
 }
 
@@ -576,10 +593,14 @@ fn every_byte_value_reloads_with_its_element_type() {
     let (mut fig, _, _) = single_line_figure();
     let values: Vec<u8> = (0..=255).collect();
     let array = NdArray::from_shape_u8(vec![16, 16], values.clone()).unwrap();
-    fig.data.insert(DataId(9), array.clone());
+    fig.data.push(DataArray {
+        id: NodeId(9),
+        name: None,
+        array: array.clone(),
+    });
     let restored = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
-    assert_eq!(restored.data[&DataId(9)].as_u8(), Some(values.as_slice()));
-    assert_eq!(restored.data[&DataId(9)], array);
+    assert_eq!(restored.data[2].array.as_u8(), Some(values.as_slice()));
+    assert_eq!(restored.data[2].array, array);
     assert_eq!(restored, fig);
 }
 
@@ -592,19 +613,27 @@ fn every_byte_value_reloads_with_its_element_type() {
 #[test]
 fn the_encoder_writes_the_element_of_every_array_and_one_payload() {
     let (mut fig, _, _) = single_line_figure();
-    fig.data.insert(
-        DataId(9),
-        NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
-    );
+    fig.data.push(DataArray {
+        id: NodeId(9),
+        name: None,
+        array: NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
+    });
     let wire_figure = wire::Figure::from(&fig);
 
-    let floats = &wire_figure.data[&0];
+    let floats = wire_figure.data[0]
+        .array
+        .as_ref()
+        .expect("the array is written");
     assert_eq!(floats.element, wire::NdArrayElement::F64 as i32);
     assert_eq!(floats.shape, [3]);
     assert_eq!(floats.values, [1.0, 2.0, 3.0]);
     assert!(floats.u8_values.is_empty());
 
-    let bytes = &wire_figure.data[&9];
+    assert_eq!(wire_figure.data[2].id, Some(9));
+    let bytes = wire_figure.data[2]
+        .array
+        .as_ref()
+        .expect("the array is written");
     assert_eq!(bytes.element, wire::NdArrayElement::U8 as i32);
     assert_eq!(bytes.shape, [2, 2]);
     assert_eq!(bytes.u8_values, [0, 1, 254, 255]);
@@ -649,15 +678,16 @@ fn protobuf_to_json_to_protobuf_reproduces_the_same_bytes() {
 
 // Why: a round trip cannot detect a mapping that is wrong in the same way in both
 // directions, such as the x and y data identifiers exchanged by both the encoder and the
-// decoder, two oneof variants or two grid kinds exchanged, or the keys of the data table
-// renumbered; IronLAB would still reload its own figures, but readers and writers in
+// decoder, two oneof variants or two grid kinds exchanged, or the data arrays renumbered,
+// renamed or sorted; IronLAB would still reload its own figures, but readers and writers in
 // other languages, which rely on the generated schema, would see the fields exchanged.
 // Decoding a wire figure built by hand, in which every pair of fields of the same type
 // holds different values and every oneof variant appears, pins each wire field to the
 // domain field that it names; the round-trip tests then pin the encoder as well.
 #[test]
 fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
-    // Non-contiguous data identifiers, so that a decoder that renumbers keys is caught.
+    // Non-contiguous data identifiers, listed out of order, so that a decoder that
+    // renumbers or sorts the data arrays is caught.
     const A: u64 = 7;
     const B: u64 = 10;
     const C: u64 = 12;
@@ -685,13 +715,21 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             row_weights: vec![wire_weight(3.0), wire_fit()],
             col_weights: vec![wire_fit(), wire_weight(0.25)],
         }),
-        data: BTreeMap::from([
-            (A, wire_floats(vec![2], vec![1.0, 2.0])),
-            (B, wire_floats(vec![1, 3], vec![3.0, 4.0, 5.0])),
-            (C, wire_floats(vec![3, 1], vec![6.0, 7.0, 8.0])),
-            (D, wire_floats(vec![2, 2], vec![9.0, 10.0, 11.0, 12.0])),
-            (E, wire_bytes(vec![3], vec![13, 14, 15])),
-        ]),
+        data: vec![
+            wire_data(
+                C,
+                Some("c, δ"),
+                wire_floats(vec![3, 1], vec![6.0, 7.0, 8.0]),
+            ),
+            wire_data(A, Some("a"), wire_floats(vec![2], vec![1.0, 2.0])),
+            wire_data(E, None, wire_bytes(vec![3], vec![13, 14, 15])),
+            wire_data(B, None, wire_floats(vec![1, 3], vec![3.0, 4.0, 5.0])),
+            wire_data(
+                D,
+                None,
+                wire_floats(vec![2, 2], vec![9.0, 10.0, 11.0, 12.0]),
+            ),
+        ],
         axes: vec![
             wire::Axes {
                 id: Some(20),
@@ -771,7 +809,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 artists: vec![
                     wire_artist(wire::ArtistKind::Line(wire::Line {
                         id: Some(30),
-                        display_name: wire_text("line", wire::Interpreter::Latex),
+                        label: wire_text("line", wire::Interpreter::Latex),
                         visible: Some(false),
                         x: Some(A),
                         y: Some(B),
@@ -793,7 +831,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(31),
-                        display_name: wire_text("scatter", wire::Interpreter::None),
+                        label: wire_text("scatter", wire::Interpreter::None),
                         visible: Some(true),
                         x: Some(B),
                         y: Some(C),
@@ -820,7 +858,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(32),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         x: Some(C),
                         y: Some(A),
@@ -847,7 +885,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
-                        display_name: wire_text("contour", wire::Interpreter::Latex),
+                        label: wire_text("contour", wire::Interpreter::Latex),
                         visible: Some(false),
                         grid: wire_curvilinear(B, C),
                         z: Some(D),
@@ -868,7 +906,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(34),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         grid: wire_rectilinear(C, B),
                         z: Some(A),
@@ -887,7 +925,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
                         id: Some(35),
-                        display_name: wire_text("quiver", wire::Interpreter::Latex),
+                        label: wire_text("quiver", wire::Interpreter::Latex),
                         visible: Some(true),
                         x: Some(A),
                         y: Some(B),
@@ -903,7 +941,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
                         id: Some(36),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         x: Some(B),
                         y: Some(A),
@@ -919,7 +957,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
                         id: Some(37),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         x: Some(C),
                         y: Some(D),
@@ -935,7 +973,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Surface(wire::Surface {
                         id: Some(38),
-                        display_name: wire_text("surface", wire::Interpreter::None),
+                        label: wire_text("surface", wire::Interpreter::None),
                         visible: Some(false),
                         grid: wire_rectilinear(D, A),
                         z: Some(B),
@@ -950,7 +988,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Surface(wire::Surface {
                         id: Some(39),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         grid: wire_curvilinear(A, D),
                         z: Some(C),
@@ -965,7 +1003,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::Image(wire::Image {
                         id: Some(40),
-                        display_name: wire_text("image", wire::Interpreter::Latex),
+                        label: wire_text("image", wire::Interpreter::Latex),
                         visible: Some(false),
                         pixels: Some(D),
                         placement: wire_placement(
@@ -977,7 +1015,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
                         id: Some(41),
-                        display_name: None,
+                        label: None,
                         visible: Some(true),
                         indices: Some(E),
                         placement: wire_placement(
@@ -993,7 +1031,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     })),
                     wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
                         id: Some(42),
-                        display_name: wire_text("mapped", wire::Interpreter::None),
+                        label: wire_text("mapped", wire::Interpreter::None),
                         visible: Some(false),
                         values: Some(B),
                         placement: wire_placement(
@@ -1092,8 +1130,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             ),
         ]),
         // Not in alphabetical order, so that a decoder that sorts them is caught.
-        labels: vec!["label two".to_owned(), "label one".to_owned()],
-        panel_legends: vec![wire::PanelLegend {
+        tags: vec!["tag two".to_owned(), "tag one".to_owned()],
+        panels: vec![wire::Panel {
             id: Some(40),
             cell: Some(wire::Cell {
                 row: Some(5),
@@ -1101,38 +1139,40 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 row_span: Some(7),
                 col_span: Some(8),
             }),
-            align: wire::LegendLocation::West as i32,
-            boxed: Some(true),
-            layout: wire_columns(9, wire::LegendEntryOrder::RowMajor),
-            // Every kind of item: an artist of the figure on a row of its own, then a
-            // custom line sample and a custom swatch, whose labels and colours differ.
-            entries: wire_explicit(vec![
-                wire_artist_item(42, Some(true)),
-                wire_custom_item(
-                    wire_text("custom line", wire::Interpreter::Latex),
-                    wire::LegendSampleKind::Line(wire::LegendSampleLine {
-                        line: wire_line_style(
-                            wire_rgba(0.25, 0.375, 0.5, 0.625),
-                            0.75,
-                            wire::DashStyle::Dashed,
-                        ),
-                        marker: wire_marker(
-                            wire::MarkerShape::Square,
-                            3.5,
-                            wire_rgba(0.75, 0.5, 0.25, 1.0),
-                            wire_no_color(),
-                        ),
-                    }),
-                    Some(false),
-                ),
-                wire_custom_item(
-                    wire_text("custom swatch", wire::Interpreter::None),
-                    wire::LegendSampleKind::Swatch(wire::LegendSampleSwatch {
-                        color: Some(wire_color(0.125, 0.875, 0.375, 0.25)),
-                    }),
-                    Some(false),
-                ),
-            ]),
+            align: wire::PanelLocation::West as i32,
+            content: wire_panel_legend(wire::PanelLegend {
+                boxed: Some(true),
+                layout: wire_columns(9, wire::LegendEntryOrder::RowMajor),
+                // Every kind of item: an artist of the figure on a row of its own, then a
+                // custom line sample and a custom swatch, whose labels and colours differ.
+                entries: wire_explicit(vec![
+                    wire_artist_item(42, Some(true)),
+                    wire_custom_item(
+                        wire_text("custom line", wire::Interpreter::Latex),
+                        wire::LegendSampleKind::Line(wire::LegendSampleLine {
+                            line: wire_line_style(
+                                wire_rgba(0.25, 0.375, 0.5, 0.625),
+                                0.75,
+                                wire::DashStyle::Dashed,
+                            ),
+                            marker: wire_marker(
+                                wire::MarkerShape::Square,
+                                3.5,
+                                wire_rgba(0.75, 0.5, 0.25, 1.0),
+                                wire_no_color(),
+                            ),
+                        }),
+                        Some(false),
+                    ),
+                    wire_custom_item(
+                        wire_text("custom swatch", wire::Interpreter::None),
+                        wire::LegendSampleKind::Swatch(wire::LegendSampleSwatch {
+                            color: Some(wire_color(0.125, 0.875, 0.375, 0.25)),
+                        }),
+                        Some(false),
+                    ),
+                ]),
+            }),
         }],
     };
     // The inside legend lists two artists of its own axes, the later one first and on a
@@ -1176,37 +1216,45 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             row_weights: vec![TrackSize::Weight(3.0), TrackSize::Fit],
             col_weights: vec![TrackSize::Fit, TrackSize::Weight(0.25)],
         },
-        data: BTreeMap::from([
-            (DataId(A), NdArray::vector(vec![1.0, 2.0])),
-            (
-                DataId(B),
-                NdArray {
-                    shape: vec![1, 3],
-                    values: Values::F64(vec![3.0, 4.0, 5.0]),
-                },
-            ),
-            (
-                DataId(C),
-                NdArray {
+        data: vec![
+            DataArray {
+                id: NodeId(C),
+                name: Some("c, δ".to_owned()),
+                array: NdArray {
                     shape: vec![3, 1],
                     values: Values::F64(vec![6.0, 7.0, 8.0]),
                 },
-            ),
-            (
-                DataId(D),
-                NdArray {
-                    shape: vec![2, 2],
-                    values: Values::F64(vec![9.0, 10.0, 11.0, 12.0]),
-                },
-            ),
-            (
-                DataId(E),
-                NdArray {
+            },
+            DataArray {
+                id: NodeId(A),
+                name: Some("a".to_owned()),
+                array: NdArray::vector(vec![1.0, 2.0]),
+            },
+            DataArray {
+                id: NodeId(E),
+                name: None,
+                array: NdArray {
                     shape: vec![3],
                     values: Values::U8(vec![13, 14, 15]),
                 },
-            ),
-        ]),
+            },
+            DataArray {
+                id: NodeId(B),
+                name: None,
+                array: NdArray {
+                    shape: vec![1, 3],
+                    values: Values::F64(vec![3.0, 4.0, 5.0]),
+                },
+            },
+            DataArray {
+                id: NodeId(D),
+                name: None,
+                array: NdArray {
+                    shape: vec![2, 2],
+                    values: Values::F64(vec![9.0, 10.0, 11.0, 12.0]),
+                },
+            },
+        ],
         axes: vec![
             Axes {
                 id: NodeId(20),
@@ -1283,11 +1331,11 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 artists: vec![
                     Artist::Line(Line {
                         id: NodeId(30),
-                        display_name: text("line", Interpreter::Latex),
+                        label: text("line", Interpreter::Latex),
                         visible: false,
-                        x: DataId(A),
-                        y: DataId(B),
-                        z: Some(DataId(C)),
+                        x: NodeId(A),
+                        y: NodeId(B),
+                        z: Some(NodeId(C)),
                         line: LineStyle {
                             color: ColorSpec::Rgba {
                                 color: Color::rgba(0.5, 0.625, 0.75, 0.875),
@@ -1307,13 +1355,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(31),
-                        display_name: text("scatter", Interpreter::None),
+                        label: text("scatter", Interpreter::None),
                         visible: true,
-                        x: DataId(B),
-                        y: DataId(C),
-                        z: Some(DataId(A)),
-                        size: ScatterSize::Data { data: DataId(C) },
-                        color: ScatterColor::Data { data: DataId(D) },
+                        x: NodeId(B),
+                        y: NodeId(C),
+                        z: Some(NodeId(A)),
+                        size: ScatterSize::Data { data: NodeId(C) },
+                        color: ScatterColor::Data { data: NodeId(D) },
                         marker: MarkerStyle {
                             shape: MarkerShape::Square,
                             size_pt: 3.5,
@@ -1326,10 +1374,10 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(32),
-                        display_name: None,
+                        label: None,
                         visible: true,
-                        x: DataId(C),
-                        y: DataId(A),
+                        x: NodeId(C),
+                        y: NodeId(A),
                         z: None,
                         size: ScatterSize::Scalar { value: 4.5 },
                         color: ScatterColor::Spec {
@@ -1349,13 +1397,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
-                        display_name: text("contour", Interpreter::Latex),
+                        label: text("contour", Interpreter::Latex),
                         visible: false,
                         grid: Grid::Curvilinear {
-                            x: DataId(B),
-                            y: DataId(C),
+                            x: NodeId(B),
+                            y: NodeId(C),
                         },
-                        z: DataId(D),
+                        z: NodeId(D),
                         levels: Levels::Explicit {
                             values: vec![1.0, 2.0, 3.0],
                         },
@@ -1371,13 +1419,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(34),
-                        display_name: None,
+                        label: None,
                         visible: true,
                         grid: Grid::Rectilinear {
-                            x: DataId(C),
-                            y: DataId(B),
+                            x: NodeId(C),
+                            y: NodeId(B),
                         },
-                        z: DataId(A),
+                        z: NodeId(A),
                         levels: Levels::Auto { count: 5 },
                         fill: false,
                         placement: ContourPlacement::AtLevel,
@@ -1391,14 +1439,14 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Quiver(Quiver {
                         id: NodeId(35),
-                        display_name: text("quiver", Interpreter::Latex),
+                        label: text("quiver", Interpreter::Latex),
                         visible: true,
-                        x: DataId(A),
-                        y: DataId(B),
-                        z: Some(DataId(C)),
-                        u: DataId(D),
-                        v: DataId(A),
-                        w: Some(DataId(B)),
+                        x: NodeId(A),
+                        y: NodeId(B),
+                        z: Some(NodeId(C)),
+                        u: NodeId(D),
+                        v: NodeId(A),
+                        w: Some(NodeId(B)),
                         scale: QuiverScale::Factor { value: 0.25 },
                         line: LineStyle {
                             color: ColorSpec::Colormapped,
@@ -1409,13 +1457,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Quiver(Quiver {
                         id: NodeId(36),
-                        display_name: None,
+                        label: None,
                         visible: true,
-                        x: DataId(B),
-                        y: DataId(A),
+                        x: NodeId(B),
+                        y: NodeId(A),
                         z: None,
-                        u: DataId(C),
-                        v: DataId(D),
+                        u: NodeId(C),
+                        v: NodeId(D),
                         w: None,
                         scale: QuiverScale::Off,
                         line: LineStyle {
@@ -1427,13 +1475,13 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Quiver(Quiver {
                         id: NodeId(37),
-                        display_name: None,
+                        label: None,
                         visible: true,
-                        x: DataId(C),
-                        y: DataId(D),
+                        x: NodeId(C),
+                        y: NodeId(D),
                         z: None,
-                        u: DataId(A),
-                        v: DataId(B),
+                        u: NodeId(A),
+                        v: NodeId(B),
                         w: None,
                         scale: QuiverScale::Auto,
                         line: LineStyle {
@@ -1445,47 +1493,47 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::Surface(Surface {
                         id: NodeId(38),
-                        display_name: text("surface", Interpreter::None),
+                        label: text("surface", Interpreter::None),
                         visible: false,
                         grid: Grid::Rectilinear {
-                            x: DataId(D),
-                            y: DataId(A),
+                            x: NodeId(D),
+                            y: NodeId(A),
                         },
-                        z: DataId(B),
-                        c: Some(DataId(C)),
+                        z: NodeId(B),
+                        c: Some(NodeId(C)),
                         face: ColorSpec::Rgba {
                             color: Color::rgba(0.25, 0.5, 0.75, 1.0),
                         },
                         edge: ColorSpec::Auto,
                         edge_width_pt: 0.625,
-                        face_alpha: Some(DataId(D)),
-                        edge_alpha: Some(DataId(A)),
+                        face_alpha: Some(NodeId(D)),
+                        edge_alpha: Some(NodeId(A)),
                         face_opacity: 0.125,
                         edge_opacity: 0.375,
                     }),
                     Artist::Surface(Surface {
                         id: NodeId(39),
-                        display_name: None,
+                        label: None,
                         visible: true,
                         grid: Grid::Curvilinear {
-                            x: DataId(A),
-                            y: DataId(D),
+                            x: NodeId(A),
+                            y: NodeId(D),
                         },
-                        z: DataId(C),
+                        z: NodeId(C),
                         c: None,
                         face: ColorSpec::None,
                         edge: ColorSpec::Colormapped,
                         edge_width_pt: 0.875,
-                        face_alpha: Some(DataId(B)),
+                        face_alpha: Some(NodeId(B)),
                         edge_alpha: None,
                         face_opacity: 0.625,
                         edge_opacity: 0.25,
                     }),
                     Artist::Image(Image {
                         id: NodeId(40),
-                        display_name: text("image", Interpreter::Latex),
+                        label: text("image", Interpreter::Latex),
                         visible: false,
-                        pixels: DataId(D),
+                        pixels: NodeId(D),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xz { y: Some(21.0) },
                             columns: Some(PixelRange {
@@ -1501,9 +1549,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     }),
                     Artist::IndexedImage(IndexedImage {
                         id: NodeId(41),
-                        display_name: None,
+                        label: None,
                         visible: true,
-                        indices: DataId(E),
+                        indices: NodeId(E),
                         placement: ImagePlacement {
                             plane: ImagePlane::Yz { x: Some(26.0) },
                             columns: None,
@@ -1517,14 +1565,14 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         non_finite: OutOfRange::Rgba {
                             color: Color::rgba(0.5, 0.375, 0.25, 0.125),
                         },
-                        alpha: Some(DataId(C)),
+                        alpha: Some(NodeId(C)),
                         opacity: 0.875,
                     }),
                     Artist::MappedImage(MappedImage {
                         id: NodeId(42),
-                        display_name: text("mapped", Interpreter::None),
+                        label: text("mapped", Interpreter::None),
                         visible: false,
-                        values: DataId(B),
+                        values: NodeId(B),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xy { z: Some(29.0) },
                             columns: Some(PixelRange {
@@ -1538,7 +1586,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         above: OutOfRange::Transparent,
                         non_finite: OutOfRange::Clamp,
-                        alpha: Some(DataId(A)),
+                        alpha: Some(NodeId(A)),
                         opacity: 0.0625,
                     }),
                 ],
@@ -1583,8 +1631,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             ("d".to_owned(), Parameter::Integer(-18)),
             ("e".to_owned(), Parameter::String("parameter".to_owned())),
         ]),
-        labels: vec!["label two".to_owned(), "label one".to_owned()],
-        panel_legends: vec![PanelLegend {
+        tags: vec!["tag two".to_owned(), "tag one".to_owned()],
+        panels: vec![Panel {
             id: NodeId(40),
             cell: Cell {
                 row: 5,
@@ -1592,56 +1640,58 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 row_span: 7,
                 col_span: 8,
             },
-            align: LegendLocation::West,
-            boxed: true,
-            layout: LegendEntryLayout {
-                columns: LegendEntryColumns::Count(9),
-                order: LegendEntryOrder::RowMajor,
-            },
-            entries: LegendEntries::Explicit(vec![
-                LegendItem {
-                    content: LegendItemContent::Artist(NodeId(42)),
-                    full_row: true,
+            align: PanelLocation::West,
+            content: PanelContent::Legend(PanelLegend {
+                boxed: true,
+                layout: LegendEntryLayout {
+                    columns: LegendEntryColumns::Count(9),
+                    order: LegendEntryOrder::RowMajor,
                 },
-                LegendItem {
-                    content: LegendItemContent::Custom {
-                        label: Text {
-                            content: "custom line".to_owned(),
-                            interpreter: Interpreter::Latex,
-                        },
-                        sample: LegendSample::Line {
-                            line: LineStyle {
-                                color: ColorSpec::Rgba {
-                                    color: Color::rgba(0.25, 0.375, 0.5, 0.625),
-                                },
-                                width_pt: 0.75,
-                                dash: DashStyle::Dashed,
-                            },
-                            marker: MarkerStyle {
-                                shape: MarkerShape::Square,
-                                size_pt: 3.5,
-                                face: ColorSpec::Rgba {
-                                    color: Color::rgba(0.75, 0.5, 0.25, 1.0),
-                                },
-                                edge: ColorSpec::None,
-                            },
-                        },
+                entries: LegendEntries::Explicit(vec![
+                    LegendItem {
+                        content: LegendItemContent::Artist(NodeId(42)),
+                        full_row: true,
                     },
-                    full_row: false,
-                },
-                LegendItem {
-                    content: LegendItemContent::Custom {
-                        label: Text {
-                            content: "custom swatch".to_owned(),
-                            interpreter: Interpreter::None,
+                    LegendItem {
+                        content: LegendItemContent::Custom {
+                            label: Text {
+                                content: "custom line".to_owned(),
+                                interpreter: Interpreter::Latex,
+                            },
+                            sample: LegendSample::Line {
+                                line: LineStyle {
+                                    color: ColorSpec::Rgba {
+                                        color: Color::rgba(0.25, 0.375, 0.5, 0.625),
+                                    },
+                                    width_pt: 0.75,
+                                    dash: DashStyle::Dashed,
+                                },
+                                marker: MarkerStyle {
+                                    shape: MarkerShape::Square,
+                                    size_pt: 3.5,
+                                    face: ColorSpec::Rgba {
+                                        color: Color::rgba(0.75, 0.5, 0.25, 1.0),
+                                    },
+                                    edge: ColorSpec::None,
+                                },
+                            },
                         },
-                        sample: LegendSample::Swatch {
-                            color: Color::rgba(0.125, 0.875, 0.375, 0.25),
-                        },
+                        full_row: false,
                     },
-                    full_row: false,
-                },
-            ]),
+                    LegendItem {
+                        content: LegendItemContent::Custom {
+                            label: Text {
+                                content: "custom swatch".to_owned(),
+                                interpreter: Interpreter::None,
+                            },
+                            sample: LegendSample::Swatch {
+                                color: Color::rgba(0.125, 0.875, 0.375, 0.25),
+                            },
+                        },
+                        full_row: false,
+                    },
+                ]),
+            }),
         }],
         id_allocator: NodeIdAllocator::default(),
     };
@@ -1694,13 +1744,19 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
     }
 
     /// A wire figure with a place for every enum: a title, a link, an array without
-    /// values (so that either element decodes), and an axes with an x axis, a legend and
-    /// a line with a line style and a marker style.
+    /// values (so that either element decodes), an axes with an x axis, a legend and a
+    /// line with a line style and a marker style, and a panel holding a legend.
     fn carrier() -> wire::Figure {
         wire::Figure {
             font_set: wire::FontSetId::StixTwo as i32,
             title: wire_text("title", wire::Interpreter::Latex),
-            data: BTreeMap::from([(0, wire_floats(vec![0], vec![]))]),
+            data: vec![wire_data(0, None, wire_floats(vec![0], vec![]))],
+            panels: vec![wire::Panel {
+                id: Some(4),
+                cell: Some(wire::Cell::default()),
+                align: wire::PanelLocation::Center as i32,
+                content: wire_panel_legend(wire::PanelLegend::default()),
+            }],
             axes: vec![wire::Axes {
                 id: Some(2),
                 x: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
@@ -1765,6 +1821,10 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             |w, v| inside_mut(&mut w.axes[0].legend).location = v,
             |f| format!("{:?}", inside(&f.axes[0].legend).location),
         ),
+        check::<wire::PanelLocation>(
+            |w, v| w.panels[0].align = v,
+            |f| format!("{:?}", f.panels[0].align),
+        ),
         check::<wire::LegendEntryOrder>(
             |w, v| {
                 inside_mut(&mut w.axes[0].legend)
@@ -1801,12 +1861,13 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         ),
         check::<wire::NdArrayElement>(
             |w, v| {
-                w.data
-                    .get_mut(&0)
+                w.data[0]
+                    .array
+                    .as_mut()
                     .expect("the carrier holds an array")
                     .element = v;
             },
-            |f| format!("{:?}", f.data[&DataId(0)].element()),
+            |f| format!("{:?}", f.data[0].array.element()),
         ),
     ]
     .into_iter()
@@ -1980,7 +2041,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
         // A legend panel whose values are zero or the defaults of an inside legend, all of
         // which differ from those of a panel: no border, and a block at the top right in
         // one column.
-        panel_legends: vec![wire::PanelLegend {
+        panels: vec![wire::Panel {
             id: Some(10),
             cell: Some(wire::Cell {
                 row: Some(0),
@@ -1988,13 +2049,18 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 row_span: Some(0),
                 col_span: Some(0),
             }),
-            align: wire::LegendLocation::NorthEast as i32,
-            boxed: Some(false),
-            layout: wire_columns(1, wire::LegendEntryOrder::ColumnMajor),
-            // An item that names the artist of identifier zero, which is an identifier and
-            // not an absence, and whose `full_row` is present and false.
-            entries: wire_explicit(vec![wire_artist_item(0, Some(false))]),
+            align: wire::PanelLocation::NorthEast as i32,
+            content: wire_panel_legend(wire::PanelLegend {
+                boxed: Some(false),
+                layout: wire_columns(1, wire::LegendEntryOrder::ColumnMajor),
+                // An item that names the artist of identifier zero, which is an identifier
+                // and not an absence, and whose `full_row` is present and false.
+                entries: wire_explicit(vec![wire_artist_item(0, Some(false))]),
+            }),
         }],
+        // A data array of identifier zero whose name is present and empty, which is a
+        // name and not an absence.
+        data: vec![wire_data(0, Some(""), wire_floats(vec![0], vec![]))],
         ..minimal_wire_figure()
     };
 
@@ -2107,14 +2173,14 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                         plane: ImagePlane::Xz { y: Some(0.0) },
                         ..ImagePlacement::default()
                     },
-                    alpha: Some(DataId(0)),
+                    alpha: Some(NodeId(0)),
                     opacity: 0.0,
                     ..IndexedImage::default()
                 }),
             ],
             ..Axes::default()
         }],
-        panel_legends: vec![PanelLegend {
+        panels: vec![Panel {
             id: NodeId(10),
             cell: Cell {
                 row: 0,
@@ -2122,10 +2188,17 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 row_span: 0,
                 col_span: 0,
             },
-            align: LegendLocation::NorthEast,
-            boxed: false,
-            layout: LegendEntryLayout::default(),
-            entries: LegendEntries::Explicit(vec![LegendItem::artist(NodeId(0))]),
+            align: PanelLocation::NorthEast,
+            content: PanelContent::Legend(PanelLegend {
+                boxed: false,
+                layout: LegendEntryLayout::default(),
+                entries: LegendEntries::Explicit(vec![LegendItem::artist(NodeId(0))]),
+            }),
+        }],
+        data: vec![DataArray {
+            id: NodeId(0),
+            name: Some(String::new()),
+            array: NdArray::vector(vec![]),
         }],
         provenance: empty_provenance(),
         ..Figure::default()
@@ -2152,22 +2225,26 @@ fn empty_strings_and_lists_reload_as_empty_rather_than_as_defaults() {
         typesetter_version: String::new(),
         fonts: vec![],
     };
-    fig.data.insert(
-        DataId(99),
-        NdArray {
+    fig.data.push(DataArray {
+        id: NodeId(99),
+        name: None,
+        array: NdArray {
             shape: vec![0],
             values: Values::F64(vec![]),
         },
-    );
-    fig.data
-        .insert(DataId(98), NdArray::from_shape_u8(vec![0], vec![]).unwrap());
+    });
+    fig.data.push(DataArray {
+        id: NodeId(98),
+        name: None,
+        array: NdArray::from_shape_u8(vec![0], vec![]).unwrap(),
+    });
     fig.links.push(AxisLink {
         dimension: Dimension::Z,
         axes: vec![],
     });
     let contour = Artist::Contour(Contour {
         id: NodeId(50),
-        display_name: Some(Text::plain("")),
+        label: Some(Text::plain("")),
         levels: Levels::Explicit { values: vec![] },
         ..Contour::default()
     });
@@ -2298,30 +2375,54 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
             ],
             ..wire::Axes::default()
         }],
-        // A legend panel with nothing but its identifier and an empty layout, which takes
-        // the defaults of a panel rather than those of an inside legend.
+        // A legend panel with nothing but its identifier, an unspecified location, no cell
+        // and a legend with an empty layout, which takes the defaults of a panel rather
+        // than those of an inside legend: centred, boxed, in automatic columns.
         // The second panel's entries are present with an unset kind, and the third's name
-        // the automatic variant; both mean the same as absent entries.
-        panel_legends: vec![
-            wire::PanelLegend {
+        // the automatic variant; both mean the same as absent entries. The fourth panel's
+        // content names the legend variant but holds no legend, which is the default
+        // legend of a panel, as an inside legend that is absent is the default inside
+        // legend.
+        panels: vec![
+            wire::Panel {
                 id: Some(13),
-                align: wire::LegendLocation::Unspecified as i32,
-                layout: Some(wire::LegendEntryLayout::default()),
-                ..wire::PanelLegend::default()
-            },
-            wire::PanelLegend {
-                id: Some(14),
-                entries: Some(wire::LegendEntries { kind: None }),
-                ..wire::PanelLegend::default()
-            },
-            wire::PanelLegend {
-                id: Some(15),
-                entries: Some(wire::LegendEntries {
-                    kind: Some(wire::LegendEntriesKind::Auto(wire::LegendEntriesAuto {})),
+                align: wire::PanelLocation::Unspecified as i32,
+                content: wire_panel_legend(wire::PanelLegend {
+                    layout: Some(wire::LegendEntryLayout::default()),
+                    ..wire::PanelLegend::default()
                 }),
-                ..wire::PanelLegend::default()
+                ..wire::Panel::default()
+            },
+            wire::Panel {
+                id: Some(14),
+                content: wire_panel_legend(wire::PanelLegend {
+                    entries: Some(wire::LegendEntries { kind: None }),
+                    ..wire::PanelLegend::default()
+                }),
+                ..wire::Panel::default()
+            },
+            wire::Panel {
+                id: Some(15),
+                content: wire_panel_legend(wire::PanelLegend {
+                    entries: Some(wire::LegendEntries {
+                        kind: Some(wire::LegendEntriesKind::Auto(wire::LegendEntriesAuto {})),
+                    }),
+                    ..wire::PanelLegend::default()
+                }),
+                ..wire::Panel::default()
+            },
+            wire::Panel {
+                id: Some(16),
+                content: Some(wire::PanelContent {
+                    kind: Some(wire::PanelContentKind::Legend(wire::PanelContentLegend {
+                        legend: None,
+                    })),
+                }),
+                ..wire::Panel::default()
             },
         ],
+        // A data array whose name is absent, which is no name.
+        data: vec![wire_data(0, None, wire_floats(vec![1], vec![0.5]))],
         // A row size whose kind is unset, which is a weight of one, as a missing size is.
         layout: Some(wire::TileLayout {
             row_weights: vec![wire::TrackSize { kind: None }],
@@ -2429,12 +2530,14 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
             ],
             ..Axes::default()
         }],
-        panel_legends: [13, 14, 15]
-            .map(|id| PanelLegend {
-                id: NodeId(id),
-                ..PanelLegend::default()
-            })
+        panels: [13, 14, 15, 16]
+            .map(|id| legend_panel(NodeId(id), Cell::default()))
             .to_vec(),
+        data: vec![DataArray {
+            id: NodeId(0),
+            name: None,
+            array: NdArray::vector(vec![0.5]),
+        }],
         provenance: empty_provenance(),
         ..Figure::default()
     };
@@ -2529,19 +2632,29 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                 dimension: wire::Dimension::X as i32,
                 axes: vec![2],
             }],
-            panel_legends: vec![wire::PanelLegend {
+            panels: vec![wire::Panel {
                 id: Some(11),
-                layout: wire_columns(2, wire::LegendEntryOrder::RowMajor),
-                entries: wire_explicit(vec![
-                    wire_artist_item(3, None),
-                    wire_custom_item(
-                        None,
-                        wire::LegendSampleKind::Swatch(wire::LegendSampleSwatch { color: None }),
-                        None,
-                    ),
-                ]),
-                ..wire::PanelLegend::default()
+                content: wire_panel_legend(wire::PanelLegend {
+                    layout: wire_columns(2, wire::LegendEntryOrder::RowMajor),
+                    entries: wire_explicit(vec![
+                        wire_artist_item(3, None),
+                        wire_custom_item(
+                            None,
+                            wire::LegendSampleKind::Swatch(wire::LegendSampleSwatch {
+                                color: None,
+                            }),
+                            None,
+                        ),
+                    ]),
+                    ..wire::PanelLegend::default()
+                }),
+                ..wire::Panel::default()
             }],
+            data: vec![
+                wire_data(0, Some("x"), wire_floats(vec![1], vec![0.0])),
+                wire_data(1, None, wire_floats(vec![1], vec![1.0])),
+                wire_data(2, None, wire_floats(vec![1], vec![2.0])),
+            ],
             layout: Some(wire::TileLayout {
                 rows: Some(1),
                 cols: Some(2),
@@ -2552,9 +2665,24 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         }
     }
 
+    /// Returns the legend of the only panel.
+    fn legend(fig: &mut wire::Figure) -> &mut wire::PanelLegend {
+        match fig.panels[0]
+            .content
+            .as_mut()
+            .and_then(|content| content.kind.as_mut())
+        {
+            Some(wire::PanelContentKind::Legend(content)) => content
+                .legend
+                .as_mut()
+                .expect("the complete figure's panel holds a legend"),
+            _ => unreachable!("the complete figure's panel holds a legend"),
+        }
+    }
+
     /// Returns the item at the given index of the explicit entries of the only panel.
     fn item(fig: &mut wire::Figure, index: usize) -> &mut wire::LegendItem {
-        match fig.panel_legends[0]
+        match legend(fig)
             .entries
             .as_mut()
             .and_then(|entries| entries.kind.as_mut())
@@ -2597,8 +2725,19 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         .expect("the complete figure decodes, so each case fails only for its removal");
 
     type Removal = fn(&mut wire::Figure);
-    let cases: [(&str, Removal); 40] = [
+    let cases: [(&str, Removal); 44] = [
         ("id", |f| f.id = None),
+        // A data array is a node, whose identifier has no default, and an array without
+        // values is an empty array only when it says so: an absent array is a faulty
+        // writer.
+        ("data[1].id", |f| f.data[1].id = None),
+        ("data[1].array", |f| f.data[1].array = None),
+        // A panel holds a legend or another key only through its content, which has no
+        // default: a legend is no likelier than any other key.
+        ("panels[0].content", |f| f.panels[0].content = None),
+        ("panels[0].content.kind", |f| {
+            f.panels[0].content = Some(wire::PanelContent { kind: None });
+        }),
         ("axes[0].id", |f| f.axes[0].id = None),
         ("axes[0].artists[0].kind", |f| {
             f.axes[0].artists[0].kind = None
@@ -2744,36 +2883,39 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         ("links[0].dimension", |f| {
             f.links[0].dimension = wire::Dimension::Unspecified as i32;
         }),
-        ("panel_legends[0].id", |f| f.panel_legends[0].id = None),
+        ("panels[0].id", |f| f.panels[0].id = None),
         ("axes[0].legend.panel.panel", |f| {
             f.axes[0].legend = Some(wire::Legend {
                 kind: Some(wire::LegendKind::Panel(wire::LegendPanel { panel: None })),
             });
         }),
-        ("panel_legends[0].layout.columns.count.count", |f| {
-            f.panel_legends[0].layout = Some(wire::LegendEntryLayout {
-                columns: Some(wire::LegendEntryColumns {
-                    kind: Some(wire::LegendEntryColumnsKind::Count(
-                        wire::LegendEntryColumnsCount { count: None },
-                    )),
-                }),
-                order: wire::LegendEntryOrder::RowMajor as i32,
-            });
-        }),
+        (
+            "panels[0].content.legend.legend.layout.columns.count.count",
+            |f| {
+                legend(f).layout = Some(wire::LegendEntryLayout {
+                    columns: Some(wire::LegendEntryColumns {
+                        kind: Some(wire::LegendEntryColumnsKind::Count(
+                            wire::LegendEntryColumnsCount { count: None },
+                        )),
+                    }),
+                    order: wire::LegendEntryOrder::RowMajor as i32,
+                });
+            },
+        ),
         // An item lists something only through its content, and an artist item names its
         // artist only through its identifier, of which zero is a valid value.
         (
-            "panel_legends[0].entries.explicit_items.items[0].content",
+            "panels[0].content.legend.legend.entries.explicit_items.items[0].content",
             |f| item(f, 0).content = None,
         ),
         (
-            "panel_legends[0].entries.explicit_items.items[0].content",
+            "panels[0].content.legend.legend.entries.explicit_items.items[0].content",
             |f| {
                 item(f, 0).content = Some(wire::LegendItemContent { kind: None });
             },
         ),
         (
-            "panel_legends[0].entries.explicit_items.items[0].content.artist.artist",
+            "panels[0].content.legend.legend.entries.explicit_items.items[0].content.artist.artist",
             |f| {
                 item(f, 0).content = Some(wire::LegendItemContent {
                     kind: Some(wire::LegendItemContentKind::Artist(
@@ -2784,11 +2926,11 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         ),
         // A custom item has no default sample: a line and a swatch are equally likely.
         (
-            "panel_legends[0].entries.explicit_items.items[1].content.custom.sample",
+            "panels[0].content.legend.legend.entries.explicit_items.items[1].content.custom.sample",
             |f| custom(f).sample = None,
         ),
         (
-            "panel_legends[0].entries.explicit_items.items[1].content.custom.sample",
+            "panels[0].content.legend.legend.entries.explicit_items.items[1].content.custom.sample",
             |f| custom(f).sample = Some(wire::LegendSample { kind: None }),
         ),
         // A weight that is present as a variant must hold its value: an unset size is a
@@ -2968,9 +3110,9 @@ fn unknown_enum_values_are_errors() {
 fn an_unknown_array_element_is_an_error_that_names_the_array() {
     let (fig, _, _) = single_line_figure();
     let mut wire_figure = wire::Figure::from(&fig);
-    wire_figure
-        .data
-        .get_mut(&0)
+    wire_figure.data[0]
+        .array
+        .as_mut()
         .expect("the encoder writes every array")
         .element = 99;
     let result = Figure::from_protobuf(&encode_wire(&wire_figure));
@@ -2978,7 +3120,7 @@ fn an_unknown_array_element_is_an_error_that_names_the_array() {
         matches!(
             &result,
             Err(IrError::Protobuf(ProtobufError::UnknownEnumValue { field, value: 99 }))
-                if field == "data[0].element"
+                if field == "data[0].array.element"
         ),
         "{result:?}"
     );
@@ -3008,15 +3150,12 @@ fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
     for (case, element, values, u8_values) in cases {
         let (fig, _, _) = single_line_figure();
         let mut wire_figure = wire::Figure::from(&fig);
-        *wire_figure
-            .data
-            .get_mut(&0)
-            .expect("the encoder writes every array") = wire::NdArray {
+        wire_figure.data[0].array = Some(wire::NdArray {
             shape: vec![1],
             values,
             element: element as i32,
             u8_values,
-        };
+        });
         let result = Figure::from_protobuf(&encode_wire(&wire_figure));
         assert!(
             matches!(
@@ -3036,12 +3175,13 @@ fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
 /// A figure encoded by hand, field by field, from the field numbers of the schema: a 3D
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
 /// with an RGBA colour and a marker, explicit legend entries of every kind of item and
-/// sample, row and column sizes of every kind, an image of each kind (on each plane, with and
+/// sample in a legend panel, row and column sizes of every kind, an image of each kind (on each plane, with and
 /// without an offset, with a pixel range or none, with every out-of-range policy at some
 /// category, and with an opacity and an alpha array or none), a surface with alpha arrays
-/// and opacities for its faces and its edges, three data arrays (floats without an element as every writer wrote
-/// them before the element type existed, floats holding NaN with the element written,
-/// and bytes), a link, provenance and a parameter of every kind.
+/// and opacities for its faces and its edges, three data arrays (floats with a name and
+/// without an element as every writer wrote them before the element type existed, floats
+/// holding NaN with the element written, and bytes), a link, provenance, a parameter of
+/// every kind and two tags.
 ///
 /// The bytes are built without the wire types, so that renumbering a field in the
 /// `proto_file!` declarations changes what the decoder expects but not these bytes.
@@ -3372,10 +3512,48 @@ fn hand_encoded_bytes() -> Vec<u8> {
     // A LegendSample of the swatch variant (field 2), holding its colour in field 1.
     let swatch_sample = length_delimited(2, &length_delimited(1, &colour(0.0, 0.5, 0.25, 0.5)));
 
-    let data_entry = |key: u64, value: Vec<u8>| {
+    // PanelLegend: boxed (field 1), a layout (field 2) of automatic columns
+    // (LegendEntryColumns field 1) filled column by column, and entries (field 3): an
+    // explicit list (oneof field 2) of a custom line sample, then a custom swatch on a row
+    // of its own.
+    let panel_legend = [
+        varint_field(1, 1),
+        length_delimited(2, &[empty(1), varint_field(2, 1)].concat()),
+        length_delimited(
+            3,
+            &length_delimited(
+                2,
+                &[
+                    length_delimited(
+                        1,
+                        &custom_item(text("Separation $x_s$", 1), line_sample.clone()),
+                    ),
+                    length_delimited(
+                        1,
+                        &[
+                            custom_item(text("Lower surface", 2), swatch_sample.clone()),
+                            varint_field(2, 1),
+                        ]
+                        .concat(),
+                    ),
+                ]
+                .concat(),
+            ),
+        ),
+    ]
+    .concat();
+
+    // A DataArray (Figure field 9): its identifier (field 1), its array (field 2) and,
+    // when it has one, its name (field 3).
+    let data_entry = |id: u64, array: Vec<u8>, name: Option<&str>| {
         length_delimited(
             9,
-            &[varint_field(1, key), length_delimited(2, &value)].concat(),
+            &[
+                varint_field(1, id),
+                length_delimited(2, &array),
+                name.map_or(vec![], |name| length_delimited(3, name.as_bytes())),
+            ]
+            .concat(),
         )
     };
 
@@ -3404,14 +3582,16 @@ fn hand_encoded_bytes() -> Vec<u8> {
             ]
             .concat(),
         ),
-        // Written without an element, as every writer before the element type existed.
-        data_entry(0, array(&[3], &[0.0, 1.0, 2.0])),
+        // Written without an element, as every writer before the element type existed,
+        // and with a name.
+        data_entry(0, array(&[3], &[0.0, 1.0, 2.0]), Some("t (s)")),
         // Written with the element of floats (field 3, value 1), as this build writes it.
         data_entry(
             7,
             [array(&[3], &[1.0, f64::NAN, 0.135]), varint_field(3, 1)].concat(),
+            None,
         ),
-        data_entry(8, byte_array(&[2, 2], &[0, 1, 254, 255])),
+        data_entry(8, byte_array(&[2, 2], &[0, 1, 254, 255]), None),
         length_delimited(10, &axes),
         // A second axes whose legend (field 11) lists its entries in a panel (oneof field
         // 2, LegendPanel field 1).
@@ -3441,11 +3621,12 @@ fn hand_encoded_bytes() -> Vec<u8> {
         // An int64 is a varint of its two's complement, ten bytes for a negative value.
         parameter("mesh_cells", 2, varint_field(1, (-4_096i64) as u64)),
         parameter("converged", 1, varint_field(1, 1)),
-        // Labels are a sequence, so they are written and read in the order given.
+        // Tags are a sequence, so they are written and read in the order given.
         length_delimited(14, "boundary layer".as_bytes()),
         length_delimited(14, "k–ω".as_bytes()),
-        // PanelLegend: identifier, cell, align centre (value 10), boxed, and a layout of
-        // automatic columns (LegendEntryColumns field 1) filled column by column.
+        // Panel (Figure field 15): identifier, cell, align south-west (PanelLocation value
+        // 9), and its content (field 4): the legend variant (PanelContent field 1), whose
+        // PanelContentLegend holds the PanelLegend in field 1.
         length_delimited(
             15,
             &[
@@ -3460,32 +3641,8 @@ fn hand_encoded_bytes() -> Vec<u8> {
                     ]
                     .concat(),
                 ),
-                varint_field(3, 10),
-                varint_field(4, 1),
-                length_delimited(5, &[empty(1), varint_field(2, 1)].concat()),
-                // Entries (field 6): an explicit list (oneof field 2) of a custom line
-                // sample, then a custom swatch on a row of its own.
-                length_delimited(
-                    6,
-                    &length_delimited(
-                        2,
-                        &[
-                            length_delimited(
-                                1,
-                                &custom_item(text("Separation $x_s$", 1), line_sample),
-                            ),
-                            length_delimited(
-                                1,
-                                &[
-                                    custom_item(text("Lower surface", 2), swatch_sample),
-                                    varint_field(2, 1),
-                                ]
-                                .concat(),
-                            ),
-                        ]
-                        .concat(),
-                    ),
-                ),
+                varint_field(3, 9),
+                length_delimited(4, &length_delimited(1, &length_delimited(1, &panel_legend))),
             ]
             .concat(),
         ),
@@ -3522,14 +3679,23 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 TrackSize::Weight(1.5),
             ],
         },
-        data: BTreeMap::from([
-            (DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0])),
-            (DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135])),
-            (
-                DataId(8),
-                NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
-            ),
-        ]),
+        data: vec![
+            DataArray {
+                id: NodeId(0),
+                name: Some("t (s)".to_owned()),
+                array: NdArray::vector(vec![0.0, 1.0, 2.0]),
+            },
+            DataArray {
+                id: NodeId(7),
+                name: None,
+                array: NdArray::vector(vec![1.0, f64::NAN, 0.135]),
+            },
+            DataArray {
+                id: NodeId(8),
+                name: None,
+                array: NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
+            },
+        ],
         axes: vec![
             Axes {
                 id: NodeId(2),
@@ -3600,10 +3766,10 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 artists: vec![
                     Artist::Line(Line {
                         id: NodeId(3),
-                        display_name: Some(Text::plain("decay, $5")),
+                        label: Some(Text::plain("decay, $5")),
                         visible: true,
-                        x: DataId(0),
-                        y: DataId(7),
+                        x: NodeId(0),
+                        y: NodeId(7),
                         z: None,
                         line: LineStyle {
                             color: ColorSpec::Rgba {
@@ -3624,9 +3790,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     }),
                     Artist::Image(Image {
                         id: NodeId(4),
-                        display_name: Some(Text::plain("pixels")),
+                        label: Some(Text::plain("pixels")),
                         visible: true,
-                        pixels: DataId(8),
+                        pixels: NodeId(8),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xy { z: Some(1.5) },
                             columns: Some(PixelRange {
@@ -3639,9 +3805,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     }),
                     Artist::IndexedImage(IndexedImage {
                         id: NodeId(5),
-                        display_name: None,
+                        label: None,
                         visible: false,
-                        indices: DataId(8),
+                        indices: NodeId(8),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xz { y: None },
                             columns: None,
@@ -3655,14 +3821,14 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         non_finite: OutOfRange::Rgba {
                             color: Color::rgba(1.0, 0.0, 0.0, 0.5),
                         },
-                        alpha: Some(DataId(8)),
+                        alpha: Some(NodeId(8)),
                         opacity: 0.25,
                     }),
                     Artist::MappedImage(MappedImage {
                         id: NodeId(6),
-                        display_name: None,
+                        label: None,
                         visible: true,
-                        values: DataId(7),
+                        values: NodeId(7),
                         placement: ImagePlacement {
                             plane: ImagePlane::Yz { x: Some(-2.0) },
                             columns: None,
@@ -3673,18 +3839,18 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             color: Color::rgba(0.0, 0.0, 1.0, 1.0),
                         },
                         non_finite: OutOfRange::Strict,
-                        alpha: Some(DataId(7)),
+                        alpha: Some(NodeId(7)),
                         opacity: 1.0,
                     }),
                     Artist::Surface(Surface {
                         id: NodeId(7),
                         grid: Grid::Rectilinear {
-                            x: DataId(0),
-                            y: DataId(7),
+                            x: NodeId(0),
+                            y: NodeId(7),
                         },
-                        z: DataId(7),
-                        face_alpha: Some(DataId(7)),
-                        edge_alpha: Some(DataId(0)),
+                        z: NodeId(7),
+                        face_alpha: Some(NodeId(7)),
+                        edge_alpha: Some(NodeId(0)),
                         face_opacity: 0.75,
                         edge_opacity: 0.0,
                         ..Surface::default()
@@ -3713,8 +3879,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
             ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
             ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
         ]),
-        labels: vec!["boundary layer".to_owned(), "k–ω".to_owned()],
-        panel_legends: vec![PanelLegend {
+        tags: vec!["boundary layer".to_owned(), "k–ω".to_owned()],
+        panels: vec![Panel {
             id: NodeId(20),
             cell: Cell {
                 row: 1,
@@ -3722,39 +3888,41 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 row_span: 1,
                 col_span: 3,
             },
-            align: LegendLocation::Center,
-            boxed: true,
-            layout: LegendEntryLayout {
-                columns: LegendEntryColumns::Auto,
-                order: LegendEntryOrder::ColumnMajor,
-            },
-            entries: LegendEntries::Explicit(vec![
-                LegendItem::custom(
-                    LegendSample::Line {
-                        line: LineStyle {
-                            color: ColorSpec::Rgba {
-                                color: Color::rgba(0.25, 0.5, 0.75, 1.0),
-                            },
-                            width_pt: 0.5,
-                            dash: DashStyle::Dashed,
-                        },
-                        marker: MarkerStyle {
-                            shape: MarkerShape::Square,
-                            size_pt: 4.0,
-                            face: ColorSpec::None,
-                            edge: ColorSpec::Auto,
-                        },
-                    },
-                    Text::new("Separation $x_s$"),
-                ),
-                LegendItem {
-                    full_row: true,
-                    ..LegendItem::custom(
-                        LegendSample::swatch(Color::rgba(0.0, 0.5, 0.25, 0.5)),
-                        Text::plain("Lower surface"),
-                    )
+            align: PanelLocation::SouthWest,
+            content: PanelContent::Legend(PanelLegend {
+                boxed: true,
+                layout: LegendEntryLayout {
+                    columns: LegendEntryColumns::Auto,
+                    order: LegendEntryOrder::ColumnMajor,
                 },
-            ]),
+                entries: LegendEntries::Explicit(vec![
+                    LegendItem::custom(
+                        LegendSample::Line {
+                            line: LineStyle {
+                                color: ColorSpec::Rgba {
+                                    color: Color::rgba(0.25, 0.5, 0.75, 1.0),
+                                },
+                                width_pt: 0.5,
+                                dash: DashStyle::Dashed,
+                            },
+                            marker: MarkerStyle {
+                                shape: MarkerShape::Square,
+                                size_pt: 4.0,
+                                face: ColorSpec::None,
+                                edge: ColorSpec::Auto,
+                            },
+                        },
+                        Text::new("Separation $x_s$"),
+                    ),
+                    LegendItem {
+                        full_row: true,
+                        ..LegendItem::custom(
+                            LegendSample::swatch(Color::rgba(0.0, 0.5, 0.25, 0.5)),
+                            Text::plain("Lower surface"),
+                        )
+                    },
+                ]),
+            }),
         }],
         id_allocator: NodeIdAllocator::default(),
     };

@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::edits::{applied, line, manual, path, set, tx};
+use common::edits::{applied, data_node, line, manual, path, set, tx};
 use common::{FigureBuilder, find_axes};
 use ironlab_ir::command;
 use ironlab_ir::overlay::{Conflict, Overlay, OverlayEntry, Resolution};
@@ -17,8 +17,8 @@ struct Fixture {
     line_a: NodeId,
     b: NodeId,
     line_b: NodeId,
-    x: DataId,
-    y: DataId,
+    x: NodeId,
+    y: NodeId,
 }
 
 fn fixture() -> Fixture {
@@ -160,8 +160,8 @@ fn recording_a_transaction_with_an_edit_other_than_a_set_fails_and_records_nothi
     assert!(overlay.undo());
     let result = overlay.record(&tx([
         set(f.a, "x.limits", limits(1.0, 2.0)),
-        Edit::PutData {
-            id: f.x,
+        Edit::ReplaceData {
+            node: f.x,
             array: NdArray::vector(vec![1.0, 2.0, 3.0]),
         },
     ]));
@@ -507,21 +507,22 @@ fn data_edits_never_conflict_with_the_overlay() {
     record(&mut overlay, f.line_a, "visible", Value::Bool(false));
     let before = overlay.entries().to_vec();
     let owner = tx([
-        Edit::PutData {
-            id: DataId(100),
-            array: NdArray::vector(vec![1.0]),
+        Edit::Insert {
+            parent: f.source.id,
+            index: None,
+            node: data_node(NodeId(100), NdArray::vector(vec![1.0])),
         },
         Edit::AppendData {
-            id: f.x,
+            node: f.x,
             array: NdArray::vector(vec![4.0]),
             retain: Some(3),
         },
         Edit::AppendData {
-            id: f.y,
+            node: f.y,
             array: NdArray::vector(vec![16.0]),
             retain: Some(3),
         },
-        Edit::RemoveData { id: DataId(100) },
+        Edit::Remove { node: NodeId(100) },
     ]);
     applied(&f.source, &owner).expect("the owner's transaction applies");
     assert!(overlay.reconcile(&f.source, &owner).is_empty());

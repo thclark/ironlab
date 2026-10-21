@@ -84,12 +84,12 @@ pub fn figure() -> Figure {
         .tiles(2, 1)
         .row_weights([3.0, 2.0])
         .title(format!("Joukowski aerofoil at $\\alpha = {ALPHA_DEG}^\\circ$"))
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("linked-axes")
-        .label("ticks")
-        .label("reversed-axes")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("linked-axes")
+        .tag("ticks")
+        .tag("reversed-axes")
         .parameter("dimensionality", "2D")
         .parameter("artists", 4)
         .parameter("data_points", 960)
@@ -103,7 +103,7 @@ pub fn figure() -> Figure {
     let mut cp = fig.axes(0, 0);
     for (name, points, dash) in surfaces {
         cp.plot(column(points, |p| p.x), column(points, |p| p.cp))
-            .display_name(name)
+            .label(name)
             .color(Color::BLACK)
             .dash(dash);
     }
@@ -122,7 +122,7 @@ pub fn figure() -> Figure {
     for (name, points, dash) in surfaces {
         speed
             .plot(column(points, |p| p.x), column(points, |p| p.speed))
-            .display_name(name)
+            .label(name)
             .color(Color::BLACK)
             .dash(dash);
     }

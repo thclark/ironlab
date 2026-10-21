@@ -80,14 +80,14 @@ pub struct LegendHit {
     /// The `(axes, artist)` pairs of the artists the entry stands for, in the order a legend panel lists entries:
     /// by the reading order of the cells of their axes (row, then column, with the order of the axes in the figure
     /// breaking ties), then by the order of the artists in their axes. An entry of an inside legend stands for one
-    /// artist; an entry of a legend panel stands for every artist whose display name and sample it shares.
+    /// artist; an entry of a legend panel stands for every artist whose label and sample it shares.
     pub targets: Vec<(NodeId, NodeId)>,
     pub rect: Rect,
 }
 
-/// Hit-testing geometry for one legend panel.
+/// Hit-testing geometry for one panel, whatever its content.
 #[derive(Clone, Debug, PartialEq)]
-pub struct LegendPanelHit {
+pub struct PanelHit {
     pub id: NodeId,
     /// The area of the panel, in figure space: the cells it occupies, inset by the aligned margins of the plot areas
     /// in its rows and columns.
@@ -134,8 +134,8 @@ pub struct ImageHit {
 pub struct HitMap {
     pub axes: Vec<AxesHit>,
     pub legend_entries: Vec<LegendHit>,
-    /// The area of every legend panel of the figure, in the order the figure lists them.
-    pub legend_panels: Vec<LegendPanelHit>,
+    /// The area of every panel of the figure, in the order the figure lists them.
+    pub panels: Vec<PanelHit>,
     /// The drawn points of every line and scatter, in the order their axes were compiled.
     pub artists: Vec<ArtistHit>,
     /// The placement of every image drawn in a two-dimensional axes, in paint order.

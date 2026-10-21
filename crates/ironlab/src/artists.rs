@@ -5,16 +5,14 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, Coords, DashStyle, DataId, Figure, Image, ImagePlane, IndexedImage, Levels,
-    Line, MappedImage, MarkerShape, NdArray, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale,
-    Scatter, ScatterColor, ScatterSize, Surface, Text,
+    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, IndexedImage, Levels, Line,
+    MappedImage, MarkerShape, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
+    ScatterColor, ScatterSize, Surface, Text,
 };
 
 use crate::axes::AxesMut;
 use crate::color::IntoColorSpec;
-use crate::grid::matrix_array;
-use crate::matrix::Matrix;
-use crate::pixels::ImageValues;
+use crate::data::DataSource;
 
 /// Defines the constructor of an artist handle and the accessor of its artist.
 macro_rules! artist_handle {
@@ -27,6 +25,19 @@ macro_rules! artist_handle {
             }
 
             /// Returns the artist in the figure IR.
+            #[allow(dead_code)]
+            fn get(&self) -> &$variant {
+                match self.fig.artist(self.id) {
+                    Some((_, Artist::$variant(artist))) => artist,
+                    _ => unreachable!(concat!(
+                        "a ",
+                        stringify!($handle),
+                        " handle always refers to an artist of its kind"
+                    )),
+                }
+            }
+
+            /// Returns the artist in the figure IR, mutably.
             fn artist(&mut self) -> &mut $variant {
                 match self.fig.artist_mut(self.id) {
                     Some(Artist::$variant(artist)) => artist,
@@ -48,7 +59,7 @@ artist_handle!(QuiverMut, Quiver);
 artist_handle!(SurfaceMut, Surface);
 
 /// Defines the constructor and accessor of an image handle, and the setters that every
-/// kind of image has: its legend name, the placement of its pixel centres and its
+/// kind of image has: its label, the placement of its pixel centres and its
 /// plane.
 macro_rules! image_handle {
     ($handle:ident, $variant:ident) => {
@@ -61,9 +72,9 @@ macro_rules! image_handle {
                 self.id
             }
 
-            /// Sets the name shown for the image in the legend.
-            pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-                self.artist().display_name = Some(name.into());
+            /// Sets the label of the image, drawn beside its sample in a legend.
+            pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+                self.artist().label = Some(label.into());
                 self
             }
 
@@ -129,15 +140,15 @@ macro_rules! image_alpha {
                 "(opaque), as a matrix of the shape of the ", $what, ".
 
 ",
-                "The alpha may be a [`Matrix`] of values from 0 to 1, which are clamped to that range ",
+                "The alpha may be a [`Matrix`](crate::Matrix) of values from 0 to 1, which are clamped to that range ",
                 "and of which a NaN makes its pixel transparent, or a ",
                 "[`ByteMatrix`](crate::ByteMatrix) of values from 0 to 255. It multiplies the alpha of ",
                 "the colour of each pixel, including a colour given by an out-of-range policy, and is ",
                 "multiplied in turn by the [`opacity`](Self::opacity). A matrix of another shape is ",
                 "reported by [`Figure::validate`](crate::Figure::validate)."
             )]
-            pub fn alpha(&mut self, alpha: impl Into<ImageValues>) -> &mut Self {
-                let data = self.fig.add_data(alpha.into().into_array());
+            pub fn alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
+                let data = alpha.into().store(self.fig);
                 if let Some(previous) = self.artist().alpha.replace(data) {
                     release_data(self.fig, previous);
                 }
@@ -155,7 +166,7 @@ macro_rules! image_alpha {
 /// let mut fig = Figure::new();
 /// fig.axes(0, 0)
 ///     .plot([0.0, 1.0, 2.0], [0.0, 1.0, 4.0])
-///     .display_name("$x^2$")
+///     .label("$x^2$")
 ///     .color(Color::rgb(0.0, 0.45, 0.7))
 ///     .line_width(1.5)
 ///     .dash(Dash::DashDot)
@@ -176,9 +187,30 @@ impl LineMut<'_> {
         self.id
     }
 
-    /// Sets the name shown for the line in the legend.
-    pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-        self.artist().display_name = Some(name.into());
+    /// Returns the identifier of the data array of the x values, which another plotting
+    /// call accepts to share it.
+    #[must_use]
+    pub fn x_data(&self) -> NodeId {
+        self.get().x
+    }
+
+    /// Returns the identifier of the data array of the y values, which another plotting
+    /// call accepts to share it.
+    #[must_use]
+    pub fn y_data(&self) -> NodeId {
+        self.get().y
+    }
+
+    /// Returns the identifier of the data array of the z values, or `None` for a
+    /// two-dimensional line.
+    #[must_use]
+    pub fn z_data(&self) -> Option<NodeId> {
+        self.get().z
+    }
+
+    /// Sets the label of the line, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
         self
     }
 
@@ -290,9 +322,30 @@ impl ScatterMut<'_> {
         self.id
     }
 
-    /// Sets the name shown for the scatter in the legend.
-    pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-        self.artist().display_name = Some(name.into());
+    /// Returns the identifier of the data array of the x values, which another plotting
+    /// call accepts to share it.
+    #[must_use]
+    pub fn x_data(&self) -> NodeId {
+        self.get().x
+    }
+
+    /// Returns the identifier of the data array of the y values, which another plotting
+    /// call accepts to share it.
+    #[must_use]
+    pub fn y_data(&self) -> NodeId {
+        self.get().y
+    }
+
+    /// Returns the identifier of the data array of the z values, or `None` for a
+    /// two-dimensional scatter.
+    #[must_use]
+    pub fn z_data(&self) -> Option<NodeId> {
+        self.get().z
+    }
+
+    /// Sets the label of the scatter, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
         self
     }
 
@@ -309,10 +362,8 @@ impl ScatterMut<'_> {
     }
 
     /// Gives each marker its own size in points, one value per point.
-    pub fn sizes(&mut self, sizes_pt: impl AsRef<[f64]>) -> &mut Self {
-        let data = self
-            .fig
-            .add_data(NdArray::vector(sizes_pt.as_ref().to_vec()));
+    pub fn sizes(&mut self, sizes_pt: impl Into<DataSource>) -> &mut Self {
+        let data = sizes_pt.into().store(self.fig);
         let previous = std::mem::replace(&mut self.artist().size, ScatterSize::Data { data });
         if let ScatterSize::Data { data } = previous {
             release_data(self.fig, data);
@@ -332,8 +383,8 @@ impl ScatterMut<'_> {
 
     /// Colours each marker by a data value, one per point, mapped through the axes
     /// colormap and colour limits.
-    pub fn colors(&mut self, values: impl AsRef<[f64]>) -> &mut Self {
-        let data = self.fig.add_data(NdArray::vector(values.as_ref().to_vec()));
+    pub fn colors(&mut self, values: impl Into<DataSource>) -> &mut Self {
+        let data = values.into().store(self.fig);
         let previous = std::mem::replace(&mut self.artist().color, ScatterColor::Data { data });
         if let ScatterColor::Data { data } = previous {
             release_data(self.fig, data);
@@ -404,9 +455,16 @@ impl ContourMut<'_> {
         self.id
     }
 
-    /// Sets the name shown for the contours in the legend.
-    pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-        self.artist().display_name = Some(name.into());
+    /// Returns the identifier of the data array of the field, which another plotting call
+    /// accepts to share it.
+    #[must_use]
+    pub fn z_data(&self) -> NodeId {
+        self.get().z
+    }
+
+    /// Sets the label of the contours, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
         self
     }
 
@@ -477,9 +535,9 @@ impl QuiverMut<'_> {
         self.id
     }
 
-    /// Sets the name shown for the arrows in the legend.
-    pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-        self.artist().display_name = Some(name.into());
+    /// Sets the label of the arrows, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
         self
     }
 
@@ -530,7 +588,7 @@ impl QuiverMut<'_> {
 /// fig.axes(0, 0)
 ///     .surf(&x, &y, &z)
 ///     .edge_color(None)
-///     .display_name("$xy$");
+///     .label("$xy$");
 /// ```
 #[derive(Debug)]
 pub struct SurfaceMut<'a> {
@@ -545,9 +603,16 @@ impl SurfaceMut<'_> {
         self.id
     }
 
-    /// Sets the name shown for the surface in the legend.
-    pub fn display_name(&mut self, name: impl Into<Text>) -> &mut Self {
-        self.artist().display_name = Some(name.into());
+    /// Returns the identifier of the data array of the field, which another plotting call
+    /// accepts to share it.
+    #[must_use]
+    pub fn z_data(&self) -> NodeId {
+        self.get().z
+    }
+
+    /// Sets the label of the surface, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
         self
     }
 
@@ -571,8 +636,8 @@ impl SurfaceMut<'_> {
 
     /// Colours the surface by the given values instead of by its field `z` (MATLAB's
     /// `surf(x, y, z, c)`); the matrix must have the same shape as the field.
-    pub fn color_data(&mut self, c: &Matrix) -> &mut Self {
-        let data = self.fig.add_data(matrix_array(c));
+    pub fn color_data(&mut self, c: impl Into<DataSource>) -> &mut Self {
+        let data = c.into().store(self.fig);
         if let Some(previous) = self.artist().c.replace(data) {
             release_data(self.fig, previous);
         }
@@ -587,8 +652,8 @@ impl SurfaceMut<'_> {
     /// 0 to 1, and a face with a NaN corner is transparent. The alpha multiplies the
     /// alpha of the face colour and is multiplied in turn by the
     /// [`face_opacity`](Self::face_opacity).
-    pub fn face_alpha(&mut self, alpha: &Matrix) -> &mut Self {
-        let data = self.fig.add_data(matrix_array(alpha));
+    pub fn face_alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
+        let data = alpha.into().store(self.fig);
         if let Some(previous) = self.artist().face_alpha.replace(data) {
             release_data(self.fig, previous);
         }
@@ -599,8 +664,8 @@ impl SurfaceMut<'_> {
     /// gives the faces theirs: the edges of a face take the mean of the alpha at its
     /// corners, multiplied by the alpha of the edge colour and by the
     /// [`edge_opacity`](Self::edge_opacity).
-    pub fn edge_alpha(&mut self, alpha: &Matrix) -> &mut Self {
-        let data = self.fig.add_data(matrix_array(alpha));
+    pub fn edge_alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
+        let data = alpha.into().store(self.fig);
         if let Some(previous) = self.artist().edge_alpha.replace(data) {
             release_data(self.fig, previous);
         }
@@ -639,7 +704,7 @@ impl SurfaceMut<'_> {
 ///     .image(&pixels)
 ///     .pixel_columns(0.0, 1.0)
 ///     .pixel_rows(1.0, 0.0)
-///     .display_name("gradient");
+///     .label("gradient");
 /// ```
 #[derive(Debug)]
 pub struct ImageMut<'a> {
@@ -661,7 +726,7 @@ image_handle!(ImageMut, Image);
 ///     .indexed_image(&classes)
 ///     .pixel_columns(0.5, 7.5)
 ///     .above(OutOfRange::Clamp)
-///     .display_name("classes");
+///     .label("classes");
 /// ```
 #[derive(Debug)]
 pub struct IndexedImageMut<'a> {
@@ -775,21 +840,27 @@ fn make_3d_for_wall(fig: &mut Figure, id: NodeId, plane: ImagePlane) {
     AxesMut::new(fig, axes_id).make_3d();
 }
 
-/// Removes an array that a setter has replaced from the figure's data table, unless
-/// another artist still refers to it (as it may in a figure built by hand).
-fn release_data(fig: &mut Figure, id: DataId) {
+/// Removes an array that a setter has replaced from the figure's data arrays when no
+/// artist refers to it any more and it has no name.
+///
+/// An array without a name is one the builder copied from values, which nothing outside
+/// the figure can name; an array with a name was made by [`Figure::data`](crate::Figure::data)
+/// (or by hand), and its maker may give it to another artist later, so it is kept. The rule
+/// reads only the IR, so a figure wrapped from its IR is treated as the session that built
+/// it was.
+fn release_data(fig: &mut Figure, id: NodeId) {
     let referenced = fig
         .axes
         .iter()
         .flat_map(|axes| &axes.artists)
         .any(|artist| data_ids(artist).contains(&id));
     if !referenced {
-        fig.data.remove(&id);
+        fig.data.retain(|data| data.id != id || data.name.is_some());
     }
 }
 
-/// Returns every data identifier that an artist refers to.
-fn data_ids(artist: &Artist) -> Vec<DataId> {
+/// Returns the identifier of every data array that an artist refers to.
+fn data_ids(artist: &Artist) -> Vec<NodeId> {
     let grid_ids = |grid: &ironlab_ir::Grid| match *grid {
         ironlab_ir::Grid::Rectilinear { x, y } | ironlab_ir::Grid::Curvilinear { x, y } => [x, y],
     };

@@ -57,8 +57,8 @@ fn placement(fig: &Figure, id: NodeId) -> ImagePlacement {
 fn image_stores_the_pixels_as_bytes_with_shape_rows_by_cols_by_channels() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let rgb = ax.image(&sample_pixels()).id();
-    let rgba = ax.image(&Pixels::from_rgba8(2, 2, &RGBA).unwrap()).id();
+    let rgb = ax.image(sample_pixels()).id();
+    let rgba = ax.image(Pixels::from_rgba8(2, 2, &RGBA).unwrap()).id();
 
     let stored = data(&fig, image(&fig, rgb).pixels);
     assert_eq!(stored.shape, vec![2, 3, 3]);
@@ -82,7 +82,7 @@ fn image_stores_the_pixels_as_bytes_with_shape_rows_by_cols_by_channels() {
 fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges_and_lenient_policies() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let plain = ax.image(&sample_pixels()).id();
+    let plain = ax.image(sample_pixels()).id();
     let indexed = ax.indexed_image(sample_bytes()).id();
     let mapped = ax.mapped_image(sample_floats()).id();
 
@@ -91,7 +91,7 @@ fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges_and_lenient_polic
         assert_eq!(p.plane, ImagePlane::Xy { z: None }, "{id}");
         assert_eq!(p.columns, None, "{id}");
         assert_eq!(p.rows, None, "{id}");
-        assert_eq!(artist(&fig, id).display_name(), None, "{id}");
+        assert_eq!(artist(&fig, id).label(), None, "{id}");
         assert!(artist(&fig, id).visible(), "{id}");
         assert!(!is_3d(parent(&fig, id)), "{id}");
     }
@@ -512,17 +512,17 @@ mod prelude_only {
 // plane (MATLAB's XData and YData) and are the only way to put an image over real
 // coordinates, so every handle must have both; each must reach its own field and leave
 // the other absent, and a range whose last centre is less than the first must be
-// stored as given, because that is how an image is mirrored. display_name feeds the
+// stored as given, because that is how an image is mirrored. label feeds the
 // legend as for every other artist.
 #[test]
 fn pixel_columns_and_pixel_rows_set_the_pixel_centres_on_every_kind() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
     let plain = ax
-        .image(&sample_pixels())
+        .image(sample_pixels())
         .pixel_columns(-1.5, 1.5)
         .pixel_rows(2.0, 0.0)
-        .display_name("photo")
+        .label("photo")
         .id();
     let indexed = ax
         .indexed_image(sample_bytes())
@@ -534,7 +534,7 @@ fn pixel_columns_and_pixel_rows_set_the_pixel_centres_on_every_kind() {
         .pixel_columns(-1.5, 1.5)
         .pixel_rows(2.0, 0.0)
         .id();
-    let columns_only = ax.image(&sample_pixels()).pixel_columns(0.0, 10.0).id();
+    let columns_only = ax.image(sample_pixels()).pixel_columns(0.0, 10.0).id();
     let rows_only = ax.mapped_image(sample_floats()).pixel_rows(-2.0, -1.0).id();
     let range = |first, last| Some(PixelRange { first, last });
 
@@ -544,7 +544,7 @@ fn pixel_columns_and_pixel_rows_set_the_pixel_centres_on_every_kind() {
         assert_eq!(p.rows, range(2.0, 0.0), "{id}");
         assert_eq!(p.plane, ImagePlane::Xy { z: None }, "{id}");
     }
-    assert_eq!(image(&fig, plain).display_name, Some(Text::new("photo")));
+    assert_eq!(image(&fig, plain).label, Some(Text::new("photo")));
     let p = placement(&fig, columns_only);
     assert_eq!((p.columns, p.rows), (range(0.0, 10.0), None));
     let p = placement(&fig, rows_only);
@@ -562,10 +562,10 @@ fn wall_planes_promote_the_axes_to_3d_with_the_default_view_on_every_kind() {
     let xz = ImagePlane::Xz { y: Some(0.5) };
     let yz = ImagePlane::Yz { x: None };
     let mut fig = Figure::new().tiles(2, 3);
-    let image_xz = fig.axes(0, 0).image(&sample_pixels()).plane(xz).id();
+    let image_xz = fig.axes(0, 0).image(sample_pixels()).plane(xz).id();
     let indexed_xz = fig.axes(0, 1).indexed_image(sample_bytes()).plane(xz).id();
     let mapped_xz = fig.axes(0, 2).mapped_image(sample_floats()).plane(xz).id();
-    let image_yz = fig.axes(1, 0).image(&sample_pixels()).plane(yz).id();
+    let image_yz = fig.axes(1, 0).image(sample_pixels()).plane(yz).id();
     let indexed_yz = fig.axes(1, 1).indexed_image(sample_bytes()).plane(yz).id();
     let mapped_yz = fig.axes(1, 2).mapped_image(sample_floats()).plane(yz).id();
 
@@ -602,12 +602,12 @@ fn the_floor_plane_with_an_offset_leaves_a_2d_axes_two_dimensional() {
     let floor = ImagePlane::Xy { z: Some(1.0) };
     let mut fig = Figure::new().tiles(1, 2);
     let mut ax = fig.axes(0, 0);
-    let plain = ax.image(&sample_pixels()).plane(floor).id();
+    let plain = ax.image(sample_pixels()).plane(floor).id();
     let indexed = ax.indexed_image(sample_bytes()).plane(floor).id();
     let mapped = ax.mapped_image(sample_floats()).plane(floor).id();
     let on_the_floor_of_3d = fig
         .axes3(0, 1)
-        .image(&sample_pixels())
+        .image(sample_pixels())
         .plane(ImagePlane::Xy { z: None })
         .id();
 
@@ -662,14 +662,14 @@ fn out_of_range_policies_map_to_their_ir_fields_on_both_mapped_kinds() {
         .below(red)
         .above(OutOfRange::Clamp)
         .non_finite(OutOfRange::Strict)
-        .display_name("classes")
+        .label("classes")
         .id();
     let mapped = ax
         .mapped_image(sample_floats())
         .below(OutOfRange::Strict)
         .above(red)
         .non_finite(OutOfRange::Clamp)
-        .display_name("$\\phi$")
+        .label("$\\phi$")
         .id();
     let only_below = ax.mapped_image(sample_floats()).below(red).id();
     let only_above = ax.indexed_image(sample_bytes()).above(red).id();
@@ -680,13 +680,13 @@ fn out_of_range_policies_map_to_their_ir_fields_on_both_mapped_kinds() {
         [i.below, i.above, i.non_finite],
         [fixed, OutOfRange::Clamp, OutOfRange::Strict]
     );
-    assert_eq!(i.display_name, Some(Text::new("classes")));
+    assert_eq!(i.label, Some(Text::new("classes")));
     let m = mapped_image(&fig, mapped);
     assert_eq!(
         [m.below, m.above, m.non_finite],
         [OutOfRange::Strict, fixed, OutOfRange::Clamp]
     );
-    assert_eq!(m.display_name, Some(Text::new("$\\phi$")));
+    assert_eq!(m.label, Some(Text::new("$\\phi$")));
     let m = mapped_image(&fig, only_below);
     assert_eq!(
         [m.below, m.above, m.non_finite],
@@ -745,7 +745,7 @@ fn a_strict_policy_is_reported_at_the_handles_id_and_the_default_policy_is_lenie
 fn non_finite_pixel_centres_and_offsets_are_reported_by_validate_not_a_panic() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let nan_centre = ax.image(&sample_pixels()).pixel_columns(f64::NAN, 1.0).id();
+    let nan_centre = ax.image(sample_pixels()).pixel_columns(f64::NAN, 1.0).id();
     let infinite_offset = ax
         .mapped_image(sample_floats())
         .plane(ImagePlane::Xy {

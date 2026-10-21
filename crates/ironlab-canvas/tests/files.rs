@@ -177,7 +177,7 @@ fn a_save_that_cannot_be_written_is_an_io_error_naming_the_file() {
 
 /// A figure that exercises every part of both encodings: axes with titles and artists of three kinds, a data array
 /// holding a NaN (written as `null` in JSON and as its IEEE 754 bits in Protocol Buffers), a figure title, a
-/// parameter of every kind and labels (both omitted from JSON when empty, so present here to prove they survive).
+/// parameter of every kind and tags (both omitted from JSON when empty, so present here to prove they survive).
 fn rich() -> ironlab_ir::Figure {
     let mut figure = figure_with_artists();
     figure.title = Some(ironlab_ir::Text::plain("Speed against height"));
@@ -194,7 +194,7 @@ fn rich() -> ironlab_ir::Figure {
     figure
         .parameters
         .insert("case".to_owned(), Parameter::String("baseline".to_owned()));
-    figure.labels = vec!["surface".to_owned(), "3d".to_owned()];
+    figure.tags = vec!["surface".to_owned(), "3d".to_owned()];
     figure
 }
 
@@ -239,7 +239,7 @@ fn the_format_is_chosen_by_the_file_name_s_extension() {
 
 // Why: a browser host encodes a figure for download and decodes what it fetched; if either format were lossy the
 // user would save a different figure from the one they viewed. The fixture holds every kind of content that has its
-// own encoding rule (NaN in data, an optional title, artists of several kinds, parameters of every type, labels), so
+// own encoding rule (NaN in data, an optional title, artists of several kinds, parameters of every type, tags), so
 // that a field dropped by either codec is noticed.
 #[test]
 fn encoding_then_decoding_in_either_format_round_trips_a_figure() {

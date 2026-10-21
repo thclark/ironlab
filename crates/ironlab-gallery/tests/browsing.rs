@@ -4,16 +4,16 @@
 //! opened together in one window, where finding the surface figures used to mean reading every tab. The viewer
 //! works nothing out for itself, because the writer of a figure is the one who knows what matters about it, so
 //! everything the gallery can be browsed by is something an entry wrote. Each entry writes both kinds of thing:
-//! labels, of which a figure carries as many as it likes — the structural words for what it draws and how it is
+//! tags, of which a figure carries as many as it likes — the structural words for what it draws and how it is
 //! laid out, and the words naming the features of IronLAB it demonstrates — and four parameters, each a single
 //! value, which is what a collection can be sorted, grouped and narrowed by a range of.
 //!
-//! No fact is written in both places. A figure draws several kinds of artist, so the kinds are labels; a figure
+//! No fact is written in both places. A figure draws several kinds of artist, so the kinds are tags; a figure
 //! has one dimensionality, so that is a parameter.
 //!
 //! That makes these tests more valuable than they were, not less. The answers they check are no longer produced by
 //! the same code that reads them: what a figure draws is read straight from the IR and compared with what the
-//! entry claims, so a label that is missing, wrong or left behind by an edit is caught here.
+//! entry claims, so a tag that is missing, wrong or left behind by an edit is caught here.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,7 +37,7 @@ fn cards() -> Vec<FigureCard> {
         .collect()
 }
 
-/// The labels each gallery entry writes for itself, under the title of the entry.
+/// The tags each gallery entry writes for itself, under the title of the entry.
 ///
 /// These are the entries' own words, taken from the figure before the browser adds anything to it, so a test of
 /// them is a test of what the gallery says rather than of what the viewer worked out.
@@ -48,7 +48,7 @@ fn authored() -> Vec<(&'static str, Vec<String>)> {
             let (figure, _warnings) = entry.build_validated().unwrap_or_else(|error| {
                 panic!("the gallery entry {:?} is invalid: {error}", entry.slug)
             });
-            (entry.title, figure.labels().to_vec())
+            (entry.title, figure.tags().to_vec())
         })
         .collect()
 }
@@ -89,18 +89,18 @@ fn drawing(wanted: fn(&Artist) -> bool) -> Vec<String> {
     titles
 }
 
-/// The structural labels a figure ought to carry, read from the IR: what kinds of artist it draws, whether it is
+/// The structural tags a figure ought to carry, read from the IR: what kinds of artist it draws, whether it is
 /// tiled, whether any of its axes shows a legend and whether any of its axes is logarithmic.
 ///
 /// Whether the figure is flat or solid is not among them: that is one value, so it is the `dimensionality`
-/// parameter and not a label. The viewer works none of this out, so these are the entry's own words; reading them
+/// parameter and not a tag. The viewer works none of this out, so these are the entry's own words; reading them
 /// back off the figure here is what keeps those words true. The three kinds of raster all count as an image,
 /// because how a pixel gets its colour is a distinction inside the IR rather than one anyone browses by.
 fn structural(figure: &Figure) -> BTreeSet<String> {
-    let mut labels = BTreeSet::new();
+    let mut tags = BTreeSet::new();
     for axes in &figure.axes {
         for artist in &axes.artists {
-            labels.insert(
+            tags.insert(
                 match artist {
                     Artist::Line(_) => "line",
                     Artist::Scatter(_) => "scatter",
@@ -114,29 +114,29 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
         }
     }
     if figure.axes.len() > 1 {
-        labels.insert("subplots".to_owned());
+        tags.insert("subplots".to_owned());
     }
     if figure.axes.iter().any(|axes| axes.legend.is_some()) {
-        labels.insert("legend".to_owned());
+        tags.insert("legend".to_owned());
     }
     if figure.axes.iter().any(|axes| {
         [&axes.x, &axes.y, &axes.z]
             .iter()
             .any(|axis| axis.scale == Scale::Log)
     }) {
-        labels.insert("log".to_owned());
+        tags.insert("log".to_owned());
     }
-    labels
+    tags
 }
 
 // Why: this is the request the browser was built for, in the words it was asked in — "surface shows us all the
 // surface figures". The answer is checked against the figures themselves, because a figure counts as a surface
 // figure by drawing a surface, not by saying so in its title: the flow past a cylinder draws one, and a reader
-// asking for surfaces should be shown it. Nothing reconciles the label with the drawing any more, so this test is
+// asking for surfaces should be shown it. Nothing reconciles the tag with the drawing any more, so this test is
 // where an entry that grows a surface and forgets to say so is caught.
 #[test]
 fn asking_for_the_surface_figures_finds_exactly_the_figures_that_draw_one() {
-    let mut found = found("label:surface");
+    let mut found = found("tag:surface");
     found.sort();
     let expected = drawing(|artist| matches!(artist, Artist::Surface(_)));
 
@@ -155,7 +155,7 @@ fn asking_for_the_surface_figures_finds_exactly_the_figures_that_draw_one() {
 // every entry that draws any of the three writes the same word.
 #[test]
 fn the_three_kinds_of_raster_are_all_found_by_asking_for_images() {
-    let mut found = found("label:image");
+    let mut found = found("tag:image");
     found.sort();
     let expected = drawing(|artist| {
         matches!(
@@ -169,7 +169,7 @@ fn the_three_kinds_of_raster_are_all_found_by_asking_for_images() {
     );
 }
 
-// Why: the other half of the same request, and now a question about a parameter rather than about a label. A
+// Why: the other half of the same request, and now a question about a parameter rather than about a tag. A
 // figure has exactly one dimensionality, so it is written once, as a value that can be sorted and grouped by; the
 // test that it is written correctly is the same either way. The two values have to partition the gallery exactly —
 // every entry solid or flat, none both and none neither — and the solid ones have to be the ones whose axes are
@@ -214,7 +214,7 @@ fn drawing_in_three_dimensions() -> Vec<String> {
 }
 
 // Why: a reader who does not know the typed form types a word. It has to find what the word means, whether the word
-// is in the title or in one of the labels the entry wrote.
+// is in the title or in one of the tags the entry wrote.
 #[test]
 fn a_bare_word_searches_the_titles_and_the_labels_together() {
     let titles = found("image");
@@ -227,12 +227,12 @@ fn a_bare_word_searches_the_titles_and_the_labels_together() {
             .iter()
             .any(|title| title.to_lowercase().contains("surface")),
         "including the entry that draws an image and a surface together, whose title says surface \
-         but which is labelled image because it draws one: {titles:?}"
+         but which is tagged image because it draws one: {titles:?}"
     );
 }
 
-// Why: the panel offers what the collection gives it, and the gallery gives it two kinds of thing. The labels are
-// the menu of words; the parameters are what a label cannot be, because each holds one value and can therefore be
+// Why: the panel offers what the collection gives it, and the gallery gives it two kinds of thing. The tags are
+// the menu of words; the parameters are what a tag cannot be, because each holds one value and can therefore be
 // sorted, grouped and narrowed by a range. If either came to nothing the panel would open half empty and the
 // reader would conclude the gallery cannot be filtered that way at all. A facet also has to be worth offering
 // rather than merely present, which is what its score decides, and `data_points` is the only numeric facet in the
@@ -245,24 +245,24 @@ fn the_gallery_offers_facets_worth_filtering_on() {
 
     assert_eq!(
         facets.first().map(|facet| facet.key.clone()),
-        Some(FacetKey::Labels),
-        "the labels lead, because they are the words the reader browses by: {offered:?}"
+        Some(FacetKey::Tags),
+        "the tags lead, because they are the words the reader browses by: {offered:?}"
     );
-    let labels = &facets[0];
+    let tags = &facets[0];
     assert!(
-        labels.cardinality() > 10 && labels.score > 0.0 && labels.present == cards.len(),
-        "the labels divide the gallery many ways, are offered, and cover every figure: {} values, \
+        tags.cardinality() > 10 && tags.score > 0.0 && tags.present == cards.len(),
+        "the tags divide the gallery many ways, are offered, and cover every figure: {} values, \
          score {}, on {} of {} figures",
-        labels.cardinality(),
-        labels.score,
-        labels.present,
+        tags.cardinality(),
+        tags.score,
+        tags.present,
         cards.len()
     );
 
     for wanted in PARAMETERS {
         assert!(
             offered.contains(&wanted),
-            "{wanted:?} is written by every entry and offered beside the labels: {offered:?}"
+            "{wanted:?} is written by every entry and offered beside the tags: {offered:?}"
         );
     }
     let dimensionality = facets
@@ -306,11 +306,11 @@ fn the_gallery_offers_facets_worth_filtering_on() {
 
 /// Every parameter each gallery entry writes, in the order the entries write them.
 ///
-/// They are the facts of which a figure has exactly one, which is what a label cannot hold: whether it is flat or
+/// They are the facts of which a figure has exactly one, which is what a tag cannot hold: whether it is flat or
 /// solid, how many artists it draws, how many values its data holds and whether it shows a legend.
 const PARAMETERS: [&str; 4] = ["dimensionality", "artists", "data_points", "has_legend"];
 
-// Why: the labels are the menu the reader sees first, so they have to be the words they would look for. Two kinds
+// Why: the tags are the menu the reader sees first, so they have to be the words they would look for. Two kinds
 // of word have to be there. The structural ones say what a figure is made of, which is how a reader who knows the
 // picture they want finds it; the feature ones say what the entry demonstrates, which is how a reader who knows
 // the problem they have finds the entry that solves it. A gallery with only the first would be no better than the
@@ -319,11 +319,11 @@ const PARAMETERS: [&str; 4] = ["dimensionality", "artists", "data_points", "has_
 fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
     let cards = cards();
     let facets = describe_facets(&cards);
-    let labels = facets
+    let tags = facets
         .iter()
-        .find(|facet| facet.key == FacetKey::Labels)
-        .expect("the gallery has labels");
-    let values: Vec<String> = labels.values.iter().map(FacetValue::text).collect();
+        .find(|facet| facet.key == FacetKey::Tags)
+        .expect("the gallery has tags");
+    let values: Vec<String> = tags.values.iter().map(FacetValue::text).collect();
 
     for wanted in [
         "contour", "image", "line", "quiver", "scatter", "surface", "subplots", "legend", "log",
@@ -362,11 +362,11 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
 fn the_menu_counts_every_figure_behind_a_label() {
     let cards = cards();
     let facets = describe_facets(&cards);
-    let labels = facets
+    let tags = facets
         .iter()
-        .find(|facet| facet.key == FacetKey::Labels)
-        .expect("the gallery has labels");
-    let counts = Browse::default().counts(&cards, labels);
+        .find(|facet| facet.key == FacetKey::Tags)
+        .expect("the gallery has tags");
+    let counts = Browse::default().counts(&cards, tags);
 
     let surfaces = counts
         .get(&FacetValue::Text("surface".to_owned()))
@@ -374,12 +374,12 @@ fn the_menu_counts_every_figure_behind_a_label() {
         .unwrap_or_default();
     assert_eq!(
         surfaces,
-        found("label:surface").len(),
+        found("tag:surface").len(),
         "the count beside surface is how many figures asking for surfaces would leave"
     );
     assert!(
         counts.values().sum::<usize>() > all().len(),
-        "and a figure is counted under each of its labels, so the counts total more than the gallery holds"
+        "and a figure is counted under each of its tags, so the counts total more than the gallery holds"
     );
 }
 
@@ -405,60 +405,60 @@ fn a_word_with_a_colon_searches_rather_than_asking_about_a_parameter() {
 // findable by what it is for rather than by what artists happen to be in it.
 #[test]
 fn every_entry_carries_a_label_of_its_own() {
-    for (title, labels) in authored() {
+    for (title, tags) in authored() {
         assert!(
-            !labels.is_empty(),
-            "the gallery entry {title:?} carries no label of its own"
+            !tags.is_empty(),
+            "the gallery entry {title:?} carries no tag of its own"
         );
     }
 }
 
-// Why: the menu of labels, with the count behind each, is how a reader learns what the gallery can be filtered on.
-// A label carried by one figure is therefore not a label that divides nothing: it is the line in the menu that
+// Why: the menu of tags, with the count behind each, is how a reader learns what the gallery can be filtered on.
+// A tag carried by one figure is therefore not a tag that divides nothing: it is the line in the menu that
 // tells the reader decimation is demonstrated at all, and the 1 beside it says exactly how much of it there is.
-// Requiring a label to gather two figures would delete that line, and with it the only trace of a feature the
+// Requiring a tag to gather two figures would delete that line, and with it the only trace of a feature the
 // gallery shows once.
 #[test]
 fn a_label_carried_by_a_single_entry_is_still_offered_with_its_count() {
     let mut carriers: BTreeMap<String, usize> = BTreeMap::new();
-    for (_title, labels) in authored() {
-        for label in labels {
-            *carriers.entry(label).or_default() += 1;
+    for (_title, tags) in authored() {
+        for tag in tags {
+            *carriers.entry(tag).or_default() += 1;
         }
     }
     let alone: Vec<&String> = carriers
         .iter()
         .filter(|(_, count)| **count == 1)
-        .map(|(label, _)| label)
+        .map(|(tag, _)| tag)
         .collect();
     assert!(
         alone.contains(&&"decimation".to_owned()),
-        "decimation is demonstrated by one entry and labelled all the same: {alone:?}"
+        "decimation is demonstrated by one entry and tagged all the same: {alone:?}"
     );
 
     let cards = cards();
     let facets = describe_facets(&cards);
-    let labels = facets
+    let tags = facets
         .iter()
-        .find(|facet| facet.key == FacetKey::Labels)
-        .expect("the gallery has labels");
-    let counts = Browse::default().counts(&cards, labels);
-    for label in alone {
-        let value = FacetValue::Text(label.clone());
+        .find(|facet| facet.key == FacetKey::Tags)
+        .expect("the gallery has tags");
+    let counts = Browse::default().counts(&cards, tags);
+    for tag in alone {
+        let value = FacetValue::Text(tag.clone());
         assert!(
-            labels.values.contains(&value),
-            "{label:?} is offered in the menu like any other label: {:?}",
-            labels.values
+            tags.values.contains(&value),
+            "{tag:?} is offered in the menu like any other tag: {:?}",
+            tags.values
         );
         assert_eq!(
             counts.get(&value).copied(),
             Some(1),
-            "{label:?} is offered with the one figure that carries it behind it"
+            "{tag:?} is offered with the one figure that carries it behind it"
         );
     }
 }
 
-// Why: nothing reconciles a label with the figure it describes any more, so a label is only as true as the entry
+// Why: nothing reconciles a tag with the figure it describes any more, so a tag is only as true as the entry
 // that wrote it. An entry that gains an artist, a tile, a legend or a logarithmic axis and does not say so
 // disappears from the query that should find it, and one that keeps a word it no longer earns answers a query with
 // a figure that does not belong. Both faults are invisible in the source and in the rendered gallery alike, which
@@ -467,12 +467,12 @@ fn a_label_carried_by_a_single_entry_is_still_offered_with_its_count() {
 fn the_structural_labels_say_what_each_figure_actually_holds() {
     for entry in all() {
         let (figure, _warnings) = entry.build_validated().expect("a valid gallery entry");
-        let labels = figure.labels().to_vec();
+        let tags = figure.tags().to_vec();
         let ir = figure.into_ir();
         let expected = structural(&ir);
-        let written: BTreeSet<String> = labels
+        let written: BTreeSet<String> = tags
             .iter()
-            .filter(|label| STRUCTURAL.contains(&label.as_str()))
+            .filter(|tag| STRUCTURAL.contains(&tag.as_str()))
             .cloned()
             .collect();
         assert_eq!(
@@ -524,8 +524,8 @@ fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
 
         let points: usize = ir
             .data
-            .values()
-            .map(|array| array.shape.iter().product::<usize>())
+            .iter()
+            .map(|data| data.array.shape.iter().product::<usize>())
             .sum();
         assert_eq!(
             parameters.get("data_points"),
@@ -543,10 +543,10 @@ fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
 }
 
 // Why: a fact written twice is worse than a fact written once, because a reader cannot tell whether the two
-// entries mean the same thing. A figure labelled "3d" that also says `dimensionality` is 3D offers the reader two
+// entries mean the same thing. A figure tagged "3d" that also says `dimensionality` is 3D offers the reader two
 // ways to ask the same question, in a panel that presents them as different questions with counts of their own,
 // and leaves whoever edits the entry next to keep them in step by hand. Which side a fact belongs on is decided by
-// how many values it has: a figure draws several kinds of artist, so the kinds are labels, and a figure has one
+// how many values it has: a figure draws several kinds of artist, so the kinds are tags, and a figure has one
 // dimensionality, so that is a parameter.
 #[test]
 fn no_label_says_what_a_parameter_of_the_same_entry_already_says() {
@@ -564,10 +564,10 @@ fn no_label_says_what_a_parameter_of_the_same_entry_already_says() {
                 .map(|value| FacetValue::from(value).text().to_lowercase()),
         );
 
-        for label in figure.labels() {
+        for tag in figure.tags() {
             assert!(
-                !written.contains(&label.to_lowercase()),
-                "the gallery entry {:?} says {label:?} as a label and as a parameter: {written:?}",
+                !written.contains(&tag.to_lowercase()),
+                "the gallery entry {:?} says {tag:?} as a tag and as a parameter: {written:?}",
                 entry.slug
             );
         }
@@ -625,8 +625,8 @@ const STRUCTURAL: &[&str] = &[
     "contour", "image", "legend", "line", "log", "quiver", "scatter", "subplots", "surface",
 ];
 
-// Why: the gallery is the code a reader copies, so an entry of it must be a figure IronLAB would accept. Labels are
-// the newest thing the entries carry and the easiest to get wrong, because an empty label and a label written twice
+// Why: the gallery is the code a reader copies, so an entry of it must be a figure IronLAB would accept. Tags are
+// the newest thing the entries carry and the easiest to get wrong, because an empty tag and a tag written twice
 // are both invisible in the source until the figure is validated.
 #[test]
 fn every_gallery_figure_is_valid_and_its_labels_are_neither_empty_nor_repeated() {
@@ -646,17 +646,17 @@ fn every_gallery_figure_is_valid_and_its_labels_are_neither_empty_nor_repeated()
 
         // The same two rules again, read straight off the figure, so that the test says what it means rather than
         // deferring to whatever the validator currently checks.
-        let labels = figure.labels();
+        let tags = figure.tags();
         assert!(
-            labels.iter().all(|label| !label.is_empty()),
-            "the gallery entry {:?} carries an empty label: {labels:?}",
+            tags.iter().all(|tag| !tag.is_empty()),
+            "the gallery entry {:?} carries an empty tag: {tags:?}",
             entry.slug
         );
-        let distinct: BTreeSet<&String> = labels.iter().collect();
+        let distinct: BTreeSet<&String> = tags.iter().collect();
         assert_eq!(
             distinct.len(),
-            labels.len(),
-            "the gallery entry {:?} carries a label twice: {labels:?}",
+            tags.len(),
+            "the gallery entry {:?} carries a tag twice: {tags:?}",
             entry.slug
         );
     }

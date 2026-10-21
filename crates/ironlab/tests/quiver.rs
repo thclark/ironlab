@@ -89,7 +89,7 @@ fn quiver_setters_map_to_ir_fields() {
         .color(Color::BLACK)
         .line_width(0.4)
         .head_size(0.2)
-        .display_name("$\\nabla f$")
+        .label("$\\nabla f$")
         .id();
     let q = quiver(&fig, id);
     assert_eq!(
@@ -100,7 +100,7 @@ fn quiver_setters_map_to_ir_fields() {
     );
     assert_eq!(q.line.width_pt, 0.4);
     assert_eq!(q.head_size, 0.2);
-    assert_eq!(q.display_name, Some(Text::new("$\\nabla f$")));
+    assert_eq!(q.label, Some(Text::new("$\\nabla f$")));
 }
 
 // WHY: component arrays shorter than the positions must be reported, not panic.

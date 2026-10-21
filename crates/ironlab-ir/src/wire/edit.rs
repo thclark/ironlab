@@ -21,19 +21,20 @@ proto_file! {
         oneof kind: EditKind {
             /// Replaces the value of a property of a node.
             Set(EditSet) set_property = 1;
-            /// Inserts an axes, an artist or a legend panel, with its subtree.
+            /// Inserts a data array, an axes, an artist or a panel, with its subtree.
             Insert(EditInsert) insert_node = 2;
             /// Removes a node and its subtree.
             Remove(EditRemove) remove_node = 3;
             /// Moves a node within its parent or to another parent.
             Move(EditMove) move_node = 4;
-            /// Creates or replaces a data array.
-            PutData(EditPutData) put_data = 5;
             /// Appends entries to a data array along its first dimension.
             AppendData(EditAppendData) append_data = 6;
-            /// Removes a data array.
-            RemoveData(EditRemoveData) remove_data = 7;
+            /// Replaces the values of an existing data array.
+            ReplaceData(EditReplaceData) replace_data = 8;
         }
+        /// The numbers and names of the edits that created and removed data arrays before
+        /// data arrays were nodes, which are now inserted and removed as nodes.
+        reserved 5, 7, put_data, remove_data;
     }
 
     /// Replaces the value of a property of a node.
@@ -47,11 +48,11 @@ proto_file! {
         message Value value = 3;
     }
 
-    /// Inserts an axes or a legend panel into the figure, or an artist into an axes, with
-    /// its subtree.
+    /// Inserts a data array, an axes or a panel into the figure, or an artist into an
+    /// axes, with its subtree.
     message EditInsert {
-        /// The identifier of the parent: the figure for an axes or a legend panel, or an
-        /// axes for an artist; it must be present.
+        /// The identifier of the parent: the figure for a data array, an axes or a panel,
+        /// or an axes for an artist; it must be present.
         optional uint64 parent = 1;
         /// The position in the parent's list; absent to append.
         optional uint32 index = 2;
@@ -61,14 +62,14 @@ proto_file! {
 
     /// Removes a node and its subtree.
     message EditRemove {
-        /// The identifier of the axes, artist or legend panel; it must be present.
+        /// The identifier of the data array, axes, artist or panel; it must be present.
         optional uint64 node = 1;
     }
 
-    /// Moves an axes or a legend panel within the figure, or an artist within its axes
-    /// or to another axes.
+    /// Moves a data array, an axes or a panel within the figure, or an artist within its
+    /// axes or to another axes.
     message EditMove {
-        /// The identifier of the axes, artist or legend panel; it must be present.
+        /// The identifier of the data array, axes, artist or panel; it must be present.
         optional uint64 node = 1;
         /// The identifier of the new parent; it must be present.
         optional uint64 parent = 2;
@@ -77,29 +78,24 @@ proto_file! {
         optional uint32 index = 3;
     }
 
-    /// Creates a data array or replaces an existing one.
-    message EditPutData {
-        /// The data identifier; it must be present.
-        optional uint64 id = 1;
-        /// The new array; it must be present.
+    /// Replaces the values of an existing data array, which keeps its identifier and its
+    /// name.
+    message EditReplaceData {
+        /// The identifier of the data array; it must be present.
+        optional uint64 node = 1;
+        /// The new values; it must be present.
         message NdArray array = 2;
     }
 
-    /// Appends entries to an existing array along its first dimension.
+    /// Appends entries to an existing data array along its first dimension.
     message EditAppendData {
-        /// The data identifier; it must be present.
-        optional uint64 id = 1;
+        /// The identifier of the data array; it must be present.
+        optional uint64 node = 1;
         /// The entries to append; it must be present.
         message NdArray array = 2;
         /// The number of entries along the first dimension to keep after appending,
         /// counted from the end; absent to keep every entry.
         optional uint64 retain = 3;
-    }
-
-    /// Removes a data array.
-    message EditRemoveData {
-        /// The data identifier; it must be present.
-        optional uint64 id = 1;
     }
 
     /// A node that can be inserted into a figure, with its subtree.
@@ -110,9 +106,14 @@ proto_file! {
             Axes(Axes) axes = 1;
             /// An artist.
             Artist(Artist) artist = 2;
-            /// A legend panel.
-            PanelLegend(PanelLegend) panel_legend = 3;
+            /// A panel.
+            Panel(Panel) panel = 4;
+            /// A data array.
+            DataArray(DataArray) data_array = 5;
         }
+        /// The number and name of the legend panel, which a panel holding a legend
+        /// replaced.
+        reserved 3, panel_legend;
     }
 
     /// The value of a property.
@@ -131,8 +132,6 @@ proto_file! {
             Float(ValueFloat) float_value = 5;
             /// A string.
             String(ValueString) string_value = 6;
-            /// A reference to a data array.
-            DataId(ValueDataId) data_id_value = 7;
             /// A list of double-precision numbers.
             Doubles(ValueDoubles) doubles_value = 8;
             /// A text.
@@ -199,7 +198,7 @@ proto_file! {
             ImagePlane(ValueImagePlane) image_plane_value = 39;
             /// The policy of an image for pixels it cannot colour.
             OutOfRange(ValueOutOfRange) out_of_range_value = 40;
-            /// The labels of a figure.
+            /// The tags of a figure.
             Strings(ValueStrings) strings_value = 41;
             /// A legend drawn inside the plot area of its axes.
             InsideLegend(ValueInsideLegend) inside_legend_value = 42;
@@ -209,8 +208,8 @@ proto_file! {
             LegendEntryColumns(ValueLegendEntryColumns) legend_entry_columns_value = 44;
             /// The order in which the entries of a legend fill its columns.
             LegendEntryOrder(ValueLegendEntryOrder) legend_entry_order_value = 45;
-            /// A reference to a node, such as the legend panel named by the legend of an
-            /// axes.
+            /// A reference to a node, such as the data array of an artist or the panel
+            /// named by the legend of an axes.
             NodeId(ValueNodeId) node_id_value = 46;
             /// Where the major ticks of an axis are placed.
             Ticks(ValueTicks) ticks_value = 47;
@@ -228,7 +227,16 @@ proto_file! {
             AspectAdjust(ValueAspectAdjust) aspect_adjust_value = 53;
             /// How the title of an axes is aligned with its plot area.
             TitleAlign(ValueTitleAlign) title_align_value = 54;
+            /// The placement of the content of a panel.
+            PanelLocation(ValuePanelLocation) panel_location_value = 55;
+            /// What a panel holds.
+            PanelContent(ValuePanelContent) panel_content_value = 56;
+            /// The legend content of a panel.
+            PanelLegend(ValuePanelLegend) panel_legend_value = 57;
         }
+        /// The number and name of the reference to a data array, which is now a
+        /// reference to a node.
+        reserved 7, data_id_value;
     }
 
     /// A list of sizes of the rows or columns of the tile layout.
@@ -268,12 +276,6 @@ proto_file! {
     message ValueString {
         /// The value, which may be empty.
         string value = 1;
-    }
-
-    /// A reference to a data array.
-    message ValueDataId {
-        /// The data identifier; it must be present.
-        optional uint64 value = 1;
     }
 
     /// A list of double-precision numbers.
@@ -388,6 +390,24 @@ proto_file! {
     message ValueLegendLocation {
         /// The location; it must be specified.
         enum LegendLocation value = 1;
+    }
+
+    /// A panel location value.
+    message ValuePanelLocation {
+        /// The location; it must be specified.
+        enum PanelLocation value = 1;
+    }
+
+    /// A panel content value.
+    message ValuePanelContent {
+        /// The content; it must be present.
+        message PanelContent value = 1;
+    }
+
+    /// A panel legend value.
+    message ValuePanelLegend {
+        /// The legend; it must be present.
+        message PanelLegend value = 1;
     }
 
     /// An inside legend value.

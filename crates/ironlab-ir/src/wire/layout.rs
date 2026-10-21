@@ -1,7 +1,7 @@
 //! Wire types of `ironlab/ir/v0/layout.proto`.
 
 proto_file! {
-    /// The grid of cells in which the axes and legend panels of a figure are placed.
+    /// The grid of cells in which the axes and panels of a figure are placed.
     message TileLayout {
         /// The number of rows; at least one.
         optional uint32 rows = 1;
@@ -23,7 +23,7 @@ proto_file! {
         oneof kind: TrackSizeKind {
             /// A share of the space that the fitted rows or columns leave.
             Weight(TrackSizeWeight) weight = 1;
-            /// The size of the content of the legend panels in the row or column.
+            /// The size of the content of the panels in the row or column.
             Fit(TrackSizeFit) fit = 2;
         }
     }
@@ -34,7 +34,7 @@ proto_file! {
         optional double weight = 1;
     }
 
-    /// The size of the content of the legend panels in the row or column.
+    /// The size of the content of the panels in the row or column.
     message TrackSizeFit {}
 
     /// A rectangular block of cells in the figure's tile layout, numbered from zero
