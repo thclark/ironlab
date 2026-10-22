@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{data, has_error_at, line, scatter};
+use common::{data, has_error_at, series};
 use ironlab::ir::{ColorSpec, IssueKind, NdArray};
 use ironlab::prelude::*;
 
@@ -16,14 +16,14 @@ fn hline_and_vline_span_the_plot_area_at_a_data_value() {
     let h = ax.hline(1.5).id();
     let v = ax.vline(-2.0).id();
 
-    let h_line = line(&fig, h);
+    let h_line = series(&fig, h);
     assert_eq!(h_line.x_coords, Coords::AxesFraction);
     assert_eq!(h_line.y_coords, Coords::Data);
     assert_eq!(data(&fig, h_line.x), &NdArray::vector(vec![0.0, 1.0]));
     assert_eq!(data(&fig, h_line.y), &NdArray::vector(vec![1.5, 1.5]));
     assert!(h_line.clip, "a reference line is clipped like any line");
 
-    let v_line = line(&fig, v);
+    let v_line = series(&fig, v);
     assert_eq!(v_line.x_coords, Coords::Data);
     assert_eq!(v_line.y_coords, Coords::AxesFraction);
     assert_eq!(data(&fig, v_line.x), &NdArray::vector(vec![-2.0, -2.0]));
@@ -37,12 +37,12 @@ fn a_reference_line_is_dark_grey_and_takes_no_colour_from_the_colour_order() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
     let h = ax.hline(0.0).id();
-    let series = ax.plot([0.0, 1.0], [0.0, 1.0]).id();
-    let ColorSpec::Rgba { color } = line(&fig, h).line.color else {
+    let plotted = ax.plot([0.0, 1.0], [0.0, 1.0]).id();
+    let ColorSpec::Rgba { color } = series(&fig, h).line.color else {
         panic!("the reference line has a fixed colour");
     };
     assert_eq!(color, Color::rgb(0.15, 0.15, 0.15));
-    assert_eq!(line(&fig, series).line.color, ColorSpec::Auto);
+    assert_eq!(series(&fig, plotted).line.color, ColorSpec::Auto);
 }
 
 // WHY: the style setters of a line are how a reference line is made dotted, coloured or thickened, so they must apply
@@ -58,7 +58,7 @@ fn a_reference_line_takes_the_line_style_setters() {
         .color(orange)
         .line_width(0.5)
         .id();
-    let style = line(&fig, id).line;
+    let style = series(&fig, id).line;
     assert_eq!(style.dash, Dash::Dotted);
     assert_eq!(style.color, ColorSpec::Rgba { color: orange });
     assert_eq!(style.width_pt, 0.5);
@@ -83,13 +83,13 @@ fn coordinate_and_clip_setters_write_their_fields_on_lines_and_scatters() {
         .clip(false)
         .id();
 
-    let l = line(&fig, l);
+    let l = series(&fig, l);
     assert_eq!(
         (l.x_coords, l.y_coords, l.clip),
         (Coords::Data, Coords::AxesFraction, false)
     );
     assert_eq!(l.marker.shape, Marker::VLine);
-    let s = scatter(&fig, s);
+    let s = series(&fig, s);
     assert_eq!(
         (s.x_coords, s.y_coords, s.clip),
         (Coords::AxesFraction, Coords::Data, false)

@@ -443,8 +443,14 @@ fn line_without_z_in_3d_axes_is_drawn_at_z_zero() {
     };
     let (implicit, a) = build(None);
     let (explicit, b) = build(Some(&[0.0, 0.0, 0.0]));
+    let drawn = implicit
+        .hit_map
+        .artists
+        .iter()
+        .find(|hit| hit.artist == a)
+        .map_or(0, |hit| hit.samples.len());
+    assert_eq!(drawn, 3, "every point of the line is drawn");
     let va = vertices(&implicit, a);
-    assert_eq!(va.len(), 3);
     assert!(same_geometry(&va, &vertices(&explicit, b), 1e-6));
 }
 

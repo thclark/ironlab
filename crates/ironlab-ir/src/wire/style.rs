@@ -30,7 +30,7 @@ proto_file! {
     }
 
     /// The renderer chooses the colour: for series the next colour of the axes colour
-    /// order, and inside a scatter marker the scatter colour.
+    /// order, and inside a marker of a series the colour of the series' line.
     message ColorSpecAuto {}
 
     /// A fixed colour.

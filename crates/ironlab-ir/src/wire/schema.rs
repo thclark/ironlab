@@ -159,7 +159,7 @@ impl FileDef {
 }
 
 /// Returns the name of the module of this crate that declares the wire type of the
-/// given name, such as `artist` for `Line`.
+/// given name, such as `artist` for `Series`.
 ///
 /// Every domain type that appears on the wire has a wire type of the same name in the
 /// wire module of the same name, so this also locates most domain types.

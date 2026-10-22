@@ -15,9 +15,9 @@
 //!   `ColorScaleOutOfRange` has no meaningful single default, because its policy defaults
 //!   differ by category, so the tests build it as a struct literal.
 //! - `ScalarImage` is the artist `Artist::ScalarImage` with `NodeKind::ScalarImage`, and
-//!   `Contour`, `Surface`, `ScalarImage` and `Scatter` each have `color_scale:
-//!   Option<NodeId>`, `None` by default. `Scatter` keeps its colour data in this stage, so
-//!   it names a scale as the other colour-mapped artists do.
+//!   `Contour`, `Surface`, `ScalarImage` and `Series` each have `color_scale:
+//!   Option<NodeId>`, `None` by default. A series with colour data names a scale as the
+//!   other colour-mapped artists do (stage 3 replaced the scatter of stage 2 with it).
 //! - `Contour.levels` is `Option<Levels>`, `None` by default.
 //! - Validation adds `IssueKind::MissingColorScale`, reported against the artist;
 //!   `IssueKind::ValueOutOfRange`, which replaces `PixelOutOfRange` and is reported against
@@ -30,17 +30,16 @@
 //!   no node. An indexed or categorical scale with no entries is
 //!   `IssueKind::InvalidColorScale`, reported against the scale.
 //! - Validation of an index-mapped scale checks the data values themselves (the nodes of a
-//!   field, the pixels of an image, the colour data of a scatter), never values derived
+//!   field, the pixels of an image, the colour data of a series), never values derived
 //!   from them: the mean of a surface face's corners and the automatic levels of a contour
 //!   are not checked, because the compiler colours a face by its first corner and places
 //!   automatic levels between entries (see the scene tests).
 //! - Under a logarithmic norm, automatic limits range over the positive finite values only,
 //!   so a value that is not positive lies below the range and follows `below`.
-//! - A line or quiver whose colour is `Colormapped` has no values to map and no scale
-//!   reference in this stage (the `Series` of stage 3 resolves line colour properly). It
-//!   keeps today's drawing, the middle colour of viridis, so it needs no scale and raises no
-//!   `MissingColorScale`. The same holds for a scatter whose single colour is
-//!   `Colormapped`.
+//! - A quiver whose colour is `Colormapped` has no values to map and no scale reference.
+//!   It keeps today's drawing, the middle colour of viridis, so it needs no scale and raises
+//!   no `MissingColorScale`. The same holds for a series without colour data whose line or
+//!   marker colour is `Colormapped`.
 //! - The properties of a scale are reached through the flattened variant of its kind, as a
 //!   panel's legend is reached through `content.legend`: `kind.continuous.limits`,
 //!   `kind.discrete.levels`, `kind.indexed.outside.policy`, and so on.
@@ -263,7 +262,7 @@ fn colour_mapped_artists_name_no_scale_and_contours_no_levels_by_default() {
     assert_eq!(Contour::default().color_scale, None);
     assert_eq!(Contour::default().levels, None);
     assert_eq!(Surface::default().color_scale, None);
-    assert_eq!(Scatter::default().color_scale, None);
+    assert_eq!(Series::default().color_scale, None);
 }
 
 // ---------------------------------------------------------------------------------
@@ -395,7 +394,7 @@ fn a_scale_that_no_artist_uses_is_valid_without_a_warning() {
 /// A figure of one 2D axes holding one colour-mapped artist of every kind that takes a
 /// scale, each built by `edit` from its defaults, with the given scale reference. Returns
 /// the figure and the identifiers of the scalar image, the contour, the surface and the
-/// scatter, in that order.
+/// series of markers coloured by data, in that order.
 fn every_mapped_artist(
     color_scale: Option<NodeId>,
     with_scale: bool,
@@ -439,13 +438,22 @@ fn every_mapped_artist(
             color_scale,
             ..Surface::default()
         }),
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id: ids[3],
             x: points,
             y: points,
-            color: ScatterColor::Data { data: points },
+            line: LineStyle {
+                color: ColorSpec::Colormapped,
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            color_data: Some(points),
             color_scale,
-            ..Scatter::default()
+            ..Series::default()
         }),
     ];
     for artist in &mut artists {
@@ -460,7 +468,7 @@ fn every_mapped_artist(
 fn a_colour_mapped_artist_that_names_no_scale_is_missing_color_scale() {
     let (fig, ids) = every_mapped_artist(None, false, |_| {});
     let report = fig.validate();
-    for (name, id) in ["scalar image", "contour", "surface", "scatter"]
+    for (name, id) in ["scalar image", "contour", "surface", "series"]
         .into_iter()
         .zip(ids)
     {
@@ -570,7 +578,11 @@ fn an_artist_drawn_in_fixed_colours_needs_no_scale() {
             s.face = fixed;
             s.edge = fixed;
         }
-        Artist::Scatter(s) => s.color = ScatterColor::Spec { spec: fixed },
+        // A series drawn in fixed colours has no colour data.
+        Artist::Series(s) => {
+            s.color_data = None;
+            s.line.color = fixed;
+        }
         _ => {}
     });
     let report = fig.validate();
@@ -626,7 +638,7 @@ fn a_scale_reference_naming_a_node_of_another_kind_is_wrong_node_kind() {
                 Artist::ScalarImage(a) => a.color_scale = Some(target),
                 Artist::Contour(a) => a.color_scale = Some(target),
                 Artist::Surface(a) => a.color_scale = Some(target),
-                Artist::Scatter(a) => a.color_scale = Some(target),
+                Artist::Series(a) => a.color_scale = Some(target),
                 other => panic!("unexpected artist {other:?}"),
             }
             let report = wrong.validate();
@@ -675,25 +687,25 @@ fn a_scale_reference_naming_no_node_is_unknown_color_scale_against_the_artist() 
     );
 }
 
-// Why: a line or quiver has no values to map in this stage, so a colormapped colour keeps today's drawing (the middle of viridis) and must not make the figure invalid for want of a scale it cannot name.
+// Why: a quiver, and a series without colour data, have no values to map, so a colormapped colour keeps today's drawing (the middle of viridis) and must not make the figure invalid for want of a scale it cannot use.
 #[test]
-fn a_colormapped_line_quiver_or_single_scatter_colour_needs_no_scale() {
+fn a_colormapped_quiver_or_series_without_colour_data_needs_no_scale() {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     let points = b.vector(&[0.0, 1.0]);
-    let (line, quiver, scatter) = (b.node(), b.node(), b.node());
+    let (line, quiver, markers) = (b.node(), b.node(), b.node());
     let style = LineStyle {
         color: ColorSpec::Colormapped,
         ..LineStyle::default()
     };
     b.push(
         axes,
-        Artist::Line(Line {
+        Artist::Series(Series {
             id: line,
             x: points,
             y: points,
             line: style,
-            ..Line::default()
+            ..Series::default()
         }),
     );
     b.push(
@@ -710,14 +722,21 @@ fn a_colormapped_line_quiver_or_single_scatter_colour_needs_no_scale() {
     );
     b.push(
         axes,
-        Artist::Scatter(Scatter {
-            id: scatter,
+        Artist::Series(Series {
+            id: markers,
             x: points,
             y: points,
-            color: ScatterColor::Spec {
-                spec: ColorSpec::Colormapped,
+            line: LineStyle {
+                dash: DashStyle::None,
+                ..LineStyle::default()
             },
-            ..Scatter::default()
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                face: ColorSpec::Colormapped,
+                edge: ColorSpec::Colormapped,
+                ..MarkerStyle::default()
+            },
+            ..Series::default()
         }),
     );
     let report = b.build().validate();
@@ -806,12 +825,12 @@ fn a_lenient_outside_policy_accepts_any_finite_index() {
     }
 }
 
-// Why: colour data of any artist follows the scale's rules, so a scatter's fractional class through a strict indexed scale is refused like an image's.
+// Why: colour data of any artist follows the scale's rules, so a series' fractional class through a strict indexed scale is refused like an image's.
 #[test]
-fn a_scatter_coloured_by_a_fractional_class_through_a_strict_indexed_scale_is_value_out_of_range() {
+fn a_series_coloured_by_a_fractional_class_through_a_strict_indexed_scale_is_value_out_of_range() {
     let (mut fig, ids) = every_mapped_artist(Some(NodeId(400)), true, |_| {});
     scale_mut(&mut fig, NodeId(400)).kind = indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict);
-    // The scatter gets colour data of its own, so that no other artist sees the change.
+    // The series gets colour data of its own, so that no other artist sees the change.
     let colours = NodeId(1_500);
     fig.data.push(DataArray {
         id: colours,
@@ -819,7 +838,7 @@ fn a_scatter_coloured_by_a_fractional_class_through_a_strict_indexed_scale_is_va
         array: NdArray::vector(vec![0.0, 0.5, 2.0]),
     });
     match fig.artist_mut(ids[3]).unwrap() {
-        Artist::Scatter(s) => s.color = ScatterColor::Data { data: colours },
+        Artist::Series(s) => s.color_data = Some(colours),
         other => panic!("unexpected artist {other:?}"),
     }
     let report = fig.validate();
@@ -1023,7 +1042,7 @@ fn index_mapped_validation_checks_the_data_values_not_derived_ones() {
         });
         scale_mut(&mut fig, NodeId(400)).kind = kind.clone();
         // A field of alternating 0 and 1, whose every face has the corner mean 0.5. The
-        // scatter is given whole-number colour data of its own.
+        // series is given whole-number colour data of its own.
         let field = fig
             .data
             .iter()
@@ -1039,7 +1058,7 @@ fn index_mapped_validation_checks_the_data_values_not_derived_ones() {
             array: NdArray::vector(vec![0.0, 1.0, 1.0]),
         });
         match fig.artist_mut(ids[3]).unwrap() {
-            Artist::Scatter(s) => s.color = ScatterColor::Data { data: classes },
+            Artist::Series(s) => s.color_data = Some(classes),
             other => panic!("unexpected artist {other:?}"),
         }
         assert_eq!(fig.validate().errors, vec![], "{kind:?}");
@@ -1206,7 +1225,7 @@ fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
         NodeKind::ScalarImage,
         NodeKind::Contour,
         NodeKind::Surface,
-        NodeKind::Scatter,
+        NodeKind::Series,
     ] {
         let property = properties(kind)
             .into_iter()
@@ -1374,19 +1393,21 @@ fn colormapped_is_available_exactly_when_the_artist_names_a_scale_and_has_values
                 "surface {at} with a scale: {with_scale}"
             );
         }
-        // A marker takes the colour of its plot, whatever the scatter's scale.
-        assert!(!colormapped_available(&fig, ids[3], "marker.face"));
+        // A series with colour data colours its markers through its scale (#19).
+        assert_eq!(
+            colormapped_available(&fig, ids[3], "marker.face"),
+            with_scale,
+            "series marker face with a scale: {with_scale}"
+        );
     }
 
-    // A scatter of one colour has no values to map, even when it names a scale.
+    // A series without colour data has no values to map, even when it names a scale.
     let (fig, ids) = every_mapped_artist(Some(NodeId(400)), true, |artist| {
-        if let Artist::Scatter(s) = artist {
-            s.color = ScatterColor::Spec {
-                spec: ColorSpec::Auto,
-            };
+        if let Artist::Series(s) = artist {
+            s.color_data = None;
         }
     });
-    assert!(!colormapped_available(&fig, ids[3], "color.spec"));
+    assert!(!colormapped_available(&fig, ids[3], "line.color"));
 }
 
 // Why: a non-finite value has no nearest end to be clamped to, so clamping is offered disabled at a scale's non-finite category and enabled at the others.

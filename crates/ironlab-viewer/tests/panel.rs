@@ -26,7 +26,7 @@ use ironlab_viewer::{PropertyPanel, property_panel};
 
 const PLOT: Rect = Rect::new(50.0, 20.0, 200.0, 100.0);
 
-/// The 2D axes, the 3D axes, the line, the scatter, the surface and the colour scale of
+/// The 2D axes, the 3D axes, the line, the series of markers, the surface and the colour scale of
 /// [`figure_with_artists`].
 const FIGURE: NodeId = NodeId(1);
 const FLAT: NodeId = NodeId(2);
@@ -108,8 +108,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             (None, 1, "Colour scales"),
             (Some(SCALE), 2, "Colour scale (continuous)"),
             (Some(FLAT), 1, "Axes (Speed)"),
-            (Some(LINE), 2, "Line (Measured)"),
-            (Some(SCATTER), 2, "Scatter"),
+            (Some(LINE), 2, "Series (Measured)"),
+            (Some(SCATTER), 2, "Series"),
             (Some(SOLID), 1, "Axes (row 0, col 1)"),
             (Some(SURFACE), 2, "Surface"),
         ],
@@ -130,8 +130,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             NodeKind::ColorScale,
             NodeKind::ColorScale,
             NodeKind::Axes,
-            NodeKind::Line,
-            NodeKind::Scatter,
+            NodeKind::Series,
+            NodeKind::Series,
             NodeKind::Axes,
             NodeKind::Surface,
         ]
@@ -220,22 +220,22 @@ fn colour_scales_are_gathered_in_a_group_and_named_by_their_title_or_their_kind(
 #[test]
 fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
     use ironlab_ir::{
-        Artist, Axes, Cell, Contour, Image, Line, Quiver, ScalarImage, Scatter, Surface, Text,
+        Artist, Axes, Cell, Contour, Image, Quiver, ScalarImage, Series, Surface, Text,
     };
 
     let titled = Axes {
         id: NodeId(2),
         title: Some(Text::plain("Speed")),
         artists: vec![
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::new(r"$\sin \omega t$")),
-                ..Line::default()
+                ..Series::default()
             }),
-            Artist::Scatter(Scatter {
+            Artist::Series(Series {
                 id: NodeId(4),
                 label: Some(Text::plain("Samples")),
-                ..Scatter::default()
+                ..markers()
             }),
             Artist::Contour(Contour {
                 id: NodeId(5),
@@ -291,8 +291,8 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
         [
             "Figure (A damped oscillator)",
             "Axes (Speed)",
-            r"Line ($\sin \omega t$)",
-            "Scatter (Samples)",
+            r"Series ($\sin \omega t$)",
+            "Series (Samples)",
             "Contour",
             "Quiver (Wind)",
             "Surface",
@@ -434,7 +434,7 @@ fn the_tree_greys_a_hidden_artist_and_nothing_else() {
         .filter(|row| row.dimmed)
         .filter_map(|row| row.node)
         .collect();
-    assert_eq!(dimmed, [SCATTER], "only the hidden scatter is greyed");
+    assert_eq!(dimmed, [SCATTER], "only the hidden series is greyed");
 }
 
 // ---------------------------------------------------------------------------------
@@ -1158,7 +1158,7 @@ fn selecting_a_node_in_the_tree_shows_that_node_in_the_inspector() {
     let mut harness = panel_harness(figure_with_artists(), Some(FIGURE));
     harness.run();
 
-    harness.get_by_label("Line (Measured)").click();
+    harness.get_by_label("Series (Measured)").click();
     harness.run();
 
     assert_eq!(harness.state().figure.selection(), Some(LINE));
@@ -1362,7 +1362,7 @@ fn typing_into_a_text_field_is_one_undo_step_that_closes_when_the_field_is_left(
     );
 
     // Selecting another object takes the field away, which must close the step.
-    harness.get_by_label("Line (Measured)").click();
+    harness.get_by_label("Series (Measured)").click();
     harness.run();
     assert!(harness.state().figure.can_undo());
 
@@ -1498,15 +1498,14 @@ fn choice<'a>(
 #[test]
 fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours_by_data() {
     let state = FigureState::new(figure_with_every_artist());
-    let (line, scatter, contour, quiver, surface) =
+    let (line, markers, contour, quiver, surface) =
         (NodeId(3), NodeId(4), NodeId(5), NodeId(6), NodeId(7));
 
+    // A series without colour data, and a quiver, have no value to look a colour up by.
     for (node, group_name, label) in [
         (line, "line", "color"),
         (line, "marker", "face"),
         (line, "marker", "edge"),
-        (scatter, "marker", "face"),
-        (scatter, "marker", "edge"),
         (quiver, "line", "color"),
     ] {
         let labels = offered(&groups_of(&state, node), group_name, label);
@@ -1530,10 +1529,14 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
         );
     }
 
+    // A series with colour data colours its line and its markers by it (#19).
     for (node, group_name, label) in [
         (contour, "line", "color"),
         (surface, "face", ""),
         (surface, "edge", ""),
+        (markers, "line", "color"),
+        (markers, "marker", "face"),
+        (markers, "marker", "edge"),
     ] {
         assert!(
             choice(&groups_of(&state, node), group_name, label, "Colormapped").available(),
@@ -1542,20 +1545,28 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
     }
 }
 
-// Why: a scatter is the one plot whose markers the IR does colour by data, through the
-// array named by its colour; marking the colormapped colour specification unavailable
-// must not touch that choice, or a scatter could no longer be coloured by value.
+// Why: a series coloured by data names the arrays of its colours and sizes, which are data
+// like its coordinates, so the inspector must list them, with the scale they are mapped
+// through, as references the editor shows rather than changes; a series whose rows lost them
+// would hide that it is coloured or sized by data at all.
 #[test]
-fn a_scatter_still_offers_its_colour_from_data() {
+fn a_series_lists_its_colour_and_size_data_and_its_scale_as_references() {
     let state = FigureState::new(figure_with_every_artist());
     let groups = groups_of(&state, NodeId(4));
-    assert_eq!(
-        offered(&groups, "color", ""),
-        ["Single colour", "From data"]
-    );
+    for name in ["color_data", "size_data"] {
+        let editor = &row(&groups, name, "").editor;
+        assert_eq!(
+            *editor,
+            Editor::Data {
+                shape: Some(vec![3])
+            },
+            "{name} of a series is shown as the array it names, not edited"
+        );
+    }
+    let editor = &row(&groups, "color_scale", "").editor;
     assert!(
-        choice(&groups, "color", "", "From data").available(),
-        "a scatter's colour from data must stay available"
+        matches!(editor, Editor::ReadOnly { .. }),
+        "the colour scale of a series is shown as a reference, not edited: {editor:?}"
     );
 }
 
@@ -1608,43 +1619,27 @@ fn the_cell_of_an_axes_is_read_only_and_says_why() {
     }
 }
 
-// Why: a scatter takes the size of its markers from its own size property, so the size in
-// its marker style changes nothing; a control that does nothing is worse than a locked row
-// that says where the size comes from. Every other artist draws its markers at that size,
-// so locking it for them would remove the only way to set it.
+// Why: the marker size of a series is the one size of its markers when it has no size data
+// and the size of its legend key when it has some (#19), so it is never overridden and must
+// keep its control on every series, sized by data or not; a locked row would remove the
+// only way to set it.
 #[test]
-fn the_marker_size_of_a_scatter_is_read_only_and_that_of_a_line_is_not() {
+fn the_marker_size_of_every_series_is_editable() {
     let state = FigureState::new(figure_with_every_artist());
-    let (line, scatter) = (NodeId(3), NodeId(4));
-
-    let Editor::ReadOnly { reason } = row(&groups_of(&state, scatter), "marker", "size_pt").editor
-    else {
-        panic!(
-            "a scatter's marker size is editable: {:?}",
-            row(&groups_of(&state, scatter), "marker", "size_pt").editor
+    let (line, sized) = (NodeId(3), NodeId(4));
+    assert!(
+        read_only_reason(NodeKind::Series, &path("marker.size_pt")).is_none(),
+        "a series draws its markers, or its legend key, at the size of its marker style"
+    );
+    for node in [line, sized] {
+        assert!(
+            matches!(
+                row(&groups_of(&state, node), "marker", "size_pt").editor,
+                Editor::Number { .. }
+            ),
+            "the marker size of node {node} must keep its control"
         );
-    };
-    assert!(
-        reason.contains("the row named size"),
-        "the reason must send the user to the row that does set the size: {reason}"
-    );
-    assert_eq!(
-        read_only_reason(NodeKind::Scatter, &path("marker.size_pt")),
-        Some(reason),
-        "the reason the panel shows is the one the inspector states"
-    );
-
-    assert!(
-        read_only_reason(NodeKind::Line, &path("marker.size_pt")).is_none(),
-        "a line draws its markers at the size of its marker style"
-    );
-    assert!(
-        matches!(
-            row(&groups_of(&state, line), "marker", "size_pt").editor,
-            Editor::Number { .. }
-        ),
-        "a line's marker size must keep its control"
-    );
+    }
 }
 
 // Why: a read-only row with nothing to say for itself looks like a control that is
@@ -2131,8 +2126,8 @@ fn the_object_tree_keeps_drawing_order_rather_than_taking_the_inspectors() {
             "Colour scales",
             "Colour scale (continuous)",
             "Axes (Speed)",
-            "Line (Measured)",
-            "Scatter",
+            "Series (Measured)",
+            "Series",
             "Axes (row 0, col 1)",
             "Surface",
         ],
@@ -2385,10 +2380,11 @@ fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are()
         settle(&mut harness);
 
         let foot = part_rect(&harness, FOOTER_ID);
-        let row = checkbox(&harness, "visible").rect();
+        // The first property of the series, which the inspector lists at the top.
+        let row = checkbox(&harness, "clip").rect();
         assert!(
             row.height() > 0.0 && row.max.y <= foot.min.y,
-            "the row of the line's visibility is drawn whole, above the foot of the \
+            "the row of the line's clip is drawn whole, above the foot of the \
              panel: the row is {row:?} and the foot is {foot:?} (with {changes} changes)"
         );
         assert!(
@@ -2396,7 +2392,7 @@ fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are()
             "the foot counts the {changes} changes while the row is reached"
         );
 
-        checkbox(&harness, "visible").click();
+        checkbox(&harness, "clip").click();
         harness.run();
 
         let state = &harness.state().figure;
@@ -2406,15 +2402,11 @@ fn a_property_row_stays_uncovered_and_clickable_however_many_changes_there_are()
             "clicking the row reached the checkbox and recorded one change (with \
              {changes} changes already made)"
         );
-        assert!(
-            !state
-                .figure()
-                .artist(CROWDED_LINE)
-                .expect("the line is in the figure")
-                .1
-                .visible(),
-            "the click hid the line"
-        );
+        let clipped = state
+            .figure()
+            .get(CROWDED_LINE, &path("clip"))
+            .expect("the line has a clip");
+        assert_eq!(clipped, Value::Bool(false), "the click released the clip");
     }
 }
 
@@ -2434,7 +2426,8 @@ fn a_figure_of_many_axes_still_leaves_the_inspector_its_room() {
     let tree = part_rect(&harness, OBJECT_TREE_ID);
     let foot = part_rect(&harness, FOOTER_ID);
     let inspector = foot.min.y - tree.max.y;
-    let row = checkbox(&harness, "visible").rect();
+    // The first property of the series, which the inspector lists at the top.
+    let row = checkbox(&harness, "clip").rect();
     assert!(
         row.min.y >= tree.max.y && row.max.y <= foot.min.y,
         "a property of the selected artist is drawn between the tree and the foot: the \
@@ -2471,10 +2464,10 @@ fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector(
 
     let tree = part_rect(&harness, OBJECT_TREE_ID);
     let foot = part_rect(&harness, FOOTER_ID);
-    // The first property of the line, which the inspector draws at the top of whatever
+    // The first property of the series, which the inspector draws at the top of whatever
     // room it is left, so that what is measured is the room rather than how far the
     // inspector has been scrolled.
-    let row = name_rect(&harness, "label");
+    let row = name_rect(&harness, "clip");
     assert!(
         tree.height() < TREE_HEIGHT,
         "the tree gave up part of its usual height: {} points",
@@ -2847,10 +2840,10 @@ fn a_tag_typed_twice_is_refused_and_reported() {
 
 // Why: whether a plot places its values as data or as fractions of the plot area decides what the values mean, as the
 // data does, so the viewer, which views figures and does not build them, shows the coordinates without a control; but
-// whether a plot is clipped to the plot area is how it looks, so clipping keeps its control on lines and scatters.
+// whether a plot is clipped to the plot area is how it looks, so clipping keeps its control on a series.
 #[test]
 fn coordinates_are_read_only_and_clipping_is_editable() {
-    for kind in [NodeKind::Line, NodeKind::Scatter] {
+    for kind in [NodeKind::Series] {
         for coords in ["x_coords", "y_coords"] {
             let reason = read_only_reason(kind, &path(coords))
                 .unwrap_or_else(|| panic!("{kind:?} {coords} is editable"));

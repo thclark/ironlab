@@ -65,7 +65,7 @@
       },
       "artists": [
         {
-          "type": "line",
+          "type": "series",
           "id": 3,
           "label": { "content": "decay, $5", "interpreter": "none" },
           "visible": true,
@@ -83,6 +83,9 @@
             "face": { "type": "none" },
             "edge": { "type": "auto" }
           },
+          "size_data": null,
+          "color_data": null,
+          "color_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true

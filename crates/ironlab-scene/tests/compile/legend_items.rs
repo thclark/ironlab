@@ -218,7 +218,7 @@ fn an_artist_item_stands_for_the_matching_artists_of_every_axes_that_names_the_p
     let top = fx.axes2d(0, 0);
     let bottom = fx.axes2d(1, 0);
     let panel = fx.panel(cell(2, 0, 1, 1));
-    let red = |l: &mut ironlab_ir::Line| l.line.color = ColorSpec::Rgba { color: RED };
+    let red = |l: &mut ironlab_ir::Series| l.line.color = ColorSpec::Rgba { color: RED };
     let base_top = fx.named_line(top, "Base", red);
     let base_bottom = fx.named_line(bottom, "Base", red);
     // The same name in a different look is another series, which the item does not stand for.

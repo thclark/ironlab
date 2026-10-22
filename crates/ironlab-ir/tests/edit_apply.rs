@@ -102,8 +102,8 @@ fn an_inserted_axes_is_appended_or_placed_at_its_index() {
 #[test]
 fn an_inserted_artist_is_placed_in_drawing_order_within_its_axes() {
     let (fig, axes, [a, b, c], _) = three_lines_figure();
-    let Artist::Line(template) = &find_axes(&fig, axes).artists[0] else {
-        panic!("the fixture artist is a line");
+    let Artist::Series(template) = &find_axes(&fig, axes).artists[0] else {
+        panic!("the fixture artist is a series");
     };
     let new = NodeId(50);
     let artist = line(new, template.x, template.y);
@@ -135,7 +135,7 @@ fn inserting_under_a_parent_that_cannot_hold_the_node_fails() {
     let (fig, axes, lines, _) = three_lines_figure();
     let artist = find_axes(&fig, axes).artists[0].clone();
     let with_id = |id| match artist.clone() {
-        Artist::Line(l) => Artist::Line(Line { id, ..l }),
+        Artist::Series(l) => Artist::Series(Series { id, ..l }),
         _ => unreachable!(),
     };
     let data = || data_node(NodeId(100), NdArray::vector(vec![1.0]));
@@ -216,8 +216,8 @@ fn inserting_beyond_the_end_of_the_list_fails() {
 #[test]
 fn inserting_a_node_whose_identifier_is_in_use_fails() {
     let (fig, axes, lines, _) = three_lines_figure();
-    let Artist::Line(template) = &find_axes(&fig, axes).artists[0] else {
-        panic!("the fixture artist is a line");
+    let Artist::Series(template) = &find_axes(&fig, axes).artists[0] else {
+        panic!("the fixture artist is a series");
     };
     let (x, y) = (template.x, template.y);
     let cases: Vec<(NodeId, Node, NodeId)> = vec![
@@ -274,8 +274,8 @@ fn inserting_a_node_whose_identifier_is_in_use_fails() {
 #[test]
 fn a_transaction_can_create_a_node_and_then_refer_to_it() {
     let (fig, axes, _) = single_line_figure();
-    let Artist::Line(template) = &find_axes(&fig, axes).artists[0] else {
-        panic!("the fixture artist is a line");
+    let Artist::Series(template) = &find_axes(&fig, axes).artists[0] else {
+        panic!("the fixture artist is a series");
     };
     let (new_axes, new_line) = (NodeId(100), NodeId(101));
     let (edited, _) = applied(
@@ -1502,8 +1502,7 @@ fn candidate_edits(fig: &Figure) -> Vec<Edit> {
 
 fn set_artist_id(artist: &mut Artist, id: NodeId) {
     match artist {
-        Artist::Line(a) => a.id = id,
-        Artist::Scatter(a) => a.id = id,
+        Artist::Series(a) => a.id = id,
         Artist::Contour(a) => a.id = id,
         Artist::Quiver(a) => a.id = id,
         Artist::Surface(a) => a.id = id,
@@ -1719,7 +1718,7 @@ fn special_floats_figure() -> (Figure, NodeId, NodeId, NodeId) {
     let id = b.node();
     b.push(
         axes,
-        Artist::Line(Line {
+        Artist::Series(Series {
             id,
             x,
             y,
@@ -1727,7 +1726,7 @@ fn special_floats_figure() -> (Figure, NodeId, NodeId, NodeId) {
                 width_pt: SPECIAL_F64[0],
                 ..LineStyle::default()
             },
-            ..Line::default()
+            ..Series::default()
         }),
     );
     (b.build(), axes, id, x)

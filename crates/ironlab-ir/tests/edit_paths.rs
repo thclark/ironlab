@@ -254,7 +254,7 @@ fn collect_paths(
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
     let read_only: &[&str] = &["id"];
-    let cases: [(NodeKind, &str, &[&str]); 12] = [
+    let cases: [(NodeKind, &str, &[&str]); 11] = [
         (
             NodeKind::Figure,
             "Figure",
@@ -278,8 +278,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
             "Axes",
             &["id", "artists", "legend.inside.entries"],
         ),
-        (NodeKind::Line, "Line", read_only),
-        (NodeKind::Scatter, "Scatter", read_only),
+        (NodeKind::Series, "Series", read_only),
         (NodeKind::Contour, "Contour", read_only),
         (NodeKind::Quiver, "Quiver", read_only),
         (NodeKind::Surface, "Surface", read_only),
@@ -1009,8 +1008,8 @@ fn unset_clears_an_optional_property_and_a_whole_value_creates_it() {
     .unwrap();
     assert_eq!(edited.get(titled, &path("title")).unwrap(), Value::Unset);
     assert_eq!(find_axes(&edited, titled).legend, None);
-    let Artist::Line(line) = &edited.axes[4].artists[0] else {
-        panic!("the fixture artist is a line");
+    let Artist::Series(line) = &edited.axes[4].artists[0] else {
+        panic!("the fixture artist is a series");
     };
     assert_eq!(line.z, None);
     assert_eq!(

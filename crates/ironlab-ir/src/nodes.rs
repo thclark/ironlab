@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::artist::{Artist, Contour, Image, Line, Quiver, ScalarImage, Scatter, Surface};
+use crate::artist::{Artist, Contour, Image, Quiver, ScalarImage, Series, Surface};
 use crate::axes::Axes;
 use crate::color_scale::ColorScale;
 use crate::data::DataArray;
@@ -524,10 +524,8 @@ figure_nodes! {
             encoded as panel;
     }
     artists {
-        /// A line artist.
-        Line encoded as line,
-        /// A scatter artist.
-        Scatter encoded as scatter,
+        /// A series artist: data points drawn as a line, as markers or as both.
+        Series encoded as series,
         /// A contour artist.
         Contour encoded as contour,
         /// A quiver artist.

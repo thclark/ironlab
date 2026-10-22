@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use ironlab_ir::{Artist, Axes, Figure, Line, NdArray, NodeId, Parameter, TileLayout};
+use ironlab_ir::{Artist, Axes, Figure, NdArray, NodeId, Parameter, Series, TileLayout};
 use ironlab_viewer::browse::{
     Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
     NO_TAGS, NOT_SET, Query, Results, Sort, SortKey, Term, browsable_tags, describe_facets,
@@ -1535,7 +1535,7 @@ fn what_was_typed_and_what_was_ticked_both_narrow_the_result() {
 // saving it again does not quietly change it.
 #[test]
 fn an_empty_or_repeated_tag_is_cleaned_up_for_browsing_without_altering_the_figure() {
-    let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
+    let mut source = figure(vec![axes(2, vec![Artist::Series(Series::default())])], &[]);
     source.tags = vec![
         "wake".to_owned(),
         String::new(),
@@ -1564,7 +1564,7 @@ fn an_empty_or_repeated_tag_is_cleaned_up_for_browsing_without_altering_the_figu
 // the author's decision to make: they are the only one who knows which of a figure's properties matter.
 #[test]
 fn a_card_carries_the_figures_own_tags_and_nothing_else() {
-    let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
+    let mut source = figure(vec![axes(2, vec![Artist::Series(Series::default())])], &[]);
     source.tags = vec!["basics".to_owned()];
     let card = FigureCard::of("Lines", &source);
     assert_eq!(

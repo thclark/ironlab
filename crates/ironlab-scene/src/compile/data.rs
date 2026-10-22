@@ -6,15 +6,14 @@
 //! also checked here for a placement that can be drawn and a plane that its axes can show. An artist that maps
 //! numbers to colours is checked for a colour scale to map them through, and its numbers against the strict
 //! policies of that scale. An artist whose data cannot be used, an artist whose colours cannot be mapped, and an
-//! artist whose data gives it nothing to draw (a line, scatter or quiver of no points, an image with no rows or no
+//! artist whose data gives it nothing to draw (a series or quiver of no points, an image with no rows or no
 //! columns, or a field with no cell between its nodes), is reported with one warning naming it and is then ignored
 //! by every later stage, so that the problems indicator of the viewer and the validation of the figure agree about
 //! which artists are absent.
 
 use ironlab_ir::{
-    Artist, Axes, ContourPlacement, Coords as ArtistCoords, Dimension, Figure, Grid,
-    ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale, ScatterColor,
-    ScatterSize, Values,
+    Artist, Axes, ColorSpec, ContourPlacement, Coords as ArtistCoords, Dimension, Figure, Grid,
+    ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale, Series, Values,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -93,14 +92,23 @@ impl ImageData<'_> {
     }
 }
 
+/// The colour data of a series, by what each value colours.
+#[derive(Clone, Copy)]
+pub(crate) enum SeriesColours<'a> {
+    /// One value per point, which colours the point's marker and the ends of the segments that meet it.
+    PerPoint(&'a [f64]),
+    /// One value per segment, the value at index `k` colouring the segment from point `k` to point `k + 1`.
+    PerSegment(&'a [f64]),
+}
+
 /// The resolved arrays of an artist.
 #[derive(Clone, Copy)]
 pub(crate) enum ArtistData<'a> {
-    Line(Points<'a>),
-    Scatter {
+    Series {
         points: Points<'a>,
+        /// The diameter of each marker in points, one per point.
         sizes: Option<&'a [f64]>,
-        colours: Option<&'a [f64]>,
+        colours: Option<SeriesColours<'a>>,
     },
     Contour(GridRef<'a>),
     Quiver {
@@ -279,26 +287,18 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: NodeId) -> Result<GridRef<'a>, S
 /// nothing to draw.
 fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<ArtistData<'a>, String> {
     Ok(match artist {
-        Artist::Line(line) => {
-            let points = points(figure, line.x, line.y, line.z)?;
-            ArtistData::Line(at_least_one_point(points, line.x)?)
-        }
-        Artist::Scatter(scatter) => {
-            let points = points(figure, scatter.x, scatter.y, scatter.z)?;
-            let sizes = match scatter.size {
-                ScatterSize::Scalar { .. } => None,
-                ScatterSize::Data { data } => {
-                    Some(values_of_len(figure, data, points.len(), "size")?)
-                }
-            };
-            let colours = match scatter.color {
-                ScatterColor::Spec { .. } => None,
-                ScatterColor::Data { data } => {
-                    Some(values_of_len(figure, data, points.len(), "colour")?)
-                }
-            };
-            ArtistData::Scatter {
-                points: at_least_one_point(points, scatter.x)?,
+        Artist::Series(series) => {
+            let points = points(figure, series.x, series.y, series.z)?;
+            let sizes = series
+                .size_data
+                .map(|data| values_of_len(figure, data, points.len(), "size"))
+                .transpose()?;
+            let colours = series
+                .color_data
+                .map(|data| series_colours(figure, series, data, points.len()))
+                .transpose()?;
+            ArtistData::Series {
+                points: at_least_one_point(points, series.x)?,
                 sizes,
                 colours,
             }
@@ -367,6 +367,42 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
             image_data(figure, axes, i.values, ImageKind::Scalar, i.placement, look)?
         }
     })
+}
+
+/// Resolves the colour data of a series of `points` points, which holds one value per point, or one value per
+/// segment when the series draws a line and no marker face or edge of it is colormapped, as validation requires.
+fn series_colours<'a>(
+    figure: &'a Figure,
+    series: &Series,
+    data: NodeId,
+    points: usize,
+) -> Result<SeriesColours<'a>, String> {
+    let values = f64_values(figure, data, "colour")?;
+    if values.len() == points {
+        return Ok(SeriesColours::PerPoint(values));
+    }
+    if values.len() + 1 != points {
+        return Err(format!(
+            "its colour array {data} holds {} values, but a series of {points} points needs one per point or one \
+             per segment",
+            values.len()
+        ));
+    }
+    if !series.draws_line() {
+        return Err(format!(
+            "its colour array {data} holds one value per segment, but it draws no line, so it has no segments to \
+             colour"
+        ));
+    }
+    let mapped_markers = series.draws_markers()
+        && [series.marker.face, series.marker.edge].contains(&ColorSpec::Colormapped);
+    if mapped_markers {
+        return Err(format!(
+            "its colour array {data} holds one value per segment, but a colormapped marker face or edge needs one \
+             value per point"
+        ));
+    }
+    Ok(SeriesColours::PerSegment(values))
 }
 
 /// The transparency of an image artist: the identifier of its alpha array, if it has one, and its opacity.
@@ -457,7 +493,7 @@ fn image_data<'a>(
 /// Checks that an artist that maps numbers to colours names a colour scale of the figure, and that none of the
 /// numbers it maps falls in a category of the scale whose policy is strict, as validation does: the values of a
 /// scalar image, the field of a contour, the colour data of a surface (or its field) and the colour data of a
-/// scatter. Numbers derived from them, such as the mean of the corners of a surface face, are not checked. The first
+/// series. Numbers derived from them, such as the mean of the corners of a surface face, are not checked. The first
 /// refused number is named, by its row and column in an image and by its index otherwise.
 fn check_colour_mapping(
     figure: &Figure,
@@ -611,13 +647,13 @@ pub(super) fn dimension_index(dimension: Dimension) -> usize {
 
 /// Returns the coordinate values an artist places along dimension `dim` (0, 1 or 2 for x, y or z).
 ///
-/// For a 2D axes, nothing is placed along z. For a line, scatter or quiver in a 3D axes without z data, the value
+/// For a 2D axes, nothing is placed along z. For a series or quiver in a 3D axes without z data, the value
 /// 0 is placed along z. The quiver values include the arrow tips. Contour values along z depend on the placement:
 /// a plane at an explicit height places that height, the bottom plane places nothing, and contours at their levels
 /// place the field values. An image places the two edges of its pixels along each axis of its plane and, along the
 /// third axis, the offset of its plane when it has one.
 ///
-/// A line or scatter in a 2D axes places nothing along a dimension whose values are fractions of the plot area,
+/// A series in a 2D axes places nothing along a dimension whose values are fractions of the plot area,
 /// because those values are not positions along the axis: they take no part in its automatic limits, and a zero or
 /// negative fraction is no concern of a logarithmic axis. Its other dimension, in data coordinates, places its values
 /// as usual, so a reference line spanning the axes at a data value still takes part in the automatic limits of the
@@ -645,7 +681,7 @@ pub(crate) fn values_along(
         },
     };
     match data {
-        ArtistData::Line(points) | ArtistData::Scatter { points, .. } => point_values(points),
+        ArtistData::Series { points, .. } => point_values(points),
         ArtistData::Quiver {
             points,
             vectors,

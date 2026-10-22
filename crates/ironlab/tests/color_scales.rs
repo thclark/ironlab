@@ -31,7 +31,7 @@
 //!   `fig.color_scale()` and pass it with `.color_scale(id)`.
 //! - Every plotting call that maps colours (`scalar_image`, `contour`, `contourf`, `surf`,
 //!   `mesh`, `surface`, and `scatter` with `colors`) names the axes' default scale, creating
-//!   it if need be, and `ContourMut`, `SurfaceMut`, `ScatterMut` and `ScalarImageMut` each
+//!   it if need be, and `ContourMut`, `SurfaceMut`, `SeriesMut` and `ScalarImageMut` each
 //!   offer `color_scale(&mut self, NodeId) -> &mut Self`.
 //! - An artist handle remembers whether its own plotting call created the default scale.
 //!   Giving the artist another scale through that handle deletes that scale when nothing
@@ -69,7 +69,7 @@ fn scale_of(fig: &Figure, artist: NodeId) -> Option<NodeId> {
         Some((_, Artist::ScalarImage(a))) => a.color_scale,
         Some((_, Artist::Contour(a))) => a.color_scale,
         Some((_, Artist::Surface(a))) => a.color_scale,
-        Some((_, Artist::Scatter(a))) => a.color_scale,
+        Some((_, Artist::Series(a))) => a.color_scale,
         other => panic!("{artist} is not an artist that names a scale: {other:?}"),
     }
 }
@@ -123,7 +123,9 @@ fn colour_mapped_artists_of_one_axes_share_its_default_scale() {
         ax.contourf(&x, &y, &z).id(),
         ax.contour(&x, &y, &z).id(),
         ax.scalar_image(&values).id(),
-        ax.scatter([0.0, 1.0], [0.0, 1.0]).colors([0.0, 1.0]).id(),
+        ax.scatter([0.0, 1.0], [0.0, 1.0])
+            .color_data([0.0, 1.0])
+            .id(),
     ];
     let default = fig.axes(0, 0).color_scale().id();
     for id in ids {
@@ -272,7 +274,7 @@ fn replacing_a_scale_deletes_only_the_default_the_plotting_call_created() {
     let later = fig
         .axes(0, 0)
         .scatter([0.0, 1.0], [0.0, 1.0])
-        .colors([0.0, 1.0])
+        .color_data([0.0, 1.0])
         .color_scale(own)
         .id();
     assert_eq!(scale_of(&fig, later), Some(own));

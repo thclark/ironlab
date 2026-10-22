@@ -10,7 +10,7 @@ use ironlab_ir::{
     Artist, Axes, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind,
     ColorScaleLevels, ColorScaleNorm, ColorScaleSlot, ColorSpec, Colormap, ColormapName, DashStyle,
     Figure, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, Limits, MarkerShape, MarkerStyle, NodeId,
-    OutOfRange, ScatterColor,
+    OutOfRange, Series,
 };
 
 use crate::display::{Item, ItemKind, MarkerInstance, MarkersItem, PathSegment, Point, Rgba};
@@ -57,7 +57,7 @@ pub(super) fn lut(name: ColormapName) -> &'static Lut {
 }
 
 /// Returns the middle colour of viridis, which a colormapped colour takes where it has no number to map: the colour
-/// of a colormapped line or quiver, and the single colour of a scatter.
+/// of a colormapped quiver, and a colormapped colour of a series without colour data.
 pub(super) fn viridis_middle() -> Rgba {
     Rgba::from_u8(colormap::VIRIDIS[128])
 }
@@ -502,11 +502,27 @@ pub(super) fn resolve(spec: ColorSpec, auto: Paint) -> Paint {
     }
 }
 
+/// Returns whether a series takes a colour from the axes colour order although its line is colour-mapped: it does
+/// when its colour data holds one value per segment and it draws markers with an automatic face or edge, because no
+/// value belongs to a point and those markers are drawn in the colour the series would have had.
+fn takes_order_for_markers(figure: &Figure, series: &Series) -> bool {
+    let length = |id| figure.data_array(id).map(|data| data.array.len());
+    let per_segment = series.color_data.is_some_and(
+        |colours| matches!((length(colours), length(series.x)), (Some(v), Some(n)) if v + 1 == n),
+    );
+    per_segment
+        && series.draws_markers()
+        && [series.marker.face, series.marker.edge].contains(&ColorSpec::Auto)
+}
+
 /// Resolves the primary colour of every artist of an axes, assigning automatic colours in artist order.
 ///
-/// Contour, surface and image artists have no primary colour and receive `Paint::Colormapped`; none of them takes
-/// a colour from the colour order.
-pub(super) fn primaries(axes: &Axes) -> Vec<Paint> {
+/// The primary colour of a series is the colour of its line, which its automatic marker colours follow. A series
+/// whose line is colour-mapped takes no colour from the order, unless its colour data holds one value per segment
+/// and it draws automatic marker colours, which then take the next colour of the order as the series' own (see
+/// [`takes_order_for_markers`]). Contour, surface and image artists have no primary colour and receive
+/// `Paint::Colormapped`; none of them takes a colour from the colour order.
+pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
     let mut next = 0usize;
     let mut auto = || {
         let colour = Rgba::from_u8(COLOUR_ORDER[next % COLOUR_ORDER.len()]);
@@ -517,12 +533,14 @@ pub(super) fn primaries(axes: &Axes) -> Vec<Paint> {
         .iter()
         .map(|artist| {
             let spec = match artist {
-                Artist::Line(line) => line.line.color,
+                Artist::Series(series)
+                    if series.line.color == ColorSpec::Colormapped
+                        && takes_order_for_markers(figure, series) =>
+                {
+                    ColorSpec::Auto
+                }
+                Artist::Series(series) => series.line.color,
                 Artist::Quiver(quiver) => quiver.line.color,
-                Artist::Scatter(scatter) => match scatter.color {
-                    ScatterColor::Spec { spec } => spec,
-                    ScatterColor::Data { .. } => ColorSpec::Colormapped,
-                },
                 Artist::Contour(_)
                 | Artist::Surface(_)
                 | Artist::Image(_)
@@ -660,6 +678,29 @@ pub(super) fn marker_instance(
     auto: Option<Rgba>,
     alpha: f32,
 ) -> Option<MarkerInstance> {
+    let resolve = |spec: ColorSpec| match spec {
+        ColorSpec::Auto | ColorSpec::Colormapped => auto,
+        ColorSpec::Rgba { color } => Some(ir_colour(color)),
+        ColorSpec::None => None,
+    };
+    marker_instance_coloured(
+        outline,
+        place,
+        resolve(style.face),
+        resolve(style.edge),
+        alpha,
+    )
+}
+
+/// Builds one instance of a marker of `outline` at `place` whose face and edge colours are already resolved, each
+/// multiplied by `alpha`, as [`marker_instance`] describes.
+pub(super) fn marker_instance_coloured(
+    outline: &MarkerOutline,
+    place: MarkerPlace,
+    face: Option<Rgba>,
+    edge: Option<Rgba>,
+    alpha: f32,
+) -> Option<MarkerInstance> {
     let MarkerPlace {
         position,
         size,
@@ -669,15 +710,8 @@ pub(super) fn marker_instance(
     if !(size.is_finite() && size > 0.0) {
         return None;
     }
-    let resolve = |spec: ColorSpec| {
-        match spec {
-            ColorSpec::Auto | ColorSpec::Colormapped => auto,
-            ColorSpec::Rgba { color } => Some(ir_colour(color)),
-            ColorSpec::None => None,
-        }
-        .map(|c| c.with_alpha_factor(alpha))
-    };
-    let (face, edge) = (resolve(style.face), resolve(style.edge));
+    let fade = |c: Option<Rgba>| c.map(|c| c.with_alpha_factor(alpha));
+    let (face, edge) = (fade(face), fade(edge));
     let (face, edge) = if outline.dot {
         (edge.or(face), None)
     } else if outline.closed {

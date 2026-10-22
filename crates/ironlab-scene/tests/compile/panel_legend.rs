@@ -3,7 +3,7 @@
 
 use ironlab_ir::{
     Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, Line, NodeId, PanelLocation, Projection, TrackSize, View3d,
+    LegendEntryOrder, NodeId, PanelLocation, Projection, Series, TrackSize, View3d,
 };
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{LegendHit, LegendOwner};
@@ -34,7 +34,7 @@ fn two_axes_and_a_panel() -> (Fx, [NodeId; 2], NodeId) {
 }
 
 /// Sets the colour of a line.
-fn coloured(color: Color) -> impl FnOnce(&mut Line) {
+fn coloured(color: Color) -> impl FnOnce(&mut Series) {
     move |l| l.line.color = ColorSpec::Rgba { color }
 }
 
@@ -189,17 +189,17 @@ fn entries_with_the_same_name_and_look_from_two_axes_merge_into_one() {
 // clash is reported by name against the panel.
 #[test]
 fn entries_with_the_same_name_but_a_different_look_are_both_listed_and_reported() {
-    fn red(l: &mut Line) {
+    fn red(l: &mut Series) {
         l.line.color = ColorSpec::Rgba { color: RED };
     }
-    fn blue(l: &mut Line) {
+    fn blue(l: &mut Series) {
         l.line.color = ColorSpec::Rgba { color: BLUE };
     }
-    fn red_dashed(l: &mut Line) {
+    fn red_dashed(l: &mut Series) {
         red(l);
         l.line.dash = DashStyle::Dashed;
     }
-    for (case, other) in [("colour", blue as fn(&mut Line)), ("dash", red_dashed)] {
+    for (case, other) in [("colour", blue as fn(&mut Series)), ("dash", red_dashed)] {
         let (mut fx, [left, right], panel) = two_axes_and_a_panel();
         let a = fx.named_line(left, "Sensor A", red);
         let b = fx.named_line(right, "Sensor A", other);

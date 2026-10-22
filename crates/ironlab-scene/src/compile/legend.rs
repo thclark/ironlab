@@ -9,9 +9,10 @@
 //! drawn ([`render`]).
 
 use ironlab_ir::{
-    Artist, ColorSpec, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, LineStyle,
-    MarkerStyle, NodeId, Panel, PanelLegend, PanelLocation, ScalarImage, ScatterSize, Text,
+    Artist, Color, ColorSpec, Interpreter, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation,
+    LegendSample, LineStyle, MarkerStyle, NodeId, Panel, PanelLegend, PanelLocation, ScalarImage,
+    Series, Text,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
@@ -20,7 +21,7 @@ use crate::maths::quiver;
 
 use super::artists::AxesInput;
 use super::axes2d;
-use super::data::{ArtistData, Prepared};
+use super::data::{ArtistData, Prepared, SeriesColours};
 use super::decor::TICK_SCALE;
 use super::image;
 use super::layout::Along;
@@ -54,12 +55,13 @@ static NO_NAME: Text = Text {
 /// greys an entry but does not change what the entry stands for.
 #[derive(Clone, Debug, PartialEq)]
 enum SampleLook {
-    /// A horizontal line across the sample, with a marker at its centre (a line or contour isolines).
+    /// A horizontal line across the sample, with a marker at its centre (a series that draws a line, or contour
+    /// isolines).
     Line {
         stroke: Option<Stroke>,
         marker: Option<MarkerSample>,
     },
-    /// A single marker at the centre of the sample (a scatter).
+    /// A single marker at the centre of the sample (a series that draws no line).
     Marker(Option<MarkerSample>),
     /// A horizontal arrow across the sample (a quiver).
     Arrow(Option<Stroke>),
@@ -811,7 +813,7 @@ fn grid(
 
 /// Returns the look of the sample of an item that stands for no artist.
 ///
-/// A line sample is drawn as the sample of a line artist is: its automatic colour is the ink of the labels, because
+/// A line sample is drawn as the sample of a series is: its automatic colour is the ink of the labels, because
 /// the item belongs to no axes whose colour order could supply one, and its marker's automatic colours take the line
 /// colour, or the ink when the line has no colour. A swatch is a patch of its colour, without an outline.
 fn custom_sample(sample: &LegendSample) -> SampleLook {
@@ -880,27 +882,7 @@ fn place(
 /// Returns the sample of an artist, given its resolved primary colour and the middle colour of its axes' colormap.
 fn sample(artist: &Artist, data: &ArtistData, colour: Option<Rgba>, middle: Rgba) -> SampleLook {
     match artist {
-        Artist::Line(line) => SampleLook::Line {
-            stroke: sample_stroke(&line.line, colour),
-            marker: marker_sample(
-                line.marker,
-                line.marker.size_pt,
-                colour,
-                style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5),
-            ),
-        },
-        Artist::Scatter(scatter) => {
-            let size = match scatter.size {
-                ScatterSize::Scalar { value } => value,
-                ScatterSize::Data { .. } => scatter.marker.size_pt,
-            };
-            let size = if size.is_finite() && size > 0.0 {
-                size
-            } else {
-                4.0
-            };
-            SampleLook::Marker(marker_sample(scatter.marker, size, colour, 0.5))
-        }
+        Artist::Series(series) => series_sample(series, data, colour, middle),
         Artist::Quiver(q) => {
             SampleLook::Arrow(sample_stroke(&q.line, colour).map(|stroke| Stroke {
                 dash: Vec::new(),
@@ -965,6 +947,66 @@ fn sample(artist: &Artist, data: &ArtistData, colour: Option<Rgba>, middle: Rgba
             fill: Some(middle.with_alpha_factor(style::unit_opacity(*opacity) as f32)),
             edge: None,
         },
+    }
+}
+
+/// Returns the sample of a series: a line sample, with the marker at its centre, when the series draws a line, and
+/// a single marker otherwise; the marker is of the marker size, not of any size data, and its edge is as wide as
+/// the series strokes its marker edges.
+///
+/// `colour` is the resolved primary colour of the series. Until the legend draws a sweep of a colour scale, a colour
+/// that colour data varies takes `middle`, the middle colour of the series' scale: a colour-mapped line, an automatic
+/// marker colour that follows it with one value per point, and a colormapped marker colour. With one value per
+/// segment an automatic marker colour takes the series' own colour, as the markers themselves do.
+fn series_sample(
+    series: &Series,
+    data: &ArtistData,
+    colour: Option<Rgba>,
+    middle: Rgba,
+) -> SampleLook {
+    let per_point = matches!(
+        data,
+        ArtistData::Series {
+            colours: Some(SeriesColours::PerPoint(_)),
+            ..
+        }
+    );
+    let mapped_line = series.line.color == ColorSpec::Colormapped;
+    let line_colour = if mapped_line { Some(middle) } else { colour };
+    let own = if mapped_line && !per_point {
+        colour
+    } else {
+        line_colour
+    };
+    let fixed = |colour: Option<Rgba>| match colour {
+        Some(c) => ColorSpec::Rgba {
+            color: Color::rgba(c.r, c.g, c.b, c.a),
+        },
+        None => ColorSpec::None,
+    };
+    let part = |spec: ColorSpec| match spec {
+        ColorSpec::Auto => fixed(own),
+        ColorSpec::Colormapped if per_point => fixed(Some(middle)),
+        ColorSpec::Colormapped => fixed(own),
+        other => other,
+    };
+    let marker = MarkerStyle {
+        face: part(series.marker.face),
+        edge: part(series.marker.edge),
+        ..series.marker
+    };
+    if series.draws_line() {
+        SampleLook::Line {
+            stroke: sample_stroke(&series.line, line_colour),
+            marker: marker_sample(
+                marker,
+                series.marker.size_pt,
+                None,
+                style::width_or(series.line.width_pt, 0.75).clamp(0.5, 1.5),
+            ),
+        }
+    } else {
+        SampleLook::Marker(marker_sample(marker, series.marker.size_pt, None, 0.5))
     }
 }
 

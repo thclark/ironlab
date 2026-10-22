@@ -423,8 +423,8 @@ impl Gallery {
                 false,
             ),
             ("Axes (Speed)", 1, Some(editor.axes_open), false),
-            ("Line (measured)", 2, None, false),
-            ("Scatter (peaks)", 2, None, true),
+            ("Series (measured)", 2, None, false),
+            ("Series (peaks)", 2, None, true),
             ("Axes (row 0, col 1)", 1, Some(false), false),
         ];
         for (index, (name, depth, open, hidden)) in tree.iter().enumerate() {
@@ -459,7 +459,7 @@ impl Gallery {
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(10, 0))
             .show(ui, |ui| section(ui, "The property editor: the rows"));
-        heading(ui, "Properties", Some("Line (measured)"));
+        heading(ui, "Properties", Some("Series (measured)"));
         let marker = Property::new("marker")
             .disclosure(editor.marker_open)
             .show(ui, |_| ());

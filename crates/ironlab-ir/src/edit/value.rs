@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::artist::{
     ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, PixelRange, QuiverScale,
-    ScatterColor, ScatterSize,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
@@ -138,14 +137,10 @@ pub enum Value {
     MarkerStyle(MarkerStyle),
     /// A marker shape.
     MarkerShape(MarkerShape),
-    /// How the values of one dimension of a line or scatter are placed.
+    /// How the values of one dimension of a series are placed.
     Coords(Coords),
     /// A list of sizes of the rows or columns of the tile layout.
     TrackSizes(Vec<TrackSize>),
-    /// The size of scatter markers.
-    ScatterSize(ScatterSize),
-    /// The colour of scatter markers.
-    ScatterColor(ScatterColor),
     /// The grid of a contour or surface.
     Grid(Grid),
     /// The levels of a contour.
@@ -276,10 +271,6 @@ pub enum ValueType {
     Coords,
     /// See [`Value::TrackSizes`].
     TrackSizes,
-    /// See [`Value::ScatterSize`].
-    ScatterSize,
-    /// See [`Value::ScatterColor`].
-    ScatterColor,
     /// See [`Value::Grid`].
     Grid,
     /// See [`Value::Levels`].
@@ -369,8 +360,6 @@ impl Value {
             Value::MarkerShape(_) => ValueType::MarkerShape,
             Value::Coords(_) => ValueType::Coords,
             Value::TrackSizes(_) => ValueType::TrackSizes,
-            Value::ScatterSize(_) => ValueType::ScatterSize,
-            Value::ScatterColor(_) => ValueType::ScatterColor,
             Value::Grid(_) => ValueType::Grid,
             Value::Levels(_) => ValueType::Levels,
             Value::ContourPlacement(_) => ValueType::ContourPlacement,

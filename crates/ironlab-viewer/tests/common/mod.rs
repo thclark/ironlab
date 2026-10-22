@@ -16,6 +16,21 @@ use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap};
 use ironlab_text::TextEngine;
 
+/// The series that `scatter` makes: automatic circles without a line.
+pub fn markers() -> ironlab_ir::Series {
+    ironlab_ir::Series {
+        line: ironlab_ir::LineStyle {
+            dash: ironlab_ir::DashStyle::None,
+            ..ironlab_ir::LineStyle::default()
+        },
+        marker: ironlab_ir::MarkerStyle {
+            shape: ironlab_ir::MarkerShape::Circle,
+            ..ironlab_ir::MarkerStyle::default()
+        },
+        ..ironlab_ir::Series::default()
+    }
+}
+
 /// The node identifier of data array `k` of a fixture: `100 + k`, apart from the identifiers below 100 that the
 /// fixtures give the figure, its axes, its artists and its panels, with which a data array shares one space of node
 /// identifiers.
@@ -94,12 +109,12 @@ pub fn axes_3d(id: u64) -> Axes {
 /// inspector.
 ///
 /// The first axes (node 2) is two-dimensional, occupies the cell in row 0 and column 0,
-/// is titled "Speed" and holds a line (node 4) named "Measured" and a hidden scatter
+/// is titled "Speed" and holds a line (node 4) named "Measured" and a hidden series of markers
 /// (node 5) with no name. The second axes (node 3) is three-dimensional, occupies row 0
 /// and column 1, has no title, and holds a surface (node 6) over a rectilinear grid.
 /// Every artist refers to data of the shapes the IR requires, so the figure is valid.
 pub fn figure_with_artists() -> Figure {
-    use ironlab_ir::{Artist, Cell, Grid, Line, NdArray, Scatter, Surface, Text, TileLayout};
+    use ironlab_ir::{Artist, Cell, Grid, NdArray, Series, Surface, Text, TileLayout};
 
     let (x, y) = (array_id(0), array_id(1));
     let (gx, gy, field) = (array_id(2), array_id(3), array_id(4));
@@ -118,19 +133,19 @@ pub fn figure_with_artists() -> Figure {
         id: NodeId(2),
         title: Some(Text::plain("Speed")),
         artists: vec![
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(4),
                 label: Some(Text::plain("Measured")),
                 x,
                 y,
-                ..Line::default()
+                ..Series::default()
             }),
-            Artist::Scatter(Scatter {
+            Artist::Series(Series {
                 id: NodeId(5),
                 visible: false,
                 x,
                 y,
-                ..Scatter::default()
+                ..markers()
             }),
         ],
         ..Axes::default()
@@ -268,11 +283,11 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// A figure that holds one artist of every kind, so that a test can exercise every
 /// property the inspector can show.
 ///
-/// A three-dimensional axes (node 2) holds a line (3), a scatter (4) whose size and
+/// A three-dimensional axes (node 2) holds a line (3), a series of markers (4) whose size and
 /// colour come from data, a contour (5) with explicit levels, a quiver (6) with a scale
 /// factor, a surface (7), a true-colour image (8) of 8-bit RGBA pixels on the xz wall, a
 /// scalar image (9) of 8-bit indices on the yz wall and a scalar image (10) of the field on
-/// the floor, the images with both pixel ranges set. The scatter, the contour, the surface
+/// the floor, the images with both pixel ranges set. The series of markers, the contour, the surface
 /// and the image of the field map their numbers through a continuous colour scale (12)
 /// that draws nothing below and above its limits and a fixed colour for a non-finite
 /// value, and the image of indices through an indexed colour scale (13) of nine entries
@@ -283,10 +298,10 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
-        Artist, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ContinuousColorScale,
-        Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale, Levels, Line, NdArray,
-        OutOfRange, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor,
-        ScatterSize, Surface,
+        Artist, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ColorSpec,
+        ContinuousColorScale, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
+        Levels, LineStyle, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, ScalarImage,
+        Series, Surface,
     };
 
     let ids: Vec<NodeId> = (0..10).map(array_id).collect();
@@ -329,22 +344,26 @@ pub fn figure_with_every_artist() -> Figure {
         }),
     };
     let artists = vec![
-        Artist::Line(Line {
+        Artist::Series(Series {
             id: NodeId(3),
             x,
             y,
             z: Some(z),
-            ..Line::default()
+            ..Series::default()
         }),
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id: NodeId(4),
             x,
             y,
             z: Some(z),
-            size: ScatterSize::Data { data: u },
-            color: ScatterColor::Data { data: v },
+            line: LineStyle {
+                color: ColorSpec::Colormapped,
+                ..markers().line
+            },
+            size_data: Some(u),
+            color_data: Some(v),
             color_scale: Some(NodeId(12)),
-            ..Scatter::default()
+            ..markers()
         }),
         Artist::Contour(Contour {
             id: NodeId(5),
@@ -455,11 +474,11 @@ pub fn figure_with_every_artist() -> Figure {
 /// divides its height when the object tree is long.
 ///
 /// Six two-dimensional axes fill a layout of two rows and three columns. Each is titled,
-/// each holds four artists — two lines and two scatters, named so that a test can find
+/// each holds four artists — two lines and two series of markers, named so that a test can find
 /// one of them — and all of them draw the same two data arrays, so that the figure is
 /// valid and the object tree has thirty-one rows.
 pub fn figure_with_many_axes() -> Figure {
-    use ironlab_ir::{Artist, Cell, Line, NdArray, Scatter, Text, TileLayout};
+    use ironlab_ir::{Artist, Cell, NdArray, Series, Text, TileLayout};
 
     let (x, y) = (array_id(0), array_id(1));
     let data = data_arrays([
@@ -477,20 +496,20 @@ pub fn figure_with_many_axes() -> Figure {
             next += 1;
             let name = Text::plain(format!("Plot {index}.{plot}"));
             artists.push(if plot.is_multiple_of(2) {
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id: artist,
                     label: Some(name),
                     x,
                     y,
-                    ..Line::default()
+                    ..Series::default()
                 })
             } else {
-                Artist::Scatter(Scatter {
+                Artist::Series(Series {
                     id: artist,
                     label: Some(name),
                     x,
                     y,
-                    ..Scatter::default()
+                    ..markers()
                 })
             });
         }
@@ -564,11 +583,11 @@ pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
     figure
 }
 
-/// A figure of one axes (node 2) holding a scatter (node 3) of `n` points spread over the whole plot, named
+/// A figure of one axes (node 2) holding a series of markers (node 3) of `n` points spread over the whole plot, named
 /// "Samples", so that any position inside the plot rectangle is close to a drawn marker and a callout over it
 /// names the series.
 pub fn figure_with_dense_scatter(n: usize) -> Figure {
-    use ironlab_ir::{Artist, NdArray, Scatter, Text};
+    use ironlab_ir::{Artist, NdArray, Series, Text};
 
     let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
     let y: Vec<f64> = (0..n)
@@ -580,12 +599,12 @@ pub fn figure_with_dense_scatter(n: usize) -> Figure {
         data: data_arrays([(xi, NdArray::vector(x)), (yi, NdArray::vector(y))]),
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::Scatter(Scatter {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::plain("Samples")),
                 x: xi,
                 y: yi,
-                ..Scatter::default()
+                ..markers()
             })],
             ..Axes::default()
         }],

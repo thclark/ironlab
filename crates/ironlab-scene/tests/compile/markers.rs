@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-use ironlab_ir::{
-    Color, ColorSpec, Legend, MarkerShape, NodeId, ScatterColor, ScatterSize, View3d,
-};
+use ironlab_ir::{Color, ColorSpec, Legend, MarkerShape, NodeId, View3d};
 use ironlab_scene::Scene;
 use ironlab_scene::display::{MarkerInstance, MarkersItem, PathSegment, Point};
 use ironlab_scene::hit::LegendHit;
@@ -335,12 +333,9 @@ fn a_scatter_gives_each_instance_the_size_of_its_point_and_the_colours_its_specs
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
         let scatter = fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
-            s.size = ScatterSize::Data {
-                data: fx.vector(&sizes),
-            };
-            s.color = ScatterColor::Data {
-                data: fx.vector(&values),
-            };
+            s.size_data = Some(fx.vector(&sizes));
+            s.color_data = Some(fx.vector(&values));
+            s.line.color = ColorSpec::Colormapped;
             s.marker.face = face;
             s.marker.edge = edge;
         });

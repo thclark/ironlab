@@ -198,12 +198,12 @@ pub enum LegendItemContent {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LegendSample {
-    /// A sample drawn as the sample of a line artist is drawn: a horizontal line with a
+    /// A sample drawn as the sample of a series is drawn: a horizontal line with a
     /// marker at its centre. A line whose dash is `none` draws only the marker, and a
     /// marker whose shape is `none` draws only the line. A line colour of `auto` is the
     /// ink in which the axes and labels of the figure are drawn, because the item belongs
     /// to no axes whose colour order could supply one, and a marker colour of `auto`
-    /// takes the line colour, as it does for a line artist.
+    /// takes the line colour, as it does for a series.
     Line {
         /// The style of the line.
         line: LineStyle,

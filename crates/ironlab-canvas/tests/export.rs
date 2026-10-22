@@ -29,8 +29,8 @@ use ironlab_canvas::{
     with_shared_renderer,
 };
 use ironlab_ir::{
-    Artist, Axes, Axis, Cell, Color, ColorSpec, Figure, Grid, Limits, Line, NdArray, NodeId,
-    Projection, Surface, Text, TileLayout, View3d,
+    Artist, Axes, Axis, Cell, Color, ColorSpec, Figure, Grid, Limits, NdArray, NodeId, Projection,
+    Series, Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{
     DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterImage, RasterOptions,
@@ -508,12 +508,12 @@ fn crossing_planes_figure() -> Figure {
                     edge: ColorSpec::None,
                     ..Surface::default()
                 }),
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id: NodeId(5),
                     x: lx,
                     y: ly,
                     z: Some(lz),
-                    ..Line::default()
+                    ..Series::default()
                 }),
             ],
             ..Axes::default()
@@ -838,12 +838,12 @@ fn verified_and_embedded_figure() -> Figure {
                         },
                         21,
                     ),
-                    Artist::Line(Line {
+                    Artist::Series(Series {
                         id: NodeId(7),
                         x: lx,
                         y: ly,
                         z: Some(lz),
-                        ..Line::default()
+                        ..Series::default()
                     }),
                 ],
             ),

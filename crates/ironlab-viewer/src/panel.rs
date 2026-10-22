@@ -934,8 +934,6 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::AspectAdjust
         | ValueType::TitleAlign
         | ValueType::ColorSpec
-        | ValueType::ScatterSize
-        | ValueType::ScatterColor
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement

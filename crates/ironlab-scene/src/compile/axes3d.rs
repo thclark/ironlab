@@ -122,7 +122,7 @@ pub(super) fn emit(
         Some(paths::solid(INK, 0.5)),
     ));
 
-    let primaries = style::primaries(axes);
+    let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &Space::ThreeD(&projector));
     hits.artists.extend(drawn.hits);
     // Images drawn in a 3D axes record no placement, so there is nothing of theirs to add to the hit map.

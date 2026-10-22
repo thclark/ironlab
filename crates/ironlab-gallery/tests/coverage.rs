@@ -68,28 +68,30 @@ fn every_required_chart_type_is_present() {
     let requirements: [(&str, Predicate); 27] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
-                && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
+                && matches!(artist, Artist::Series(l) if l.z.is_none() && l.draws_line() && l.marker.shape != MarkerShape::None)
         }),
         ("loglog", |_, axes, artist| {
-            matches!(artist, Artist::Line(_))
+            matches!(artist, Artist::Series(l) if l.draws_line())
                 && axes.x.scale == Scale::Log
                 && axes.y.scale == Scale::Log
         }),
         ("semilogx", |_, axes, artist| {
-            matches!(artist, Artist::Line(_))
+            matches!(artist, Artist::Series(l) if l.draws_line())
                 && axes.x.scale == Scale::Log
                 && axes.y.scale == Scale::Linear
         }),
         ("semilogy", |_, axes, artist| {
-            matches!(artist, Artist::Line(_))
+            matches!(artist, Artist::Series(l) if l.draws_line())
                 && axes.x.scale == Scale::Linear
                 && axes.y.scale == Scale::Log
         }),
         ("scatter", |_, axes, artist| {
-            is_2d(axes) && matches!(artist, Artist::Scatter(s) if s.z.is_none())
+            is_2d(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_none() && !s.draws_line() && s.draws_markers())
         }),
         ("scatter3", |_, axes, artist| {
-            is_3d(axes) && matches!(artist, Artist::Scatter(s) if s.z.is_some())
+            is_3d(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_some() && !s.draws_line() && s.draws_markers())
         }),
         ("contour", |_, axes, artist| {
             is_2d(axes)
@@ -131,8 +133,8 @@ fn every_required_chart_type_is_present() {
                 is_3d(axes)
                     && surfaces >= 2
                     && matches!(artist, Artist::Surface(_))
-                    && has(|a| matches!(a, Artist::Line(l) if l.z.is_some()))
-                    && has(|a| matches!(a, Artist::Scatter(s) if s.z.is_some()))
+                    && has(|a| matches!(a, Artist::Series(l) if l.z.is_some() && l.draws_line()))
+                    && has(|a| matches!(a, Artist::Series(s) if s.z.is_some() && s.draws_markers()))
             },
         ),
         // WHY: a surface in a 2D axes is the pseudocolour plot (MATLAB's `pcolor`), which the compiler draws from
