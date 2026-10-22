@@ -16,7 +16,7 @@ use crate::figure::{Figure, Parameter};
 use crate::ids::NodeId;
 use crate::layout::{Cell, TrackSize};
 use crate::legend::{
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItem, LegendItemContent,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItemContent,
 };
 use crate::link::Dimension;
 use crate::nodes::{NodeKind, visit};
@@ -58,16 +58,18 @@ pub enum IssueKind {
     /// A reference names a node of the figure that is not of the kind it requires: an
     /// artist's data that is not a data array, an artist's colour scale that is not a
     /// colour scale, the scale of a colourbar that is not a colour scale, the panel of a
-    /// legend that is not a panel holding a legend, or an
-    /// item of an explicit list of legend entries that names a node that is not an
-    /// artist. It is reported against the node that holds the reference, and a reference
+    /// legend that is not a panel holding a legend, an item of an explicit list of legend
+    /// entries that names an artist by a node that is not an artist, or such an item that
+    /// names a colour scale by a node that is not a colour scale. It is reported against the node that holds the reference, and a reference
     /// that names no node at all is reported as [`IssueKind::UnknownData`],
     /// [`IssueKind::UnknownColorScale`], [`IssueKind::DanglingPanelLegend`] or
     /// [`IssueKind::DanglingLegendItem`] instead.
     WrongNodeKind,
-    /// An artist or a colourbar names its colour scale by an identifier that is not a node
-    /// of the figure. It is reported against the node that holds the reference: the
-    /// artist, the panel of a panel colourbar, or the axes of an inside colourbar.
+    /// An artist, a colourbar or a legend item names its colour scale by an identifier
+    /// that is not a node of the figure. It is reported against the node that holds the
+    /// reference: the artist, the panel of a panel colourbar, the axes of an inside
+    /// colourbar, or the owner of a legend that lists the scale (the panel of a legend
+    /// panel, or the axes of an inside legend).
     UnknownColorScale,
     /// An artist maps numbers to colours but names no colour scale: a scalar image, a
     /// contour whose bands are filled or whose isolines are colormapped or automatic, a
@@ -716,7 +718,8 @@ impl<'a> Validator<'a> {
 
     /// Checks the items of an explicit list of legend entries: that each artist they name
     /// is an artist of the figure (of the axes `own`, for a legend inside its plot area)
-    /// with a label, and that no item is listed twice.
+    /// with a label, that each colour scale they name is a colour scale of the figure,
+    /// and that no item is listed twice.
     fn check_legend_items(&mut self, legend: NodeId, own: Option<&Axes>, entries: &LegendEntries) {
         let LegendEntries::Explicit(items) = entries else {
             return;
@@ -735,12 +738,15 @@ impl<'a> Validator<'a> {
                     ),
                 );
             }
-            let LegendItem {
-                content: LegendItemContent::Artist(artist),
-                ..
-            } = item
-            else {
-                continue;
+            let artist = match &item.content {
+                LegendItemContent::Artist(artist) => artist,
+                LegendItemContent::ColorScale(scale) => {
+                    // A scale is a node of the figure, so any legend may list any scale;
+                    // a scale draws its own labels, so its item is never unnamed.
+                    self.check_color_scale_reference(legend, Some(*scale), None);
+                    continue;
+                }
+                LegendItemContent::Custom { .. } => continue,
             };
             let found = match own {
                 Some(axes) => axes.artists.iter().find(|a| a.id() == *artist),

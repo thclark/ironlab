@@ -421,12 +421,15 @@ fn custom_items_draw_their_labels_beside_their_samples() {
         assert_eq!(rgb8(colour), [128, 128, 128], "the marker is grey");
     }
 
+    // The look of a swatch (an outlined square with a margin) is pinned in `legend_color_keys.rs`; here it is enough
+    // that the sample beside the label is filled with the swatch's colour.
     let swatch = sample_beside(&scene, panel, "Upper surface");
-    assert_eq!(swatch.len(), 1, "one patch is the sample: {swatch:?}");
-    let colours = swatch[0].colors();
     assert!(
-        colours.iter().any(|c| rgb8(*c) == [230, 153, 0]),
-        "the patch is filled with the colour of the swatch: {colours:?}"
+        swatch
+            .iter()
+            .filter_map(|leaf| leaf.path()?.fill)
+            .any(|fill| rgb8(fill.color) == [230, 153, 0]),
+        "the patch is filled with the colour of the swatch: {swatch:?}"
     );
 }
 

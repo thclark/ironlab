@@ -794,7 +794,8 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// all of its columns but the last, which is fitted, and its last row holds two legend
 /// panels, which between them and the inside legends use every variant of the layout of
 /// legend entries, each listing a named line of an axes whose legend names it; one panel
-/// lists its entries automatically and the other lists an explicit item of every kind.
+/// lists its entries automatically and the other lists an explicit item of every kind,
+/// colour scales included.
 /// Two colourbar panels follow the legend panels, one of each orientation, each showing
 /// a scale that no artist names, one of them spanning two rows of the fitted column; and
 /// four axes hold an inside colourbar, one on each side.
@@ -1667,7 +1668,7 @@ pub fn kitchen_sink_figure() -> Figure {
                 },
                 // An explicit list of every kind of item: the artist of the axes that names
                 // the panel, on a row of its own, then two items that stand for no artist,
-                // one of each kind of sample.
+                // one of each kind of sample, then two colour scales.
                 entries: LegendEntries::Explicit(vec![
                     LegendItem {
                         full_row: true,
@@ -1700,6 +1701,13 @@ pub fn kitchen_sink_figure() -> Figure {
                         )),
                         Text::plain("Lower surface"),
                     ),
+                    // Two colour scales that no artist names: the categories of the
+                    // status scale, and the grey palette as a bar on a row of its own.
+                    LegendItem::color_scale(status_scale),
+                    LegendItem {
+                        full_row: true,
+                        ..LegendItem::color_scale(gray_scale)
+                    },
                 ]),
             }),
         },

@@ -452,6 +452,11 @@ fn encode_legend_item(item: &LegendItem) -> w::LegendItem {
                 sample: Some(encode_legend_sample(*sample)),
             })
         }
+        LegendItemContent::ColorScale(scale) => {
+            w::LegendItemContentKind::ColorScale(w::LegendItemContentColorScale {
+                scale: Some(scale.0),
+            })
+        }
     };
     w::LegendItem {
         content: Some(w::LegendItemContent { kind: Some(kind) }),
@@ -1265,6 +1270,9 @@ fn decode_legend_item(wire: w::LegendItem, at: &str) -> Result<LegendItem> {
                     sample: decode_legend_sample(custom.sample, &at)?,
                 }
             }
+            w::LegendItemContentKind::ColorScale(scale) => LegendItemContent::ColorScale(NodeId(
+                required(scale.scale, &join(at, "content.color_scale"), "scale")?,
+            )),
         };
     Ok(LegendItem {
         content,

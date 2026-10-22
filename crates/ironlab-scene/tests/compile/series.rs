@@ -1265,39 +1265,9 @@ fn the_legend_sample_of_a_series_draws_its_line_its_marker_or_both() {
     }
 }
 
-// Why: until stage 5 draws a sweep, a colour-mapped series keeps the stage-2 stopgap: its sample takes the middle colour of its own scale.
-#[test]
-fn the_legend_sample_of_a_colour_mapped_series_takes_the_middle_colour_of_its_scale() {
-    let mut fx = Fx::new();
-    let ax = fx.axes2d(0, 0);
-    let scale = listed(&mut fx, vec![RED, BLUE]);
-    fx.series(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0], None, |s, fx| {
-        s.label = text("Mapped");
-        s.color_data = Some(fx.vector(&[0.0, 0.5, 1.0]));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
-        s.marker.shape = MarkerShape::Circle;
-    });
-    fx.ax(ax).legend = Some(Legend::default());
-    let scene = compile_figure(&fx.build());
-    let all = leaves(&scene);
-    let entries = axes_legend_entries(&scene, ax);
-    assert_eq!(entries.len(), 1);
-    let colours: Vec<Rgba> = leaves_in(&all, entries[0].rect)
-        .iter()
-        .filter(|l| l.glyphs().is_none())
-        .flat_map(Leaf::colors)
-        .collect();
-    assert!(!colours.is_empty(), "the sample is drawn");
-    let middle = rgb8(red_blue(0.5));
-    for colour in colours {
-        let got = rgb8(colour);
-        assert!(
-            got.iter().zip(middle).all(|(a, b)| a.abs_diff(b) <= 2),
-            "the sample is the middle colour {middle:?} of the scale, not {got:?}"
-        );
-    }
-}
+// The sample of a series coloured by data is a sweep of its scale, which `legend_color_keys.rs` pins: the line drawn
+// as a sweep, a marker that follows the colour data at the centre in the sweep's colour there, and a row of markers
+// for a series that draws only markers.
 
 // Why: a series whose colour is automatic takes the next colour of the axes colour order whether it draws a line or markers, and a series coloured by data takes none, so the colours of the other series do not depend on it.
 #[test]

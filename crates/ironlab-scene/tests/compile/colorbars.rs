@@ -77,7 +77,7 @@ use ironlab_ir::{
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
-use ironlab_scene::hit::{AxesHitKind, ColorbarHit, ColorbarOwner};
+use ironlab_scene::hit::{AxesHitKind, ColorbarHit, ColorbarOwner, LegendOwner};
 use ironlab_scene::maths::colormap::VIRIDIS;
 use ironlab_text::FontId;
 
@@ -320,7 +320,9 @@ fn bar_of(scene: &Scene, owner: ColorbarOwner) -> ColorbarHit {
 /// Returns the leaves that a colourbar's owner drew, in paint order.
 fn owned(scene: &Scene, owner: ColorbarOwner) -> Vec<Leaf> {
     let id = match owner {
-        ColorbarOwner::Panel(id) | ColorbarOwner::Axes(id) => id,
+        ColorbarOwner::Panel(id)
+        | ColorbarOwner::Axes(id)
+        | ColorbarOwner::Legend(LegendOwner::Panel(id) | LegendOwner::Axes(id)) => id,
     };
     from_source(&leaves(scene), id)
 }
@@ -607,6 +609,56 @@ fn a_horizontal_bar_under_a_row_of_three_axes_is_as_long_as_the_span_of_their_pl
     assert_close(bar.bar.right(), right.right(), EXACT);
     // The bar lies below the plots, not over them.
     assert!(bar.bar.y > left.bottom());
+}
+
+// Why: a bar fits its length to the plot boxes of the axes in its columns, but an axes that spans more columns than
+// the bar's panel must not stretch the bar over the neighbouring panel: the bar stays within its own cell span, as
+// matplotlib's `fig.colorbar(ax=...)` beside a legend keeps the two apart.
+#[test]
+fn a_bar_under_an_axes_spanning_more_columns_stays_within_its_own_columns() {
+    let mut fx = Fx::new();
+    fx.fig.layout.rows = 2;
+    fx.fig.layout.cols = 2;
+    fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
+    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let ax = fx.axes2d(0, 0);
+    fx.ax(ax).cell = cell(0, 0, 1, 2);
+    fx.scalar_image(
+        ax,
+        vec![1, 2],
+        vec![0.0, 10.0],
+        Some(scale),
+        xy(None, None),
+        |_| {},
+    );
+    let legend = fx.panel(cell(1, 0, 1, 1));
+    fx.legend_in(ax, legend);
+    let panel = colorbar_panel(
+        &mut fx,
+        cell(1, 1, 1, 1),
+        scale,
+        ColorbarOrientation::Horizontal,
+    );
+    let scene = compile_figure(&fx.build());
+    let bar = bar_of(&scene, ColorbarOwner::Panel(panel)).bar;
+    let area = panel_rect(&scene, panel);
+    let legend_area = panel_rect(&scene, legend);
+    let plot = axes_hit(&scene, ax).plot_rect;
+    // The bar lies within its own cell span, inset as the panel's area is, and ends where the plot box ends.
+    assert!(
+        bar.x >= area.x - EXACT,
+        "bar {bar:?} starts left of its area {area:?}"
+    );
+    assert!(
+        bar.right() <= area.right() + EXACT,
+        "bar {bar:?} ends right of its area {area:?}"
+    );
+    assert_close(bar.right(), plot.right(), EXACT);
+    // It does not reach over the legend panel beside it.
+    assert!(
+        bar.x >= legend_area.right() - EXACT,
+        "bar {bar:?} overlaps the legend panel {legend_area:?}"
+    );
 }
 
 /// A figure of `count` 2D axes of equal aspect holding a line from `(0, 0)` to `(dx, dy)`, laid along a row over a
