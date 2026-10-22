@@ -83,7 +83,7 @@ The figure is the root of the model: a page of a fixed physical size holding the
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.6.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.7.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
@@ -799,7 +799,7 @@ The following JSON file describes one two-dimensional axes with a series drawn a
 
 ```json
 {
-  "schema_version": "0.6.0",
+  "schema_version": "0.7.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -860,7 +860,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.6.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.7.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
 
@@ -874,6 +874,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.7.0** made [data arrays](#data-arrays) nodes of the figure, each with a NodeId and an optional `name`, so that data arrays, colour scales, axes, artists and panels share one identifier space and the separate `DataId` is removed; replaced the legend panels (`panel_legends`) with [panels](#panels) (`panels`) whose [content](#panel-content) is a legend or a colourbar; replaced the edits `put_data` and `remove_data` with [`replace_data`](#edits), so that data arrays are created and removed with `insert` and `remove` like every other node; and renamed the `display_name` of an [artist](#artists) to `label` and the `labels` of a figure to [`tags`](#tags). It added [colour scales](#colour-scales) as nodes of the figure (`color_scales`), of the four [kinds](#colour-scale-kinds) continuous, discrete, indexed and categorical, each with its [out-of-range policies](#out-of-range-policies); replaced `indexed_image` and `mapped_image` with [`scalar_image`](#scalar_image); removed the `colormap` and `clim` of an [axes](#axes); gave every artist that maps numbers to colours a `color_scale`; and made the levels of a [contour](#contour) optional, so that a contour without levels takes them from its scale. It replaced `line` and `scatter` with [`series`](#series), which may be sized and coloured by data, as [colour data of a series](#colour-data-of-a-series) describes. It added [colourbar panels](#colourbar-panels), the [inside colourbar](#inside-colourbar) of an axes, and [legend items](#legend-entries) that show a colour scale over a set number of rows, and gave every [panel](#panels) an optional title. A file of version 0.6 is rejected.
 - **0.6.0** added the [alpha and opacity](#alpha-and-opacity) of the image, surface and contour artists: `opacity` on every image kind, `alpha` on `indexed_image` and `mapped_image` (since replaced by [`scalar_image`](#scalar_image)), `face_alpha`, `edge_alpha`, `face_opacity` and `edge_opacity` on [`surface`](#surface), and `line_opacity` and `fill_opacity` on [`contour`](#contour). A reader of version 0.5 would draw such artists opaque, so a file of version 0.5 is rejected.
 - **0.5.0** added the direction (`reverse`), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [coordinates and clipping](#coordinates-and-clipping) (`x_coords`, `y_coords`, `clip`) of lines and scatters, the markers `v_line` and `h_line`, the dash patterns `dash_dot_dot` and `long_dash`, the [aspect](#aspect) (`aspect`, `aspect_adjust`) and the title alignment (`title_align`) of an axes, the [explicit entries](#legend-entries) (`entries`) of a legend, and fitted tracks in the row and column sizes of the [tile layout](#tile-layout). A file of version 0.4 is rejected.
 - **0.4.0** added [legend panels](#legend-panels) (`panel_legends`), changed the [legend](#legend) of an axes from a single object into a choice between a legend inside the plot area and a legend panel, added the [layout of legend entries](#legend-entry-layout) in columns and the legend location `center`, and added the row and column weights of the [tile layout](#tile-layout). A file of version 0.3 is rejected.

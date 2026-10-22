@@ -21,7 +21,7 @@ use crate::text::Text;
 ///
 /// Files are compatible when their major and minor components equal this version's;
 /// the patch component may differ.
-pub const SCHEMA_VERSION: &str = "0.6.0";
+pub const SCHEMA_VERSION: &str = "0.7.0";
 
 /// A figure: the root of the retained IR, holding data arrays, colour scales, axes, panels
 /// and axis links.
