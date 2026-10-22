@@ -287,6 +287,7 @@ impl<'a> Listing<'a> {
                     rows,
                     pitch,
                     line / 2.0,
+                    m.sample_width,
                 )),
             })
             .collect();

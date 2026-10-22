@@ -66,8 +66,11 @@ struct Metrics {
     label_gap: f64,
     /// Between neighbouring pieces of a standing bar: the bar and a key, or two squares.
     gap: f64,
-    /// Between the title and what it heads, and between a title along the bar and the tick labels it lies beyond.
+    /// Between a title and what it heads.
     title_gap: f64,
+    /// Between a title along the bar and the tick labels it lies beyond: two thirds of the title gap, because the line
+    /// boxes of the labels and of the title each carry white space of their own, which the edge of a bar does not.
+    along_gap: f64,
     /// The shortest bar of a colourbar whose length nothing fixes.
     min_length: f64,
 }
@@ -80,6 +83,7 @@ impl Metrics {
             label_gap: 0.55 * fs,
             gap: 0.5 * fs,
             title_gap: 0.5 * fs,
+            along_gap: fs / 3.0,
             min_length: 6.0 * fs,
         }
     }
@@ -438,12 +442,7 @@ impl<'a> Colorbar<'a> {
     /// Returns the extent of the colourbar across its length with a title along it: the bar, its labels and, beyond
     /// them, the gap and the line of the title.
     fn across_along(&self, m: &Metrics, measured: &Measured) -> f64 {
-        self.across(m, measured)
-            + if self.titled_along() {
-                self.title_part(m)
-            } else {
-                0.0
-            }
+        self.across(m, measured) + self.along_part(m)
     }
 
     /// Returns the margin between neighbouring pieces. Along a lying colourbar, whose labels lie under the squares
@@ -523,6 +522,25 @@ impl<'a> Colorbar<'a> {
             .map_or(0.0, |t| t.total_height() + m.title_gap)
     }
 
+    /// Returns the extent of a title along the bar beyond the tick labels, its gap included, or zero unless the title
+    /// lies along the bar.
+    fn along_part(&self, m: &Metrics) -> f64 {
+        self.title
+            .as_ref()
+            .filter(|_| self.titled_along())
+            .map_or(0.0, |t| t.total_height() + m.along_gap)
+    }
+
+    /// Returns the extent across the bar of a title that lies beside it, its gap included: along the bar beyond the
+    /// tick labels, or above a lying bar.
+    fn title_across(&self, m: &Metrics) -> f64 {
+        if self.titled_along() {
+            self.along_part(m)
+        } else {
+            self.title_part(m)
+        }
+    }
+
     /// Returns the size of the area of a panel holding the colourbar along a fitted track (see `panel::Content`),
     /// headed by the panel's title `heading` when it has one.
     ///
@@ -569,7 +587,7 @@ impl<'a> Colorbar<'a> {
                 .max(above)
                 .max(heading_width)
         } else {
-            self.across(&m, &measured) + self.title_part(&m) + heading_part(&m, heading)
+            self.across(&m, &measured) + self.title_across(&m) + heading_part(&m, heading)
         }
     }
 
@@ -673,11 +691,7 @@ impl<'a> Colorbar<'a> {
             } else {
                 0.0
             };
-            let along = if self.titled_along() {
-                self.title_part(&m)
-            } else {
-                0.0
-            };
+            let along = self.along_part(&m);
             let head = heading_part(&m, heading);
             let width = length.max(heading_width);
             let block = panel::place(area, width, head + above + across + along, panel.align, 0.0);
@@ -749,7 +763,7 @@ impl<'a> Colorbar<'a> {
         let Some(title) = self.title.as_ref().filter(|_| self.titled_along()) else {
             return;
         };
-        let reach = m.label_gap + self.band(measured) + m.title_gap;
+        let reach = m.label_gap + self.band(measured) + m.along_gap;
         let (near, far) = (strip.cross, strip.cross + m.thickness);
         // The edge of the title's line box nearest the bar, and the distance from it to the baseline.
         let edge = if strip.outward > 0.0 {
@@ -1181,13 +1195,14 @@ pub(super) fn colour_row(source: NodeId, r: Rect, colours: &[Option<Rgba>]) -> O
 /// A bar item of a legend: a continuous, discrete or indexed scale drawn as a colourbar among the entries of a
 /// legend, with the colourbar's ticks, tick labels and title and its out-of-range keys.
 ///
-/// A standing bar item lies in one column over the entry rows it asks for, the bar starting at the left edge of the
-/// sample column, its labels to its right and its title along it, beyond its labels; the bar's ends are kept inside
-/// its rows so that the tick labels at its ends stay clear of the entries above and below. Each out-of-range key it
-/// shows is an entry row of its own, a swatch beside a label, which the legend draws directly above the bar's rows (the
-/// above key) or below them (the below or outside key, then the non-finite key) as [`KeyRow`]s. A lying bar item spans
-/// the width of the legend on a row of its own, its keys squares along the bar as on a colourbar, labelled below and
-/// titled below its labels.
+/// A standing bar item lies in one column over the entry rows it asks for, the bar centred on the sample column, so
+/// that its centre line passes through the centres of the samples of the entries above and below it and of the
+/// swatches of its keys, with its labels to its right and its title along it, beyond its labels; the bar's ends are
+/// kept inside its rows so that the tick labels at its ends stay clear of the entries above and below. Each
+/// out-of-range key it shows is an entry row of its own, a swatch beside a label, which the legend draws directly above
+/// the bar's rows (the above key) or below them (the below or outside key, then the non-finite key) as [`KeyRow`]s. A
+/// lying bar item spans the width of the legend on a row of its own, its keys squares along the bar as on a colourbar,
+/// labelled below and titled below its labels.
 pub(super) struct LegendBar<'a> {
     bar: Colorbar<'a>,
     /// The number of entry rows along which a standing bar runs.
@@ -1195,6 +1210,9 @@ pub(super) struct LegendBar<'a> {
     /// The distance by which each end of a standing bar is kept inside its rows, so that the tick labels at its ends
     /// stay clear of the entries above and below.
     inset: f64,
+    /// The distance from the left edge of the sample column to the left edge of a standing bar, which centres the bar
+    /// on the column.
+    offset: f64,
     /// The keys of a standing bar, as entry rows, in the order of a standing colourbar's keys, measured for the bar
     /// drawn over its rows at the pitch of the legend.
     keys: Vec<KeyRow>,
@@ -1218,7 +1236,12 @@ pub(super) struct KeyRow {
 
 impl<'a> LegendBar<'a> {
     /// Prepares the bar item of `scale` in the legend `owner`, lying on a row of its own when `full_row`, and measures
-    /// it for a standing bar over `rows` entry rows `pitch` points apart whose ends are kept `inset` inside them.
+    /// it for a standing bar over `rows` entry rows `pitch` points apart whose ends are kept `inset` inside them,
+    /// centred on a sample column `sample` points wide.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the measurements of the legend that the item lies in, taken once by the caller"
+    )]
     pub(super) fn new(
         ctx: &mut Ctx,
         owner: LegendOwner,
@@ -1227,6 +1250,7 @@ impl<'a> LegendBar<'a> {
         rows: usize,
         pitch: f64,
         inset: f64,
+        sample: f64,
     ) -> Self {
         let bar = Colorbar::new(
             ctx,
@@ -1246,6 +1270,7 @@ impl<'a> LegendBar<'a> {
             return Self {
                 rows,
                 inset,
+                offset: 0.0,
                 keys: Vec::new(),
                 above: 0,
                 width: natural.max(title_width),
@@ -1261,12 +1286,14 @@ impl<'a> LegendBar<'a> {
             .iter()
             .take_while(|k| k.key == ColorScaleKey::Above)
             .count();
+        let offset = ((sample - m.thickness) / 2.0).max(0.0);
         Self {
             rows,
             inset,
+            offset,
             keys: bar.key_rows(measured.key_labels.clone(), measured.key_texts.clone()),
             above,
-            width: bar.across_along(&m, &measured),
+            width: offset + bar.across_along(&m, &measured),
             height: 0.0,
             bar,
         }
@@ -1293,7 +1320,8 @@ impl<'a> LegendBar<'a> {
         (&self.keys, self.above)
     }
 
-    /// Returns the width of the item: the least width of a lying item, and the width of a standing one.
+    /// Returns the width of the item: the least width of a lying item, and the width of a standing one from the left
+    /// edge of its sample column.
     pub(super) fn width(&self) -> f64 {
         self.width
     }
@@ -1304,8 +1332,8 @@ impl<'a> LegendBar<'a> {
     }
 
     /// Draws the item in `r` and returns its hit geometry, which the caller records in the hit map: a standing item
-    /// from the left edge of `r`, over the height of the rows of its bar that `r` spans, its keys left to the caller;
-    /// a lying item across the width of `r`, from its top.
+    /// centred on the sample column that starts at the left edge of `r`, over the height of the rows of its bar that
+    /// `r` spans, its keys left to the caller; a lying item across the width of `r`, from its top.
     pub(super) fn draw(&self, ctx: &mut Ctx, r: Rect, out: &mut Vec<Item>) -> ColorbarHit {
         let bar = &self.bar;
         let m = Metrics::new(ctx.font_size);
@@ -1314,7 +1342,7 @@ impl<'a> LegendBar<'a> {
             let measured = bar.measure(&mut ctx.scratch(), &m, length, m.gap);
             let strip = Strip {
                 start: r.y + self.inset,
-                cross: r.x,
+                cross: r.x + self.offset,
                 outward: 1.0,
                 bounds: None,
             };
@@ -1529,7 +1557,7 @@ pub(super) fn draw_inside(
         + if vertical && bar.titled_above() {
             across.max(title_width)
         } else {
-            across + title_part
+            across + bar.title_across(&m)
         };
     let centre = if vertical {
         plot.y + plot.height / 2.0

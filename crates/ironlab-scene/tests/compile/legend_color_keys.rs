@@ -34,9 +34,9 @@
 //!
 //! - **Five rows.** A bar item of the default five rows counts as five entries when the entries are divided among
 //!   columns, and lies in one column over five consecutive rows, each as tall as the row of an entry with a one-line
-//!   label. Its bar starts at the left edge of the sample column, where the samples of the other entries of the
-//!   column start, and its tick labels lie to its right, on the side of the labels of the other entries; its width
-//!   (bar, ticks and tick labels) sets the width of its column as a label does. Other row counts, the title along
+//!   label. Its bar is centred on the sample column, as the samples of the other entries of the column are, and its
+//!   tick labels lie to its right, on the side of the labels of the other entries; its width (bar, ticks and tick
+//!   labels) sets the width of its column as a label does. Other row counts, the title along
 //!   the bar and the keys as entry rows of their own are the layout stage's, in `colorbar_layout.rs`.
 //! - **Drawn as a colourbar.** The bar, its ticks and its tick labels are those of a vertical colourbar of the same
 //!   scale: the same thickness, the same colours at the same fractions of the length and the same explicit ticks.
@@ -1041,9 +1041,9 @@ fn an_inside_legend_lists_a_custom_swatch_and_a_category_of_the_same_label_and_c
 // ---------------------------------------------------------------------------------------------------------------
 
 // Why: a bar is read against its ticks, so it needs more length than an entry row gives; five rows is long enough to
-// read and short enough to sit among other entries. It lies in the column of the entries around it, starting where
-// their samples start, so the key stays one aligned list, and it is a vertical bar recorded for hovering like any
-// other bar of the scale.
+// read and short enough to sit among other entries. It lies in the column of the entries around it, centred where
+// their samples are centred, so the key stays one aligned list, and it is a vertical bar recorded for hovering like
+// any other bar of the scale.
 #[test]
 fn a_bar_item_is_a_vertical_bar_five_entry_rows_long_in_its_column() {
     let b = between(viridis());
@@ -1075,7 +1075,12 @@ fn a_bar_item_is_a_vertical_bar_five_entry_rows_long_in_its_column() {
         bar.bar.height > 4.0 * pitch,
         "the bar runs along most of its rows"
     );
-    assert_close(bar.bar.x, sample_box(&scene, b.panel, "Before").x, 0.01);
+    let sample = sample_box(&scene, b.panel, "Before");
+    assert_close(
+        bar.bar.x + bar.bar.width / 2.0,
+        sample.x + sample.width / 2.0,
+        0.01,
+    );
 }
 
 // Why: a bar item is ticked on the side of the labels of the other entries, its right, so that the key reads left

@@ -30,8 +30,9 @@
 //!
 //! - **Along.** A scale's title placed `Along` lies beyond the band of the bar's tick labels, on their side of the
 //!   bar, one gap from the band, centred on the bar's length. On a standing bar it is rotated a quarter turn
-//!   counter-clockwise, so that it reads from bottom to top; on a lying bar it is upright. The gap is the one that
-//!   separates a title placed `Above` from the bar it heads, so the two placements are spaced alike. A fitted track
+//!   counter-clockwise, so that it reads from bottom to top; on a lying bar it is upright. The gap is two thirds of
+//!   the one that separates a title placed `Above` from the bar it heads, because the line boxes of the tick labels
+//!   and of the title both carry space of their own. A fitted track
 //!   grows across the bar by the title's line box and that gap, and a title along a standing panel bar takes nothing
 //!   from the margin above the plots. Inside an axes the tick labels face the interior of the plot area, so the
 //!   title lies beyond them toward the interior.
@@ -48,6 +49,8 @@
 //! - **Bar items.** A bar item of `rows` rows lies in exactly `rows` entry rows; its keys are entry rows of their
 //!   own, a swatch beside a label as every swatch entry is, directly above the bar (the above key) and below it (the
 //!   below or outside key, then the non-finite key); its title reads along it beside its tick labels and adds no row.
+//!   A standing bar item is centred on the sample column, so that its centre line passes through the centres of the
+//!   samples of the entries in its column and of its own key swatches.
 //!   A bar item on a row of its own lies across the legend whatever its rows, titled along it below its tick labels.
 //! - **Panel titles.** A panel title heads the content of its panel and is aligned with the content's left edge,
 //!   centre or right edge. In a boxed legend panel it lies inside the border above the entries; above an unboxed
@@ -58,8 +61,8 @@ use ironlab_ir::{
     Cell, Color, ColorScaleKey, ColorScaleKind, ColorScaleOutOfRange, ColorbarOrientation,
     ColorbarTitlePlacement, ContinuousColorScale, FigureSize, InsideColorbar, InsideColorbarSide,
     LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
-    LegendSample, Limits, NodeId, OutOfRange, Panel, PanelColorbar, PanelContent, PanelLocation,
-    Text, TitleAlign, TrackSize,
+    LegendSample, Limits, MarkerShape, NodeId, OutOfRange, Panel, PanelColorbar, PanelContent,
+    PanelLocation, Text, TitleAlign, TrackSize,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
@@ -566,6 +569,28 @@ fn swatch_left_of(scene: &Scene, source: NodeId, text: &str) -> Swatch {
     }
 }
 
+/// Returns the bounding box of the sample drawn by `source` left of the label `text`, in its row: everything other than
+/// text that ends left of the label, starts within four label heights of it and whose centre lies within its line
+/// box, taken together.
+#[track_caller]
+fn sample_left_of(scene: &Scene, source: NodeId, text: &str) -> Rect {
+    let label = text_box(scene, source, text).rect;
+    let found: Vec<Rect> = drawn_by(scene, source)
+        .iter()
+        .filter(|l| l.glyphs().is_none())
+        .filter_map(Leaf::bbox)
+        .filter(|b| {
+            let cy = b.y + b.height / 2.0;
+            b.right() <= label.x + EXACT
+                && b.x >= label.x - 4.0 * label.height
+                && cy >= label.y
+                && cy <= label.bottom()
+        })
+        .collect();
+    assert!(!found.is_empty(), "a sample is drawn beside {text:?}");
+    union_of(found)
+}
+
 /// Returns the text of the one glyph run drawn by `id` that starts with `prefix`.
 #[track_caller]
 fn text_starting(scene: &Scene, id: NodeId, prefix: &str) -> String {
@@ -751,11 +776,13 @@ fn a_title_along_a_lying_bar_deepens_its_fitted_row_by_its_line_height_and_a_gap
     );
 }
 
-// Why: the two placements are spaced alike: the gap between a title along a bar and the tick labels it lies beyond is
-// the gap between a title above a bar and the bar it heads, on a standing and on a lying bar, so that switching the
-// placement moves the title without changing how loosely it is set.
+// Why: the user's review found a title along a bar set too far from the tick labels it lies beyond, because the line
+// boxes of the labels and of the title each carry white space of their own, which a title above a bar, facing the
+// edge of the bar, does not. The gap along a bar is therefore two thirds of the gap between a title above a bar and
+// the bar it heads, on a standing and on a lying bar alike.
 #[test]
-fn a_title_along_its_bar_is_one_title_gap_from_the_tick_labels_as_a_title_above_is_from_the_bar() {
+fn a_title_along_its_bar_is_two_thirds_as_far_from_the_tick_labels_as_a_title_above_is_from_the_bar()
+ {
     let measure = |vertical: bool, placement: ColorbarTitlePlacement| {
         let (mut fx, _, scale, panel) = if vertical {
             column_beside_stack(1, TrackSize::Fit)
@@ -782,8 +809,16 @@ fn a_title_along_its_bar_is_one_title_gap_from_the_tick_labels_as_a_title_above_
     let above = measure(true, ColorbarTitlePlacement::Above);
     assert!(above > 0.0, "a title above a bar is separated from it");
     assert_close(measure(false, ColorbarTitlePlacement::Above), above, TEXT);
-    assert_close(measure(true, ColorbarTitlePlacement::Along), above, TEXT);
-    assert_close(measure(false, ColorbarTitlePlacement::Along), above, TEXT);
+    assert_close(
+        measure(true, ColorbarTitlePlacement::Along),
+        above * 2.0 / 3.0,
+        TEXT,
+    );
+    assert_close(
+        measure(false, ColorbarTitlePlacement::Along),
+        above * 2.0 / 3.0,
+        TEXT,
+    );
 }
 
 // Why: inside an axes the tick labels of a bar face the interior of the plot area, so a title along a standing inside
@@ -1118,6 +1153,41 @@ fn a_bar_item_s_title_reads_upwards_beside_its_tick_labels_and_adds_no_row() {
     assert_close(before, plain_before, EXACT);
     assert_close(after, plain_after, EXACT);
     assert_close(hit.bar.height, bar_of(&untitled, owner).bar.height, EXACT);
+}
+
+// Why: the user's review found a bar item standing at the left edge of the sample column while the samples of the
+// marker entries above it are centred in that column, so the bar did not line up with the markers it is listed with.
+// A standing bar item is centred on the sample column instead: its centre line passes through the centres of the
+// samples of the entries in its column, a marker and a line alike, and through the centres of its own key swatches,
+// so that the column of samples reads as one column.
+#[test]
+fn a_standing_bar_item_is_centred_on_the_samples_of_the_entries_in_its_column() {
+    let mut b = between(5);
+    show_keys(&mut b.fx, b.scale);
+    if let LegendEntries::Explicit(items) = &mut b.fx.legend_mut(b.panel).entries {
+        items.insert(
+            0,
+            LegendItem::custom(LegendSample::marker(MarkerShape::Circle, RED), "Station"),
+        );
+    }
+    let scene = compile_figure(&b.fx.fig.clone());
+    let hit = bar_of(&scene, ColorbarOwner::Legend(LegendOwner::Panel(b.panel)));
+    let axis = centre(hit.bar).x;
+    for text in ["Station", "First", "Before", "After"] {
+        let sample = sample_left_of(&scene, b.panel, text);
+        assert_close(centre(sample).x, axis, TEXT);
+    }
+    assert_eq!(hit.keys.len(), 3, "the fixture shows three keys");
+    for key in &hit.keys {
+        assert_close(centre(key.rect).x, axis, TEXT);
+    }
+    // The tick labels and the title move with the bar: they still lie beyond it, clear of it.
+    let band = union_of(tick_boxes(&drawn_by(&scene, b.panel), &hit));
+    assert!(
+        band.x >= hit.bar.right(),
+        "the tick labels {band:?} lie right of the bar {:?}",
+        hit.bar
+    );
 }
 
 // Why: a fitted column holding a titled bar item widens by the title's line box and one gap, as a fitted column of a
