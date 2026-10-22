@@ -162,6 +162,11 @@ pub enum IssueKind {
     /// A legend, inside a plot area or in a panel, has a fixed number of columns of
     /// zero.
     InvalidLegendColumns,
+    /// A colour-scale item of an explicit list of legend entries asks for a bar of zero
+    /// rows. It is reported against the legend's owner (the panel, or the axes of a legend
+    /// inside its plot area) whatever the kind of the scale or the row of the item, because
+    /// a later change of either would make the count count.
+    InvalidLegendRows,
     /// The figure's width, height or base font size is not a finite positive number.
     InvalidSize,
     /// Manual limits are not finite, are not strictly increasing, or are not positive on
@@ -189,8 +194,10 @@ pub enum IssueKind {
     /// positive number. The ratio of z is checked on a two-dimensional axes too, which
     /// ignores it, so that a figure stays valid when it is made three-dimensional.
     InvalidAspect,
-    /// The length of an inside colourbar is not a fraction of the edge it lies along: a
-    /// finite number greater than 0 and at most 1. It is reported against the axes.
+    /// The length of a colourbar is not a fraction of what it lies along: a finite number
+    /// greater than 0 and at most 1. The length of an inside colourbar, a fraction of the
+    /// edge it lies along, is reported against the axes; the stated length of a panel
+    /// colourbar, a fraction of the span of the plot boxes beside it, against the panel.
     InvalidColorbarLength,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
@@ -426,9 +433,24 @@ impl Check for Panel {
             }
             PanelContent::Colorbar(colorbar) => {
                 validator.check_color_scale_reference(self.id, Some(colorbar.scale), None);
+                if let Some(length) = colorbar.length.filter(|&l| !is_fraction(l)) {
+                    validator.error(
+                        Some(self.id),
+                        IssueKind::InvalidColorbarLength,
+                        format!(
+                            "the length {length} of the colourbar is not a fraction of the span                              beside it greater than 0 and at most 1"
+                        ),
+                    );
+                }
             }
         }
     }
+}
+
+/// Returns whether a length is a fraction of what a colourbar lies along: a finite number
+/// greater than 0 and at most 1.
+fn is_fraction(length: f64) -> bool {
+    length.is_finite() && length > 0.0 && length <= 1.0
 }
 
 impl Check for Artist {
@@ -726,10 +748,15 @@ impl<'a> Validator<'a> {
         };
         let figure = self.figure;
         for (index, item) in items.iter().enumerate() {
-            if items[..index]
-                .iter()
-                .any(|earlier| earlier.content == item.content)
-            {
+            // Two items of one scale show it twice, whatever rows each asks for.
+            let same = |earlier: &crate::LegendItem| match (&earlier.content, &item.content) {
+                (
+                    LegendItemContent::ColorScale { scale: a, .. },
+                    LegendItemContent::ColorScale { scale: b, .. },
+                ) => a == b,
+                (a, b) => a == b,
+            };
+            if items[..index].iter().any(same) {
                 self.warning(
                     Some(legend),
                     IssueKind::DuplicateLegendItem,
@@ -740,10 +767,19 @@ impl<'a> Validator<'a> {
             }
             let artist = match &item.content {
                 LegendItemContent::Artist(artist) => artist,
-                LegendItemContent::ColorScale(scale) => {
+                LegendItemContent::ColorScale { scale, rows } => {
                     // A scale is a node of the figure, so any legend may list any scale;
                     // a scale draws its own labels, so its item is never unnamed.
                     self.check_color_scale_reference(legend, Some(*scale), None);
+                    if *rows == 0 {
+                        self.error(
+                            Some(legend),
+                            IssueKind::InvalidLegendRows,
+                            format!(
+                                "legend item {index} asks for a bar of no rows, which has no                                  length to show its scale along"
+                            ),
+                        );
+                    }
                     continue;
                 }
                 LegendItemContent::Custom { .. } => continue,
@@ -826,7 +862,7 @@ impl<'a> Validator<'a> {
 
         if let Some(colorbar) = axes.colorbar {
             self.check_color_scale_reference(axes.id, Some(colorbar.scale), None);
-            if !(colorbar.length.is_finite() && colorbar.length > 0.0 && colorbar.length <= 1.0) {
+            if !is_fraction(colorbar.length) {
                 self.error(
                     Some(axes.id),
                     IssueKind::InvalidColorbarLength,

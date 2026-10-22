@@ -11,7 +11,7 @@ use ironlab_ir::{
     ContinuousColorScale, Contour, DashStyle, DataArray, Figure, Grid, Image, ImagePlacement,
     ImagePlane, IndexedColorScale, Legend, LineStyle, MarkerShape, MarkerStyle, NdArray, NodeId,
     OutOfRange, Panel, PanelContent, PanelLegend, PixelRange, Projection, Quiver, ScalarImage,
-    Series, Surface, Text, View3d,
+    Series, Surface, Text, TitleAlign, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::{Lut, VIRIDIS};
@@ -556,6 +556,8 @@ impl Fx {
             id,
             cell,
             align: Default::default(),
+            title: None,
+            title_align: TitleAlign::Left,
             content: PanelContent::Legend(PanelLegend::default()),
         });
         id

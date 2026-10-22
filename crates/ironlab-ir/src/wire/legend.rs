@@ -93,6 +93,8 @@ proto_file! {
     message LegendItemContentColorScale {
         /// The node identifier of the colour scale; it must be present.
         optional uint64 scale = 1;
+        /// The number of entry rows along which a vertical bar runs; absent means 5.
+        optional uint32 rows = 2;
     }
 
     /// An artist of the figure, labelled by its label.

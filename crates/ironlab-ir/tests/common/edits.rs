@@ -301,6 +301,35 @@ pub fn representative_figures() -> Vec<Figure> {
             ColorScaleKind::Categorical(k) => paint(&mut k.outside),
         }
     }
+    // Every panel takes a title, aligned otherwise than in the kitchen-sink figure, and
+    // every colourbar the length and the title placement it does not have there, so that
+    // between the two figures every value of the panel's layout properties is set.
+    for panel in &mut full.panels {
+        panel.title.get_or_insert_with(|| Text::plain("panel"));
+        panel.title_align = match panel.title_align {
+            TitleAlign::Left => TitleAlign::Center,
+            TitleAlign::Center => TitleAlign::Right,
+            TitleAlign::Right => TitleAlign::Left,
+        };
+        if let PanelContent::Colorbar(colorbar) = &mut panel.content {
+            colorbar.length = match colorbar.length {
+                None => Some(0.5),
+                Some(_) => None,
+            };
+            colorbar.title_placement = match colorbar.title_placement {
+                ColorbarTitlePlacement::Along => ColorbarTitlePlacement::Above,
+                ColorbarTitlePlacement::Above => ColorbarTitlePlacement::Along,
+            };
+        }
+    }
+    for axes in &mut full.axes {
+        if let Some(colorbar) = &mut axes.colorbar {
+            colorbar.title_placement = match colorbar.title_placement {
+                ColorbarTitlePlacement::Along => ColorbarTitlePlacement::Above,
+                ColorbarTitlePlacement::Above => ColorbarTitlePlacement::Along,
+            };
+        }
+    }
     vec![base, full]
 }
 
@@ -565,6 +594,12 @@ pub fn perturb(value: &Value) -> Value {
             Value::InsideColorbarSide(InsideColorbarSide::North)
         }
         Value::InsideColorbarSide(_) => Value::InsideColorbarSide(InsideColorbarSide::South),
+        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along) => {
+            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above)
+        }
+        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above) => {
+            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along)
+        }
         Value::ColorSpec(spec) => Value::ColorSpec(color_spec(spec)),
         Value::LineStyle(style) => Value::LineStyle(LineStyle {
             width_pt: style.width_pt + 0.5,
@@ -727,7 +762,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 67;
+pub const VALUE_VARIANTS: usize = 68;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -803,6 +838,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::ColorbarOrientation(_) => 64,
         Value::InsideColorbar(_) => 65,
         Value::InsideColorbarSide(_) => 66,
+        Value::ColorbarTitlePlacement(_) => 67,
     }
 }
 
@@ -1044,14 +1080,18 @@ pub fn sample_values() -> Vec<Value> {
         Value::PanelColorbar(PanelColorbar {
             scale: NodeId((1 << 53) + 11),
             orientation: ColorbarOrientation::Horizontal,
+            length: Some(0.25),
+            title_placement: ColorbarTitlePlacement::Above,
         }),
         Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
         Value::InsideColorbar(InsideColorbar {
             scale: NodeId(12),
             side: InsideColorbarSide::West,
             length: 0.625,
+            title_placement: ColorbarTitlePlacement::Above,
         }),
         Value::InsideColorbarSide(InsideColorbarSide::East),
+        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
     ]
 }
 

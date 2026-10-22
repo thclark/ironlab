@@ -42,7 +42,9 @@ use crate::legend::{
 };
 use crate::link::AxisLink;
 use crate::nodes::{NodeKind, describe};
-use crate::panel::{ColorbarOrientation, Panel, PanelColorbar, PanelContent, PanelLocation};
+use crate::panel::{
+    ColorbarOrientation, ColorbarTitlePlacement, Panel, PanelColorbar, PanelContent, PanelLocation,
+};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -550,6 +552,7 @@ ir_leaf! {
     PanelLocation => PanelLocation;
     ColorbarOrientation => ColorbarOrientation;
     InsideColorbarSide => InsideColorbarSide;
+    ColorbarTitlePlacement => ColorbarTitlePlacement;
     LegendEntryOrder => LegendEntryOrder;
     AspectAdjust => AspectAdjust;
     TitleAlign => TitleAlign;
@@ -593,7 +596,7 @@ ir_node! {
     ColorScale {
         hidden "id" => id: () = "";
         optional "title" => title: Text =
-            "The title drawn with the scale: above a colourbar that shows it, and as the label of a bar item that shows it in a legend.";
+            "The title drawn with the scale beside every bar that shows it: along the bar or above it, as the bar places it.";
         plain "kind" => kind: ColorScaleKind =
             "How values become colours and how the scale is drawn: continuous, discrete, indexed or categorical.";
         plain "non_finite" => non_finite: ColorScaleOutOfRange =
@@ -630,7 +633,12 @@ ir_node! {
     Panel {
         hidden "id" => id: () = "";
         plain "cell" => cell: Cell = "The cells of the figure's tile layout that the panel occupies.";
-        plain "align" => align: PanelLocation = "Where the content is placed within the panel.";
+        plain "align" => align: PanelLocation =
+            "Where the content is placed within the panel, and where a colourbar shorter than its span is placed along it.";
+        optional "title" => title: Text =
+            "The heading drawn at the top of the panel's content; inside the border of a boxed legend.";
+        plain "title_align" => title_align: TitleAlign =
+            "How the title is aligned with the content: with its left edge, its centre or its right edge.";
         plain "content" => content: PanelContent = "What the panel holds.";
     }
 
@@ -828,6 +836,10 @@ ir_value! {
         plain "scale" => scale: NodeId = "The colour scale that the colourbar shows.";
         plain "orientation" => orientation: ColorbarOrientation =
             "Whether the bar stands upright, with low values at the bottom, or lies flat, with low values at the left.";
+        optional "length" => length: f64 =
+            "The length of the bar, with any keys it shows, as a fraction of the span of the plot boxes beside it, placed along the span by the panel's alignment; greater than 0 and at most 1. Absent means the whole span for an upright bar and half of it for a flat one.";
+        plain "title_placement" => title_placement: ColorbarTitlePlacement =
+            "Where the title of the scale is drawn: along the bar beyond its tick labels, or as a heading above it.";
     }
 
     InsideColorbar as InsideColorbar {
@@ -836,6 +848,8 @@ ir_value! {
             "The edge of the plot area along which the bar lies, which also sets whether it lies flat or stands upright.";
         plain "length" => length: f64 =
             "The length of the bar, with any keys it shows, as a fraction of the edge it lies along, centred on it; greater than 0 and at most 1.";
+        plain "title_placement" => title_placement: ColorbarTitlePlacement =
+            "Where the title of the scale is drawn: along the bar beyond its tick labels, or as a heading on the side of the bar away from them.";
     }
 
     PanelLegend as PanelLegend {

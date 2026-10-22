@@ -258,6 +258,8 @@ proto_file! {
             InsideColorbar(ValueInsideColorbar) inside_colorbar_value = 69;
             /// The edge along which an inside colourbar lies.
             InsideColorbarSide(ValueInsideColorbarSide) inside_colorbar_side_value = 70;
+            /// Where the title of a colour scale is drawn beside a colourbar.
+            ColorbarTitlePlacement(ValueColorbarTitlePlacement) colorbar_title_placement_value = 71;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -664,5 +666,11 @@ proto_file! {
     message ValueInsideColorbarSide {
         /// The side; it must be specified.
         enum InsideColorbarSide value = 1;
+    }
+
+    /// A colourbar title placement value.
+    message ValueColorbarTitlePlacement {
+        /// The placement; it must be specified.
+        enum ColorbarTitlePlacement value = 1;
     }
 }

@@ -40,7 +40,9 @@ use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation, PanelLegend,
 };
 use crate::nodes::NodeKind;
-use crate::panel::{ColorbarOrientation, PanelColorbar, PanelContent, PanelLocation};
+use crate::panel::{
+    ColorbarOrientation, ColorbarTitlePlacement, PanelColorbar, PanelContent, PanelLocation,
+};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
 use crate::text::{Interpreter, Text};
 
@@ -184,6 +186,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::PanelLocation => panel_location_choices(),
         ValueType::ColorbarOrientation => colorbar_orientation_choices(),
         ValueType::InsideColorbarSide => inside_colorbar_side_choices(),
+        ValueType::ColorbarTitlePlacement => colorbar_title_placement_choices(),
         ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
@@ -593,6 +596,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::PanelLocation(v) => panel_location_label(v),
         Value::ColorbarOrientation(v) => colorbar_orientation_label(v),
         Value::InsideColorbarSide(v) => inside_colorbar_side_label(v),
+        Value::ColorbarTitlePlacement(v) => colorbar_title_placement_label(v),
         Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
@@ -1020,6 +1024,11 @@ plain_choices! {
         InsideColorbarSide::North => "North";
         InsideColorbarSide::East => "East";
         InsideColorbarSide::West => "West";
+    }
+
+    ColorbarTitlePlacement as ColorbarTitlePlacement (colorbar_title_placement_choices, colorbar_title_placement_label) {
+        ColorbarTitlePlacement::Along => "Along";
+        ColorbarTitlePlacement::Above => "Above";
     }
 
     LegendEntryOrder as LegendEntryOrder (legend_entry_order_choices, legend_entry_order_label) {

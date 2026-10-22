@@ -64,6 +64,8 @@ A panel is a node of the figure that occupies tiles of the layout, as an axes do
 | Method | Effect |
 | --- | --- |
 | `align(location)` | Places the content within the panel. The location is a `PanelLocation`, which offers the locations listed [above](#locations) except `Best`, because a panel holds no data for its content to avoid. The default is `Center`. |
+| `title(text)` | Sets the heading drawn at the top of the panel's content, as [Titling a panel](#titling-a-panel) describes. A panel has no title by default. |
+| `title_align(align)` | Sets how the title is aligned with the content: `TitleAlign::Left`, the default, `TitleAlign::Center` or `TitleAlign::Right`. |
 | `legend()` | Returns a `PanelLegendMut` handle to the legend that the panel holds, whose setters are listed below. A panel that holds a colourbar is given a legend with the default settings in its place. |
 | `colorbar(scale)` | Makes the content of the panel a colourbar of the colour scale with the given identifier, and returns a `PanelColorbarMut` handle, as the [colour guide](colour.md#a-colourbar-in-a-panel) describes. |
 | `id()` | Returns the identifier of the panel, which axes use to send their entries to it. |
@@ -90,6 +92,18 @@ let key = fig
 Like an axes handle, both handles borrow the figure mutably, so they are held only while the panel is being set up. The identifier returned by `id()` is kept instead, to refer to the panel later. The reasons for making a legend the content of a panel, rather than a kind of node of its own, are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md#a-panel-is-one-node-kind-whose-content-decides-what-it-draws).
 
 A panel is placed in its tiles whether or not an axes already occupies them. A panel whose tiles include a tile of an axes is drawn over the plot, and [`validate`](getting-started.md#validating-a-figure) reports the pair with the warning `OverlappingCells`, as it reports two axes that share a tile. The warning names both nodes, and it is removed by giving the panel tiles of its own, for example by adding a row or column to the layout.
+
+### Titling a panel
+
+A panel may carry a **title**, a heading drawn at the top of its content, whatever the content is. The title belongs to the panel rather than to its legend or colourbar, so it stays when the content is switched between the two, and the viewer's tree names a titled panel by its title. A legend itself has no title.
+
+```rust
+let key = fig.panel(0, 1).title("Key").title_align(TitleAlign::Left).legend().id();
+```
+
+In a legend panel the title lies above the entries; in a boxed panel it lies inside the border, kept off the border by the same inset as the entries. The title is aligned with the block of entries by `title_align`: its left edge with the left edge of the entries, its centre with their centre, or its right edge with their right edge. A block narrower than its title is aligned with the title in the same way. Above a vertical colourbar that spans plots, the title lies in the margin above the first row the panel spans, as the title of an axes does, so the bar keeps the span of the plots; above a horizontal colourbar it lies within the panel. A title placed [above](colour.md#the-title-of-a-bar) the bar of the colour scale lies between the panel's title and the bar. In a [fitted](#fitting-rows-and-columns-to-their-legends) row the title adds its line and a gap to the height of the row, and a fitted column widens to hold a title wider than the content beneath it.
+
+A title is not content: a legend panel that lists nothing is still reported with the warning `NothingToDraw`, whether or not it is titled.
 
 ### Sending entries to a panel
 
@@ -266,7 +280,7 @@ let measured = ax.scatter(&t, &a).label("Measured").id();
 fig.panel(1, 0).legend().item(status).item(measured);
 ```
 
-A categorical scale is listed as one ordinary entry per category, labelled with the category's label beside a swatch of its colour, and a continuous, discrete or indexed scale as a bar five entry rows long. A scale may be any scale of the figure, whether or not a plot uses it, so a key of a classification can stand on its own. The [colour guide](colour.md#colour-keys-in-legends) describes how each is drawn and how the entries of categories merge with the other entries of a legend panel.
+A categorical scale is listed as one ordinary entry per category, labelled with the category's label beside a swatch of its colour, and a continuous, discrete or indexed scale as a vertical bar five entry rows long, centred on the column of samples so that it lines up with the samples of the entries above and below it, titled along its length, with each out-of-range key it shows as an entry row of its own above or below the bar. `LegendItem::color_scale(id).with_rows(rows)` asks for a bar of another number of rows. A scale may be any scale of the figure, whether or not a plot uses it, so a key of a classification can stand on its own. The [colour guide](colour.md#colour-keys-in-legends) describes how each is drawn and how the entries of categories merge with the other entries of a legend panel.
 
 ## Sizing rows and columns with weights
 
@@ -392,6 +406,8 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
       "id": 1,
       "cell": {"row": 1, "col": 0, "row_span": 1, "col_span": 2},
       "align": "center",
+      "title": null,
+      "title_align": "left",
       "content": {
         "type": "legend",
         "value": {"boxed": true, "layout": {"columns": {"type": "auto"}, "order": "column_major"}}
@@ -409,7 +425,7 @@ The entries of a legend are omitted while they are automatic. An explicit list i
   "value": [
     {"content": {"type": "artist", "value": 12}, "full_row": true},
     {"content": {"type": "artist", "value": 9}, "full_row": false},
-    {"content": {"type": "color_scale", "value": 4}, "full_row": false},
+    {"content": {"type": "color_scale", "value": {"scale": 4, "rows": 5}}, "full_row": false},
     {
       "content": {
         "type": "custom",
@@ -429,9 +445,9 @@ Every property is described in the [figure schema reference](../reference/figure
 ## Examples in the gallery
 
 - [Legend toggling](../gallery/legend_toggle.md) shows a legend inside an axes, with entries typeset in LaTeX, whose series can be hidden from the legend.
-- [Shared legend panel](../gallery/panel_legend_shared.md) shows temperatures at five weather stations in a grid of five axes that draw the same series, with one panel in the sixth tile listing each series once.
+- [Shared legend panel](../gallery/panel_legend_shared.md) shows temperatures at five weather stations in a grid of five axes that draw the same series, with one boxed panel, titled "Key", in the sixth tile listing each series once.
 - [Wide legend panel](../gallery/panel_legend_wide.md) shows the step and magnitude responses of a second-order system at twelve damping ratios, with a panel across the full width beneath the two plots, in a row made shorter by row weights, whose entries are arranged in automatic columns. Its panel is drawn without a border, for comparison with the bordered panel of the previous figure.
 - [Reference and variants](../gallery/reference_and_variants.md) shows a stack of three plots that share the angle of attack, with a key in a fitted row beneath them that lists the base case first, on a row of its own, although it is drawn last, followed by six perturbation levels in columns.
-- [Branch map](../gallery/branch_map.md) shows the key of a categorical colour scale as a legend panel under the plot, whose entries are the categories of the scale.
-- [Markers over a surface](../gallery/markers_over_surface.md) shows a legend panel that lists two kinds of marker and the bar of the surface's colour scale.
+- [Branch map](../gallery/branch_map.md) shows a boxed legend panel under the plot in two columns filled column by column: the categories of a categorical colour scale fill the first, and the entries of the curves and markers drawn over the map fill the second.
+- [Markers over a surface](../gallery/markers_over_surface.md) shows two boxed legend panels, each headed by its title, stacked beside a three-dimensional plot that spans their rows, each row fitted to its panel so that each border lies close round its entries. The first lists two kinds of marker and the bar of the surface's colour scale in one column, the bar centred on the samples of the markers above it; the second lists the bar of a second scale in its first column and four lines and markers in its second.
 - [Two keys](../gallery/two_keys.md) shows a curve key beside a marker key whose items stand for no plot: a grey shape for each kind of point, and a colour swatch for each surface, both in one fitted row.

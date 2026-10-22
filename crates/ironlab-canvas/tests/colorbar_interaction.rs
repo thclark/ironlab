@@ -241,9 +241,12 @@ fn figure() -> Figure {
                     ..Cell::default()
                 },
                 align: PanelLocation::Center,
+                title: None,
+                title_align: ironlab_ir::TitleAlign::Left,
                 content: PanelContent::Colorbar(PanelColorbar {
                     scale: AUTO,
                     orientation: ColorbarOrientation::Vertical,
+                    ..PanelColorbar::default()
                 }),
             },
             Panel {
@@ -253,6 +256,8 @@ fn figure() -> Figure {
                     ..Cell::default()
                 },
                 align: PanelLocation::Center,
+                title: None,
+                title_align: ironlab_ir::TitleAlign::Left,
                 content: PanelContent::Legend(PanelLegend {
                     entries: LegendEntries::Explicit(vec![LegendItem::color_scale(BANDS)]),
                     ..PanelLegend::default()
@@ -711,6 +716,7 @@ fn an_inside_bar_and_its_box_hide_the_image_beneath_them() {
         scale: AUTO,
         side: InsideColorbarSide::East,
         length: 0.8,
+        ..InsideColorbar::default()
     });
     let state = FigureState::new(figure);
     let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
@@ -1159,6 +1165,7 @@ fn after_a_gesture_every_bar_of_the_scale_shows_the_new_limits() {
         scale: AUTO,
         side: InsideColorbarSide::West,
         length: 0.8,
+        ..InsideColorbar::default()
     });
     if let PanelContent::Legend(legend) = &mut figure.panels[1].content {
         legend.entries = LegendEntries::Explicit(vec![LegendItem::color_scale(AUTO)]);

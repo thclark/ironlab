@@ -115,7 +115,13 @@ fn colorbar_panel(
         id,
         cell,
         align: PanelLocation::Center,
-        content: PanelContent::Colorbar(PanelColorbar { scale, orientation }),
+        title: None,
+        title_align: ironlab_ir::TitleAlign::Left,
+        content: PanelContent::Colorbar(PanelColorbar {
+            scale,
+            orientation,
+            ..PanelColorbar::default()
+        }),
     });
     id
 }
@@ -443,6 +449,7 @@ fn every_bar_of_one_scale_publishes_the_same_limits_and_edges() {
         scale,
         side: InsideColorbarSide::East,
         length: 0.8,
+        ..InsideColorbar::default()
     });
     let bar_panel = colorbar_panel(
         &mut fx,

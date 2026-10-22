@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use ironlab_ir::{
     Axes, Cell, Color, Dimension, NodeId, Panel, PanelContent, PanelLegend, PanelLocation,
-    Parameter, Projection, Text, TrackSize, ValidationReport,
+    Parameter, Projection, Text, TitleAlign, TrackSize, ValidationReport,
 };
 use ironlab_text::TextEngine;
 
@@ -979,6 +979,8 @@ impl Figure {
             id,
             cell,
             align: PanelLocation::default(),
+            title: None,
+            title_align: TitleAlign::Left,
             content: PanelContent::Legend(PanelLegend::default()),
         });
         id

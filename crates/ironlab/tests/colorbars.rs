@@ -128,6 +128,7 @@ fn a_spanning_panel_shows_a_shared_scale_as_one_bar() {
         PanelColorbar {
             scale: shared,
             orientation: ColorbarOrientation::Horizontal,
+            ..PanelColorbar::default()
         }
     );
     assert_eq!(
@@ -177,6 +178,7 @@ fn colorbar_and_legend_replace_content_of_the_other_kind_and_keep_their_own() {
         PanelColorbar {
             scale: first,
             orientation: ColorbarOrientation::Horizontal,
+            ..PanelColorbar::default()
         }
     );
 
@@ -186,6 +188,7 @@ fn colorbar_and_legend_replace_content_of_the_other_kind_and_keep_their_own() {
         PanelColorbar {
             scale: second,
             orientation: ColorbarOrientation::Horizontal,
+            ..PanelColorbar::default()
         },
         "the orientation is kept"
     );
@@ -229,6 +232,7 @@ fn ax_colorbar_shows_a_scale_along_an_edge_of_the_plot_area() {
             scale: s,
             side: InsideColorbarSide::East,
             length: 0.8,
+            ..InsideColorbar::default()
         })
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -252,6 +256,7 @@ fn the_length_of_an_inside_colourbar_is_set_and_kept_when_the_bar_moves() {
             scale: second,
             side: InsideColorbarSide::West,
             length: 0.5,
+            ..InsideColorbar::default()
         })
     );
 }
@@ -318,6 +323,7 @@ fn the_handles_of_a_reloaded_figure_change_its_colourbars_in_place() {
             PanelColorbar {
                 scale: second,
                 orientation: ColorbarOrientation::Horizontal,
+                ..PanelColorbar::default()
             },
             "{name}"
         );
@@ -327,6 +333,7 @@ fn the_handles_of_a_reloaded_figure_change_its_colourbars_in_place() {
                 scale: second,
                 side: InsideColorbarSide::North,
                 length: 0.25,
+                ..InsideColorbar::default()
             }),
             "{name}"
         );

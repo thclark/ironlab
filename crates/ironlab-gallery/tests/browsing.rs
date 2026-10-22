@@ -128,7 +128,7 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
             .any(|panel| matches!(panel.content, PanelContent::Colorbar(_)));
     let listed = |entries: &LegendEntries| {
         matches!(entries, LegendEntries::Explicit(items)
-            if items.iter().any(|item| matches!(item.content, LegendItemContent::ColorScale(_))))
+            if items.iter().any(|item| matches!(item.content, LegendItemContent::ColorScale { .. })))
     };
     let keyed = figure.axes.iter().any(|axes| match &axes.legend {
         Some(Legend::Inside(inside)) => listed(&inside.entries),
