@@ -1,7 +1,7 @@
 //! Selections of nodes and of data points, kept consistent with edits.
 //!
 //! A [`Selection`] names a node and, optionally, flat indices into the primary array of
-//! an artist: the x data of a line, scatter or quiver, the z data of a contour or
+//! an artist: the x data of a series or quiver, the z data of a contour or
 //! surface, and the pixels, indices or values of an image. The flat index of row `j` and
 //! column `i` of a two-dimensional array is `j * nx + i`, and the indices into the pixels
 //! of a true-colour image count colour components, so that a row of `nx` pixels of
@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::artist::{Artist, Grid, ScatterColor, ScatterSize};
+use crate::artist::{Artist, Grid};
 use crate::edit::{Edit, Transaction};
 use crate::figure::Figure;
 use crate::ids::NodeId;
@@ -141,20 +141,11 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
     let (_, artist) = figure.artist(node)?;
     let mut all = Vec::new();
     let primary = match artist {
-        Artist::Line(a) => {
+        Artist::Series(a) => {
             all.extend([a.x, a.y]);
             all.extend(a.z);
-            a.x
-        }
-        Artist::Scatter(a) => {
-            all.extend([a.x, a.y]);
-            all.extend(a.z);
-            if let ScatterSize::Data { data } = a.size {
-                all.push(data);
-            }
-            if let ScatterColor::Data { data } = a.color {
-                all.push(data);
-            }
+            all.extend(a.size_data);
+            all.extend(a.color_data);
             a.x
         }
         Artist::Quiver(a) => {

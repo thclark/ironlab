@@ -1,6 +1,6 @@
 //! Two-dimensional artists: lines, markers, scatter, contour, filled contour and quiver.
 
-use ironlab_ir::{Color, ColorSpec, DashStyle, Levels, Limits, MarkerShape, NodeId, ScatterColor};
+use ironlab_ir::{Color, ColorSpec, DashStyle, Levels, Limits, MarkerShape, NodeId};
 use ironlab_scene::Scene;
 use ironlab_scene::display::{FillRule, Point, Rgba};
 use ironlab_scene::maths::colormap::{VIRIDIS, sample};
@@ -330,9 +330,8 @@ fn scatter_colour_data_is_colormapped() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let scatter = fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
-        s.color = ScatterColor::Data {
-            data: fx.vector(&[10.0, 15.0, 20.0]),
-        };
+        s.color_data = Some(fx.vector(&[10.0, 15.0, 20.0]));
+        s.line.color = ColorSpec::Colormapped;
         s.marker.face = ColorSpec::Auto;
     });
     let scene = compile_figure(&fx.build());

@@ -22,9 +22,7 @@
 //! stated here and not in the viewer.
 
 use crate::artist::Coords;
-use crate::artist::{
-    ContourPlacement, Grid, ImagePlane, Levels, QuiverScale, ScatterColor, ScatterSize,
-};
+use crate::artist::{Artist, ContourPlacement, Grid, ImagePlane, Levels, QuiverScale, Series};
 use crate::axes::{
     Aspect, AspectAdjust, Axes, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
@@ -103,10 +101,6 @@ const FALLBACK_LEVEL: f64 = 0.0;
 /// the user picks an array of the right shape instead.
 const FALLBACK_DATA: NodeId = NodeId(0);
 
-/// The marker size that a single scatter size starts from, which is the size of a
-/// scatter built from [`ScatterSize::default`].
-const FALLBACK_MARKER_SIZE_PT: f64 = 4.0;
-
 /// The step that regularly stepped ticks start from when the value they replace holds
 /// none.
 const FALLBACK_TICK_STEP: f64 = 1.0;
@@ -166,8 +160,6 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::AspectAdjust => aspect_adjust_choices(),
         ValueType::TitleAlign => title_align_choices(),
         ValueType::ColorSpec => color_spec_choices(replacing),
-        ValueType::ScatterSize => scatter_size_choices(replacing),
-        ValueType::ScatterColor => scatter_color_choices(replacing),
         ValueType::Grid => grid_choices(replacing),
         ValueType::Levels => levels_choices(replacing),
         ValueType::ContourPlacement => contour_placement_choices(replacing),
@@ -236,18 +228,18 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// Three choices are unavailable somewhere. A colormapped colour is looked up through a
 /// colour scale only where the artist names a colour scale of the figure and the IR gives
 /// the colour a value to be looked up by: the level of each isoline of a contour
-/// (`line.color`), and the height or colour data of each face of a surface (`face` and
-/// `edge`). An artist that names no scale has nothing to look the colour up in, and the
-/// colour of a line or of a quiver, and the single colour of a scatter, have no value to
-/// look up, so the scene compiler paints the whole artist in the middle colour of viridis
-/// instead; a marker takes the colour of the plot it belongs to, so a colormapped marker
-/// is drawn exactly as an automatic one. Choosing a scatter's colour "from data" stays
-/// available, because that names the array to look the colour up by. A clamp, which
-/// paints a value in the nearest end colour of its scale, is unavailable at the
-/// `non_finite` category of a colour scale, because a non-finite value has no nearest end;
-/// it stays available at the other categories. A legend that lists the
-/// entries of its axes in a panel is unavailable when the figure has no panel of the
-/// identifier it names, because the figure would then list the entries
+/// (`line.color`), the height or colour data of each face of a surface (`face` and
+/// `edge`), and the colour data of a series (`line.color`, `marker.face` and
+/// `marker.edge`). An artist that names no scale has nothing to look the colour up in, a
+/// series without colour data has no value to look up, and neither has the colour of a
+/// quiver, so the scene compiler paints such a colour in the middle colour of viridis
+/// instead, or, on a marker, in the colour of its series. A marker face or edge of a
+/// series coloured per segment has no value at its point, so a colormapped marker colour
+/// is unavailable there too. A clamp, which paints a value in the nearest end colour of
+/// its scale, is unavailable at the `non_finite` category of a colour scale, because a
+/// non-finite value has no nearest end; it stays available at the other categories. A
+/// legend that lists the entries of its axes in a panel is unavailable when the figure has
+/// no panel of the identifier it names, because the figure would then list the entries
 /// nowhere.
 ///
 /// Returns an empty list when the node is not in the figure, when the path is not a
@@ -305,8 +297,8 @@ macro_rules! colormapped_unavailable {
             $why,
             " Colouring through a colour scale is available for the faces and edges of a \
              surface and for the isolines of a contour, which take the colour of their \
-             level, when the artist names a colour scale, and for a scatter whose colour \
-             comes from data."
+             level, and for the line and markers of a series with colour data, when the \
+             artist names a colour scale."
         )
     };
 }
@@ -317,28 +309,26 @@ const COLORMAPPED_WITHOUT_A_SCALE: &str = colormapped_unavailable!(
      up in. A colour scale is created and named by the program that builds the figure."
 );
 
-/// Why a colormapped colour is unavailable on a line.
-const COLORMAPPED_ON_A_LINE: &str = colormapped_unavailable!(
-    "A line is drawn in one colour and provides no value to look that colour up by, so a \
-     colormapped line is drawn in the middle colour of viridis."
+/// Why a colormapped colour is unavailable on a series without colour data.
+const COLORMAPPED_WITHOUT_COLOUR_DATA: &str = colormapped_unavailable!(
+    "This series has no colour data, so it provides no value to look the colour up by: a \
+     colormapped line is drawn in the middle colour of viridis, and a colormapped marker in \
+     the colour of the series, as an automatic one. Colour data is given to a series by the \
+     program that builds the figure."
+);
+
+/// Why a colormapped colour is unavailable on the markers of a series coloured per
+/// segment.
+const COLORMAPPED_MARKER_PER_SEGMENT: &str = colormapped_unavailable!(
+    "The colour data of this series holds one value per segment of its line, so no value \
+     belongs to a point and a marker has none to look its colour up by. A series whose \
+     colour data holds one value per point can colour its markers."
 );
 
 /// Why a colormapped colour is unavailable on a quiver.
 const COLORMAPPED_ON_A_QUIVER: &str = colormapped_unavailable!(
     "A quiver is drawn in one colour and provides no value to look that colour up by, so \
      colormapped arrows are drawn in the middle colour of viridis."
-);
-
-/// Why a colormapped colour is unavailable as the single colour of a scatter.
-const COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR: &str = colormapped_unavailable!(
-    "A scatter that has one colour for every marker provides no value to look that \
-     colour up by, so colormapped markers are drawn in the middle colour of viridis."
-);
-
-/// Why a colormapped colour is unavailable on the face or the edge of a marker.
-const COLORMAPPED_ON_A_MARKER: &str = colormapped_unavailable!(
-    "A marker takes the colour of the plot it belongs to rather than looking a colour up \
-     itself, so a colormapped marker is drawn exactly as an automatic one."
 );
 
 /// Why a colormapped colour is unavailable anywhere else.
@@ -360,32 +350,32 @@ fn colormapped_without_a_value_to_index_by(
     if !matches!(value, Value::ColorSpec(ColorSpec::Colormapped)) {
         return None;
     }
-    if indexes_the_colormap(kind, path) {
-        let names_a_scale = figure
+    let names_a_scale = || {
+        figure
             .artist(node)
             .and_then(|(_, artist)| artist.color_scale())
-            .is_some_and(|scale| figure.color_scale(scale).is_some());
-        return (!names_a_scale).then_some(COLORMAPPED_WITHOUT_A_SCALE);
+            .is_some_and(|scale| figure.color_scale(scale).is_some())
+    };
+    if kind == NodeKind::Series {
+        let Some((_, Artist::Series(series))) = figure.artist(node) else {
+            return None;
+        };
+        return series_colormapped(figure, series, path, names_a_scale());
     }
-    if path
-        .segments()
-        .first()
-        .is_some_and(|first| first == "marker")
-    {
-        return Some(COLORMAPPED_ON_A_MARKER);
+    if indexes_the_colormap(kind, path) {
+        return (!names_a_scale()).then_some(COLORMAPPED_WITHOUT_A_SCALE);
     }
     // The match is exhaustive, so a kind added to the IR does not compile until it is
     // said why a colour of that kind cannot be colormapped.
     Some(match kind {
-        NodeKind::Line => COLORMAPPED_ON_A_LINE,
         NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
-        NodeKind::Scatter => COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR,
-        // Every colour of a contour and of a surface indexes the colormap, and a figure, a
-        // data array, a colour scale, an axes, a panel and an image hold no colour
-        // specification at all (the fixed colour of an out-of-range policy is a colour,
-        // not a specification), so these kinds reach this reason only if they gain a
-        // colour that indexes nothing.
-        NodeKind::Contour
+        // Every colour of a contour and of a surface indexes the colormap, every colour
+        // of a series is decided above, and a figure, a data array, a colour scale, an
+        // axes, a panel and an image hold no colour specification at all (the fixed
+        // colour of an out-of-range policy is a colour, not a specification), so these
+        // kinds reach this reason only if they gain a colour that indexes nothing.
+        NodeKind::Series
+        | NodeKind::Contour
         | NodeKind::Surface
         | NodeKind::Figure
         | NodeKind::DataArray
@@ -395,6 +385,33 @@ fn colormapped_without_a_value_to_index_by(
         | NodeKind::ScalarImage
         | NodeKind::Panel => COLORMAPPED_ELSEWHERE,
     })
+}
+
+/// Returns why a colormapped colour is unavailable at a colour property of a series, or
+/// `None` when it is available: the series must have colour data and name a colour scale
+/// of the figure, and a marker colour needs one value per point.
+fn series_colormapped(
+    figure: &Figure,
+    series: &Series,
+    path: &PropertyPath,
+    names_a_scale: bool,
+) -> Option<&'static str> {
+    let Some(colors) = series.color_data else {
+        return Some(COLORMAPPED_WITHOUT_COLOUR_DATA);
+    };
+    if !names_a_scale {
+        return Some(COLORMAPPED_WITHOUT_A_SCALE);
+    }
+    let on_a_marker = path
+        .segments()
+        .first()
+        .is_some_and(|first| first == "marker");
+    let length = |id| figure.data_array(id).map(|data| data.array.len());
+    let per_segment = matches!(
+        (length(colors), length(series.x)),
+        (Some(values), Some(points)) if values + 1 == points
+    );
+    (on_a_marker && per_segment).then_some(COLORMAPPED_MARKER_PER_SEGMENT)
 }
 
 /// Why a clamp is unavailable at the non-finite category of a colour scale.
@@ -494,13 +511,13 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         NodeKind::Surface => segments == ["face"] || segments == ["edge"],
         // An image holds no colour specification: a true-colour image carries its own
         // colours, and a scalar image maps its numbers through its scale rather than
-        // through a colour property.
+        // through a colour property. The colours of a series index the colormap when it
+        // has colour data, which `series_colormapped` decides.
         NodeKind::Figure
         | NodeKind::DataArray
         | NodeKind::ColorScale
         | NodeKind::Axes
-        | NodeKind::Line
-        | NodeKind::Scatter
+        | NodeKind::Series
         | NodeKind::Quiver
         | NodeKind::Image
         | NodeKind::ScalarImage
@@ -523,8 +540,6 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::AspectAdjust(v) => aspect_adjust_label(v),
         Value::TitleAlign(v) => title_align_label(v),
         Value::ColorSpec(v) => color_spec_label(v),
-        Value::ScatterSize(v) => scatter_size_label(v),
-        Value::ScatterColor(v) => scatter_color_label(v),
         Value::Grid(v) => grid_label(v),
         Value::Levels(v) => levels_label(v),
         Value::ContourPlacement(v) => contour_placement_label(v),
@@ -700,36 +715,6 @@ tagged_choices! {
         };
         ColorSpec::None => "None" = ColorSpec::None;
         ColorSpec::Colormapped => "Colormapped" = ColorSpec::Colormapped;
-    }
-
-    ScatterSize as ScatterSize (scatter_size_choices, scatter_size_label) replacing replacing {
-        ScatterSize::Scalar { .. } => "Single size" = ScatterSize::Scalar {
-            value: match replacing {
-                Some(Value::ScatterSize(ScatterSize::Scalar { value })) => *value,
-                _ => FALLBACK_MARKER_SIZE_PT,
-            },
-        };
-        ScatterSize::Data { .. } => "From data" = ScatterSize::Data {
-            data: match replacing {
-                Some(Value::ScatterSize(ScatterSize::Data { data })) => *data,
-                _ => FALLBACK_DATA,
-            },
-        };
-    }
-
-    ScatterColor as ScatterColor (scatter_color_choices, scatter_color_label) replacing replacing {
-        ScatterColor::Spec { .. } => "Single colour" = ScatterColor::Spec {
-            spec: match replacing {
-                Some(Value::ScatterColor(ScatterColor::Spec { spec })) => *spec,
-                _ => ColorSpec::Auto,
-            },
-        };
-        ScatterColor::Data { .. } => "From data" = ScatterColor::Data {
-            data: match replacing {
-                Some(Value::ScatterColor(ScatterColor::Data { data })) => *data,
-                _ => FALLBACK_DATA,
-            },
-        };
     }
 
     Grid as Grid (grid_choices, grid_label) replacing replacing {
@@ -1036,14 +1021,10 @@ plain_choices! {
 }
 
 /// The colour that a fixed colour takes from the value it replaces: the colour of a
-/// fixed colour, of a scatter colour that holds one, of an out-of-range policy that
-/// paints one, or black.
+/// fixed colour, of an out-of-range policy that paints one, or black.
 fn replaced_color(replacing: Option<&Value>) -> Color {
     match replacing {
         Some(Value::ColorSpec(ColorSpec::Rgba { color })) => *color,
-        Some(Value::ScatterColor(ScatterColor::Spec {
-            spec: ColorSpec::Rgba { color },
-        })) => *color,
         Some(Value::OutOfRange(OutOfRange::Rgba { color })) => *color,
         _ => Color::BLACK,
     }

@@ -5,10 +5,6 @@ proto_file! {
     message Artist {
         /// The kind of artist; it must be set.
         oneof kind: ArtistKind {
-            /// A polyline with optional markers.
-            Line(Line) line = 1;
-            /// Markers at data points with per-point size and colour.
-            Scatter(Scatter) scatter = 2;
             /// Isolines or filled isobands of a gridded field.
             Contour(Contour) contour = 3;
             /// Arrows at data points.
@@ -19,14 +15,18 @@ proto_file! {
             Image(Image) image = 6;
             /// A raster of numbers, each mapped to a colour through a colour scale.
             ScalarImage(ScalarImage) scalar_image = 9;
+            /// Data points drawn as a line, as markers or as both.
+            Series(Series) series = 10;
         }
+        /// The numbers and names of the line and the scatter, which a series replaced.
+        reserved 1, 2, line, scatter;
         /// The numbers and names of the colour-indexed and colour-mapped images, which a
         /// scalar image replaced.
         reserved 7, 8, indexed_image, mapped_image;
     }
 
-    /// A polyline through data points, with optional markers at the points.
-    message Line {
+    /// Data points drawn as a line through them, as markers at them, or as both.
+    message Series {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
         /// The label drawn beside the artist in a legend; absent when there is none.
@@ -40,106 +40,35 @@ proto_file! {
         /// The data identifier of the z coordinates of the points; absent when the
         /// points lie in the plane z = 0.
         optional uint64 z = 6;
-        /// The style of the line through the points.
+        /// The style of the line through the points, whose colour is the colour of the
+        /// series.
         message LineStyle line = 7;
         /// The style of the markers at the points.
         message MarkerStyle marker = 8;
+        /// The data identifier of the diameter of each marker in points, one per point;
+        /// absent when every marker takes the marker size.
+        optional uint64 size_data = 9;
+        /// The data identifier of the values that colour the series, one per point or
+        /// one per segment; absent for a series of fixed colours.
+        optional uint64 color_data = 10;
+        /// The node identifier of the colour scale through which the colour data is
+        /// mapped; absent when the series names none.
+        optional uint64 color_scale = 11;
         /// How the x values are placed: as data or as fractions of the plot area.
-        enum Coords x_coords = 9;
+        enum Coords x_coords = 12;
         /// How the y values are placed: as data or as fractions of the plot area.
-        enum Coords y_coords = 10;
+        enum Coords y_coords = 13;
         /// Whether the artist is clipped to the plot area.
-        optional bool clip = 11;
+        optional bool clip = 14;
     }
 
-    /// Markers at data points, each with its own size and colour.
-    message Scatter {
-        /// The node identifier of the artist, unique within the figure.
-        optional uint64 id = 1;
-        /// The label drawn beside the artist in a legend; absent when there is none.
-        message Text label = 2;
-        /// Whether the artist is drawn.
-        optional bool visible = 3;
-        /// The data identifier of the x coordinates of the points.
-        optional uint64 x = 4;
-        /// The data identifier of the y coordinates of the points.
-        optional uint64 y = 5;
-        /// The data identifier of the z coordinates of the points; absent when the
-        /// points lie in the plane z = 0.
-        optional uint64 z = 6;
-        /// The size of the markers, which overrides the marker style's size.
-        message ScatterSize size = 7;
-        /// The colour of the markers, applied wherever the marker face or edge is
-        /// automatic.
-        message ScatterColor color = 8;
-        /// The marker shape and the use of the scatter colour for face and edge.
-        message MarkerStyle marker = 9;
-        /// How the x values are placed: as data or as fractions of the plot area.
-        enum Coords x_coords = 10;
-        /// How the y values are placed: as data or as fractions of the plot area.
-        enum Coords y_coords = 11;
-        /// Whether the artist is clipped to the plot area.
-        optional bool clip = 12;
-        /// The node identifier of the colour scale through which colour data is mapped;
-        /// absent when the scatter names none.
-        optional uint64 color_scale = 13;
-    }
-
-    /// How the values of one dimension of a line or scatter are placed in a 2D axes.
+    /// How the values of one dimension of a series are placed in a 2D axes.
     enum Coords {
         /// The values are data, placed through the limits and scale of the axis.
         Data = 1;
         /// The values are fractions of the plot area along the dimension, 0 at its left
         /// or bottom edge and 1 at its right or top edge.
         AxesFraction = 2;
-    }
-
-    /// The size of scatter markers.
-    message ScatterSize {
-        /// The kind of size; unset means the default of the context.
-        oneof kind: ScatterSizeKind {
-            /// Every marker has the same size.
-            Scalar(ScatterSizeScalar) scalar = 1;
-            /// Each marker has its own size.
-            Data(ScatterSizeData) data = 2;
-        }
-    }
-
-    /// Every marker has the same size.
-    message ScatterSizeScalar {
-        /// The marker size in points, measured as the width of the marker.
-        optional double value = 1;
-    }
-
-    /// Each marker has its own size.
-    message ScatterSizeData {
-        /// The data identifier of the marker sizes in points, one per point.
-        optional uint64 data = 1;
-    }
-
-    /// The colour of scatter markers.
-    message ScatterColor {
-        /// The kind of colour; unset means the default of the context.
-        oneof kind: ScatterColorKind {
-            /// Every marker has the same colour.
-            Spec(ScatterColorSpec) spec = 1;
-            /// Each marker is coloured by a data value through the colour scale of the
-            /// scatter.
-            Data(ScatterColorData) data = 2;
-        }
-    }
-
-    /// Every marker has the same colour.
-    message ScatterColorSpec {
-        /// The colour of every marker.
-        message ColorSpec spec = 1;
-    }
-
-    /// Each marker is coloured by a data value through the colour scale of the scatter.
-    message ScatterColorData {
-        /// The data identifier of the values, one per point, mapped through the colour
-        /// scale of the scatter.
-        optional uint64 data = 1;
     }
 
     /// Isolines or filled isobands of a scalar field sampled on a grid.

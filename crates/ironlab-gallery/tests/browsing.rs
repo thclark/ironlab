@@ -102,8 +102,10 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
         for artist in &axes.artists {
             tags.insert(
                 match artist {
-                    Artist::Line(_) => "line",
-                    Artist::Scatter(_) => "scatter",
+                    // A series is a line when it draws one, and a scatter when it draws markers alone.
+                    Artist::Series(s) if s.draws_line() => "line",
+                    Artist::Series(s) if s.draws_markers() => "scatter",
+                    Artist::Series(_) => continue,
                     Artist::Contour(_) => "contour",
                     Artist::Quiver(_) => "quiver",
                     Artist::Surface(_) => "surface",

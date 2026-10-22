@@ -21,7 +21,7 @@ use crate::pixels::{ByteMatrix, ImageValues, Pixels};
 /// given the same identifier draws the same array, and an edit of that array (in the
 /// viewer, or through [`Edit::ReplaceData`](crate::ir::Edit::ReplaceData)) changes all of
 /// them. The identifier is the one returned by [`Figure::data`](crate::Figure::data) or by
-/// an accessor of an artist handle, such as [`LineMut::x_data`](crate::LineMut::x_data).
+/// an accessor of an artist handle, such as [`SeriesMut::x_data`](crate::SeriesMut::x_data).
 /// An identifier that names no data array is stored all the same, without a panic or an
 /// error from the call, and [`Figure::validate`](crate::Figure::validate) reports it: as
 /// `WrongNodeKind` when it names another kind of node, and as `UnknownData` when it names

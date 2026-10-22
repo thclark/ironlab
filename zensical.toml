@@ -49,6 +49,7 @@ nav = [
     { "0022 Figure nodes in one identifier space, and panels that hold content" = "adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md" },
     { "0023 Titles, labels, names and tags" = "adrs/0023-titles-labels-names-and-tags.md" },
     { "0024 Colour scales as figure nodes, colourbars and colour keys" = "adrs/0024-colour-scales-colourbars-and-colour-keys.md" },
+    { "0025 A series replaces the line and scatter artists" = "adrs/0025-series-replaces-line-and-scatter.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

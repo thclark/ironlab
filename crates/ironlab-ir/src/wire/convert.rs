@@ -17,10 +17,10 @@ use crate::{
     FigureSize, FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
     InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
     LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
-    Line, LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange,
-    Panel, PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
-    Quiver, QuiverScale, ScalarImage, Scale, Scatter, ScatterColor, ScatterSize, Surface, Text,
-    TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
+    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
+    PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
+    Quiver, QuiverScale, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks, TileLayout,
+    TitleAlign, TrackSize, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -529,30 +529,6 @@ fn encode_grid(grid: Grid) -> w::Grid {
     w::Grid { kind: Some(kind) }
 }
 
-fn encode_scatter_size(size: ScatterSize) -> w::ScatterSize {
-    let kind = match size {
-        ScatterSize::Scalar { value } => {
-            w::ScatterSizeKind::Scalar(w::ScatterSizeScalar { value: Some(value) })
-        }
-        ScatterSize::Data { data } => {
-            w::ScatterSizeKind::Data(w::ScatterSizeData { data: Some(data.0) })
-        }
-    };
-    w::ScatterSize { kind: Some(kind) }
-}
-
-fn encode_scatter_color(color: ScatterColor) -> w::ScatterColor {
-    let kind = match color {
-        ScatterColor::Spec { spec } => w::ScatterColorKind::Spec(w::ScatterColorSpec {
-            spec: Some(encode_color_spec(spec)),
-        }),
-        ScatterColor::Data { data } => {
-            w::ScatterColorKind::Data(w::ScatterColorData { data: Some(data.0) })
-        }
-    };
-    w::ScatterColor { kind: Some(kind) }
-}
-
 fn encode_levels(levels: &Levels) -> w::Levels {
     let kind = match levels {
         Levels::Auto { count } => w::LevelsKind::Auto(w::LevelsAuto {
@@ -626,11 +602,11 @@ fn encode_out_of_range(policy: OutOfRange) -> w::OutOfRange {
     w::OutOfRange { kind: Some(kind) }
 }
 
-impl Encode for Line {
-    type Message = w::Line;
+impl Encode for Series {
+    type Message = w::Series;
 
-    fn encode(&self) -> w::Line {
-        w::Line {
+    fn encode(&self) -> w::Series {
+        w::Series {
             id: Some(self.id.0),
             label: self.label.as_ref().map(encode_text),
             visible: Some(self.visible),
@@ -639,31 +615,12 @@ impl Encode for Line {
             z: self.z.map(|id| id.0),
             line: Some(encode_line_style(self.line)),
             marker: Some(encode_marker_style(self.marker)),
-            x_coords: self.x_coords.to_wire(),
-            y_coords: self.y_coords.to_wire(),
-            clip: Some(self.clip),
-        }
-    }
-}
-
-impl Encode for Scatter {
-    type Message = w::Scatter;
-
-    fn encode(&self) -> w::Scatter {
-        w::Scatter {
-            id: Some(self.id.0),
-            label: self.label.as_ref().map(encode_text),
-            visible: Some(self.visible),
-            x: Some(self.x.0),
-            y: Some(self.y.0),
-            z: self.z.map(|id| id.0),
-            size: Some(encode_scatter_size(self.size)),
-            color: Some(encode_scatter_color(self.color)),
-            marker: Some(encode_marker_style(self.marker)),
-            x_coords: self.x_coords.to_wire(),
-            y_coords: self.y_coords.to_wire(),
-            clip: Some(self.clip),
+            size_data: self.size_data.map(|id| id.0),
+            color_data: self.color_data.map(|id| id.0),
             color_scale: self.color_scale.map(|id| id.0),
+            x_coords: self.x_coords.to_wire(),
+            y_coords: self.y_coords.to_wire(),
+            clip: Some(self.clip),
         }
     }
 }
@@ -1508,12 +1465,12 @@ impl Decode for Axes {
     }
 }
 
-impl Decode for Line {
-    type Message = w::Line;
+impl Decode for Series {
+    type Message = w::Series;
 
-    fn decode(wire: w::Line, at: &str) -> Result<Self> {
-        let default = Line::default();
-        Ok(Line {
+    fn decode(wire: w::Series, at: &str) -> Result<Self> {
+        let default = Series::default();
+        Ok(Series {
             id: node_id(wire.id, at)?,
             label: decode_label(wire.label, at)?,
             visible: wire.visible.unwrap_or(default.visible),
@@ -1522,47 +1479,14 @@ impl Decode for Line {
             z: wire.z.map(NodeId),
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
             marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+            size_data: wire.size_data.map(NodeId),
+            color_data: wire.color_data.map(NodeId),
+            color_scale: wire.color_scale.map(NodeId),
             x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
             y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
             clip: wire.clip.unwrap_or(default.clip),
         })
     }
-}
-
-/// Decodes the size of scatter markers; `at` is the path of the size itself.
-fn decode_scatter_size(wire: Option<w::ScatterSize>, at: &str) -> Result<ScatterSize> {
-    Ok(match wire.and_then(|size| size.kind) {
-        None => ScatterSize::default(),
-        Some(w::ScatterSizeKind::Scalar(scalar)) => {
-            let ScatterSize::Scalar { value } = ScatterSize::default() else {
-                unreachable!("the default scatter size is a scalar");
-            };
-            ScatterSize::Scalar {
-                value: scalar.value.unwrap_or(value),
-            }
-        }
-        Some(w::ScatterSizeKind::Data(data)) => ScatterSize::Data {
-            data: reference(data.data, at, "data.data")?,
-        },
-    })
-}
-
-/// Decodes the colour of scatter markers; `at` is the path of the colour itself.
-fn decode_scatter_color(wire: Option<w::ScatterColor>, at: &str) -> Result<ScatterColor> {
-    Ok(match wire.and_then(|color| color.kind) {
-        None => ScatterColor::default(),
-        Some(w::ScatterColorKind::Spec(spec)) => {
-            let ScatterColor::Spec { spec: default_spec } = ScatterColor::default() else {
-                unreachable!("the default scatter colour is a colour specification");
-            };
-            ScatterColor::Spec {
-                spec: decode_color_spec(spec.spec, default_spec),
-            }
-        }
-        Some(w::ScatterColorKind::Data(data)) => ScatterColor::Data {
-            data: reference(data.data, at, "data.data")?,
-        },
-    })
 }
 
 /// Decodes the levels of a contour.
@@ -1602,31 +1526,6 @@ fn decode_quiver_scale(wire: Option<w::QuiverScale>, at: &str) -> Result<QuiverS
         },
         Some(w::QuiverScaleKind::Off(_)) => QuiverScale::Off,
     })
-}
-
-impl Decode for Scatter {
-    type Message = w::Scatter;
-
-    fn decode(wire: w::Scatter, at: &str) -> Result<Self> {
-        let default = Scatter::default();
-        let size = decode_scatter_size(wire.size, &join(at, "size"))?;
-        let color = decode_scatter_color(wire.color, &join(at, "color"))?;
-        Ok(Scatter {
-            id: node_id(wire.id, at)?,
-            label: decode_label(wire.label, at)?,
-            visible: wire.visible.unwrap_or(default.visible),
-            x: reference(wire.x, at, "x")?,
-            y: reference(wire.y, at, "y")?,
-            z: wire.z.map(NodeId),
-            size,
-            color,
-            color_scale: wire.color_scale.map(NodeId),
-            marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
-            x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
-            y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
-            clip: wire.clip.unwrap_or(default.clip),
-        })
-    }
 }
 
 /// Decodes the grid of a contour or surface, which has no default; `at` is the path of
@@ -2197,12 +2096,6 @@ fn encode_value(value: &Value) -> w::Value {
         Value::MarkerShape(v) => {
             w::ValueKind::MarkerShape(w::ValueMarkerShape { value: v.to_wire() })
         }
-        Value::ScatterSize(v) => w::ValueKind::ScatterSize(w::ValueScatterSize {
-            value: Some(encode_scatter_size(*v)),
-        }),
-        Value::ScatterColor(v) => w::ValueKind::ScatterColor(w::ValueScatterColor {
-            value: Some(encode_scatter_color(*v)),
-        }),
         Value::Grid(v) => w::ValueKind::Grid(w::ValueGrid {
             value: Some(encode_grid(*v)),
         }),
@@ -2575,14 +2468,6 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "marker_shape_value"),
             "value",
         )?),
-        w::ValueKind::ScatterSize(v) => {
-            let (size, at) = value_message(v.value, at, "scatter_size_value")?;
-            Value::ScatterSize(decode_scatter_size(Some(size), &at)?)
-        }
-        w::ValueKind::ScatterColor(v) => {
-            let (color, at) = value_message(v.value, at, "scatter_color_value")?;
-            Value::ScatterColor(decode_scatter_color(Some(color), &at)?)
-        }
         w::ValueKind::Grid(v) => {
             let (grid, at) = value_message(v.value, at, "grid_value")?;
             Value::Grid(decode_grid(Some(grid), &at)?)

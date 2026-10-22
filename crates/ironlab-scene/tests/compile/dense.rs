@@ -219,11 +219,14 @@ fn a_decimated_line_breaks_the_dense_runs_of_a_surface_it_crosses() {
     let line = fx.line(ax, &t, &t, Some(&z), |_| {});
     let scene = compile_figure(&fx.fig);
 
-    let drawn: usize = crate::probe::from_source(&crate::probe::leaves(&scene), line)
+    // The points the line joins, as the hit map records them; a 3D line is drawn segment by segment, so its leaves
+    // repeat every interior point.
+    let drawn: usize = scene
+        .hit_map
+        .artists
         .iter()
-        .flat_map(crate::probe::Leaf::subpaths)
-        .map(|sub| sub.len())
-        .sum();
+        .find(|hit| hit.artist == line)
+        .map_or(0, |hit| hit.samples.len());
     assert!(
         drawn < count,
         "the line is decimated, so this test exercises the seam: {drawn} of {count} points drawn"

@@ -128,7 +128,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 
     draw_grid(input, &x, &y, out);
 
-    let primaries = style::primaries(axes);
+    let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
     hits.artists.extend(drawn.hits);
     hits.images.extend(drawn.images);

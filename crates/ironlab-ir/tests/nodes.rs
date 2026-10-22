@@ -52,7 +52,7 @@ fn allocation_after_loading_avoids_high_existing_ids() {
     let (mut fig, _, _) = single_line_figure();
     fig.id = NodeId(40);
     fig.axes[0].id = NodeId(1_000_000);
-    if let Artist::Line(line) = &mut fig.axes[0].artists[0] {
+    if let Artist::Series(line) = &mut fig.axes[0].artists[0] {
         line.id = NodeId(500);
     }
     let mut loaded = Figure::from_json(&fig.to_json()).unwrap();

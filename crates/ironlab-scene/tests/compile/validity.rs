@@ -1,8 +1,6 @@
 //! The validity guarantees of the display list, checked on a figure that exercises every artist.
 
-use ironlab_ir::{
-    ColorSpec, DashStyle, ImagePlane, Legend, Levels, MarkerShape, Scale, ScatterColor, View3d,
-};
+use ironlab_ir::{ColorSpec, DashStyle, ImagePlane, Legend, Levels, MarkerShape, Scale, View3d};
 use ironlab_scene::display::Item;
 use ironlab_scene::display::{ItemKind, PathSegment, Point, Rect, Rgba, Transform};
 
@@ -28,9 +26,8 @@ fn gallery_like() -> ironlab_ir::Figure {
     });
     fx.scatter(lines, &x, &x, None, |s, fx| {
         s.label = text("Scatter");
-        s.color = ScatterColor::Data {
-            data: fx.vector(&linspace(-1.0, 1.0, 25)),
-        };
+        s.color_data = Some(fx.vector(&linspace(-1.0, 1.0, 25)));
+        s.line.color = ColorSpec::Colormapped;
         s.marker.face = ColorSpec::Auto;
     });
     let ax = fx.ax(lines);

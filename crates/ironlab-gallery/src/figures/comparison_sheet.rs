@@ -81,6 +81,7 @@ pub fn figure() -> Figure {
         .tiles(3, 2)
         .title("naca4412_n160_polar30_re1e6_iter100")
         .tag("line")
+        .tag("scatter")
         .tag("subplots")
         .tag("legend")
         .tag("log")

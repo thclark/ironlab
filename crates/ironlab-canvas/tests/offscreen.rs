@@ -33,7 +33,7 @@ use ironlab_canvas::{
     RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
     render_display_list_offscreen, render_offscreen,
 };
-use ironlab_ir::{Artist, Axes, Axis, Figure, FigureSize, Limits, Line, NdArray, NodeId};
+use ironlab_ir::{Artist, Axes, Axis, Figure, FigureSize, Limits, NdArray, NodeId, Series};
 use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
@@ -377,11 +377,11 @@ fn a_compiled_figure_renders_at_its_physical_size_with_ink_inside_the_axes() {
             limits: Limits::Auto,
             ..Axis::default()
         },
-        artists: vec![Artist::Line(Line {
+        artists: vec![Artist::Series(Series {
             id: NodeId(3),
             x: array_id(0),
             y: array_id(1),
-            ..Line::default()
+            ..Series::default()
         })],
         ..Axes::default()
     });
@@ -4891,7 +4891,7 @@ fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
             limits: Limits::Manual { min: 0.0, max: 1.0 },
             ..Axis::default()
         },
-        artists: vec![Artist::Line(Line {
+        artists: vec![Artist::Series(Series {
             id: NodeId(3),
             x: array_id(0),
             y: array_id(1),
@@ -4902,7 +4902,7 @@ fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
                 width_pt: 2.0,
                 dash,
             },
-            ..Line::default()
+            ..Series::default()
         })],
         ..Axes::default()
     });

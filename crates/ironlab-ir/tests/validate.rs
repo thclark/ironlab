@@ -67,8 +67,8 @@ fn give_scales(fig: &mut Figure) {
             Artist::ScalarImage(a) => &mut a.color_scale,
             Artist::Contour(a) => &mut a.color_scale,
             Artist::Surface(a) => &mut a.color_scale,
-            Artist::Scatter(a) => &mut a.color_scale,
-            Artist::Line(_) | Artist::Quiver(_) | Artist::Image(_) => continue,
+            Artist::Series(a) if a.color_data.is_some() => &mut a.color_scale,
+            Artist::Series(_) | Artist::Quiver(_) | Artist::Image(_) => continue,
         };
         reference.get_or_insert(SCALE);
     }
@@ -81,10 +81,25 @@ fn built(b: FigureBuilder) -> Figure {
     fig
 }
 
-fn line_mut(fig: &mut Figure) -> &mut Line {
+fn line_mut(fig: &mut Figure) -> &mut Series {
     match &mut fig.axes[0].artists[0] {
-        Artist::Line(line) => line,
-        other => panic!("expected a line, found {other:?}"),
+        Artist::Series(line) => line,
+        other => panic!("expected a series, found {other:?}"),
+    }
+}
+
+/// The series that `scatter` draws: circles without a line.
+fn markers() -> Series {
+    Series {
+        line: LineStyle {
+            dash: DashStyle::None,
+            ..LineStyle::default()
+        },
+        marker: MarkerStyle {
+            shape: MarkerShape::Circle,
+            ..MarkerStyle::default()
+        },
+        ..Series::default()
     }
 }
 
@@ -191,12 +206,12 @@ fn reference_to_missing_data_is_an_error_on_the_artist() {
 #[test]
 fn optional_reference_to_missing_data_is_an_error() {
     let fx = grid_fixture(true, |id, d| {
-        Artist::Line(Line {
+        Artist::Series(Series {
             id,
             x: d.p,
             y: d.q,
             z: Some(NodeId(999)),
-            ..Line::default()
+            ..Series::default()
         })
     });
     let report = fx.fig.validate();
@@ -330,11 +345,11 @@ fn artist_referring_to_an_array_of_bytes_is_an_element_type_mismatch() {
 #[test]
 fn line_with_unequal_x_and_y_lengths_is_a_shape_mismatch() {
     let fx = grid_fixture(false, |id, d| {
-        Artist::Line(Line {
+        Artist::Series(Series {
             id,
             x: d.p,
             y: d.short,
-            ..Line::default()
+            ..Series::default()
         })
     });
     let report = fx.fig.validate();
@@ -349,26 +364,26 @@ fn line_with_unequal_x_and_y_lengths_is_a_shape_mismatch() {
 #[test]
 fn line_compares_element_counts_not_shapes() {
     let fx = grid_fixture(false, |id, d| {
-        Artist::Line(Line {
+        Artist::Series(Series {
             id,
             x: d.p,
             y: d.field,
-            ..Line::default()
+            ..Series::default()
         })
     });
     assert_eq!(fx.fig.validate().errors, vec![]);
 }
 
-// Why: per-point scatter sizes and colours must have one entry per point.
+// Why: the sizes and colours of markers must have one entry per point.
 #[test]
-fn scatter_size_or_colour_data_of_the_wrong_length_is_a_shape_mismatch() {
+fn marker_size_or_colour_data_of_the_wrong_length_is_a_shape_mismatch() {
     let sized = grid_fixture(false, |id, d| {
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             x: d.p,
             y: d.q,
-            size: ScatterSize::Data { data: d.short },
-            ..Scatter::default()
+            size_data: Some(d.short),
+            ..markers()
         })
     });
     let report = sized.fig.validate();
@@ -378,12 +393,13 @@ fn scatter_size_or_colour_data_of_the_wrong_length_is_a_shape_mismatch() {
     );
 
     let coloured = grid_fixture(false, |id, d| {
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             x: d.p,
             y: d.q,
-            color: ScatterColor::Data { data: d.short },
-            ..Scatter::default()
+            color_data: Some(d.short),
+            color_scale: Some(SCALE),
+            ..markers()
         })
     });
     let report = coloured.fig.validate();
@@ -538,24 +554,24 @@ fn three_dimensional_artists_in_two_dimensional_axes_are_errors() {
         (
             "line with z",
             Box::new(|id, d: &GridData| {
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id,
                     x: d.p,
                     y: d.q,
                     z: Some(d.r),
-                    ..Line::default()
+                    ..Series::default()
                 })
             }),
         ),
         (
             "scatter with z",
             Box::new(|id, d: &GridData| {
-                Artist::Scatter(Scatter {
+                Artist::Series(Series {
                     id,
                     x: d.p,
                     y: d.q,
                     z: Some(d.r),
-                    ..Scatter::default()
+                    ..markers()
                 })
             }),
         ),
@@ -858,23 +874,23 @@ fn a_line_scatter_or_quiver_of_no_points_is_a_warning_that_names_each_artist() {
         let line = b.node();
         b.push(
             axes,
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: line,
                 x,
                 y,
                 z,
-                ..Line::default()
+                ..Series::default()
             }),
         );
         let scatter = b.node();
         b.push(
             axes,
-            Artist::Scatter(Scatter {
+            Artist::Series(Series {
                 id: scatter,
                 x,
                 y,
                 z,
-                ..Scatter::default()
+                ..markers()
             }),
         );
         let (u, v) = (b.data(e()), b.data(e()));
@@ -921,22 +937,22 @@ fn a_line_scatter_or_quiver_of_no_points_is_a_warning_that_names_each_artist() {
         let ids = [b.node(), b.node(), b.node()];
         b.push(
             axes,
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: ids[0],
                 x,
                 y,
                 z,
-                ..Line::default()
+                ..Series::default()
             }),
         );
         b.push(
             axes,
-            Artist::Scatter(Scatter {
+            Artist::Series(Series {
                 id: ids[1],
                 x,
                 y,
                 z,
-                ..Scatter::default()
+                ..markers()
             }),
         );
         b.push(
@@ -1021,11 +1037,11 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
             "an empty line whose y is unknown",
             IssueKind::UnknownData,
             Box::new(|b, id| {
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id,
                     x: empty(b),
                     y: NodeId(999),
-                    ..Line::default()
+                    ..Series::default()
                 })
             }),
         ),
@@ -1033,11 +1049,11 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
             "an empty scatter whose x holds bytes",
             IssueKind::ElementTypeMismatch,
             Box::new(|b, id| {
-                Artist::Scatter(Scatter {
+                Artist::Series(Series {
                     id,
                     x: b.bytes(vec![0], vec![]),
                     y: empty(b),
-                    ..Scatter::default()
+                    ..markers()
                 })
             }),
         ),
@@ -1401,12 +1417,12 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
     let scatter = b.node();
     b.push(
         axes,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id: scatter,
             x: positions,
             y: positions,
-            color: ScatterColor::Data { data: components },
-            ..Scatter::default()
+            color_data: Some(components),
+            ..markers()
         }),
     );
     let report = built(b).validate();
@@ -2906,12 +2922,12 @@ fn two_axes_and_a_panel() -> (Figure, [NodeId; 2], [NodeId; 2], NodeId) {
         lines[k] = b.node();
         b.push(
             axes[k],
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: lines[k],
                 label: Some(Text::plain(format!("line {k}"))),
                 x,
                 y: x,
-                ..Line::default()
+                ..Series::default()
             }),
         );
     }
@@ -3331,7 +3347,7 @@ fn a_cell_outside_the_layout_is_not_also_reported_as_overlapping() {
 
 // Why: a fraction of the plot area has a meaning only in a two-dimensional axes, whose plot
 // area is a rectangle with a left and a bottom edge; a three-dimensional axes has a camera
-// instead, so a line or scatter that places a dimension as a fraction there cannot be drawn
+// instead, so a series that places a dimension as a fraction there cannot be drawn
 // as described, and the error names the artist so that it can be found.
 #[test]
 fn axes_fraction_coordinates_in_a_three_dimensional_axes_are_an_error() {
@@ -3345,16 +3361,16 @@ fn axes_fraction_coordinates_in_a_three_dimensional_axes_are_an_error() {
                 view3d: View3d::default(),
             };
             if scatter {
-                let Artist::Line(line) = fig.axes[0].artists[0].clone() else {
-                    unreachable!("the fixture holds a line");
+                let Artist::Series(line) = fig.axes[0].artists[0].clone() else {
+                    unreachable!("the fixture holds a series");
                 };
-                fig.axes[0].artists[0] = Artist::Scatter(Scatter {
+                fig.axes[0].artists[0] = Artist::Series(Series {
                     id: line.id,
                     x: line.x,
                     y: line.y,
                     x_coords,
                     y_coords,
-                    ..Scatter::default()
+                    ..markers()
                 });
             } else {
                 let line = line_mut(&mut fig);

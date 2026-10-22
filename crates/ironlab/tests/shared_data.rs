@@ -12,8 +12,8 @@
 //! - Every data argument of a plotting call is `impl Into<DataSource>`. A slice, vector or
 //!   matrix is copied into a new, unnamed data array, as before; a `NodeId` is stored as
 //!   the reference itself, so the artist shares the array and nothing is copied.
-//! - Artist handles return the arrays they refer to: `LineMut::x_data`, `LineMut::y_data`,
-//!   `ScatterMut::x_data` and `ScatterMut::y_data`, each `-> NodeId`.
+//! - Artist handles return the arrays they refer to: `SeriesMut::x_data` and
+//!   `SeriesMut::y_data`, each `-> NodeId`.
 //! - The gridded coordinates `x` and `y` accept a `NodeId` as well. The facade reads the
 //!   rank of the array the identifier names: a vector is a coordinate per column or row and
 //!   a matrix a coordinate per node, as for values. An identifier is never copied, so a
@@ -22,7 +22,7 @@
 //! - A `NodeId` that names a node other than a data array, or no node at all, is stored as
 //!   given, without a panic or an error from the plotting call, and reported by
 //!   `Figure::validate` (see the test of that case for why).
-//! - The setters that give an artist an array (`sizes`, `colors`, `color_data`,
+//! - The setters that give an artist an array (`size_data`, `color_data`,
 //!   `face_alpha`, `edge_alpha` and `alpha`) also take `impl Into<DataSource>`. A setter
 //!   deletes the array it replaces only when no artist refers to it any more and the
 //!   array has no name, which records in the IR that the facade copied it from values:
@@ -45,21 +45,12 @@ fn fresh(name: &str) -> PathBuf {
     path
 }
 
-/// Returns the line with the given identifier.
+/// Returns the series with the given identifier.
 #[track_caller]
-fn line(fig: &Figure, id: NodeId) -> &ir::Line {
+fn series(fig: &Figure, id: NodeId) -> &ir::Series {
     match fig.ir().artist(id) {
-        Some((_, Artist::Line(line))) => line,
-        other => panic!("expected the line {id}, found {other:?}"),
-    }
-}
-
-/// Returns the scatter with the given identifier.
-#[track_caller]
-fn scatter(fig: &Figure, id: NodeId) -> &ir::Scatter {
-    match fig.ir().artist(id) {
-        Some((_, Artist::Scatter(scatter))) => scatter,
-        other => panic!("expected the scatter {id}, found {other:?}"),
+        Some((_, Artist::Series(series))) => series,
+        other => panic!("expected the series {id}, found {other:?}"),
     }
 }
 
@@ -105,8 +96,8 @@ fn shared_time_base() -> (Figure, NodeId, NodeId, NodeId) {
 #[test]
 fn artists_plotted_with_one_node_id_share_one_array() {
     let (fig, time, first, second) = shared_time_base();
-    assert_eq!(line(&fig, first).x, time);
-    assert_eq!(line(&fig, second).x, time);
+    assert_eq!(series(&fig, first).x, time);
+    assert_eq!(series(&fig, second).x, time);
     // The time base and one y array per line: three arrays, not four.
     assert_eq!(fig.ir().data.len(), 3);
     let report = fig.validate();
@@ -158,8 +149,8 @@ fn the_arrays_of_one_artist_can_be_shared_by_another_in_any_role() {
     let (xd, yd) = (handle.x_data(), handle.y_data());
     // The same curve with its axes exchanged, as markers, in another axes.
     let swapped = fig.axes(0, 1).scatter(yd, xd).id();
-    assert_eq!(scatter(&fig, swapped).x, yd);
-    assert_eq!(scatter(&fig, swapped).y, xd);
+    assert_eq!(series(&fig, swapped).x, yd);
+    assert_eq!(series(&fig, swapped).y, xd);
     assert_eq!(fig.ir().data.len(), 2);
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
@@ -250,10 +241,10 @@ fn a_wrapped_figure_keeps_its_sharing_and_its_arrays_can_be_reused() {
     let (fig, time, first, _) = shared_time_base();
     let mut wrapped = Figure::from_ir(fig.ir().clone());
     assert_eq!(wrapped, fig);
-    let y = line(&wrapped, first).y;
+    let y = series(&wrapped, first).y;
     let added = wrapped.axes(1, 0).plot(time, y).id();
-    assert_eq!(line(&wrapped, added).x, time);
-    assert_eq!(line(&wrapped, added).y, y);
+    assert_eq!(series(&wrapped, added).x, time);
+    assert_eq!(series(&wrapped, added).y, y);
     assert_eq!(wrapped.ir().data.len(), 3, "nothing was copied");
     assert!(wrapped.validate().is_valid(), "{:?}", wrapped.validate());
 }
@@ -268,7 +259,7 @@ fn name_sets_the_name_of_the_array_and_copies_from_values_are_unnamed() {
         fig.ir().data_array(time).unwrap().name.as_deref(),
         Some("time (s)")
     );
-    let copied = line(&fig, first).y;
+    let copied = series(&fig, first).y;
     assert_eq!(fig.ir().data_array(copied).unwrap().name, None);
     let renamed = fig.data("first", [1.0]).name("second").id();
     assert_eq!(
@@ -295,16 +286,17 @@ fn a_setter_deletes_its_own_copies_but_never_an_array_made_with_fig_data() {
     let mut ax = fig.axes(0, 0);
     let replaced = ax
         .scatter(x, x)
-        .sizes(reused)
-        .sizes(unused)
-        .sizes([2.0, 3.0, 4.0])
-        .sizes([5.0, 6.0, 7.0])
+        .size_data(reused)
+        .size_data(unused)
+        .size_data([2.0, 3.0, 4.0])
+        .size_data([5.0, 6.0, 7.0])
         .id();
     // The array replaced first is still there to be reused, by identifier.
-    let reuser = ax.scatter(x, x).sizes(reused).id();
-    let size = |id| match scatter(&fig, id).size {
-        ir::ScatterSize::Data { data } => data,
-        ref other => panic!("expected sizes from data, found {other:?}"),
+    let reuser = ax.scatter(x, x).size_data(reused).id();
+    let size = |id| {
+        series(&fig, id)
+            .size_data
+            .expect("the series has size data")
     };
     assert_eq!(size(reuser), reused);
     let last = size(replaced);
@@ -338,9 +330,9 @@ fn a_wrapped_figure_applies_the_same_rule_to_its_arrays() {
     let mut wrapped = Figure::from_ir(fig.into_ir());
     let mut ax = wrapped.axes(0, 0);
     ax.scatter(x, x)
-        .sizes(made)
-        .sizes([2.0, 3.0, 4.0])
-        .sizes([5.0, 6.0, 7.0]);
+        .size_data(made)
+        .size_data([2.0, 3.0, 4.0])
+        .size_data([5.0, 6.0, 7.0]);
     assert_eq!(values(&wrapped, made), [4.0, 9.0, 16.0]);
     // x, y, the array made before wrapping and the last sizes.
     assert_eq!(wrapped.ir().data.len(), 4);

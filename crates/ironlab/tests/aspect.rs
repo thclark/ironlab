@@ -107,8 +107,8 @@ fn the_new_dash_patterns_are_set_through_the_line_handle() {
     let mut ax = fig.axes(0, 0);
     let a = ax.plot([0.0, 1.0], [0.0, 1.0]).dash(Dash::DashDotDot).id();
     let b = ax.plot([0.0, 1.0], [1.0, 0.0]).dash(Dash::LongDash).id();
-    assert_eq!(common::line(&fig, a).line.dash, Dash::DashDotDot);
-    assert_eq!(common::line(&fig, b).line.dash, Dash::LongDash);
+    assert_eq!(common::series(&fig, a).line.dash, Dash::DashDotDot);
+    assert_eq!(common::series(&fig, b).line.dash, Dash::LongDash);
     assert!(fig.validate().is_valid());
 }
 

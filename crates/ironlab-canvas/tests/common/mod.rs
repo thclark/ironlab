@@ -167,14 +167,14 @@ pub fn axes_3d(id: u64) -> Axes {
 /// inspector.
 ///
 /// The first axes (node 2) is two-dimensional, occupies the cell in row 0 and column 0,
-/// is titled "Speed" and holds a line (node 4) named "Measured" and a hidden scatter
+/// is titled "Speed" and holds a line (node 4) named "Measured" and a hidden series of circles without a line
 /// (node 5) with no name. The second axes (node 3) is three-dimensional, occupies row 0
 /// and column 1, has no title, and holds a surface (node 6) over a rectilinear grid, whose
 /// colormapped faces are mapped through the figure's one colour scale (node 7), continuous
 /// and untitled. Every artist refers to data of the shapes the IR requires, so the figure is
 /// valid.
 pub fn figure_with_artists() -> Figure {
-    use ironlab_ir::{Artist, Cell, Grid, Line, NdArray, Scatter, Surface, Text, TileLayout};
+    use ironlab_ir::{Artist, Cell, Grid, NdArray, Series, Surface, Text, TileLayout};
 
     let (x, y) = (array_id(0), array_id(1));
     let (gx, gy, field) = (array_id(2), array_id(3), array_id(4));
@@ -193,19 +193,27 @@ pub fn figure_with_artists() -> Figure {
         id: NodeId(2),
         title: Some(Text::plain("Speed")),
         artists: vec![
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(4),
                 label: Some(Text::plain("Measured")),
                 x,
                 y,
-                ..Line::default()
+                ..Series::default()
             }),
-            Artist::Scatter(Scatter {
+            Artist::Series(Series {
                 id: NodeId(5),
                 visible: false,
                 x,
                 y,
-                ..Scatter::default()
+                line: ironlab_ir::LineStyle {
+                    dash: ironlab_ir::DashStyle::None,
+                    ..ironlab_ir::LineStyle::default()
+                },
+                marker: ironlab_ir::MarkerStyle {
+                    shape: ironlab_ir::MarkerShape::Circle,
+                    ..ironlab_ir::MarkerStyle::default()
+                },
+                ..Series::default()
             }),
         ],
         ..Axes::default()
@@ -472,11 +480,11 @@ pub fn figure_with_named_image(ny: usize, nx: usize) -> Figure {
     figure
 }
 
-/// A figure of one axes (node 2) holding a scatter (node 3) of `n` points spread over the whole plot, named
+/// A figure of one axes (node 2) holding a series of circles without a line (node 3) of `n` points spread over the whole plot, named
 /// "Samples", so that any position inside the plot rectangle is close to a drawn marker and a callout over it
 /// names the series.
 pub fn figure_with_dense_scatter(n: usize) -> Figure {
-    use ironlab_ir::{Artist, NdArray, Scatter, Text};
+    use ironlab_ir::{Artist, NdArray, Series, Text};
 
     let x: Vec<f64> = (0..n).map(|i| i as f64 / n as f64).collect();
     let y: Vec<f64> = (0..n)
@@ -488,12 +496,20 @@ pub fn figure_with_dense_scatter(n: usize) -> Figure {
         data: data_arrays([(xi, NdArray::vector(x)), (yi, NdArray::vector(y))]),
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::Scatter(Scatter {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::plain("Samples")),
                 x: xi,
                 y: yi,
-                ..Scatter::default()
+                line: ironlab_ir::LineStyle {
+                    dash: ironlab_ir::DashStyle::None,
+                    ..ironlab_ir::LineStyle::default()
+                },
+                marker: ironlab_ir::MarkerStyle {
+                    shape: ironlab_ir::MarkerShape::Circle,
+                    ..ironlab_ir::MarkerStyle::default()
+                },
+                ..Series::default()
             })],
             ..Axes::default()
         }],
@@ -504,16 +520,16 @@ pub fn figure_with_dense_scatter(n: usize) -> Figure {
 /// The axes of [`axes_2d`] holding a line (node 3) of no points, which the scene compiler leaves out with a warning
 /// naming it, as ADR 0012 decides.
 pub fn figure_with_empty_line() -> Figure {
-    use ironlab_ir::{Artist, Line, NdArray};
+    use ironlab_ir::{Artist, NdArray, Series};
 
     let (x, y) = (array_id(0), array_id(1));
     let mut figure = figure_with(
         vec![Axes {
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 x,
                 y,
-                ..Line::default()
+                ..Series::default()
             })],
             ..axes_2d(2)
         }],

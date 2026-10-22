@@ -181,10 +181,6 @@ proto_file! {
             MarkerStyle(ValueMarkerStyle) marker_style_value = 29;
             /// A marker shape.
             MarkerShape(ValueMarkerShape) marker_shape_value = 30;
-            /// The size of scatter markers.
-            ScatterSize(ValueScatterSize) scatter_size_value = 31;
-            /// The colour of scatter markers.
-            ScatterColor(ValueScatterColor) scatter_color_value = 32;
             /// The grid of a contour or surface.
             Grid(ValueGrid) grid_value = 33;
             /// The levels of a contour.
@@ -220,7 +216,7 @@ proto_file! {
             TickLabels(ValueTickLabels) tick_labels_value = 48;
             /// A list of texts.
             Texts(ValueTexts) texts_value = 49;
-            /// How the values of one dimension of a line or scatter are placed.
+            /// How the values of one dimension of a series are placed.
             Coords(ValueCoords) coords_value = 50;
             /// A list of sizes of the rows or columns of the tile layout.
             TrackSizes(ValueTrackSizes) track_sizes_value = 51;
@@ -258,6 +254,9 @@ proto_file! {
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
         reserved 7, data_id_value;
+        /// The numbers and names of the size and colour of a scatter, which a series
+        /// replaced with references to its size and colour data.
+        reserved 31, 32, scatter_size_value, scatter_color_value;
     }
 
     /// A list of sizes of the rows or columns of the tile layout.
@@ -531,18 +530,6 @@ proto_file! {
     message ValueMarkerShape {
         /// The marker shape; it must be specified.
         enum MarkerShape value = 1;
-    }
-
-    /// A scatter size value.
-    message ValueScatterSize {
-        /// The scatter size; it must be present.
-        message ScatterSize value = 1;
-    }
-
-    /// A scatter colour value.
-    message ValueScatterColor {
-        /// The scatter colour; it must be present.
-        message ScatterColor value = 1;
     }
 
     /// A grid value.

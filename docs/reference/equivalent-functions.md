@@ -13,11 +13,17 @@ Every IronLAB function in the plot tables is a method of `AxesMut` and is descri
 | Line on logarithmic axes | `loglog`, `semilogx`, `semilogy` | `loglog`, `semilogx`, `semilogy` | `Scatter` on an axis with `type="log"` | `loglog`, `semilogx`, `semilogy`, or `xscale`, `yscale` and `zscale` on the axes |
 | Markers in two dimensions | `scatter` | `scatter` | `Scatter` with `mode="markers"` | `scatter` |
 | Markers in three dimensions | `scatter3` | `Axes3D.scatter` | `Scatter3d` with `mode="markers"` | `scatter3` |
+| Line with markers | `plot` with a marker in the line specification | `plot` with `marker=` | `Scatter` with `mode="lines+markers"` | `plot` with `marker`, or `scatter` with `dash` |
+| Markers sized and coloured by data | `scatter(x, y, sz, c)` | `scatter` with `s=` and `c=` | `Scatter` with `marker.size` and `marker.color` set to arrays | `scatter` with `size_data` and `color_data` |
+| Line coloured along its length by values at its points | `patch` or `surface` with `EdgeColor` set to `interp` | no direct equivalent; a `LineCollection` colours each segment in one colour | no equivalent for a line | `plot` with `color_data`, one value per point |
+| Line coloured segment by segment | `patch` with `EdgeColor` set to `flat` | `LineCollection` with `set_array` | no equivalent for a line | `plot` with `color_data`, one value per segment |
 | Markers along named rows (a categorical strip chart) | `scatter` with `yticks` and `yticklabels`, or `swarmchart` | `scatter` with `set_yticks` and `set_yticklabels` | `px.strip` | `scatter` with `yticks`, `ytick_labels` and `yreverse` on the axes |
 | Horizontal reference line across the axes | `yline` | `axhline` | `add_hline` | `hline` |
 | Vertical reference line across the axes | `xline` | `axvline` | `add_vline` | `vline` |
 
-A line or a set of markers placed in data coordinates along one axis and in fractions of the plot area along the other, which matplotlib draws with a blended transform such as `ax.get_xaxis_transform()`, is a line or scatter whose `x_coords` or `y_coords` is `Coords::AxesFraction`; matplotlib's `clip_on=False` is `clip(false)`. [Reference lines and edge markers](../guides/getting-started.md#reference-lines-and-edge-markers) describes both.
+Every function in this table adds the same kind of object, a series, and returns the same handle, so that the functions differ only in the defaults they set: a line drawn by `plot` can be given markers sized and coloured by data, and markers drawn by `scatter` can be joined by a line. [Colouring a series by data](../guides/colour.md#colouring-a-series-by-data) describes colour data per point and per segment.
+
+A line or a set of markers placed in data coordinates along one axis and in fractions of the plot area along the other, which matplotlib draws with a blended transform such as `ax.get_xaxis_transform()`, is a series whose `x_coords` or `y_coords` is `Coords::AxesFraction`; matplotlib's `clip_on=False` is `clip(false)`. [Reference lines and edge markers](../guides/getting-started.md#reference-lines-and-edge-markers) describes both.
 
 ## Gridded fields
 

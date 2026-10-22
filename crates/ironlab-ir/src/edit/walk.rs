@@ -17,8 +17,8 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, Line,
-    PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize, Surface,
+    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PixelRange,
+    Quiver, QuiverScale, ScalarImage, Series, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
@@ -481,7 +481,7 @@ ir_node! {
         plain "content" => content: PanelContent = "What the panel holds.";
     }
 
-    Line {
+    Series {
         hidden "id" => id: () = "";
         optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
@@ -489,32 +489,16 @@ ir_node! {
         plain "y" => y: NodeId = "The y coordinates of the points.";
         optional "z" => z: NodeId =
             "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
-        plain "line" => line: LineStyle = "The style of the line through the points.";
-        plain "marker" => marker: MarkerStyle = "The style of the markers at the points.";
-        plain "x_coords" => x_coords: Coords =
-            "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
-        plain "y_coords" => y_coords: Coords =
-            "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
-        plain "clip" => clip: bool =
-            "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
-    }
-
-    Scatter {
-        hidden "id" => id: () = "";
-        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
-        plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "x" => x: NodeId = "The x coordinates of the points.";
-        plain "y" => y: NodeId = "The y coordinates of the points.";
-        optional "z" => z: NodeId =
-            "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
-        plain "size" => size: ScatterSize =
-            "The size of the markers, which overrides the size of the marker style.";
-        plain "color" => color: ScatterColor =
-            "The colour of the markers, applied wherever the marker face or edge is automatic.";
-        optional "color_scale" => color_scale: NodeId =
-            "The colour scale through which colour data is mapped; a scatter coloured by data must name one.";
+        plain "line" => line: LineStyle =
+            "The style of the line through the points, whose colour is the colour of the series; a dash or a colour of none draws no line.";
         plain "marker" => marker: MarkerStyle =
-            "The marker shape and the use of the scatter colour for face and edge.";
+            "The style of the markers at the points; a shape of none draws no markers.";
+        optional "size_data" => size_data: NodeId =
+            "The diameter of each marker in points, one value per point; when absent every marker takes the marker size, which is always the size of the legend key.";
+        optional "color_data" => color_data: NodeId =
+            "The values that colour the series through its colour scale: one per point, which colours the markers and draws each segment as a gradient, or one per segment, which colours each segment of the line.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the colour data is mapped; a series with colour data must name one.";
         plain "x_coords" => x_coords: Coords =
             "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
         plain "y_coords" => y_coords: Coords =
@@ -896,27 +880,6 @@ ir_tagged! {
                 "The height of the plane in three-dimensional axes, or absent for the bottom of the z axis; ignored by two-dimensional axes.";
         }
         AtLevel {}
-    }
-
-    ScatterSize as ScatterSize {
-        Scalar {
-            plain "value" => value: f64 =
-                "The marker size in points, measured as the width of the marker.";
-        }
-        Data {
-            plain "data" => data: NodeId =
-                "An array of marker sizes in points, one per point.";
-        }
-    }
-
-    ScatterColor as ScatterColor {
-        Spec {
-            plain "spec" => spec: ColorSpec = "The colour of every marker.";
-        }
-        Data {
-            plain "data" => data: NodeId =
-                "An array of values, one per point, mapped through the colour scale of the scatter.";
-        }
     }
 
     QuiverScale as QuiverScale {

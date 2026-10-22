@@ -295,7 +295,7 @@ fn a_problem_is_headed_by_the_object_and_property_it_concerns() {
     );
     assert_eq!(
         problem(Some(NodeId(4)), None).subject(&figure),
-        "Line (Measured)",
+        "Series (Measured)",
         "a plot is named by its display name"
     );
     assert_eq!(

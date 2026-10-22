@@ -148,7 +148,7 @@ pub fn figure() -> Figure {
                 let y = vec![row; x.len()];
                 let mut scatter = ax.scatter(&x, &y);
                 // Every case's points of one kind share the name and the look, so the key lists each kind once.
-                scatter.label(kind.name()).size(4.0);
+                scatter.label(kind.name()).marker_size(4.0);
                 match kind {
                     Kind::Free => scatter.marker(Marker::Circle).color(BLUE).filled(),
                     Kind::Unconverged => scatter.marker(Marker::Circle).color(BLUE),

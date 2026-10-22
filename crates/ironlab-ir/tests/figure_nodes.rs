@@ -43,12 +43,12 @@ fn shared_figure() -> Shared {
         b.axes(axes[k]).legend = Some(Legend::Panel(panel));
         b.push(
             axes[k],
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: lines[k],
                 label: Some(Text::plain(format!("run {k}"))),
                 x,
                 y,
-                ..Line::default()
+                ..Series::default()
             }),
         );
     }
@@ -82,12 +82,12 @@ fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
 }
 
 /// Returns the line of the given identifier, found without the API under test.
-fn line_of(fig: &Figure, id: NodeId) -> &Line {
+fn line_of(fig: &Figure, id: NodeId) -> &Series {
     fig.axes
         .iter()
         .flat_map(|axes| &axes.artists)
         .find_map(|artist| match artist {
-            Artist::Line(line) if line.id == id => Some(line),
+            Artist::Series(line) if line.id == id => Some(line),
             _ => None,
         })
         .expect("the fixture line exists")
@@ -95,12 +95,12 @@ fn line_of(fig: &Figure, id: NodeId) -> &Line {
 
 /// Returns the line of the given identifier for modification, found without the API under
 /// test.
-fn line_mut(fig: &mut Figure, id: NodeId) -> &mut Line {
+fn line_mut(fig: &mut Figure, id: NodeId) -> &mut Series {
     fig.axes
         .iter_mut()
         .flat_map(|axes| &mut axes.artists)
         .find_map(|artist| match artist {
-            Artist::Line(line) if line.id == id => Some(line),
+            Artist::Series(line) if line.id == id => Some(line),
             _ => None,
         })
         .expect("the fixture line exists")
@@ -196,7 +196,7 @@ fn allocation_lies_above_the_largest_identifier_of_any_kind_of_node() {
         ("a data array", |fig, id| fig.data[1].id = id),
         ("an axes", |fig, id| fig.axes[1].id = id),
         ("an artist", |fig, id| match &mut fig.axes[0].artists[0] {
-            Artist::Line(line) => line.id = id,
+            Artist::Series(line) => line.id = id,
             _ => unreachable!("the kitchen-sink figure's first artist is a line"),
         }),
         ("a panel", |fig, id| fig.panels[1].id = id),
@@ -249,7 +249,7 @@ fn the_kind_of_a_data_array_and_of_a_panel_is_known_by_identifier() {
     assert_eq!(s.fig.node_kind(s.x), Some(NodeKind::DataArray));
     assert_eq!(s.fig.node_kind(s.panel), Some(NodeKind::Panel));
     assert_eq!(s.fig.node_kind(s.axes[0]), Some(NodeKind::Axes));
-    assert_eq!(s.fig.node_kind(s.lines[0]), Some(NodeKind::Line));
+    assert_eq!(s.fig.node_kind(s.lines[0]), Some(NodeKind::Series));
     assert_eq!(s.fig.node_kind(NodeId(999)), None);
 }
 
@@ -530,7 +530,7 @@ fn an_artist_naming_a_node_that_is_not_a_data_array_is_wrong_node_kind() {
 
 // Why: every data reference of every artist is a node identifier, the optional ones and
 // those inside a tagged value included, so each must be checked for its kind; a check
-// written only for the coordinates of a line would let a scatter coloured by an axes
+// written only for the coordinates of a series would let a series coloured by an axes
 // through.
 #[test]
 fn every_kind_of_data_reference_is_checked_for_its_kind() {
@@ -540,13 +540,17 @@ fn every_kind_of_data_reference_is_checked_for_its_kind() {
     let scatter = b.node();
     b.push(
         axes,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id: scatter,
             x,
             y,
             z: Some(axes),
-            color: ScatterColor::Data { data: axes },
-            ..Scatter::default()
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            color_data: Some(axes),
+            ..Series::default()
         }),
     );
     let report = b.build().validate();
@@ -674,7 +678,7 @@ fn an_unreferenced_data_array_is_a_warning_until_an_artist_refers_to_it() {
         [(IssueKind::UnusedData, Some(spare))]
     );
 
-    // A scatter coloured by the array uses it, although it plots nothing along an axis.
+    // A series coloured by the array uses it, although it plots nothing along an axis.
     // The colour data is mapped through a scale, as colour data must be.
     let mut used = fig.clone();
     let line = line_of(&fig, fig.axes[0].artists[0].id()).clone();
@@ -682,13 +686,13 @@ fn an_unreferenced_data_array_is_a_warning_until_an_artist_refers_to_it() {
         id: NodeId(702),
         ..ColorScale::default()
     });
-    used.axes[0].artists.push(Artist::Scatter(Scatter {
+    used.axes[0].artists.push(Artist::Series(Series {
         id: NodeId(701),
         x: line.x,
         y: line.y,
-        color: ScatterColor::Data { data: spare },
+        color_data: Some(spare),
         color_scale: Some(NodeId(702)),
-        ..Scatter::default()
+        ..Series::default()
     }));
     let report = used.validate();
     assert_eq!(report.errors, vec![]);
@@ -909,8 +913,7 @@ fn an_artist_label_is_written_as_label_and_never_as_display_name() {
 #[test]
 fn every_kind_of_artist_lists_its_label_and_no_display_name() {
     for kind in [
-        NodeKind::Line,
-        NodeKind::Scatter,
+        NodeKind::Series,
         NodeKind::Contour,
         NodeKind::Quiver,
         NodeKind::Surface,

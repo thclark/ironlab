@@ -91,6 +91,7 @@ macro_rules! gallery {
 gallery!(
     line_markers,
     scatter_2d,
+    coloured_trajectory,
     decimated_timeseries,
     log_axes,
     latex_labels,

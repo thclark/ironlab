@@ -223,7 +223,7 @@ fn latex_label_is_typeset_as_math_in_its_entry() {
 #[test]
 fn hidden_artist_is_not_drawn_but_keeps_a_greyed_legend_entry() {
     let (mut fx, ax, [first, _, third]) = legend_axes();
-    if let Some(ironlab_ir::Artist::Line(l)) = fx.ax(ax).artists.first_mut() {
+    if let Some(ironlab_ir::Artist::Series(l)) = fx.ax(ax).artists.first_mut() {
         l.visible = false;
     }
     let scene = compile_figure(&fx.build());

@@ -92,7 +92,7 @@ fn decay_figure() -> Figure {
                 },
                 entries: LegendEntries::Auto,
             })),
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::plain("decay, $5")),
                 visible: true,
@@ -112,6 +112,9 @@ fn decay_figure() -> Figure {
                     face: ColorSpec::None,
                     edge: ColorSpec::Auto,
                 },
+                size_data: None,
+                color_data: None,
+                color_scale: None,
                 x_coords: Coords::Data,
                 y_coords: Coords::Data,
                 clip: true,

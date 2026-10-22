@@ -26,7 +26,7 @@
 //! reason it cannot be changed in its tooltip, and with nothing else beside it.** That is
 //! the whole rule, and it holds for every such property:
 //!
-//! - A reference to a data array (the x data of a line, the grid of a surface) is shown
+//! - A reference to a data array (the x data of a series, the grid of a surface) is shown
 //!   with the shape of the array it names; [`DATA_REASON`] says why.
 //! - The rows and columns of the figure's tile layout, and the cell each axes or panel
 //!   occupies within it, are shown as they are, because the layout is the frame the
@@ -42,11 +42,9 @@
 //!   the scale, because which artists share a scale is part of how the figure is arranged;
 //!   the properties of the scale itself stay editable on the scale.
 //! - The groups of axes whose limits are linked are shown as a count.
-//! - A property that another property of the same node overrides, of which the marker
-//!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
 //!
-//! [`read_only_reason`] states the reason for each of the last seven, and the panel draws
-//! all eight through one function, so that a read-only row is never a dead control with
+//! [`read_only_reason`] states the reason for each of the last six, and the panel draws
+//! all seven through one function, so that a read-only row is never a dead control with
 //! nothing to say for itself and never grows an ornament of its own.
 //!
 //! A value that is only a container of the values below it is not a read-only row but a
@@ -205,8 +203,7 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
     match kind {
         NodeKind::Figure => "Figure",
         NodeKind::Axes => "Axes",
-        NodeKind::Line => "Line",
-        NodeKind::Scatter => "Scatter",
+        NodeKind::Series => "Series",
         NodeKind::Contour => "Contour",
         NodeKind::Quiver => "Quiver",
         NodeKind::Surface => "Surface",
@@ -262,8 +259,7 @@ fn cell_label(cell: Cell) -> String {
 
 fn artist_kind(artist: &Artist) -> NodeKind {
     match artist {
-        Artist::Line(_) => NodeKind::Line,
-        Artist::Scatter(_) => NodeKind::Scatter,
+        Artist::Series(_) => NodeKind::Series,
         Artist::Contour(_) => NodeKind::Contour,
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
@@ -505,12 +501,6 @@ pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPa
     }
 }
 
-/// The reason a scatter's marker size is not changed here, which names the row that does
-/// change it as the panel labels it.
-const SCATTER_MARKER_SIZE_REASON: &str = "A scatter sizes its markers by its own size \
-     property, in the row named size above, which overrides this one. Change size to give \
-     every marker the same size, or to take each marker's size from an array.";
-
 /// The reason the rows and columns of the figure's tile layout are not changed here.
 const TILE_LAYOUT_REASON: &str = "The tile layout is set by the program that builds the \
      figure, together with the axes placed in it. The editor changes the properties of \
@@ -555,7 +545,7 @@ const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one 
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
      program that builds the figure, as part of how its axes relate to one another.";
 
-/// The reason the coordinates in which a line or scatter places its values are not changed here.
+/// The reason the coordinates in which a series places its values are not changed here.
 const COORDS_REASON: &str = "Whether a plot places its values as data or as fractions of \
      the plot area is set by the program that builds the figure, because it decides what \
      the values mean. The editor changes how a figure looks, not what it draws.";
@@ -592,15 +582,9 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
                 None
             }
         }
-        // A scatter's size overrides the size of its marker style, so the scene compiler
-        // never reads `marker.size_pt` there. Every other artist draws its markers at
-        // that size, so it stays editable for them.
-        NodeKind::Scatter if segments == ["marker", "size_pt"] => Some(SCATTER_MARKER_SIZE_REASON),
-        // The coordinates of a line or scatter say what its values mean, as its data does,
-        // so they come from the program that builds the figure.
-        NodeKind::Line | NodeKind::Scatter
-            if segments == ["x_coords"] || segments == ["y_coords"] =>
-        {
+        // The coordinates of a series say what its values mean, as its data does, so they
+        // come from the program that builds the figure.
+        NodeKind::Series if segments == ["x_coords"] || segments == ["y_coords"] => {
             Some(COORDS_REASON)
         }
         // Where an axes sits in the tile layout is part of the structure of the figure,
@@ -620,7 +604,7 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         NodeKind::DataArray => Some(DATA_ARRAY_REASON),
         // Which colour scale an artist names relates the artist to another node of the
         // figure, which is structure as the panel of a legend is.
-        NodeKind::Scatter | NodeKind::Contour | NodeKind::Surface | NodeKind::ScalarImage
+        NodeKind::Series | NodeKind::Contour | NodeKind::Surface | NodeKind::ScalarImage
             if segments == ["color_scale"] =>
         {
             Some(COLOR_SCALE_REFERENCE_REASON)
@@ -630,8 +614,7 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // scale that has a row is editable: the lists of its entries, categories and listed
         // colours have none.
         NodeKind::Axes
-        | NodeKind::Line
-        | NodeKind::Scatter
+        | NodeKind::Series
         | NodeKind::Contour
         | NodeKind::Quiver
         | NodeKind::Surface
@@ -708,8 +691,6 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::DashStyle
         | ValueType::MarkerShape
         | ValueType::Coords
-        | ValueType::ScatterSize
-        | ValueType::ScatterColor
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement
@@ -780,8 +761,6 @@ fn editor_for(
         | ValueType::AspectAdjust
         | ValueType::TitleAlign
         | ValueType::ColorSpec
-        | ValueType::ScatterSize
-        | ValueType::ScatterColor
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement

@@ -1,6 +1,6 @@
 # Colour
 
-A plot that maps its data to colours, such as a filled contour, a surface, a scalar image or a scatter coloured by data, does so through a **colour scale**. A colour scale is a node of the figure that turns a number into a colour, and every plot that maps numbers to colours names its scale. Several plots, in one axes or in several, may name the same scale, and then share its colormap, its limits and therefore its colours. A scale belongs to the figure rather than to an axes, so the colours of a plot never depend on where the plot lies.
+A plot that maps its data to colours, such as a filled contour, a surface, a scalar image or a series coloured by data, does so through a **colour scale**. A colour scale is a node of the figure that turns a number into a colour, and every plot that maps numbers to colours names its scale. Several plots, in one axes or in several, may name the same scale, and then share its colormap, its limits and therefore its colours. A scale belongs to the figure rather than to an axes, so the colours of a plot never depend on where the plot lies.
 
 This guide shows how a program creates scales, gives them to plots and chooses what a scale draws for values it cannot place. It assumes the plotting functions of [getting started](getting-started.md#plotting-functions). The examples use the prelude and the following data:
 
@@ -45,7 +45,7 @@ The default scale is the scale of the first plot of the axes, in the order the p
 
 ### Sharing a scale between plots
 
-`fig.color_scale()` creates a scale of the figure, and the `color_scale(id)` setter of a contour, surface, scatter or scalar image gives a plot that scale in place of the default of its axes. Plots that name one scale share its colours exactly, because the automatic limits of a scale range over the values of every plot that names it, in every axes:
+`fig.color_scale()` creates a scale of the figure, and the `color_scale(id)` setter of a contour, surface, series or scalar image gives a plot that scale in place of the default of its axes. Plots that name one scale share its colours exactly, because the automatic limits of a scale range over the values of every plot that names it, in every axes:
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3);
@@ -154,6 +154,46 @@ Only a whole number from 0 to the number of entries less one names an entry. Any
 
 Through an indexed or categorical scale, a surface face takes the value of its first corner, because the mean of four indices is not an index, and a contour without levels of its own places its levels halfway between whole numbers, so that each band holds exactly one entry.
 
+## Colouring a series by data
+
+A series, which `plot`, `scatter` and their relatives draw, is coloured by a third quantity with `color_data(values)`. The values are mapped through the default scale of the axes, which the call creates if the axes has none, or through the scale given by `color_scale(id)`. The call also sets the line colour to colour-mapped, so that the line and every marker that follows the colour of the series take the colours of the data.
+
+The number of values decides what they colour:
+
+- **One value per point** colours each marker by the value at its point, and draws each segment of the line as a gradient from the colour of its first point to the colour of its second. This is the form for a quantity measured at the points, such as the speed along a trajectory or the time at which each sample was taken.
+- **One value per segment**, one fewer than the points, colours each segment of the line in a single colour. This is the form for a quantity that belongs to the interval between two points, such as the mean speed over a time step or the state of a system between two events. It needs a line, so validation refuses it on a series drawn by `scatter` without a line, and on a series whose markers are coloured by data, because no value belongs to a point.
+
+A projectile coloured by its speed, which is measured at each point of its path:
+
+```rust
+let t = linspace(0.0, 2.0, 81);
+let (vx, vy0, g) = (10.0, 10.0, 9.81);
+let x: Vec<f64> = t.iter().map(|t| vx * t).collect();
+let y: Vec<f64> = t.iter().map(|t| vy0 * t - 0.5 * g * t * t).collect();
+let speed: Vec<f64> = t.iter().map(|t| vx.hypot(vy0 - g * t)).collect();
+
+let mut fig = Figure::new();
+let mut ax = fig.axes(0, 0);
+ax.plot(&x, &y).color_data(&speed).line_width(2.0);
+ax.color_scale().colormap(Colormap::Plasma).title("Speed (m/s)");
+```
+
+The gradient interpolates between the colours at the two ends of a segment rather than between the two values, so that a segment between two entries of an indexed or categorical scale never passes through the colour of a third. Through a continuous scale the difference is invisible when the points are close together, as they are along a sampled trajectory.
+
+`scatter(x, y).color_data(values)` colours each marker by its value, as MATLAB's `scatter(x, y, sz, c)` does, and `size_data(sizes)` gives each marker its own diameter in points. A fixed colour set with `color(..)` after `color_data` colours the line and keeps the colour data, so that a series can have a black line with markers coloured by data:
+
+```rust
+let mut fig = Figure::new();
+fig.axes(0, 0)
+    .plot(&x, &y)
+    .marker(Marker::Circle)
+    .color_data(&speed)
+    .color(Color::BLACK)
+    .marker_face(ColorSpec::Colormapped);
+```
+
+The [figure schema reference](../reference/figure-schema.md#colour-data-of-a-series) describes the rules exactly, and the [coloured trajectory](../gallery/coloured_trajectory.md) in the gallery colours a baseball's flight, in a vacuum and through air, by its speed.
+
 ## Values out of range
 
 A value that a scale cannot place falls into one of four categories, and each category has a policy of its own, so that a figure may, for example, tolerate missing values while refusing values outside the range:
@@ -182,6 +222,8 @@ A scale is not yet drawn as a colourbar or as a key in a legend. In a [legend](l
 
 ## Examples in the gallery
 
+- [Coloured trajectory](../gallery/coloured_trajectory.md) colours the flight of a baseball, in a vacuum and through air, by its speed, with one value per point, so that each segment is a gradient.
+- [Scatter](../gallery/scatter_2d.md) colours and sizes the markers of a scatter by data.
 - [Discrete colour scale](../gallery/discrete_contourf.md) fills the pressure coefficient around a cylinder through a discrete scale, with black isolines that take the same band edges.
 - [Logarithmic colour scale](../gallery/log_colour_scale.md) draws the concentration downwind of a stack, which spans four decades, through a logarithmic scale that leaves the cleanest air undrawn.
 - [Indexed image](../gallery/indexed_image.md) draws numbered classes through a 256-entry palette, with indices beyond the palette drawn in a fixed colour.

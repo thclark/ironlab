@@ -287,7 +287,7 @@ fn the_schema_compiler_rejects_duplicate_numbers_and_names() {
         (
             "a oneof variant named like another variant",
             "ironlab/ir/v0/artist.proto",
-            ("Surface surface = 5;", "Surface line = 5;"),
+            ("Surface surface = 5;", "Surface series = 5;"),
         ),
         (
             "a oneof variant named like its oneof",
@@ -868,7 +868,7 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
             "the package declares {message}"
         );
     }
-    for message in ["ScalarImage", "Contour", "Surface", "Scatter"] {
+    for message in ["ScalarImage", "Contour", "Surface", "Series"] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
             .expect("the package declares the message");

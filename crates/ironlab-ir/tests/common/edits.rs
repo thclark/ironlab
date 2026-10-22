@@ -52,8 +52,7 @@ pub fn applied(
 /// Returns the kind of an artist, found without the API under test.
 pub fn artist_kind(artist: &Artist) -> NodeKind {
     match artist {
-        Artist::Line(_) => NodeKind::Line,
-        Artist::Scatter(_) => NodeKind::Scatter,
+        Artist::Series(_) => NodeKind::Series,
         Artist::Contour(_) => NodeKind::Contour,
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
@@ -95,13 +94,13 @@ pub fn artist_ids(fig: &Figure, axes: NodeId) -> Vec<NodeId> {
         .collect()
 }
 
-/// A line artist on the given data.
+/// A series on the given data, with the defaults of `Series` (a line without markers).
 pub fn line(id: NodeId, x: NodeId, y: NodeId) -> Artist {
-    Artist::Line(Line {
+    Artist::Series(Series {
         id,
         x,
         y,
-        ..Line::default()
+        ..Series::default()
     })
 }
 
@@ -136,7 +135,7 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
 /// both projections, both grids, both kinds of levels and of band edges, both colormaps,
-/// scatter sizes and colours, every quiver scale, both contour placements, every kind of
+/// every quiver scale, both contour placements, every kind of
 /// colour scale, and for each image kind every plane), so a path below any variant is
 /// reachable in one of them.
 pub fn representative_figures() -> Vec<Figure> {
@@ -218,19 +217,11 @@ pub fn representative_figures() -> Vec<Figure> {
         }
         for artist in &mut axes.artists {
             match artist {
-                Artist::Line(a) => {
-                    a.label.get_or_insert_with(|| Text::new("line"));
+                Artist::Series(a) => {
+                    a.label.get_or_insert_with(|| Text::new("series"));
                     a.line.color = fixed;
                     a.marker.face = fixed;
                     a.marker.edge = fixed;
-                }
-                Artist::Scatter(a) => {
-                    a.label.get_or_insert_with(|| Text::new("scatter"));
-                    a.marker.face = fixed;
-                    a.marker.edge = fixed;
-                    if let ScatterColor::Spec { spec } = &mut a.color {
-                        *spec = fixed;
-                    }
                 }
                 Artist::Contour(a) => {
                     a.label.get_or_insert_with(|| Text::new("contour"));
@@ -568,20 +559,6 @@ pub fn perturb(value: &Value) -> Value {
         Value::MarkerShape(_) => Value::MarkerShape(MarkerShape::Square),
         Value::Coords(Coords::Data) => Value::Coords(Coords::AxesFraction),
         Value::Coords(Coords::AxesFraction) => Value::Coords(Coords::Data),
-        Value::ScatterSize(ScatterSize::Scalar { value }) => {
-            Value::ScatterSize(ScatterSize::Scalar { value: value + 1.0 })
-        }
-        Value::ScatterSize(ScatterSize::Data { .. }) => {
-            Value::ScatterSize(ScatterSize::Scalar { value: 4.0 })
-        }
-        Value::ScatterColor(ScatterColor::Spec { spec }) => {
-            Value::ScatterColor(ScatterColor::Spec {
-                spec: color_spec(spec),
-            })
-        }
-        Value::ScatterColor(ScatterColor::Data { .. }) => Value::ScatterColor(ScatterColor::Spec {
-            spec: ColorSpec::Auto,
-        }),
         Value::Grid(Grid::Rectilinear { x, y }) => Value::Grid(Grid::Rectilinear { x: *y, y: *x }),
         Value::Grid(Grid::Curvilinear { x, y }) => Value::Grid(Grid::Curvilinear { x: *y, y: *x }),
         Value::Levels(Levels::Auto { count }) => Value::Levels(Levels::Auto { count: count + 1 }),
@@ -721,7 +698,7 @@ pub fn perturb(value: &Value) -> Value {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 65;
+pub const VALUE_VARIANTS: usize = 63;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -760,8 +737,8 @@ pub fn value_variant(value: &Value) -> usize {
         Value::DashStyle(_) => 27,
         Value::MarkerStyle(_) => 28,
         Value::MarkerShape(_) => 29,
-        Value::ScatterSize(_) => 30,
-        Value::ScatterColor(_) => 31,
+        Value::ColorScaleNorm(_) => 30,
+        Value::ColorScaleLevels(_) => 31,
         Value::Grid(_) => 32,
         Value::Levels(_) => 33,
         Value::ContourPlacement(_) => 34,
@@ -793,8 +770,6 @@ pub fn value_variant(value: &Value) -> usize {
         Value::IndexedColorScale(_) => 60,
         Value::CategoricalColorScale(_) => 61,
         Value::Colormap(_) => 62,
-        Value::ColorScaleNorm(_) => 63,
-        Value::ColorScaleLevels(_) => 64,
     }
 }
 
@@ -937,8 +912,6 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::MarkerShape(MarkerShape::Cross),
         Value::Coords(Coords::AxesFraction),
-        Value::ScatterSize(ScatterSize::Data { data: NodeId(7) }),
-        Value::ScatterColor(ScatterColor::Data { data: NodeId(8) }),
         Value::Grid(Grid::Curvilinear {
             x: NodeId(1),
             y: NodeId(2),

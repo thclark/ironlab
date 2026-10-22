@@ -31,9 +31,9 @@ fn panel(figure: &Figure, row: u32) -> &Axes {
 /// Returns the identifiers of the x and y data arrays of the single line of an axes.
 fn line_data(axes: &Axes) -> (NodeId, NodeId) {
     match axes.artists.as_slice() {
-        [Artist::Line(line)] => (line.x, line.y),
+        [Artist::Series(series)] => (series.x, series.y),
         artists => panic!(
-            "expected one line in the axes, found {} artists",
+            "expected one series in the axes, found {} artists",
             artists.len()
         ),
     }

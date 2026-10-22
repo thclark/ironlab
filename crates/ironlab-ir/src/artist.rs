@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::NodeId;
 use crate::link::Dimension;
-use crate::style::{Color, ColorSpec, LineStyle, MarkerShape, MarkerStyle};
+use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
 /// A drawable node of an axes.
@@ -17,10 +17,9 @@ use crate::text::Text;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Artist {
-    /// A polyline with optional markers (plot, plot3, loglog, semilogx, semilogy).
-    Line(Line),
-    /// Markers at data points with per-point size and colour (scatter, scatter3).
-    Scatter(Scatter),
+    /// Data points drawn as a line, as markers or as both, optionally sized and coloured
+    /// by data (plot, plot3, loglog, semilogx, semilogy, scatter, scatter3).
+    Series(Series),
     /// Isolines or filled isobands of a gridded field (contour, contourf, contour3).
     Contour(Contour),
     /// Arrows at data points (quiver, quiver3).
@@ -35,12 +34,16 @@ pub enum Artist {
     ScalarImage(ScalarImage),
 }
 
-/// A polyline through data points, with optional markers at the points.
+/// A series of data points, drawn as a line through them, as markers at them, or as both
+/// (plot, plot3, loglog, semilogx, semilogy, scatter, scatter3).
 ///
-/// The x, y and (in 3D) z arrays hold one value per point and must have the same
-/// number of elements. Non-finite values break the line.
+/// The x, y and (in 3D) z arrays hold one value per point and must have the same number
+/// of elements. Non-finite positions break the line. The line is drawn unless its dash is
+/// `none` or its colour is `none`, and the markers are drawn unless their shape is
+/// `none`, so a plot is a series without markers and a scatter is a series without a
+/// line.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Line {
+pub struct Series {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
     /// The label drawn beside the artist in a legend.
@@ -54,10 +57,26 @@ pub struct Line {
     /// The z coordinates of the points, allowed only in 3D axes; when absent in 3D
     /// axes the points lie in the plane z = 0.
     pub z: Option<NodeId>,
-    /// The style of the line through the points.
+    /// The style of the line through the points. Its colour is the colour of the series,
+    /// which an automatic marker face or edge follows; a colormapped colour takes the
+    /// colours of the colour data.
     pub line: LineStyle,
     /// The style of the markers at the points.
     pub marker: MarkerStyle,
+    /// The diameter of each marker in points, one value per point, or `None` for markers
+    /// that all take `marker.size_pt`. The marker size remains the size of the legend
+    /// key.
+    pub size_data: Option<NodeId>,
+    /// The values that colour the series through its colour scale, or `None` for a
+    /// series of fixed colours. With one value per point, each marker takes the colour of
+    /// its point and each segment of a colormapped line is a gradient between the colours
+    /// of its two points. With one value per segment (one fewer than the points), each
+    /// segment of the line takes the colour of its value and the markers take their own
+    /// colours; this form is valid only when the series draws a line.
+    pub color_data: Option<NodeId>,
+    /// The colour scale through which the colour data is mapped. A series with colour
+    /// data must name one; a series without colour data maps nothing.
+    pub color_scale: Option<NodeId>,
     /// How the x values are placed: as data along the x axis, or as fractions of the
     /// plot area's width. Anything other than `data` is allowed only in 2D axes.
     pub x_coords: Coords,
@@ -72,7 +91,9 @@ pub struct Line {
     pub clip: bool,
 }
 
-impl Default for Line {
+impl Default for Series {
+    /// The series that `plot` draws: a solid automatic line without markers, size or
+    /// colour data, or a colour scale, in data coordinates, clipped and visible.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
@@ -83,72 +104,9 @@ impl Default for Line {
             z: None,
             line: LineStyle::default(),
             marker: MarkerStyle::default(),
-            x_coords: Coords::Data,
-            y_coords: Coords::Data,
-            clip: true,
-        }
-    }
-}
-
-/// Markers at data points, each with its own size and colour.
-///
-/// The x, y and (in 3D) z arrays hold one value per point and must have the same
-/// number of elements, as must any size or colour data.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Scatter {
-    /// The node identifier of the artist, unique within the figure.
-    pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
-    pub label: Option<Text>,
-    /// Whether the artist is drawn.
-    pub visible: bool,
-    /// The x coordinates of the points.
-    pub x: NodeId,
-    /// The y coordinates of the points.
-    pub y: NodeId,
-    /// The z coordinates of the points, allowed only in 3D axes; when absent in 3D
-    /// axes the points lie in the plane z = 0.
-    pub z: Option<NodeId>,
-    /// The size of the markers, which overrides `marker.size_pt`.
-    pub size: ScatterSize,
-    /// The colour of the markers, applied wherever `marker.face` or `marker.edge`
-    /// is `auto`.
-    pub color: ScatterColor,
-    /// The colour scale through which colour data is mapped. A scatter coloured by data
-    /// must name one; a scatter of one colour maps nothing and needs none.
-    pub color_scale: Option<NodeId>,
-    /// The marker shape and the use of the scatter colour for face and edge.
-    pub marker: MarkerStyle,
-    /// How the x values are placed: as data along the x axis, or as fractions of the
-    /// plot area's width. Anything other than `data` is allowed only in 2D axes.
-    pub x_coords: Coords,
-    /// How the y values are placed: as data along the y axis, or as fractions of the
-    /// plot area's height. Anything other than `data` is allowed only in 2D axes.
-    pub y_coords: Coords,
-    /// Whether the artist is clipped to the plot area. When false, clipping is released
-    /// only along a dimension in axes-fraction coordinates, so that markers can sit on or
-    /// beyond an edge of the axes; along a dimension in data coordinates the artist stays
-    /// clipped to the plot area, so an artist in data coordinates along both dimensions
-    /// is always clipped, and so is every artist of a 3D axes.
-    pub clip: bool,
-}
-
-impl Default for Scatter {
-    fn default() -> Self {
-        Self {
-            id: NodeId::default(),
-            label: None,
-            visible: true,
-            x: NodeId::default(),
-            y: NodeId::default(),
-            z: None,
-            size: ScatterSize::default(),
-            color: ScatterColor::default(),
+            size_data: None,
+            color_data: None,
             color_scale: None,
-            marker: MarkerStyle {
-                shape: MarkerShape::Circle,
-                ..MarkerStyle::default()
-            },
             x_coords: Coords::Data,
             y_coords: Coords::Data,
             clip: true,
@@ -156,9 +114,23 @@ impl Default for Scatter {
     }
 }
 
-/// How the values of one dimension of a line or scatter are placed in a 2D axes.
+impl Series {
+    /// Returns whether the series draws a line through its points: its dash is not
+    /// `none` and its line colour is not `none`.
+    pub fn draws_line(&self) -> bool {
+        self.line.dash != DashStyle::None && self.line.color != ColorSpec::None
+    }
+
+    /// Returns whether the series draws markers at its points: their shape is not
+    /// `none`.
+    pub fn draws_markers(&self) -> bool {
+        self.marker.shape != MarkerShape::None
+    }
+}
+
+/// How the values of one dimension of a series are placed in a 2D axes.
 ///
-/// A line or scatter places each dimension independently, so that a dimension in data
+/// A series places each dimension independently, so that a dimension in data
 /// coordinates and one in axes-fraction coordinates make a blended placement, as
 /// Matplotlib's blended transforms do: a reference line spanning the axes at a data
 /// value, or markers along an edge of the axes at data positions.
@@ -174,53 +146,6 @@ pub enum Coords {
     /// of the axis. They take no part in the automatic limits of the axis, and values
     /// outside `[0, 1]` lie beyond the plot area.
     AxesFraction,
-}
-
-/// The size of scatter markers.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ScatterSize {
-    /// Every marker has the same size.
-    Scalar {
-        /// The marker size in points, measured as the width of the marker.
-        value: f64,
-    },
-    /// Each marker has its own size.
-    Data {
-        /// An array of marker sizes in points, one per point.
-        data: NodeId,
-    },
-}
-
-impl Default for ScatterSize {
-    fn default() -> Self {
-        ScatterSize::Scalar { value: 4.0 }
-    }
-}
-
-/// The colour of scatter markers.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ScatterColor {
-    /// Every marker has the same colour.
-    Spec {
-        /// The colour of every marker.
-        spec: ColorSpec,
-    },
-    /// Each marker is coloured by a data value through the colour scale of the scatter.
-    Data {
-        /// An array of values, one per point, mapped through the colour scale of the
-        /// scatter.
-        data: NodeId,
-    },
-}
-
-impl Default for ScatterColor {
-    fn default() -> Self {
-        ScatterColor::Spec {
-            spec: ColorSpec::Auto,
-        }
-    }
 }
 
 /// Isolines or filled isobands of a scalar field sampled on a grid.

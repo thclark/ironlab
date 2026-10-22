@@ -55,6 +55,8 @@ let z = Matrix::from_fn(y.len(), x.len(), |row, col| x[col].powi(2) - y[row].pow
 
 `plot(x, y)` draws a line through the points `(x[i], y[i])`. The line is solid, 0.75 pt wide and has no markers, and its colour is the next colour of the axes colour order. `plot3(x, y, z)` draws a line in three dimensions and converts the axes to three dimensions.
 
+Every point-plotting function (`plot`, `plot3`, `loglog`, `semilogx`, `semilogy`, `scatter`, `scatter3`, `hline` and `vline`) adds a **series**, a sequence of points drawn as a line through them, a marker at each, or both, and returns its handle, a `SeriesMut`. The functions differ only in the defaults they set, so every setter below applies to a series drawn by any of them: a scatter can be joined by a line, and a line can be given markers sized and coloured by data.
+
 ```rust
 let mut ax = fig.axes(0, 0);
 ax.plot(&x, &y)
@@ -82,20 +84,22 @@ fig.axes(0, 0).loglog(&f, &gain);
 
 ### Scatter plots
 
-`scatter(x, y)` draws a marker at each point, and `scatter3(x, y, z)` does so in three dimensions. Markers are unfilled 4 pt circles in the next colour of the colour order unless changed.
+`scatter(x, y)` draws a marker at each point, and `scatter3(x, y, z)` does so in three dimensions. The series has no line, and its markers are unfilled 4 pt circles in the next colour of the colour order unless changed.
 
 ```rust
 fig.axes(0, 0)
     .scatter(&x, &y)
-    .sizes(&sizes)           // one size in points per marker; or .size(6.0) for all markers
-    .colors(&values)         // one value per marker, mapped through a colour scale; or .color(Color::BLACK)
+    .size_data(&sizes)       // one diameter in points per marker; or .marker_size(6.0) for all markers
+    .color_data(&values)     // one value per marker, mapped through a colour scale; or .color(Color::BLACK)
     .marker(Marker::Diamond)
     .filled();
 ```
 
+`color_data` colours a line too: with one value per point, each segment of the line is a gradient between the colours of its two points, and with one value per segment, each segment takes a single colour. [Colouring a series by data](colour.md#colouring-a-series-by-data) describes both forms.
+
 ### Reference lines and edge markers
 
-A reference line is a line that a reader judges the data against, such as a tolerance, a threshold or the ends of an interval. `hline(y)` draws a horizontal reference line across the whole width of the plot area at the data value `y`, and `vline(x)` draws a vertical one across its whole height at `x`, as matplotlib's `axhline` and `axvline` and MATLAB's `yline` and `xline` do. A reference line is a line like any other: it is dark grey, 0.75 pt wide and solid unless changed, it takes no colour from the colour order, and the usual line setters change its look.
+A reference line is a line that a reader judges the data against, such as a tolerance, a threshold or the ends of an interval. `hline(y)` draws a horizontal reference line across the whole width of the plot area at the data value `y`, and `vline(x)` draws a vertical one across its whole height at `x`, as matplotlib's `axhline` and `axvline` and MATLAB's `yline` and `xline` do. A reference line is a series like any other: it is dark grey, 0.75 pt wide and solid unless changed, it takes no colour from the colour order, and the usual line setters change its look.
 
 ```rust
 let mut ax = fig.axes(0, 0);
@@ -106,7 +110,7 @@ ax.vline(0.0).dash(Dash::Dotted).color(Color::BLACK);
 
 A reference line spans the plot area because each of its dimensions is placed in its own coordinates. Along the axis it crosses, its value is data, placed through the limits and the scale of that axis. Along the axis it spans, its values are the fractions 0 and 1 of the plot area, which map to the left and right edges (or the bottom and top edges) whatever the limits, the scale or the pan and zoom of the axis. The data value takes part in the automatic limits of its axis, as it does in matplotlib, so a tolerance above the data is in view without fixing the limits; the fractions take part in none, so the line never stretches the axis it spans.
 
-The same mechanism places any line or scatter. Setting `x_coords(Coords::AxesFraction)` or `y_coords(Coords::AxesFraction)` on a line or scatter places that dimension as fractions of the plot area, 0 at the left or bottom edge and 1 at the right or top edge, and leaves the other dimension in data coordinates. Setting `clip(false)` lets its marks extend beyond the plot area along the dimension placed as fractions, and only along that dimension: along the dimension in data coordinates the artist stays clipped to the plot area, so a marker at a data value outside the limits is not drawn. `clip(false)` therefore has no effect on a line or scatter in data coordinates along both dimensions, and validation warns about it. Together they draw markers along an edge of the axes at data positions, which stay on the edge while a reader pans and zooms. The vertical tick `Marker::VLine` and the horizontal tick `Marker::HLine` are made for this: each is one stroke as long as the marker size.
+The same mechanism places any series. Setting `x_coords(Coords::AxesFraction)` or `y_coords(Coords::AxesFraction)` on a series places that dimension as fractions of the plot area, 0 at the left or bottom edge and 1 at the right or top edge, and leaves the other dimension in data coordinates. Setting `clip(false)` lets its marks extend beyond the plot area along the dimension placed as fractions, and only along that dimension: along the dimension in data coordinates the artist stays clipped to the plot area, so a marker at a data value outside the limits is not drawn. `clip(false)` therefore has no effect on a series in data coordinates along both dimensions, and validation warns about it. Together they draw markers along an edge of the axes at data positions, which stay on the edge while a reader pans and zooms. The vertical tick `Marker::VLine` and the horizontal tick `Marker::HLine` are made for this: each is one stroke as long as the marker size.
 
 ```rust
 // A tick along the top of the axes at every angle where the value is not a number.
@@ -124,7 +128,7 @@ ax.plot(&missing, vec![0.985; missing.len()])
     .color(Color::rgb(0.9, 0.62, 0.0));
 ```
 
-Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a line or scatter in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
+Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a series in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
 ### Contours
 
@@ -337,7 +341,7 @@ fig.axes(0, 0).plot(time, &pressure);    // the time base is shared, and the pre
 fig.axes(1, 0).plot(time, &temperature);
 ```
 
-Identifiers and values can be mixed argument by argument, as in this example, where the time base is shared and each channel is copied. The handle of a line or a scatter also returns the identifiers of the arrays it refers to, through `x_data()` and `y_data()`, so that the arrays of one plot can be given to another without first being made with `fig.data`:
+Identifiers and values can be mixed argument by argument, as in this example, where the time base is shared and each channel is copied. The handle of a series also returns the identifiers of the arrays it refers to, through `x_data()` and `y_data()`, so that the arrays of one plot can be given to another without first being made with `fig.data`:
 
 ```rust
 let mut ax = fig.axes(0, 0);
@@ -350,7 +354,7 @@ The name of a data array identifies it to tools and is never drawn: the viewer's
 Two rules follow from sharing, and both are worth knowing before a program relies on it.
 
 - **Editing a shared array changes every plot that refers to it.** A data array has one set of values, so replacing or appending to them, for example with the `replace_data` and `append_data` [edits](../reference/figure-schema.md#edits) that stream new values into a figure, changes every plot that draws the array. Plots whose data must change independently need arrays of their own, which is what passing values gives them.
-- **A setter deletes the array it replaces only when that array is no longer used and has no name.** The setters that give an existing plot a new array, namely `sizes` and `colors` of a scatter, `color_data`, `face_alpha` and `edge_alpha` of a surface, and `alpha` of an image, accept an identifier or values in the same way as plotting functions. The array that the setter replaces is removed from the figure only when no other plot refers to it and it has no name. An array copied from values has no name, so it is removed as soon as nothing draws it. An array made with `fig.data` always has a name, so it is kept even when no plot refers to it any more, and `validate` then reports it with the warning `UnusedData`, because it is saved with the figure and enlarges every file.
+- **A setter deletes the array it replaces only when that array is no longer used and has no name.** The setters that give an existing plot a new array, namely `size_data` and `color_data` of a series, `color_data`, `face_alpha` and `edge_alpha` of a surface, and `alpha` of an image, accept an identifier or values in the same way as plotting functions. The array that the setter replaces is removed from the figure only when no other plot refers to it and it has no name. An array copied from values has no name, so it is removed as soon as nothing draws it. An array made with `fig.data` always has a name, so it is kept even when no plot refers to it any more, and `validate` then reports it with the warning `UnusedData`, because it is saved with the figure and enlarges every file.
 
 The [decimated time series](../gallery/decimated_timeseries.md) of the gallery shares its record between its plots in this way. The reasons for keeping data arrays as nodes of the figure, and for this deletion rule, are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md), and the [figure schema](../reference/figure-schema.md#data-arrays) describes how data arrays are stored.
 
@@ -490,7 +494,7 @@ ax.surf(&x, &y, &z);
 ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
-A line, scatter or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, lines, markers and images are drawn from back to front for the current view, except that an image on a face of the axes box is painted behind or in front of all of them, and each surface face has a single flat colour. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md), and those for images in [ADR 0011](../adrs/0011-image-artists.md).
+A series or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, line segments, markers and images are drawn from back to front for the current view, except that an image on a face of the axes box is painted behind or in front of all of them, and each surface face has a single flat colour. Each segment of a line is placed by its own depth, so that a line passing through a surface is drawn behind it and in front of it where it should be. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md), those for images in [ADR 0011](../adrs/0011-image-artists.md), and those for lines drawn by segment in [ADR 0025](../adrs/0025-series-replaces-line-and-scatter.md).
 
 ## Parameters
 

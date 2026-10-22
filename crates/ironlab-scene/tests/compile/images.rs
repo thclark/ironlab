@@ -7,8 +7,8 @@
 //! from the public camera for a 3D axes.
 
 use ironlab_ir::{
-    Color, ColorScaleKind, ColormapName, Dimension, ImagePlane, InsideLegend, Legend,
-    LegendLocation, Limits, NodeId, OutOfRange, Scale, ScatterColor, View3d,
+    Color, ColorScaleKind, ColorSpec, ColormapName, Dimension, ImagePlane, InsideLegend, Legend,
+    LegendLocation, Limits, NodeId, OutOfRange, Scale, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
@@ -1488,9 +1488,8 @@ fn automatic_colour_limits_of_a_mapped_image_are_the_union_with_the_other_colour
         let image = fx.imagesc(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
         if with_scatter {
             fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
-                s.color = ScatterColor::Data {
-                    data: fx.vector(&[0.0, 1.5, 3.0]),
-                };
+                s.color_data = Some(fx.vector(&[0.0, 1.5, 3.0]));
+                s.line.color = ColorSpec::Colormapped;
             });
         }
         let scene = compile_figure(&fx.build());

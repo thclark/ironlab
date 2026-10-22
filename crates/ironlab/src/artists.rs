@@ -5,9 +5,8 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, Line, MarkerShape,
-    NodeId, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize,
-    Surface, Text,
+    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId,
+    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Surface, Text,
 };
 
 use crate::axes::AxesMut;
@@ -118,8 +117,6 @@ macro_rules! artist_handle {
     };
 }
 
-artist_handle!(LineMut, Line);
-artist_handle!(ScatterMut, Scatter, scaled);
 artist_handle!(ContourMut, Contour, scaled);
 artist_handle!(QuiverMut, Quiver);
 artist_handle!(SurfaceMut, Surface, scaled);
@@ -194,7 +191,14 @@ macro_rules! image_handle {
     };
 }
 
-/// A handle to a line created by [`plot`](crate::AxesMut::plot) and its relatives.
+/// A handle to a series created by [`plot`](crate::AxesMut::plot),
+/// [`scatter`](crate::AxesMut::scatter) or one of their relatives.
+///
+/// A series is a sequence of points drawn as a line through them, a marker at each, or
+/// both. The plotting call sets the defaults of its family: [`plot`](crate::AxesMut::plot)
+/// draws a solid line without markers, and [`scatter`](crate::AxesMut::scatter) draws
+/// unfilled circles without a line. Every setter applies to a series of either family, so
+/// that a scatter can be joined by a line and a plot can be given markers.
 ///
 /// ```
 /// use ironlab::prelude::*;
@@ -210,14 +214,35 @@ macro_rules! image_handle {
 ///     .marker_size(5.0)
 ///     .marker_face(Color::WHITE);
 /// ```
+///
+/// A series coloured and sized by data:
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let x = [0.0, 1.0, 2.0];
+/// let y = [2.0, 0.0, 1.0];
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .scatter(x, y)
+///     .size_data([3.0, 6.0, 9.0])
+///     .color_data(y)
+///     .marker(Marker::Diamond)
+///     .filled();
+/// assert!(fig.validate().is_valid());
+/// ```
 #[derive(Debug)]
-pub struct LineMut<'a> {
+pub struct SeriesMut<'a> {
     pub(crate) fig: &'a mut Figure,
     pub(crate) id: NodeId,
+    /// The default colour scale of the axes that this handle created, if any.
+    created_scale: Option<NodeId>,
 }
 
-impl LineMut<'_> {
-    /// Returns the node identifier of the line.
+artist_handle!(SeriesMut, Series, scaled);
+
+impl SeriesMut<'_> {
+    /// Returns the node identifier of the series.
     #[must_use]
     pub fn id(&self) -> NodeId {
         self.id
@@ -238,19 +263,26 @@ impl LineMut<'_> {
     }
 
     /// Returns the identifier of the data array of the z values, or `None` for a
-    /// two-dimensional line.
+    /// two-dimensional series.
     #[must_use]
     pub fn z_data(&self) -> Option<NodeId> {
         self.get().z
     }
 
-    /// Sets the label of the line, drawn beside its sample in a legend.
+    /// Sets the label of the series, drawn beside its sample in a legend.
     pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
         self.artist().label = Some(label.into());
         self
     }
 
-    /// Sets the colour of the line; markers whose edge colour is automatic follow it.
+    /// Sets the colour of the line, which is the colour of the series: markers whose
+    /// face or edge colour is automatic follow it.
+    ///
+    /// A fixed colour set after [`color_data`](Self::color_data) keeps the colour data
+    /// and its scale, so that a series can have a line of one colour and markers
+    /// coloured by data, given by
+    /// [`marker_face`](Self::marker_face)`(ColorSpec::Colormapped)` or
+    /// [`marker_edge`](Self::marker_edge)`(ColorSpec::Colormapped)`.
     pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
         self.artist().line.color = color.into_color_spec();
         self
@@ -263,179 +295,113 @@ impl LineMut<'_> {
     }
 
     /// Sets the dash pattern of the line; [`Dash::None`](crate::Dash::None) draws only
-    /// the markers.
+    /// the markers, and any other pattern joins the markers of a scatter by a line.
     pub fn dash(&mut self, dash: DashStyle) -> &mut Self {
         self.artist().line.dash = dash;
         self
     }
 
-    /// Sets the shape of the markers drawn at the data points.
+    /// Sets the shape of the markers drawn at the points;
+    /// [`Marker::None`](crate::Marker::None) draws no markers.
     pub fn marker(&mut self, shape: MarkerShape) -> &mut Self {
         self.artist().marker.shape = shape;
         self
     }
 
-    /// Sets the marker size in points.
+    /// Sets the diameter of every marker in points, and of the marker of the legend key.
+    ///
+    /// Markers given their own sizes by [`size_data`](Self::size_data) take those sizes
+    /// instead, and the legend key keeps this one.
     pub fn marker_size(&mut self, size_pt: f64) -> &mut Self {
         self.artist().marker.size_pt = size_pt;
         self
     }
 
-    /// Sets the colour of the marker interiors, which are unfilled by default.
+    /// Sets the colour of the marker interiors, which are unfilled by default; an
+    /// automatic face takes the colour of the series.
     pub fn marker_face(&mut self, color: impl IntoColorSpec) -> &mut Self {
         self.artist().marker.face = color.into_color_spec();
         self
     }
 
-    /// Sets the colour of the marker outlines, which follow the line colour by
+    /// Sets the colour of the marker outlines, which follow the colour of the series by
     /// default.
     pub fn marker_edge(&mut self, color: impl IntoColorSpec) -> &mut Self {
         self.artist().marker.edge = color.into_color_spec();
         self
     }
-    /// Sets how the x values are placed: as data along the x axis (the default), or as
-    /// fractions of the plot area's width, 0 at its left edge and 1 at its right edge,
-    /// whatever the limits, scale or pan and zoom of the axis.
+
+    /// Fills the markers with the colour of the series (MATLAB's
+    /// `scatter(..., 'filled')`), which is the colour of each point's colour data when
+    /// the series has some.
+    pub fn filled(&mut self) -> &mut Self {
+        self.artist().marker.face = ironlab_ir::ColorSpec::Auto;
+        self
+    }
+
+    /// Gives each marker its own diameter in points, one value per point (MATLAB's
+    /// `scatter(x, y, sz)`).
     ///
-    /// Values in axes-fraction coordinates take no part in the automatic x limits. Only
-    /// a two-dimensional axes accepts them; [`Figure::validate`](crate::Figure::validate)
-    /// reports them as an error in a three-dimensional one.
-    pub fn x_coords(&mut self, coords: Coords) -> &mut Self {
-        self.artist().x_coords = coords;
-        self
-    }
-
-    /// Sets how the y values are placed: as data along the y axis (the default), or as
-    /// fractions of the plot area's height, 0 at its bottom edge and 1 at its top edge,
-    /// as [`x_coords`](Self::x_coords) places x values.
-    pub fn y_coords(&mut self, coords: Coords) -> &mut Self {
-        self.artist().y_coords = coords;
-        self
-    }
-
-    /// Sets whether the line is clipped to the plot area (the default), or may draw
-    /// beyond it along a dimension in axes-fraction coordinates, for example markers
-    /// that sit on the top edge of the axes.
-    ///
-    /// Releasing the clip never releases it along a dimension in data coordinates: a
-    /// marker at a data x outside the x limits is not drawn. A line in data
-    /// coordinates along both dimensions is therefore always clipped, as is every
-    /// artist of a three-dimensional axes, and
-    /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
-    /// effect.
-    pub fn clip(&mut self, clip: bool) -> &mut Self {
-        self.artist().clip = clip;
-        self
-    }
-}
-
-/// A handle to a scatter created by [`scatter`](crate::AxesMut::scatter) or
-/// [`scatter3`](crate::AxesMut::scatter3).
-///
-/// ```
-/// use ironlab::prelude::*;
-///
-/// let x = [0.0, 1.0, 2.0];
-/// let y = [2.0, 0.0, 1.0];
-/// let mut fig = Figure::new();
-/// fig.axes(0, 0)
-///     .scatter(x, y)
-///     .sizes([3.0, 6.0, 9.0])
-///     .colors(y)
-///     .marker(Marker::Diamond)
-///     .filled();
-/// ```
-#[derive(Debug)]
-pub struct ScatterMut<'a> {
-    pub(crate) fig: &'a mut Figure,
-    pub(crate) id: NodeId,
-    /// The default colour scale of the axes that the plotting call created, if any.
-    created_scale: Option<NodeId>,
-}
-
-impl ScatterMut<'_> {
-    /// Returns the node identifier of the scatter.
-    #[must_use]
-    pub fn id(&self) -> NodeId {
-        self.id
-    }
-
-    /// Returns the identifier of the data array of the x values, which another plotting
-    /// call accepts to share it.
-    #[must_use]
-    pub fn x_data(&self) -> NodeId {
-        self.get().x
-    }
-
-    /// Returns the identifier of the data array of the y values, which another plotting
-    /// call accepts to share it.
-    #[must_use]
-    pub fn y_data(&self) -> NodeId {
-        self.get().y
-    }
-
-    /// Returns the identifier of the data array of the z values, or `None` for a
-    /// two-dimensional scatter.
-    #[must_use]
-    pub fn z_data(&self) -> Option<NodeId> {
-        self.get().z
-    }
-
-    /// Sets the label of the scatter, drawn beside its sample in a legend.
-    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
-        self.artist().label = Some(label.into());
-        self
-    }
-
-    /// Gives every marker the same size in points.
-    pub fn size(&mut self, size_pt: f64) -> &mut Self {
-        let previous = std::mem::replace(
-            &mut self.artist().size,
-            ScatterSize::Scalar { value: size_pt },
-        );
-        if let ScatterSize::Data { data } = previous {
-            release_data(self.fig, data);
-        }
-        self
-    }
-
-    /// Gives each marker its own size in points, one value per point.
-    pub fn sizes(&mut self, sizes_pt: impl Into<DataSource>) -> &mut Self {
+    /// The [`marker_size`](Self::marker_size) remains the size of the marker of the
+    /// legend key. Values of another number than the points are reported by
+    /// [`Figure::validate`](crate::Figure::validate). Data that this call replaces is
+    /// released from the figure when nothing else uses it and it has no name.
+    pub fn size_data(&mut self, sizes_pt: impl Into<DataSource>) -> &mut Self {
         let data = sizes_pt.into().store(self.fig);
-        let previous = std::mem::replace(&mut self.artist().size, ScatterSize::Data { data });
-        if let ScatterSize::Data { data } = previous {
-            release_data(self.fig, data);
+        if let Some(previous) = self.artist().size_data.replace(data) {
+            release_data(self.fig, previous);
         }
         self
     }
 
-    /// Gives every marker the same colour.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        let spec = color.into_color_spec();
-        let previous = std::mem::replace(&mut self.artist().color, ScatterColor::Spec { spec });
-        if let ScatterColor::Data { data } = previous {
-            release_data(self.fig, data);
-        }
-        self
-    }
-
-    /// Colours each marker by a data value, one per point, mapped through a colour scale.
+    /// Colours the series by data mapped through a colour scale (MATLAB's
+    /// `scatter(x, y, sz, c)`, and a line coloured along its length).
     ///
-    /// A scatter that names no colour scale yet takes the default scale of its axes (see
-    /// [`AxesMut::color_scale`]), which is created if the axes has none;
-    /// [`color_scale`](Self::color_scale) gives it another.
-    pub fn colors(&mut self, values: impl Into<DataSource>) -> &mut Self {
+    /// The values are either one per point or one per segment, which is one fewer than
+    /// the points. With one value per point, each marker takes the colour of its point
+    /// and each segment of the line is drawn as a gradient between the colours of its two
+    /// points. With one value per segment, each segment takes the colour of its value;
+    /// this form needs a line, and markers coloured by data need values per point, so
+    /// [`Figure::validate`](crate::Figure::validate) refuses it on a series that draws no
+    /// line or whose marker face or edge is `Colormapped`.
+    ///
+    /// The line colour becomes `Colormapped`, so the line and the markers that follow its
+    /// colour are coloured by the data; [`color`](Self::color) called afterwards gives the
+    /// line a fixed colour and keeps the data. A series that names no colour scale yet
+    /// takes the default scale of its axes (see
+    /// [`AxesMut::color_scale`](crate::AxesMut::color_scale)), which is created if the
+    /// axes has none; [`color_scale`](Self::color_scale) gives it another. Data that this
+    /// call replaces is released from the figure when nothing else uses it and it has no
+    /// name.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// // A trajectory coloured by its speed, one value per point.
+    /// let t = linspace(0.0, 2.0, 41);
+    /// let x: Vec<f64> = t.iter().map(|t| 10.0 * t).collect();
+    /// let y: Vec<f64> = t.iter().map(|t| 10.0 * t - 4.905 * t * t).collect();
+    /// let speed: Vec<f64> = t.iter().map(|t| 10.0_f64.hypot(10.0 - 9.81 * t)).collect();
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&x, &y).color_data(&speed).line_width(2.0);
+    /// ax.color_scale().colormap(Colormap::Plasma).title("Speed (m/s)");
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn color_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
         let data = values.into().store(self.fig);
-        let previous = std::mem::replace(&mut self.artist().color, ScatterColor::Data { data });
-        if let ScatterColor::Data { data } = previous {
-            release_data(self.fig, data);
+        let series = self.artist();
+        series.line.color = ironlab_ir::ColorSpec::Colormapped;
+        if let Some(previous) = series.color_data.replace(data) {
+            release_data(self.fig, previous);
         }
         if self.get().color_scale.is_none() {
             let axes = self
                 .fig
                 .artist(self.id)
                 .map(|(axes, _)| axes.id)
-                .expect("a scatter handle always refers to an artist of its figure");
+                .expect("a series handle always refers to an artist of its figure");
             let (scale, created) = color_scale::default_or_new(self.fig, axes);
             self.artist().color_scale = Some(scale);
             if created {
@@ -445,18 +411,6 @@ impl ScatterMut<'_> {
         self
     }
 
-    /// Sets the marker shape.
-    pub fn marker(&mut self, shape: MarkerShape) -> &mut Self {
-        self.artist().marker.shape = shape;
-        self
-    }
-
-    /// Fills the markers with their colour (MATLAB's `scatter(..., 'filled')`).
-    pub fn filled(&mut self) -> &mut Self {
-        self.artist().marker.face = ironlab_ir::ColorSpec::Auto;
-        self
-    }
-
     /// Sets how the x values are placed: as data along the x axis (the default), or as
     /// fractions of the plot area's width, 0 at its left edge and 1 at its right edge,
     /// whatever the limits, scale or pan and zoom of the axis.
@@ -477,12 +431,12 @@ impl ScatterMut<'_> {
         self
     }
 
-    /// Sets whether the scatter is clipped to the plot area (the default), or may draw
+    /// Sets whether the series is clipped to the plot area (the default), or may draw
     /// beyond it along a dimension in axes-fraction coordinates, for example markers
     /// that sit on the top edge of the axes.
     ///
     /// Releasing the clip never releases it along a dimension in data coordinates: a
-    /// marker at a data x outside the x limits is not drawn. A scatter in data
+    /// marker at a data x outside the x limits is not drawn. A series in data
     /// coordinates along both dimensions is therefore always clipped, as is every
     /// artist of a three-dimensional axes, and
     /// [`Figure::validate`](crate::Figure::validate) warns that the release has no
@@ -876,30 +830,19 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
         ironlab_ir::Grid::Rectilinear { x, y } | ironlab_ir::Grid::Curvilinear { x, y } => [x, y],
     };
     match artist {
-        Artist::Line(Line { x, y, z, .. }) => [*x, *y].into_iter().chain(*z).collect(),
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             x,
             y,
             z,
-            size,
-            color,
+            size_data,
+            color_data,
             ..
-        }) => {
-            let size = match size {
-                ScatterSize::Data { data } => Some(*data),
-                ScatterSize::Scalar { .. } => None,
-            };
-            let color = match color {
-                ScatterColor::Data { data } => Some(*data),
-                ScatterColor::Spec { .. } => None,
-            };
-            [*x, *y]
-                .into_iter()
-                .chain(*z)
-                .chain(size)
-                .chain(color)
-                .collect()
-        }
+        }) => [*x, *y]
+            .into_iter()
+            .chain(*z)
+            .chain(*size_data)
+            .chain(*color_data)
+            .collect(),
         Artist::Contour(Contour { grid, z, .. }) => {
             grid_ids(grid).into_iter().chain([*z]).collect()
         }

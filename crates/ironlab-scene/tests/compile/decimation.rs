@@ -1,7 +1,7 @@
 //! Thinning of dense series to the current view, and the index map back to the source data that
 //! the hit map publishes for picking and datatips.
 
-use ironlab_ir::{ColorSpec, Limits, MarkerShape, NodeId, ScatterColor, View3d};
+use ironlab_ir::{ColorSpec, Limits, MarkerShape, NodeId, View3d};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Point;
 use ironlab_scene::maths::colormap::{VIRIDIS, sample};
@@ -346,9 +346,8 @@ fn a_decimated_colour_mapped_scatter_keeps_its_colours_aligned_with_its_points()
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let id = fx.scatter(ax, &x, &y, None, |s, fx| {
-        s.color = ScatterColor::Data {
-            data: fx.vector(&c),
-        };
+        s.color_data = Some(fx.vector(&c));
+        s.line.color = ColorSpec::Colormapped;
         // A scatter's markers are hollow by default, with the colour on the edge; the face is asked
         // for so that both parts carry the point's colour.
         s.marker.face = ColorSpec::Auto;
