@@ -67,6 +67,8 @@ pub fn figure() -> Figure {
     ax.aspect(Aspect::Equal)
         .xlabel("$x / a$")
         .ylabel("$y / a$");
-    fig.panel(0, 1).colorbar(bands);
+    fig.panel(0, 1)
+        .colorbar(bands)
+        .title_placement(ColorbarTitlePlacement::Above);
     fig
 }

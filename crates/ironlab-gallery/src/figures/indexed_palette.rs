@@ -96,6 +96,8 @@ pub fn figure() -> Figure {
     ax.xlabel("Distance east (km)")
         .ylabel("Distance north (km)")
         .aspect(Aspect::Equal);
-    fig.panel(0, 1).colorbar(terrain);
+    fig.panel(0, 1)
+        .colorbar(terrain)
+        .title_placement(ColorbarTitlePlacement::Above);
     fig
 }
