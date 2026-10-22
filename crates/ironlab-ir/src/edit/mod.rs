@@ -20,9 +20,20 @@
 //! optional value only while it is present. The settable paths of each kind of node are
 //! listed by [`properties`].
 //!
+//! A segment of decimal digits names an entry of a palette by its index, after the
+//! segment that names the list: `kind.indexed.colors.3`,
+//! `kind.categorical.categories.1.color`, `kind.categorical.categories.1.label` and
+//! `kind.continuous.colormap.colors.0` (or `kind.discrete.colormap.colors.0`) of a listed
+//! colormap. The index is written in canonical decimal form, without a sign, a leading
+//! zero or an exponent, so that one entry has exactly one path; any other spelling is an
+//! unknown path, and an index past the last entry is [`EditError::EntryOutOfRange`].
+//! Numeric segments name entries of palettes only. The list itself, and a category as a
+//! whole, are read-only, so that no edit changes how many entries a palette has; the
+//! entries a node holds are listed by [`properties_of`].
+//!
 //! Identifiers (`id`), the schema version (`schema_version`), the provenance
-//! (`provenance`), the node lists (`data`, `axes`, `artists` and `panels`) and the values
-//! of a data array (`array`) are read-only: nodes change only through the structural
+//! (`provenance`), the node lists (`data`, `axes`, `artists` and `panels`), the values
+//! of a data array (`array`) and the lists of the entries of palettes are read-only: nodes change only through the structural
 //! edits, and the values of a data array only through the data edits.
 //!
 //! # Transactions
@@ -45,7 +56,7 @@ pub(crate) mod walk;
 pub use crate::nodes::{Node, NodeKind};
 pub use choice::{Choice, choices, property_choices};
 pub use path::{PathError, PropertyPath};
-pub use registry::{Property, properties};
+pub use registry::{Property, properties, properties_of};
 pub use value::{Value, ValueType};
 
 use schemars::JsonSchema;
@@ -228,8 +239,9 @@ pub enum EditError {
     },
 
     /// The path names a property that edits cannot set: an identifier, the schema
-    /// version, the provenance, a node list or the values of a data array, or a path
-    /// below one of them.
+    /// version, the provenance, a node list, the values of a data array, a list of the
+    /// entries of a palette or a category as a whole, or a path below one of the first
+    /// five.
     #[error("edit {edit:?}: {path} of {node} is read-only")]
     ReadOnly {
         /// The index of the edit.
@@ -238,6 +250,23 @@ pub enum EditError {
         node: NodeId,
         /// The path addressed.
         path: PropertyPath,
+    },
+
+    /// The path names an entry of a list by an index that the list does not have, such
+    /// as `kind.indexed.colors.9` of a palette of nine entries; an index too large to
+    /// represent is out of range too.
+    #[error(
+        "edit {edit:?}: {path} of {node} names an entry beyond the {count} entries of its list"
+    )]
+    EntryOutOfRange {
+        /// The index of the edit.
+        edit: Option<usize>,
+        /// The node addressed.
+        node: NodeId,
+        /// The path addressed.
+        path: PropertyPath,
+        /// The number of entries in the list.
+        count: usize,
     },
 
     /// An inserted node, or a node of its subtree, has an identifier that is already in
@@ -344,6 +373,7 @@ impl EditError {
             | EditError::InactiveVariant { edit, .. }
             | EditError::AbsentValue { edit, .. }
             | EditError::ReadOnly { edit, .. }
+            | EditError::EntryOutOfRange { edit, .. }
             | EditError::DuplicateId { edit, .. }
             | EditError::InvalidParent { edit, .. }
             | EditError::RootNode { edit, .. }
@@ -444,9 +474,15 @@ impl Figure {
         path: &PropertyPath,
         step: Step,
     ) -> EditError {
+        // An entry path is listed when it matches the description of an entry of a list of
+        // the node's kind, whatever its index.
         let listed = || {
-            self.node_kind(node)
-                .is_some_and(|kind| properties(kind).iter().any(|p| p.path == *path))
+            self.node_kind(node).is_some_and(|kind| {
+                properties(kind).iter().any(|p| p.path == *path)
+                    || walk::entry_templates(kind)
+                        .iter()
+                        .any(|p| walk::matches_template(&p.path, path))
+            })
         };
         let unknown = EditError::UnknownPath {
             edit: index,
@@ -470,7 +506,13 @@ impl Figure {
                 node,
                 path: path.clone(),
             },
-            Step::Inactive | Step::Absent => unknown,
+            Step::OutOfRange { count } if listed() => EditError::EntryOutOfRange {
+                edit: index,
+                node,
+                path: path.clone(),
+                count,
+            },
+            Step::Inactive | Step::Absent | Step::OutOfRange { .. } => unknown,
             Step::Type { expected, found } => EditError::TypeMismatch {
                 edit: index,
                 node,

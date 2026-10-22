@@ -986,3 +986,137 @@ fn the_draw_list_is_kept_through_idle_frames_and_small_resizes_but_not_large_one
         "after an edit through figure_state_mut the list is rebuilt from the new scene"
     );
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Colourbars (stage 6 of the colourbar epic)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The colour scale of [`figure_with_centred_colourbar`].
+const BAR_SCALE: NodeId = NodeId(10);
+
+/// A figure of one cell holding nothing but a standing colourbar panel of a continuous scale of manual limits
+/// [0, 10], centred, at a base font size of 60 points so that the bar, which is as thick as the font is large, is
+/// wide on screen, and with its tick labels hidden so that the bar sits near the centre of its panel. The bar is long
+/// along the height of the canvas, so the centre row of the canvas crosses it; where along that row it lies is found
+/// by [`locate_bar`] rather than assumed.
+fn figure_with_centred_colourbar() -> ironlab_ir::Figure {
+    use ironlab_ir::{
+        ColorScale, ColorScaleKind, ColorbarOrientation, ContinuousColorScale, Panel,
+        PanelColorbar, PanelContent, PanelLocation, TickLabels,
+    };
+    ironlab_ir::Figure {
+        id: NodeId(1),
+        font_size_pt: 60.0,
+        color_scales: vec![ColorScale {
+            id: BAR_SCALE,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                limits: manual(0.0, 10.0),
+                tick_labels: TickLabels::Hidden,
+                ..ContinuousColorScale::default()
+            }),
+            ..ColorScale::default()
+        }],
+        panels: vec![Panel {
+            id: NodeId(20),
+            cell: ironlab_ir::Cell::default(),
+            align: PanelLocation::Center,
+            content: PanelContent::Colorbar(PanelColorbar {
+                scale: BAR_SCALE,
+                orientation: ColorbarOrientation::Vertical,
+            }),
+        }],
+        ..ironlab_ir::Figure::new()
+    }
+}
+
+/// Sweeps the pointer along the centre row of the canvas and returns the first position at which the datatip reads
+/// the scale, so that no test depends on where the layout of the window puts the bar.
+fn locate_bar(harness: &mut Harness<'static, ViewerApp>) -> egui::Pos2 {
+    (0..90)
+        .map(|k| egui::pos2(5.0 + 10.0 * k as f32, CANVAS_CENTRE.y))
+        .find(|&pos| {
+            harness.hover_at(pos);
+            harness.run();
+            harness.run();
+            harness.query_by_label_contains("value = ").is_some()
+        })
+        .expect("the centre row of the canvas crosses the bar")
+}
+
+fn bar_limits(state: &FigureState) -> ironlab_ir::Limits {
+    state
+        .figure()
+        .color_scale(BAR_SCALE)
+        .and_then(|scale| scale.kind.limits())
+        .expect("the scale has limits")
+}
+
+// Why: hovering a bar is tested in figure space and through the host-agnostic canvas, so what this proves is that
+// the egui host forwards the hover to the canvas and shows the callout it answers: over the bar, the reading of the
+// scale. Twin: `a_callout_over_a_bar_rings_a_value_and_outlines_a_band` in `crates/ironlab-canvas/tests/figure_canvas.rs`.
+#[test]
+fn hovering_over_a_colourbar_reads_the_scale() {
+    let mut harness = app_harness(vec![(
+        "bar.fig".to_owned(),
+        figure_with_centred_colourbar(),
+    )]);
+    harness.run();
+
+    let on_bar = locate_bar(&mut harness);
+    assert!(
+        harness.query_by_label_contains("value = ").is_some(),
+        "the datatip reads the value of the scale under the pointer"
+    );
+
+    // The bar is about a hundred screen points wide, so a point two hundred to the side of where the sweep first met
+    // it is in the canvas but off the bar.
+    let beside = if on_bar.x > 450.0 {
+        on_bar - egui::vec2(200.0, 0.0)
+    } else {
+        on_bar + egui::vec2(300.0, 0.0)
+    };
+    harness.hover_at(beside);
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("value = ").is_none(),
+        "nothing is read off the bar, at {beside:?} beside the bar at {on_bar:?}"
+    );
+}
+
+// Why: the wheel over a bar zooms its scale, and the egui host must forward the wheel over a bar exactly as over a
+// plot: the scale's limits narrow and become manual, in one step that the toolbar's Undo takes back. Twin:
+// `the_wheel_and_a_drag_over_a_bar_zoom_and_pan_the_scale_through_the_fit` in
+// `crates/ironlab-canvas/tests/figure_canvas.rs`.
+#[test]
+fn scrolling_over_a_colourbar_zooms_its_scale() {
+    let mut harness = app_harness(vec![(
+        "bar.fig".to_owned(),
+        figure_with_centred_colourbar(),
+    )]);
+    harness.run();
+
+    // A few points past where the sweep met the edge of the bar, so that the wheel is well over the bar.
+    let on_bar = locate_bar(&mut harness) + egui::vec2(10.0, 0.0);
+    harness.hover_at(on_bar);
+    harness.run();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, 1.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    // egui spreads the scroll over a few frames and hides the tooltip while it scrolls, and the datatip over the bar
+    // then shows again (one frame to show it, one to size it), which is more frames than `run` allows.
+    harness.run_steps(8);
+
+    let state = harness.state().figure_state(0).expect("one figure");
+    match bar_limits(state) {
+        ironlab_ir::Limits::Manual { min, max } => assert!(
+            min > 0.0 && max < 10.0,
+            "the zoom is about a value inside the bar, so both limits move inwards: [{min}, {max}]"
+        ),
+        other => panic!("the scale is zoomed to manual limits, not {other:?}"),
+    }
+    assert!(state.can_undo(), "the zoom is a step of the history");
+}

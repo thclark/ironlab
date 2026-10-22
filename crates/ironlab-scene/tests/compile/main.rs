@@ -12,6 +12,7 @@ mod artists;
 mod aspect;
 mod blended;
 mod color_scales;
+mod colorbar_hits;
 mod colorbars;
 mod decimation;
 mod dense;

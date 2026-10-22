@@ -2937,3 +2937,244 @@ fn the_panel_shows_the_opacities_of_a_selected_contour() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------
+// The entries of a palette (stage 6 of the colourbar epic)
+// ---------------------------------------------------------------------------------
+//
+// The IR addresses each entry of a palette by its index (`kind.indexed.colors.3`,
+// `kind.categorical.categories.1.label`, `kind.continuous.colormap.colors.0`; see
+// `crates/ironlab-ir/tests/palette_paths.rs`), and `property_groups` lists the properties
+// of the node as it stands (`ironlab_ir::properties_of`) rather than the registry of its
+// kind alone, so that every entry the node holds has a row. The list itself has no row
+// that edits it: how many entries there are comes from the program that builds the figure.
+// Rows of entries are ordered by index, not by the text of their labels, so that entry 10
+// follows entry 9 rather than entry 1.
+
+mod palette_entries {
+    use super::*;
+    use ironlab_ir::{
+        CategoricalColorScale, Color, ColorCategory, ColorScale, ColorScaleOutOfRange,
+        IndexedColorScale, OutOfRange, Text,
+    };
+
+    const INDEXED_SCALE: NodeId = NodeId(13);
+    const CONTINUOUS_SCALE: NodeId = NodeId(12);
+    const CLASSES: NodeId = NodeId(30);
+
+    /// [`figure_with_every_artist`] with its indexed scale grown to twelve entries, its
+    /// continuous scale given a listed colormap of three colours, and a categorical scale of
+    /// the categories Water and Forest that no artist uses.
+    fn figure_with_palettes() -> Figure {
+        let mut figure = figure_with_every_artist();
+        for scale in &mut figure.color_scales {
+            match &mut scale.kind {
+                ColorScaleKind::Indexed(IndexedColorScale { colors, .. }) => {
+                    *colors = (0..12u8)
+                        .map(|k| Color::rgb(f32::from(k) / 11.0, 0.5, 0.5))
+                        .collect();
+                }
+                ColorScaleKind::Continuous(scale) => {
+                    scale.colormap = Colormap::Listed {
+                        colors: vec![
+                            Color::rgb(1.0, 0.0, 0.0),
+                            Color::rgb(0.5, 0.5, 0.5),
+                            Color::rgb(0.0, 0.0, 1.0),
+                        ],
+                    };
+                }
+                _ => {}
+            }
+        }
+        figure.color_scales.push(ColorScale {
+            id: CLASSES,
+            kind: ColorScaleKind::Categorical(CategoricalColorScale {
+                categories: ["Water", "Forest"]
+                    .into_iter()
+                    .map(|label| ColorCategory {
+                        color: Color::rgb(0.0, 0.5, 1.0),
+                        label: Text::plain(label),
+                    })
+                    .collect(),
+                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            }),
+            ..ColorScale::default()
+        });
+        figure
+    }
+
+    // Why: the colour of an entry is what a reader adjusts when two classes of an indexed
+    // image are hard to tell apart, so every entry the palette holds has a colour row of its
+    // own, showing the entry's colour; and a long palette is read down by index, so entry 10
+    // comes after entry 9, never after entry 1 as it would in the order of the labels' text.
+    #[test]
+    fn every_entry_of_an_indexed_palette_has_a_colour_row_in_index_order() {
+        let state = FigureState::new(figure_with_palettes());
+        let groups = groups_of(&state, INDEXED_SCALE);
+        for k in 0..12u8 {
+            let entry = row(&groups, "kind", &format!("indexed.colors.{k}"));
+            assert_eq!(
+                entry.editor,
+                Editor::Color,
+                "entry {k} takes a colour picker"
+            );
+            assert_eq!(
+                entry.value,
+                Value::Color(Color::rgb(f32::from(k) / 11.0, 0.5, 0.5)),
+                "entry {k} shows its own colour"
+            );
+        }
+        let labels: Vec<&str> = group(&groups, "kind")
+            .rows
+            .iter()
+            .map(|row| row.label.as_str())
+            .filter(|label| label.starts_with("indexed.colors."))
+            .filter(|label| label.split('.').count() == 3)
+            .collect();
+        let expected: Vec<String> = (0..12).map(|k| format!("indexed.colors.{k}")).collect();
+        assert_eq!(labels, expected, "the entries are listed in index order");
+        assert!(
+            !labels.iter().any(|label| label.ends_with(".12")),
+            "no row for an entry the palette does not have"
+        );
+    }
+
+    // Why: a category is a colour and a name, and both are what a reader may correct; the
+    // name is text that may be typeset, so it takes the same editor as every other text.
+    #[test]
+    fn every_category_has_a_colour_row_and_a_label_row() {
+        let state = FigureState::new(figure_with_palettes());
+        let groups = groups_of(&state, CLASSES);
+        for k in 0..2 {
+            assert_eq!(
+                row(
+                    &groups,
+                    "kind",
+                    &format!("categorical.categories.{k}.color")
+                )
+                .editor,
+                Editor::Color
+            );
+            assert_eq!(
+                row(
+                    &groups,
+                    "kind",
+                    &format!("categorical.categories.{k}.label")
+                )
+                .editor,
+                Editor::RichText
+            );
+        }
+        assert_eq!(
+            row(&groups, "kind", "categorical.categories.1.label").value,
+            Value::Text(Text::plain("Forest"))
+        );
+    }
+
+    // Why: a listed colormap is a palette the author typed, adjusted as an indexed palette is,
+    // colour by colour.
+    #[test]
+    fn every_colour_of_a_listed_colormap_has_a_colour_row() {
+        let state = FigureState::new(figure_with_palettes());
+        let groups = groups_of(&state, CONTINUOUS_SCALE);
+        for k in 0..3 {
+            assert_eq!(
+                row(&groups, "kind", &format!("continuous.colormap.colors.{k}")).editor,
+                Editor::Color
+            );
+        }
+    }
+
+    // Why: the viewer edits properties, not structure. The number of entries of a palette and
+    // their order come from the program that builds the figure, so no row offers to change the
+    // list itself: wherever the list appears, it is a heading over its entries or a read-only
+    // row that says why, never a control.
+    #[test]
+    fn no_row_edits_the_list_of_entries_itself() {
+        let state = FigureState::new(figure_with_palettes());
+        for (node, list) in [
+            (INDEXED_SCALE, "kind.indexed.colors"),
+            (CLASSES, "kind.categorical.categories"),
+            (CONTINUOUS_SCALE, "kind.continuous.colormap.colors"),
+        ] {
+            for listed in groups_of(&state, node)
+                .iter()
+                .flat_map(|group| group.rows.iter())
+                .filter(|row| row.path.to_string() == list)
+            {
+                assert!(
+                    matches!(listed.editor, Editor::Group | Editor::ReadOnly { .. }),
+                    "the list {list} is not a control: {:?}",
+                    listed.editor
+                );
+            }
+        }
+    }
+
+    // Why: changing the colour of one entry must commit exactly one set of that entry, which
+    // the overlay records and the revert control takes back, as for any other property; the
+    // other entries, and the palette the program defined, are left alone.
+    #[test]
+    fn editing_one_entry_records_one_set_that_can_be_reverted() {
+        let mut state = FigureState::new(figure_with_palettes());
+        let at = path("kind.indexed.colors.10");
+        let grey = Color::rgb(0.25, 0.25, 0.25);
+        let transaction = commit(state.figure(), INDEXED_SCALE, &at, Value::Color(grey));
+        assert_eq!(
+            transaction,
+            set(
+                INDEXED_SCALE.0,
+                "kind.indexed.colors.10",
+                Value::Color(grey)
+            )
+        );
+
+        assert!(state.try_record(&transaction));
+        let colors = |figure: &Figure| match &figure.color_scale(INDEXED_SCALE).unwrap().kind {
+            ColorScaleKind::Indexed(scale) => scale.colors.clone(),
+            other => panic!("{other:?}"),
+        };
+        let shown = colors(state.figure());
+        let source = colors(state.source());
+        assert_eq!(shown.len(), 12, "no entry is added or removed");
+        assert_eq!(shown[10], grey);
+        for k in (0..12).filter(|k| *k != 10) {
+            assert_eq!(shown[k], source[k], "entry {k} keeps its colour");
+        }
+
+        let groups = groups_of(&state, INDEXED_SCALE);
+        let overridden: Vec<&str> = group(&groups, "kind")
+            .rows
+            .iter()
+            .filter(|row| row.overridden)
+            .map(|row| row.label.as_str())
+            .collect();
+        // Rows below the entry, such as its components if they are listed, may be marked with it, but no other entry.
+        assert!(
+            overridden.contains(&"indexed.colors.10")
+                && overridden.iter().all(|label| *label == "indexed.colors.10"
+                    || label.starts_with("indexed.colors.10.")),
+            "exactly the edited entry is marked: {overridden:?}"
+        );
+
+        assert!(state.revert(INDEXED_SCALE, &at));
+        assert_eq!(
+            colors(state.figure()),
+            source,
+            "the palette is the program's again"
+        );
+
+        let label = path("kind.categorical.categories.0.label");
+        let renamed = commit(
+            state.figure(),
+            CLASSES,
+            &label,
+            Value::Text(Text::plain("Sea")),
+        );
+        assert!(state.try_record(&renamed));
+        assert_eq!(
+            state.figure().get(CLASSES, &label).unwrap(),
+            Value::Text(Text::plain("Sea"))
+        );
+    }
+}

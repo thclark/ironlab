@@ -25,9 +25,9 @@ use crate::axes::{
     Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
-    CategoricalColorScale, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale,
-    OutOfRange,
+    CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
+    ColorScaleNorm, ColorScaleOutOfRange, Colormap, ContinuousColorScale, DiscreteColorScale,
+    IndexedColorScale, OutOfRange,
 };
 use crate::data::DataArray;
 use crate::edit::path::PropertyPath;
@@ -58,6 +58,11 @@ pub(crate) enum Step {
     Absent,
     /// The path names a property that edits cannot set.
     ReadOnly,
+    /// The path names an entry of a list by an index that the list does not have.
+    OutOfRange {
+        /// The number of entries in the list.
+        count: usize,
+    },
     /// The value is not of the type of the property.
     Type {
         /// The type of the property.
@@ -114,6 +119,9 @@ fn cloned<T: Clone>(value: &T) -> T {
 /// A hidden field is named only so that the declaration is checked against the
 /// structure; its type is never used, and is written `()`.
 macro_rules! walk_get {
+    (entries, $value:expr, $rest:expr) => {
+        entries_get($value, $rest)
+    };
     (hidden, $value:expr, $rest:expr) => {{
         let _ = ($value, $rest);
         Err(Step::ReadOnly)
@@ -134,6 +142,9 @@ macro_rules! walk_get {
 /// [`Value::Unset`] and created from its default by a value of its own type, so that
 /// the type of the value is checked in exactly one place.
 macro_rules! walk_set {
+    (entries, $place:expr, $rest:expr, $value:expr) => {
+        entries_set($place, $rest, $value)
+    };
     (hidden, $place:expr, $rest:expr, $value:expr) => {{
         let _ = ($place, $rest);
         Err(Step::ReadOnly)
@@ -176,6 +187,13 @@ macro_rules! walk_optional {
 /// settable and is not listed.
 macro_rules! walk_describe {
     (hidden, $ty:ty, $name:literal, $docs:literal, $prefix:expr, $conditional:expr, $out:expr) => {};
+    (entries, $ty:ty, $name:literal, $docs:literal, $prefix:expr, $conditional:expr, $out:expr) => {{
+        $prefix.push($name);
+        $prefix.push(ENTRY);
+        <$ty as Entry>::describe_entry($prefix, $docs, $out);
+        $prefix.pop();
+        $prefix.pop();
+    }};
     ($rule:tt, $ty:ty, $name:literal, $docs:literal, $prefix:expr, $conditional:expr, $out:expr) => {{
         $prefix.push($name);
         $out.push(Property {
@@ -373,6 +391,137 @@ fn inactive_or_unknown(head: &str, fields: &[&str]) -> Step {
     } else {
         Step::Unknown
     }
+}
+
+// ---------------------------------------------------------------------------------
+// The entries of a list
+// ---------------------------------------------------------------------------------
+
+/// The segment that stands for the index of an entry in the paths that describe the
+/// entries of a list ([`entry_templates`]); it is never a segment of a path that an edit
+/// names, because an index is written in decimal digits.
+pub(crate) const ENTRY: &str = "#";
+
+/// An entry of a list that a path addresses by its index, such as a colour of a palette.
+///
+/// The list itself is read-only, so that no edit changes how many entries there are; each
+/// entry, or the properties below it, is settable.
+pub(crate) trait Entry {
+    /// Returns the entry itself for an empty path, or the property at the path within it.
+    fn entry_get(&self, path: &[String]) -> Result<Value, Step>;
+
+    /// Replaces the entry itself for an empty path, or the property at the path within it.
+    fn entry_set(&mut self, path: &[String], value: Value) -> Result<(), Step>;
+
+    /// Appends the entry (when it is settable as a whole) and every property below it to
+    /// `out`, with `prefix`, which ends in [`ENTRY`], before each path, and `docs`
+    /// describing the entry.
+    fn describe_entry(prefix: &mut Vec<&'static str>, docs: &'static str, out: &mut Vec<Property>);
+}
+
+impl Entry for Color {
+    fn entry_get(&self, path: &[String]) -> Result<Value, Step> {
+        Walk::get(self, path)
+    }
+
+    fn entry_set(&mut self, path: &[String], value: Value) -> Result<(), Step> {
+        Walk::set(self, path, value)
+    }
+
+    fn describe_entry(prefix: &mut Vec<&'static str>, docs: &'static str, out: &mut Vec<Property>) {
+        out.push(Property {
+            path: PropertyPath::of(prefix),
+            value_type: ValueType::Color,
+            optional: false,
+            conditional: true,
+            docs,
+        });
+        <Color as Walk>::describe(prefix, true, out);
+    }
+}
+
+impl Entry for ColorCategory {
+    /// A category as a whole is not a value of its own; its colour and its label are.
+    fn entry_get(&self, path: &[String]) -> Result<Value, Step> {
+        match path.split_first() {
+            None => Err(Step::ReadOnly),
+            Some((head, rest)) => match head.as_str() {
+                "color" => Walk::get(&self.color, rest),
+                "label" => Walk::get(&self.label, rest),
+                _ => Err(Step::Unknown),
+            },
+        }
+    }
+
+    fn entry_set(&mut self, path: &[String], value: Value) -> Result<(), Step> {
+        match path.split_first() {
+            None => Err(Step::ReadOnly),
+            Some((head, rest)) => match head.as_str() {
+                "color" => Walk::set(&mut self.color, rest, value),
+                "label" => Walk::set(&mut self.label, rest, value),
+                _ => Err(Step::Unknown),
+            },
+        }
+    }
+
+    fn describe_entry(
+        prefix: &mut Vec<&'static str>,
+        _docs: &'static str,
+        out: &mut Vec<Property>,
+    ) {
+        walk_describe!(
+            plain,
+            Color,
+            "color",
+            "The colour of the category.",
+            prefix,
+            true,
+            out
+        );
+        walk_describe!(
+            plain,
+            Text,
+            "label",
+            "The label of the category, drawn beside its square.",
+            prefix,
+            true,
+            out
+        );
+    }
+}
+
+/// Returns the index named by a path segment written in canonical decimal form (digits
+/// only, without a leading zero unless the index is zero), or `None` for any other
+/// segment; an index too large for `usize` is `usize::MAX`, which no list reaches.
+pub(crate) fn entry_index(segment: &str) -> Option<usize> {
+    let canonical = !segment.is_empty()
+        && segment.bytes().all(|b| b.is_ascii_digit())
+        && (segment == "0" || !segment.starts_with('0'));
+    canonical.then(|| segment.parse().unwrap_or(usize::MAX))
+}
+
+/// Finds the entry of `list` that the first segment of `path` names.
+fn entry_of<'p, E>(list: &[E], path: &'p [String]) -> Result<(usize, &'p [String]), Step> {
+    let Some((head, rest)) = path.split_first() else {
+        return Err(Step::ReadOnly);
+    };
+    let index = entry_index(head).ok_or(Step::Unknown)?;
+    if index >= list.len() {
+        return Err(Step::OutOfRange { count: list.len() });
+    }
+    Ok((index, rest))
+}
+
+/// Reads an entry of a list, or a property below it; the list itself is read-only.
+fn entries_get<E: Entry>(list: &[E], path: &[String]) -> Result<Value, Step> {
+    let (index, rest) = entry_of(list, path)?;
+    list[index].entry_get(rest)
+}
+
+/// Writes an entry of a list, or a property below it; the list itself is read-only.
+fn entries_set<E: Entry>(list: &mut [E], path: &[String], value: Value) -> Result<(), Step> {
+    let (index, rest) = entry_of(list, path)?;
+    list[index].entry_set(rest, value)
 }
 
 // ---------------------------------------------------------------------------------
@@ -766,7 +915,8 @@ ir_value! {
     }
 
     IndexedColorScale as IndexedColorScale {
-        hidden "colors" => colors: () = "";
+        entries "colors" => colors: Color =
+            "The colour of one entry of the palette, which a whole number equal to its index takes.";
         plain "outside" => outside: ColorScaleOutOfRange =
             "What is drawn for a value that names no entry.";
         plain "ticks" => ticks: Ticks =
@@ -776,7 +926,7 @@ ir_value! {
     }
 
     CategoricalColorScale as CategoricalColorScale {
-        hidden "categories" => categories: () = "";
+        entries "categories" => categories: ColorCategory = "One category of the scale.";
         plain "outside" => outside: ColorScaleOutOfRange =
             "What is drawn for a value that names no category.";
     }
@@ -962,7 +1112,8 @@ ir_tagged! {
                 "Whether the colormap runs from its last colour to its first.";
         }
         Listed {
-            hidden "colors" => colors: () = "";
+            entries "colors" => colors: Color =
+                "One colour of the listed colormap, which the scale interpolates or samples in order.";
         }
     }
 
@@ -984,11 +1135,47 @@ ir_tagged! {
 // ---------------------------------------------------------------------------------
 
 /// Returns every settable property of a kind of node, in declaration order, without the
-/// paths that several variants of a tagged value share more than once.
+/// paths that several variants of a tagged value share more than once, and without the
+/// paths of entries of lists, which depend on the node rather than on its kind.
 pub(crate) fn node_properties(kind: NodeKind) -> Vec<Property> {
+    let mut properties = described(kind);
+    properties.retain(|property| !is_template(&property.path));
+    properties
+}
+
+/// Returns the paths of the entries of the lists of a kind of node, and of the properties
+/// below each entry, with [`ENTRY`] in place of the index, in declaration order.
+pub(crate) fn entry_templates(kind: NodeKind) -> Vec<Property> {
+    let mut properties = described(kind);
+    properties.retain(|property| is_template(&property.path));
+    properties
+}
+
+/// Returns everything the declarations describe for a kind of node, each path once.
+fn described(kind: NodeKind) -> Vec<Property> {
     let mut properties = Vec::new();
     describe(kind, &mut properties);
     let mut seen = std::collections::BTreeSet::new();
     properties.retain(|property| seen.insert(property.path.clone()));
     properties
+}
+
+/// Returns whether a described path stands for the entries of a list.
+fn is_template(path: &PropertyPath) -> bool {
+    path.segments().iter().any(|segment| segment == ENTRY)
+}
+
+/// Returns whether `path` names an entry, or a property below one, that `template`
+/// describes: the paths have the same segments except that each [`ENTRY`] of the template
+/// is an index in canonical decimal form in the path.
+pub(crate) fn matches_template(template: &PropertyPath, path: &PropertyPath) -> bool {
+    let (t, p) = (template.segments(), path.segments());
+    t.len() == p.len()
+        && t.iter().zip(p).all(|(t, p)| {
+            if t == ENTRY {
+                entry_index(p).is_some()
+            } else {
+                t == p
+            }
+        })
 }

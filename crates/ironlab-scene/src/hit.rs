@@ -127,15 +127,27 @@ pub struct ColorbarHit {
     /// the edge along it, centred, and is inset from the plot area by a margin; `None` for a panel colourbar and for a
     /// bar item of a legend, whose box (if any) is the legend's.
     pub backdrop: Option<Rect>,
+    /// How scale values lie along the bar: `min` at `start` and `max` at `end`, which is the low end of the bar (its
+    /// bottom when it stands, its left when it lies), in base-10 logarithms under a logarithmic norm. The limits are
+    /// those the bar is drawn over: a continuous scale's limits, automatic ones resolved; a discrete scale's first and
+    /// last edges; an indexed scale's −0.5 to n − 0.5, so that entry k lies at the centre of its block; and, for
+    /// limits that coincide, the span of one unit (one decade under a logarithmic norm) about them that the bar is
+    /// drawn over. `None` for a categorical scale, whose squares are its geometry.
+    pub map: Option<AxisMap>,
+    /// The band edges of a discrete bar as drawn, automatic ones as the compiler chose them, increasing; empty for
+    /// every other kind.
+    pub edges: Vec<f64>,
 }
 
 /// Hit-testing geometry for one out-of-range key of a colourbar.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ColorbarKeyHit {
     /// The out-of-range category the key shows.
     pub key: ColorScaleKey,
     /// The square of the key, in figure space.
     pub rect: Rect,
+    /// The source text of the label drawn beside the key: the author's label, or the default label as drawn.
+    pub label: String,
 }
 
 /// The points one artist drew, in the order they were painted.
