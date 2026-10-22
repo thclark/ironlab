@@ -2,7 +2,7 @@
 
 A legend lists the plots of a figure that have a label, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** is a [panel](../reference/figure-schema.md#panels) of the figure that holds a legend: it occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
 
-The sample of a plot that maps its data to colours, such as a filled contour, a surface or a series coloured by data, is drawn in the middle colour of its [colour scale](colour.md), and a colour scale itself is not yet shown as a key; the [colour guide](colour.md) describes scales. This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
+The sample of a plot that maps its data to colours, such as a filled contour, a surface or a series coloured by data, is drawn in the middle colour of its [colour scale](colour.md), and a colour scale itself is not yet shown as an item of a legend. A scale is shown by a [colourbar](colour.md#showing-a-scale-with-a-colourbar) instead, in a panel or inside an axes, as the [colour guide](colour.md) describes. This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
 
 ```rust
 use ironlab::prelude::*;
@@ -59,12 +59,13 @@ ax.legend(LegendLocation::North)
 
 ### Creating a panel
 
-A panel is a node of the figure that occupies tiles of the layout, as an axes does, and holds one key; a legend is the only key a panel holds at present. `fig.panel(row, col)` returns the panel whose top-left tile is `(row, col)`, creating a panel that holds a legend in that single tile if there is none. `fig.panel_span(row, col, row_span, col_span)` does the same and makes the panel cover the given numbers of rows and columns. Both return a `PanelMut` handle:
+A panel is a node of the figure that occupies tiles of the layout, as an axes does, and holds one key: a legend, described here, or a [colourbar](colour.md#a-colourbar-in-a-panel), described in the colour guide. `fig.panel(row, col)` returns the panel whose top-left tile is `(row, col)`, creating a panel that holds a legend in that single tile if there is none. `fig.panel_span(row, col, row_span, col_span)` does the same and makes the panel cover the given numbers of rows and columns. Both return a `PanelMut` handle:
 
 | Method | Effect |
 | --- | --- |
 | `align(location)` | Places the content within the panel. The location is a `PanelLocation`, which offers the locations listed [above](#locations) except `Best`, because a panel holds no data for its content to avoid. The default is `Center`. |
-| `legend()` | Returns a `PanelLegendMut` handle to the legend that the panel holds, whose setters are listed below. |
+| `legend()` | Returns a `PanelLegendMut` handle to the legend that the panel holds, whose setters are listed below. A panel that holds a colourbar is given a legend with the default settings in its place. |
+| `colorbar(scale)` | Makes the content of the panel a colourbar of the colour scale with the given identifier, and returns a `PanelColorbarMut` handle, as the [colour guide](colour.md#a-colourbar-in-a-panel) describes. |
 | `id()` | Returns the identifier of the panel, which axes use to send their entries to it. |
 
 The setters of a `PanelLegendMut` handle can be chained:
@@ -277,7 +278,7 @@ Weights apply to every axes and panel of the figure, not only to legends, and th
 
 ## Fitting rows and columns to their legends
 
-A weight sizes a row as a share of the page, so the height that a key needs must otherwise be guessed, and a wrong guess either clips the key or leaves space empty. A **fitted** row takes the height of the legend panels in it instead. The margins of the axes are set aside first, as for weights, the fitted rows then take their heights, and the plot areas of the weighted rows share the rest, so plot areas of equal weight stay of equal size above or beside a fitted row. `fit_row` fits one row and keeps the sizes of the others, and `fit_col` does the same for a column:
+A weight sizes a row as a share of the page, so the height that a key needs must otherwise be guessed, and a wrong guess either clips the key or leaves space empty. A **fitted** row takes the height of the panels in it instead, whether they hold legends or [colourbars](colour.md#a-colourbar-in-a-panel). The margins of the axes are set aside first, as for weights, the fitted rows then take their heights, and the plot areas of the weighted rows share the rest, so plot areas of equal weight stay of equal size above or beside a fitted row. `fit_row` fits one row and keeps the sizes of the others, and `fit_col` does the same for a column:
 
 ```rust
 // Three plots sharing the time axis, and a key beneath them as tall as its entries.
@@ -294,7 +295,7 @@ fig.link_all_x()?;
 
 `row_weights` and `col_weights` also accept a list of `TrackSize` values, in which `TrackSize::Weight(w)` is a weight and `TrackSize::Fit` a fitted size, such as `row_weights([TrackSize::Weight(1.0), TrackSize::Weight(1.0), TrackSize::Fit])`.
 
-A fitted row is as tall as the tallest area that a panel lying in that row alone needs for its entries, together with the margins that align the panel with the plot areas beside it, or the page padding on a side whose row holds no axes. The area includes the inset of the panel's border, if it has one, so that the panel neither clips its entries nor leaves space around them. In a fitted row the width of a panel is fixed and its height follows its entries, so automatic columns are chosen the other way round: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. A fitted column is as wide as the widest area that a panel lying in that column alone needs, with automatic columns chosen to fit the height as usual. A panel that spans a fitted row and another row does not size the fitted row, and a fitted row or column that holds no panel of its own has no size.
+A fitted row is as tall as the tallest area that a panel lying in that row alone needs for its entries, or for its colourbar, together with the margins that align the panel with the plot areas beside it, or the page padding on a side whose row holds no axes. The area includes the inset of the panel's border, if it has one, so that the panel neither clips its entries nor leaves space around them. In a fitted row the width of a panel is fixed and its height follows its entries, so automatic columns are chosen the other way round: the entries take the fewest rows that the width allows, in the fewest columns that give that many rows. A fitted column is as wide as the widest area that a panel lying in that column alone needs, with automatic columns chosen to fit the height as usual. A panel that spans a fitted row and another row does not size the fitted row, and a fitted row or column that holds no panel of its own has no size.
 
 An axes has no content size, so an axes that lies in fitted rows alone, or in fitted columns alone, is reported by [`validate`](getting-started.md#validating-a-figure) as the error `AxesInFittedTrack`. An axes may span a fitted row together with a weighted one, as a tall plot beside a key does.
 

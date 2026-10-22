@@ -250,6 +250,14 @@ proto_file! {
             ColorScaleNorm(ValueColorScaleNorm) color_scale_norm_value = 65;
             /// The band edges of a discrete colour scale.
             ColorScaleLevels(ValueColorScaleLevels) color_scale_levels_value = 66;
+            /// The colourbar content of a panel.
+            PanelColorbar(ValuePanelColorbar) panel_colorbar_value = 67;
+            /// The direction in which a panel colourbar runs.
+            ColorbarOrientation(ValueColorbarOrientation) colorbar_orientation_value = 68;
+            /// The colourbar inside an axes.
+            InsideColorbar(ValueInsideColorbar) inside_colorbar_value = 69;
+            /// The edge along which an inside colourbar lies.
+            InsideColorbarSide(ValueInsideColorbarSide) inside_colorbar_side_value = 70;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -632,5 +640,29 @@ proto_file! {
     message ValueColorScaleLevels {
         /// The band edges; it must be present.
         message ColorScaleLevels value = 1;
+    }
+
+    /// A panel colourbar value.
+    message ValuePanelColorbar {
+        /// The colourbar; it must be present.
+        message PanelColorbar value = 1;
+    }
+
+    /// A colourbar orientation value.
+    message ValueColorbarOrientation {
+        /// The orientation; it must be specified.
+        enum ColorbarOrientation value = 1;
+    }
+
+    /// An inside colourbar value.
+    message ValueInsideColorbar {
+        /// The colourbar; it must be present.
+        message InsideColorbar value = 1;
+    }
+
+    /// An inside colourbar side value.
+    message ValueInsideColorbarSide {
+        /// The side; it must be specified.
+        enum InsideColorbarSide value = 1;
     }
 }

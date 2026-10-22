@@ -57,15 +57,17 @@ pub enum IssueKind {
     UnknownData,
     /// A reference names a node of the figure that is not of the kind it requires: an
     /// artist's data that is not a data array, an artist's colour scale that is not a
-    /// colour scale, the panel of a legend that is not a panel holding a legend, or an
+    /// colour scale, the scale of a colourbar that is not a colour scale, the panel of a
+    /// legend that is not a panel holding a legend, or an
     /// item of an explicit list of legend entries that names a node that is not an
     /// artist. It is reported against the node that holds the reference, and a reference
     /// that names no node at all is reported as [`IssueKind::UnknownData`],
     /// [`IssueKind::UnknownColorScale`], [`IssueKind::DanglingPanelLegend`] or
     /// [`IssueKind::DanglingLegendItem`] instead.
     WrongNodeKind,
-    /// An artist names its colour scale by an identifier that is not a node of the
-    /// figure. It is reported against the artist.
+    /// An artist or a colourbar names its colour scale by an identifier that is not a node
+    /// of the figure. It is reported against the node that holds the reference: the
+    /// artist, the panel of a panel colourbar, or the axes of an inside colourbar.
     UnknownColorScale,
     /// An artist maps numbers to colours but names no colour scale: a scalar image, a
     /// contour whose bands are filled or whose isolines are colormapped or automatic, a
@@ -185,6 +187,9 @@ pub enum IssueKind {
     /// positive number. The ratio of z is checked on a two-dimensional axes too, which
     /// ignores it, so that a figure stays valid when it is made three-dimensional.
     InvalidAspect,
+    /// The length of an inside colourbar is not a fraction of the edge it lies along: a
+    /// finite number greater than 0 and at most 1. It is reported against the axes.
+    InvalidColorbarLength,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
@@ -416,6 +421,9 @@ impl Check for Panel {
                 validator.check_legend_entry_layout(self.id, legend.layout);
                 validator.check_legend_items(self.id, None, &legend.entries);
                 validator.check_panel_has_entries(self.id, &legend.entries);
+            }
+            PanelContent::Colorbar(colorbar) => {
+                validator.check_color_scale_reference(self.id, Some(colorbar.scale), None);
             }
         }
     }
@@ -781,12 +789,18 @@ impl<'a> Validator<'a> {
                 self.check_legend_items(axes.id, Some(axes), &inside.entries);
             }
             Some(Legend::Panel(panel)) => match self.figure.panel(*panel) {
-                // Every content of a panel is a legend so far; a content of another kind
-                // will be a reference to the wrong kind of node.
                 Some(Panel {
                     content: PanelContent::Legend(_),
                     ..
                 }) => {}
+                Some(_) => self.error(
+                    Some(axes.id),
+                    IssueKind::WrongNodeKind,
+                    format!(
+                        "the legend lists its entries in {panel}, which is a panel holding no \
+                         legend"
+                    ),
+                ),
                 None if self.kinds.contains_key(panel) => self.error(
                     Some(axes.id),
                     IssueKind::WrongNodeKind,
@@ -802,6 +816,21 @@ impl<'a> Validator<'a> {
                 ),
             },
             None => {}
+        }
+
+        if let Some(colorbar) = axes.colorbar {
+            self.check_color_scale_reference(axes.id, Some(colorbar.scale), None);
+            if !(colorbar.length.is_finite() && colorbar.length > 0.0 && colorbar.length <= 1.0) {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::InvalidColorbarLength,
+                    format!(
+                        "the length {} of the inside colourbar is not a fraction of its edge \
+                         greater than 0 and at most 1",
+                        colorbar.length
+                    ),
+                );
+            }
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });

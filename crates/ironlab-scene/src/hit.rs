@@ -1,6 +1,6 @@
 //! Geometry that interactive front ends need to map pointer positions back onto figure elements.
 
-use ironlab_ir::NodeId;
+use ironlab_ir::{ColorScaleKey, ColorbarOrientation, NodeId};
 
 use crate::display::{Point, Rect, Transform};
 use crate::maths::decimate::Sample;
@@ -94,6 +94,45 @@ pub struct PanelHit {
     pub rect: Rect,
 }
 
+/// The node that holds a colourbar: a panel, or an axes that draws it inside its plot area.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorbarOwner {
+    /// The panel with this identifier.
+    Panel(NodeId),
+    /// The axes with this identifier.
+    Axes(NodeId),
+}
+
+/// Hit-testing geometry for one colourbar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorbarHit {
+    pub owner: ColorbarOwner,
+    /// The colour scale the bar shows.
+    pub scale: NodeId,
+    /// The direction of the bar; an inside colourbar is horizontal on the south and north edges and vertical on the
+    /// east and west edges.
+    pub orientation: ColorbarOrientation,
+    /// The bar, in figure space: for a continuous, discrete or indexed scale the coloured bar itself, without ticks,
+    /// labels, title or keys; for a categorical scale the union of its category squares.
+    pub bar: Rect,
+    /// The squares of a categorical scale, one per category in category order; empty for any other kind.
+    pub entries: Vec<Rect>,
+    /// The out-of-range keys drawn, each with the category it shows.
+    pub keys: Vec<ColorbarKeyHit>,
+    /// The box drawn behind an inside colourbar, enclosing its title, bar, keys and labels, which lies `length` of
+    /// the edge along it, centred, and is inset from the plot area by a margin; `None` for a panel colourbar.
+    pub backdrop: Option<Rect>,
+}
+
+/// Hit-testing geometry for one out-of-range key of a colourbar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorbarKeyHit {
+    /// The out-of-range category the key shows.
+    pub key: ColorScaleKey,
+    /// The square of the key, in figure space.
+    pub rect: Rect,
+}
+
 /// The points one artist drew, in the order they were painted.
 ///
 /// Only artists made of individual data points — series — have an entry. Each sample
@@ -140,6 +179,8 @@ pub struct HitMap {
     pub artists: Vec<ArtistHit>,
     /// The placement of every image drawn in a two-dimensional axes, in paint order.
     pub images: Vec<ImageHit>,
+    /// Every colourbar drawn, in paint order: the inside colourbars of the axes, then those of the panels.
+    pub colorbars: Vec<ColorbarHit>,
 }
 
 impl HitMap {

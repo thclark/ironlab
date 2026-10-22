@@ -970,6 +970,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     ..axis
                 }),
                 z: wire_axis(None, wire::Scale::Log, wire_auto_limits(), true),
+                colorbar: None,
                 r#box: Some(false),
                 legend: wire_inside(
                     wire::LegendLocation::SouthWest,
@@ -1231,6 +1232,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 x: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 y: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 z: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
+                colorbar: None,
                 r#box: Some(true),
                 legend: None,
                 artists: vec![],
@@ -1579,6 +1581,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     tick_labels: TickLabels::Auto,
                     grid: true,
                 },
+                colorbar: None,
                 box_: false,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::SouthWest,
@@ -1886,6 +1889,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 x: auto_axis.clone(),
                 y: auto_axis.clone(),
                 z: auto_axis,
+                colorbar: None,
                 box_: true,
                 legend: None,
                 artists: vec![],
@@ -2157,6 +2161,36 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             |w, v| w.panels[0].align = v,
             |f| format!("{:?}", f.panels[0].align),
         ),
+        // The carrier's panel holds a legend, so the colourbar of a panel replaces its
+        // content, and the axes is given an inside colourbar of the carrier's scale.
+        check::<wire::ColorbarOrientation>(
+            |w, v| {
+                w.panels[0].content = Some(wire::PanelContent {
+                    kind: Some(wire::PanelContentKind::Colorbar(
+                        wire::PanelContentColorbar {
+                            colorbar: Some(wire::PanelColorbar {
+                                scale: Some(5),
+                                orientation: v,
+                            }),
+                        },
+                    )),
+                });
+            },
+            |f| match &f.panels[0].content {
+                PanelContent::Colorbar(colorbar) => format!("{:?}", colorbar.orientation),
+                PanelContent::Legend(_) => "a legend".to_owned(),
+            },
+        ),
+        check::<wire::InsideColorbarSide>(
+            |w, v| {
+                w.axes[0].colorbar = Some(wire::InsideColorbar {
+                    scale: Some(5),
+                    side: v,
+                    length: Some(0.5),
+                });
+            },
+            |f| format!("{:?}", f.axes[0].colorbar.map(|c| c.side).unwrap()),
+        ),
         check::<wire::LegendEntryOrder>(
             |w, v| {
                 inside_mut(&mut w.axes[0].legend)
@@ -2257,6 +2291,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     view3d: Some(zero_view),
                 })),
             }),
+            colorbar: None,
             r#box: Some(false),
             legend: Some(wire::Legend {
                 kind: Some(wire::LegendKind::Inside(wire::LegendInside {
@@ -2503,6 +2538,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     pan_y: 0.0,
                 },
             },
+            colorbar: None,
             box_: false,
             legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,
@@ -4541,6 +4577,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     grid: false,
                     ..Axis::default()
                 },
+                colorbar: None,
                 box_: false,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::Best,

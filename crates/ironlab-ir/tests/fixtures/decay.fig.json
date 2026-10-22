@@ -54,6 +54,7 @@
       },
       "aspect": { "type": "ratio", "value": { "y": 0.5, "z": 2.0 } },
       "aspect_adjust": "limits",
+      "colorbar": null,
       "box": true,
       "legend": {
         "type": "inside",

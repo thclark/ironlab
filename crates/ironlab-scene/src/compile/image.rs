@@ -45,7 +45,7 @@ const TRANSPARENT: [u8; 4] = [0, 0, 0, 0];
 
 /// Quantises a colour, alpha included, into the four channels of a pixel, or returns a transparent pixel for no
 /// colour.
-fn pixel(colour: Option<Rgba>) -> [u8; 4] {
+pub(super) fn pixel(colour: Option<Rgba>) -> [u8; 4] {
     colour.map_or(TRANSPARENT, |c| {
         [c.r, c.g, c.b, c.a].map(|channel| quantise(f64::from(channel)))
     })
@@ -139,7 +139,7 @@ fn byte_pixel(components: &[u8]) -> [u8; 4] {
 
 /// Packs pixels into samples of three channels when every pixel is opaque and of four otherwise, so that a backend
 /// uploads an opaque image without blending and spends an alpha channel only where one pixel needs it.
-fn pack(pixels: Vec<[u8; 4]>) -> Raster {
+pub(super) fn pack(pixels: Vec<[u8; 4]>) -> Raster {
     if pixels.iter().all(|p| p[3] == 255) {
         Raster {
             channels: ImageItem::RGB,

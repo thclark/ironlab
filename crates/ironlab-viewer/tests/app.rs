@@ -78,6 +78,7 @@ fn panned_2d_state() -> FigureState {
         panels: vec![],
         artists: vec![],
         images: vec![],
+        colorbars: vec![],
     };
     state.drag_start(&hit, Point::new(100.0, 50.0));
     state.drag_update(Point::new(160.0, 90.0));

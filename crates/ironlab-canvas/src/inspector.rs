@@ -238,6 +238,7 @@ fn data_array_name(data: &DataArray) -> String {
 fn panel_label(panel: &Panel) -> String {
     let content = match panel.content {
         PanelContent::Legend(_) => "Legend panel",
+        PanelContent::Colorbar(_) => "Colourbar panel",
     };
     format!("{content} ({})", cell_label(panel.cell))
 }
@@ -536,6 +537,11 @@ const COLOR_SCALE_REFERENCE_REASON: &str = "The colour scale an artist maps its 
      through is set by the program that builds the figure, as part of how its artists \
      share their scales. The scale itself is edited in its own row under Colour scales.";
 
+/// The reason the colour scale a colourbar shows is not changed here.
+const COLORBAR_SCALE_REASON: &str = "The colour scale a colourbar shows is set by the \
+     program that builds the figure, as the scale of an artist is. The scale itself is edited \
+     in its own row under Colour scales.";
+
 /// The reason the explicit labels of the ticks of an axis are not changed here.
 const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one by one, and \
      both are set together by the program that builds the figure, which is where they are \
@@ -601,6 +607,12 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // Which kind of key a panel holds is structure, as its cell is; the properties of
         // the key it holds, which lie below `content`, stay editable.
         NodeKind::Panel if segments == ["content"] => Some(PANEL_CONTENT_REASON),
+        // Which colour scale a colourbar shows relates it to another node of the figure, as
+        // the scale of an artist does.
+        NodeKind::Panel if segments == ["content", "colorbar", "scale"] => {
+            Some(COLORBAR_SCALE_REASON)
+        }
+        NodeKind::Axes if segments == ["colorbar", "scale"] => Some(COLORBAR_SCALE_REASON),
         NodeKind::DataArray => Some(DATA_ARRAY_REASON),
         // Which colour scale an artist names relates the artist to another node of the
         // figure, which is structure as the panel of a legend is.
@@ -647,6 +659,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
+        | ValueType::PanelColorbar
+        | ValueType::InsideColorbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -685,6 +699,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
+        | ValueType::ColorbarOrientation
+        | ValueType::InsideColorbarSide
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::ColorSpec
@@ -777,6 +793,8 @@ fn editor_for(
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
+        | ValueType::ColorbarOrientation
+        | ValueType::InsideColorbarSide
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
@@ -797,6 +815,8 @@ fn editor_for(
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
+        | ValueType::PanelColorbar
+        | ValueType::InsideColorbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement

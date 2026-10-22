@@ -5,15 +5,15 @@
 //! 1. `style` resolves every colour scale of the figure once, with its automatic limits over every artist that names
 //!    it, and `data` resolves every artist's arrays, checks their shapes and colour scales, and reports invalid
 //!    artists.
-//! 2. `panel` prepares and measures the content of every panel (with `legend` for the entries of a legend), from
-//!    which `layout` sizes the fitted rows and columns of the tile layout.
+//! 2. `panel` prepares and measures the content of every panel (with `legend` for the entries of a legend and
+//!    `colorbar` for a colourbar), from which `layout` sizes the fitted rows and columns of the tile layout.
 //! 3. `layout` divides the page into tile cells.
 //! 4. `limits` computes axis limits (over link groups) and ticks.
 //! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
 //!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
 //!    until the sizes settle.
-//! 6. `axes2d` and `axes3d` draw each axes, using `artists` for the data and `legend` for a legend inside the plot
-//!    area.
+//! 6. `axes2d` and `axes3d` draw each axes, using `artists` for the data, `colorbar` for a colourbar inside the plot
+//!    area and `legend` for a legend inside it.
 //! 7. `layout` places the panels, and `panel` draws the content of each.
 //!
 //! `text`, `style`, `paths` and `image` hold shared helpers for text placement, colours, path geometry and the
@@ -23,6 +23,7 @@ mod artists;
 mod aspect;
 mod axes2d;
 mod axes3d;
+mod colorbar;
 mod data;
 mod decor;
 mod image;
@@ -105,7 +106,19 @@ pub(crate) struct Ctx<'a> {
     pub warnings: Vec<SceneWarning>,
 }
 
-impl Ctx<'_> {
+impl<'a> Ctx<'a> {
+    /// Returns a context for measuring text whose warnings are discarded, for a measurement that is repeated while
+    /// the layout settles and whose warnings the drawing raises once.
+    pub fn scratch(&self) -> Ctx<'a> {
+        Ctx {
+            figure: self.figure,
+            text: self.text,
+            font_size: self.font_size,
+            page: self.page,
+            warnings: Vec::new(),
+        }
+    }
+
     /// Records a warning about `node`.
     pub fn warn(&mut self, node: Option<NodeId>, message: impl Into<String>) {
         self.warnings.push(SceneWarning {
@@ -176,6 +189,7 @@ fn arrange(
     targets: &[[usize; 3]],
     fits: &layout::Fits,
     grid_area: Rect,
+    panel_tops: &[f64],
 ) -> (Vec<decor::Decor>, layout::Placement) {
     let decorations = measure(ctx, ranges, targets);
     let margins: Vec<layout::Margins> = ctx
@@ -188,7 +202,7 @@ fn arrange(
             Projection::ThreeD { .. } => axes3d::margins(ctx, d),
         })
         .collect();
-    let placement = layout::place(ctx, fits, grid_area, &margins);
+    let placement = layout::place(ctx, fits, grid_area, &margins, panel_tops);
     (decorations, placement)
 }
 
@@ -208,10 +222,13 @@ fn arrange(
 /// - **Sources.** Geometry drawn for an artist names the artist as its source. Axes decorations (box, tick marks,
 ///   tick labels, common exponent labels, grid lines, axis labels, the axes title) and every part of the legend inside
 ///   its plot area (its box, entry samples and entry labels) name the axes. Every part of a legend panel (its box,
-///   entry samples and entry labels) names the panel. The figure title names the figure.
+///   entry samples and entry labels) names the panel. Every part of a colourbar (its bar, outline, tick marks, tick
+///   labels, squares, key labels and title) names its holder: the panel of a panel colourbar, and the axes of an
+///   inside colourbar. The figure title names the figure.
 /// - **Paint order.** In 2D axes, artists are painted in the order in which the axes lists them, so a later artist
 ///   covers an earlier one. The legend inside a plot area is painted after every artist of its axes, and the legend
-///   panels are painted after every axes, in the order the figure lists them.
+///   panels are painted after every axes, in the order the figure lists them. An inside colourbar is painted after
+///   the artists, box, ticks and labels of its axes and before its inside legend.
 /// - **Visibility.** An artist whose `visible` flag is false emits no items, but otherwise takes part in compilation
 ///   as if it were visible: it keeps its colour-order entry, and its data still contributes to automatic axis limits
 ///   and automatic colour limits. Its legend entry is still drawn, and every colour in the entry has an alpha below
@@ -365,10 +382,11 @@ fn arrange(
 ///   cannot be placed. A skipped image contributes nothing to the axis limits, while its numbers still count
 ///   towards the automatic limits of the colour scale it names, as those of a hidden image do.
 /// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below
-///   the figure title first. A fitted row then takes the share that the tallest legend panel lying in that row alone
-///   needs for its block of entries (with the border inset of a boxed panel), with the page padding added on a side
-///   at which no axes starts or ends; a fitted column takes the widest such share in the same way, and a fitted track
-///   in which no panel lies alone takes none. The plot areas of the weighted rows share the rest of the height, and
+///   the figure title first. A fitted row then takes the share that the tallest panel lying in that row alone needs:
+///   a legend panel for its block of entries (with the border inset of a boxed panel), and a colourbar panel for the
+///   extent of its bar, ticks, labels and title across its length, with the page padding added on a side at which no
+///   axes starts or ends; a fitted column takes the widest such share in the same way, and a fitted track in which no
+///   panel lies alone takes none. The plot areas of the weighted rows share the rest of the height, and
 ///   those of the weighted columns the rest of the width, in proportion to their weights; a missing size, and a weight
 ///   that is not finite and positive, counts as a weight of one, so that equal weights draw exactly what no weights
 ///   draw. Plot areas of equal weight are therefore of equal size whatever their tick labels, axis labels, titles and
@@ -453,6 +471,40 @@ fn arrange(
 ///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
 ///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
 ///   keeps clear of.
+/// - **Colourbars.** A colourbar shows a colour scale through the resolved scale its artists use, so every bar of a
+///   scale agrees with every other and with the artists. A continuous bar is one image item of 256 samples along the
+///   bar, the sample at `(k + 0.5) / 256` of the way from the low end taking the colour of that position of the scale;
+///   an indexed bar is one image item of one sample per entry, entry 0 at the low end; a discrete bar is one filled
+///   rectangle per band, as long as the range of values it holds in the space of the norm; a categorical scale is one
+///   square per category, filled with its colour and outlined in black, from category 0 at the top of a standing key
+///   and the left of a lying one. Image samples run from row 0 at the top, so the low end is always the bottom of a
+///   standing bar and the left of a lying one, whether or not the colormap is reversed. A bar is outlined as an axes
+///   box is and its ends are flat; no out-of-range colour is drawn at an end. Its ticks are those of an axis built
+///   from the scale's limits (the first and last band edges of a discrete scale, and the entries −0.5 to n − 0.5 of an
+///   indexed scale, so that entry `k` is ticked at the centre of its block), ticks and tick labels, measured as an
+///   axis's are, with the density of a 2D x axis along a lying bar and of a y axis along a standing one; automatic
+///   ticks of a discrete scale mark every band edge, and those of an indexed scale whole entries only. Tick marks
+///   leave the bar on its label side. Each out-of-range category whose key is shown is a square as wide as the bar is
+///   thick, filled with the colour painted for it (the fixed colour, or the end colour under a clamp) or left empty,
+///   and outlined in black; one margin separates every square from the bar and from the next square. Along a standing
+///   bar the pieces read, from the top, the above key, the bar, the below (or outside) key and the non-finite key;
+///   along a lying bar, from the left, the non-finite key, the below (or outside) key, the bar and the above key; a
+///   categorical scale's keys follow its categories. Along a lying colourbar the margin is wide enough for the labels
+///   under neighbouring squares not to meet. A key's default label is `> upper`, `< lower`, `Out of range` or
+///   `NaN / Inf`, with a limit written as the tick at that limit is. The thickness of a bar, and every distance of a
+///   colourbar, is a multiple of the base font size. A panel colourbar runs along the area of its panel, keys
+///   included, from the near edge of the first drawn plot box to the far edge of the last among the axes in the rows
+///   or columns it spans, so that a box shrunk by a fixed aspect does not leave it longer than the plots, and along the
+///   whole area when those tracks hold no axes; it is placed across the area by the panel's alignment; a standing bar's labels lie to its right and
+///   a lying bar's below it. A lying bar's title heads it inside the panel's area; a standing bar's title lies in the
+///   margin above the area, which widens the top margin of the first row the panel spans to the largest that any
+///   cell of that row needs. In a fitted track, a panel colourbar takes its thickness, ticks, labels and title across
+///   its length. An inside colourbar lies along its edge of the plot area, inset by one margin on every side, its
+///   bar and keys together `length` of the edge and centred along it (a categorical key its own length), its labels
+///   toward the interior and kept within the plot area along the bar, and its title beyond its labels (above the top
+///   end of a standing bar); it takes no margin, so the plot area is the same with or without it. A colourbar whose
+///   scale reference names no colour scale is not drawn, with one warning naming its holder. The hit map records
+///   every colourbar drawn as a [`crate::hit::ColorbarHit`].
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped
 ///   data, for data that gives it nothing to draw, for a placement or plane that cannot be drawn, for a pixel a
 ///   strict policy refuses and for its label, the axes for its title and axis labels, and the figure for its
@@ -524,12 +576,12 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .enumerate()
         .map(|(i, axes)| legend::candidates(axes, &prepared[i], &scales, &primaries[i]))
         .collect();
-    let contents = panel::prepare(&mut ctx, &candidates);
-    let font_size = ctx.font_size;
-    let content = |p: usize, along, cross| contents[p].size(font_size, along, cross);
+    let contents = panel::prepare(&mut ctx, &candidates, &scales);
+    let panel_tops: Vec<f64> = contents.iter().map(|c| c.top_margin(&ctx)).collect();
+    let content = |ctx: &Ctx, p: usize, along, cross| contents[p].size(ctx, along, cross);
     let mut fits = layout::Fits::new(&figure.layout);
     if fits.any() {
-        fits = layout::fit_tracks(&ctx, grid_area, None, &fits, content);
+        fits = layout::fit_tracks(&ctx, grid_area, None, &panel_tops, &fits, content);
     }
 
     // The warnings of a pass that is repeated would only repeat those of the next, so they are discarded.
@@ -542,13 +594,20 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         if !fits.any() || pass == MAX_FIT_PASSES {
             break laid_out;
         }
-        let next = layout::fit_tracks(&ctx, grid_area, Some(&laid_out.4), &fits, content);
+        let next = layout::fit_tracks(
+            &ctx,
+            grid_area,
+            Some(&laid_out.4),
+            &panel_tops,
+            &fits,
+            content,
+        );
         if next.settled(&fits) {
             break laid_out;
         }
         fits = next;
     };
-    let mut placement = layout::place(&ctx, &fits, grid_area, &margins);
+    let mut placement = layout::place(&ctx, &fits, grid_area, &margins, &panel_tops);
 
     // A fixed aspect is kept once the margins are known. Widening limits for it changes the tick labels and so the
     // margins, which change the plot areas the limits are widened for, so the layout is repeated until the widened
@@ -575,7 +634,8 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
                 // margins left; the aspect stays exact, because the limits were widened for these plot areas.
                 decorations = measure(&mut ctx, &drawn, &targets);
             } else {
-                (decorations, placement) = arrange(&mut ctx, &drawn, &targets, &fits, grid_area);
+                (decorations, placement) =
+                    arrange(&mut ctx, &drawn, &targets, &fits, grid_area, &panel_tops);
             }
         }
     }
@@ -618,6 +678,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         &mut ctx,
         &fits,
         placement.panels,
+        &placement.plots,
         &contents,
         &mut items,
         &mut hit_map,

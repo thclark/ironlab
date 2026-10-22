@@ -179,6 +179,26 @@ pub(super) enum Fill {
     Width,
 }
 
+/// Returns the box of a boxed inside legend drawn at `rect`: a white background with a thin frame, which keeps what is
+/// drawn on it readable over the artists beneath. An inside colourbar draws the same box behind itself.
+pub(super) fn backdrop(source: NodeId, rect: Rect) -> Option<Item> {
+    let mut b = PathBuilder::new();
+    b.rect(rect);
+    paths::item(
+        source,
+        b.finish(),
+        Some(paths::fill(Rgba::WHITE)),
+        Some(paths::solid(INK, 0.5)),
+    )
+}
+
+/// Returns the padding between the box of an inside legend and its entries, and the inset of that box from the edges
+/// of the plot area, for the base font size `fs`; an inside colourbar is boxed and placed with the same distances.
+pub(super) fn inside_box_spacing(fs: f64) -> (f64, f64) {
+    let m = Metrics::new(fs);
+    (m.pad, m.inset)
+}
+
 /// Metrics of a legend in points, derived from the font size.
 struct Metrics {
     pad: f64,
@@ -591,22 +611,18 @@ fn render(
 
     let mut items = Vec::new();
     if block.boxed {
-        let mut b = PathBuilder::new();
-        b.rect(if overflow {
-            Rect::new(
-                rect.x,
-                rect.y,
-                rect.width.min(area.width),
-                rect.height.min(area.height),
-            )
-        } else {
-            rect
-        });
-        items.extend(paths::item(
+        items.extend(backdrop(
             block.source,
-            b.finish(),
-            Some(paths::fill(Rgba::WHITE)),
-            Some(paths::solid(INK, 0.5)),
+            if overflow {
+                Rect::new(
+                    rect.x,
+                    rect.y,
+                    rect.width.min(area.width),
+                    rect.height.min(area.height),
+                )
+            } else {
+                rect
+            },
         ));
     }
 

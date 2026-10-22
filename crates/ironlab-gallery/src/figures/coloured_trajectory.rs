@@ -2,10 +2,12 @@ use ironlab::prelude::*;
 
 pub const TITLE: &str = "Coloured trajectory";
 pub const DESCRIPTION: &str = "The flight of a baseball struck at 40 m/s and 35° above the horizontal, in a vacuum \
-     and through still air, each line coloured along its length by the speed of the ball. In a vacuum the ball \
-     slows to 33 m/s at the top of its flight and lands as fast as it was struck; through air, drag slows it to \
-     22 m/s near the top, it lands at 25 m/s, and its range is shorter by almost two fifths. The colour data holds one value per point, \
-     so each segment is drawn as a gradient between the speeds at its ends, and both trajectories share the default colour scale of the axes.";
+     and through still air, each line coloured along its length by the speed of the ball. In a vacuum the ball slows \
+     to 33 m/s at the top of its flight and lands as fast as it was struck; through air, drag slows it to 22 m/s \
+     near the top, it lands at 25 m/s, and its range is shorter by almost two fifths. The colour data holds one \
+     value per point, so each segment is drawn as a gradient between the speeds at its ends, and both trajectories \
+     share the default colour scale of the axes, which the horizontal colourbar in the fitted row beneath the axes \
+     shows.";
 
 /// The acceleration due to gravity, in m/s².
 const GRAVITY: f64 = 9.81;
@@ -65,7 +67,9 @@ fn flight(drag: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 
 pub fn figure() -> Figure {
     let mut fig = Figure::new()
-        .size_mm(160.0, 55.0)
+        .size_mm(160.0, 68.0)
+        .tiles(2, 1)
+        .fit_row(1)
         .title("A baseball struck at 40 m/s, coloured by its speed")
         .tag("line")
         .tag("legend")
@@ -74,6 +78,7 @@ pub fn figure() -> Figure {
         .tag("comparison")
         .tag("aspect")
         .tag("physics")
+        .tag("colorbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
         .parameter("data_points", 1317)
@@ -90,9 +95,11 @@ pub fn figure() -> Figure {
         .color_data(&speed)
         .line_width(2.0)
         .label("Through air");
-    ax.color_scale()
+    let speed = ax
+        .color_scale()
         .colormap(Colormap::Plasma)
-        .title("Speed $|v|$ (m/s)");
+        .title("Speed $|v|$ (m/s)")
+        .id();
     ax.xlabel("Distance $x$ (m)")
         .ylabel("Height $y$ (m)")
         .xlim(0.0, 160.0)
@@ -100,5 +107,8 @@ pub fn figure() -> Figure {
         .aspect(Aspect::Equal)
         .grid(true)
         .legend(LegendLocation::NorthEast);
+    fig.panel(1, 0)
+        .colorbar(speed)
+        .orientation(ColorbarOrientation::Horizontal);
     fig
 }

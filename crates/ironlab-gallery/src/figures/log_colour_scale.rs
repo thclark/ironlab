@@ -6,7 +6,9 @@ pub const DESCRIPTION: &str = "The ground-level concentration of a pollutant dow
      four decades over the plume, so the scalar image maps it through a colour scale with a logarithmic norm between \
      0.1 and 1000 µg/m³, which gives each decade an equal share of the colormap. The scale draws nothing for a \
      concentration below 0.1 µg/m³, so the air the plume has not reached is left blank rather than painted in the \
-     first colour, and the black isolines mark the decades 0.1, 1, 10 and 100 µg/m³.";
+     first colour, and the black isolines mark the decades 0.1, 1, 10 and 100 µg/m³. The colourbar beside the axes \
+     is ticked at the decades, which are equally spaced along it, and its empty key below the bar stands for the \
+     concentrations below 0.1 µg/m³ that are left blank.";
 
 /// The emission rate of the stack, in grams per second.
 const EMISSION_G_PER_S: f64 = 100.0;
@@ -46,11 +48,14 @@ pub fn figure() -> Figure {
 
     let mut fig = Figure::new()
         .size_mm(160.0, 90.0)
+        .tiles(1, 2)
+        .fit_col(1)
         .title("Ground-level concentration downwind of a 60 m stack")
         .tag("image")
         .tag("contour")
         .tag("colormap")
         .tag("out-of-range")
+        .tag("colorbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
         .parameter("data_points", 38_303)
@@ -62,6 +67,7 @@ pub fn figure() -> Figure {
         .norm(ColorScaleNorm::Log)
         .limits(0.1, 1000.0)
         .below(OutOfRange::Transparent)
+        .show_key(ColorScaleKey::Below)
         .title("Concentration (µg/m³)")
         .id();
 
@@ -76,5 +82,6 @@ pub fn figure() -> Figure {
         .line_width(0.5);
     ax.xlabel("Distance downwind (km)")
         .ylabel("Distance across the wind (km)");
+    fig.panel(0, 1).colorbar(decades);
     fig
 }
