@@ -83,12 +83,14 @@ A colourbar in IronLAB shows a scale rather than a plot, and everything it draws
 | Lay the bar flat beneath the plots | `colorbar('southoutside')` | `orientation="horizontal"` | `colorbar=dict(orientation="h")` | `.orientation(ColorbarOrientation::Horizontal)` on the panel's colourbar, in a fitted row |
 | Share one bar across several axes | `colorbar` on a tiled layout with `Layout.Tile = 'east'` | `fig.colorbar(mappable, ax=[ax1, ax2, ax3])` | `coloraxis` shared by the traces | `fig.panel_span(..).colorbar(scale)` spanning their rows or columns |
 | Draw the bar inside the plot area | `colorbar('east')` and the other inside locations | `cax=ax.inset_axes(..)` | `colorbar=dict(x=, y=, len=)` | `ax.colorbar(scale, InsideColorbarSide::East)`, with `.length(fraction)` |
-| Title the bar | `title(c, text)` or `c.Label.String` | `cbar.set_label(text)` | `colorbar=dict(title=text)` | `.title(text)` on the scale |
+| Shorten the bar | `c.Position` | `fig.colorbar(.., shrink=0.5)` | `colorbar=dict(len=0.5)` | `.length(0.5)` on the panel's colourbar, placed along the plots by the panel's `align` |
+| Title the bar | `title(c, text)` or `c.Label.String` | `cbar.set_label(text)` | `colorbar=dict(title=text)` | `.title(text)` on the scale, drawn along the bar unless the bar's `.title_placement(ColorbarTitlePlacement::Above)` makes it a heading |
 | Place the ticks | `c.Ticks = v` | `cbar.set_ticks(v)` | `colorbar=dict(tickvals=v)` | `.ticks(v)` or `.tick_step(step)` on the scale |
 | Label the ticks | `c.TickLabels = labels` | `cbar.set_ticks(v, labels=labels)` | `colorbar=dict(tickvals=v, ticktext=labels)` | `.tick_labels([(value, label), ..])` on the scale |
 | Show the colour of values beyond the limits | no option | `extend="min"`, `"max"` or `"both"`, drawn as pointed ends | no option | `.show_key(ColorScaleKey::Above)` and the other keys on the scale, drawn as separate squares |
 | List the categories of a classification in a legend | dummy patches, one per class, passed to `legend` | `legend(handles=[Patch(color=c, label=l), ..])` | one dummy trace per class | `.item(scale)` on a legend with the identifier of a categorical scale |
 | Put a colour bar among legend entries | no option | no option | no option | `.item(scale)` on a legend with the identifier of a continuous, discrete or indexed scale, [drawn as a bar](../guides/colour.md#bars-are-items) |
+| Title a legend or a colourbar beside the plots | `title(lgd, text)` | `ax.legend(title=text)` | `legend=dict(title=dict(text=text))` | `.title(text)` on the [panel](../guides/legends.md#titling-a-panel) that holds the legend or the bar |
 
 ### Levels of filled contours
 

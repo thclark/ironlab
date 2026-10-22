@@ -12,7 +12,7 @@ The schema used the same word for different things. An artist's `display_name` w
 
 Each word is used for one kind of text throughout the schema and the facade:
 
-- A **title** is a `Text` drawn as a heading above the thing it names, such as `Figure.title` and `Axes.title`.
+- A **title** is a `Text` drawn as a heading above the thing it names, such as `Figure.title`, `Axes.title` and `Panel.title`.
 - A **label** is a `Text` drawn beside the thing it identifies, such as an axis label, a tick label, an artist's legend label and a custom legend item's label.
 - A **name** is a `String` that identifies a node to tools and is never drawn, such as `DataArray.name` and the keys of `Figure.parameters`.
 - A **tag** is a `String` that describes a figure to the figure browser and is never drawn, held in `Figure.tags`.
