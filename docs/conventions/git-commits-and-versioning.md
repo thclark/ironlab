@@ -145,3 +145,4 @@ Note that the site is built twice for different purposes. Every pull request bui
 ## Related notes
 - [Branching](git-branching.md) — bases, naming, protected branches, updating
 - [Pull requests](git-pull-requests.md) — opening, titling, never merging
+- [GitHub issues](github-issues.md) — label classes and how issues are labelled
