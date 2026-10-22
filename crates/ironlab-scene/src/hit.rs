@@ -94,13 +94,17 @@ pub struct PanelHit {
     pub rect: Rect,
 }
 
-/// The node that holds a colourbar: a panel, or an axes that draws it inside its plot area.
+/// What holds a colourbar: a panel, an axes that draws it inside its plot area, or a legend that lists its scale as a
+/// bar item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorbarOwner {
     /// The panel with this identifier.
     Panel(NodeId),
     /// The axes with this identifier.
     Axes(NodeId),
+    /// A bar item of a legend: inside the plot area of an axes or in a legend panel. A legend may hold several bar
+    /// items, which [`ColorbarHit::scale`] tells apart.
+    Legend(LegendOwner),
 }
 
 /// Hit-testing geometry for one colourbar.
@@ -110,7 +114,7 @@ pub struct ColorbarHit {
     /// The colour scale the bar shows.
     pub scale: NodeId,
     /// The direction of the bar; an inside colourbar is horizontal on the south and north edges and vertical on the
-    /// east and west edges.
+    /// east and west edges, and a bar item of a legend is vertical, or horizontal on a row of its own.
     pub orientation: ColorbarOrientation,
     /// The bar, in figure space: for a continuous, discrete or indexed scale the coloured bar itself, without ticks,
     /// labels, title or keys; for a categorical scale the union of its category squares.
@@ -120,7 +124,8 @@ pub struct ColorbarHit {
     /// The out-of-range keys drawn, each with the category it shows.
     pub keys: Vec<ColorbarKeyHit>,
     /// The box drawn behind an inside colourbar, enclosing its title, bar, keys and labels, which lies `length` of
-    /// the edge along it, centred, and is inset from the plot area by a margin; `None` for a panel colourbar.
+    /// the edge along it, centred, and is inset from the plot area by a margin; `None` for a panel colourbar and for a
+    /// bar item of a legend, whose box (if any) is the legend's.
     pub backdrop: Option<Rect>,
 }
 
@@ -179,7 +184,8 @@ pub struct HitMap {
     pub artists: Vec<ArtistHit>,
     /// The placement of every image drawn in a two-dimensional axes, in paint order.
     pub images: Vec<ImageHit>,
-    /// Every colourbar drawn, in paint order: the inside colourbars of the axes, then those of the panels.
+    /// Every colourbar drawn, in paint order: the inside colourbars and the bar items of the inside legends of the
+    /// axes, then the colourbars and the bar items of the legends of the panels.
     pub colorbars: Vec<ColorbarHit>,
 }
 

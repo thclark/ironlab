@@ -243,11 +243,20 @@ impl PanelLegendMut<'_> {
     /// Appends an item to the explicit list of entries of the panel, starting an empty
     /// list if the entries are automatic.
     ///
-    /// The item is either a [`LegendItem`] or the identifier of an artist, which lists
-    /// that artist, labelled by its label beside the sample drawn for it. The
-    /// artist may belong to any axes of the figure. The item also stands for every artist
-    /// of the axes that name the panel whose label and look match it, so that
+    /// The item is either a [`LegendItem`], appended as it is, or a node identifier, which
+    /// is resolved when the call is made: the identifier of a colour scale of the figure
+    /// lists that scale, and any other identifier lists the artist it names, labelled by
+    /// its label beside the sample drawn for it, so that validation reports an identifier
+    /// that names no artist.
+    ///
+    /// The artist may belong to any axes of the figure. The item also stands for every
+    /// artist of the axes that name the panel whose label and look match it, so that
     /// clicking it in the viewer hides or shows a series drawn in several axes at once.
+    ///
+    /// A colour scale may be any scale of the figure, whether or not an artist uses it. A
+    /// categorical scale is listed as one entry per category, and any other scale as a
+    /// vertical bar five entry rows long in one column, titled and ticked as its colourbar
+    /// is (see the colour guide).
     ///
     /// Items are listed in the order they are appended, whatever the order in which their
     /// artists are drawn, so a reference series drawn last, on top of the others, can be
@@ -261,11 +270,12 @@ impl PanelLegendMut<'_> {
     /// let mut ax = fig.axes(0, 0);
     /// let member = ax.plot(&x, &x).label("Member").id();
     /// let reference = ax.plot(&x, &x).label("Reference").id();
-    /// fig.panel(1, 0).legend().item(reference).item(member);
+    /// let speed = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
+    /// fig.panel(1, 0).legend().item(reference).item(member).item(speed);
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn item(&mut self, item: impl Into<LegendItem>) -> &mut Self {
-        let item = item.into();
+    pub fn item(&mut self, item: impl Into<LegendItemRef>) -> &mut Self {
+        let item = self.resolve(item.into(), false);
         let panel = self.panel();
         match &mut panel.entries {
             LegendEntries::Explicit(items) => items.push(item),
@@ -274,9 +284,29 @@ impl PanelLegendMut<'_> {
         self
     }
 
-    /// Appends an item that lists an artist on a row of its own, spanning every column,
-    /// to the explicit list of entries of the panel, as [`item`](PanelLegendMut::item)
-    /// does. The label of the item does not set the width of any column.
+    /// Returns the item that a reference stands for, on a row of its own when `full_row`
+    /// (and as given when it is a whole item): a scale item for the identifier of a colour
+    /// scale of the figure, and an artist item for any other identifier.
+    fn resolve(&self, item: LegendItemRef, full_row: bool) -> LegendItem {
+        match item {
+            LegendItemRef::Item(item) => item,
+            LegendItemRef::Id(id) => {
+                let item = if self.fig.color_scale(id).is_some() {
+                    LegendItem::color_scale(id)
+                } else {
+                    LegendItem::artist(id)
+                };
+                LegendItem { full_row, ..item }
+            }
+        }
+    }
+
+    /// Appends an item that lists an artist or a colour scale on a row of its own,
+    /// spanning every column, to the explicit list of entries of the panel, resolving the
+    /// identifier as [`item`](PanelLegendMut::item) does. The label of the item does not
+    /// set the width of any column. A categorical scale on a row of its own puts each of
+    /// its entries on a row of its own, and any other scale lies as a horizontal bar
+    /// across the width of the legend.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -294,11 +324,9 @@ impl PanelLegendMut<'_> {
     ///     .item(large)
     ///     .columns(LegendEntryColumns::Count(2));
     /// ```
-    pub fn full_row(&mut self, artist: NodeId) -> &mut Self {
-        self.item(LegendItem {
-            full_row: true,
-            ..LegendItem::artist(artist)
-        })
+    pub fn full_row(&mut self, id: NodeId) -> &mut Self {
+        let item = self.resolve(LegendItemRef::Id(id), true);
+        self.item(item)
     }
 
     /// Appends an item that shows a sample and a label and stands for no artist to the
@@ -359,5 +387,28 @@ impl PanelLegendMut<'_> {
                 unreachable!("a panel legend handle names a panel that holds a legend")
             }
         }
+    }
+}
+
+/// What [`PanelLegendMut::item`] appends: a whole [`LegendItem`], or a node identifier
+/// that the call resolves to an item listing a colour scale or an artist.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LegendItemRef {
+    /// A node identifier: of a colour scale of the figure, which the item shows, or of an
+    /// artist, which the item lists.
+    Id(NodeId),
+    /// An item, appended as it is.
+    Item(LegendItem),
+}
+
+impl From<NodeId> for LegendItemRef {
+    fn from(id: NodeId) -> Self {
+        LegendItemRef::Id(id)
+    }
+}
+
+impl From<LegendItem> for LegendItemRef {
+    fn from(item: LegendItem) -> Self {
+        LegendItemRef::Item(item)
     }
 }

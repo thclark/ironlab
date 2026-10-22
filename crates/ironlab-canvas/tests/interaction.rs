@@ -944,6 +944,91 @@ fn clicking_an_explicit_item_toggles_its_series_and_a_custom_item_does_nothing()
     assert!(visible(&state, 10) && visible(&state, 11), "both shown");
 }
 
+// Why: a colour scale is not an artist, so a legend that lists one (#24) has nothing to hide or show for it: a click
+// anywhere on a bar item or on the entry of a category that stands for no artist changes nothing, while the artist
+// item beside them still toggles its series.
+#[test]
+fn clicking_a_bar_item_or_a_category_entry_does_nothing() {
+    use ironlab_ir::{
+        CategoricalColorScale, ColorCategory, ColorScale, ColorScaleOutOfRange,
+        ContinuousColorScale, LegendEntries, LegendItem, PanelContent,
+    };
+    use ironlab_scene::hit::ColorbarOwner;
+    let (state, _) = figure_with_an_explicit_key();
+    let mut figure = state.figure().clone();
+    let outside = ColorScaleOutOfRange {
+        policy: OutOfRange::Strict,
+        show_key: false,
+        label: None,
+    };
+    figure.color_scales.push(ColorScale {
+        id: NodeId(60),
+        title: Some(Text::plain("Speed")),
+        kind: ColorScaleKind::Continuous(ContinuousColorScale::default()),
+        non_finite: outside.clone(),
+    });
+    figure.color_scales.push(ColorScale {
+        id: NodeId(61),
+        title: None,
+        kind: ColorScaleKind::Categorical(CategoricalColorScale {
+            categories: vec![ColorCategory {
+                color: Color::rgb(0.0, 0.6, 0.3),
+                label: Text::plain("taken"),
+            }],
+            outside: outside.clone(),
+        }),
+        non_finite: outside,
+    });
+    // The row of the panel fits its content, so that the bar item has the five rows it runs along.
+    figure.layout.row_weights = vec![
+        ironlab_ir::TrackSize::Weight(1.0),
+        ironlab_ir::TrackSize::Weight(1.0),
+        ironlab_ir::TrackSize::Fit,
+    ];
+    let PanelContent::Legend(legend) = &mut figure.panels[0].content else {
+        panic!("the panel holds a legend");
+    };
+    legend.entries = LegendEntries::Explicit(vec![
+        LegendItem::artist(NodeId(10)),
+        LegendItem::color_scale(NodeId(60)),
+        LegendItem::color_scale(NodeId(61)),
+    ]);
+    let mut state = FigureState::new(figure);
+    let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
+    assert_eq!(
+        hit.legend_entries.len(),
+        1,
+        "only the artist item is a click target"
+    );
+    let bar = hit
+        .colorbars
+        .iter()
+        .find(|c| c.owner == ColorbarOwner::Legend(LegendOwner::Panel(NodeId(50))))
+        .expect("the legend draws a bar item")
+        .bar;
+    let panel = hit.panels[0].rect;
+    let entry = hit.legend_entries[0].rect;
+    // Every point of the panel outside the artist item: the bar item, its labels, and the category entry below it.
+    for i in 0..=20 {
+        for j in 0..=20 {
+            let p = Point::new(
+                panel.x + panel.width * f64::from(i) / 20.0,
+                panel.y + panel.height * f64::from(j) / 20.0,
+            );
+            if entry.contains(p) {
+                continue;
+            }
+            assert!(!state.click(&hit, p), "a click at {p:?} changes nothing");
+        }
+    }
+    let on_bar = Point::new(bar.x + bar.width / 2.0, bar.y + bar.height / 2.0);
+    assert!(!state.click(&hit, on_bar));
+    assert!(visible(&state, 10) && visible(&state, 11));
+    let on_item = Point::new(entry.x + entry.width / 2.0, entry.y + entry.height / 2.0);
+    assert!(state.click(&hit, on_item), "the artist item still toggles");
+    assert!(!visible(&state, 10));
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The source, the overlay and the displayed figure
 // ---------------------------------------------------------------------------------------------------------------

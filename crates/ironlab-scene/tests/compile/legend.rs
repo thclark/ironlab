@@ -314,7 +314,7 @@ fn legend_lists_named_artists_of_every_kind_in_artist_order() {
         assert!(
             in_entry
                 .iter()
-                .any(|l| l.path().is_some() || l.markers().is_some()),
+                .any(|l| l.path().is_some() || l.markers().is_some() || l.image().is_some()),
             "the entry of {} holds a sample",
             entry_artist(entry)
         );

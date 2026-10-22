@@ -131,7 +131,8 @@ impl LegendEntries {
 /// One item of an explicit list of legend entries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LegendItem {
-    /// What the item lists: an artist, or a label and sample that stand for no artist.
+    /// What the item lists: an artist, a label and sample that stand for no artist, or a
+    /// colour scale.
     pub content: LegendItemContent,
     /// Whether the item spans every column of the legend, on a row of its own at its
     /// position in the list. The label of such an item does not set the width of any
@@ -160,6 +161,15 @@ impl LegendItem {
             full_row: false,
         }
     }
+
+    /// Returns an item, not on a row of its own, that shows the colour scale with this
+    /// node identifier.
+    pub fn color_scale(scale: NodeId) -> Self {
+        Self {
+            content: LegendItemContent::ColorScale(scale),
+            full_row: false,
+        }
+    }
 }
 
 impl From<NodeId> for LegendItem {
@@ -173,8 +183,9 @@ impl From<NodeId> for LegendItem {
 /// What an item of an explicit list of legend entries lists.
 ///
 /// In JSON the content is an object whose `type` names the variant, such as
-/// `{"type": "artist", "value": 12}` or
-/// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}`.
+/// `{"type": "artist", "value": 12}`,
+/// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}` or
+/// `{"type": "color_scale", "value": 4}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendItemContent {
@@ -189,6 +200,18 @@ pub enum LegendItemContent {
         /// The sample drawn beside the label.
         sample: LegendSample,
     },
+    /// The colour scale with this node identifier, which may be any scale of the figure.
+    /// A categorical scale is listed as one entry per category, labelled with the label
+    /// of the category beside a swatch of its colour, followed by an entry for each of
+    /// its out-of-range keys that is shown; these are ordinary entries, which a legend
+    /// panel merges with any other entry of the same label and look, and a legend inside
+    /// a plot area merges with nothing. A continuous, discrete or indexed scale
+    /// is drawn as a vertical bar five entry rows long in one column, titled with the
+    /// title of the scale, ticked on the side of the labels and accompanied by its
+    /// out-of-range keys, as a colourbar of the scale is drawn. On a row of its own, the
+    /// bar is horizontal and spans the width of the legend. Clicking the item does
+    /// nothing, because a scale is not an artist.
+    ColorScale(NodeId),
 }
 
 /// The sample of a legend item that stands for no artist.
@@ -210,7 +233,10 @@ pub enum LegendSample {
         /// The style of the marker at the centre of the line.
         marker: MarkerStyle,
     },
-    /// A filled rectangle of a colour, as the sample of a surface is drawn.
+    /// A square of a colour outlined in thin black, smaller than its row so that a
+    /// margin separates it from the swatches of neighbouring rows. It is the sample that
+    /// the category of a categorical scale draws, so in a legend panel a swatch of the
+    /// same label and colour as a category is merged with the entry of the category.
     Swatch {
         /// The colour of the rectangle.
         color: Color,
@@ -247,7 +273,7 @@ impl LegendSample {
         }
     }
 
-    /// Returns a sample of a filled rectangle of the given colour.
+    /// Returns a sample of an outlined square of the given colour.
     pub fn swatch(color: Color) -> Self {
         LegendSample::Swatch { color }
     }
