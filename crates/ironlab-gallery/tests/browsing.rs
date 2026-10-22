@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_gallery::all;
-use ironlab_ir::{Artist, Figure, Parameter, Projection, Scale};
+use ironlab_ir::{Artist, Figure, PanelContent, Parameter, Projection, Scale};
 use ironlab_viewer::browse::{
     Browse, FacetKey, FacetKind, FacetValue, FigureCard, Query, Sort, SortKey, describe_facets,
     parameter_names,
@@ -89,8 +89,9 @@ fn drawing(wanted: fn(&Artist) -> bool) -> Vec<String> {
     titles
 }
 
-/// The structural tags a figure ought to carry, read from the IR: what kinds of artist it draws, whether it is
-/// tiled, whether any of its axes shows a legend and whether any of its axes is logarithmic.
+/// The structural tags a figure ought to carry, read from the IR: what kinds of artist it draws, whether any artist
+/// is coloured through a colour scale, whether the figure shows a colourbar, whether it is tiled, whether any of its
+/// axes shows a legend and whether any of its axes is logarithmic.
 ///
 /// Whether the figure is flat or solid is not among them: that is one value, so it is the `dimensionality`
 /// parameter and not a tag. The viewer works none of this out, so these are the entry's own words; reading them
@@ -114,6 +115,22 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
                 .to_owned(),
             );
         }
+    }
+    if figure
+        .axes
+        .iter()
+        .flat_map(|axes| &axes.artists)
+        .any(|artist| artist.color_mapping().is_some())
+    {
+        tags.insert("color-scale".to_owned());
+    }
+    if figure.axes.iter().any(|axes| axes.colorbar.is_some())
+        || figure
+            .panels
+            .iter()
+            .any(|panel| matches!(panel.content, PanelContent::Colorbar(_)))
+    {
+        tags.insert("colorbar".to_owned());
     }
     if figure.axes.len() > 1 {
         tags.insert("subplots".to_owned());
@@ -323,7 +340,17 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
     let values: Vec<String> = tags.values.iter().map(FacetValue::text).collect();
 
     for wanted in [
-        "contour", "image", "line", "quiver", "scatter", "surface", "subplots", "legend", "log",
+        "contour",
+        "image",
+        "line",
+        "quiver",
+        "scatter",
+        "surface",
+        "subplots",
+        "legend",
+        "log",
+        "color-scale",
+        "colorbar",
     ] {
         assert!(
             values.iter().any(|value| value == wanted),
@@ -333,7 +360,6 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
     }
     for wanted in [
         "basics",
-        "colormap",
         "decimation",
         "depth",
         "export",
@@ -619,7 +645,17 @@ fn the_gallery_can_be_put_in_order_of_how_much_data_each_figure_holds() {
 /// The list is written out because the test has to tell a structural word an entry left out from a feature word it
 /// never claimed: without it, an entry that forgot "legend" would look the same as one that simply has no legend.
 const STRUCTURAL: &[&str] = &[
-    "contour", "image", "legend", "line", "log", "quiver", "scatter", "subplots", "surface",
+    "color-scale",
+    "colorbar",
+    "contour",
+    "image",
+    "legend",
+    "line",
+    "log",
+    "quiver",
+    "scatter",
+    "subplots",
+    "surface",
 ];
 
 // Why: the gallery is the code a reader copies, so an entry of it must be a figure IronLAB would accept. Tags are

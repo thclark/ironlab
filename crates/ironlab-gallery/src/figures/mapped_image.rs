@@ -30,7 +30,7 @@ pub fn figure() -> Figure {
         .title(r"$\ln(1 + |z_3|)$ as a mapped image")
         .tag("contour")
         .tag("image")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("overlay")
         .tag("transparency")
         .parameter("dimensionality", "2D")

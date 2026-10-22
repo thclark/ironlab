@@ -74,7 +74,7 @@ pub fn figure() -> Figure {
         .fit_col(1)
         .title("An 8-bit elevation raster and its palette")
         .tag("image")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("colorbar")
         .tag("aspect")
         .tag("map")

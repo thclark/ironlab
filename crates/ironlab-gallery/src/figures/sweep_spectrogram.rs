@@ -61,7 +61,7 @@ pub fn figure() -> Figure {
         .tag("surface")
         .tag("log")
         .tag("pcolor")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("signals")
         .tag("spectrogram")
         .parameter("dimensionality", "2D")

@@ -66,6 +66,7 @@ pub fn figure() -> Figure {
         .tiles(1, 2)
         .title(r"Speed $|\mathbf{u}| / U_\infty$ faded by the validation confidence of each vector")
         .tag("image")
+        .tag("color-scale")
         .tag("surface")
         .tag("contour")
         .tag("line")

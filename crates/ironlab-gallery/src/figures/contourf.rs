@@ -14,7 +14,7 @@ pub fn figure() -> Figure {
         .size_mm(120.0, 100.0)
         .title(r"Filled contours of $\ln(1 + |z_3|)$")
         .tag("contour")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("levels")
         .parameter("dimensionality", "2D")
         .parameter("artists", 1)

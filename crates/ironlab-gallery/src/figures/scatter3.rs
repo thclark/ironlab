@@ -14,6 +14,7 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title("Julia field sampled at scattered points")
         .tag("scatter")
+        .tag("color-scale")
         .tag("basics")
         .tag("markers")
         .parameter("dimensionality", "3D")

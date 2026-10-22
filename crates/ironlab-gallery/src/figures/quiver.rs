@@ -18,6 +18,7 @@ pub fn figure() -> Figure {
         .size_mm(120.0, 100.0)
         .title(r"Gradient of $\ln(1 + |z_3|)$")
         .tag("contour")
+        .tag("color-scale")
         .tag("quiver")
         .tag("basics")
         .tag("gradient")

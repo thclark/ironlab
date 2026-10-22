@@ -75,7 +75,7 @@ pub fn figure() -> Figure {
         .fit_row(1)
         .title("Branches reached by Newton's method")
         .tag("image")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("categorical")
         .tag("legend")
         .tag("simulations")

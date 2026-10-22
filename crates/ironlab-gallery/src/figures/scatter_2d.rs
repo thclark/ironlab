@@ -17,7 +17,7 @@ pub fn figure() -> Figure {
         .title("Julia field sampled on a sunflower spiral")
         .tag("scatter")
         .tag("basics")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("markers")
         .parameter("dimensionality", "2D")
         .parameter("artists", 1)

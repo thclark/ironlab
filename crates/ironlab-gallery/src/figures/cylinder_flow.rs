@@ -25,7 +25,7 @@ pub fn figure() -> Figure {
         .size_mm(120.0, 124.0)
         .title(r"Speed $|\mathbf{u}| / U_\infty$ of the potential flow past a cylinder")
         .tag("surface")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("pcolor")
         .parameter("dimensionality", "2D")
         .parameter("artists", 1)

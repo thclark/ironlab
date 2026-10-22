@@ -17,6 +17,7 @@ pub fn figure() -> Figure {
         .tiles(1, 3)
         .title("A unit sphere and an exaggerated hill")
         .tag("surface")
+        .tag("color-scale")
         .tag("subplots")
         .tag("aspect")
         .parameter("dimensionality", "3D")

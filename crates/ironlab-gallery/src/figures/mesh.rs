@@ -13,7 +13,7 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title(r"Mesh of $\ln(1 + |z_3|)$")
         .tag("surface")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("depth")
         .tag("wireframe")
         .parameter("dimensionality", "3D")
