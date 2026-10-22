@@ -94,12 +94,15 @@ impl Content<'_> {
     }
 
     /// Draws the content of `panel` in its `area`. `fitted_rows` says whether the panel lies in fitted rows alone, so
-    /// that the height of its area follows its content rather than the other way round.
+    /// that the height of its area follows its content rather than the other way round. `plots` holds the drawn plot
+    /// box of each axes, in the order the figure lists them, to which a colourbar fits its length.
+    #[allow(clippy::too_many_arguments)]
     fn draw(
         &self,
         ctx: &mut Ctx,
         panel: &Panel,
         area: Rect,
+        plots: &[Rect],
         fitted_rows: bool,
         out: &mut Vec<Item>,
         hits: &mut HitMap,
@@ -115,6 +118,7 @@ impl Content<'_> {
             }
             Content::Colorbar(bar) => {
                 if let Some(bar) = bar {
+                    let area = fit_to_plots(ctx, panel, area, plots, bar.vertical());
                     bar.draw_panel(ctx, panel, area, out, hits);
                 }
             }
@@ -124,11 +128,13 @@ impl Content<'_> {
 
 /// Draws every panel of the figure in its area, after every axes, and records the area of each in the hit map.
 ///
-/// `areas` and `contents` hold the area and the prepared content of each panel, in the order the figure lists them.
+/// `areas` and `contents` hold the area and the prepared content of each panel, in the order the figure lists them, and
+/// `plots` the drawn plot box of each axes, in the order the figure lists them.
 pub(super) fn draw(
     ctx: &mut Ctx,
     fits: &Fits,
     areas: Vec<Rect>,
+    plots: &[Rect],
     contents: &[Content],
     out: &mut Vec<Item>,
     hits: &mut HitMap,
@@ -140,7 +146,35 @@ pub(super) fn draw(
             rect: area,
         });
         let fitted_rows = layout::in_fitted_rows(fits, &figure.layout, panel.cell);
-        content.draw(ctx, panel, area, fitted_rows, out, hits);
+        content.draw(ctx, panel, area, plots, fitted_rows, out, hits);
+    }
+}
+
+/// Returns the area in which a panel colourbar is drawn: `area` along its width, and along its length the span from
+/// the near edge of the first drawn plot box to the far edge of the last, among the axes in the rows (when `vertical`)
+/// or the columns it spans. A fixed aspect can shrink a plot box within its plot area, and the bar then still matches
+/// the boxes beside it. When the spanned rows or columns hold no axes, the area is returned as it is.
+fn fit_to_plots(ctx: &Ctx, panel: &Panel, area: Rect, plots: &[Rect], vertical: bool) -> Rect {
+    let figure = ctx.figure;
+    let (r, c, re, ce) = layout::clamp_cell(&figure.layout, panel.cell);
+    let (first, end) = if vertical { (r, re) } else { (c, ce) };
+    let spanned = figure.axes.iter().zip(plots).filter_map(|(axes, plot)| {
+        let (ar, ac, are, ace) = layout::clamp_cell(&figure.layout, axes.cell);
+        let (a, ae) = if vertical { (ar, are) } else { (ac, ace) };
+        (a < end && first < ae).then_some(*plot)
+    });
+    let span = spanned.fold(None, |span: Option<(f64, f64)>, plot| {
+        let (lo, hi) = if vertical {
+            (plot.y, plot.bottom())
+        } else {
+            (plot.x, plot.right())
+        };
+        Some(span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))))
+    });
+    match span {
+        Some((lo, hi)) if vertical => Rect::new(area.x, lo, area.width, hi - lo),
+        Some((lo, hi)) => Rect::new(lo, area.y, hi - lo, area.height),
+        None => area,
     }
 }
 

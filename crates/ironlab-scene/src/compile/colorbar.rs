@@ -489,6 +489,11 @@ impl<'a> Colorbar<'a> {
     }
 
     /// Draws the colourbar of `panel` in its `area` and records it in the hit map.
+    /// Returns whether the colourbar stands, running along the rows of the tile layout rather than its columns.
+    pub(super) fn vertical(&self) -> bool {
+        self.vertical
+    }
+
     pub(super) fn draw_panel(
         &self,
         ctx: &mut Ctx,

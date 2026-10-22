@@ -49,7 +49,9 @@
 //! - **Low values at the bottom or the left, always.** A reversed colormap reverses the colours along the bar, never
 //!   the direction of the values.
 //! - **Panel bars keep the span.** A panel colourbar is exactly as long as its cell span inset by the aligned margins
-//!   of the spanned rows or columns, which is the area the hit map publishes for the panel. Out-of-range keys, when
+//!   of the spanned rows or columns, which is the area the hit map publishes for the panel, except that a fixed
+//!   aspect that shrinks the plot boxes within their areas shortens the bar to run from the near edge of the first
+//!   drawn box to the far edge of the last among the axes in those rows or columns. Out-of-range keys, when
 //!   shown, fit inside that length: the bar shrinks to make room for them. The title is a heading above the bar,
 //!   so above a vertical panel bar it lies in the margin above the panel's area, as an axes title lies above its
 //!   plot box, and adds to the top margin of the first row it spans, which keeps the bar as long as the plots.
@@ -67,11 +69,11 @@
 //!   drawn, and the compiler warns against its owner rather than failing.
 
 use ironlab_ir::{
-    CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
+    Aspect, CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
     ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorbarOrientation, Colormap,
-    ColormapName, ContinuousColorScale, DiscreteColorScale, IndexedColorScale, InsideColorbar,
-    InsideColorbarSide, Limits, NodeId, OutOfRange, Panel, PanelColorbar, PanelContent,
-    PanelLocation, Text, TickLabels, Ticks, TrackSize, View3d,
+    ColormapName, ContinuousColorScale, DiscreteColorScale, FigureSize, IndexedColorScale,
+    InsideColorbar, InsideColorbarSide, Limits, NodeId, OutOfRange, Panel, PanelColorbar,
+    PanelContent, PanelLocation, Text, TickLabels, Ticks, TrackSize, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
@@ -605,6 +607,78 @@ fn a_horizontal_bar_under_a_row_of_three_axes_is_as_long_as_the_span_of_their_pl
     assert_close(bar.bar.right(), right.right(), EXACT);
     // The bar lies below the plots, not over them.
     assert!(bar.bar.y > left.bottom());
+}
+
+/// A figure of `count` 2D axes of equal aspect holding a line from `(0, 0)` to `(dx, dy)`, laid along a row over a
+/// fitted row holding a horizontal colourbar (`vertical` false), or stacked in a column beside a fitted column holding
+/// a vertical one, on a page of the given size in millimetres. Returns the figure, the axes and the panel.
+fn equal_aspect_beside_bar(
+    count: u32,
+    vertical: bool,
+    (dx, dy): (f64, f64),
+    (width_mm, height_mm): (f64, f64),
+) -> (Fx, Vec<NodeId>, NodeId) {
+    let mut fx = Fx::new();
+    fx.fig.size = FigureSize {
+        width_mm,
+        height_mm,
+    };
+    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let tracks = vec![TrackSize::Weight(1.0), TrackSize::Fit];
+    let axes: Vec<NodeId> = if vertical {
+        fx.fig.layout.rows = count;
+        fx.fig.layout.cols = 2;
+        fx.fig.layout.col_weights = tracks;
+        (0..count).map(|row| fx.axes2d(row, 0)).collect()
+    } else {
+        fx.fig.layout.rows = 2;
+        fx.fig.layout.cols = count;
+        fx.fig.layout.row_weights = tracks;
+        (0..count).map(|col| fx.axes2d(0, col)).collect()
+    };
+    for &ax in &axes {
+        fx.line(ax, &[0.0, dx], &[0.0, dy], None, |_| {});
+        fx.ax(ax).aspect = Aspect::Equal;
+    }
+    let (cell, orientation) = if vertical {
+        (cell(0, 1, count, 1), ColorbarOrientation::Vertical)
+    } else {
+        (cell(1, 0, 1, count), ColorbarOrientation::Horizontal)
+    };
+    let panel = colorbar_panel(&mut fx, cell, scale, orientation);
+    (fx, axes, panel)
+}
+
+// Why: a fixed aspect shrinks a plot box within its plot area, and a bar that kept the length of the areas would
+// then overhang the plots it belongs to, which reads as a mistake. The bar follows the boxes as drawn: under a row of
+// tall, narrow equal-aspect plots on a tall page it runs from the left of the first box to the right of the last.
+#[test]
+fn a_horizontal_bar_under_equal_aspect_plots_spans_their_drawn_boxes() {
+    let (fx, axes, panel) = equal_aspect_beside_bar(3, false, (1.0, 10.0), (160.0, 200.0));
+    let scene = compile_figure(&fx.build());
+    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let left = axes_hit(&scene, axes[0]).plot_rect;
+    let right = axes_hit(&scene, axes[2]).plot_rect;
+    // The aspect did shrink the boxes, or the test would not tell the boxes from the areas.
+    assert!(right.right() - left.x < panel_rect(&scene, panel).width - 1.0);
+    assert_close(bar.bar.x, left.x, EXACT);
+    assert_close(bar.bar.right(), right.right(), EXACT);
+    assert!(bar.bar.y > left.bottom());
+}
+
+// Why: the same rule along a column: beside a stack of wide, short equal-aspect plots on a wide page, a vertical bar
+// runs from the top of the upper box to the bottom of the lower one.
+#[test]
+fn a_vertical_bar_beside_equal_aspect_plots_spans_their_drawn_boxes() {
+    let (fx, axes, panel) = equal_aspect_beside_bar(2, true, (10.0, 1.0), (200.0, 120.0));
+    let scene = compile_figure(&fx.build());
+    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let top = axes_hit(&scene, axes[0]).plot_rect;
+    let bottom = axes_hit(&scene, axes[1]).plot_rect;
+    assert!(bottom.bottom() - top.y < panel_rect(&scene, panel).height - 1.0);
+    assert_close(bar.bar.y, top.y, EXACT);
+    assert_close(bar.bar.bottom(), bottom.bottom(), EXACT);
+    assert!(bar.bar.x > top.right());
 }
 
 // Why: the bar is a key, not a plot, so its thickness is a constant of the style, fixed by the font size and not by

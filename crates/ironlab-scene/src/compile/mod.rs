@@ -493,7 +493,9 @@ fn arrange(
 ///   under neighbouring squares not to meet. A key's default label is `> upper`, `< lower`, `Out of range` or
 ///   `NaN / Inf`, with a limit written as the tick at that limit is. The thickness of a bar, and every distance of a
 ///   colourbar, is a multiple of the base font size. A panel colourbar runs along the area of its panel, keys
-///   included, and is placed across the area by the panel's alignment; a standing bar's labels lie to its right and
+///   included, from the near edge of the first drawn plot box to the far edge of the last among the axes in the rows
+///   or columns it spans, so that a box shrunk by a fixed aspect does not leave it longer than the plots, and along the
+///   whole area when those tracks hold no axes; it is placed across the area by the panel's alignment; a standing bar's labels lie to its right and
 ///   a lying bar's below it. A lying bar's title heads it inside the panel's area; a standing bar's title lies in the
 ///   margin above the area, which widens the top margin of the first row the panel spans to the largest that any
 ///   cell of that row needs. In a fitted track, a panel colourbar takes its thickness, ticks, labels and title across
@@ -676,6 +678,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         &mut ctx,
         &fits,
         placement.panels,
+        &placement.plots,
         &contents,
         &mut items,
         &mut hit_map,
