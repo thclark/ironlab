@@ -291,7 +291,7 @@ The title of the scale is drawn beside every bar of the scale, where the bar's `
 
 | Placement | Where the title is drawn |
 | --- | --- |
-| `Along`, the default | Beyond the tick labels, on their side of the bar, one gap from them and centred on the bar. Beside a vertical bar the title is turned a quarter turn to read from bottom to top, as the label of a y axis does; beneath a horizontal bar it is upright, below the tick labels, as the label of an x axis is. |
+| `Along`, the default | Beyond the tick labels, on their side of the bar, one gap from them and centred on the bar. The gap is two thirds of the gap between a title above a bar and the bar, because the line boxes of the tick labels and of the title each carry white space of their own. Beside a vertical bar the title is turned a quarter turn to read from bottom to top, as the label of a y axis does; beneath a horizontal bar it is upright, below the tick labels, as the label of an x axis is. |
 | `Above` | As an upright heading. Above a vertical panel bar it lies in the margin above the first row the panel spans, where the title of an axes would be, so the bar keeps the span of the plots; above a horizontal panel bar it lies within the panel. |
 
 A title along a bar takes room beside the bar rather than above it, so a vertical bar titled along its length leaves the plots where they would be without a title, and a fitted track grows only by the line of the title and one gap, however long the title is. A title along a bar is centred on the bar alone, not on its keys; a title longer than the bar runs beyond its ends.
@@ -423,7 +423,7 @@ fig.panel(0, 1)
     .item(LegendItem::color_scale(height).with_rows(7));
 ```
 
-The bar is drawn as a vertical colourbar of the scale is drawn, with the same thickness, colours, ticks and tick labels: it starts at the left edge of the column of samples, and its tick labels lie to its right, on the side of the labels of the other entries. Its ends are kept half a label inside its rows, so that the tick labels at its ends stay clear of the entries above and below. The title of the scale lies along the bar, beyond its tick labels, reading from bottom to top, so it adds no row; a longer title is better served by more rows than by a heading.
+The bar is drawn as a vertical colourbar of the scale is drawn, with the same thickness, colours, ticks and tick labels: it is centred on the column of samples, so that its centre line passes through the centres of the samples of the other entries in its column and of the swatches of its keys, and its tick labels lie to its right, on the side of the labels of the other entries. Its ends are kept half a label inside its rows, so that the tick labels at its ends stay clear of the entries above and below. The title of the scale lies along the bar, beyond its tick labels, reading from bottom to top, so it adds no row; a longer title is better served by more rows than by a heading.
 
 Each [key](#keys-for-values-out-of-range) the scale shows is an entry row of its own, drawn as a swatch entry is drawn: the above key directly above the rows of the bar, and the below key and then the non-finite key directly below them. A key's swatch is filled with what is painted for its values, or left empty, and its label is the key's label or its default label. A key row belongs to its bar: it is never merged with another entry and is no toggle in the viewer. When the entries are divided among columns, the item counts as its rows and its keys and is never split between columns, and its width, ticks, tick labels and title included, sets the width of its column as a label does, so a column that holds nothing but the bar is exactly as wide as the bar.
 
@@ -457,9 +457,9 @@ A legend item that shows a scale is `{"content": {"type": "color_scale", "value"
 
 ## Examples in the gallery
 
-- [Branch map](../gallery/branch_map.md) colours a parameter sweep by the branch a nonlinear solver converged to, through a categorical scale, and keys it with a legend panel under the plot that lists the scale, the cases never run keyed by the non-finite key "not run".
+- [Branch map](../gallery/branch_map.md) colours a parameter sweep by the branch a nonlinear solver converged to, through a categorical scale, and keys it with a boxed legend panel under the plot in two columns: the categories of the scale, with the cases never run keyed by the non-finite key "not run", fill the first, and the curves and markers drawn over the map fill the second.
 - [Case matrix](../gallery/case_matrix.md) bands a test matrix through a discrete scale shown by a horizontal colourbar, with a "not entered" key for the cases the model never entered, and lists a marker overlay in a legend inside the plot.
-- [Markers over a surface](../gallery/markers_over_surface.md) lists two kinds of marker and a bar of the surface's scale, seven rows long, in one boxed legend panel headed by its title.
+- [Markers over a surface](../gallery/markers_over_surface.md) keys a surface and the features drawn on it in two boxed legend panels stacked beside the plot, each headed by its title: the first lists two kinds of marker and a bar of the surface's scale, seven rows long, in one column, and the second lists a bar of a road's gradient, five rows long, in one column and four lines and markers in the other.
 - [Colourbar shared by a row](../gallery/row_shared_colorbar.md) shows one scale for three plots with one horizontal bar in a fitted row, and a key for the temperatures above the scale.
 - [Inside colourbar](../gallery/inside_colorbar.md) draws the bar of a bathymetry map inside the plot area, over open water, with a key naming the land above the range of the scale.
 - [Indexed palette](../gallery/indexed_palette.md) draws an 8-bit elevation raster through its 256-entry palette, whose bar labels three entries by name.
