@@ -37,7 +37,6 @@ pub fn figure() -> Figure {
         .title(r"Eight classes of $\ln(1 + |z_3|)$")
         .tag("image")
         .tag("subplots")
-        .tag("color-scale")
         .tag("comparison")
         .tag("out-of-range")
         .parameter("dimensionality", "2D")

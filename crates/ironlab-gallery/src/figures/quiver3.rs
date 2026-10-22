@@ -17,7 +17,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title(r"Normals of the surface of $\ln(1 + |z_3|)$")
         .tag("quiver")
-        .tag("color-scale")
         .tag("surface")
         .tag("gradient")
         .tag("overlay")

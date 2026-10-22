@@ -13,7 +13,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title(r"Surface of $\ln(1 + |z_3|)$")
         .tag("surface")
-        .tag("color-scale")
         .tag("basics")
         .tag("interaction")
         .parameter("dimensionality", "3D")

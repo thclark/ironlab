@@ -38,7 +38,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title("A saddle, a plane, a helix and points that pass through one another")
         .tag("line")
-        .tag("color-scale")
         .tag("scatter")
         .tag("surface")
         .tag("depth")

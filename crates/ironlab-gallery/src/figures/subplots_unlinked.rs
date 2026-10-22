@@ -14,7 +14,6 @@ pub fn figure() -> Figure {
         .tiles(2, 2)
         .title("Independent axes")
         .tag("contour")
-        .tag("color-scale")
         .tag("line")
         .tag("scatter")
         .tag("subplots")

@@ -18,7 +18,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_gallery::all;
-use ironlab_ir::{Artist, Figure, PanelContent, Parameter, Projection, Scale};
+use ironlab_ir::{
+    Artist, Figure, Legend, LegendEntries, LegendItemContent, PanelContent, Parameter, Projection,
+    Scale,
+};
 use ironlab_viewer::browse::{
     Browse, FacetKey, FacetKind, FacetValue, FigureCard, Query, Sort, SortKey, describe_facets,
     parameter_names,
@@ -89,9 +92,9 @@ fn drawing(wanted: fn(&Artist) -> bool) -> Vec<String> {
     titles
 }
 
-/// The structural tags a figure ought to carry, read from the IR: what kinds of artist it draws, whether any artist
-/// is coloured through a colour scale, whether the figure shows a colourbar, whether it is tiled, whether any of its
-/// axes shows a legend and whether any of its axes is logarithmic.
+/// The structural tags a figure ought to carry, read from the IR: what kinds of artist it draws, whether it shows a
+/// colour scale as a colourbar or as an item of a legend, whether it is tiled, whether any of its axes shows a legend
+/// and whether any of its axes is logarithmic.
 ///
 /// Whether the figure is flat or solid is not among them: that is one value, so it is the `dimensionality`
 /// parameter and not a tag. The viewer works none of this out, so these are the entry's own words; reading them
@@ -116,21 +119,29 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
             );
         }
     }
-    if figure
-        .axes
-        .iter()
-        .flat_map(|axes| &axes.artists)
-        .any(|artist| artist.color_mapping().is_some())
-    {
-        tags.insert("color-scale".to_owned());
-    }
-    if figure.axes.iter().any(|axes| axes.colorbar.is_some())
+    // A scale counts only where the figure shows it, as a colourbar or as an item of a legend: a figure that colours
+    // its artists through a scale it never shows is no example of colour scales to a reader.
+    let colorbar = figure.axes.iter().any(|axes| axes.colorbar.is_some())
         || figure
             .panels
             .iter()
-            .any(|panel| matches!(panel.content, PanelContent::Colorbar(_)))
-    {
+            .any(|panel| matches!(panel.content, PanelContent::Colorbar(_)));
+    let listed = |entries: &LegendEntries| {
+        matches!(entries, LegendEntries::Explicit(items)
+            if items.iter().any(|item| matches!(item.content, LegendItemContent::ColorScale(_))))
+    };
+    let keyed = figure.axes.iter().any(|axes| match &axes.legend {
+        Some(Legend::Inside(inside)) => listed(&inside.entries),
+        _ => false,
+    }) || figure.panels.iter().any(|panel| match &panel.content {
+        PanelContent::Legend(legend) => listed(&legend.entries),
+        _ => false,
+    });
+    if colorbar {
         tags.insert("colorbar".to_owned());
+    }
+    if colorbar || keyed {
+        tags.insert("color-scale".to_owned());
     }
     if figure.axes.len() > 1 {
         tags.insert("subplots".to_owned());

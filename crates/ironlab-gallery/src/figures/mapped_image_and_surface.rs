@@ -16,7 +16,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title(r"$\ln(1 + |z_3|)$ on the floor beneath its surface")
         .tag("image")
-        .tag("color-scale")
         .tag("surface")
         .tag("depth")
         .tag("overlay")

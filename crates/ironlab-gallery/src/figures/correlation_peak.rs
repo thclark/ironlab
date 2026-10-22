@@ -34,7 +34,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title("Cross-correlation volume with its peak at the centre")
         .tag("image")
-        .tag("color-scale")
         .tag("depth")
         .tag("placement")
         .parameter("dimensionality", "3D")
