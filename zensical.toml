@@ -54,5 +54,6 @@ nav = [
     { "Branching" = "conventions/git-branching.md" },
     { "Commits and versioning" = "conventions/git-commits-and-versioning.md" },
     { "Pull requests" = "conventions/git-pull-requests.md" },
+    { "GitHub issues" = "conventions/github-issues.md" },
   ] },
 ]

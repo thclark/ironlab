@@ -29,3 +29,4 @@ Bump the workspace `version` in the root `Cargo.toml` **only on PRs whose base i
 
 - [Branching](git-branching.md) — bases, naming, protected branches, updating
 - [Commits and versioning](git-commits-and-versioning.md) — type codes, breaking changes, semver calculation
+- [GitHub issues](github-issues.md) — label classes and how issues are labelled
