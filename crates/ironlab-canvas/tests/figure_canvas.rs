@@ -1135,9 +1135,12 @@ mod colorbars {
                     ..Cell::default()
                 },
                 align: PanelLocation::Center,
+                title: None,
+                title_align: ironlab_ir::TitleAlign::Left,
                 content: PanelContent::Colorbar(PanelColorbar {
                     scale: SCALE,
                     orientation: ColorbarOrientation::Vertical,
+                    ..PanelColorbar::default()
                 }),
             }],
             ..Figure::new()

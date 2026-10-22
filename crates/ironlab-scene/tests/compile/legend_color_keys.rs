@@ -9,7 +9,7 @@
 //! than from the compiler's own mapping.
 //!
 //! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_color_keys.rs`
-//! (`LegendItemContent::ColorScale(NodeId)` and `LegendItem::color_scale(NodeId)`) and the colourbar hit geometry of
+//! (`LegendItemContent::ColorScale { scale, rows }` and `LegendItem::color_scale(NodeId)`) and the colourbar hit geometry of
 //! `colorbars.rs`:
 //!
 //! ```text
@@ -32,17 +32,14 @@
 //!
 //! The rules these tests pin, beyond those the plan states:
 //!
-//! - **Five rows.** A bar item counts as five entries when the entries are divided among columns, and lies in one
-//!   column over five consecutive rows, each as tall as the row of an entry with a one-line label. Its bar starts at
-//!   the left edge of the sample column, where the samples of the other entries of the column start, and its tick
-//!   labels lie to its right, on the side of the labels of the other entries; its width (bar, ticks and tick labels)
-//!   sets the width of its column as a label does.
-//! - **The bar keeps its length.** The five rows are the bar's. A title above the bar, and out-of-range keys above
-//!   and below it, add to the extent of the item rather than shortening the bar, so that a key never squeezes the
-//!   bar to nothing; the entry after the item lies below its lowest key.
-//! - **Drawn as a colourbar.** The bar, its ticks, its tick labels and its keys are those of a vertical colourbar of
-//!   the same scale: the same thickness, the same colours at the same fractions of the length, the same explicit
-//!   ticks, square keys of the bar's thickness separated by one margin, and the same default key labels.
+//! - **Five rows.** A bar item of the default five rows counts as five entries when the entries are divided among
+//!   columns, and lies in one column over five consecutive rows, each as tall as the row of an entry with a one-line
+//!   label. Its bar is centred on the sample column, as the samples of the other entries of the column are, and its
+//!   tick labels lie to its right, on the side of the labels of the other entries; its width (bar, ticks and tick
+//!   labels) sets the width of its column as a label does. Other row counts, the title along
+//!   the bar and the keys as entry rows of their own are the layout stage's, in `colorbar_layout.rs`.
+//! - **Drawn as a colourbar.** The bar, its ticks and its tick labels are those of a vertical colourbar of the same
+//!   scale: the same thickness, the same colours at the same fractions of the length and the same explicit ticks.
 //! - **Merging.** A category entry is merged with any other entry of the same legend panel that has the same label
 //!   and the same look, whether that entry comes from an artist item, a custom item or another category, at the
 //!   position of the first; entries that share a label but not a look are both listed. Two custom items that
@@ -62,12 +59,12 @@
 //!   already reports the scale or the reference.
 
 use ironlab_ir::{
-    CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec, ColorbarOrientation,
-    Colormap, ColormapName, ContinuousColorScale, DashStyle, DiscreteColorScale, FigureSize,
-    IndexedColorScale, InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Limits, MarkerShape, NodeId,
-    OutOfRange, Panel, PanelColorbar, PanelContent, PanelLocation, Text, Ticks, TrackSize,
+    CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKind, ColorScaleLevels,
+    ColorScaleNorm, ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, Colormap, ColormapName,
+    ContinuousColorScale, DashStyle, DiscreteColorScale, FigureSize, IndexedColorScale,
+    InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
+    LegendItem, LegendLocation, LegendSample, Limits, MarkerShape, NodeId, OutOfRange, Panel,
+    PanelColorbar, PanelContent, PanelLocation, Text, Ticks, TitleAlign, TrackSize,
 };
 use ironlab_scene::display::{Point, Rect, Rgba};
 use ironlab_scene::hit::{ColorbarHit, ColorbarOwner, LegendOwner};
@@ -244,9 +241,12 @@ fn colorbar_panel(fx: &mut Fx, cell: Cell, scale: NodeId) -> NodeId {
         id,
         cell,
         align: PanelLocation::Center,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Colorbar(PanelColorbar {
             scale,
             orientation: ColorbarOrientation::Vertical,
+            ..PanelColorbar::default()
         }),
     });
     id
@@ -588,11 +588,6 @@ fn tick_labels(leaves: &[Leaf], hit: &ColorbarHit) -> Vec<(f64, Rect, String)> {
 /// Returns the y coordinate of the value `v` on a linear vertical bar from `min` to `max`.
 fn place(hit: &ColorbarHit, v: f64, min: f64, max: f64) -> f64 {
     along(hit, (v - min) / (max - min)).y
-}
-
-/// Returns the rectangle of the key of the given category, if one is drawn.
-fn key_rect(hit: &ColorbarHit, key: ColorScaleKey) -> Option<Rect> {
-    hit.keys.iter().find(|k| k.key == key).map(|k| k.rect)
 }
 
 /// Returns whether an overflow is reported for a legend.
@@ -1046,9 +1041,9 @@ fn an_inside_legend_lists_a_custom_swatch_and_a_category_of_the_same_label_and_c
 // ---------------------------------------------------------------------------------------------------------------
 
 // Why: a bar is read against its ticks, so it needs more length than an entry row gives; five rows is long enough to
-// read and short enough to sit among other entries. It lies in the column of the entries around it, starting where
-// their samples start, so the key stays one aligned list, and it is a vertical bar recorded for hovering like any
-// other bar of the scale.
+// read and short enough to sit among other entries. It lies in the column of the entries around it, centred where
+// their samples are centred, so the key stays one aligned list, and it is a vertical bar recorded for hovering like
+// any other bar of the scale.
 #[test]
 fn a_bar_item_is_a_vertical_bar_five_entry_rows_long_in_its_column() {
     let b = between(viridis());
@@ -1080,7 +1075,12 @@ fn a_bar_item_is_a_vertical_bar_five_entry_rows_long_in_its_column() {
         bar.bar.height > 4.0 * pitch,
         "the bar runs along most of its rows"
     );
-    assert_close(bar.bar.x, sample_box(&scene, b.panel, "Before").x, 0.01);
+    let sample = sample_box(&scene, b.panel, "Before");
+    assert_close(
+        bar.bar.x + bar.bar.width / 2.0,
+        sample.x + sample.width / 2.0,
+        0.01,
+    );
 }
 
 // Why: a bar item is ticked on the side of the labels of the other entries, its right, so that the key reads left
@@ -1118,72 +1118,8 @@ fn a_bar_item_is_ticked_on_its_label_side_at_the_places_of_the_values() {
     }
 }
 
-// Why: the title of a scale names what its colours mean, and a bar item carries it as a heading above the bar, as a
-// colourbar does; the title adds to the item rather than shortening the bar, and the entries around the item keep
-// clear of it.
-#[test]
-fn a_bar_item_is_titled_above_its_bar_without_losing_length() {
-    let untitled = {
-        let b = between(viridis());
-        let scene = compile_figure(&b.fx.build());
-        legend_bar(&scene, LegendOwner::Panel(b.panel)).bar.height
-    };
-    let mut b = between(viridis());
-    b.fx.scale_mut(b.scale).title = Some(Text::plain("Speed"));
-    let scene = compile_figure(&b.fx.build());
-    let bar = legend_bar(&scene, LegendOwner::Panel(b.panel));
-    let title = label(&scene, "Speed");
-    assert!(
-        title.bottom() <= bar.bar.y + EXACT,
-        "the title lies above the bar"
-    );
-    assert!(
-        label(&scene, "Before").bottom() <= title.y + EXACT,
-        "the entry before keeps clear of it"
-    );
-    assert!(bar.bar.bottom() <= label(&scene, "After").y + EXACT);
-    assert_close(bar.bar.height, untitled, SAME);
-}
-
-// Why: the title of a bar item reads as the next row of the key, so it stands as far below the label of the entry
-// above it as the label of one entry row stands below the label of the row before; without that gap the title runs
-// into the entry above and reads as a second line of its label.
-#[test]
-fn a_bar_item_title_is_one_row_gap_below_the_entry_above() {
-    let (mut fx, _, panel) = axes_over_key();
-    let scale = fx.color_scale(viridis());
-    fx.scale_mut(scale).title = Some(Text::plain("Speed"));
-    explicit(
-        &mut fx,
-        panel,
-        vec![
-            LegendItem::custom(LegendSample::Swatch { color: RED }, Text::plain("One")),
-            LegendItem::custom(LegendSample::Swatch { color: GREEN }, Text::plain("Two")),
-            LegendItem::color_scale(scale),
-        ],
-    );
-    let scene = compile_figure(&fx.build());
-    // The title is set larger than the labels, so the boxes compared are the line boxes of the text (its ascent and
-    // descent about the baseline), not the ink, which a larger size moves within its line.
-    let line_box = |text: &str| {
-        let all = leaves(&scene);
-        let run = crate::probe::runs_with_text(&all, text)[0];
-        let glyphs = run.glyphs().expect("a glyph run");
-        let first = &glyphs.glyphs[0];
-        let baseline = run.transform.apply(Point::new(first.x, first.y)).y;
-        let layout = crate::common::engine().layout(text, false, glyphs.size_pt);
-        Rect::new(
-            0.0,
-            baseline - layout.height,
-            0.0,
-            layout.height + layout.depth,
-        )
-    };
-    let (one, two, title) = (line_box("One"), line_box("Two"), line_box("Speed"));
-    let row_gap = two.y - one.bottom();
-    assert!(row_gap > 0.0, "entry rows are separated by a gap");
-    assert_close(title.y - two.bottom(), row_gap, 0.05);
-}
+// The title of a bar item, which reads along the bar, and its out-of-range keys, which are entry rows of their own,
+// are tested in `colorbar_layout.rs`, beside the other choices of where a scale's title and keys are drawn.
 
 // Why: a bar item holds no colours, limits or ticks of its own: it is a vertical colourbar of its scale, so a bar in
 // a legend and a bar in a panel of the same scale must agree on thickness, colours at every fraction of their
@@ -1198,7 +1134,8 @@ fn a_bar_item_agrees_with_a_panel_colourbar_of_the_same_scale() {
                 ticks: Ticks::Values(vec![0.0, 5.0, 10.0]),
                 ..ContinuousColorScale::default()
             }),
-            vec![0.1, 0.5, 0.9],
+            // Within samples of the 256 of a continuous bar, not on the boundary between two, where rounding decides.
+            vec![0.1, 0.55, 0.9],
         ),
         (
             "discrete",
@@ -1301,80 +1238,6 @@ fn a_bar_item_occupies_one_column_of_a_multi_column_legend() {
         "the bar ends on the fifth row"
     );
     assert!(bar.bar.height > 4.0 * pitch);
-}
-
-// Why: out-of-range keys beside a bar item follow ADR 0024 as for a vertical colourbar: separate squares above and
-// below the bar, never caps, the above key over the top and the below and non-finite keys under the bottom, each as
-// wide as the bar is thick, one margin apart, with the default labels; the keys add to the item, so the bar keeps
-// its length and the next entry lies below the last key.
-#[test]
-fn the_keys_of_a_bar_item_lie_above_and_below_its_bar_as_on_a_colourbar() {
-    let plain = {
-        let b = between(viridis());
-        let scene = compile_figure(&b.fx.build());
-        legend_bar(&scene, LegendOwner::Panel(b.panel)).bar.height
-    };
-    let mut b = between(viridis());
-    let c = continuous_mut(&mut b.fx, b.scale);
-    c.limits = manual(0.0, 1.0);
-    c.ticks = Ticks::Values(vec![0.0, 0.5, 1.0]);
-    c.above = keyed(OutOfRange::Rgba { color: RED });
-    c.below = keyed(OutOfRange::Clamp);
-    b.fx.scale_mut(b.scale).non_finite = keyed(OutOfRange::Transparent);
-    // A colourbar of the same scale beside the plot, so that the keys can be compared with those of a colourbar.
-    b.fx.fig.layout.cols = 2;
-    b.fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
-    let bar_panel = colorbar_panel(&mut b.fx, cell(0, 1, 1, 1), b.scale);
-    let scene = compile_figure(&b.fx.build());
-    let hit = legend_bar(&scene, LegendOwner::Panel(b.panel));
-    let above = key_rect(&hit, ColorScaleKey::Above).expect("the above key is drawn");
-    let below = key_rect(&hit, ColorScaleKey::Below).expect("the below key is drawn");
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).expect("the non-finite key is drawn");
-    let t = hit.bar.width;
-    for (name, key) in [("above", above), ("below", below), ("non-finite", nan)] {
-        assert!(
-            (key.width - t).abs() <= EXACT
-                && (key.height - t).abs() <= EXACT
-                && (key.x - hit.bar.x).abs() <= EXACT,
-            "the {name} key is a square as wide as the bar is thick, in line with it: {key:?}"
-        );
-    }
-    let margin = hit.bar.y - above.bottom();
-    assert!(margin > 0.0, "the above key is separate from the bar");
-    assert_close(below.y - hit.bar.bottom(), margin, EXACT);
-    assert_close(nan.y - below.bottom(), margin, EXACT);
-    let colourbar = panel_bar(&scene, bar_panel);
-    let colourbar_above = key_rect(&colourbar, ColorScaleKey::Above).unwrap();
-    assert_close(colourbar.bar.y - colourbar_above.bottom(), margin, EXACT);
-
-    assert_close(hit.bar.height, plain, SAME);
-    assert!(label(&scene, "Before").bottom() <= above.y + EXACT);
-    assert!(nan.bottom() <= label(&scene, "After").y + EXACT);
-    let drawn = from_source(&leaves(&scene), b.panel);
-    // The default labels state the limits as the bar's ticks write them, as on a colourbar ("> 1.0" beside a tick
-    // "1.0"), so the expected text is read from the ticks rather than assumed.
-    let ticks = tick_labels(&drawn, &hit);
-    let text_at = |v: f64| {
-        ticks
-            .iter()
-            .find(|t| t.0 == v)
-            .map(|t| t.2.clone())
-            .unwrap_or_else(|| panic!("a tick at {v}: {ticks:?}"))
-    };
-    for (text, key) in [
-        (format!("> {}", text_at(1.0)), above),
-        (format!("< {}", text_at(0.0)), below),
-        (String::from("NaN / Inf"), nan),
-    ] {
-        let text = text.as_str();
-        let b = text_bbox(&drawn, text).unwrap_or_else(|| panic!("the key {text:?} is labelled"));
-        assert!(b.x >= key.right(), "{text} lies right of its key");
-        assert_close(
-            b.y + b.height / 2.0,
-            key.y + key.height / 2.0,
-            b.height / 2.0,
-        );
-    }
 }
 
 // Why: under a logarithmic norm a bar item is a logarithmic axis, as a colourbar is: decades lie at equal distances

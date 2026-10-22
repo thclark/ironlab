@@ -1,13 +1,17 @@
 //! The handles to a colourbar held by a panel and to a colourbar inside an axes.
 
-use ironlab_ir::{ColorbarOrientation, InsideColorbar, NodeId, PanelColorbar, PanelContent};
+use ironlab_ir::{
+    ColorbarOrientation, ColorbarTitlePlacement, InsideColorbar, NodeId, PanelColorbar,
+    PanelContent,
+};
 
 /// A handle to the colourbar held by one panel of a figure, returned by
-/// [`PanelMut::colorbar`](crate::PanelMut::colorbar), through which its orientation is set.
+/// [`PanelMut::colorbar`](crate::PanelMut::colorbar), through which its orientation, its
+/// length and the placement of its scale's title are set.
 ///
 /// The bar shows a colour scale along the cells of the panel, inset by the aligned margins
-/// of the rows or columns it spans, so that a bar spanning a row or column of axes is
-/// exactly as long as their plot boxes. Its colours, limits, ticks, title and out-of-range
+/// of the rows or columns it spans, so that a vertical bar spanning a row or column of axes
+/// is exactly as long as their plot boxes and a horizontal one is half as long. Its colours, limits, ticks, title and out-of-range
 /// keys belong to the scale (see [`ColorScaleMut`](crate::ColorScaleMut)), so every bar
 /// that shows one scale agrees with every other and with the artists drawn through it.
 ///
@@ -67,6 +71,37 @@ impl PanelColorbarMut<'_> {
         self
     }
 
+    /// Sets the length of the bar, its out-of-range keys included, as a fraction of the
+    /// span of the plot boxes beside it. The default is automatic: the whole span for a
+    /// vertical bar and half of it for a horizontal one. A shorter bar is placed along the
+    /// span by the panel's [`align`](crate::PanelMut::align): a location that names an end
+    /// of the span pushes it there, and any other centres it. A length that is not a finite
+    /// number greater than 0 and at most 1 is reported by
+    /// [`Figure::validate`](crate::Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(2, 1).fit_row(1);
+    /// let s = fig.color_scale().id();
+    /// fig.panel(1, 0)
+    ///     .colorbar(s)
+    ///     .orientation(ColorbarOrientation::Horizontal)
+    ///     .length(0.8);
+    /// ```
+    pub fn length(&mut self, fraction: f64) -> &mut Self {
+        self.colorbar().length = Some(fraction);
+        self
+    }
+
+    /// Sets where the title of the scale is drawn beside the bar: along it, beyond its tick
+    /// labels (the default), reading from bottom to top beside a vertical bar; or above it,
+    /// as an upright heading.
+    pub fn title_placement(&mut self, placement: ColorbarTitlePlacement) -> &mut Self {
+        self.colorbar().title_placement = placement;
+        self
+    }
+
     /// Returns the colourbar of the panel, which exists because the handle is only created
     /// for a panel of the figure that holds a colourbar.
     fn colorbar(&mut self) -> &mut PanelColorbar {
@@ -84,7 +119,8 @@ impl PanelColorbarMut<'_> {
 }
 
 /// A handle to the colourbar drawn inside the plot area of one axes, returned by
-/// [`AxesMut::colorbar`](crate::AxesMut::colorbar), through which its length is set.
+/// [`AxesMut::colorbar`](crate::AxesMut::colorbar), through which its length and the
+/// placement of its scale's title are set.
 ///
 /// The bar lies along one edge of the plot area, on a boxed backdrop as an inside legend
 /// does, over the artists. It takes no margin, so the plot area keeps its size whether or
@@ -130,6 +166,15 @@ impl InsideColorbarMut<'_> {
     /// by [`Figure::validate`](crate::Figure::validate).
     pub fn length(&mut self, length: f64) -> &mut Self {
         self.colorbar().length = length;
+        self
+    }
+
+    /// Sets where the title of the scale is drawn beside the bar, within its box: along it,
+    /// beyond its tick labels toward the interior of the plot area (the default); or as an
+    /// upright heading, above a vertical bar and on the side of a horizontal bar away from
+    /// its tick labels.
+    pub fn title_placement(&mut self, placement: ColorbarTitlePlacement) -> &mut Self {
+        self.colorbar().title_placement = placement;
         self
     }
 

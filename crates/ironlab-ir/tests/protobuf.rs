@@ -1301,6 +1301,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 col_span: Some(8),
             }),
             align: wire::PanelLocation::West as i32,
+            title: wire_text("panel title", wire::Interpreter::Latex),
+            title_align: wire::TitleAlign::Right as i32,
             content: wire_panel_legend(wire::PanelLegend {
                 boxed: Some(true),
                 layout: wire_columns(9, wire::LegendEntryOrder::RowMajor),
@@ -1922,6 +1924,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 col_span: 8,
             },
             align: PanelLocation::West,
+            title: text("panel title", Interpreter::Latex),
+            title_align: TitleAlign::Right,
             content: PanelContent::Legend(PanelLegend {
                 boxed: true,
                 layout: LegendEntryLayout {
@@ -2058,6 +2062,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                 cell: Some(wire::Cell::default()),
                 align: wire::PanelLocation::Center as i32,
                 content: wire_panel_legend(wire::PanelLegend::default()),
+                ..wire::Panel::default()
             }],
             axes: vec![wire::Axes {
                 id: Some(2),
@@ -2171,6 +2176,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                             colorbar: Some(wire::PanelColorbar {
                                 scale: Some(5),
                                 orientation: v,
+                                ..wire::PanelColorbar::default()
                             }),
                         },
                     )),
@@ -2187,9 +2193,31 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                     scale: Some(5),
                     side: v,
                     length: Some(0.5),
+                    ..wire::InsideColorbar::default()
                 });
             },
             |f| format!("{:?}", f.axes[0].colorbar.map(|c| c.side).unwrap()),
+        ),
+        // The placement of a scale's title is checked on a panel colourbar, which replaces
+        // the carrier's legend as above.
+        check::<wire::ColorbarTitlePlacement>(
+            |w, v| {
+                w.panels[0].content = Some(wire::PanelContent {
+                    kind: Some(wire::PanelContentKind::Colorbar(
+                        wire::PanelContentColorbar {
+                            colorbar: Some(wire::PanelColorbar {
+                                scale: Some(5),
+                                title_placement: v,
+                                ..wire::PanelColorbar::default()
+                            }),
+                        },
+                    )),
+                });
+            },
+            |f| match &f.panels[0].content {
+                PanelContent::Colorbar(colorbar) => format!("{:?}", colorbar.title_placement),
+                PanelContent::Legend(_) => "a legend".to_owned(),
+            },
         ),
         check::<wire::LegendEntryOrder>(
             |w, v| {
@@ -2417,6 +2445,9 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 col_span: Some(0),
             }),
             align: wire::PanelLocation::NorthEast as i32,
+            // Centred, which is the default of an axes title but not of a panel title.
+            title: None,
+            title_align: wire::TitleAlign::Center as i32,
             content: wire_panel_legend(wire::PanelLegend {
                 boxed: Some(false),
                 layout: wire_columns(1, wire::LegendEntryOrder::ColumnMajor),
@@ -2629,6 +2660,8 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 col_span: 0,
             },
             align: PanelLocation::NorthEast,
+            title: None,
+            title_align: TitleAlign::Center,
             content: PanelContent::Legend(PanelLegend {
                 boxed: false,
                 layout: LegendEntryLayout::default(),
@@ -4715,6 +4748,8 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 col_span: 3,
             },
             align: PanelLocation::SouthWest,
+            title: None,
+            title_align: TitleAlign::Left,
             content: PanelContent::Legend(PanelLegend {
                 boxed: true,
                 layout: LegendEntryLayout {

@@ -1020,9 +1020,12 @@ fn figure_with_centred_colourbar() -> ironlab_ir::Figure {
             id: NodeId(20),
             cell: ironlab_ir::Cell::default(),
             align: PanelLocation::Center,
+            title: None,
+            title_align: ironlab_ir::TitleAlign::Left,
             content: PanelContent::Colorbar(PanelColorbar {
                 scale: BAR_SCALE,
                 orientation: ColorbarOrientation::Vertical,
+                ..PanelColorbar::default()
             }),
         }],
         ..ironlab_ir::Figure::new()

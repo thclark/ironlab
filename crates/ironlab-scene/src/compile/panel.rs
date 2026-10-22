@@ -6,7 +6,8 @@
 //! and places a block of content within the area by the panel's alignment. A kind of content supplies only its size
 //! along a track ([`Content::size`]) and its drawing ([`Content::draw`]), each one arm of a match, together with the
 //! arm of [`prepare`] that measures it before the layout, and, where it needs one, the margin above its area that its
-//! heading takes ([`Content::top_margin`]).
+//! heading takes ([`Content::top_margin`]). The title of a panel heads its content whatever the content is, so it is
+//! measured here, once, and each kind of content places it above what it draws.
 
 use ironlab_ir::{Legend, NodeId, Panel, PanelContent, PanelLocation};
 
@@ -18,6 +19,13 @@ use super::colorbar::{self, Colorbar};
 use super::layout::{self, Along, Fits};
 use super::legend::{self, Candidate, PanelListing};
 use super::style::ColourScales;
+use super::text::{TextBlock, measure};
+
+/// The content of a panel with the panel's title, measured at the base font size, as a scale's title is.
+pub(super) struct Prepared<'a> {
+    heading: Option<TextBlock>,
+    content: Content<'a>,
+}
 
 /// The content of a panel, prepared and measured before the layout because a fitted row or column takes its size
 /// from it.
@@ -38,7 +46,7 @@ pub(super) fn prepare<'a, 's>(
     ctx: &mut Ctx<'a>,
     candidates: &'s [Vec<Candidate<'a>>],
     scales: &'s ColourScales<'a>,
-) -> Vec<Content<'s>> {
+) -> Vec<Prepared<'s>> {
     let figure = ctx.figure;
     // Why: a panel gathers what the axes naming it contribute in the reading order of their cells, by the row and
     // then the column of their top-left tiles, so that the order follows the page rather than the order of the axes
@@ -59,7 +67,7 @@ pub(super) fn prepare<'a, 's>(
                 .iter()
                 .copied()
                 .filter(|&i| first && figure.axes[i].legend == Some(Legend::Panel(panel.id)));
-            match &panel.content {
+            let content = match &panel.content {
                 PanelContent::Legend(content) => {
                     let gathered: Vec<&Candidate> = naming.flat_map(|i| &candidates[i]).collect();
                     Content::Legend(PanelListing::new(
@@ -69,26 +77,50 @@ pub(super) fn prepare<'a, 's>(
                 PanelContent::Colorbar(content) => {
                     Content::Colorbar(colorbar::prepare_panel(ctx, panel, content, scales))
                 }
-            }
+            };
+            let fs = ctx.font_size;
+            let heading = panel
+                .title
+                .as_ref()
+                .map(|title| measure(ctx, title, fs, panel.id));
+            Prepared { heading, content }
         })
         .collect()
 }
 
-impl Content<'_> {
-    /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the content
-    /// needs when the other dimension of the area is `cross`, which is infinite when that dimension is fitted too.
+impl Prepared<'_> {
+    /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the content and
+    /// the panel's title need when the other dimension of the area is `cross` (see [`Content::size`]).
     pub(super) fn size(&self, ctx: &Ctx, along: Along, cross: f64) -> f64 {
+        self.content.size(ctx, along, cross, self.heading.as_ref())
+    }
+
+    /// Returns the margin the content and the panel's title need above the area of the panel (see
+    /// [`Content::top_margin`]).
+    pub(super) fn top_margin(&self, ctx: &Ctx) -> f64 {
+        self.content.top_margin(ctx, self.heading.as_ref())
+    }
+}
+
+impl Content<'_> {
+    /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the content,
+    /// headed by the panel's title `heading`, needs when the other dimension of the area is `cross`, which is infinite
+    /// when that dimension is fitted too.
+    fn size(&self, ctx: &Ctx, along: Along, cross: f64, heading: Option<&TextBlock>) -> f64 {
         match self {
-            Content::Legend(legend) => legend.size(ctx.font_size, along, cross),
-            Content::Colorbar(bar) => bar.as_ref().map_or(0.0, |b| b.size(ctx, along, cross)),
+            Content::Legend(legend) => legend.size(ctx.font_size, along, cross, heading),
+            Content::Colorbar(bar) => bar
+                .as_ref()
+                .map_or(0.0, |b| b.size(ctx, along, cross, heading)),
         }
     }
 
     /// Returns the margin the content needs above the area of its panel, which widens the top margin of the first row
-    /// the panel spans: the heading of a colourbar that stands along its rows, and nothing for any other content.
-    pub(super) fn top_margin(&self, ctx: &Ctx) -> f64 {
+    /// the panel spans: the headings of a colourbar that stands along its rows (the scale's title placed above it and
+    /// the panel's title `heading`), and nothing for any other content, whose heading lies inside its area.
+    fn top_margin(&self, ctx: &Ctx, heading: Option<&TextBlock>) -> f64 {
         match self {
-            Content::Colorbar(Some(bar)) => bar.top_margin(ctx),
+            Content::Colorbar(Some(bar)) => bar.top_margin(ctx, heading),
             Content::Legend(_) | Content::Colorbar(None) => 0.0,
         }
     }
@@ -101,6 +133,7 @@ impl Content<'_> {
         &self,
         ctx: &mut Ctx,
         panel: &Panel,
+        heading: Option<&TextBlock>,
         area: Rect,
         plots: &[Rect],
         fitted_rows: bool,
@@ -114,12 +147,12 @@ impl Content<'_> {
                 } else {
                     legend::Fill::Height
                 };
-                legend::draw_panel(ctx, panel, content, area, fill, out, hits);
+                legend::draw_panel(ctx, panel, content, heading, area, fill, out, hits);
             }
             Content::Colorbar(bar) => {
                 if let Some(bar) = bar {
                     let area = fit_to_plots(ctx, panel, area, plots, bar.vertical());
-                    bar.draw_panel(ctx, panel, area, out, hits);
+                    bar.draw_panel(ctx, panel, heading, area, out, hits);
                 }
             }
         }
@@ -135,7 +168,7 @@ pub(super) fn draw(
     fits: &Fits,
     areas: Vec<Rect>,
     plots: &[Rect],
-    contents: &[Content],
+    contents: &[Prepared],
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
@@ -146,7 +179,10 @@ pub(super) fn draw(
             rect: area,
         });
         let fitted_rows = layout::in_fitted_rows(fits, &figure.layout, panel.cell);
-        content.draw(ctx, panel, area, plots, fitted_rows, out, hits);
+        let heading = content.heading.as_ref();
+        content
+            .content
+            .draw(ctx, panel, heading, area, plots, fitted_rows, out, hits);
     }
 }
 

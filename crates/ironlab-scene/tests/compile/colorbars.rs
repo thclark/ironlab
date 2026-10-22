@@ -52,9 +52,12 @@
 //!   of the spanned rows or columns, which is the area the hit map publishes for the panel, except that a fixed
 //!   aspect that shrinks the plot boxes within their areas shortens the bar to run from the near edge of the first
 //!   drawn box to the far edge of the last among the axes in those rows or columns. Out-of-range keys, when
-//!   shown, fit inside that length: the bar shrinks to make room for them. The title is a heading above the bar,
-//!   so above a vertical panel bar it lies in the margin above the panel's area, as an axes title lies above its
-//!   plot box, and adds to the top margin of the first row it spans, which keeps the bar as long as the plots.
+//!   shown, fit inside that length: the bar shrinks to make room for them. These tests give a horizontal panel bar
+//!   the full length (`length: Some(1.0)`) wherever they are about the span, because its automatic length is half
+//!   the span; the automatic lengths and shorter bars belong to `colorbar_layout.rs`. A title placed `Above` is a
+//!   heading above the bar, so above a vertical panel bar it lies in the margin above the panel's area, as an axes
+//!   title lies above its plot box, and adds to the top margin of the first row it spans, which keeps the bar as long
+//!   as the plots. The default placement, along the bar, belongs to `colorbar_layout.rs`.
 //! - **Categorical order.** The squares of a categorical scale are read like a list: category 0 at the top of a
 //!   vertical key and at the left of a horizontal one, then its out-of-range keys after the last category.
 //! - **Inside bars.** An inside bar is boxed as a boxed inside legend is (`ColorbarHit::backdrop`, a white filled
@@ -70,10 +73,11 @@
 
 use ironlab_ir::{
     Aspect, CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorbarOrientation, Colormap,
-    ColormapName, ContinuousColorScale, DiscreteColorScale, FigureSize, IndexedColorScale,
-    InsideColorbar, InsideColorbarSide, Limits, NodeId, OutOfRange, Panel, PanelColorbar,
-    PanelContent, PanelLocation, Text, TickLabels, Ticks, TrackSize, View3d,
+    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorbarOrientation,
+    ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale, DiscreteColorScale,
+    FigureSize, IndexedColorScale, InsideColorbar, InsideColorbarSide, Limits, NodeId, OutOfRange,
+    Panel, PanelColorbar, PanelContent, PanelLocation, Text, TickLabels, Ticks, TitleAlign,
+    TrackSize, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
@@ -168,9 +172,23 @@ fn colorbar_panel(
         id,
         cell,
         align: PanelLocation::Center,
-        content: PanelContent::Colorbar(PanelColorbar { scale, orientation }),
+        title: None,
+        title_align: TitleAlign::Left,
+        content: PanelContent::Colorbar(PanelColorbar {
+            scale,
+            orientation,
+            ..PanelColorbar::default()
+        }),
     });
     id
+}
+
+/// Returns the colourbar of the colourbar panel with the given identifier for modification.
+fn bar_mut(fx: &mut Fx, id: NodeId) -> &mut PanelColorbar {
+    match &mut fx.panel_mut(id).content {
+        PanelContent::Colorbar(colorbar) => colorbar,
+        PanelContent::Legend(_) => panic!("panel {id} holds a legend"),
+    }
 }
 
 /// Returns the continuous scale with the given identifier for modification.
@@ -211,8 +229,9 @@ fn column_beside_stack(rows: u32, column: TrackSize) -> (Fx, Vec<NodeId>, NodeId
 }
 
 /// A figure of three 2D axes in a row over a fitted row holding a horizontal colourbar panel spanning all three
-/// columns, of one continuous scale with manual limits [0, 10] that every axes' image names. Returns the figure, the
-/// axes, the scale and the panel.
+/// columns, of one continuous scale with manual limits [0, 10] that every axes' image names. The bar is given the
+/// full length of the span, which a horizontal bar does not take by default. Returns the figure, the axes, the scale
+/// and the panel.
 fn row_over_fitted_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
@@ -236,6 +255,7 @@ fn row_over_fitted_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
         scale,
         ColorbarOrientation::Horizontal,
     );
+    bar_mut(&mut fx, panel).length = Some(1.0);
     (fx, axes, scale, panel)
 }
 
@@ -291,6 +311,7 @@ fn inside_bar(side: InsideColorbarSide, length: f64) -> (Fx, NodeId, NodeId, Nod
         scale,
         side,
         length,
+        ..InsideColorbar::default()
     });
     (fx, ax, image, scale)
 }
@@ -639,6 +660,8 @@ fn a_bar_under_an_axes_spanning_more_columns_stays_within_its_own_columns() {
         scale,
         ColorbarOrientation::Horizontal,
     );
+    // The full length, so that the bar would reach the end of the plot box if nothing held it within its columns.
+    bar_mut(&mut fx, panel).length = Some(1.0);
     let scene = compile_figure(&fx.build());
     let bar = bar_of(&scene, ColorbarOwner::Panel(panel)).bar;
     let area = panel_rect(&scene, panel);
@@ -663,7 +686,8 @@ fn a_bar_under_an_axes_spanning_more_columns_stays_within_its_own_columns() {
 
 /// A figure of `count` 2D axes of equal aspect holding a line from `(0, 0)` to `(dx, dy)`, laid along a row over a
 /// fitted row holding a horizontal colourbar (`vertical` false), or stacked in a column beside a fitted column holding
-/// a vertical one, on a page of the given size in millimetres. Returns the figure, the axes and the panel.
+/// a vertical one, on a page of the given size in millimetres. Either bar takes the full length of the span. Returns
+/// the figure, the axes and the panel.
 fn equal_aspect_beside_bar(
     count: u32,
     vertical: bool,
@@ -698,6 +722,7 @@ fn equal_aspect_beside_bar(
         (cell(1, 0, 1, count), ColorbarOrientation::Horizontal)
     };
     let panel = colorbar_panel(&mut fx, cell, scale, orientation);
+    bar_mut(&mut fx, panel).length = Some(1.0);
     (fx, axes, panel)
 }
 
@@ -745,6 +770,7 @@ fn the_thickness_of_a_bar_follows_the_font_size_and_not_the_space_of_its_cell() 
             scale,
             side: InsideColorbarSide::South,
             length: 0.8,
+            ..InsideColorbar::default()
         });
         let scene = compile_figure(&fx.build());
         let in_panel = thickness(&bar_of(&scene, ColorbarOwner::Panel(panel)));
@@ -861,17 +887,19 @@ fn a_panel_bar_is_placed_across_its_track_by_the_alignment_of_the_panel() {
     assert_close(west.y, east.y, EXACT);
 }
 
-// Why: the title names what the colours mean, and is a heading (ADR 0023): drawn above the bar, over it, whether the
-// bar stands or lies. Above a vertical bar that spans the plot boxes it lies in the margin above them, as an axes title
-// does, and that margin grows to hold it, so the bar keeps the span of the plots and the title stays on the page.
+// Why: the title names what the colours mean; placed `Above`, it is a heading (ADR 0023): drawn above the bar, over
+// it, whether the bar stands or lies. Above a vertical bar that spans the plot boxes it lies in the margin above them,
+// as an axes title does, and that margin grows to hold it, so the bar keeps the span of the plots and the title stays
+// on the page.
 #[test]
-fn the_scale_title_is_a_heading_above_the_bar() {
+fn the_scale_title_placed_above_is_a_heading_above_the_bar() {
     for vertical in [true, false] {
         let (mut fx, axes, scale, panel) = if vertical {
             column_beside_stack(2, TrackSize::Fit)
         } else {
             row_over_fitted_bar()
         };
+        bar_mut(&mut fx, panel).title_placement = ColorbarTitlePlacement::Above;
         let untitled = compile_figure(&fx.fig.clone());
         fx.scale_mut(scale).title = Some(Text::plain("Speed (m/s)"));
         let scene = compile_figure(&fx.build());
@@ -916,11 +944,12 @@ fn the_scale_title_is_a_heading_above_the_bar() {
     }
 }
 
-// Why: a title wider than the bar and its labels must still fit its fitted column, so the column widens to hold it,
+// Why: a heading wider than the bar and its labels must still fit its fitted column, so the column widens to hold it,
 // rather than the title spilling over the plots beside it.
 #[test]
-fn a_title_wider_than_the_bar_widens_its_fitted_column_to_hold_it() {
+fn a_title_above_wider_than_the_bar_widens_its_fitted_column_to_hold_it() {
     let (mut fx, _, scale, panel) = column_beside_stack(1, TrackSize::Fit);
+    bar_mut(&mut fx, panel).title_placement = ColorbarTitlePlacement::Above;
     let narrow = panel_rect(&compile_figure(&fx.fig.clone()), panel).width;
     fx.scale_mut(scale).title = Some(Text::plain("Velocity magnitude in the wake (m/s)"));
     let scene = compile_figure(&fx.build());
@@ -1851,6 +1880,7 @@ fn an_inside_bar_works_on_a_three_dimensional_axes() {
         scale,
         side: InsideColorbarSide::East,
         length: 0.8,
+        ..InsideColorbar::default()
     });
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -1871,11 +1901,21 @@ fn an_inside_bar_works_on_a_three_dimensional_axes() {
 
 // Why: an inside bar is read over whatever the plot shows, so it stands on a box like a boxed inside legend's: the box
 // is painted over the artists and beneath every part of the bar, and encloses all of it (title, bar, keys, tick marks
-// and labels), or a label would sit on the data the box is there to hide.
+// and labels), or a label would sit on the data the box is there to hide. That holds wherever the title is placed.
 #[test]
 fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
-    for side in [InsideColorbarSide::South, InsideColorbarSide::East] {
+    for (side, placement) in [
+        (InsideColorbarSide::South, ColorbarTitlePlacement::Along),
+        (InsideColorbarSide::South, ColorbarTitlePlacement::Above),
+        (InsideColorbarSide::East, ColorbarTitlePlacement::Along),
+        (InsideColorbarSide::East, ColorbarTitlePlacement::Above),
+    ] {
         let (mut fx, ax, image, scale) = inside_bar(side, 0.8);
+        fx.ax(ax)
+            .colorbar
+            .as_mut()
+            .expect("the fixture's bar")
+            .title_placement = placement;
         fx.scale_mut(scale).title = Some(Text::plain("Speed (m/s)"));
         let c = continuous_mut(&mut fx, scale);
         c.below = keyed(OutOfRange::Clamp);
@@ -1947,6 +1987,7 @@ fn two_bars_of_one_scale_agree_on_their_ticks_and_colours() {
         scale,
         side: InsideColorbarSide::West,
         length: 1.0,
+        ..InsideColorbar::default()
     });
     let scene = compile_figure(&fx.build());
     let in_panel = bar_of(&scene, ColorbarOwner::Panel(panel));
@@ -2066,6 +2107,7 @@ fn a_colourbar_naming_no_scale_is_left_out_with_a_warning_against_its_owner() {
         scale: axes[0],
         side: InsideColorbarSide::South,
         length: 0.8,
+        ..InsideColorbar::default()
     });
     let scene = compile_figure(&fx.build());
     assert!(

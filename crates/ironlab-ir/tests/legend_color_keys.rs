@@ -15,13 +15,16 @@
 //!     /// The colour scale with this node identifier: one entry per category of a
 //!     /// categorical scale, and a vertical bar for any other kind.
 //!     ColorScale(NodeId),                                   // new
+//!     // (became `ColorScale { scale: NodeId, rows: u32 }` in the layout stage; see
+//!     // `colorbar_layout.rs`)
 //! }
 //! impl LegendItem {
 //!     /// An item, not on a row of its own, that shows the colour scale with this node
 //!     /// identifier.
 //!     pub fn color_scale(scale: NodeId) -> Self;           // new
 //! }
-//! // JSON: {"type": "color_scale", "value": <scale id>}, as the other variants are tagged.
+//! // JSON: {"type": "color_scale", "value": {"scale": <scale id>, "rows": 5}}, as the other
+//! // variants are tagged.
 //! // `From<NodeId> for LegendItem` still makes an artist item.
 //!
 //! // crates/ironlab-ir/src/validate.rs: no new issue kind.
@@ -152,7 +155,7 @@ fn a_scale_item_is_an_ordinary_item_and_a_bare_identifier_still_names_an_artist(
     assert_eq!(
         LegendItem::color_scale(scale),
         LegendItem {
-            content: LegendItemContent::ColorScale(scale),
+            content: LegendItemContent::ColorScale { scale, rows: 5 },
             full_row: false,
         }
     );
@@ -170,7 +173,13 @@ fn the_json_form_of_a_scale_item_is_tagged_as_the_other_items_are() {
         json!({
             "type": "explicit",
             "value": [
-                { "content": { "type": "color_scale", "value": k.status.0 }, "full_row": false }
+                {
+                    "content": {
+                        "type": "color_scale",
+                        "value": { "scale": k.status.0, "rows": 5 }
+                    },
+                    "full_row": false
+                }
             ]
         })
     );
@@ -231,7 +240,7 @@ fn the_kitchen_sink_figure_holds_a_scale_item_and_round_trips() {
         })
         .flatten()
         .filter_map(|item| match item.content {
-            LegendItemContent::ColorScale(scale) => Some(scale),
+            LegendItemContent::ColorScale { scale, .. } => Some(scale),
             _ => None,
         })
         .collect();

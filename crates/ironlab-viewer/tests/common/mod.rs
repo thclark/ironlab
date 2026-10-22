@@ -464,6 +464,8 @@ pub fn figure_with_every_artist() -> Figure {
                 ..ironlab_ir::Cell::default()
             },
             align: ironlab_ir::PanelLocation::Center,
+            title: None,
+            title_align: ironlab_ir::TitleAlign::Left,
             content: ironlab_ir::PanelContent::Legend(ironlab_ir::PanelLegend::default()),
         }],
         ..Figure::new()

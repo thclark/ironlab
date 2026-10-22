@@ -4,7 +4,7 @@ use ironlab::prelude::*;
 
 pub const TITLE: &str = "Shared legend panel";
 pub const DESCRIPTION: &str = "Three days of synthetic hourly readings from five weather stations, with one legend \
-     panel in the sixth tile. Every station plots its air temperature and dew point, and the three coastal stations \
+     panel, titled \"Key\", in the sixth tile. Every station plots its air temperature and dew point, and the three coastal stations \
      also plot the sea surface temperature. Entries with the same display name and the same look are listed once, so \
      the panel holds three entries for thirteen series; in the viewer, clicking an entry hides that series in every \
      axes.";
@@ -45,7 +45,7 @@ pub fn figure() -> Figure {
         .parameter("data_points", 1898)
         .parameter("has_legend", true);
     // The sixth tile holds the legend panel that every axes lists its entries in.
-    let key = fig.panel(2, 1).id();
+    let key = fig.panel(2, 1).title("Key").id();
 
     for (k, (name, mean, range, sea)) in STATIONS.into_iter().enumerate() {
         // The air is warmest at 15:00 and coolest at 03:00, when it cools to just above the dew point.

@@ -222,7 +222,7 @@ fn arrange(
 /// - **Sources.** Geometry drawn for an artist names the artist as its source. Axes decorations (box, tick marks,
 ///   tick labels, common exponent labels, grid lines, axis labels, the axes title) and every part of the legend inside
 ///   its plot area (its box, entry samples and entry labels) name the axes. Every part of a legend panel (its box,
-///   entry samples and entry labels) names the panel. Every part of a colourbar (its bar, outline, tick marks, tick
+///   entry samples and entry labels) names the panel, and the title of a panel names the panel, whatever it holds. Every part of a colourbar (its bar, outline, tick marks, tick
 ///   labels, squares, key labels and title) names its holder: the panel of a panel colourbar, and the axes of an
 ///   inside colourbar. The figure title names the figure.
 /// - **Paint order.** In 2D axes, artists are painted in the order in which the axes lists them, so a later artist
@@ -383,8 +383,8 @@ fn arrange(
 ///   towards the automatic limits of the colour scale it names, as those of a hidden image do.
 /// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below
 ///   the figure title first. A fitted row then takes the share that the tallest panel lying in that row alone needs:
-///   a legend panel for its block of entries (with the border inset of a boxed panel), and a colourbar panel for the
-///   extent of its bar, ticks, labels and title across its length, with the page padding added on a side at which no
+///   a legend panel for its block of entries and its title (with the border inset of a boxed panel), and a colourbar
+///   panel for the extent of its bar, ticks, labels and titles across its length, with the page padding added on a side at which no
 ///   axes starts or ends; a fitted column takes the widest such share in the same way, and a fitted track in which no
 ///   panel lies alone takes none. The plot areas of the weighted rows share the rest of the height, and
 ///   those of the weighted columns the rest of the width, in proportion to their weights; a missing size, and a weight
@@ -492,17 +492,22 @@ fn arrange(
 ///   categorical scale's keys follow its categories. Along a lying colourbar the margin is wide enough for the labels
 ///   under neighbouring squares not to meet. A key's default label is `> upper`, `< lower`, `Out of range` or
 ///   `NaN / Inf`, with a limit written as the tick at that limit is. The thickness of a bar, and every distance of a
-///   colourbar, is a multiple of the base font size. A panel colourbar runs along the area of its panel, keys
-///   included, from the near edge of the first drawn plot box to the far edge of the last among the axes in the rows
+///   colourbar, is a multiple of the base font size; a bar is three quarters of it thick. A panel colourbar runs along
+///   the span from the near edge of the first drawn plot box to the far edge of the last among the axes in the rows
 ///   or columns it spans, so that a box shrunk by a fixed aspect does not leave it longer than the plots, and along the
-///   whole area when those tracks hold no axes; it is placed across the area by the panel's alignment; a standing bar's labels lie to its right and
-///   a lying bar's below it. A lying bar's title heads it inside the panel's area; a standing bar's title lies in the
-///   margin above the area, which widens the top margin of the first row the panel spans to the largest that any
-///   cell of that row needs. In a fitted track, a panel colourbar takes its thickness, ticks, labels and title across
-///   its length. An inside colourbar lies along its edge of the plot area, inset by one margin on every side, its
-///   bar and keys together `length` of the edge and centred along it (a categorical key its own length), its labels
-///   toward the interior and kept within the plot area along the bar, and its title beyond its labels (above the top
-///   end of a standing bar); it takes no margin, so the plot area is the same with or without it. A colourbar whose
+///   whole area when those tracks hold no axes; the bar, keys included, is its `length` of that span (the whole span
+///   standing and half of it lying when the length is automatic), and is placed along the span and across the area by
+///   the panel's alignment; a standing bar's labels lie to its right and a lying bar's below it. A title placed along
+///   the bar lies one title gap beyond the band of its labels, centred on the bar, turned to read upwards beside a
+///   standing bar. A title placed above heads a lying bar inside the panel's area, and lies in the margin above the
+///   area of a standing bar, which widens the top margin of the first row the panel spans to the largest that any
+///   cell of that row needs; the title of the panel lies above both. In a fitted track, a panel colourbar takes its
+///   thickness, ticks, labels and titles across its length, whatever its length. An inside colourbar lies along its
+///   edge of the plot area, inset by one margin on every side, its bar and keys together `length` of the edge and
+///   centred along it (a categorical key its own length), its labels toward the interior and kept within the plot
+///   area along the bar; a title along it lies beyond its labels, and a title above heads the top end of a standing
+///   bar and lies on the side of a lying bar away from its labels. It takes no margin, so the plot area is the same
+///   with or without it. A colourbar whose
 ///   scale reference names no colour scale is not drawn, with one warning naming its holder. The hit map records
 ///   every colourbar drawn as a [`crate::hit::ColorbarHit`].
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped

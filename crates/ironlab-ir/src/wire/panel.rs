@@ -13,6 +13,11 @@ proto_file! {
         enum PanelLocation align = 3;
         /// What the panel holds; it must be present.
         message PanelContent content = 4;
+        /// The heading drawn at the top of the panel's content; absent when there is no
+        /// title.
+        message Text title = 5;
+        /// How the title is aligned with the content; absent means left.
+        enum TitleAlign title_align = 6;
     }
 
     /// The placement of the content of a panel within the panel.
@@ -54,6 +59,12 @@ proto_file! {
         optional uint64 scale = 1;
         /// The direction in which the bar runs.
         enum ColorbarOrientation orientation = 2;
+        /// The length of the bar and its keys as a fraction of the span of the plot boxes
+        /// beside it; absent means the automatic length, the whole span for a vertical
+        /// bar and half of it for a horizontal one.
+        optional double length = 3;
+        /// Where the title of the scale is drawn beside the bar.
+        enum ColorbarTitlePlacement title_placement = 4;
     }
 
     /// The direction in which a panel colourbar runs.

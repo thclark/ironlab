@@ -225,6 +225,8 @@ A [panel](legends.md#legend-panels) is a node of the figure that occupies tiles 
 | Setter | Effect |
 | --- | --- |
 | `orientation(orientation)` | `ColorbarOrientation::Vertical`, the default, stands the bar upright with low values at the bottom and its tick labels on the right. `ColorbarOrientation::Horizontal` lays it flat with low values at the left and its tick labels below. |
+| `length(fraction)` | Sets the length of the bar, its keys included, as a fraction of the span of the plots beside it. By default the length is automatic: the whole span for a vertical bar and half of it for a horizontal one. |
+| `title_placement(placement)` | Sets where the title of the scale is drawn: `ColorbarTitlePlacement::Along`, the default, or `ColorbarTitlePlacement::Above` (see [The title of a bar](#the-title-of-a-bar)). |
 | `id()` | Returns the identifier of the panel. |
 
 A bar beside a plot belongs in a column whose size fits it, which `fit_col` makes:
@@ -237,13 +239,17 @@ let s = ax.color_scale().colormap(Colormap::Magma).title("Distance").id();
 fig.panel(0, 1).colorbar(s);
 ```
 
-The bar stretches along the cells of its panel, which are inset by the margins of the rows or columns they span, so that a vertical bar beside a row of plots is exactly as tall as their plot areas and a horizontal bar beneath a column is exactly as wide. Across its length the bar takes the room it needs, and the panel's alignment places it within the panel. In a [fitted](legends.md#fitting-rows-and-columns-to-their-legends) row or column, that room is the size of the track: the thickness of the bar, its ticks and tick labels, and its title. The title of a vertical bar is centred above the bar, in the margin above the first row the panel spans, where the title of an axes would be; the title of a horizontal bar is centred above the bar within the panel. A plot whose [aspect](getting-started.md#equal-aspect) is fixed may have a plot box smaller than its plot area, centred within it; the bar then runs from the near edge of the first drawn plot box to the far edge of the last, so that it is always as long as the plots it spans.
+The bar runs along the cells of its panel, which are inset by the margins of the rows or columns they span, and its length is measured against the span of the plots beside it. By default a vertical bar beside a row of plots is exactly as tall as their plot areas, and a horizontal bar beneath a row of plots is half as wide as they are, because a bar as long as a row of plots outweighs them. `length(fraction)` sets the length, keys included, to the given fraction of the span instead; a length that is not a finite number greater than 0 and at most 1 is the validation error `InvalidColorbarLength`, reported against the panel. A plot whose [aspect](getting-started.md#equal-aspect) is fixed may have a plot box smaller than its plot area, centred within it; the span then runs from the near edge of the first drawn plot box to the far edge of the last, so that the bar is always measured against the plots it serves.
 
-A panel holds one key. Calling `colorbar` on a panel that holds a legend replaces the legend with a vertical colourbar, and calling `legend` on a panel that holds a colourbar replaces the colourbar with a legend of the default settings. Calling `colorbar` again on a panel that already holds a colourbar shows the new scale and keeps the orientation. An identifier that names no node is the validation error `UnknownColorScale`, and one that names a node other than a colour scale is `WrongNodeKind`; both name the panel.
+The panel's [alignment](legends.md#legend-panels) places the bar both across its track and along the span. Along the span, a bar shorter than the span is centred by `Center` and by the two locations that centre it along the direction of the bar, and is pushed to the end that any other location names: `North`, `NorthEast` and `NorthWest` push a vertical bar to the top of the span, and `West`, `NorthWest` and `SouthWest` push a horizontal bar to its left end.
+
+Across its length the bar takes the room it needs. In a [fitted](legends.md#fitting-rows-and-columns-to-their-legends) row or column, that room is the size of the track: the thickness of the bar, its ticks and tick labels, and its title, together with the title of the panel when it has one. The length of the bar never changes the size of the track. Every bar, in a panel, inside an axes or in a legend, is three quarters of the base font size thick.
+
+A panel holds one key. Calling `colorbar` on a panel that holds a legend replaces the legend with a vertical colourbar, and calling `legend` on a panel that holds a colourbar replaces the colourbar with a legend of the default settings. Calling `colorbar` again on a panel that already holds a colourbar shows the new scale and keeps the orientation, the length and the placement of the title. The panel's own [title](legends.md#titling-a-panel) heads the bar, whatever the panel holds. An identifier that names no node is the validation error `UnknownColorScale`, and one that names a node other than a colour scale is `WrongNodeKind`; both name the panel.
 
 ### One colourbar for a row of plots
 
-Plots that name one scale share its colours exactly, so one bar describes them all. A panel that spans the row beneath them, in a fitted row, shows the scale once, and its bar is as long as the plot areas of the whole row:
+Plots that name one scale share its colours exactly, so one bar describes them all. A panel that spans the row beneath them, in a fitted row, shows the scale once, and its bar is measured against the plot areas of the whole row: half as long as the row and centred beneath it, unless `length` says otherwise:
 
 ```rust
 let mut fig = Figure::new().tiles(2, 3).fit_row(1);
@@ -265,7 +271,7 @@ A vertical bar in a fitted column, spanning the rows of a stack of plots, serves
 
 ### A colourbar inside an axes
 
-`ax.colorbar(scale, side)` draws a colourbar inside the plot area of the axes, along one of its edges (MATLAB's `colorbar` with a location such as `'east'`), and returns an `InsideColorbarMut` handle whose `length(fraction)` sets how long the bar is:
+`ax.colorbar(scale, side)` draws a colourbar inside the plot area of the axes, along one of its edges (MATLAB's `colorbar` with a location such as `'east'`), and returns an `InsideColorbarMut` handle whose `length(fraction)` sets how long the bar is and whose `title_placement(placement)` sets where the title of the scale is drawn:
 
 ```rust
 let mut fig = Figure::new();
@@ -275,9 +281,24 @@ let s = ax.color_scale().title("Distance").id();
 ax.colorbar(s, InsideColorbarSide::East).length(0.6);
 ```
 
-The side is an `InsideColorbarSide`: `South`, the default, and `North` lay the bar flat along the bottom or top edge, and `East` and `West` stand it upright along the right or left edge. The tick labels face the interior of the plot area. The bar, its keys, its labels and its title stand on a white box with an outline, drawn as the box of an inside legend is drawn, so that they read over any plot. The length is the length of the box, keys included, as a fraction of the edge, centred along it; it is 0.8 by default, and a length that is not a finite number greater than 0 and at most 1 is the validation error `InvalidColorbarLength`. Calling `colorbar` again moves the bar to the new side or scale and keeps its length, and `colorbar_off` removes it.
+The side is an `InsideColorbarSide`: `South`, the default, and `North` lay the bar flat along the bottom or top edge, and `East` and `West` stand it upright along the right or left edge. The tick labels face the interior of the plot area. The bar, its keys, its labels and its title stand on a white box with an outline, drawn as the box of an inside legend is drawn, so that they read over any plot. The length is the length of the box, keys included, as a fraction of the edge, centred along it; it is 0.8 by default, and a length that is not a finite number greater than 0 and at most 1 is the validation error `InvalidColorbarLength`. Calling `colorbar` again moves the bar to the new side or scale and keeps its length and the placement of its title, and `colorbar_off` removes it.
 
 An inside colourbar takes no margin, so the plot area keeps its size whether or not the bar is shown, and the bar covers what is drawn beneath it. It suits a plot with a quiet region along one edge, such as open water on a map. A bar that needs room of its own belongs in a panel.
+
+### The title of a bar
+
+The title of the scale is drawn beside every bar of the scale, where the bar's `title_placement` says:
+
+| Placement | Where the title is drawn |
+| --- | --- |
+| `Along`, the default | Beyond the tick labels, on their side of the bar, one gap from them and centred on the bar. The gap is two thirds of the gap between a title above a bar and the bar, because the line boxes of the tick labels and of the title each carry white space of their own. Beside a vertical bar the title is turned a quarter turn to read from bottom to top, as the label of a y axis does; beneath a horizontal bar it is upright, below the tick labels, as the label of an x axis is. |
+| `Above` | As an upright heading. Above a vertical panel bar it lies in the margin above the first row the panel spans, where the title of an axes would be, so the bar keeps the span of the plots; above a horizontal panel bar it lies within the panel. |
+
+A title along a bar takes room beside the bar rather than above it, so a vertical bar titled along its length leaves the plots where they would be without a title, and a fitted track grows only by the line of the title and one gap, however long the title is. A title along a bar is centred on the bar alone, not on its keys; a title longer than the bar runs beyond its ends.
+
+Inside an axes, whose tick labels face the interior of the plot area, a title along the bar lies beyond the tick labels toward the interior, and a title above is a heading over the top end of a vertical bar and lies on the side of a horizontal bar away from its tick labels: below a bar along the south edge and above a bar along the north edge. Either way the title lies within the box behind the bar.
+
+A [bar item](#bars-are-items) of a legend is always titled along its bar.
 
 ### How each kind of scale is drawn
 
@@ -315,7 +336,7 @@ let terrain = fig
 
 ### Keys for values out of range
 
-A colourbar can show, beside the bar, a **key** for each [category of values out of range](#values-out-of-range): a square as wide as the bar is thick, separated from the bar and from the next square by one margin, with its label on the side of the tick labels. Keys are off by default, and showing one never changes what the scale draws. `show_key(key)` shows the key of one category with its default label, and `key_label(key, text)` shows it with the given label:
+A colourbar can show, beside the bar, a **key** for each [category of values out of range](#values-out-of-range): a square as wide as the bar is thick, separated from the bar and from the next square by one margin, with its label on the side of the tick labels. Beside a vertical [bar item](#bars-are-items) of a legend, each key is instead an entry row of its own. Keys are off by default, and showing one never changes what the scale draws. `show_key(key)` shows the key of one category with its default label, and `key_label(key, text)` shows it with the given label:
 
 ```rust
 let mut fig = Figure::new();
@@ -393,9 +414,20 @@ In a legend panel, the entry of a category is merged with any other entry of the
 
 ### Bars are items
 
-A continuous, discrete or indexed scale is drawn as a vertical bar five entry rows long, in one column of the legend. It is drawn as a vertical colourbar of the scale is drawn, with the same thickness, colours, ticks, tick labels and keys: the bar starts at the left edge of the column of samples, and its tick labels lie to its right, on the side of the labels of the other entries. The title of the scale heads the bar. The title and the keys add to the extent of the item rather than shortening the bar, so the bar keeps the length of its five rows. When the entries are divided among columns, the bar counts as five entries and is never split between columns, and its width, ticks and tick labels included, sets the width of its column as a label does.
+A continuous, discrete or indexed scale is drawn as a vertical bar in one column of the legend, five entry rows long unless the item asks for another number of rows. `LegendItem::color_scale(scale).with_rows(rows)` makes an item of the given number of rows, which is listed by `item` or `legend_entries` as any item is; a count of zero is the validation error `InvalidLegendRows`, reported against the owner of the legend:
 
-On a row of its own, the bar lies horizontally across the width of the legend, with its title above it and its labels below it, as a horizontal colourbar is drawn.
+```rust
+fig.panel(0, 1)
+    .legend()
+    .item(gnss)
+    .item(LegendItem::color_scale(height).with_rows(7));
+```
+
+The bar is drawn as a vertical colourbar of the scale is drawn, with the same thickness, colours, ticks and tick labels: it is centred on the column of samples, so that its centre line passes through the centres of the samples of the other entries in its column and of the swatches of its keys, and its tick labels lie to its right, on the side of the labels of the other entries. Its ends are kept half a label inside its rows, so that the tick labels at its ends stay clear of the entries above and below. The title of the scale lies along the bar, beyond its tick labels, reading from bottom to top, so it adds no row; a longer title is better served by more rows than by a heading.
+
+Each [key](#keys-for-values-out-of-range) the scale shows is an entry row of its own, drawn as a swatch entry is drawn: the above key directly above the rows of the bar, and the below key and then the non-finite key directly below them. A key's swatch is filled with what is painted for its values, or left empty, and its label is the key's label or its default label. A key row belongs to its bar: it is never merged with another entry and is no toggle in the viewer. When the entries are divided among columns, the item counts as its rows and its keys and is never split between columns, and its width, ticks, tick labels and title included, sets the width of its column as a label does, so a column that holds nothing but the bar is exactly as wide as the bar.
+
+On a row of its own, the bar lies horizontally across the width of the legend whatever rows it asks for, with its labels below it and its title below its labels, as a horizontal colourbar is drawn; its keys are squares beside the bar, as on a colourbar.
 
 Neither a bar nor the entry of a category is a toggle in the viewer, because a scale is not a plot: clicking it hides nothing, unless the entry of a category is merged with the entry of a plot in a legend panel, and clicking a bar selects its scale in the property editor. A bar item is read by hovering as a colourbar is, but a gesture on it does not move the limits of its scale, because it belongs to its legend.
 
@@ -425,9 +457,9 @@ A legend item that shows a scale is `{"content": {"type": "color_scale", "value"
 
 ## Examples in the gallery
 
-- [Branch map](../gallery/branch_map.md) colours a parameter sweep by the branch a nonlinear solver converged to, through a categorical scale, and keys it with a legend panel under the plot that lists the scale, the cases never run keyed by the non-finite key "not run".
+- [Branch map](../gallery/branch_map.md) colours a parameter sweep by the branch a nonlinear solver converged to, through a categorical scale, and keys it with a boxed legend panel under the plot in two columns: the categories of the scale, with the cases never run keyed by the non-finite key "not run", fill the first, and the curves and markers drawn over the map fill the second.
 - [Case matrix](../gallery/case_matrix.md) bands a test matrix through a discrete scale shown by a horizontal colourbar, with a "not entered" key for the cases the model never entered, and lists a marker overlay in a legend inside the plot.
-- [Markers over a surface](../gallery/markers_over_surface.md) lists two kinds of marker and a bar of the surface's scale in one legend panel.
+- [Markers over a surface](../gallery/markers_over_surface.md) keys a surface and the features drawn on it in two boxed legend panels stacked beside the plot, each headed by its title: the first lists two kinds of marker and a bar of the surface's scale, seven rows long, in one column, and the second lists a bar of a road's gradient, five rows long, in one column and four lines and markers in the other.
 - [Colourbar shared by a row](../gallery/row_shared_colorbar.md) shows one scale for three plots with one horizontal bar in a fitted row, and a key for the temperatures above the scale.
 - [Inside colourbar](../gallery/inside_colorbar.md) draws the bar of a bathymetry map inside the plot area, over open water, with a key naming the land above the range of the scale.
 - [Indexed palette](../gallery/indexed_palette.md) draws an 8-bit elevation raster through its 256-entry palette, whose bar labels three entries by name.

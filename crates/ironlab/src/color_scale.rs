@@ -79,7 +79,8 @@ impl ColorScaleMut<'_> {
     }
 
     /// Sets the title of the scale, which every colourbar that shows the scale draws
-    /// above the bar.
+    /// beside its bar: along it, beyond its tick labels, or above it as a heading, as the
+    /// bar's title placement says.
     pub fn title(&mut self, title: impl Into<Text>) -> &mut Self {
         self.scale().title = Some(title.into());
         self

@@ -339,6 +339,8 @@ fn data_arrays_and_panels_are_gathered_in_groups_and_named_by_what_tells_them_ap
         id: NodeId(id),
         cell,
         align: PanelLocation::Center,
+        title: None,
+        title_align: ironlab_ir::TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend::default()),
     };
     let figure = Figure {
@@ -421,6 +423,160 @@ fn data_arrays_and_panels_are_gathered_in_groups_and_named_by_what_tells_them_ap
         "the properties of the legend a panel holds stay editable, not {:?}",
         boxed.editor
     );
+}
+
+// Why: the tree names a node by what it shows on the page (ADR 0023), so a panel given a
+// title is named by that title, as a scale or an axes is, followed by its cell, because two
+// panels may carry one title; a panel with no title, or a blank one, keeps the name of what
+// it holds. The title names the panel whatever it holds, so a titled colourbar panel and a
+// titled legend panel read alike.
+#[test]
+fn a_titled_panel_is_named_by_its_title_and_its_cell() {
+    use ironlab_ir::{
+        Cell, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
+    };
+
+    let mut figure = figure_with_artists();
+    let legend = || PanelContent::Legend(PanelLegend::default());
+    let colorbar = || {
+        PanelContent::Colorbar(PanelColorbar {
+            scale: SCALE,
+            ..PanelColorbar::default()
+        })
+    };
+    for (id, row, title, content) in [
+        (900, 2, Some(Text::plain("Key")), legend()),
+        (901, 3, Some(Text::new(r"$T$ (K)")), colorbar()),
+        (902, 4, None, legend()),
+        (903, 5, None, colorbar()),
+        (904, 6, Some(Text::plain("  ")), colorbar()),
+    ] {
+        figure.panels.push(Panel {
+            id: NodeId(id),
+            cell: Cell {
+                row,
+                ..Cell::default()
+            },
+            align: PanelLocation::Center,
+            title,
+            title_align: TitleAlign::Left,
+            content,
+        });
+    }
+    let names: Vec<(Option<NodeId>, String)> = tree_rows(&figure)
+        .into_iter()
+        .filter(|row| row.kind == NodeKind::Panel && row.node.is_some())
+        .map(|row| (row.node, row.label))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (Some(NodeId(900)), "Key (row 2, col 0)".to_owned()),
+            (Some(NodeId(901)), r"$T$ (K) (row 3, col 0)".to_owned()),
+            (Some(NodeId(902)), "Legend panel (row 4, col 0)".to_owned()),
+            (
+                Some(NodeId(903)),
+                "Colourbar panel (row 5, col 0)".to_owned()
+            ),
+            (
+                Some(NodeId(904)),
+                "Colourbar panel (row 6, col 0)".to_owned()
+            ),
+        ],
+        "a title names its panel as its source, before the cell; no title or a blank one \
+         leaves the name of the panel's content"
+    );
+}
+
+// Why: a panel's title and its alignment, a bar's length and where a scale's title is drawn
+// beside a bar change how the figure looks, not what it holds or how it is arranged, so the
+// inspector offers them for editing like an axes title: the panel title as an optional text,
+// its alignment and the title placement as choices, and the length of a panel bar as an
+// optional number whose absence is the automatic length.
+#[test]
+fn the_layout_of_panels_and_colourbars_is_edited_in_the_inspector() {
+    use ironlab_ir::{
+        Cell, ColorbarTitlePlacement, InsideColorbar, Panel, PanelColorbar, PanelContent,
+        PanelLegend, PanelLocation, Text, TitleAlign,
+    };
+
+    let mut figure = figure_with_artists();
+    let (key, bar) = (NodeId(900), NodeId(901));
+    for (id, content) in [
+        (key, PanelContent::Legend(PanelLegend::default())),
+        (
+            bar,
+            PanelContent::Colorbar(PanelColorbar {
+                scale: SCALE,
+                ..PanelColorbar::default()
+            }),
+        ),
+    ] {
+        figure.panels.push(Panel {
+            id,
+            cell: Cell::default(),
+            align: PanelLocation::Center,
+            title: None,
+            title_align: TitleAlign::Left,
+            content,
+        });
+    }
+    figure.axes_mut(FLAT).expect("the 2D axes").colorbar = Some(InsideColorbar {
+        scale: SCALE,
+        ..InsideColorbar::default()
+    });
+    let mut state = FigureState::new(figure);
+
+    for panel in [key, bar] {
+        let groups = groups_of(&state, panel);
+        let title = row(&groups, "title", "");
+        assert!(
+            !matches!(title.editor, Editor::ReadOnly { .. }),
+            "a panel's title is editable, not {:?}",
+            title.editor
+        );
+        assert!(title.optional, "a panel need not have a title");
+        assert_eq!(
+            offered(&groups, "title_align", ""),
+            ["Centre", "Left", "Right"]
+        );
+    }
+    let groups = groups_of(&state, bar);
+    let length = row(&groups, "content", "colorbar.length");
+    assert!(
+        !matches!(length.editor, Editor::ReadOnly { .. }),
+        "a bar's length is editable, not {:?}",
+        length.editor
+    );
+    assert!(
+        length.optional,
+        "the automatic length is the absence of one"
+    );
+    assert_eq!(length.value, Value::Unset);
+    assert_eq!(
+        offered(&groups, "content", "colorbar.title_placement").len(),
+        2
+    );
+    assert_eq!(
+        offered(&groups_of(&state, FLAT), "colorbar", "title_placement").len(),
+        2
+    );
+
+    assert!(state.try_record(&set(bar.0, "title", Value::Text(Text::plain("Speed")))));
+    assert!(state.try_record(&set(
+        bar.0,
+        "content.colorbar.title_placement",
+        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above)
+    )));
+    let panel = state.figure().panel(bar).expect("the bar's panel");
+    assert_eq!(panel.title, Some(Text::plain("Speed")));
+    assert!(matches!(
+        panel.content,
+        PanelContent::Colorbar(PanelColorbar {
+            title_placement: ColorbarTitlePlacement::Above,
+            ..
+        })
+    ));
 }
 
 // Why: a hidden plot is still in the tree and still editable, so the tree must show which
