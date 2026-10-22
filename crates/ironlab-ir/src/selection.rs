@@ -178,11 +178,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
             all.push(a.pixels);
             a.pixels
         }
-        Artist::IndexedImage(a) => {
-            all.push(a.indices);
-            a.indices
-        }
-        Artist::MappedImage(a) => {
+        Artist::ScalarImage(a) => {
             all.push(a.values);
             a.values
         }

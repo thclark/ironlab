@@ -3,8 +3,8 @@ use ironlab::prelude::*;
 use crate::fields::*;
 
 pub const TITLE: &str = "Contour";
-pub const DESCRIPTION: &str = "Isolines of the Julia field at twelve automatically chosen levels, each coloured from \
-     the colormap by its level.";
+pub const DESCRIPTION: &str = "Isolines of the Julia field at twelve automatically chosen levels, each coloured by its \
+     level through the colour scale of the axes.";
 
 pub fn figure() -> Figure {
     let (x, y, z) = julia_grid(121);

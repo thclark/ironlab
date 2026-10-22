@@ -20,10 +20,6 @@ proto_file! {
         /// Whether the full outline of the plot box is drawn, rather than only the
         /// edges that carry tick labels.
         optional bool r#box = 8;
-        /// The colormap used by colormapped artists in this axes.
-        enum ColormapName colormap = 9;
-        /// The data values mapped to the first and last colours of the colormap.
-        message Limits clim = 10;
         /// The legend; absent when no legend is shown.
         message Legend legend = 11;
         /// The artists drawn in this axes, in drawing order.
@@ -34,6 +30,9 @@ proto_file! {
         message Aspect aspect = 14;
         /// How a fixed aspect is kept.
         enum AspectAdjust aspect_adjust = 15;
+        /// The numbers and names of the colormap and colour limits of the axes, which
+        /// colour scales replaced.
+        reserved 9, 10, colormap, clim;
     }
 
     /// How the title of an axes is aligned with its plot area.

@@ -80,7 +80,7 @@ pub fn figure() -> Figure {
     // The confidence is the alpha of every pixel: a pixel of confidence 0.3 is drawn at 30 % of its colour over the
     // white of the axes. The NaN confidence inside the cylinder makes those pixels transparent, as their NaN speed
     // already does.
-    ax.mapped_image(&measured)
+    ax.scalar_image(&measured)
         .pixel_columns(xs[0], xs[NX - 1])
         .pixel_rows(ys[0], ys[NY - 1])
         .alpha(&trust);
@@ -91,8 +91,12 @@ pub fn figure() -> Figure {
     )
     .color(Color::BLACK)
     .line_width(0.75);
+    // A speed beyond the limits of the scale is left undrawn rather than clamped to an end colour.
+    ax.color_scale()
+        .limits(0.0, 2.0)
+        .below(OutOfRange::Transparent)
+        .above(OutOfRange::Transparent);
     ax.aspect(Aspect::Equal)
-        .clim(0.0, 2.0)
         .xlabel("$x / a$")
         .ylabel("$y / a$")
         .title("Alpha from the confidence");
@@ -109,8 +113,8 @@ pub fn figure() -> Figure {
         .face_opacity(0.8)
         .edge_opacity(0.25)
         .edge_width(0.25);
-    ax.clim(0.0, 2.0)
-        .zlim(0.0, 2.0)
+    ax.color_scale().limits(0.0, 2.0);
+    ax.zlim(0.0, 2.0)
         .xlabel("$x / a$")
         .ylabel("$y / a$")
         .zlabel(r"$|\mathbf{u}| / U_\infty$")

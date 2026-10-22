@@ -214,8 +214,8 @@ fn edits_of_unrelated_data_and_nodes_leave_the_selection_unchanged() {
         },
         set(
             s.other_axes,
-            "colormap",
-            Value::ColormapName(ColormapName::Gray),
+            "title_align",
+            Value::TitleAlign(TitleAlign::Left),
         ),
         set(s.line, "visible", Value::Bool(false)),
         Edit::Insert {
@@ -245,10 +245,11 @@ fn a_node_selected_as_a_whole_is_unaffected_by_its_data_edits() {
     assert_eq!(updated(&s, &selection, &replace), Some(selection));
 }
 
-/// A figure of one 2D axes holding one artist of each image kind, each on an array of
-/// three rows and two columns: floating-point RGBA pixels, 8-bit indices and values.
-/// Returns the figure, the artists and their arrays, in the order image, indexed image,
-/// mapped image.
+/// A figure of one 2D axes holding a true-colour image and two scalar images, each on an
+/// array of three rows and two columns: floating-point RGBA pixels, 8-bit indices through
+/// an indexed scale, and values through a continuous scale. Returns the figure, the
+/// artists and their arrays, in the order true-colour image, image of indices, image of
+/// values.
 fn images_figure() -> (Figure, [NodeId; 3], [NodeId; 3]) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
@@ -268,21 +269,29 @@ fn images_figure() -> (Figure, [NodeId; 3], [NodeId; 3]) {
         }),
     );
     let indexed = b.node();
+    let mapped = b.node();
+    // A palette of 256 entries, which every 8-bit index names.
+    let palette = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+        colors: vec![Color::BLACK; 256],
+        ..IndexedColorScale::default()
+    }));
+    let continuous = b.color_scale(ColorScaleKind::default());
     b.push(
         axes,
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: indexed,
-            indices,
-            ..IndexedImage::default()
+            values: indices,
+            color_scale: Some(palette),
+            ..ScalarImage::default()
         }),
     );
-    let mapped = b.node();
     b.push(
         axes,
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id: mapped,
             values,
-            ..MappedImage::default()
+            color_scale: Some(continuous),
+            ..ScalarImage::default()
         }),
     );
     (

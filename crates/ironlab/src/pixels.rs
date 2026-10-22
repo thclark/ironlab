@@ -1,5 +1,5 @@
 //! Containers for the pixels of images: true-colour pixels, matrices of bytes and the
-//! values of colour-indexed and colour-mapped images.
+//! values of scalar images.
 
 use std::ops::{Index, IndexMut};
 
@@ -313,14 +313,13 @@ fn check_shape(expected: [usize; 2], plane: &Matrix) -> Result<(), Error> {
 }
 
 /// A dense two-dimensional array of bytes stored in row-major order: the counterpart of
-/// [`Matrix`] for 8-bit data, such as the classes of a colour-indexed image or the
-/// samples of a greyscale image.
+/// [`Matrix`] for 8-bit data, such as the classes of an indexed image or the samples of a
+/// greyscale image.
 ///
 /// As in a matrix, the value in row `j` and column `i` belongs to the point
 /// `(x[i], y[j])`, and values are indexed by `(row, col)`, both counted from zero. A
-/// byte matrix given to [`indexed_image`](crate::AxesMut::indexed_image) or
-/// [`mapped_image`](crate::AxesMut::mapped_image) is stored as bytes: exactly, and at a
-/// quarter of the size of the same values as floating-point numbers.
+/// byte matrix given to [`scalar_image`](crate::AxesMut::scalar_image) is stored as bytes:
+/// exactly, and at a quarter of the size of the same values as floating-point numbers.
 ///
 /// ```
 /// use ironlab::ByteMatrix;
@@ -476,14 +475,12 @@ impl IndexMut<(usize, usize)> for ByteMatrix {
     }
 }
 
-/// The values of a colour-indexed or colour-mapped image: a matrix of floating-point
-/// values or a matrix of bytes.
+/// The values of a scalar image: a matrix of floating-point values or a matrix of bytes.
 ///
-/// [`indexed_image`](crate::AxesMut::indexed_image) and
-/// [`mapped_image`](crate::AxesMut::mapped_image) take anything that converts into this
+/// [`scalar_image`](crate::AxesMut::scalar_image) takes anything that converts into this
 /// type: a [`Matrix`] or a [`ByteMatrix`], by value or by reference. Floating-point
-/// values are stored as such, so a NaN reaches the figure and is drawn as the image's
-/// policy for non-finite values says; bytes are stored as bytes.
+/// values are stored as such, so a NaN reaches the figure and is drawn as the colour
+/// scale's policy for non-finite values says; bytes are stored as bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImageValues {
     /// Floating-point values.

@@ -447,7 +447,7 @@ pub fn fields_markdown() -> String {
          c = −0.8 + 0.156i, and the field is ln(1 + |z₃|) on the square [−1.5, 1.5]². The module below also \
          provides the gradient and surface normal estimates used by the vector field figures, a deterministic \
          spiral of scattered points, and the pieces the image figures need: the real and imaginary parts of z₃, a \
-         quantiser that turns the field into colormap indices, and a conversion from hue, saturation and lightness \
+         quantiser that turns the field into the indices of a palette, and a conversion from hue, saturation and lightness \
          to a colour.\n\n\
          {fence}rust\n{FIELDS_SOURCE}{newline}{fence}\n\n\
          [Back to the gallery](index.md)\n",

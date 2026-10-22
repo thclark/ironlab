@@ -3,15 +3,17 @@
 //! Node identifiers, data arrays' included, are allocated explicitly by [`Fx`], so the fixtures do not depend on
 //! the IR's own allocation helpers.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Artist, Axes, Cell, Contour, DataArray, Figure, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Legend, Line, MappedImage, NdArray, NodeId, Panel, PanelContent, PanelLegend,
-    PixelRange, Projection, Quiver, Scatter, Surface, Text, View3d,
+    Artist, Axes, Cell, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
+    ContinuousColorScale, Contour, DataArray, Figure, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedColorScale, Legend, Line, NdArray, NodeId, OutOfRange, Panel, PanelContent, PanelLegend,
+    PixelRange, Projection, Quiver, ScalarImage, Scatter, ScatterColor, Surface, Text, View3d,
 };
 use ironlab_scene::display::Rgba;
-use ironlab_scene::maths::colormap::Lut;
+use ironlab_scene::maths::colormap::{Lut, VIRIDIS};
 use ironlab_scene::{Scene, compile};
 use ironlab_text::TextEngine;
 
@@ -120,9 +122,18 @@ pub fn xy(columns: Option<PixelRange>, rows: Option<PixelRange>) -> ImagePlaceme
 }
 
 /// A figure under construction with explicit identifier allocation.
+///
+/// Every colour-mapped artist names its colour scale. So that a fixture keeps the drawing of the figure model in which
+/// each axes held one colormap and one pair of colour limits, a contour or surface added by [`Fx::contour`] or
+/// [`Fx::surface`], and a scatter coloured by data, that names no scale after its edit names the scale of its axes
+/// ([`Fx::axes_scale`]): a continuous scale of viridis between automatic limits, created for the axes on first use.
 pub struct Fx {
     pub fig: Figure,
     next_node: u64,
+    /// The continuous colour scale of each axes that has one, by axes.
+    axes_scales: BTreeMap<NodeId, NodeId>,
+    /// The 256-entry indexed colour scale of each axes that has one, by axes.
+    palettes: BTreeMap<NodeId, NodeId>,
 }
 
 impl Fx {
@@ -132,7 +143,12 @@ impl Fx {
             id: NodeId(1),
             ..Figure::default()
         };
-        Self { fig, next_node: 2 }
+        Self {
+            fig,
+            next_node: 2,
+            axes_scales: BTreeMap::new(),
+            palettes: BTreeMap::new(),
+        }
     }
 
     /// Allocates a fresh node identifier.
@@ -258,6 +274,9 @@ impl Fx {
             ..Scatter::default()
         };
         edit(&mut scatter, self);
+        if matches!(scatter.color, ScatterColor::Data { .. }) && scatter.color_scale.is_none() {
+            scatter.color_scale = Some(self.axes_scale(axes));
+        }
         self.push(axes, Artist::Scatter(scatter));
         id
     }
@@ -295,6 +314,9 @@ impl Fx {
             ..Contour::default()
         };
         edit(&mut contour);
+        if contour.color_scale.is_none() {
+            contour.color_scale = Some(self.axes_scale(axes));
+        }
         self.push(axes, Artist::Contour(contour));
         id
     }
@@ -317,6 +339,9 @@ impl Fx {
             ..Surface::default()
         };
         edit(&mut surface);
+        if surface.color_scale.is_none() {
+            surface.color_scale = Some(self.axes_scale(axes));
+        }
         self.push(axes, Artist::Surface(surface));
         id
     }
@@ -379,47 +404,123 @@ impl Fx {
         id
     }
 
-    /// Adds a colour-indexed image of `indices` with the given shape (`[ny, nx]` when it is valid),
-    /// placed by `placement` and customised by `edit`.
+    /// Returns the continuous colour scale of an axes, creating it on first use: viridis between automatic limits,
+    /// clamping values beyond them, as the colormap and colour limits that an axes once held drew.
+    pub fn axes_scale(&mut self, axes: NodeId) -> NodeId {
+        if let Some(&scale) = self.axes_scales.get(&axes) {
+            return scale;
+        }
+        let scale = self.color_scale(ColorScaleKind::Continuous(ContinuousColorScale::default()));
+        self.axes_scales.insert(axes, scale);
+        scale
+    }
+
+    /// Returns the continuous colour scale of an axes for modification, creating it on first use.
+    pub fn axes_scale_mut(&mut self, axes: NodeId) -> &mut ContinuousColorScale {
+        let id = self.axes_scale(axes);
+        match &mut self.scale_mut(id).kind {
+            ColorScaleKind::Continuous(scale) => scale,
+            other => panic!("the axes scale is continuous, found {other:?}"),
+        }
+    }
+
+    /// Returns the indexed colour scale of an axes, creating it on first use: the 256 entries of viridis, with an
+    /// index outside them drawn as nothing, as an indexed image once looked its indices up in the colormap of its
+    /// axes.
+    pub fn palette(&mut self, axes: NodeId) -> NodeId {
+        if let Some(&scale) = self.palettes.get(&axes) {
+            return scale;
+        }
+        let scale = self.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
+            colors: palette_colors(&VIRIDIS),
+            outside: out_of_range(OutOfRange::Transparent),
+            ..IndexedColorScale::default()
+        }));
+        self.palettes.insert(axes, scale);
+        scale
+    }
+
+    /// Returns the indexed colour scale of an axes for modification, creating it on first use.
+    pub fn palette_mut(&mut self, axes: NodeId) -> &mut IndexedColorScale {
+        let id = self.palette(axes);
+        match &mut self.scale_mut(id).kind {
+            ColorScaleKind::Indexed(scale) => scale,
+            other => panic!("the palette is indexed, found {other:?}"),
+        }
+    }
+
+    /// Adds a scalar image of indices with the given shape (`[ny, nx]` when it is valid), mapped through the indexed
+    /// colour scale of its axes ([`Fx::palette`]), placed by `placement` and customised by `edit`.
     pub fn indexed_image(
         &mut self,
         axes: NodeId,
         shape: Vec<usize>,
         indices: impl Into<Samples>,
         placement: ImagePlacement,
-        edit: impl FnOnce(&mut IndexedImage),
+        edit: impl FnOnce(&mut ScalarImage),
     ) -> NodeId {
-        let id = self.node();
-        let mut image = IndexedImage {
-            id,
-            indices: self.samples(shape, indices),
-            placement,
-            ..IndexedImage::default()
-        };
-        edit(&mut image);
-        self.push(axes, Artist::IndexedImage(image));
-        id
+        let scale = self.palette(axes);
+        self.scalar_image(axes, shape, indices, Some(scale), placement, edit)
     }
 
-    /// Adds a colour-mapped image of `values` with the given shape (`[ny, nx]` when it is valid),
-    /// placed by `placement` and customised by `edit`.
-    pub fn mapped_image(
+    /// Adds a scalar image of values with the given shape (`[ny, nx]` when it is valid), mapped through the
+    /// continuous colour scale of its axes ([`Fx::axes_scale`]) as `imagesc` maps them, placed by `placement` and
+    /// customised by `edit`.
+    pub fn imagesc(
         &mut self,
         axes: NodeId,
         shape: Vec<usize>,
         values: impl Into<Samples>,
         placement: ImagePlacement,
-        edit: impl FnOnce(&mut MappedImage),
+        edit: impl FnOnce(&mut ScalarImage),
+    ) -> NodeId {
+        let scale = self.axes_scale(axes);
+        self.scalar_image(axes, shape, values, Some(scale), placement, edit)
+    }
+
+    /// Adds a colour scale of the given kind, with no title and with non-finite values drawn as nothing, and returns
+    /// its identifier.
+    pub fn color_scale(&mut self, kind: ColorScaleKind) -> NodeId {
+        let id = self.node();
+        self.fig.color_scales.push(ColorScale {
+            id,
+            title: None,
+            kind,
+            non_finite: out_of_range(OutOfRange::Transparent),
+        });
+        id
+    }
+
+    /// Returns the colour scale with the given identifier for modification.
+    pub fn scale_mut(&mut self, id: NodeId) -> &mut ColorScale {
+        self.fig
+            .color_scales
+            .iter_mut()
+            .find(|s| s.id == id)
+            .expect("fixture colour scale exists")
+    }
+
+    /// Adds a scalar image of `values` with the given shape (`[ny, nx]` when it is valid), mapped through
+    /// `color_scale`, placed by `placement` and customised by `edit`.
+    pub fn scalar_image(
+        &mut self,
+        axes: NodeId,
+        shape: Vec<usize>,
+        values: impl Into<Samples>,
+        color_scale: Option<NodeId>,
+        placement: ImagePlacement,
+        edit: impl FnOnce(&mut ScalarImage),
     ) -> NodeId {
         let id = self.node();
-        let mut image = MappedImage {
+        let mut image = ScalarImage {
             id,
             values: self.samples(shape, values),
+            color_scale,
             placement,
-            ..MappedImage::default()
+            ..ScalarImage::default()
         };
         edit(&mut image);
-        self.push(axes, Artist::MappedImage(image));
+        self.push(axes, Artist::ScalarImage(image));
         id
     }
 
@@ -478,4 +579,26 @@ pub fn cell(row: u32, col: u32, row_span: u32, col_span: u32) -> Cell {
         row_span,
         col_span,
     }
+}
+
+/// An out-of-range category of a colour scale with the given policy, no key and the default label.
+pub fn out_of_range(policy: OutOfRange) -> ColorScaleOutOfRange {
+    ColorScaleOutOfRange {
+        policy,
+        show_key: false,
+        label: None,
+    }
+}
+
+/// The entries of an indexed colour scale holding the 256 colours of a colormap table.
+pub fn palette_colors(lut: &Lut) -> Vec<Color> {
+    lut.iter()
+        .map(|rgb| {
+            Color::rgb(
+                f32::from(rgb[0]) / 255.0,
+                f32::from(rgb[1]) / 255.0,
+                f32::from(rgb[2]) / 255.0,
+            )
+        })
+        .collect()
 }

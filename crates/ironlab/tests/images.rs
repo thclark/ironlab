@@ -1,14 +1,11 @@
-//! Images: image, indexed_image and mapped_image, and the pixel containers they take.
+//! Images: image and scalar_image, and the pixel containers they take.
 
 mod common;
 
-use common::{
-    artist, axes, data, has_error_at, image, image_figure, indexed_image, is_3d, mapped_image,
-    parent,
-};
+use common::{artist, axes, data, has_error_at, image, image_figure, is_3d, parent, scalar_image};
 use ironlab::ir::{
-    Artist, ImagePlacement, IrError, IssueKind, NdArray, NdArrayElement, PixelRange, Projection,
-    View3d,
+    Artist, ColorScaleKind, ImagePlacement, IrError, IssueKind, NdArray, NdArrayElement,
+    PixelRange, Projection, View3d,
 };
 use ironlab::prelude::*;
 
@@ -37,12 +34,11 @@ fn sample_floats() -> Matrix {
     Matrix::from_fn(2, 3, |row, col| (row * 3 + col) as f64 / 5.0)
 }
 
-/// Returns the placement of an image of any of the three kinds.
+/// Returns the placement of an image of either kind.
 fn placement(fig: &Figure, id: NodeId) -> ImagePlacement {
     match artist(fig, id) {
         Artist::Image(a) => a.placement,
-        Artist::IndexedImage(a) => a.placement,
-        Artist::MappedImage(a) => a.placement,
+        Artist::ScalarImage(a) => a.placement,
         other => panic!("expected an image, found {other:?}"),
     }
 }
@@ -74,19 +70,19 @@ fn image_stores_the_pixels_as_bytes_with_shape_rows_by_cols_by_channels() {
 
 // WHY: with no setters called, `image(&pixels)` alone must show the picture in a
 // two-dimensional axes as MATLAB's `image` does: in the xy plane at the low end of z,
-// with pixel centres at 0 to n − 1 (an absent range) and every out-of-range category
-// lenient, which are the IR defaults the file format documents. The axes must stay
+// with pixel centres at 0 to n − 1 (an absent range), which are the IR defaults the file
+// format documents, and a scalar image must be coloured at once through the axes'
+// default scale, as `imagesc` is coloured through the axes' colormap. The axes must stay
 // two-dimensional, because a floor image is a planar plot, and the handle's identifier
 // must name an artist of the kind the function is named after.
 #[test]
-fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges_and_lenient_policies() {
+fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
     let plain = ax.image(sample_pixels()).id();
-    let indexed = ax.indexed_image(sample_bytes()).id();
-    let mapped = ax.mapped_image(sample_floats()).id();
+    let scalar = ax.scalar_image(sample_floats()).id();
 
-    for id in [plain, indexed, mapped] {
+    for id in [plain, scalar] {
         let p = placement(&fig, id);
         assert_eq!(p.plane, ImagePlane::Xy { z: None }, "{id}");
         assert_eq!(p.columns, None, "{id}");
@@ -95,71 +91,39 @@ fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges_and_lenient_polic
         assert!(artist(&fig, id).visible(), "{id}");
         assert!(!is_3d(parent(&fig, id)), "{id}");
     }
-    let transparent = [OutOfRange::Transparent; 3];
-    let i = indexed_image(&fig, indexed);
-    assert_eq!([i.below, i.above, i.non_finite], transparent);
-    let m = mapped_image(&fig, mapped);
-    assert_eq!([m.below, m.above, m.non_finite], transparent);
+    let default = fig.axes(0, 0).color_scale().id();
+    assert_eq!(scalar_image(&fig, scalar).color_scale, Some(default));
     assert!(fig.validate().is_valid());
 }
 
-// WHY: an indexed image looks each index up directly, so a byte index must be stored
-// as the byte it is (exact, and a quarter of the size of a float) and a floating-point
-// index as the float, which the compiler truncates when it draws; a silent conversion
+// WHY: a scalar image maps a byte as the whole number it denotes and a float as itself,
+// so a byte must be stored as the byte it is (exact, and a quarter of the size of a
+// float) and a float as the float, NaN included, because the scale's policies decide at
+// drawing time what a non-finite pixel becomes, not the builder; a silent conversion
 // either way would clamp or widen the data. Both containers must give a two-dimensional
 // array of shape [rows, cols] in row-major order, as a Matrix is laid out, and be
 // accepted by reference and by value, so that a computed container need not be cloned
 // to be plotted.
 #[test]
-fn indexed_image_stores_bytes_from_a_byte_matrix_and_floats_from_a_matrix() {
-    let bytes = sample_bytes();
-    let floats = sample_floats();
-    let mut fig = Figure::new();
-    let mut ax = fig.axes(0, 0);
-    let bytes_by_ref = ax.indexed_image(&bytes).id();
-    let floats_by_ref = ax.indexed_image(&floats).id();
-    let bytes_by_value = ax.indexed_image(sample_bytes()).id();
-    let floats_by_value = ax.indexed_image(sample_floats()).id();
-
-    let expected_bytes = NdArray::from_shape_u8(vec![2, 3], bytes.values().to_vec()).unwrap();
-    let expected_floats = NdArray::from_shape(vec![2, 3], floats.values().to_vec()).unwrap();
-    for id in [bytes_by_ref, bytes_by_value] {
-        let stored = data(&fig, indexed_image(&fig, id).indices);
-        assert_eq!(stored.element(), NdArrayElement::U8, "{id}");
-        assert_eq!(stored, &expected_bytes, "{id}");
-    }
-    for id in [floats_by_ref, floats_by_value] {
-        let stored = data(&fig, indexed_image(&fig, id).indices);
-        assert_eq!(stored.element(), NdArrayElement::F64, "{id}");
-        assert_eq!(stored, &expected_floats, "{id}");
-    }
-    assert!(fig.validate().is_valid());
-}
-
-// WHY: a mapped image maps a byte as the number it denotes and a float as itself, so
-// the element type must follow the container as for an indexed image; and the values
-// must reach the table untouched, including NaN, because the out-of-range policies
-// decide at drawing time what a non-finite pixel becomes, not the builder.
-#[test]
-fn mapped_image_stores_bytes_from_a_byte_matrix_and_floats_from_a_matrix() {
+fn scalar_image_stores_bytes_from_a_byte_matrix_and_floats_from_a_matrix() {
     let bytes = sample_bytes();
     let floats = Matrix::from_rows(&[[0.0, 0.5, f64::NAN], [1.0, -0.5, 1.5]]);
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let bytes_by_ref = ax.mapped_image(&bytes).id();
-    let floats_by_ref = ax.mapped_image(&floats).id();
-    let bytes_by_value = ax.mapped_image(sample_bytes()).id();
-    let floats_by_value = ax.mapped_image(floats.clone()).id();
+    let bytes_by_ref = ax.scalar_image(&bytes).id();
+    let floats_by_ref = ax.scalar_image(&floats).id();
+    let bytes_by_value = ax.scalar_image(sample_bytes()).id();
+    let floats_by_value = ax.scalar_image(floats.clone()).id();
 
     let expected_bytes = NdArray::from_shape_u8(vec![2, 3], bytes.values().to_vec()).unwrap();
     let expected_floats = NdArray::from_shape(vec![2, 3], floats.values().to_vec()).unwrap();
     for id in [bytes_by_ref, bytes_by_value] {
-        let stored = data(&fig, mapped_image(&fig, id).values);
+        let stored = data(&fig, scalar_image(&fig, id).values);
         assert_eq!(stored.element(), NdArrayElement::U8, "{id}");
         assert_eq!(stored, &expected_bytes, "{id}");
     }
     for id in [floats_by_ref, floats_by_value] {
-        let stored = data(&fig, mapped_image(&fig, id).values);
+        let stored = data(&fig, scalar_image(&fig, id).values);
         assert_eq!(stored.element(), NdArrayElement::F64, "{id}");
         assert_eq!(stored, &expected_floats, "{id}");
     }
@@ -482,28 +446,31 @@ mod prelude_only {
     // WHY: `use ironlab::prelude::*` is the documented single import for building
     // figures; the image containers, the plane and policy enums (needed for every
     // non-default placement or policy) and the handle types (which appear in the
-    // signatures of helpers that style images) must all come with it, or an image
-    // script needs a second import from the ir crate that no other plot type needs.
-    // Naming each type through the prelude alone is what this test checks.
+    // signatures of helpers that style images and scales) must all come with it, or an
+    // image script needs a second import from the ir crate that no other plot type
+    // needs. Naming each type through the prelude alone is what this test checks.
     #[test]
     fn the_prelude_exports_the_image_types_and_handles() {
         fn place(image: &mut ImageMut<'_>) {
             image.pixel_columns(0.0, 1.0);
         }
-        fn classify(image: &mut IndexedImageMut<'_>) {
-            image.above(OutOfRange::Clamp);
+        fn classify(scale: &mut ColorScaleMut<'_>) {
+            scale.outside(OutOfRange::Clamp);
         }
-        fn map(image: &mut MappedImageMut<'_>) {
+        fn map(image: &mut ScalarImageMut<'_>) {
             image.plane(ImagePlane::Xy { z: None });
         }
         let bytes = ByteMatrix::zeros(1, 1);
         let indices: ImageValues = ImageValues::from(&bytes);
         let pixels: Pixels = Pixels::rgb_from_fn(1, 1, |_, _| Color::WHITE);
         let mut fig = Figure::new();
+        let mut palette = fig.indexed_scale(Colormap::Gray.sample(256));
+        classify(&mut palette);
+        let palette = palette.id();
         let mut ax = fig.axes(0, 0);
         place(&mut ax.image(&pixels));
-        classify(&mut ax.indexed_image(indices));
-        map(&mut ax.mapped_image(Matrix::zeros(1, 1)));
+        ax.scalar_image(indices).color_scale(palette);
+        map(&mut ax.scalar_image(Matrix::zeros(1, 1)));
         assert!(fig.validate().is_valid());
     }
 }
@@ -511,7 +478,8 @@ mod prelude_only {
 // WHY: pixel_columns and pixel_rows place the pixel centres along the two axes of the
 // plane (MATLAB's XData and YData) and are the only way to put an image over real
 // coordinates, so every handle must have both; each must reach its own field and leave
-// the other absent, and a range whose last centre is less than the first must be
+// the other absent, whether the image holds bytes or floats, and a range whose last
+// centre is less than the first must be
 // stored as given, because that is how an image is mirrored. label feeds the
 // legend as for every other artist.
 #[test]
@@ -525,17 +493,17 @@ fn pixel_columns_and_pixel_rows_set_the_pixel_centres_on_every_kind() {
         .label("photo")
         .id();
     let indexed = ax
-        .indexed_image(sample_bytes())
+        .scalar_image(sample_bytes())
         .pixel_columns(-1.5, 1.5)
         .pixel_rows(2.0, 0.0)
         .id();
     let mapped = ax
-        .mapped_image(sample_floats())
+        .scalar_image(sample_floats())
         .pixel_columns(-1.5, 1.5)
         .pixel_rows(2.0, 0.0)
         .id();
     let columns_only = ax.image(sample_pixels()).pixel_columns(0.0, 10.0).id();
-    let rows_only = ax.mapped_image(sample_floats()).pixel_rows(-2.0, -1.0).id();
+    let rows_only = ax.scalar_image(sample_floats()).pixel_rows(-2.0, -1.0).id();
     let range = |first, last| Some(PixelRange { first, last });
 
     for id in [plain, indexed, mapped] {
@@ -563,11 +531,11 @@ fn wall_planes_promote_the_axes_to_3d_with_the_default_view_on_every_kind() {
     let yz = ImagePlane::Yz { x: None };
     let mut fig = Figure::new().tiles(2, 3);
     let image_xz = fig.axes(0, 0).image(sample_pixels()).plane(xz).id();
-    let indexed_xz = fig.axes(0, 1).indexed_image(sample_bytes()).plane(xz).id();
-    let mapped_xz = fig.axes(0, 2).mapped_image(sample_floats()).plane(xz).id();
+    let indexed_xz = fig.axes(0, 1).scalar_image(sample_bytes()).plane(xz).id();
+    let mapped_xz = fig.axes(0, 2).scalar_image(sample_floats()).plane(xz).id();
     let image_yz = fig.axes(1, 0).image(sample_pixels()).plane(yz).id();
-    let indexed_yz = fig.axes(1, 1).indexed_image(sample_bytes()).plane(yz).id();
-    let mapped_yz = fig.axes(1, 2).mapped_image(sample_floats()).plane(yz).id();
+    let indexed_yz = fig.axes(1, 1).scalar_image(sample_bytes()).plane(yz).id();
+    let mapped_yz = fig.axes(1, 2).scalar_image(sample_floats()).plane(yz).id();
 
     let placed = [
         (image_xz, xz),
@@ -603,8 +571,8 @@ fn the_floor_plane_with_an_offset_leaves_a_2d_axes_two_dimensional() {
     let mut fig = Figure::new().tiles(1, 2);
     let mut ax = fig.axes(0, 0);
     let plain = ax.image(sample_pixels()).plane(floor).id();
-    let indexed = ax.indexed_image(sample_bytes()).plane(floor).id();
-    let mapped = ax.mapped_image(sample_floats()).plane(floor).id();
+    let indexed = ax.scalar_image(sample_bytes()).plane(floor).id();
+    let mapped = ax.scalar_image(sample_floats()).plane(floor).id();
     let on_the_floor_of_3d = fig
         .axes3(0, 1)
         .image(sample_pixels())
@@ -641,70 +609,69 @@ fn a_wall_plane_keeps_the_view_of_an_axes_that_is_already_3d() {
     );
     let id = fig
         .axes(0, 0)
-        .mapped_image(sample_floats())
+        .scalar_image(sample_floats())
         .plane(ImagePlane::Yz { x: Some(-1.0) })
         .id();
     assert_eq!(parent(&fig, id).projection, before);
 }
 
-// WHY: the three out-of-range categories are independent properties (the design lets
-// NaN be tolerated while values outside the range are refused, or the reverse), so
-// each setter must write only its own field and leave the others at their default; a
-// Color must become the fixed-colour policy, which is the common lenient choice, and
-// the enum variants must pass through unchanged. Both mapped kinds have the setters.
+// WHY: the out-of-range categories of a scale are independent properties (the design
+// lets NaN be tolerated while values outside the range are refused, or the reverse), so
+// each setter must write only its own category and leave the others at their default;
+// a Color must become the fixed-colour policy, which is the common lenient choice, and
+// the enum variants must pass through unchanged. A setter that does not apply to the
+// kind of the scale (below on an indexed scale, outside on a continuous one) must leave
+// the scale as it was rather than invent a category.
 #[test]
-fn out_of_range_policies_map_to_their_ir_fields_on_both_mapped_kinds() {
+fn out_of_range_policies_map_to_their_ir_fields_on_a_scale() {
     let red = Color::rgb(1.0, 0.0, 0.0);
-    let mut fig = Figure::new();
-    let mut ax = fig.axes(0, 0);
-    let indexed = ax
-        .indexed_image(sample_bytes())
-        .below(red)
-        .above(OutOfRange::Clamp)
-        .non_finite(OutOfRange::Strict)
-        .label("classes")
-        .id();
-    let mapped = ax
-        .mapped_image(sample_floats())
-        .below(OutOfRange::Strict)
-        .above(red)
-        .non_finite(OutOfRange::Clamp)
-        .label("$\\phi$")
-        .id();
-    let only_below = ax.mapped_image(sample_floats()).below(red).id();
-    let only_above = ax.indexed_image(sample_bytes()).above(red).id();
-
     let fixed = OutOfRange::Rgba { color: red };
-    let i = indexed_image(&fig, indexed);
+    let mut fig = Figure::new();
+    let continuous = fig
+        .color_scale()
+        .below(red)
+        .above(OutOfRange::Transparent)
+        .non_finite(OutOfRange::Strict)
+        .outside(OutOfRange::Clamp)
+        .id();
+    let only_below = fig.color_scale().below(red).id();
+    let indexed = fig
+        .indexed_scale([Color::BLACK, Color::WHITE])
+        .outside(OutOfRange::Clamp)
+        .non_finite(red)
+        .below(OutOfRange::Strict)
+        .id();
+
+    let policies = |id: NodeId| {
+        let scale = fig.ir().color_scale(id).expect("the scale exists");
+        let kind = match &scale.kind {
+            ColorScaleKind::Continuous(k) => [k.below.policy, k.above.policy],
+            ColorScaleKind::Indexed(k) => [k.outside.policy, k.outside.policy],
+            other => panic!("unexpected kind {other:?}"),
+        };
+        (kind, scale.non_finite.policy)
+    };
     assert_eq!(
-        [i.below, i.above, i.non_finite],
-        [fixed, OutOfRange::Clamp, OutOfRange::Strict]
+        policies(continuous),
+        ([fixed, OutOfRange::Transparent], OutOfRange::Strict)
     );
-    assert_eq!(i.label, Some(Text::new("classes")));
-    let m = mapped_image(&fig, mapped);
     assert_eq!(
-        [m.below, m.above, m.non_finite],
-        [OutOfRange::Strict, fixed, OutOfRange::Clamp]
+        policies(only_below),
+        ([fixed, OutOfRange::Clamp], OutOfRange::Transparent)
     );
-    assert_eq!(m.label, Some(Text::new("$\\phi$")));
-    let m = mapped_image(&fig, only_below);
     assert_eq!(
-        [m.below, m.above, m.non_finite],
-        [fixed, OutOfRange::Transparent, OutOfRange::Transparent]
-    );
-    let i = indexed_image(&fig, only_above);
-    assert_eq!(
-        [i.below, i.above, i.non_finite],
-        [OutOfRange::Transparent, fixed, OutOfRange::Transparent]
+        policies(indexed),
+        ([OutOfRange::Clamp, OutOfRange::Clamp], fixed)
     );
 }
 
 // WHY: a strict category is the one policy that can make a figure invalid, so the three
 // facts that belong to the facade must hold: the builder stores NaN data under a strict
-// policy without panicking, validate attributes the PixelOutOfRange error to the
-// identifier the handle returned (so the user learns which image is wrong), and the
-// default policy is lenient, so the same data with no policy set validates. Which
-// pixels each category covers is the validator's contract, tested in the ir crate.
+// policy without panicking, validate attributes the ValueOutOfRange error to the
+// identifier the image handle returned (so the user learns which image is wrong), and
+// the default policy for non-finite values is lenient, so the same data through the
+// default scale of another axes validates. Which values each category covers is the
+// validator's contract, tested in the ir crate.
 #[test]
 fn a_strict_policy_is_reported_at_the_handles_id_and_the_default_policy_is_lenient() {
     let with_nan = Matrix::from_fn(
@@ -714,17 +681,18 @@ fn a_strict_policy_is_reported_at_the_handles_id_and_the_default_policy_is_lenie
             if (row, col) == (0, 1) { f64::NAN } else { 0.5 }
         },
     );
-    let mut fig = Figure::new();
-    let mut ax = fig.axes(0, 0);
-    let strict = ax
-        .mapped_image(&with_nan)
-        .non_finite(OutOfRange::Strict)
+    let mut fig = Figure::new().tiles(1, 2);
+    let refusing = fig.color_scale().non_finite(OutOfRange::Strict).id();
+    let strict = fig
+        .axes(0, 0)
+        .scalar_image(&with_nan)
+        .color_scale(refusing)
         .id();
-    let lenient = ax.mapped_image(&with_nan).id();
+    let lenient = fig.axes(0, 1).scalar_image(&with_nan).id();
 
     let report = fig.validate();
     assert!(
-        has_error_at(&report, IssueKind::PixelOutOfRange, strict),
+        has_error_at(&report, IssueKind::ValueOutOfRange, strict),
         "{report:?}"
     );
     assert!(
@@ -747,7 +715,7 @@ fn non_finite_pixel_centres_and_offsets_are_reported_by_validate_not_a_panic() {
     let mut ax = fig.axes(0, 0);
     let nan_centre = ax.image(sample_pixels()).pixel_columns(f64::NAN, 1.0).id();
     let infinite_offset = ax
-        .mapped_image(sample_floats())
+        .scalar_image(sample_floats())
         .plane(ImagePlane::Xy {
             z: Some(f64::INFINITY),
         })
@@ -763,9 +731,9 @@ fn non_finite_pixel_centres_and_offsets_are_reported_by_validate_not_a_panic() {
 }
 
 // WHY: the shared image fixture uses the whole image API (a mirrored photograph with a
-// legend entry, a classified map with explicit centres and strict and clamped policies,
-// and a field holding a NaN on a wall of a 3D axes with a fixed colour for it and
-// manual colour limits), as the gallery and users do; it must validate with neither
+// legend entry, a classified map with explicit centres through an indexed scale with a
+// clamp, and a field holding a NaN on a wall of a 3D axes through a scale with a fixed
+// colour for it and manual limits), as the gallery and users do; it must validate with neither
 // errors nor warnings, or the facade's setters would produce an IR that export
 // refuses, and the persistence tests would be round-tripping a figure nobody could
 // save usefully.

@@ -134,12 +134,12 @@ fn hsl_to_rgb_places_the_primaries_wraps_the_hue_and_spans_black_to_white() {
     }
 }
 
-/// WHY: the indexed image entry stores the classes of the field as bytes that index the colormap directly, so the
-/// quantiser must spread the classes over the whole table (class k of n at k · 255 / (n − 1)), keep them monotone in
-/// the value, and put the extremes of the field in the first and last classes; a quantiser that bunched the classes
-/// at one end would draw an almost uniform image.
+/// WHY: the indexed image entry stores the classes of the field as bytes that index the entries of its palette
+/// directly, so the quantiser must spread the classes over the whole table (class k of n at k · 255 / (n − 1)), keep
+/// them monotone in the value, and put the extremes of the field in the first and last classes; a quantiser that
+/// bunched the classes at one end would draw an almost uniform image.
 #[test]
-fn quantise_spreads_the_classes_over_the_colormap_in_order() {
+fn quantise_spreads_the_classes_over_the_palette_in_order() {
     let z = Matrix::from_fn(4, 4, |row, col| (row * 4 + col) as f64 / 15.0);
     let classes = quantise(&z, 8);
     assert_eq!((classes.rows(), classes.cols()), (4, 4));
@@ -172,14 +172,14 @@ fn quantise_spreads_the_classes_over_the_colormap_in_order() {
         "sixteen evenly spaced values fill eight classes"
     );
 
-    // Two classes are the two ends of the colormap; a single class is the first entry.
+    // Two classes are the two ends of the palette; a single class is the first entry.
     assert_eq!(
         quantise(&z, 2).values(),
         &[0; 8].into_iter().chain([255; 8]).collect::<Vec<u8>>()[..]
     );
     assert_eq!(quantise(&z, 1), ByteMatrix::zeros(4, 4));
 
-    // The gallery field is what is actually quantised, so its classes must reach both ends of the colormap.
+    // The gallery field is what is actually quantised, so its classes must reach both ends of the palette.
     let (_, _, field) = julia_grid(41);
     let field_classes = quantise(&field, 8);
     assert_eq!(field_classes.values().iter().min(), Some(&0));

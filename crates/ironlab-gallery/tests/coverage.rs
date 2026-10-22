@@ -6,8 +6,9 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane,
-    Interpreter, Limits, MarkerShape, NodeId, OutOfRange, Projection, Scale,
+    Artist, Axes, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorSpec,
+    ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter, Limits,
+    MarkerShape, NodeId, OutOfRange, Projection, Scale,
 };
 use ironlab_gallery::{all, find};
 
@@ -21,23 +22,37 @@ fn is_3d(axes: &Axes) -> bool {
     matches!(axes.projection, Projection::ThreeD { .. })
 }
 
-/// Returns the placement of an artist of any of the three image kinds.
+/// Returns the placement of an artist of either image kind.
 fn image_placement(artist: &Artist) -> Option<ImagePlacement> {
     match artist {
         Artist::Image(image) => Some(image.placement),
-        Artist::IndexedImage(image) => Some(image.placement),
-        Artist::MappedImage(image) => Some(image.placement),
+        Artist::ScalarImage(image) => Some(image.placement),
         _ => None,
     }
 }
 
-/// Returns the below, above and non-finite policies of a colour-indexed or colour-mapped image.
-fn image_policies(artist: &Artist) -> Option<[OutOfRange; 3]> {
+/// Returns the colour scale that a scalar image names, when it names one of the figure.
+fn image_scale<'f>(figure: &'f Figure, artist: &Artist) -> Option<&'f ColorScale> {
     match artist {
-        Artist::IndexedImage(image) => Some([image.below, image.above, image.non_finite]),
-        Artist::MappedImage(image) => Some([image.below, image.above, image.non_finite]),
+        Artist::ScalarImage(image) => figure.color_scale(image.color_scale?),
         _ => None,
     }
+}
+
+/// Returns whether any out-of-range category of a scale has a policy other than the default of its category.
+fn has_a_non_default_policy(scale: &ColorScale) -> bool {
+    let differs = |policy: OutOfRange, default: OutOfRange| policy != default;
+    let ranged = match &scale.kind {
+        ColorScaleKind::Continuous(k) => {
+            differs(k.below.policy, OutOfRange::Clamp) || differs(k.above.policy, OutOfRange::Clamp)
+        }
+        ColorScaleKind::Discrete(k) => {
+            differs(k.below.policy, OutOfRange::Clamp) || differs(k.above.policy, OutOfRange::Clamp)
+        }
+        ColorScaleKind::Indexed(k) => differs(k.outside.policy, OutOfRange::Strict),
+        ColorScaleKind::Categorical(k) => differs(k.outside.policy, OutOfRange::Strict),
+    };
+    ranged || differs(scale.non_finite.policy, OutOfRange::Transparent)
 }
 
 fn figures() -> Vec<(&'static str, Figure)> {
@@ -50,7 +65,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 25] = [
+    let requirements: [(&str, Predicate); 27] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Line(l) if l.z.is_none() && l.marker.shape != MarkerShape::None)
@@ -142,18 +157,50 @@ fn every_required_chart_type_is_present() {
             })
         }),
         // WHY: the image entries are the fixtures of the raster paths of the exporter (an image XObject with a soft
-        // mask) and of the viewer (textured quads), and the three kinds are coloured by different rules, so each kind
-        // must be present. Explicit and mirrored pixel ranges, a wall plane and a policy other than the default are
-        // the placement and colouring branches that the defaults never reach, so each needs an entry that uses it.
+        // mask) and of the viewer (textured quads). A true-colour image carries its colours, and a scalar image maps
+        // its numbers through a scale, where a palette of entries and an interpolated colormap are different rules,
+        // so each must be present. Explicit and mirrored pixel ranges, a wall plane and a policy other than the
+        // default are the placement and colouring branches that the defaults never reach, so each needs an entry
+        // that uses it.
         ("image (true colour)", |_, _, artist| {
             matches!(artist, Artist::Image(_))
         }),
-        ("indexed_image", |_, _, artist| {
-            matches!(artist, Artist::IndexedImage(_))
-        }),
-        ("mapped_image", |_, _, artist| {
-            matches!(artist, Artist::MappedImage(_))
-        }),
+        (
+            "scalar image through an indexed scale",
+            |figure, _, artist| {
+                image_scale(figure, artist)
+                    .is_some_and(|scale| matches!(scale.kind, ColorScaleKind::Indexed(_)))
+            },
+        ),
+        (
+            "scalar image through a continuous scale",
+            |figure, _, artist| {
+                image_scale(figure, artist)
+                    .is_some_and(|scale| matches!(scale.kind, ColorScaleKind::Continuous(_)))
+            },
+        ),
+        // WHY: a discrete scale bands every value, and a filled contour without levels of its own takes the scale's
+        // band edges, so that the contours and the bands agree; and a logarithmic norm places values by their
+        // logarithm. Each is a branch of the one mapping rule that a linear continuous scale never reaches.
+        (
+            "filled contour taking its levels from a discrete scale",
+            |figure, _, artist| {
+                matches!(artist, Artist::Contour(c) if c.fill && c.levels.is_none()
+                && c.color_scale.and_then(|id| figure.color_scale(id)).is_some_and(|scale| matches!(
+                    &scale.kind,
+                    ColorScaleKind::Discrete(d) if matches!(d.levels, ColorScaleLevels::Explicit { .. })
+                )))
+            },
+        ),
+        (
+            "artist through a logarithmic colour scale",
+            |figure, _, artist| {
+                artist
+                    .color_mapping()
+                    .and_then(|mapping| figure.color_scale(mapping.color_scale?))
+                    .is_some_and(|scale| scale.kind.norm() == ColorScaleNorm::Log)
+            },
+        ),
         ("image with explicit pixel ranges", |_, _, artist| {
             image_placement(artist).is_some_and(|p| p.columns.is_some() || p.rows.is_some())
         }),
@@ -175,11 +222,8 @@ fn every_required_chart_type_is_present() {
             },
         ),
         (
-            "image with an out-of-range policy other than transparent",
-            |_, _, artist| {
-                image_policies(artist)
-                    .is_some_and(|policies| policies.iter().any(|p| *p != OutOfRange::Transparent))
-            },
+            "image through a scale with an out-of-range policy other than the default",
+            |figure, _, artist| image_scale(figure, artist).is_some_and(has_a_non_default_policy),
         ),
         // WHY: an image whose offset lies strictly inside the limits of its third axis is placed inside the box and
         // sorted by its depth, whereas one on a face of the box is painted before or after everything else, so the

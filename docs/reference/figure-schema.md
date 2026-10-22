@@ -74,12 +74,12 @@ Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set,
 The following conventions apply throughout the model, in both encodings.
 
 - **Units.** Physical sizes are in millimetres (`_mm`), font sizes and line widths are in points (`_pt`, 1/72 inch), and angles are in degrees (`_deg`).
-- **Identifiers.** Every node of a figure (the figure itself, its data arrays, its axes, their artists and its panels) is identified by a `NodeId`, an unsigned 64-bit integer, from one identifier space shared by all of them. Every reference from one node to another, such as an artist's reference to its data or a legend's reference to its panel, is a NodeId, and a reference to a node of the wrong kind is reported by [validation](#validation). The reasons for one identifier space are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md).
+- **Identifiers.** Every node of a figure (the figure itself, its data arrays, its colour scales, its axes, their artists and its panels) is identified by a `NodeId`, an unsigned 64-bit integer, from one identifier space shared by all of them. Every reference from one node to another, such as an artist's reference to its data or to its colour scale, or a legend's reference to its panel, is a NodeId, and a reference to a node of the wrong kind is reported by [validation](#validation). The reasons for one identifier space are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md).
 - **Titles, labels, names and tags.** A property that holds text is named by whether and where its text is drawn. A **title** is drawn as a heading above what it names, such as the title of a figure or of an axes. A **label** is drawn beside what it identifies, such as an axis label, a tick label or the label of an artist in a legend. A **name** identifies a node to tools and is never drawn, such as the name of a [data array](#data-arrays) or of a [parameter](#parameters). A **tag** describes a figure to the figure browser and is never drawn. The rule is recorded in [ADR 0023](../adrs/0023-titles-labels-names-and-tags.md).
 
 ## Figure
 
-The figure is the root of the model: a page of a fixed physical size holding the data arrays that its artists plot, its axes, the links between them, and the panels that hold its keys.
+The figure is the root of the model: a page of a fixed physical size holding the data arrays that its artists plot, the colour scales through which they map numbers to colours, its axes, the links between them, and the panels that hold its keys.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
@@ -92,6 +92,7 @@ The figure is the root of the model: a page of a fixed physical size holding the
 | `background` | Color | The colour of the page. The default is white. |
 | `layout` | TileLayout | The grid of tiles in which axes and panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
 | `data` | array of DataArray | The [data arrays](#data-arrays) of the figure, which artists refer to by NodeId. |
+| `color_scales` | array of ColorScale | The [colour scales](#colour-scales) of the figure, which colour-mapped artists refer to by NodeId. Omitted from JSON when the figure has none. |
 | `axes` | array of Axes | The axes of the figure, in drawing order. |
 | `panels` | array of Panel | The [panels](#panels) of the figure, which occupy tiles of the layout as axes do, hold its keys, and are drawn after every axes. Omitted from JSON when the figure has none. |
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
@@ -138,10 +139,10 @@ An axes is a plotting region placed in one or more tiles of the figure's layout.
 | `aspect` | Aspect | The ratios of the drawn length of one data unit of y, and of z, to that of one data unit of x; see [aspect](#aspect). |
 | `aspect_adjust` | string | How a fixed aspect is kept: `box` (the default) or `limits`; see [aspect](#aspect). |
 | `box` | boolean | Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels. The default is `true`. |
-| `colormap` | string | The colormap used by colormapped colours: `viridis` (the default), `cividis`, `magma`, `inferno`, `plasma`, `coolwarm` or `gray`. |
-| `clim` | Limits | The data values mapped to the first and last colours of the colormap. Automatic colour limits are the exact range of the axes' colour data, the values of its colour-mapped images included. |
 | `legend` | Legend or `null` | Where the entries of the axes are listed: in a legend inside the plot area, or in a legend panel of the figure; `null` when they are not listed. See [legend](#legend). |
 | `artists` | array of Artist | The plots drawn in the axes, in drawing order: a later artist covers an earlier one. |
+
+An axes holds no colormap and no colour limits. Every artist that maps numbers to colours names a [colour scale](#colour-scales) of the figure instead, so that the scale an artist uses never depends on where the artist lies.
 
 ### Aspect
 
@@ -207,7 +208,7 @@ A categorical axis is expressed with these properties rather than with a type of
 
 ### Limits
 
-- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree. Along x and y, an end of the range reached only by the grid of a contour or surface, or by the pixel edges of an image, is the exact end of that grid or those edges rather than a tick value. Automatic colour limits are the exact range of the colour data.
+- `{"type": "auto"}` computes the range from the data, rounded outwards to tick values. For axis limits, the data of every axes linked along the same dimension is included, so that linked axes agree. Along x and y, an end of the range reached only by the grid of a contour or surface, or by the pixel edges of an image, is the exact end of that grid or those edges rather than a tick value. The automatic limits of a colour scale are not rounded; they are described in [automatic limits](#automatic-limits).
 - `{"type": "manual", "min": number, "max": number}` fixes the range. The bounds must be finite, `min` must be less than `max`, and both must be positive on a logarithmic axis.
 
 ### Legend
@@ -303,6 +304,117 @@ The legend of a panel, a **PanelLegend**, holds only what a legend needs, becaus
 | `layout` | object | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is automatic columns, filled column by column. |
 | `entries` | object | Which entries the panel lists, and in what order, as [legend entries](#legend-entries). The default is automatic entries. Omitted from JSON when the entries are automatic. |
 
+## Colour scales
+
+A **colour scale** is a node of the figure that turns numbers into colours. Every artist that maps numbers to colours, namely a [`scalar_image`](#scalar_image), a [`contour`](#contour), a [`surface`](#surface) and a [`scatter`](#scatter) coloured by data, names its scale explicitly by the NodeId in its `color_scale` property. Nothing is inherited: the axes holds no scale, and an artist that maps numbers to colours without naming a scale is the validation error `MissingColorScale`. Several artists, in one axes or in several, may name the same scale, and then share its limits and its colours. Any artist that takes a scale accepts a scale of any kind. A scale that no artist names is valid and raises no warning. The reasons for this model are recorded in [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md), and the [colour guide](../guides/colour.md) shows how a program creates and shares scales.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `id` | NodeId | The identifier of the scale. |
+| `title` | Text or `null` | The title drawn with the scale by a colourbar that shows it. |
+| `kind` | ColorScaleKind | How values become colours, and how the scale is drawn; see [colour scale kinds](#colour-scale-kinds). |
+| `non_finite` | ColorScaleOutOfRange | What is drawn for a value that is NaN or infinite, on every kind of scale; see [out-of-range policies](#out-of-range-policies). The default policy is `transparent`. |
+
+### Colour scale kinds
+
+The kind of a scale is a tagged variant that holds its value in a `value` property, such as `{"type": "continuous", "value": {"colormap": …, "limits": …}}`. The kind fixes both how values become colours and how the scale is drawn, so that a colourbar cannot misrepresent the mapping it shows.
+
+- **`continuous`** interpolates a [colormap](#colormaps) between two limits, and is drawn as a smooth bar.
+- **`discrete`** gives every value the single colour of the band in which it falls, and is drawn as a bar of bands.
+- **`indexed`** is a palette, of which a whole number `i` takes entry `i`, such as the 256-entry palette of an indexed image. It is drawn as a bar of adjoining blocks, one per entry.
+- **`categorical`** is a list of labelled categories, of which a whole number `i` takes category `i`. It is drawn as separate outlined squares, each with its label.
+
+A **continuous** scale has the following properties.
+
+| Property | Meaning |
+| --- | --- |
+| `colormap` | The [colormap](#colormaps) that the scale interpolates. The default is viridis. |
+| `limits` | The values mapped to the first and last colours of the colormap, as [Limits](#limits). Automatic limits, the default, are described in [automatic limits](#automatic-limits). Manual limits must be finite and strictly increasing, and positive under a logarithmic norm. |
+| `norm` | `linear` (the default) or `log`, the [norm](#norms) in which values are placed between the limits. |
+| `below`, `above` | The ColorScaleOutOfRange of a value below the lower limit and above the upper limit. The default policy of each is `clamp`. |
+| `ticks`, `tick_labels` | The [ticks](#ticks) and [tick labels](#tick-labels) of a colourbar that shows the scale. The defaults are automatic. |
+
+A **discrete** scale has the properties of a continuous scale, except that `levels` takes the place of `limits`:
+
+| Property | Meaning |
+| --- | --- |
+| `levels` | The [band edges](#band-edges) of the scale. The default is about ten automatic bands between automatic limits. |
+
+With k bands, band i takes the colour of the colormap at the position i / (k − 1), so that both ends of the colormap are used; a single band takes the colour at the start. Automatic ticks of a discrete scale are one per band edge.
+
+An **indexed** scale has the following properties.
+
+| Property | Meaning |
+| --- | --- |
+| `colors` | The entries of the palette, as an array of [Color](#colours): at least one. A value `i` takes `colors[i]`. |
+| `outside` | The ColorScaleOutOfRange of a value that names no entry. The default policy is `strict`. |
+| `ticks`, `tick_labels` | The ticks of a colourbar that shows the scale, placed at the centres of the entries, and their labels. Automatic ticks fall on whole numbers only. A few entries of a long palette are labelled with explicit ticks and tick labels, such as the values 0, 128 and 255 labelled `water`, `land` and `ice`. |
+
+A **categorical** scale has the following properties.
+
+| Property | Meaning |
+| --- | --- |
+| `categories` | The categories, at least one, each an object of a `color` and a `label` (a [Text](#text)). The label is required, so that every key that shows the scale can tell every category apart. A value `i` takes `categories[i]`. |
+| `outside` | The ColorScaleOutOfRange of a value that names no category. The default policy is `strict`. |
+
+In Protocol Buffers a scale is a `ColorScale` message in field 16 of the `Figure`, whose `kind` is a `ColorScaleKind` message with a oneof of `ColorScaleKindContinuous`, `ColorScaleKindDiscrete`, `ColorScaleKindIndexed` and `ColorScaleKindCategorical`, each holding the message of its kind.
+
+### Colormaps
+
+A **Colormap** is the palette that a continuous or discrete scale interpolates, in one of two forms:
+
+- `{"type": "named", "name": string, "reverse": boolean}` is a bundled colormap: `viridis` (the default), `cividis`, `magma`, `inferno`, `plasma`, `coolwarm` or `gray`. Each has 256 entries that share the positions from 0 to 1 equally, as matplotlib's colormaps do. With `reverse` set to `true`, the colormap runs from its last colour to its first.
+- `{"type": "listed", "colors": [Color, …]}` is a colormap of the author's own: from 2 to 1024 colours, interpolated linearly in sRGB from the first, at the start of the scale, to the last, at its end. A listed colormap of any other length is the validation error `InvalidColormap`.
+
+### Norms
+
+The **norm** of a continuous or discrete scale is the space in which values are placed between its limits. Under `linear`, the position of a value is proportional to the value. Under `log`, it is proportional to the base-10 logarithm of the value, so that each decade takes an equal share of the colormap, and a value that is not positive lies below the range. An indexed or categorical scale has no norm, because a value names its entry directly.
+
+### Band edges
+
+The **band edges** (`levels`) of a discrete scale take one of two forms:
+
+- `{"type": "auto", "count": integer, "limits": Limits}` chooses about `count` bands, at least one, between nice edges within the limits, whose lower and upper limits are the first and last edges. Under a logarithmic norm the inner edges are chosen as the ticks of a logarithmic axis are. Automatic limits are described in [automatic limits](#automatic-limits).
+- `{"type": "explicit", "values": [number, …]}` gives the edges explicitly: at least two, finite, strictly increasing, and positive under a logarithmic norm.
+
+Edges that break these rules, and an automatic count of zero, are the validation error `InvalidLevels`. A [contour](#contour) that has no levels of its own takes the band edges of a discrete scale as its levels, so that a filled contour and the bar of its scale cannot disagree.
+
+### Out-of-range policies
+
+Each category of value that a scale cannot place within its range is a **ColorScaleOutOfRange**, which holds the policy of the category and the look of its key:
+
+| Property | Meaning |
+| --- | --- |
+| `policy` | The OutOfRange policy: what is drawn for a value of the category. |
+| `show_key` | Whether a colourbar that shows the scale draws a key square for the category, separate from the bar. The default is `false`. |
+| `label` | The label of the key square, or `null` for the default label: `> upper` above the range, `< lower` below it, `NaN / Inf` for non-finite values and `Out of range` outside the entries, with the limits formatted as the ticks are. |
+
+The categories are `below` and `above` the range of a continuous or discrete scale, `outside` the entries of an indexed or categorical scale, and `non_finite` on every kind. One policy per category lets a figure tolerate NaN while refusing values outside the range, or the reverse. An **OutOfRange** policy takes one of four forms:
+
+- `{"type": "strict"}` makes such a value a validation error, `ValueOutOfRange`, so that the figure is refused until the data is corrected. It is the default of `outside`.
+- `{"type": "transparent"}` draws nothing for the value. It is the default of `non_finite`, because a NaN is how an author says that nothing is drawn at a point.
+- `{"type": "clamp"}` draws the value in the nearest end colour of the scale: the first colour of the colormap, or the first band, below the range, and the last above it. It is the default of `below` and `above`. Outside the entries of an indexed or categorical scale, a clamp truncates the value toward zero and then clamps it to the first or last entry. A non-finite value has no nearest end, so a clamp at `non_finite` draws nothing; the property editor lists the choice there and shows it disabled with the reason, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+- `{"type": "rgba", "color": Color}` draws the value in a fixed colour.
+
+Validation checks a strict category against the numbers that an artist holds: the values of a scalar image, the field of a contour, the colour data of a surface (or its field) and the colour data of a scatter. It never checks numbers derived from them, such as the mean of the corners of a surface face. No value lies beyond automatic limits, which are the range of the data, except a value that is not positive under a logarithmic norm, which lies below the range. 8-bit values are whole numbers, so they never fall outside a palette of 256 entries.
+
+### Mapping rules
+
+Every artist maps its numbers to colours by one rule, which the scene compiler and validation share.
+
+- **Continuous.** A value inside the limits takes the colour of the colormap at its position between them, measured in the space of the norm. A value exactly at a limit lies inside. When the limits are equal, every value inside takes the middle colour.
+- **Discrete.** A value takes the colour of the band in which it falls. A value exactly on an edge between two bands belongs to the upper band, and a value exactly at the first or last edge lies inside. Every artist is banded, a smooth surface included, so that the bar that shows the scale is truthful.
+- **Indexed and categorical.** A whole number `i` from 0 to the number of entries less one takes entry `i`; negative zero counts as 0. Any other finite value, a fractional value included, lies outside the entries.
+- **Out of range.** A value below or above the range, outside the entries, or not finite follows the policy of its category, as [out-of-range policies](#out-of-range-policies) describes.
+
+Through an indexed or categorical scale, a surface face takes the value of its first corner rather than the mean of its four corners, because the mean of indices is not an index, and a contour with no levels of its own places its levels halfway between whole numbers, so that each band holds exactly one entry and each isoline takes the entry of the band below it.
+
+### Automatic limits
+
+The automatic limits of a scale, whether the `limits` of a continuous scale or the `limits` of automatic band edges, are the least and greatest finite values that any artist naming the scale maps through it, in every axes, hidden artists included. Under a logarithmic norm only the positive finite values count. An 8-bit value counts as the whole number it denotes. A scale whose automatic limits range over no value at all is drawn between 0 and 1, or between 1 and 10 under a logarithmic norm.
+
+Only the numbers that an artist actually maps count: a contour counts its field when its bands are filled or its isolines are colour-mapped, a surface counts its colour data (or its field) when its faces or edges are colour-mapped, and a scatter counts its colour data when it is coloured by data. A contour whose isolines have a fixed colour and are not filled, for example, names a scale only for its levels and does not widen the scale's limits.
+
 ## Artists
 
 An artist is a drawable node of an axes. Every artist has three common properties:
@@ -336,7 +448,8 @@ Markers at data points, each with its own size and colour (MATLAB's `scatter` an
 | --- | --- |
 | `x`, `y`, `z`, `x_coords`, `y_coords`, `clip` | As for a line. |
 | `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": NodeId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
-| `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": NodeId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
+| `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": NodeId}` gives one value per point, mapped through the colour scale. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
+| `color_scale` | NodeId of the [colour scale](#colour-scales) through which colour data is mapped, or `null`. A scatter coloured by data must name one; a scatter of one colour maps nothing and needs none. |
 | `marker` | The MarkerStyle; its shape defaults to `circle`. |
 
 ### Coordinates and clipping
@@ -360,10 +473,11 @@ Isolines or filled bands of a scalar field sampled on a grid (MATLAB's `contour`
 | --- | --- |
 | `grid` | The [grid](#grids) on which the field is sampled. |
 | `z` | NodeId of the data array of the field, an array of shape `[ny, nx]`. |
-| `levels` | `{"type": "auto", "count": integer}` chooses about `count` levels at round values (the default count is 10); `{"type": "explicit", "values": [number, …]}` gives strictly increasing levels. |
+| `levels` | `null`, the default, takes the levels of the colour scale: the [band edges](#band-edges) of a discrete scale, levels halfway between the entries of an indexed or categorical scale, and ten automatic levels through a continuous scale. `{"type": "auto", "count": integer}` chooses about `count` levels at round values; `{"type": "explicit", "values": [number, …]}` gives strictly increasing levels. In Protocol Buffers an absent `levels` message is `null`. |
 | `fill` | `true` fills the bands between levels (`contourf`); `false` draws only isolines. |
 | `placement` | `{"type": "plane", "z": number or null}` places every contour in one horizontal plane, at the bottom of the z axis when `z` is `null`; `{"type": "at_level"}` places each isoline at the height of its level (`contour3`) and is valid only in three-dimensional axes. |
-| `line` | The LineStyle of the isolines. A colormapped colour takes each isoline's level. |
+| `line` | The LineStyle of the isolines. A colormapped or automatic colour takes the colour of each isoline's level through the colour scale. |
+| `color_scale` | NodeId of the [colour scale](#colour-scales) through which levels and bands are coloured, or `null`. A contour whose bands are filled, or whose isolines are colormapped or automatic, must name one. A contour that names a scale only for its levels, because its isolines have a fixed colour, may name one too. |
 | `line_opacity` | The [opacity](#alpha-and-opacity) of the isolines, a number from 0 to 1, which multiplies the alpha of their colour. The default is 1. |
 | `fill_opacity` | The [opacity](#alpha-and-opacity) of the filled bands, a number from 0 to 1, which multiplies the alpha of their colour. The default is 1, and it has no effect when `fill` is `false`. |
 
@@ -384,7 +498,7 @@ Arrows representing a vector field (MATLAB's `quiver` and `quiver3`).
 
 A surface of quadrilateral faces over a grid (MATLAB's `surf` and `mesh`, and, in a two-dimensional axes, MATLAB's `pcolor`).
 
-A surface is valid in either projection. In a three-dimensional axes `z` is the height of every node. In a two-dimensional axes the surface is seen from directly above, as a pseudocolour plot: the grid alone places the faces, and `z` positions nothing, reaches no axis limit and is not subject to the scale of the z axis, but still colours the faces unless `c` is given. The values belong to the nodes of the grid, so a grid of `ny` by `nx` nodes draws `(ny − 1) × (nx − 1)` faces, and a surface whose field has no rows or no columns, or a single row or a single column of nodes, is valid but draws nothing: [validation](#validation) warns of it and the scene compiler leaves it out with a warning, as [ADR 0012](../adrs/0012-empty-and-singleton-data.md) decides. The guide compares a surface in a two-dimensional axes with a colour-mapped image in [surfaces](../guides/getting-started.md#surfaces-in-two-dimensional-axes).
+A surface is valid in either projection. In a three-dimensional axes `z` is the height of every node. In a two-dimensional axes the surface is seen from directly above, as a pseudocolour plot: the grid alone places the faces, and `z` positions nothing, reaches no axis limit and is not subject to the scale of the z axis, but still colours the faces unless `c` is given. The values belong to the nodes of the grid, so a grid of `ny` by `nx` nodes draws `(ny − 1) × (nx − 1)` faces, and a surface whose field has no rows or no columns, or a single row or a single column of nodes, is valid but draws nothing: [validation](#validation) warns of it and the scene compiler leaves it out with a warning, as [ADR 0012](../adrs/0012-empty-and-singleton-data.md) decides. The guide compares a surface in a two-dimensional axes with a scalar image in [surfaces](../guides/getting-started.md#surfaces-in-two-dimensional-axes).
 
 Every node of a surface is placed through the scale of its axis, in either projection, so a surface may lie along logarithmic axes; a face that touches a node at a coordinate that is not positive along a logarithmic axis is not drawn, and validation warns of it with `NonPositiveOnLogAxis`. A surface is therefore the artist for values sampled along a logarithmic axis, on which an image cannot be placed, as [image placement](#image-placement) explains.
 
@@ -393,8 +507,9 @@ Every node of a surface is placed through the scale of its axis, in either proje
 | `grid` | The [grid](#grids) on which the surface is sampled. |
 | `z` | NodeId of the data array of the field, an array of shape `[ny, nx]`: the height of every node in a three-dimensional axes, and the colour data of every node unless `c` is given. |
 | `c` | NodeId of the data array of colour data with the same shape as `z`, or `null` to colour by `z`. |
-| `face` | The ColorSpec of the faces. A colormapped face takes the colour of the mean of its four corner values; a face with a missing corner is not drawn. |
-| `edge` | The ColorSpec of the face edges. |
+| `face` | The ColorSpec of the faces. A colormapped or automatic face takes the colour of the mean of its four corner values through the colour scale; a face with a missing corner is not drawn. |
+| `edge` | The ColorSpec of the face edges, coloured as the faces are when colormapped or automatic. |
+| `color_scale` | NodeId of the [colour scale](#colour-scales) through which the colour data is mapped, or `null`. A surface whose faces or edges are colormapped or automatic must name one. |
 | `edge_width_pt` | The width of the edges. The default is 0.5 pt. |
 | `face_alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of the faces at every node, an array of floating-point values with the same shape as `z`, or absent for faces whose alpha is 1. A face takes the mean of the alpha at its four corners, each clamped to `[0, 1]` before the mean is taken, as it takes the mean of their colour data; a face with a corner whose alpha is not finite is transparent. |
 | `edge_alpha` | NodeId of the data array of the alpha of the face edges at every node, with the same shape as `z`, or absent for edges whose alpha is 1. The edges of a face take the mean of the edge alpha at its corners, clamped and made transparent by a non-finite value as the face alpha is. It may name the same array as `face_alpha`. |
@@ -405,7 +520,7 @@ Every node of a surface is placed through the scale of its axis, in either proje
 
 ### `image`
 
-A true-colour image: a raster of pixels, each with its own colour (MATLAB's `image` with a true-colour array). An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is planar: it lies in one of the coordinate planes of its axes, as its [placement](#image-placement) says. An image of any kind with no rows or no columns is valid and draws nothing; [validation](#validation) warns of it. The decisions behind the three image kinds are recorded in [ADR 0011](../adrs/0011-image-artists.md).
+A true-colour image: a raster of pixels, each with its own colour (MATLAB's `image` with a true-colour array). An image is drawn as flat, uninterpolated pixels rather than as a mesh, so it is planar: it lies in one of the coordinate planes of its axes, as its [placement](#image-placement) says. An image of either kind with no rows or no columns is valid and draws nothing; [validation](#validation) warns of it. The decisions behind the image artists are recorded in [ADR 0011](../adrs/0011-image-artists.md), and the replacement of its colour-indexed and colour-mapped kinds by one [`scalar_image`](#scalar_image) in [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md#one-image-artist-for-values).
 
 | Property | Meaning |
 | --- | --- |
@@ -413,33 +528,19 @@ A true-colour image: a raster of pixels, each with its own colour (MATLAB's `ima
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
 | `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel: its alpha component in an array of four components, and 1 in an array of three. The default is 1. A true-colour image has no separate alpha array, because an array of four components already gives every pixel its own alpha. |
 
-### `indexed_image`
+### `scalar_image`
 
-A colour-indexed image, whose pixels name entries of the axes colormap directly (MATLAB's `image` with an indexed array).
-
-| Property | Meaning |
-| --- | --- |
-| `indices` | NodeId of the data array of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap, so every index greater than −1 and less than 256 names an entry. The indices neither use nor change the colour limits of the axes. |
-| `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
-| `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose truncated index is less than 0. |
-| `above` | The policy for a pixel whose truncated index is greater than 255. |
-| `non_finite` | The policy for a pixel whose index is NaN or infinite. |
-| `alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``indices``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
-| `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel. The default is 1. |
-
-### `mapped_image`
-
-A colour-mapped image, whose pixels are data values scaled through the colour limits of the axes into its colormap (MATLAB's `imagesc`).
+An image whose pixels each hold one number, mapped to a colour through a [colour scale](#colour-scales) (MATLAB's `imagesc`, and `image` with an indexed array). Whether the numbers are measurements or indices is a property of the scale, not of the image: through a continuous scale the image is MATLAB's `imagesc`, and through an indexed scale each whole number names an entry of a palette, as MATLAB's `image` with an indexed array does. A scalar image is placed and drawn as an [`image`](#image) is.
 
 | Property | Meaning |
 | --- | --- |
-| `values` | NodeId of the data array of the values, an array of shape `[ny, nx]` of floating-point or 8-bit values, mapped through the axes colormap and colour limits as the colour data of a surface is. The values contribute to automatic colour limits in the same way. |
+| `values` | NodeId of the data array of the numbers, an array of shape `[ny, nx]` of floating-point or 8-bit values. An 8-bit value is mapped as the whole number it denotes. |
+| `color_scale` | NodeId of the [colour scale](#colour-scales) through which the numbers are mapped, or `null`. A scalar image always maps its numbers, so it must name one. |
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
-| `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose value is less than the lower colour limit. |
-| `above` | The policy for a pixel whose value is greater than the upper colour limit. |
-| `non_finite` | The policy for a pixel whose value is NaN or infinite. |
-| `alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``values``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
+| `alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as `values`, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
 | `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel. The default is 1. |
+
+In Protocol Buffers a scalar image is the variant `scalar_image`, field 9 of the oneof of an `Artist`.
 
 ### Image placement
 
@@ -467,23 +568,12 @@ An image is a raster of evenly spaced pixels, which has no placement on a logari
 
 Surfaces, images and contours can be drawn partly transparent, which the model expresses in two ways that differ in their shape.
 
-- **Alpha** has the shape of the data: it is an array that gives every node of a surface, or every pixel of an image, its own transparency, so that the transparency varies over the artist. A confidence or a mask that belongs to the data, such as the validation confidence of each vector of a particle image velocimetry measurement, is an alpha. A surface has two alpha arrays, `face_alpha` for its faces and `edge_alpha` for their edges, so that the mesh can fade independently of the faces it borders; a colour-indexed or a colour-mapped image has one, `alpha`; and a true-colour image carries its alpha in the fourth component of its pixels. A contour has no alpha array, because each of its isolines and bands is drawn in a single colour, so a transparency that varied over the field would have no single value to give it.
+- **Alpha** has the shape of the data: it is an array that gives every node of a surface, or every pixel of an image, its own transparency, so that the transparency varies over the artist. A confidence or a mask that belongs to the data, such as the validation confidence of each vector of a particle image velocimetry measurement, is an alpha. A surface has two alpha arrays, `face_alpha` for its faces and `edge_alpha` for their edges, so that the mesh can fade independently of the faces it borders; a scalar image has one, `alpha`; and a true-colour image carries its alpha in the fourth component of its pixels. A contour has no alpha array, because each of its isolines and bands is drawn in a single colour, so a transparency that varied over the field would have no single value to give it.
 - **Opacity** is a single number from 0 (transparent) to 1 (opaque) that applies to the whole artist: `opacity` for an image, `face_opacity` and `edge_opacity` for the faces and the edges of a surface, and `line_opacity` and `fill_opacity` for the isolines and the filled bands of a [contour](#contour). Its default is 1. It is the property to change when an artist as a whole should be fainter, and it can be changed in the [property editor](../guides/viewer.md#changing-a-property) without regenerating any data. It is also the compact way to make an artist uniformly translucent: a true-colour image with three components and an opacity of 0.5 says the same as one with four components whose alpha is 0.5 everywhere, at three quarters of the size.
 
-The transparency that is drawn is the product of the alpha of the colour, the alpha array and the opacity. For a face of a surface it is the alpha of the face colour, times the face alpha of the face (the mean of its corners), times the face opacity, and likewise for its edges; for a pixel of a colour-indexed or colour-mapped image it is the alpha of the colour the pixel resolves to, which is 1 for a colormap entry and the alpha of the colour of a fixed-colour [out-of-range policy](#out-of-range-policies), times its alpha, times the opacity; for a pixel of a true-colour image it is its alpha component times the opacity; and for an isoline or a band of a contour it is the alpha of its colour times the line or the fill opacity. An alpha value outside `[0, 1]` is clamped to that range, an 8-bit alpha is read as a fraction of 255, and a pixel or a face whose alpha is not finite is transparent, as a pixel with a non-finite component is. An artist without alpha arrays and with an opacity of 1 is drawn exactly as it was before alpha and opacity existed.
+The transparency that is drawn is the product of the alpha of the colour, the alpha array and the opacity. For a face of a surface it is the alpha of the face colour, times the face alpha of the face (the mean of its corners), times the face opacity, and likewise for its edges; for a pixel of a scalar image it is the alpha of the colour the pixel resolves to through its scale, which is 1 for a colour of a bundled colormap and the alpha of the colour otherwise, times its alpha, times the opacity; for a pixel of a true-colour image it is its alpha component times the opacity; and for an isoline or a band of a contour it is the alpha of its colour times the line or the fill opacity. An alpha value outside `[0, 1]` is clamped to that range, an 8-bit alpha is read as a fraction of 255, and a pixel or a face whose alpha is not finite is transparent, as a pixel with a non-finite component is. An artist without alpha arrays and with an opacity of 1 is drawn exactly as it was before alpha and opacity existed.
 
 The opacity, but not the alpha, carries into the sample of an artist in its [legend](#legend), because an alpha varies over the artist and has no single value to show. In a three-dimensional axes a translucent face or image never hides what lies behind it: the viewer draws the opaque artists of the axes first and blends the translucent ones over them, in the order of their depths, and a PDF export embeds the depth-tested render of the axes wherever painting it back to front would show a different picture, as [exporting three-dimensional axes](../guides/getting-started.md#three-dimensional-axes-in-pdf) describes. [Alpha and opacity](../guides/getting-started.md#alpha-and-opacity) in the guide shows how to set both. The decisions behind alpha and opacity are recorded in [ADR 0021](../adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md).
-
-### Out-of-range policies
-
-An **OutOfRange** policy says what is drawn for a pixel of a colour-indexed or colour-mapped image that the artist cannot colour. Such pixels fall in three categories, each of which holds a policy of its own: `below` (an index less than 0, or a value less than the lower colour limit), `above` (an index greater than 255, or a value greater than the upper colour limit) and `non_finite` (an index or value that is NaN or infinite). One policy per category lets a figure tolerate NaN while refusing values outside the range, or the reverse.
-
-- `{"type": "strict"}` makes such a pixel a validation error, so that the figure is refused until the data is corrected.
-- `{"type": "transparent"}`, the default of every category, draws nothing for the pixel, so that an image reaches the page whatever its data holds.
-- `{"type": "clamp"}` draws the pixel in the nearest end colour of the colormap: its first entry for a pixel below the range and its last entry for a pixel above it. A non-finite value has no nearest end, so a clamp at `non_finite` draws nothing; the property editor lists the choice there and shows it disabled with the reason, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
-- `{"type": "rgba", "color": Color}` draws the pixel in a fixed colour.
-
-Validation checks a strict category against the data. For a colour-indexed image, `below` reports any index that is less than 0 after truncation toward zero, `above` any that is greater than 255, and `non_finite` any that is not finite; 8-bit indices can violate none of them. For a colour-mapped image, `non_finite` is checked likewise, and `below` and `above` are checked only against manual, valid colour limits, because automatic limits are the range of the data, which no value lies outside, and invalid limits are reported against the axes.
 
 ## Styles
 
@@ -510,12 +600,12 @@ A **Color** is an sRGB colour with straight (not premultiplied) alpha, whose fou
 
 A **ColorSpec** says how a colour is chosen:
 
-- `{"type": "auto"}` lets the renderer choose. For the primary colour of a line, scatter or quiver, this is the next colour of the axes colour order, which is the Okabe–Ito palette without black. For a marker face or edge, it is the resolved colour of the artist. For contour isolines and surface faces and edges, it means `colormapped`.
+- `{"type": "auto"}` lets the renderer choose. For the primary colour of a line, scatter or quiver, this is the next colour of the axes colour order, which is the Okabe–Ito palette without black. For a marker face or edge, it is the resolved colour of the artist. For contour isolines and surface faces and edges, which have no colour of their own, it means `colormapped`, so such an artist must name a colour scale.
 - `{"type": "rgba", "color": Color}` is a fixed colour.
 - `{"type": "none"}` draws nothing.
-- `{"type": "colormapped"}` takes the colour from the axes colormap, indexed by the data value scaled into the axes colour limits.
+- `{"type": "colormapped"}` maps the data value to a colour through the [colour scale](#colour-scales) that the artist names.
 
-A colormapped colour is meaningful only where the model holds a value to index the colormap by: the isolines of a contour, indexed by their level; the faces and edges of a surface, indexed by its field or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value, so a colormapped colour there is drawn as the middle colour of the colormap; a marker takes the resolved colour of the artist it belongs to, so a colormapped marker face or edge is drawn exactly as an automatic one. The property editor lists the choice everywhere and shows it disabled, with the reason, where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
+A colormapped colour is meaningful only where the model holds a value to map and the artist names a scale to map it through: the isolines of a contour, mapped by their level; the faces and edges of a surface, mapped by its field or its colour data; and a scatter whose colour comes from an array. A line, a quiver and a scatter with a single colour hold no such value, so a colormapped colour there is drawn as the middle colour of viridis; a marker takes the resolved colour of the artist it belongs to, so a colormapped marker face or edge is drawn exactly as an automatic one. The property editor lists the choice everywhere and shows it disabled, with the reason, where it has no meaning, as [using the viewer](../guides/viewer.md#what-the-editor-does-not-change) describes.
 
 ## Text
 
@@ -550,7 +640,7 @@ The values of a data array are an **NdArray**:
 | `element` | The type of the values: `"f64"` (the default) for 64-bit floating-point values, or `"u8"` for 8-bit unsigned integers. |
 | `values` | The values in row-major order: the value in row `j` and column `i` of a two-dimensional array is `values[j * nx + i]`. |
 
-The three image artists accept arrays of either element type: the pixels of an [`image`](#image), the indices of an [`indexed_image`](#indexed_image) and the values of a [`mapped_image`](#mapped_image) may be floating-point or 8-bit values, and 8-bit values hold pixels compactly. Every other artist requires floating-point values, so any other artist that refers to an array of 8-bit values is an error, as [validation](#validation) describes; an array that no artist refers to may be of either type. A missing floating-point value is NaN; an 8-bit value has no missing value. The number of values must equal the product of the shape.
+The two image artists accept arrays of either element type: the pixels of an [`image`](#image) and the values of a [`scalar_image`](#scalar_image) may be floating-point or 8-bit values, and 8-bit values hold pixels compactly. Every other artist requires floating-point values, so any other artist that refers to an array of 8-bit values is an error, as [validation](#validation) describes; an array that no artist refers to may be of either type. A missing floating-point value is NaN; an 8-bit value has no missing value. The number of values must equal the product of the shape.
 
 Protocol Buffers stores every floating-point value, including NaN and infinities, as an IEEE 754 double, and every 8-bit value as one byte, in the payload named by the element. JSON cannot represent non-finite numbers, so every non-finite floating-point value (NaN or an infinity) is written as `null` and read back as NaN; 8-bit values are written as integers under an `element` of `"u8"`, and floating-point values are written without an `element`, exactly as they were before the element existed.
 
@@ -633,9 +723,9 @@ A change to a figure is an **edit**, and edits are applied in a **transaction**,
 | Edit | Fields | Effect |
 | --- | --- | --- |
 | `set` | `node`, `path`, `value` | Replaces the value of one property of a node, addressed by a path of field names that starts at the fields of the node, such as `x.limits` of an axes, `line.width_pt` of a line or `content.legend.layout.columns` of a panel. |
-| `insert` | `parent`, `index`, `node` | Inserts a node with its subtree: a data array, an axes or a panel into the figure, which is then the parent, or an artist into an axes. `index` is the position in the parent's list of nodes of that kind, or `null` to append. The identifiers of the node and of its descendants must not be in use. |
-| `remove` | `node` | Removes a data array, an axes, an artist or a panel, with its subtree. |
-| `move` | `node`, `parent`, `index` | Moves a data array, an axes or a panel within the figure's list of its kind, or an artist within its axes or to another axes. |
+| `insert` | `parent`, `index`, `node` | Inserts a node with its subtree: a data array, a colour scale, an axes or a panel into the figure, which is then the parent, or an artist into an axes. `index` is the position in the parent's list of nodes of that kind, or `null` to append. The identifiers of the node and of its descendants must not be in use. |
+| `remove` | `node` | Removes a data array, a colour scale, an axes, an artist or a panel, with its subtree. |
+| `move` | `node`, `parent`, `index` | Moves a data array, a colour scale, an axes or a panel within the figure's list of its kind, or an artist within its axes or to another axes. |
 | `replace_data` | `node`, `array` | Replaces the values of an existing data array, which keeps its identifier and its name, so that every artist that refers to it draws the new values. It never creates a data array; `insert` does. |
 | `append_data` | `node`, `array`, `retain` | Appends entries to an existing data array along its first dimension. The entries must have the element type of the array and its shape after the first dimension. When `retain` is set, only the last `retain` entries are kept, which gives a rolling window for streamed data. |
 
@@ -645,9 +735,9 @@ The identifiers, the schema version, the provenance, the lists of nodes and the 
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to data that names no node of the figure (`UnknownData`), a reference that names a node of the wrong kind (`WrongNodeKind`), namely an artist's data that names a node other than a data array, a legend that names a node other than a panel holding a legend, and an item of an explicit list of legend entries that names a node other than an artist, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values, the alpha of a surface among them), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional; for a surface, colour data or alpha whose shape differs from the shape of `z`; for a colour-indexed or colour-mapped image, alpha whose shape differs from the shape of its indices or values), an opacity that is not a finite number from 0 to 1 (`InvalidOpacity`), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a panel outside the tile layout or with a zero span, more row or column sizes than rows or columns or a weight that is not a finite positive number (`InvalidLayoutWeights`), an axes that lies in fitted rows alone or in fitted columns alone (`AxesInFittedTrack`), a legend that names no node as its panel (`DanglingPanelLegend`), an item of an explicit list of legend entries that names no artist of the figure, or, in a legend inside a plot area, an artist of another axes (`DanglingLegendItem`), a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), an aspect ratio of y or of z that is not a finite positive number (`InvalidAspect`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, a tag that is empty or repeated (`InvalidTag`), an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, an image whose plane has a logarithmic axis (`ImageOnLogAxis`), an image in a three-dimensional axes whose plane is offset to a coordinate that is not positive along a logarithmic third axis (`InvalidImagePlacement`), and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list: a panel with automatic entries that no axes names in its legend, or whose axes have no artist with a label, and a panel with an explicit list of no items. A panel with an explicit list of items is never empty, whether or not an axes names it. The warning `DuplicateLegendItem` is reported for an item of an explicit list whose content repeats that of an earlier item, because the legend then lists it twice, and the warning `UnnamedLegendItem` for an item that names an artist without a label, which is listed with its sample alone. The warning `UnusedData` is reported for a [data array](#data-arrays) that no artist refers to; a hidden artist still refers to its data. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+Errors are reported for a reference to data that names no node of the figure (`UnknownData`), a reference that names a node of the wrong kind (`WrongNodeKind`), namely an artist's data that names a node other than a data array, an artist's colour scale that names a node other than a colour scale, a legend that names a node other than a panel holding a legend, and an item of an explicit list of legend entries that names a node other than an artist, an artist that maps numbers to colours but names no colour scale (`MissingColorScale`), an artist whose colour scale names no node of the figure (`UnknownColorScale`), an indexed scale with no entries or a categorical scale with no categories (`InvalidColorScale`), a listed colormap of fewer than 2 or more than 1024 colours (`InvalidColormap`), manual limits of a colour scale that are not finite and increasing, or not positive under a logarithmic norm (`InvalidLimits`), band edges of a discrete scale that break the rules of [band edges](#band-edges) (`InvalidLevels`), explicit ticks or tick labels of a colour scale that break the rules of an axis (`InvalidTicks` and `InvalidTickLabels`), a number mapped through a colour scale that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict (`ValueOutOfRange`), an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the two image kinds requires floating-point values, the alpha of a surface among them), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or values that are not two-dimensional; for a surface, colour data or alpha whose shape differs from the shape of `z`; for a scalar image, alpha whose shape differs from the shape of its values), an opacity that is not a finite number from 0 to 1 (`InvalidOpacity`), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a panel outside the tile layout or with a zero span, more row or column sizes than rows or columns or a weight that is not a finite positive number (`InvalidLayoutWeights`), an axes that lies in fitted rows alone or in fitted columns alone (`AxesInFittedTrack`), a legend that names no node as its panel (`DanglingPanelLegend`), an item of an explicit list of legend entries that names no artist of the figure, or, in a legend inside a plot area, an artist of another axes (`DanglingLegendItem`), a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), an aspect ratio of y or of z that is not a finite positive number (`InvalidAspect`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, a tag that is empty or repeated (`InvalidTag`), an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, an image whose plane has a logarithmic axis (`ImageOnLogAxis`), and an image in a three-dimensional axes whose plane is offset to a coordinate that is not positive along a logarithmic third axis (`InvalidImagePlacement`). A problem of a colour scale itself is reported against the scale, whether or not an artist names it, because a colourbar may show a scale alone; a missing, unknown or refused scale reference and a refused value are reported against the artist. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of either kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list: a panel with automatic entries that no axes names in its legend, or whose axes have no artist with a label, and a panel with an explicit list of no items. A panel with an explicit list of items is never empty, whether or not an axes names it. The warning `DuplicateLegendItem` is reported for an item of an explicit list whose content repeats that of an earlier item, because the legend then lists it twice, and the warning `UnnamedLegendItem` for an item that names an artist without a label, which is listed with its sample alone. The warning `UnusedData` is reported for a [data array](#data-arrays) that no artist refers to; a hidden artist still refers to its data. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
 
-The issues of each node are reported in the order of the node tree: the figure, then its data arrays, then each axes followed by its artists, and then its panels. The checks that compare several nodes, namely duplicate identifiers, overlapping cells and unused data arrays, are reported after them.
+The issues of each node are reported in the order of the node tree: the figure, then its data arrays, then its colour scales, then each axes followed by its artists, and then its panels. The checks that compare several nodes, namely duplicate identifiers, overlapping cells and unused data arrays, are reported after them.
 
 ## A minimal JSON file
 
@@ -680,8 +770,6 @@ The following JSON file describes one two-dimensional axes with a line through t
       "aspect": { "type": "auto" },
       "aspect_adjust": "box",
       "box": true,
-      "colormap": "viridis",
-      "clim": { "type": "auto" },
       "legend": null,
       "artists": [
         {
@@ -711,7 +799,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 }
 ```
 
-The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, tags or panels, and its tile layout has no weights, so the file has none of those properties.
+The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no colour scales, parameters, tags or panels, and its tile layout has no weights, so the file has none of those properties.
 
 ## Versioning
 
@@ -729,11 +817,11 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
-- **0.6.0** added the [alpha and opacity](#alpha-and-opacity) of the image, surface and contour artists: `opacity` on every image kind, `alpha` on [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), `face_alpha`, `edge_alpha`, `face_opacity` and `edge_opacity` on [`surface`](#surface), and `line_opacity` and `fill_opacity` on [`contour`](#contour). A reader of version 0.5 would draw such artists opaque, so a file of version 0.5 is rejected.
+- **0.6.0** added the [alpha and opacity](#alpha-and-opacity) of the image, surface and contour artists: `opacity` on every image kind, `alpha` on `indexed_image` and `mapped_image` (since replaced by [`scalar_image`](#scalar_image)), `face_alpha`, `edge_alpha`, `face_opacity` and `edge_opacity` on [`surface`](#surface), and `line_opacity` and `fill_opacity` on [`contour`](#contour). A reader of version 0.5 would draw such artists opaque, so a file of version 0.5 is rejected.
 - **0.5.0** added the direction (`reverse`), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [coordinates and clipping](#coordinates-and-clipping) (`x_coords`, `y_coords`, `clip`) of lines and scatters, the markers `v_line` and `h_line`, the dash patterns `dash_dot_dot` and `long_dash`, the [aspect](#aspect) (`aspect`, `aspect_adjust`) and the title alignment (`title_align`) of an axes, the [explicit entries](#legend-entries) (`entries`) of a legend, and fitted tracks in the row and column sizes of the [tile layout](#tile-layout). A file of version 0.4 is rejected.
 - **0.4.0** added [legend panels](#legend-panels) (`panel_legends`), changed the [legend](#legend) of an axes from a single object into a choice between a legend inside the plot area and a legend panel, added the [layout of legend entries](#legend-entry-layout) in columns and the legend location `center`, and added the row and column weights of the [tile layout](#tile-layout). A file of version 0.3 is rejected.
 - **0.3.1** added the labels of a figure, which are now its [tags](#tags). It is a patch version because a reader of version 0.3.0 that ignores them still draws the figure correctly, so files are exchanged in both directions between the two.
-- **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
+- **0.3.0** added the image artists [`image`](#image), `indexed_image` and `mapped_image` (since replaced by [`scalar_image`](#scalar_image)), with their [placement](#image-placement) and out-of-range policies (since moved to the [colour scale](#out-of-range-policies)), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
 - **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
 - **0.1.0** was the first version.
 
@@ -741,9 +829,9 @@ The schema has had the following versions:
 
 The model is designed so that further MATLAB plot types are added without restructuring it. Before any new plot type or entity is implemented, its data structure and options are defined in `ironlab-ir` and reviewed, as the project rules require.
 
-- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by the NodeIds of data arrays, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour. A pseudocolour plot (`pcolor`) needed no new variant, because it is a [surface](#surface) in a two-dimensional axes.
+- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by the NodeIds of data arrays, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The [image artists](#image) were added in this way; a [`scalar_image`](#scalar_image) maps its numbers through a [colour scale](#colour-scales), as surfaces do, and adds only what a raster needs beyond that, namely a placement. A pseudocolour plot (`pcolor`) needed no new variant, because it is a [surface](#surface) in a two-dimensional axes.
 - **New coordinate systems are new projections.** Polar and geographic axes become new variants of Projection, each with its own view properties, alongside `two_d` and `three_d`.
-- **New keys are new kinds of panel content.** A key that occupies tiles of the layout is a new variant of [panel content](#panel-content) rather than a new kind of node, so it is placed, fitted and checked as every panel is. Colourbars are planned in this way, as panel content and as an option drawn inside the plot area of an axes.
+- **New keys are new kinds of panel content.** A key that occupies tiles of the layout is a new variant of [panel content](#panel-content) rather than a new kind of node, so it is placed, fitted and checked as every panel is. Colourbars are planned in this way, as panel content and as a bar drawn inside the plot area of an axes, each showing a [colour scale](#colour-scales), as [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md#a-scale-is-shown-by-a-colourbar-or-a-legend-item) records.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.
 
 Each such addition is a new variant of a tagged entity and therefore increments the minor version of the schema, as described in [versioning](#versioning). The scene compiler then learns to draw the new variant; neither backend changes, as explained in the [architecture reference](architecture.md#one-path-to-pixels).

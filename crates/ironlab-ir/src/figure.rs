@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::artist::Artist;
 use crate::axes::Axes;
+use crate::color_scale::ColorScale;
 use crate::data::{DataArray, NdArray};
 use crate::error::IrError;
 use crate::ids::NodeId;
@@ -22,11 +23,11 @@ use crate::text::Text;
 /// the patch component may differ.
 pub const SCHEMA_VERSION: &str = "0.6.0";
 
-/// A figure: the root of the retained IR, holding data arrays, axes, panels and axis
-/// links.
+/// A figure: the root of the retained IR, holding data arrays, colour scales, axes, panels
+/// and axis links.
 ///
-/// The figure, its data arrays, its axes, their artists and its panels are the nodes of
-/// the figure, and share one space of node identifiers.
+/// The figure, its data arrays, its colour scales, its axes, their artists and its panels
+/// are the nodes of the figure, and share one space of node identifiers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Figure {
     /// The version of the figure schema that the file conforms to.
@@ -47,6 +48,13 @@ pub struct Figure {
     pub layout: TileLayout,
     /// The data arrays of the figure, which artists refer to by node identifier.
     pub data: Vec<DataArray>,
+    /// The colour scales of the figure, which colour-mapped artists refer to by node
+    /// identifier. A scale that no artist names is valid, because a colourbar may show it
+    /// alone.
+    ///
+    /// The property is omitted from JSON when there are no colour scales.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub color_scales: Vec<ColorScale>,
     /// The axes of the figure, in drawing order.
     pub axes: Vec<Axes>,
     /// The panels of the figure, which occupy cells of the tile layout and are drawn
@@ -98,6 +106,7 @@ impl Default for Figure {
             background: Color::WHITE,
             layout: TileLayout::default(),
             data: Vec::new(),
+            color_scales: Vec::new(),
             axes: Vec::new(),
             panels: Vec::new(),
             links: Vec::new(),
@@ -241,8 +250,8 @@ impl Figure {
     }
 
     /// Allocates a node identifier that differs from the identifier of every node in the
-    /// figure (the figure, its data arrays, axes, artists and panels) and from every
-    /// identifier previously allocated from this figure value.
+    /// figure (the figure, its data arrays, colour scales, axes, artists and panels) and
+    /// from every identifier previously allocated from this figure value.
     ///
     /// Identifiers are allocated above the largest identifier present, so allocation
     /// remains correct after a figure is loaded from JSON.

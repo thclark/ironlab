@@ -39,10 +39,6 @@ pub struct Axes {
     /// edges that carry tick labels.
     #[serde(rename = "box")]
     pub box_: bool,
-    /// The colormap used by colormapped artists in this axes.
-    pub colormap: ColormapName,
-    /// The data values mapped to the first and last colours of the colormap.
-    pub clim: Limits,
     /// The legend, or `null` when no legend is shown.
     pub legend: Option<Legend>,
     /// The artists drawn in this axes, in drawing order.
@@ -63,8 +59,6 @@ impl Default for Axes {
             aspect: Aspect::Auto,
             aspect_adjust: AspectAdjust::Box,
             box_: true,
-            colormap: ColormapName::Viridis,
-            clim: Limits::Auto,
             legend: None,
             artists: Vec::new(),
         }
@@ -277,7 +271,7 @@ pub enum Limits {
     },
 }
 
-/// The name of a colormap.
+/// The name of a bundled colormap, which a [`Colormap`](crate::Colormap) names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ColormapName {

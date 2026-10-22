@@ -32,9 +32,11 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, InsideLegend,
-    LegendEntryLayout, LineStyle, MarkerStyle, NodeId, PanelLegend, Parameter, PixelRange,
-    PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d, choices,
+    Axis, CategoricalColorScale, Cell as IrCell, Choice, Color, ColorScaleOutOfRange,
+    ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
+    InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
+    Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d,
+    choices,
 };
 
 use crate::widgets::{
@@ -907,6 +909,21 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::MarkerStyle => Some(Value::MarkerStyle(MarkerStyle::default())),
         ValueType::ImagePlacement => Some(Value::ImagePlacement(ImagePlacement::default())),
         ValueType::PixelRange => Some(Value::PixelRange(PixelRange::default())),
+        ValueType::ColorScaleOutOfRange => Some(Value::ColorScaleOutOfRange(
+            ColorScaleOutOfRange::new(OutOfRange::default()),
+        )),
+        ValueType::ContinuousColorScale => {
+            Some(Value::ContinuousColorScale(ContinuousColorScale::default()))
+        }
+        ValueType::DiscreteColorScale => {
+            Some(Value::DiscreteColorScale(DiscreteColorScale::default()))
+        }
+        ValueType::IndexedColorScale => {
+            Some(Value::IndexedColorScale(IndexedColorScale::default()))
+        }
+        ValueType::CategoricalColorScale => Some(Value::CategoricalColorScale(
+            CategoricalColorScale::default(),
+        )),
         ValueType::NodeId => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
@@ -937,7 +954,11 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::DashStyle
         | ValueType::Coords
         | ValueType::Interpreter
-        | ValueType::FontSetId => None,
+        | ValueType::FontSetId
+        | ValueType::ColorScaleKind
+        | ValueType::Colormap
+        | ValueType::ColorScaleNorm
+        | ValueType::ColorScaleLevels => None,
     }
 }
 

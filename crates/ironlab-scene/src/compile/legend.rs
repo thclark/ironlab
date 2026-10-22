@@ -9,10 +9,9 @@
 //! drawn ([`render`]).
 
 use ironlab_ir::{
-    Artist, ColorSpec, IndexedImage, Interpreter, Legend, LegendEntries, LegendEntryColumns,
-    LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation,
-    LegendSample, LineStyle, MappedImage, MarkerStyle, NodeId, Panel, PanelLegend, PanelLocation,
-    ScatterSize, Text,
+    Artist, ColorSpec, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, LineStyle,
+    MarkerStyle, NodeId, Panel, PanelLegend, PanelLocation, ScalarImage, ScatterSize, Text,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
@@ -27,7 +26,7 @@ use super::image;
 use super::layout::Along;
 use super::panel;
 use super::paths::{self, PathBuilder};
-use super::style::{self, ColourScale, INK, Paint};
+use super::style::{self, ColourScales, INK, Paint};
 use super::text::{TextBlock, measure};
 use super::{Ctx, SceneWarning, SceneWarningKind};
 
@@ -246,7 +245,7 @@ struct Grid {
 pub(super) fn candidates<'a>(
     axes: &'a ironlab_ir::Axes,
     prepared: &[Prepared<'a>],
-    colours: &ColourScale,
+    scales: &ColourScales,
     primaries: &[Paint],
 ) -> Vec<Candidate<'a>> {
     prepared
@@ -254,12 +253,15 @@ pub(super) fn candidates<'a>(
         .zip(primaries)
         .filter_map(|(p, primary)| {
             let data = p.data.as_ref()?;
-            let colour = primary.single(colours);
+            // The middle colour of the artist's colour scale, or of viridis for an artist that maps no number: a
+            // stopgap until a legend shows a colour scale itself.
+            let middle = scales.middle_of(p.artist);
+            let colour = primary.single(middle);
             Some(Candidate {
                 axes: axes.id,
                 artist: p.artist.id(),
                 name: p.artist.label(),
-                sample: sample(p.artist, data, colour, colours.middle()),
+                sample: sample(p.artist, data, colour, middle),
                 visible: p.artist.visible(),
             })
         })
@@ -407,7 +409,7 @@ pub(super) fn draw_inside(
     let Some(Legend::Inside(legend)) = &axes.legend else {
         return;
     };
-    let own = candidates(axes, input.prepared, &input.colours, primaries);
+    let own = candidates(axes, input.prepared, input.scales, primaries);
     let listing = Listing::new(ctx, axes.id, inside_entries(&legend.entries, &own));
     let m = Metrics::new(ctx.font_size);
     let plot = input.plot;
@@ -957,10 +959,9 @@ fn sample(artist: &Artist, data: &ArtistData, colour: Option<Rgba>, middle: Rgba
             },
             edge: None,
         },
-        // The middle colour of the colormap, as for other colormapped artists without a single value: a stopgap
-        // for the colormap redesign, until a colourbar (issue #8) shows the scale itself.
-        Artist::IndexedImage(IndexedImage { opacity, .. })
-        | Artist::MappedImage(MappedImage { opacity, .. }) => SampleLook::Patch {
+        // The middle colour of the colour scale, as for other colormapped artists without a single value: a stopgap
+        // until a legend shows the colour scale itself.
+        Artist::ScalarImage(ScalarImage { opacity, .. }) => SampleLook::Patch {
             fill: Some(middle.with_alpha_factor(style::unit_opacity(*opacity) as f32)),
             edge: None,
         },

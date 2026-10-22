@@ -34,8 +34,8 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes(0, 0);
     // `surface` leaves the axes two-dimensional, where `surf` would convert it to three dimensions.
     ax.surface(x, y, &speed).edge_width(0.25);
-    ax.colormap(Colormap::Viridis)
-        .xlabel("$x / a$")
+    ax.color_scale().colormap(Colormap::Viridis);
+    ax.xlabel("$x / a$")
         .ylabel("$y / a$");
     fig
 }

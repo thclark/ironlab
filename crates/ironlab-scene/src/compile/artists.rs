@@ -28,14 +28,15 @@ use super::decor::Decor;
 use super::image;
 use super::limits::Range;
 use super::paths::{self, PathBuilder};
-use super::style::{self, ColourScale, Paint};
+use super::style::{self, ColourScales, Paint, ResolvedScale};
 
 /// Everything needed to draw one axes.
 pub(crate) struct AxesInput<'a> {
     pub axes: &'a Axes,
     pub prepared: &'a [Prepared<'a>],
     pub ranges: &'a [Range; 3],
-    pub colours: ColourScale,
+    /// The colour scales of the figure, resolved once for the whole compilation.
+    pub scales: &'a ColourScales<'a>,
     pub decor: &'a Decor,
     pub plot: Rect,
     pub outer: Rect,
@@ -219,7 +220,8 @@ struct Draw<'a, 'f> {
     /// The mapping of the artist being drawn: the axes' own, or a blend of it with the plot area for a line or
     /// scatter that places a dimension in axes-fraction coordinates.
     space: Space<'a>,
-    scale: ColourScale,
+    /// The colour scales of the figure, through which artists map their numbers to colours.
+    scales: &'a ColourScales<'a>,
     /// The lower limit of each axis: planar contours without an explicit height are drawn at the lower z limit,
     /// and an image whose plane has no offset lies at the lower limit of the third axis of its plane.
     low: [f64; 3],
@@ -280,8 +282,8 @@ impl Draw<'_, '_> {
 ///
 /// Returns the items tagged with their depths, the drawn points of every line and scatter, each carrying the index
 /// it has in the artist's data arrays, the placement of every image drawn in a 2D axes, and the cell count of every
-/// artist a backend may rasterise. An artist that cannot be drawn after all (an image with a pixel its strict policy
-/// refuses, or whose corners cannot be placed) is reported to `ctx` with a warning naming it.
+/// artist a backend may rasterise. An artist that cannot be drawn after all (an image whose corners cannot be
+/// placed) is reported to `ctx` with a warning naming it.
 pub(super) fn draw_artists(
     ctx: &mut Ctx<'_>,
     input: &AxesInput,
@@ -296,7 +298,7 @@ pub(super) fn draw_artists(
     let mut draw = Draw {
         ctx,
         space: *space,
-        scale: input.colours,
+        scales: input.scales,
         low: input.ranges.map(|r| r.min),
         axes: input.axes.id,
         target: decimate::target_points(input.plot.width),
@@ -354,10 +356,10 @@ pub(super) fn draw_artists(
                 };
                 draw_surface(&mut draw, s, &grid, colours, alpha)
             }
-            (
-                Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_),
-                ArtistData::Image(image),
-            ) => draw_image(&mut draw, prepared.artist.id(), &image),
+            (Artist::Image(_) | Artist::ScalarImage(_), ArtistData::Image(image)) => {
+                let scale = draw.scales.of(prepared.artist);
+                draw_image(&mut draw, prepared.artist.id(), &image, scale)
+            }
             _ => {}
         }
     }
@@ -647,7 +649,7 @@ fn line_stroke(
 /// markers by [`decimate::bin`], so a series far denser than the plot rectangle can resolve costs
 /// only what the view can show.
 fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
-    let colour = primary.single(&draw.scale);
+    let colour = primary.single(style::viridis_middle());
     let mut drawn: Vec<Sample> = Vec::new();
     if let Some(stroke) = line_stroke(&line.line, colour) {
         let clip = expand(draw.clip, stroke.width);
@@ -717,10 +719,14 @@ fn draw_scatter(
         ScatterSize::Data { .. } => scatter.marker.size_pt,
     };
     let size_at = |i: usize| sizes.map_or(scalar_size, |s| s[i]);
-    // A point whose colour value falls outside the colour scale is not drawn, so it takes no part
-    // in the binning either.
-    let drawable = (0..points.len())
-        .filter(|i| colours.is_none_or(|values| draw.scale.colour(values[*i]).is_some()));
+    // The data stage lets a scatter coloured by data through only with a colour scale to map it.
+    let scale = colours
+        .and(scatter.color_scale)
+        .and_then(|id| draw.scales.get(id));
+    let colour_at = |i: usize| colours.and_then(|values| scale?.colour(values[i]));
+    // A point whose colour value the colour scale draws nothing for is not drawn, so it takes no
+    // part in the binning either.
+    let drawable = (0..points.len()).filter(|i| colours.is_none() || colour_at(*i).is_some());
     let samples: Vec<Sample> = drawable
         .filter_map(|i| draw.space.sample(i, points.get(i)))
         .collect();
@@ -732,8 +738,8 @@ fn draw_scatter(
     let samples = thin_markers(samples, draw.target, smallest, draw.clip);
     for s in &samples {
         let colour = match colours {
-            Some(values) => draw.scale.colour(values[s.source_index]),
-            None => primary.single(&draw.scale),
+            Some(_) => colour_at(s.source_index),
+            None => primary.single(style::viridis_middle()),
         };
         let instance = style::marker_instance(
             &scatter.marker,
@@ -777,15 +783,45 @@ pub(super) fn contour_levels(levels: &Levels, zmin: f64, zmax: f64) -> Vec<f64> 
     out
 }
 
+/// The number of automatic levels of a contour without levels of its own whose colour scale offers none.
+const AUTOMATIC_CONTOUR_LEVELS: u32 = 10;
+
 /// Draws the filled bands and isolines of a contour, the bands faded by its fill opacity and the isolines by its
 /// line opacity; an opacity of 0 draws nothing.
+///
+/// A contour without levels of its own takes them from its colour scale (see [`ResolvedScale::contour_levels`]), and
+/// otherwise draws ten automatic levels. A band is coloured by the middle of its range within the field, and an
+/// isoline by its level, except for the levels a contour takes from an indexed or categorical scale: those lie
+/// between entries, so a band takes the entry of the whole number it holds and an isoline the entry of the band
+/// below it. A colormapped colour of a contour that names no usable scale takes the middle of viridis.
 fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     let Some((zmin, zmax)) = field_range(grid.z) else {
         return;
     };
     let fill_opacity = style::unit_opacity(c.fill_opacity);
     let line_opacity = style::unit_opacity(c.line_opacity);
-    let levels = contour_levels(&c.levels, zmin, zmax);
+    let scale: Option<&ResolvedScale> = c.color_scale.and_then(|id| draw.scales.get(id));
+    let from_scale = match &c.levels {
+        Some(_) => None,
+        None => scale.and_then(ResolvedScale::contour_levels),
+    };
+    // Levels between the entries of an indexed or categorical scale, of which each band holds one whole number.
+    let between_entries = from_scale.is_some() && scale.is_some_and(ResolvedScale::is_index_mapped);
+    let levels = match (&c.levels, from_scale) {
+        (Some(levels), _) => contour_levels(levels, zmin, zmax),
+        (None, Some(levels)) => contour_levels(&Levels::Explicit { values: levels }, zmin, zmax),
+        (None, None) => contour_levels(
+            &Levels::Auto {
+                count: AUTOMATIC_CONTOUR_LEVELS,
+            },
+            zmin,
+            zmax,
+        ),
+    };
+    let mapped = |value: f64| match scale {
+        Some(scale) => scale.colour(value),
+        None => Some(style::viridis_middle()),
+    };
     let plane = match c.placement {
         ContourPlacement::Plane { z: Some(z) } => z,
         _ => draw.low[2],
@@ -793,7 +829,8 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     if c.fill && fill_opacity > 0.0 {
         for (lo, hi) in contour::band_edges(&levels, zmin, zmax) {
             let mid = (lo.max(zmin) + hi.min(zmax)) / 2.0;
-            let Some(colour) = draw.scale.colour(mid) else {
+            let value = if between_entries { mid.round() } else { mid };
+            let Some(colour) = mapped(value) else {
                 continue;
             };
             let mut b = PathBuilder::new();
@@ -815,12 +852,12 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
             });
         }
     }
-    let scale = draw.scale;
     let line_colour = |level: f64| {
+        let value = if between_entries { level - 0.5 } else { level };
         let colour = match c.line.color {
             ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
             ColorSpec::None => None,
-            ColorSpec::Auto | ColorSpec::Colormapped if !c.fill => scale.colour(level),
+            ColorSpec::Auto | ColorSpec::Colormapped if !c.fill => mapped(value),
             ColorSpec::Auto | ColorSpec::Colormapped => None,
         };
         colour
@@ -868,7 +905,7 @@ fn draw_quiver(
     scale: f64,
     primary: Paint,
 ) {
-    let colour = primary.single(&draw.scale);
+    let colour = primary.single(style::viridis_middle());
     let style = ironlab_ir::LineStyle {
         dash: match q.line.dash {
             DashStyle::None => DashStyle::None,
@@ -983,6 +1020,8 @@ fn draw_surface(
     alpha: SurfaceAlpha,
 ) {
     let values = colours.unwrap_or(grid.z);
+    let scale: Option<&ResolvedScale> = s.color_scale.and_then(|id| draw.scales.get(id));
+    let first_corner = scale.is_some_and(ResolvedScale::is_index_mapped);
     let width = style::width_or(s.edge_width_pt, 0.5);
     let face_opacity = style::unit_opacity(s.face_opacity);
     let edge_opacity = style::unit_opacity(s.edge_opacity);
@@ -997,7 +1036,13 @@ fn draw_surface(
             {
                 continue;
             }
-            let mean = corners.iter().map(|c| values[index(*c)]).sum::<f64>() / 4.0;
+            // The mean of indices is not an index, so through an indexed or categorical scale a face takes the
+            // value of its first corner.
+            let value = if first_corner {
+                values[index(corners[0])]
+            } else {
+                corners.iter().map(|c| values[index(*c)]).sum::<f64>() / 4.0
+            };
             let mapped: Option<Vec<Sample>> = corners
                 .iter()
                 .enumerate()
@@ -1009,7 +1054,10 @@ fn draw_surface(
             let Some(mapped) = mapped else { continue };
             let paint = |spec: ColorSpec| match style::resolve(spec, Paint::Colormapped) {
                 Paint::Fixed(c) => c,
-                Paint::Colormapped => draw.scale.colour(mean),
+                Paint::Colormapped => match scale {
+                    Some(scale) => scale.colour(value),
+                    None => Some(style::viridis_middle()),
+                },
             };
             let nodes = corners.map(index);
             let face_factor = corner_alpha(alpha.face, nodes) * face_opacity;
@@ -1161,9 +1209,9 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64, Option
 ///
 /// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
 /// through the transform alone, so the row and column that a hit resolves to index the artist's array. The image is
-/// never wrapped in a dense group, since it is already a raster. An image whose corners cannot be placed, or that
-/// holds a pixel a strict policy refuses, is skipped with a warning naming it.
-fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
+/// never wrapped in a dense group, since it is already a raster. A scalar image is coloured through `scale`, its
+/// colour scale. An image whose corners cannot be placed is skipped with a warning naming it.
+fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&ResolvedScale>) {
     let Some((transform, key, plane)) = place_image(draw, image) else {
         draw.ctx.warn(
             Some(id),
@@ -1171,13 +1219,7 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData) {
         );
         return;
     };
-    let raster = match image::resolve(image, &draw.scale) {
-        Ok(raster) => raster,
-        Err(refused) => {
-            draw.ctx.warn(Some(id), refused.message());
-            return;
-        }
-    };
+    let raster = image::resolve(image, scale);
     let (nx, ny) = (image.nx, image.ny);
     let item = Item {
         source: Some(id),

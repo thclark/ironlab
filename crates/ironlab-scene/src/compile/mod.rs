@@ -2,11 +2,13 @@
 //!
 //! The work is split into private modules, run in this order by [`compile`]:
 //!
-//! 1. `data` resolves every artist's arrays, checks their shapes and reports invalid artists.
+//! 1. `style` resolves every colour scale of the figure once, with its automatic limits over every artist that names
+//!    it, and `data` resolves every artist's arrays, checks their shapes and colour scales, and reports invalid
+//!    artists.
 //! 2. `panel` prepares and measures the content of every panel (with `legend` for the entries of a legend), from
 //!    which `layout` sizes the fitted rows and columns of the tile layout.
 //! 3. `layout` divides the page into tile cells.
-//! 4. `limits` computes axis limits (over link groups), colour limits and ticks.
+//! 4. `limits` computes axis limits (over link groups) and ticks.
 //! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
 //!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
 //!    until the sizes settle.
@@ -266,10 +268,31 @@ fn arrange(
 ///   lists its artists and including hidden artists. Artists with an explicit or colormapped primary colour, and
 ///   contour and surface artists, take no entry. A marker face or edge set to `ColorSpec::Auto` takes the resolved
 ///   primary colour of its artist and takes no entry of its own.
+/// - **Colour scales.** Every artist maps numbers to colours through the colour scale it names, by one rule
+///   (`ResolvedScale::colour` in the `style` module): a continuous scale interpolates its colormap between its
+///   limits in linear or logarithmic space; a discrete scale gives band `i` of `k` the colormap colour at `i / (k − 1)`, a value on an
+///   inner edge belonging to the upper band; an indexed or categorical scale gives a whole number `i` entry `i`. A
+///   named colormap of 256 entries gives position `t` entry `min(⌊256 t⌋, 255)`, counted from its end when it is
+///   reversed, and a listed colormap is interpolated linearly in sRGB between its colours. A value the scale cannot
+///   place (below or above its range, outside its entries, or not finite) follows the policy of that category of the
+///   scale, for every artist alike. Automatic limits are the exact range of the finite numbers (the positive ones
+///   under a logarithmic norm) of every artist that names the scale, in every axes, hidden artists included, and
+///   automatic band edges are the two limits with nice values between them. A scale whose limits, band edges or
+///   listed colormap cannot be used is drawn with automatic limits, ten automatic bands or viridis, and a warning
+///   names it. An artist that maps numbers but names no colour scale, or names a node that is not one, and an
+///   artist of which a number falls in a category whose policy is strict, is skipped with one warning naming it.
 /// - **Colormapped colours.** `ColorSpec::Auto` on the isolines of a contour and on the faces or edges of a surface
-///   means `ColorSpec::Colormapped`. A line or quiver whose colour is colormapped has no colour data, so it takes
-///   the middle colour of the colormap. The isolines of a filled contour are drawn only when their colour is an
-///   explicit colour, because colormapped isolines would coincide with the band colours.
+///   means `ColorSpec::Colormapped`. A line or quiver whose colour is colormapped, and a scatter of one colormapped
+///   colour, has no number to map, so it takes the middle colour of viridis whatever scales the axes uses; so does
+///   a colormapped contour or surface colour of an artist that names no usable scale. The isolines of a filled
+///   contour are drawn only when their colour is an explicit colour, because colormapped isolines would coincide
+///   with the band colours.
+/// - **Contour levels.** A contour without levels of its own takes them from its colour scale: the band edges of a
+///   discrete scale, so that the contour agrees with the bands of the scale; the half-integers 0.5, 1.5, …, n − 1.5
+///   between the n entries of an indexed or categorical scale, so that each band holds one whole number and takes
+///   that entry, and each isoline takes the entry of the band below it; and ten automatic levels otherwise. A
+///   filled band otherwise takes the colour of the middle of its range within the field, and an isoline the colour
+///   of its level.
 /// - **Limits.** Automatic axis limits round the data range outward to major ticks, are computed over the data of
 ///   every axes in the same link group, and are `[0, 1]` for an axes without data. Gridded data is the exception, as
 ///   in MATLAB's `contour`, `contourf`, `contour3`, `surf`, `mesh` and `image`: along x and y, an end of the range
@@ -279,10 +302,12 @@ fn arrange(
 ///   whose plane has an explicit offset places that offset along the third axis of its plane, where it is rounded
 ///   like other data; a plane without an offset places nothing along that axis. Data that cannot be placed on a
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
-///   range of the finite colour values of the axes' colormapped artists, the values of colour-mapped images among
-///   them; the indices of colour-indexed images and the components of true-colour images are not colour values.
-/// - **Surface colour.** A colormapped face takes the colormap sample of the mean of its four corner colour values
-///   (`c` when present, otherwise `z`), normalised by the colour limits. A face with a NaN corner is not drawn.
+///   range of the numbers mapped through each colour scale (see **Colour scales**); the components of true-colour
+///   images are not such numbers.
+/// - **Surface colour.** A colormapped face takes the colour its scale gives the mean of its four corner colour
+///   values (`c` when present, otherwise `z`), except through an indexed or categorical scale, where it takes the
+///   value of its first corner (lower `i`, lower `j`), because the mean of indices is not an index. A face with a NaN
+///   corner is not drawn.
 /// - **Surfaces in 2D axes.** A surface is drawn in either projection. A 2D axes shows it from directly above, as a
 ///   pseudocolour plot: the grid alone places the faces through the x and y axis maps, so that the field `z` positions
 ///   nothing, reaches no axis limit and is not subject to the scale of the z axis, while it still colours the faces
@@ -303,24 +328,18 @@ fn arrange(
 ///   3D axes the image is one primitive sorted at the mean depth of its four corners, unless its plane lies on a
 ///   face of the box, when it is painted before or after every other primitive (see **3D**). The pixels are resolved to
 ///   eight-bit sRGB by kind. A true-colour image clamps floating-point components into `[0, 1]` and quantises them
-///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A
-///   colour-mapped image normalises each value by the colour limits and takes the colormap sample of the result, as
-///   a surface does; a value that normalises below 0, one that normalises above 1 and a non-finite value fall in
-///   the `below`, `above` and `non_finite` categories. A colour-indexed image takes entry `i` of the colormap for an
-///   8-bit index `i`, and for a floating-point index truncated toward zero into 0 to 255; a truncated index below 0,
-///   one above 255 and a non-finite index fall in the same three categories, and the colour limits play no part. A
-///   pixel in a category takes what the artist's policy for that category says: `transparent` draws nothing,
-///   `clamp` takes the first colormap entry below and the last above and draws nothing for a non-finite value,
-///   `rgba` takes the colour quantised with its alpha, and `strict` skips the artist with one warning naming it,
-///   the first offending pixel and the category. The samples have three channels when every pixel is opaque and
-///   four otherwise. An image is skipped with one warning naming it when its array is missing or has the wrong
-///   shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels, `[ny, nx]` for indices and values), when a pixel centre or
+///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A scalar
+///   image maps each number, an 8-bit value as the whole number it denotes, through its colour scale (see **Colour
+///   scales**), and quantises the colour with its alpha; a pixel the scale draws nothing for is transparent, and a
+///   strict policy skips the image with one warning naming it, the first offending pixel and the category. The
+///   samples have three channels when every pixel is opaque and four otherwise. An image is skipped with one
+///   warning naming it when its array is missing or has the wrong shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels,
+///   `[ny, nx]` for values), when it names no colour scale, when a pixel centre or
 ///   the plane offset is not finite or the centres of the first and last pixels coincide along an axis of more
 ///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when an axis of its plane is logarithmic (the
 ///   third axis may be, but then the offset must be positive), when it has no rows or no columns, or when a corner
-///   cannot be placed. A skipped image contributes nothing to the axis or colour limits,
-///   with one exception: an image skipped by a strict policy is skipped when its colours are resolved, after the
-///   limits are computed, so its pixel edges and values still count as those of a hidden image do.
+///   cannot be placed. A skipped image contributes nothing to the axis limits, while its numbers still count
+///   towards the automatic limits of the colour scale it names, as those of a hidden image do.
 /// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below
 ///   the figure title first. A fitted row then takes the share that the tallest legend panel lying in that row alone
 ///   needs for its block of entries (with the border inset of a boxed panel), with the page padding added on a side
@@ -402,7 +421,7 @@ fn arrange(
 ///   it, and leaves out the entries that do not lie wholly inside it. A panel places its block by its alignment, the
 ///   `best` alignment meaning the centre, and an empty panel draws nothing. The hit rectangle of an entry encloses
 ///   both its sample and its label. The sample of an image is a filled patch: the middle colour
-///   of the colormap for a colour-indexed or colour-mapped image, and for a true-colour image the mean of the
+///   of its colour scale for a scalar image, and for a true-colour image the mean of the
 ///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
 ///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
 ///   keeps clear of.
@@ -454,16 +473,11 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     let page = Rect::new(0.0, 0.0, width, height);
     let grid_area = layout::figure_title(&mut ctx, page, &mut items);
 
+    let scales = style::ColourScales::resolve(&mut ctx);
     let prepared: Vec<Vec<data::Prepared>> = figure
         .axes
         .iter()
-        .map(|axes| data::prepare_axes(&mut ctx, axes))
-        .collect();
-    let colour_scales: Vec<style::ColourScale> = figure
-        .axes
-        .iter()
-        .zip(&prepared)
-        .map(|(axes, prepared)| limits::colour_scale(&mut ctx, axes, prepared))
+        .map(|axes| data::prepare_axes(&mut ctx, axes, &scales))
         .collect();
     let primaries: Vec<Vec<style::Paint>> = figure.axes.iter().map(style::primaries).collect();
 
@@ -473,7 +487,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .axes
         .iter()
         .enumerate()
-        .map(|(i, axes)| legend::candidates(axes, &prepared[i], &colour_scales[i], &primaries[i]))
+        .map(|(i, axes)| legend::candidates(axes, &prepared[i], &scales, &primaries[i]))
         .collect();
     let contents = panel::prepare(&mut ctx, &candidates);
     let font_size = ctx.font_size;
@@ -550,7 +564,7 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
             axes,
             prepared: &prepared[i],
             ranges: &ranges[i],
-            colours: colour_scales[i],
+            scales: &scales,
             decor: &decorations[i],
             plot: placement.plots[i],
             outer: placement.outer[i],

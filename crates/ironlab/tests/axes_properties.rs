@@ -1,10 +1,11 @@
-//! Axes property setters: titles, labels, limits, scales, grid, legend, colormap,
-//! colour limits and box.
+//! Axes property setters: titles, labels, limits, scales, grid, legend and box. The
+//! colormap and colour limits belong to colour scales, whose setters are tested in
+//! `color_scales.rs`.
 
 mod common;
 
 use common::{axes, has_error_at};
-use ironlab::ir::{ColormapName, InsideLegend, IssueKind, Legend, Limits};
+use ironlab::ir::{InsideLegend, IssueKind, Legend, Limits};
 use ironlab::prelude::*;
 
 // WHY: titles and labels are the most common calls in user code; each must reach its
@@ -197,27 +198,13 @@ fn legend_is_shown_at_a_location_and_can_be_removed() {
     assert_eq!(axes(&fig, id).legend, None);
 }
 
-// WHY: colormap, colour limits and box are axes-wide appearance properties that must map
-// to their IR fields.
+// WHY: the box is an axes-wide appearance property that must map to its IR field, both
+// off and on again.
 #[test]
-fn colormap_clim_and_box_set_their_fields() {
+fn box_on_sets_its_field() {
     let mut fig = Figure::new();
-    let id = fig
-        .axes(0, 0)
-        .colormap(Colormap::Coolwarm)
-        .clim(-2.0, 2.0)
-        .box_on(false)
-        .id();
-    let a = axes(&fig, id);
-    assert_eq!(a.colormap, ColormapName::Coolwarm);
-    assert_eq!(
-        a.clim,
-        Limits::Manual {
-            min: -2.0,
-            max: 2.0
-        }
-    );
-    assert!(!a.box_);
+    let id = fig.axes(0, 0).box_on(false).id();
+    assert!(!axes(&fig, id).box_);
 
     fig.axes(0, 0).box_on(true);
     assert!(axes(&fig, id).box_);

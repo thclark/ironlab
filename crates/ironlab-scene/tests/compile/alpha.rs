@@ -14,7 +14,7 @@ use ironlab_scene::Scene;
 use ironlab_scene::display::ImageItem;
 use ironlab_scene::hit::LegendOwner;
 
-use crate::common::{Fx, compile_figure, rgb8, text, xy};
+use crate::common::{Fx, compile_figure, out_of_range, rgb8, text, xy};
 use crate::probe::{Leaf, entry_artist, from_source, inside, leaves, pixel};
 
 /// Columns and rows of the fixture surface: two faces side by side.
@@ -243,9 +243,9 @@ fn opacity_contour(
         &Y,
         |x, y| x + y,
         |c| {
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: vec![1.0, 2.0],
-            };
+            });
             c.fill = fill;
             c.line.color = line;
             c.line_opacity = line_opacity;
@@ -341,7 +341,7 @@ fn compiled_image(add: impl FnOnce(&mut Fx, NodeId) -> NodeId) -> ImageItem {
 fn a_mapped_image_multiplies_each_pixel_by_its_alpha_and_by_the_opacity() {
     let item = compiled_image(|fx, ax| {
         let alpha = fx.matrix(1, 4, vec![0.5, f64::NAN, 2.0, -1.0]);
-        let id = fx.mapped_image(
+        let id = fx.imagesc(
             ax,
             vec![1, 4],
             vec![1.0, 2.0, 3.0, 4.0],
@@ -351,7 +351,7 @@ fn a_mapped_image_multiplies_each_pixel_by_its_alpha_and_by_the_opacity() {
                 m.opacity = 0.5;
             },
         );
-        fx.ax(ax).clim = Limits::Manual {
+        fx.axes_scale_mut(ax).limits = Limits::Manual {
             min: 0.0,
             max: 10.0,
         };
@@ -440,17 +440,18 @@ fn a_true_colour_image_multiplies_its_alpha_channel_by_the_opacity() {
 fn an_out_of_range_policy_colour_is_multiplied_by_the_pixel_alpha_and_the_opacity() {
     let item = compiled_image(|fx, ax| {
         let alpha = fx.matrix(1, 2, vec![0.5, 1.0]);
-        let id = fx.mapped_image(ax, vec![1, 2], vec![-5.0, 5.0], xy(None, None), |m| {
-            m.below = OutOfRange::Rgba {
-                color: Color::rgba(0.0, 0.0, 1.0, 0.8),
-            };
+        let id = fx.imagesc(ax, vec![1, 2], vec![-5.0, 5.0], xy(None, None), |m| {
             m.alpha = Some(alpha);
             m.opacity = 0.5;
         });
-        fx.ax(ax).clim = Limits::Manual {
+        let scale = fx.axes_scale_mut(ax);
+        scale.limits = Limits::Manual {
             min: 0.0,
             max: 10.0,
         };
+        scale.below = out_of_range(OutOfRange::Rgba {
+            color: Color::rgba(0.0, 0.0, 1.0, 0.8),
+        });
         id
     });
     assert_eq!(pixel(&item, 0, 0), [0, 0, 255, 51], "0.8 × 0.5 × 0.5 = 0.2");
@@ -465,7 +466,7 @@ fn alpha_of_one_and_opacity_of_one_leave_an_image_exactly_as_it_was() {
     let build = |with_alpha: bool| {
         compiled_image(|fx, ax| {
             let alpha = fx.bytes(vec![2, 2], vec![255; 4]);
-            fx.mapped_image(
+            fx.imagesc(
                 ax,
                 vec![2, 2],
                 vec![1.0, 2.0, 3.0, 4.0],
@@ -501,7 +502,7 @@ fn the_legend_patch_of_a_surface_or_image_takes_its_opacity() {
             s.face_opacity = 0.4;
         },
     );
-    let image = fx.mapped_image(ax, vec![1, 2], vec![1.0, 2.0], xy(None, None), |m| {
+    let image = fx.imagesc(ax, vec![1, 2], vec![1.0, 2.0], xy(None, None), |m| {
         m.label = text("image");
         m.opacity = 0.25;
     });
@@ -621,7 +622,7 @@ fn an_alpha_array_of_the_wrong_shape_leaves_the_artist_out_with_a_warning() {
     let ax = fx.axes2d(0, 0);
     let short = fx.vector(&[1.0, 1.0]);
     let surface = fx.surface(ax, &X, &Y, |x, y| x + y, |s| s.edge_alpha = Some(short));
-    let image = fx.mapped_image(ax, vec![2, 2], vec![1.0; 4], xy(None, None), |m| {
+    let image = fx.imagesc(ax, vec![2, 2], vec![1.0; 4], xy(None, None), |m| {
         m.alpha = Some(short)
     });
     let scene = compile_figure(&fx.build());

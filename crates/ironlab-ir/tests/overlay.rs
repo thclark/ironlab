@@ -154,8 +154,8 @@ fn recording_a_transaction_with_an_edit_other_than_a_set_fails_and_records_nothi
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     assert!(overlay.undo());
     let result = overlay.record(&tx([
@@ -208,8 +208,8 @@ fn composition_drops_entries_whose_node_no_longer_exists() {
     record(
         &mut overlay,
         f.b,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     let (source, _) = applied(&f.source, &tx([Edit::Remove { node: f.line_a }])).unwrap();
 
@@ -221,8 +221,8 @@ fn composition_drops_entries_whose_node_no_longer_exists() {
         EditError::UnknownNode { node, .. } if node == f.line_a
     ));
     assert_eq!(
-        find_axes(&composed.figure, f.b).colormap,
-        ColormapName::Gray
+        find_axes(&composed.figure, f.b).title_align,
+        TitleAlign::Left
     );
 }
 
@@ -286,8 +286,8 @@ fn composition_drops_entries_that_would_add_validation_errors() {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     let (source, _) = applied(
         &f.source,
@@ -309,7 +309,7 @@ fn composition_drops_entries_that_would_add_validation_errors() {
     );
     let displayed = find_axes(&composed.figure, f.a);
     assert_eq!(displayed.x.limits, manual(1.0, 10.0));
-    assert_eq!(displayed.colormap, ColormapName::Gray);
+    assert_eq!(displayed.title_align, TitleAlign::Left);
 }
 
 // Why: a source may already have errors (a loaded file); the user's view changes must
@@ -432,7 +432,7 @@ fn an_owner_set_of_an_unrelated_property_raises_no_conflict() {
     let owner = tx([
         set(f.a, "x.grid", Value::Bool(true)),
         set(f.a, "y.limits", limits(1.0, 2.0)),
-        set(f.a, "colormap", Value::ColormapName(ColormapName::Gray)),
+        set(f.a, "title_align", Value::TitleAlign(TitleAlign::Left)),
         set(f.b, "x.limits", limits(1.0, 2.0)),
     ]);
     assert!(overlay.reconcile(&f.source, &owner).is_empty());
@@ -541,8 +541,8 @@ fn an_owner_removal_drops_the_entries_of_the_node_and_its_descendants_without_co
     record(
         &mut overlay,
         f.b,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     overlay.reconcile(&f.source, &tx([set(f.a, "x.limits", limits(4.0, 5.0))]));
     assert_eq!(overlay.conflicts().len(), 1);
@@ -550,7 +550,7 @@ fn an_owner_removal_drops_the_entries_of_the_node_and_its_descendants_without_co
     let conflicts = overlay.reconcile(&f.source, &tx([Edit::Remove { node: f.a }]));
     assert!(conflicts.is_empty());
     assert!(overlay.conflicts().is_empty());
-    assert_eq!(keys(&overlay), [(f.b, "colormap".to_owned())]);
+    assert_eq!(keys(&overlay), [(f.b, "title_align".to_owned())]);
 }
 
 // Why: an owner that replaces a plot by removing it and inserting a new one with the same
@@ -768,7 +768,7 @@ fn reverting_removes_the_entry_of_exactly_that_node_and_path() {
             (f.a, "x.limits".to_owned()),
             (f.a, "y.limits.min".to_owned()),
             (f.a, "x.scale".to_owned()),
-            (f.a, "colormap".to_owned()),
+            (f.a, "title_align".to_owned()),
             (f.b, "projection.view3d.zoom".to_owned()),
             (f.b, "z.limits".to_owned()),
             (f.b, "x.limits".to_owned()),
@@ -786,7 +786,7 @@ fn reverting_removes_the_entry_of_exactly_that_node_and_path() {
         [
             (f.a, "x.limits".to_owned()),
             (f.a, "x.scale".to_owned()),
-            (f.a, "colormap".to_owned()),
+            (f.a, "title_align".to_owned()),
             (f.b, "projection.view3d.zoom".to_owned()),
             (f.b, "z.limits".to_owned()),
             (f.b, "x.limits".to_owned()),
@@ -858,14 +858,14 @@ fn reverting_an_entry_clears_its_pending_conflict() {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     overlay.reconcile(
         &f.source,
         &tx([
             set(f.a, "x.limits", limits(0.0, 4.0)),
-            set(f.a, "colormap", Value::ColormapName(ColormapName::Magma)),
+            set(f.a, "title_align", Value::TitleAlign(TitleAlign::Right)),
         ]),
     );
     assert_eq!(overlay.conflicts().len(), 2);
@@ -878,7 +878,7 @@ fn reverting_an_entry_clears_its_pending_conflict() {
             .iter()
             .map(|conflict| conflict.overlay_path.to_string())
             .collect::<Vec<String>>(),
-        ["colormap".to_owned()]
+        ["title_align".to_owned()]
     );
 }
 
@@ -895,8 +895,8 @@ fn mixed_overlay(f: &Fixture) -> Overlay {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     record(
         &mut overlay,
@@ -930,7 +930,7 @@ fn resetting_one_axes_removes_only_its_view_entries() {
         keys(&overlay),
         [
             (f.a, "x.scale".to_owned()),
-            (f.a, "colormap".to_owned()),
+            (f.a, "title_align".to_owned()),
             (f.b, "projection".to_owned()),
             (f.b, "projection.view3d.zoom".to_owned()),
             (f.b, "z.limits".to_owned()),
@@ -943,7 +943,7 @@ fn resetting_one_axes_removes_only_its_view_entries() {
         keys(&overlay),
         [
             (f.a, "x.scale".to_owned()),
-            (f.a, "colormap".to_owned()),
+            (f.a, "title_align".to_owned()),
             (f.b, "projection".to_owned()),
             (f.line_a, "visible".to_owned()),
         ]
@@ -973,7 +973,7 @@ fn resetting_every_view_keeps_visibility_and_other_properties() {
         keys(&overlay),
         [
             (f.a, "x.scale".to_owned()),
-            (f.a, "colormap".to_owned()),
+            (f.a, "title_align".to_owned()),
             (f.b, "projection".to_owned()),
             (f.line_a, "visible".to_owned()),
         ]
@@ -1091,8 +1091,8 @@ fn a_gesture_of_many_sets_is_undone_in_one_step() {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     let before_drag = overlay.entries().to_vec();
 
@@ -1132,8 +1132,8 @@ fn redo_reapplies_an_undone_step_and_a_new_step_clears_redo() {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     assert!(!overlay.can_redo());
     assert!(!overlay.redo());
@@ -1166,20 +1166,20 @@ fn undo_after_an_owner_removal_never_restores_entries_of_the_removed_node() {
     record(
         &mut overlay,
         f.a,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     let removal = tx([Edit::Remove { node: f.line_a }]);
     let (source, _) = applied(&f.source, &removal).unwrap();
     overlay.reconcile(&f.source, &removal);
-    assert_eq!(keys(&overlay), [(f.a, "colormap".to_owned())]);
+    assert_eq!(keys(&overlay), [(f.a, "title_align".to_owned())]);
 
-    // The first undo reverts the colormap gesture, not the reconciliation.
+    // The first undo reverts the title alignment gesture, not the reconciliation.
     assert!(overlay.undo());
     assert!(overlay.entries().is_empty());
     assert!(overlay.compose(&source).dropped.is_empty());
     assert!(overlay.redo());
-    assert_eq!(keys(&overlay), [(f.a, "colormap".to_owned())]);
+    assert_eq!(keys(&overlay), [(f.a, "title_align".to_owned())]);
 
     let reinsertion = tx([Edit::Insert {
         parent: f.a,
@@ -1214,15 +1214,15 @@ fn undo_redo_and_empty_gestures_with_nothing_to_do_change_nothing() {
     record(
         &mut overlay,
         f.b,
-        "colormap",
-        Value::ColormapName(ColormapName::Gray),
+        "title_align",
+        Value::TitleAlign(TitleAlign::Left),
     );
     let entries = overlay.entries().to_vec();
     assert!(!overlay.redo());
     assert_eq!(overlay.entries(), entries);
 
     // A double-click on an axes with no view entries removes nothing and adds no step, so
-    // one undo still reverts the colormap and leaves nothing to undo.
+    // one undo still reverts the title alignment and leaves nothing to undo.
     overlay.reset_view(f.a);
     overlay.reset_all_views();
     assert!(overlay.undo());

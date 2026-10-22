@@ -366,9 +366,9 @@ fn contour_lines_lie_on_their_levels_with_colormapped_colours() {
         &g,
         |x, _| x,
         |c| {
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: levels.to_vec(),
-            }
+            })
         },
     );
     let scene = compile_figure(&fx.build());
@@ -413,9 +413,9 @@ fn filled_contour_bands_tile_the_data_domain() {
     let field = |x: f64, y: f64| x * x + y * y;
     let contour = fx.contour(ax, &g, &g, field, |c| {
         c.fill = true;
-        c.levels = Levels::Explicit {
+        c.levels = Some(Levels::Explicit {
             values: vec![0.5, 1.0, 1.5],
-        };
+        });
     });
     let scene = compile_figure(&fx.build());
     let (xmap, ymap) = axis_maps(&scene, ax);

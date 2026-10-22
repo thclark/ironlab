@@ -4,7 +4,7 @@
 //! implemented; tests of `PdfOptions::for_figure` do not.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, Color, ColorSpec, DataArray, Figure, FigureSize, Grid, Image,
+    Artist, Axes, Axis, Color, ColorScale, ColorSpec, DataArray, Figure, FigureSize, Grid, Image,
     ImagePlacement, Limits, Line, NdArray, NodeId, PixelRange, Provenance, Scale, Surface, Text,
 };
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
@@ -431,7 +431,8 @@ fn the_opacity_of_a_surface_and_of_an_image_reaches_the_page() {
 
 /// A figure of one 2D axes whose x axis is logarithmic over [1, 100], holding a surface without edges whose nodes lie
 /// at x = 1, 10 and 100. The field is 0 at the first two columns of nodes and 1 at the last, so the face over
-/// [1, 10] takes the colour of 0 and the face over [10, 100] the colour of 0.5, which differ.
+/// [1, 10] takes the colour of 0 and the face over [10, 100] the colour of 0.5 through a continuous colour scale of
+/// viridis between automatic limits, which differ.
 fn surface_on_a_logarithmic_axis() -> Figure {
     let mut figure = Figure::new();
     figure.size = FigureSize {
@@ -446,6 +447,11 @@ fn surface_on_a_logarithmic_axis() -> Figure {
     );
     let axes_id = figure.alloc_node_id();
     let surface_id = figure.alloc_node_id();
+    let scale_id = figure.alloc_node_id();
+    figure.color_scales.push(ColorScale {
+        id: scale_id,
+        ..ColorScale::default()
+    });
     figure.axes.push(Axes {
         id: axes_id,
         x: Axis {
@@ -457,6 +463,7 @@ fn surface_on_a_logarithmic_axis() -> Figure {
             grid: Grid::Rectilinear { x, y },
             z,
             edge: ColorSpec::None,
+            color_scale: Some(scale_id),
             ..Surface::default()
         })],
         ..Axes::default()

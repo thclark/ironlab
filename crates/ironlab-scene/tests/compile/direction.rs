@@ -159,7 +159,7 @@ fn an_image_on_reversed_axes_is_mirrored_with_them() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let values: Vec<f64> = (0..6).map(f64::from).collect();
-    let image = fx.mapped_image(ax, vec![2, 3], values, xy(None, None), |_| {});
+    let image = fx.imagesc(ax, vec![2, 3], values, xy(None, None), |_| {});
     fx.ax(ax).x.reverse = true;
     fx.ax(ax).y.reverse = true;
     let scene = compile_figure(&fx.build());

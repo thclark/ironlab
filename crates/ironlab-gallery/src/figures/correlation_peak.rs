@@ -13,7 +13,7 @@ pub const DESCRIPTION: &str = "A three-dimensional cross-correlation volume, of 
 /// The number of pixels along each axis of every image.
 const N: usize = 101;
 
-/// Draws the correlation field on one plane of the axes as a colour-mapped image of `N` by `N` pixels whose edges
+/// Draws the correlation field on one plane of the axes as a scalar image of `N` by `N` pixels whose edges
 /// span exactly `lo` to `hi` along both axes of the plane, sampling the field at the centre of every pixel with
 /// `at`, which takes the coordinates along the first and second axes of the plane.
 ///
@@ -23,7 +23,7 @@ fn section(ax: &mut AxesMut<'_>, plane: ImagePlane, lo: f64, hi: f64, at: impl F
     let pitch = (hi - lo) / N as f64;
     let centres = linspace(lo + pitch / 2.0, hi - pitch / 2.0, N);
     let values = Matrix::from_fn(N, N, |row, col| at(centres[col], centres[row]));
-    ax.mapped_image(&values)
+    ax.scalar_image(&values)
         .plane(plane)
         .pixel_columns(centres[0], centres[N - 1])
         .pixel_rows(centres[0], centres[N - 1]);
@@ -49,10 +49,10 @@ pub fn figure() -> Figure {
     section(&mut ax, ImagePlane::Xy { z: Some(0.5) }, 0.25, 0.75, |x, y| correlation_field(x, y, 0.5));
     section(&mut ax, ImagePlane::Xz { y: Some(0.5) }, 0.25, 0.75, |x, z| correlation_field(x, 0.5, z));
     section(&mut ax, ImagePlane::Yz { x: Some(0.5) }, 0.25, 0.75, |y, z| correlation_field(0.5, y, z));
+    ax.color_scale().colormap(Colormap::Magma);
     ax.xlim(0.0, 1.0)
         .ylim(0.0, 1.0)
         .zlim(0.0, 1.0)
-        .colormap(Colormap::Magma)
         .xlabel("$x$")
         .ylabel("$y$")
         .zlabel("$z$");

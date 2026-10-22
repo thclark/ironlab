@@ -22,8 +22,8 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.mesh(&x, &y, &z).edge_width(0.6);
-    ax.colormap(Colormap::Plasma)
-        .xlabel("$x$")
+    ax.color_scale().colormap(Colormap::Plasma);
+    ax.xlabel("$x$")
         .ylabel("$y$")
         .zlabel(r"$\ln(1 + |z_3|)$")
         .view(-50.0, 35.0);

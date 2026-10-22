@@ -30,12 +30,9 @@ pub enum Artist {
     Surface(Surface),
     /// A raster of true-colour pixels (image with a true-colour array).
     Image(Image),
-    /// A raster of pixels that name entries of the axes colormap (image with an
-    /// indexed array).
-    IndexedImage(IndexedImage),
-    /// A raster of data values mapped through the axes colormap and colour limits
-    /// (imagesc).
-    MappedImage(MappedImage),
+    /// A raster of numbers, each mapped to a colour through a colour scale (image with
+    /// an indexed array, imagesc).
+    ScalarImage(ScalarImage),
 }
 
 /// A polyline through data points, with optional markers at the points.
@@ -117,6 +114,9 @@ pub struct Scatter {
     /// The colour of the markers, applied wherever `marker.face` or `marker.edge`
     /// is `auto`.
     pub color: ScatterColor,
+    /// The colour scale through which colour data is mapped. A scatter coloured by data
+    /// must name one; a scatter of one colour maps nothing and needs none.
+    pub color_scale: Option<NodeId>,
     /// The marker shape and the use of the scatter colour for face and edge.
     pub marker: MarkerStyle,
     /// How the x values are placed: as data along the x axis, or as fractions of the
@@ -144,6 +144,7 @@ impl Default for Scatter {
             z: None,
             size: ScatterSize::default(),
             color: ScatterColor::default(),
+            color_scale: None,
             marker: MarkerStyle {
                 shape: MarkerShape::Circle,
                 ..MarkerStyle::default()
@@ -206,10 +207,10 @@ pub enum ScatterColor {
         /// The colour of every marker.
         spec: ColorSpec,
     },
-    /// Each marker is coloured by a data value through the axes colormap.
+    /// Each marker is coloured by a data value through the colour scale of the scatter.
     Data {
-        /// An array of values, one per point, mapped through the axes colormap and
-        /// colour limits.
+        /// An array of values, one per point, mapped through the colour scale of the
+        /// scatter.
         data: NodeId,
     },
 }
@@ -235,15 +236,22 @@ pub struct Contour {
     pub grid: Grid,
     /// The field values, a two-dimensional array of shape `[ny, nx]`.
     pub z: NodeId,
-    /// The field values at which isolines are drawn or between which bands are filled.
-    pub levels: Levels,
+    /// The field values at which isolines are drawn or between which bands are filled, or
+    /// `None` for the levels of the colour scale: the band edges of a discrete scale, and
+    /// ten automatic levels otherwise, so that a contour and the bar of its discrete scale
+    /// cannot disagree.
+    pub levels: Option<Levels>,
     /// Whether the bands between levels are filled (contourf) rather than only the
     /// isolines drawn (contour).
     pub fill: bool,
     /// Where the contours are placed in 3D axes.
     pub placement: ContourPlacement,
-    /// The style of the isolines; a colormapped colour takes each isoline's level.
+    /// The style of the isolines; a colormapped colour takes the colour of each
+    /// isoline's level through the colour scale.
     pub line: LineStyle,
+    /// The colour scale through which levels and bands are coloured. A contour whose
+    /// bands are filled, or whose isolines are colormapped or automatic, must name one.
+    pub color_scale: Option<NodeId>,
     /// The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of their colour.
     ///
@@ -266,13 +274,14 @@ impl Default for Contour {
             visible: true,
             grid: Grid::default(),
             z: NodeId::default(),
-            levels: Levels::default(),
+            levels: None,
             fill: false,
             placement: ContourPlacement::default(),
             line: LineStyle {
                 color: ColorSpec::Colormapped,
                 ..LineStyle::default()
             },
+            color_scale: None,
             line_opacity: 1.0,
             fill_opacity: 1.0,
         }
@@ -449,6 +458,9 @@ pub struct Surface {
     pub edge: ColorSpec,
     /// The width of the face edges in points.
     pub edge_width_pt: f64,
+    /// The colour scale through which the colour data is mapped. A surface whose faces or
+    /// edges are colormapped or automatic must name one.
+    pub color_scale: Option<NodeId>,
     /// The alpha of the faces at every node, an array of 64-bit floating-point values
     /// with the same shape as `z`, or `None` for faces that are uniformly opaque before
     /// [`face_opacity`](Surface::face_opacity) applies. A face takes the mean of the
@@ -499,6 +511,7 @@ impl Default for Surface {
                 color: Color::BLACK,
             },
             edge_width_pt: 0.5,
+            color_scale: None,
             face_alpha: None,
             edge_alpha: None,
             face_opacity: 1.0,
@@ -563,127 +576,63 @@ impl Default for Image {
     }
 }
 
-/// A colour-indexed image: a raster of pixels whose values name entries of the axes
-/// colormap directly (image with an indexed array).
+/// A scalar image: a raster of pixels, each holding one number that its colour scale maps
+/// to a colour (image with an indexed array, and imagesc).
 ///
-/// An index is looked up without any mapping: a floating-point index is truncated toward
-/// zero, and an index from 0 to 255 takes that entry of the 256-entry colormap. The
-/// indices neither use nor change the colour limits of the axes. A pixel whose index lies
-/// outside the colormap, or is not finite, is drawn as the policy of its category says.
+/// The scale decides what the numbers mean: through a continuous or discrete scale they
+/// are values between limits, and through an indexed or categorical scale they are
+/// indices of entries. A pixel whose number the scale cannot place (below or above its
+/// range, outside its entries, or not finite) is drawn as the policy of that category of
+/// the scale says. An image is drawn as flat, uninterpolated pixels rather than as a
+/// mesh, so it is planar: it lies in one of the coordinate planes of its axes, where its
+/// [`placement`](ScalarImage::placement) puts it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct IndexedImage {
+pub struct ScalarImage {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
     /// The label drawn beside the artist in a legend.
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
-    /// The indices, a two-dimensional array of shape `[ny, nx]`. The array may hold
-    /// floating-point indices, which are truncated toward zero, or 8-bit indices, which
-    /// always lie within the colormap.
-    pub indices: NodeId,
-    /// Where the pixels lie in the axes.
-    pub placement: ImagePlacement,
-    /// What is drawn for a pixel whose truncated index is less than 0.
-    pub below: OutOfRange,
-    /// What is drawn for a pixel whose truncated index is greater than 255.
-    pub above: OutOfRange,
-    /// What is drawn for a pixel whose index is NaN or infinite.
-    pub non_finite: OutOfRange,
-    /// The alpha of every pixel, a two-dimensional array with the same shape as
-    /// `indices`, or `None` for pixels that are uniformly opaque before
-    /// [`opacity`](IndexedImage::opacity) applies. The array may hold floating-point values from
-    /// 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image
-    /// may. A value outside the range is clamped to it, and a pixel whose alpha is not
-    /// finite is transparent. The alpha also applies to a pixel drawn in the fixed
-    /// colour of an out-of-range policy.
-    ///
-    /// The property is omitted from JSON when it is absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alpha: Option<NodeId>,
-    /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
-    /// the alpha of every pixel: the alpha of its colour and, when present, its value
-    /// in [`alpha`](IndexedImage::alpha).
-    ///
-    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
-    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
-    pub opacity: f64,
-}
-
-impl Default for IndexedImage {
-    fn default() -> Self {
-        Self {
-            id: NodeId::default(),
-            label: None,
-            visible: true,
-            indices: NodeId::default(),
-            placement: ImagePlacement::default(),
-            below: OutOfRange::default(),
-            above: OutOfRange::default(),
-            non_finite: OutOfRange::default(),
-            alpha: None,
-            opacity: 1.0,
-        }
-    }
-}
-
-/// A colour-mapped image: a raster of data values, each scaled through the colour limits
-/// of the axes into its colormap (imagesc).
-///
-/// The values are coloured as the colour data of a surface is, and contribute to
-/// automatic colour limits in the same way. A pixel whose value lies outside the colour
-/// limits, or is not finite, is drawn as the policy of its category says.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct MappedImage {
-    /// The node identifier of the artist, unique within the figure.
-    pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
-    pub label: Option<Text>,
-    /// Whether the artist is drawn.
-    pub visible: bool,
-    /// The values, a two-dimensional array of shape `[ny, nx]`, mapped through the axes
-    /// colormap and colour limits. The array may hold floating-point or 8-bit values; an
-    /// 8-bit value is mapped as the number it denotes.
+    /// The numbers, a two-dimensional array of shape `[ny, nx]`, so that the number of
+    /// the pixel in row `j` and column `i` is at index `j * nx + i`. The array may hold
+    /// floating-point values or 8-bit values; an 8-bit value is mapped as the whole
+    /// number it denotes.
     pub values: NodeId,
+    /// The colour scale through which the numbers are mapped. A scalar image always maps
+    /// its numbers, so a figure in which it names no scale is invalid.
+    pub color_scale: Option<NodeId>,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
-    /// What is drawn for a pixel whose value is less than the lower colour limit.
-    pub below: OutOfRange,
-    /// What is drawn for a pixel whose value is greater than the upper colour limit.
-    pub above: OutOfRange,
-    /// What is drawn for a pixel whose value is NaN or infinite.
-    pub non_finite: OutOfRange,
     /// The alpha of every pixel, a two-dimensional array with the same shape as
     /// `values`, or `None` for pixels that are uniformly opaque before
-    /// [`opacity`](MappedImage::opacity) applies. The array may hold floating-point values from
-    /// 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image
+    /// [`opacity`](ScalarImage::opacity) applies. The array may hold floating-point values
+    /// from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image
     /// may. A value outside the range is clamped to it, and a pixel whose alpha is not
-    /// finite is transparent. The alpha also applies to a pixel drawn in the fixed
-    /// colour of an out-of-range policy.
+    /// finite is transparent. The alpha also applies to a pixel drawn in the fixed colour
+    /// of an out-of-range policy.
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpha: Option<NodeId>,
     /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every pixel: the alpha of its colour and, when present, its value
-    /// in [`alpha`](MappedImage::alpha).
+    /// in [`alpha`](ScalarImage::alpha).
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
     pub opacity: f64,
 }
 
-impl Default for MappedImage {
+impl Default for ScalarImage {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
             label: None,
             visible: true,
             values: NodeId::default(),
+            color_scale: None,
             placement: ImagePlacement::default(),
-            below: OutOfRange::default(),
-            above: OutOfRange::default(),
-            non_finite: OutOfRange::default(),
             alpha: None,
             opacity: 1.0,
         }
@@ -793,40 +742,5 @@ impl ImagePlane {
             ImagePlane::Xz { y } => y,
             ImagePlane::Yz { x } => x,
         }
-    }
-}
-
-/// What is drawn for a pixel of a colour-indexed or colour-mapped image that the artist
-/// cannot colour: an index outside the colormap, a value outside the colour limits, or
-/// an index or value that is not finite.
-///
-/// Each of the three categories of such pixels (`below`, `above` and `non_finite`)
-/// holds a policy of its own, so that, for example, non-finite values may be tolerated
-/// while values outside the range are refused, or the reverse. Every category is
-/// transparent by default, so that an image reaches the page whatever its data holds.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum OutOfRange {
-    /// Such a pixel is a validation error, so the figure is refused until the data is
-    /// corrected.
-    Strict,
-    /// Nothing is drawn for the pixel.
-    #[default]
-    Transparent,
-    /// The pixel takes the nearest end colour of the colormap: its first entry below the
-    /// range and its last entry above it. A non-finite value has no nearest end, so at
-    /// the `non_finite` category a clamp draws nothing.
-    Clamp,
-    /// The pixel is drawn in a fixed colour.
-    Rgba {
-        /// The colour of the pixel.
-        color: Color,
-    },
-}
-
-impl From<Color> for OutOfRange {
-    /// A colour is the fixed-colour policy: such a pixel is drawn in that colour.
-    fn from(color: Color) -> Self {
-        OutOfRange::Rgba { color }
     }
 }

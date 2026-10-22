@@ -278,10 +278,10 @@ fn compilation_is_deterministic() {
         |a, b| a * a - b * b,
         |c| {
             c.fill = true;
-            c.levels = Levels::Auto { count: 6 };
+            c.levels = Some(Levels::Auto { count: 6 });
         },
     );
-    fx.mapped_image(
+    fx.imagesc(
         right,
         vec![2, 3],
         vec![0.0, 1.0, f64::NAN, 3.0, 4.0, 5.0],

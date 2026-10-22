@@ -29,6 +29,58 @@ fn error_kinds(report: &ValidationReport) -> Vec<IssueKind> {
     report.errors.iter().map(|issue| issue.kind).collect()
 }
 
+/// The continuous colour scale with the defaults of its kind that [`give_scales`] adds,
+/// through which every colour-mapped artist of a fixture is mapped unless it names a
+/// scale of its own.
+const SCALE: NodeId = NodeId(900);
+
+/// The 256-entry indexed colour scale that [`give_scales`] adds, transparent outside its
+/// entries, through which an indexed image of a fixture is mapped.
+const INDEXED_SCALE: NodeId = NodeId(901);
+
+/// Adds the scales [`SCALE`] and [`INDEXED_SCALE`] to a fixture, and makes every artist
+/// that maps numbers to colours without naming a scale name [`SCALE`], so that the
+/// fixtures of checks unrelated to colour scales raise no missing-scale error. A scale
+/// that no artist names raises no issue, so the scales are added whether or not an
+/// artist uses them.
+fn give_scales(fig: &mut Figure) {
+    fig.color_scales.push(ColorScale {
+        id: SCALE,
+        ..ColorScale::default()
+    });
+    fig.color_scales.push(ColorScale {
+        id: INDEXED_SCALE,
+        kind: ColorScaleKind::Indexed(IndexedColorScale {
+            colors: (0..=255u8)
+                .map(|k| {
+                    let v = f32::from(k) / 255.0;
+                    Color::rgb(v, v, v)
+                })
+                .collect(),
+            outside: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+            ..IndexedColorScale::default()
+        }),
+        ..ColorScale::default()
+    });
+    for artist in fig.axes.iter_mut().flat_map(|axes| axes.artists.iter_mut()) {
+        let reference = match artist {
+            Artist::ScalarImage(a) => &mut a.color_scale,
+            Artist::Contour(a) => &mut a.color_scale,
+            Artist::Surface(a) => &mut a.color_scale,
+            Artist::Scatter(a) => &mut a.color_scale,
+            Artist::Line(_) | Artist::Quiver(_) | Artist::Image(_) => continue,
+        };
+        reference.get_or_insert(SCALE);
+    }
+}
+
+/// Builds a fixture and gives it the scales of [`give_scales`].
+fn built(b: FigureBuilder) -> Figure {
+    let mut fig = b.build();
+    give_scales(&mut fig);
+    fig
+}
+
 fn line_mut(fig: &mut Figure) -> &mut Line {
     match &mut fig.axes[0].artists[0] {
         Artist::Line(line) => line,
@@ -100,6 +152,7 @@ fn grid_fixture(three_d: bool, make: impl FnOnce(NodeId, &GridData) -> Artist) -
     b.push(axes, made);
     let mut fig = b.build();
     drop_unreferenced_data(&mut fig);
+    give_scales(&mut fig);
     GridFixture { fig, artist }
 }
 
@@ -760,7 +813,7 @@ fn a_field_with_no_cells_is_a_warning_that_the_artist_draws_nothing() {
                     };
                     let id = b.node();
                     b.push(axes, make(id, grid, field));
-                    let report = b.build().validate();
+                    let report = built(b).validate();
                     let at = format!(
                         "a {artist_name} on {shape_name} of a {} grid in a {} axes",
                         if curvilinear {
@@ -839,7 +892,7 @@ fn a_line_scatter_or_quiver_of_no_points_is_a_warning_that_names_each_artist() {
                 ..Quiver::default()
             }),
         );
-        let report = b.build().validate();
+        let report = built(b).validate();
         let at = format!("three_d = {three_d}");
         assert_eq!(report.errors, vec![], "{at}: {report:?}");
         assert!(report.is_valid(), "{at}");
@@ -899,7 +952,7 @@ fn a_line_scatter_or_quiver_of_no_points_is_a_warning_that_names_each_artist() {
                 ..Quiver::default()
             }),
         );
-        assert_no_issues(&b.build().validate(), &format!("{at}, one point"));
+        assert_no_issues(&built(b).validate(), &format!("{at}, one point"));
     }
 }
 
@@ -1061,7 +1114,7 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
         let id = b.node();
         let artist = make(&mut b, id);
         b.push(axes, artist);
-        let report = b.build().validate();
+        let report = built(b).validate();
         assert_eq!(error_kinds(&report), vec![kind], "{name}: {report:?}");
         assert_eq!(report.errors[0].node, Some(id), "{name}");
         assert_eq!(
@@ -1356,7 +1409,7 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
             ..Scatter::default()
         }),
     );
-    let report = b.build().validate();
+    let report = built(b).validate();
     assert_eq!(report.errors, vec![]);
     assert_eq!(report.warnings, vec![]);
 
@@ -1383,9 +1436,22 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
 // Why: the scene compiler maps data through `(value - min) / (max - min)` (in log space
 // on log axes), so manual limits that are non-finite, empty, reversed or non-positive on a
 // log axis cannot be drawn; the viewer's zoom could produce such limits, so they must be
-// caught with the axes identified rather than rendered as garbage.
+// caught with the axes identified rather than rendered as garbage. The limits of a colour
+// scale, which replaced the colour limits of the axes, are mapped in the same way and are
+// caught with the scale identified.
 #[test]
 fn invalid_manual_limits_are_errors_on_the_axes() {
+    let scale_limits = |fig: &mut Figure, limits: Limits| {
+        fig.color_scales.push(continuous_scale(
+            SCALE,
+            limits,
+            [
+                OutOfRange::Clamp,
+                OutOfRange::Clamp,
+                OutOfRange::Transparent,
+            ],
+        ));
+    };
     let manual = |min, max| Limits::Manual { min, max };
     let bad = [
         manual(1.0, 1.0),
@@ -1402,12 +1468,12 @@ fn invalid_manual_limits_are_errors_on_the_axes() {
             "{limits:?}: {report:?}"
         );
 
-        let (mut fig, axes, _) = single_line_figure();
-        fig.axes[0].clim = limits;
+        let (mut fig, _, _) = single_line_figure();
+        scale_limits(&mut fig, limits);
         let report = fig.validate();
         assert!(
-            has_error(&report, IssueKind::InvalidLimits, Some(axes)),
-            "clim {limits:?}: {report:?}"
+            has_error(&report, IssueKind::InvalidLimits, Some(SCALE)),
+            "colour scale {limits:?}: {report:?}"
         );
     }
 
@@ -1420,10 +1486,10 @@ fn invalid_manual_limits_are_errors_on_the_axes() {
         "log axis from zero: {report:?}"
     );
 
-    // Negative limits are ordinary on a linear axis, and colour limits have no scale.
+    // Negative limits are ordinary on a linear axis and under a linear colour scale.
     let (mut fig, _, _) = single_line_figure();
     fig.axes[0].x.limits = manual(-10.0, -1.0);
-    fig.axes[0].clim = manual(-10.0, -1.0);
+    scale_limits(&mut fig, manual(-10.0, -1.0));
     assert_eq!(fig.validate().errors, vec![]);
 }
 
@@ -1451,7 +1517,7 @@ fn invalid_contour_levels_are_errors_on_the_contour() {
                 id,
                 grid: Grid::Rectilinear { x: d.gx, y: d.gy },
                 z: d.field,
-                levels: levels.clone(),
+                levels: Some(levels.clone()),
                 ..Contour::default()
             })
         });
@@ -1468,7 +1534,7 @@ fn invalid_contour_levels_are_errors_on_the_contour() {
             id,
             grid: Grid::Rectilinear { x: d.gx, y: d.gy },
             z: d.field,
-            levels: Levels::Explicit { values: vec![0.0] },
+            levels: Some(Levels::Explicit { values: vec![0.0] }),
             ..Contour::default()
         })
     });
@@ -1578,56 +1644,77 @@ fn image_at(id: NodeId, pixels: NodeId, placement: ImagePlacement) -> Artist {
     })
 }
 
-/// A colour-indexed image of the given indices with the given placement and the default
-/// (transparent) policies.
+/// A scalar image of the given indices with the given placement, mapped through the
+/// 256-entry indexed scale of the fixture, which is transparent outside its entries.
 fn indexed_at(id: NodeId, indices: NodeId, placement: ImagePlacement) -> Artist {
-    Artist::IndexedImage(IndexedImage {
+    Artist::ScalarImage(ScalarImage {
         id,
-        indices,
+        values: indices,
+        color_scale: Some(INDEXED_SCALE),
         placement,
-        ..IndexedImage::default()
+        ..ScalarImage::default()
     })
 }
 
-/// A colour-mapped image of the given values with the given placement and the default
-/// (transparent) policies.
+/// A scalar image of the given values with the given placement, mapped through the
+/// continuous scale of the fixture.
 fn mapped_at(id: NodeId, values: NodeId, placement: ImagePlacement) -> Artist {
-    Artist::MappedImage(MappedImage {
+    Artist::ScalarImage(ScalarImage {
         id,
         values,
+        color_scale: Some(SCALE),
         placement,
-        ..MappedImage::default()
+        ..ScalarImage::default()
     })
 }
 
-/// A colour-indexed image in the default placement with the given policies for indices
-/// below the map, above it and non-finite.
-fn indexed_with(
+/// A 256-entry indexed scale whose policies outside its entries and for non-finite values
+/// are the given ones.
+fn indexed_scale(id: NodeId, [outside, non_finite]: [OutOfRange; 2]) -> ColorScale {
+    ColorScale {
+        id,
+        kind: ColorScaleKind::Indexed(IndexedColorScale {
+            colors: vec![Color::BLACK; 256],
+            outside: ColorScaleOutOfRange::new(outside),
+            ..IndexedColorScale::default()
+        }),
+        non_finite: ColorScaleOutOfRange::new(non_finite),
+        ..ColorScale::default()
+    }
+}
+
+/// A continuous scale with the given limits whose policies below the limits, above them
+/// and for non-finite values are the given ones.
+fn continuous_scale(
     id: NodeId,
-    indices: NodeId,
+    limits: Limits,
     [below, above, non_finite]: [OutOfRange; 3],
-) -> Artist {
-    Artist::IndexedImage(IndexedImage {
+) -> ColorScale {
+    ColorScale {
         id,
-        indices,
-        below,
-        above,
-        non_finite,
-        ..IndexedImage::default()
-    })
+        kind: ColorScaleKind::Continuous(ContinuousColorScale {
+            limits,
+            below: ColorScaleOutOfRange::new(below),
+            above: ColorScaleOutOfRange::new(above),
+            ..ContinuousColorScale::default()
+        }),
+        non_finite: ColorScaleOutOfRange::new(non_finite),
+        ..ColorScale::default()
+    }
 }
 
-/// A colour-mapped image in the default placement with the given policies for values
-/// below the colour limits, above them and non-finite.
-fn mapped_with(id: NodeId, values: NodeId, [below, above, non_finite]: [OutOfRange; 3]) -> Artist {
-    Artist::MappedImage(MappedImage {
-        id,
-        values,
-        below,
-        above,
-        non_finite,
-        ..MappedImage::default()
-    })
+/// The identifier of the scale that [`with_scale`] gives its image.
+const OWN_SCALE: NodeId = NodeId(950);
+
+/// Makes the single scalar image of a fixture name the given scale, under the identifier
+/// [`OWN_SCALE`], which the fixture gains.
+fn with_scale(fx: &mut GridFixture, mut scale: ColorScale) {
+    scale.id = OWN_SCALE;
+    fx.fig.color_scales.push(scale);
+    match &mut fx.fig.axes[0].artists[0] {
+        Artist::ScalarImage(a) => a.color_scale = Some(OWN_SCALE),
+        other => panic!("expected a scalar image, found {other:?}"),
+    }
 }
 
 /// A placement on the given plane with no pixel ranges.
@@ -1680,18 +1767,16 @@ fn image_fixture(
     };
     let artist = b.node();
     b.push(axes, make(artist, data));
-    GridFixture {
-        fig: b.build(),
-        artist,
-    }
+    let mut fig = b.build();
+    give_scales(&mut fig);
+    GridFixture { fig, artist }
 }
 
 /// Returns the array that the single image artist of a fixture draws.
 fn image_data(fx: &GridFixture) -> NodeId {
     match &fx.fig.axes[0].artists[0] {
         Artist::Image(a) => a.pixels,
-        Artist::IndexedImage(a) => a.indices,
-        Artist::MappedImage(a) => a.values,
+        Artist::ScalarImage(a) => a.values,
         other => panic!("expected an image, found {other:?}"),
     }
 }
@@ -2169,54 +2254,62 @@ fn an_empty_image_on_a_logarithmic_axis_is_reported_for_the_axis_alone() {
     }
 }
 
-// Why: a strict category is how a user says that indices outside the map are a fault in
-// the data rather than something to paint over, so validation must report a pixel that
-// the category covers and only such a pixel: an index is truncated toward zero before it
-// is looked up, so -0.5 is entry 0 and 255.9 is entry 255, and a non-finite index is
-// neither below nor above the map. The error must name the category, so that the user
-// knows which policy to loosen; and 8-bit indices always lie within the map, so every
-// category may be strict on them.
+// Why: a strict category is how a user says that indices outside the entries are a fault
+// in the data rather than something to paint over, so validation must report a pixel that
+// the category covers and only such a pixel: an index names an entry only when it is a
+// whole number from 0 to the number of entries less one, so -0.5 and 255.9 lie outside the
+// entries as -1 and 256 do (fractional indices are out of range, as the colour-scale model
+// decides), and a non-finite index is covered by the non-finite category alone. The error
+// must name the category, so that the user knows which policy to loosen; and 8-bit indices
+// always name one of 256 entries, so every category may be strict on them.
 #[test]
 fn strict_categories_of_an_indexed_image_report_exactly_the_pixels_they_cover() {
-    let names = ["below", "above", "non_finite"];
+    let names = ["outside", "non_finite"];
     // An index and the category that covers it, or none when every category accepts it.
     let cases = [
         (-1.0, Some(0)),
         (-256.0, Some(0)),
-        (-0.5, None),
+        (-0.5, Some(0)),
         (0.0, None),
+        (-0.0, None),
         (255.0, None),
-        (255.9, None),
-        (256.0, Some(1)),
-        (1.0e9, Some(1)),
-        (f64::NAN, Some(2)),
-        (f64::INFINITY, Some(2)),
-        (f64::NEG_INFINITY, Some(2)),
+        (255.9, Some(0)),
+        (256.0, Some(0)),
+        (1.0e9, Some(0)),
+        (f64::NAN, Some(1)),
+        (f64::INFINITY, Some(1)),
+        (f64::NEG_INFINITY, Some(1)),
     ];
     for (index, covered_by) in cases {
-        for strict in 0..3 {
+        for strict in 0..2 {
             let mut fx = image_fixture(false, vec![3, 4], false, |id, data| {
-                let mut policies = [OutOfRange::Transparent; 3];
-                policies[strict] = OutOfRange::Strict;
-                indexed_with(id, data, policies)
+                indexed_at(id, data, ImagePlacement::default())
             });
+            let mut policies = [OutOfRange::Transparent; 2];
+            policies[strict] = OutOfRange::Strict;
+            with_scale(&mut fx, indexed_scale(OWN_SCALE, policies));
             let data = image_data(&fx);
-            floats_mut(array_mut(&mut fx.fig, data))[5] = index;
+            let values = floats_mut(array_mut(&mut fx.fig, data));
+            // Whole numbers, so that only the index under test can lie outside.
+            for (k, value) in values.iter_mut().enumerate() {
+                *value = k as f64;
+            }
+            values[5] = index;
             let report = fx.fig.validate();
             let at = format!("index {index} with a strict {} category", names[strict]);
             if covered_by == Some(strict) {
                 assert!(
-                    has_error(&report, IssueKind::PixelOutOfRange, Some(fx.artist)),
+                    has_error(&report, IssueKind::ValueOutOfRange, Some(fx.artist)),
                     "{at}: {report:?}"
                 );
                 assert_eq!(
                     error_kinds(&report),
-                    vec![IssueKind::PixelOutOfRange],
+                    vec![IssueKind::ValueOutOfRange],
                     "{at}: {report:?}"
                 );
                 let message = &report.errors[0].message;
                 let named = match strict {
-                    2 => message.contains("non-finite") || message.contains("non_finite"),
+                    1 => message.contains("non-finite") || message.contains("non_finite"),
                     _ => message.contains(names[strict]),
                 };
                 assert!(named, "{at}: the error must name the category: {message}");
@@ -2225,39 +2318,40 @@ fn strict_categories_of_an_indexed_image_report_exactly_the_pixels_they_cover() 
             }
         }
     }
-    let fx = image_fixture(false, vec![3, 4], true, |id, data| {
-        indexed_with(id, data, [OutOfRange::Strict; 3])
+    let mut fx = image_fixture(false, vec![3, 4], true, |id, data| {
+        indexed_at(id, data, ImagePlacement::default())
     });
+    with_scale(&mut fx, indexed_scale(OWN_SCALE, [OutOfRange::Strict; 2]));
     assert_eq!(
         fx.fig.validate().errors,
         vec![],
-        "8-bit indices cannot lie outside the map"
+        "8-bit indices cannot lie outside 256 entries"
     );
 }
 
-// Why: the below and above categories of a mapped image concern values outside the
-// colour limits, which automatic limits, being the range of the data, can never place a
-// value outside; only manual limits can, and only valid ones, because reversed or
-// non-finite limits are already reported against the axes and a scan against them would
-// report every pixel for a fault that is not the image's. A value on a limit is inside
-// it, a non-finite value (NaN or either infinity) is reported by its own category
-// whatever the limits and by no other, and 8-bit values are compared with the limits
-// like floats.
+// Why: the below and above categories of a continuous scale concern values outside its
+// limits, which automatic limits, being the range of the data, can never place a value
+// outside; only manual limits can, and only valid ones, because reversed or non-finite
+// limits are already reported against the scale and a scan against them would report
+// every pixel for a fault that is not the image's. A value on a limit is inside it, a
+// non-finite value (NaN or either infinity) is reported by its own category whatever the
+// limits and by no other, and 8-bit values are compared with the limits like floats.
 #[test]
 fn strict_categories_of_a_mapped_image_are_checked_against_manual_valid_colour_limits_only() {
-    /// A 2D figure with the given colour limits holding one mapped image of a 2 × 3
-    /// array of the given values with the given policies.
-    fn mapped_fixture(values: Vec<f64>, clim: Limits, policies: [OutOfRange; 3]) -> GridFixture {
+    /// A 2D figure holding one scalar image of a 2 × 3 array of the given values through
+    /// a continuous scale with the given limits and policies.
+    fn mapped_fixture(values: Vec<f64>, limits: Limits, policies: [OutOfRange; 3]) -> GridFixture {
         let mut b = FigureBuilder::new();
         let axes = b.axes2d(0, 0);
-        b.axes(axes).clim = clim;
         let data = b.data(NdArray::from_shape(vec![2, 3], values).expect("six values"));
         let artist = b.node();
-        b.push(axes, mapped_with(artist, data, policies));
-        GridFixture {
+        b.push(axes, mapped_at(artist, data, ImagePlacement::default()));
+        let mut fx = GridFixture {
             fig: b.build(),
             artist,
-        }
+        };
+        with_scale(&mut fx, continuous_scale(OWN_SCALE, limits, policies));
+        fx
     }
     let manual = |min, max| Limits::Manual { min, max };
     let strict = |category: usize| {
@@ -2281,12 +2375,12 @@ fn strict_categories_of_a_mapped_image_are_checked_against_manual_valid_colour_l
         let at = format!("strict category {category} over {spread:?}");
         if offending {
             assert!(
-                has_error(&report, IssueKind::PixelOutOfRange, Some(fx.artist)),
+                has_error(&report, IssueKind::ValueOutOfRange, Some(fx.artist)),
                 "{at}: {report:?}"
             );
             assert_eq!(
                 error_kinds(&report),
-                vec![IssueKind::PixelOutOfRange],
+                vec![IssueKind::ValueOutOfRange],
                 "{at}: {report:?}"
             );
         } else {
@@ -2306,21 +2400,21 @@ fn strict_categories_of_a_mapped_image_are_checked_against_manual_valid_colour_l
 
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let values = vec![0.0, bad, 0.5, 0.75, 1.0, 1.0];
-        for clim in [Limits::Auto, manual(0.0, 1.0)] {
-            let fx = mapped_fixture(values.clone(), clim, strict(non_finite));
+        for limits in [Limits::Auto, manual(0.0, 1.0)] {
+            let fx = mapped_fixture(values.clone(), limits, strict(non_finite));
             let report = fx.fig.validate();
             assert!(
-                has_error(&report, IssueKind::PixelOutOfRange, Some(fx.artist)),
-                "{bad} under {clim:?}: {report:?}"
+                has_error(&report, IssueKind::ValueOutOfRange, Some(fx.artist)),
+                "{bad} under {limits:?}: {report:?}"
             );
             assert_eq!(
                 error_kinds(&report),
-                vec![IssueKind::PixelOutOfRange],
-                "{bad} under {clim:?}: {report:?}"
+                vec![IssueKind::ValueOutOfRange],
+                "{bad} under {limits:?}: {report:?}"
             );
             let fx = mapped_fixture(
                 values.clone(),
-                clim,
+                limits,
                 [
                     OutOfRange::Strict,
                     OutOfRange::Strict,
@@ -2330,7 +2424,7 @@ fn strict_categories_of_a_mapped_image_are_checked_against_manual_valid_colour_l
             assert_eq!(
                 fx.fig.validate().errors,
                 vec![],
-                "{bad} is neither below nor above the limits {clim:?}"
+                "{bad} is neither below nor above the limits {limits:?}"
             );
         }
     }
@@ -2340,32 +2434,38 @@ fn strict_categories_of_a_mapped_image_are_checked_against_manual_valid_colour_l
     assert_eq!(
         error_kinds(&report),
         vec![IssueKind::InvalidLimits],
-        "invalid limits are the fault of the axes alone: {report:?}"
+        "invalid limits are the fault of the scale alone: {report:?}"
     );
     assert!(has_error(
         &report,
         IssueKind::InvalidLimits,
-        Some(fx.fig.axes[0].id)
+        Some(OWN_SCALE)
     ));
 
     // The bytes of the fixture count from 0 to 5.
-    let mut fx = image_fixture(false, vec![2, 3], true, |id, data| {
-        mapped_with(id, data, strict(above))
-    });
-    fx.fig.axes[0].clim = manual(0.0, 2.0);
+    let bytes_fixture = |max: f64| {
+        let mut fx = image_fixture(false, vec![2, 3], true, |id, data| {
+            mapped_at(id, data, ImagePlacement::default())
+        });
+        with_scale(
+            &mut fx,
+            continuous_scale(OWN_SCALE, manual(0.0, max), strict(above)),
+        );
+        fx
+    };
+    let fx = bytes_fixture(2.0);
     let report = fx.fig.validate();
     assert!(
-        has_error(&report, IssueKind::PixelOutOfRange, Some(fx.artist)),
+        has_error(&report, IssueKind::ValueOutOfRange, Some(fx.artist)),
         "bytes above the limits: {report:?}"
     );
-    fx.fig.axes[0].clim = manual(0.0, 5.0);
-    assert_eq!(fx.fig.validate().errors, vec![]);
+    assert_eq!(bytes_fixture(5.0).fig.validate().errors, vec![]);
 }
 
 // Why: the lenient policies exist so that an image reaches the page whatever its data
 // holds, with the offending pixels painted over rather than the figure refused; a
 // lenient category must therefore accept every index and value, including those that a
-// strict category would report, for both image kinds that have policies.
+// strict category would report, through an indexed scale and through a continuous scale.
 #[test]
 fn lenient_policies_accept_every_pixel() {
     let lenient = [
@@ -2375,30 +2475,38 @@ fn lenient_policies_accept_every_pixel() {
             color: Color::BLACK,
         },
     ];
-    // Below the map or the limits, above them, non-finite, and inside.
+    // Below the entries or the limits, above them, non-finite, fractional, and inside.
     let offending = vec![-5.0, 300.0, f64::NAN, f64::INFINITY, 0.5, 1.0];
     for policy in lenient {
         let mut fx = image_fixture(false, vec![2, 3], false, |id, data| {
-            indexed_with(id, data, [policy; 3])
+            indexed_at(id, data, ImagePlacement::default())
         });
+        with_scale(&mut fx, indexed_scale(OWN_SCALE, [policy; 2]));
         let data = image_data(&fx);
         *floats_mut(array_mut(&mut fx.fig, data)) = offending.clone();
         assert_eq!(
             fx.fig.validate().errors,
             vec![],
-            "an indexed image under {policy:?}"
+            "an indexed scale under {policy:?}"
         );
 
         let mut fx = image_fixture(false, vec![2, 3], false, |id, data| {
-            mapped_with(id, data, [policy; 3])
+            mapped_at(id, data, ImagePlacement::default())
         });
-        fx.fig.axes[0].clim = Limits::Manual { min: 0.0, max: 1.0 };
+        with_scale(
+            &mut fx,
+            continuous_scale(
+                OWN_SCALE,
+                Limits::Manual { min: 0.0, max: 1.0 },
+                [policy; 3],
+            ),
+        );
         let data = image_data(&fx);
         *floats_mut(array_mut(&mut fx.fig, data)) = offending.clone();
         assert_eq!(
             fx.fig.validate().errors,
             vec![],
-            "a mapped image under {policy:?}"
+            "a continuous scale under {policy:?}"
         );
     }
 }
@@ -3552,30 +3660,18 @@ fn an_opacity_outside_zero_to_one_is_an_error_on_every_artist_that_has_one() {
         ),
         (
             "colour-indexed image",
-            Box::new(|id, d: &GridData| {
-                Artist::IndexedImage(IndexedImage {
-                    id,
-                    indices: d.bytes,
-                    ..IndexedImage::default()
-                })
-            }),
+            Box::new(|id, d: &GridData| indexed_at(id, d.bytes, ImagePlacement::default())),
             |artist, value| {
-                if let Artist::IndexedImage(i) = artist {
+                if let Artist::ScalarImage(i) = artist {
                     i.opacity = value;
                 }
             },
         ),
         (
             "colour-mapped image",
-            Box::new(|id, d: &GridData| {
-                Artist::MappedImage(MappedImage {
-                    id,
-                    values: d.field,
-                    ..MappedImage::default()
-                })
-            }),
+            Box::new(|id, d: &GridData| mapped_at(id, d.field, ImagePlacement::default())),
             |artist, value| {
-                if let Artist::MappedImage(i) = artist {
+                if let Artist::ScalarImage(i) = artist {
                     i.opacity = value;
                 }
             },
@@ -3711,19 +3807,21 @@ fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
     type Make = fn(NodeId, NodeId, NodeId) -> Artist;
     let kinds: [(&str, Make); 2] = [
         ("indexed", |id, data, alpha| {
-            Artist::IndexedImage(IndexedImage {
+            Artist::ScalarImage(ScalarImage {
                 id,
-                indices: data,
+                values: data,
+                color_scale: Some(INDEXED_SCALE),
                 alpha: Some(alpha),
-                ..IndexedImage::default()
+                ..ScalarImage::default()
             })
         }),
         ("mapped", |id, data, alpha| {
-            Artist::MappedImage(MappedImage {
+            Artist::ScalarImage(ScalarImage {
                 id,
                 values: data,
+                color_scale: Some(SCALE),
                 alpha: Some(alpha),
-                ..MappedImage::default()
+                ..ScalarImage::default()
             })
         }),
     ];
@@ -3792,8 +3890,7 @@ fn an_invalid_opacity_stands_alone_against_an_artist_with_nothing_to_draw() {
             let mut image = make(id, data, ImagePlacement::default());
             match &mut image {
                 Artist::Image(i) => i.opacity = 2.0,
-                Artist::IndexedImage(i) => i.opacity = 2.0,
-                Artist::MappedImage(i) => i.opacity = 2.0,
+                Artist::ScalarImage(i) => i.opacity = 2.0,
                 _ => unreachable!("the maker builds an image"),
             }
             image

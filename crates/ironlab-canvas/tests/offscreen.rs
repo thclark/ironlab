@@ -21,7 +21,7 @@ use std::task::{Context, Poll, Waker};
 
 use common::{
     TEXT, Workspace, array_id, assert_same_picture, data_array, depth_group,
-    figure_with_mapped_image, figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required,
+    figure_with_scalar_image, figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required,
     image_sample, rasterise, rendered_or_skip, rgb_of, scale_then_translate, tools_available,
 };
 use image::RgbImage;
@@ -832,7 +832,7 @@ fn an_image_wider_than_one_texture_renders_whole_and_without_a_gap_at_the_tile_s
 // axes fails on the pixels it moves.
 #[test]
 fn a_compiled_figure_draws_a_mapped_image_over_its_axes_with_the_compilers_colours() {
-    let figure = figure_with_mapped_image(3, 3);
+    let figure = figure_with_scalar_image(3, 3);
     let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
         return;
     };

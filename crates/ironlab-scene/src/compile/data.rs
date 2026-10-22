@@ -1,18 +1,20 @@
 //! Resolution and checking of artist data.
 //!
 //! Every artist's data identifiers are looked up once, and the element types and shapes of its arrays are checked,
-//! before limits are computed or anything is drawn. Every artist but the three image kinds requires floating-point
+//! before limits are computed or anything is drawn. Every artist but the two image kinds requires floating-point
 //! values, so an array of 8-bit values cannot be used for it; an image accepts either element type. An image is
-//! also checked here for a placement that can be drawn and a plane that its axes can show. An artist whose data
-//! cannot be used, and an artist whose data gives it nothing to draw (a line, scatter or quiver of no points, an
-//! image with no rows or no columns, or a field with no cell between its nodes), is reported with one warning
-//! naming it and is then ignored by every later stage, so that the problems indicator of the viewer and the
-//! validation of the figure agree about which artists are absent.
+//! also checked here for a placement that can be drawn and a plane that its axes can show. An artist that maps
+//! numbers to colours is checked for a colour scale to map them through, and its numbers against the strict
+//! policies of that scale. An artist whose data cannot be used, an artist whose colours cannot be mapped, and an
+//! artist whose data gives it nothing to draw (a line, scatter or quiver of no points, an image with no rows or no
+//! columns, or a field with no cell between its nodes), is reported with one warning naming it and is then ignored
+//! by every later stage, so that the problems indicator of the viewer and the validation of the figure agree about
+//! which artists are absent.
 
 use ironlab_ir::{
     Artist, Axes, ContourPlacement, Coords as ArtistCoords, Dimension, Figure, Grid,
-    ImagePlacement, ImagePlane, NdArray, NodeId, OutOfRange, PixelRange, QuiverScale, Scale,
-    ScatterColor, ScatterSize,
+    ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale, ScatterColor,
+    ScatterSize, Values,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -22,6 +24,7 @@ use super::Ctx;
 use super::artists::Placement;
 use super::image;
 use super::limits::{axes_axis, is_3d};
+use super::style::ColourScales;
 
 /// An artist together with its resolved data, or `None` when the data is unusable.
 pub(crate) struct Prepared<'a> {
@@ -48,24 +51,13 @@ impl Points<'_> {
     }
 }
 
-/// The out-of-range policies of a colour-indexed or colour-mapped image, one per category of pixel it cannot
-/// colour on its own.
-#[derive(Clone, Copy)]
-pub(crate) struct Policies {
-    pub below: OutOfRange,
-    pub above: OutOfRange,
-    pub non_finite: OutOfRange,
-}
-
 /// The kind of an image artist, which decides how its pixels are coloured.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageKind {
     /// Each pixel carries its own colour components.
     TrueColour,
-    /// Each pixel names an entry of the colormap directly.
-    Indexed(Policies),
-    /// Each pixel is a value mapped through the colour limits.
-    Mapped(Policies),
+    /// Each pixel holds one number, mapped through the colour scale of the artist.
+    Scalar,
 }
 
 /// The resolved raster of an image artist of any kind, which has at least one row and one column of pixels.
@@ -81,7 +73,7 @@ pub(crate) struct ImageData<'a> {
     /// The number of values per pixel: 3 or 4 for a true-colour image, 1 for the other kinds.
     pub components: usize,
     pub placement: ImagePlacement,
-    /// The alpha of every pixel of a colour-indexed or colour-mapped image, an array of `ny` rows and `nx` columns
+    /// The alpha of every pixel of a scalar image, an array of `ny` rows and `nx` columns
     /// of either element type, or `None` when the image has none.
     pub alpha: Option<&'a NdArray>,
     /// The opacity of the image, which multiplies the alpha of every pixel.
@@ -129,13 +121,22 @@ pub(crate) enum ArtistData<'a> {
     Image(ImageData<'a>),
 }
 
-/// Resolves and checks the data of every artist of an axes.
-pub(super) fn prepare_axes<'a>(ctx: &mut Ctx<'a>, axes: &'a Axes) -> Vec<Prepared<'a>> {
+/// Resolves and checks the data of every artist of an axes, and the colour scale of every artist that maps numbers
+/// to colours.
+pub(super) fn prepare_axes<'a>(
+    ctx: &mut Ctx<'a>,
+    axes: &'a Axes,
+    scales: &ColourScales,
+) -> Vec<Prepared<'a>> {
     let figure = ctx.figure;
     axes.artists
         .iter()
         .map(|artist| {
-            let data = match resolve(figure, axes, artist) {
+            let data = resolve(figure, axes, artist).and_then(|data| {
+                check_colour_mapping(figure, artist, &data, scales)?;
+                Ok(data)
+            });
+            let data = match data {
                 Ok(data) => {
                     warn_log_drops(ctx, axes, artist, &data);
                     Some(data)
@@ -277,11 +278,6 @@ fn grid<'a>(figure: &'a Figure, grid: &Grid, z: NodeId) -> Result<GridRef<'a>, S
 /// Resolves the data of one artist, or returns why the artist is not drawn: its data cannot be used, or gives it
 /// nothing to draw.
 fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<ArtistData<'a>, String> {
-    let policies = |below, above, non_finite| Policies {
-        below,
-        above,
-        non_finite,
-    };
     Ok(match artist {
         Artist::Line(line) => {
             let points = points(figure, line.x, line.y, line.z)?;
@@ -363,21 +359,12 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                 look,
             )?
         }
-        Artist::IndexedImage(i) => {
-            let kind = ImageKind::Indexed(policies(i.below, i.above, i.non_finite));
+        Artist::ScalarImage(i) => {
             let look = Look {
                 alpha: i.alpha,
                 opacity: i.opacity,
             };
-            image_data(figure, axes, i.indices, kind, i.placement, look)?
-        }
-        Artist::MappedImage(i) => {
-            let kind = ImageKind::Mapped(policies(i.below, i.above, i.non_finite));
-            let look = Look {
-                alpha: i.alpha,
-                opacity: i.opacity,
-            };
-            image_data(figure, axes, i.values, kind, i.placement, look)?
+            image_data(figure, axes, i.values, ImageKind::Scalar, i.placement, look)?
         }
     })
 }
@@ -403,8 +390,7 @@ fn image_data<'a>(
     let array = array(figure, id)?;
     let what = match kind {
         ImageKind::TrueColour => "pixels",
-        ImageKind::Indexed(_) => "indices",
-        ImageKind::Mapped(_) => "values",
+        ImageKind::Scalar => "values",
     };
     let (ny, nx, components) = match (kind, array.shape.as_slice()) {
         (ImageKind::TrueColour, &[ny, nx, components @ (3 | 4)]) => (ny, nx, components),
@@ -414,8 +400,8 @@ fn image_data<'a>(
                  dimension holds the 3 or 4 colour components of a pixel"
             ));
         }
-        (ImageKind::Indexed(_) | ImageKind::Mapped(_), &[ny, nx]) => (ny, nx, 1),
-        (ImageKind::Indexed(_) | ImageKind::Mapped(_), shape) => {
+        (ImageKind::Scalar, &[ny, nx]) => (ny, nx, 1),
+        (ImageKind::Scalar, shape) => {
             return Err(format!(
                 "its {what} {id} have shape {shape:?}, but they must be two-dimensional"
             ));
@@ -466,6 +452,52 @@ fn image_data<'a>(
         alpha,
         opacity: look.opacity,
     }))
+}
+
+/// Checks that an artist that maps numbers to colours names a colour scale of the figure, and that none of the
+/// numbers it maps falls in a category of the scale whose policy is strict, as validation does: the values of a
+/// scalar image, the field of a contour, the colour data of a surface (or its field) and the colour data of a
+/// scatter. Numbers derived from them, such as the mean of the corners of a surface face, are not checked. The first
+/// refused number is named, by its row and column in an image and by its index otherwise.
+fn check_colour_mapping(
+    figure: &Figure,
+    artist: &Artist,
+    data: &ArtistData,
+    scales: &ColourScales,
+) -> Result<(), String> {
+    let Some(mapping) = artist.color_mapping() else {
+        return Ok(());
+    };
+    let scale = scales.named(mapping.color_scale)?;
+    let Some(array) = figure.data_array(mapping.values) else {
+        return Ok(());
+    };
+    let refused = |k: usize, value: f64| {
+        let (category, condition) = scale.strict_category(value)?;
+        let place = match data {
+            ArtistData::Image(image) => format!(
+                "the pixel in row {} and column {}",
+                k / image.nx,
+                k % image.nx
+            ),
+            _ => format!("the value at index {k} of {}", mapping.values),
+        };
+        Some(format!(
+            "{place} {condition}, which the strict {category} policy of its colour scale {} refuses",
+            scale.scale.id
+        ))
+    };
+    let first = match &array.array.values {
+        Values::F64(values) => values
+            .iter()
+            .enumerate()
+            .find_map(|(k, &value)| refused(k, value)),
+        Values::U8(values) => values
+            .iter()
+            .enumerate()
+            .find_map(|(k, &value)| refused(k, f64::from(value))),
+    };
+    first.map_or(Ok(()), Err)
 }
 
 /// Checks that an image of `nx` columns and `ny` rows can be placed: its pixel centres and plane offset must be

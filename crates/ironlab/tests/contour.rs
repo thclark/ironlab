@@ -153,8 +153,9 @@ fn only_contour3_promotes_the_axes_to_3d() {
     assert!(fig.validate().is_valid());
 }
 
-// WHY: the default must be ten automatic, colormapped levels (the IR default), and the
-// two level setters must select automatic count and explicit values respectively.
+// WHY: by default a contour has no levels of its own and takes those of its colour scale
+// (ten automatic levels through a continuous scale), with colour-mapped isolines, and
+// the two level setters must select automatic count and explicit values respectively.
 #[test]
 fn levels_and_level_values_select_automatic_or_explicit_levels() {
     let (x, y, z) = small_grid();
@@ -169,16 +170,22 @@ fn levels_and_level_values_select_automatic_or_explicit_levels() {
         .levels(7)
         .id();
 
-    assert_eq!(contour(&fig, default).levels, Levels::Auto { count: 10 });
+    assert_eq!(contour(&fig, default).levels, None);
     assert_eq!(contour(&fig, default).line.color, ColorSpec::Colormapped);
-    assert_eq!(contour(&fig, counted).levels, Levels::Auto { count: 4 });
+    assert_eq!(
+        contour(&fig, counted).levels,
+        Some(Levels::Auto { count: 4 })
+    );
     assert_eq!(
         contour(&fig, explicit).levels,
-        Levels::Explicit {
+        Some(Levels::Explicit {
             values: vec![1.0, 5.0, 25.0]
-        }
+        })
     );
-    assert_eq!(contour(&fig, overridden).levels, Levels::Auto { count: 7 });
+    assert_eq!(
+        contour(&fig, overridden).levels,
+        Some(Levels::Auto { count: 7 })
+    );
 }
 
 // WHY: invalid explicit levels are user input errors; they must reach the IR unchanged
