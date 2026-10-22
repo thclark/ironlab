@@ -11,10 +11,10 @@ use super::Ctx;
 use super::artists::{AxesInput, Projector, Space, coalesce_markers, draw_artists, group_dense};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
-use super::legend;
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
+use super::{colorbar, legend};
 
 /// Computes the space a 3D axes reserves around the rectangle into which its box is fitted.
 ///
@@ -160,6 +160,7 @@ pub(super) fn emit(
     });
 
     draw_labels(ctx, input, &projector, out);
+    colorbar::draw_inside(ctx, axes, input.plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &[], out, hits);
     hits.axes.push(AxesHit {
         id: axes.id,

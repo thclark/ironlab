@@ -2,13 +2,15 @@
 
 use ironlab_ir::{
     Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, Contour, ContourPlacement, Coords,
-    DashStyle, Dimension, Image, InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns,
-    LegendEntryOrder, LegendLocation, Limits, MarkerShape, NodeId, Projection, Quiver, ScalarImage,
-    Scale, Series, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
+    DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide, InsideLegend, IrError, Legend,
+    LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, MarkerShape,
+    NodeId, Projection, Quiver, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks,
+    TitleAlign, View3d,
 };
 
 use crate::artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, SurfaceMut};
 use crate::color_scale::{self, ColorScaleMut};
+use crate::colorbar::InsideColorbarMut;
 use crate::data::{DataSource, store_grid};
 
 /// The colour of a reference line drawn by [`hline`](AxesMut::hline) or
@@ -1010,6 +1012,51 @@ impl AxesMut<'_> {
     /// Hides the legend (MATLAB's `legend off`).
     pub fn legend_off(&mut self) -> &mut Self {
         self.axes().legend = None;
+        self
+    }
+
+    /// Shows the colour scale with the given identifier as a colourbar inside the plot
+    /// area, along the given edge (MATLAB's `colorbar` with a location such as `'east'`),
+    /// and returns the handle through which its length is set.
+    ///
+    /// The bar is horizontal along the south and north edges and vertical along the east
+    /// and west edges, with its tick labels facing the interior of the plot area. It stands
+    /// on a boxed backdrop over the artists and takes no margin, so the plot area keeps its
+    /// size; a bar that needs room of its own belongs in a panel (see
+    /// [`PanelMut::colorbar`](crate::PanelMut::colorbar)). A colourbar the axes already
+    /// shows keeps its length and takes the new scale and edge; a new one is four fifths
+    /// of the edge long. An identifier that names no colour scale is reported by
+    /// [`validate`](crate::Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(-1.0, 1.0, 41);
+    /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col].powi(2) - x[row].powi(2));
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.scalar_image(&z);
+    /// let s = ax.color_scale().title("Pressure (Pa)").id();
+    /// ax.colorbar(s, InsideColorbarSide::East).length(0.6);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn colorbar(&mut self, scale: NodeId, side: InsideColorbarSide) -> InsideColorbarMut<'_> {
+        let axes = self.axes();
+        let length = axes
+            .colorbar
+            .map_or(InsideColorbar::default().length, |colorbar| colorbar.length);
+        axes.colorbar = Some(InsideColorbar {
+            scale,
+            side,
+            length,
+        });
+        InsideColorbarMut::new(self.fig, self.id)
+    }
+
+    /// Hides the colourbar inside the plot area (MATLAB's `colorbar off`). A panel that
+    /// shows a scale of the axes is not affected.
+    pub fn colorbar_off(&mut self) -> &mut Self {
+        self.axes().colorbar = None;
         self
     }
 

@@ -7,10 +7,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleSlot, ColorSpec, Colormap, ColormapName, DashStyle,
-    Figure, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, Limits, MarkerShape, MarkerStyle, NodeId,
-    OutOfRange, Series,
+    Artist, Axes, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKey,
+    ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot, ColorSpec, Colormap,
+    ColormapName, DashStyle, Figure, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, Limits, MarkerShape,
+    MarkerStyle, NodeId, OutOfRange, Series,
 };
 
 use crate::display::{Item, ItemKind, MarkerInstance, MarkersItem, PathSegment, Point, Rgba};
@@ -138,7 +138,7 @@ impl ResolvedScale<'_> {
 
     /// Returns the colour of a slot of the scale: a continuous position, a band of a discrete scale (band `i` of `k`
     /// takes the colormap colour at `i / (k − 1)`, and a single band the colour at the start), or an entry.
-    fn slot_colour(&self, slot: ColorScaleSlot) -> Option<Rgba> {
+    pub fn slot_colour(&self, slot: ColorScaleSlot) -> Option<Rgba> {
         match slot {
             ColorScaleSlot::Position(t) => self.palette.at(t),
             ColorScaleSlot::Band(band) => {
@@ -221,6 +221,20 @@ impl ResolvedScale<'_> {
                 }
                 ColorScaleClass::NonFinite | ColorScaleClass::Inside(_) => None,
             },
+        }
+    }
+
+    /// Returns the colour that the key of an out-of-range category of the scale shows, which is the colour painted for
+    /// a value of that category: the fixed colour of a fixed-colour policy, and under a clamp the first colour below
+    /// the range and the last above it. Returns `None` when the key is left empty: under a transparent or strict
+    /// policy, for a non-finite value, which has no nearest end, for a clamp outside the entries, which takes
+    /// either end, and for a category the kind of the scale does not have.
+    pub fn key_colour(&self, key: ColorScaleKey) -> Option<Rgba> {
+        match (self.scale.key(key)?.policy, key) {
+            (OutOfRange::Rgba { color }, _) => Some(ir_colour(color)),
+            (OutOfRange::Clamp, ColorScaleKey::Below) => self.slot_colour(self.first_slot()),
+            (OutOfRange::Clamp, ColorScaleKey::Above) => self.slot_colour(self.last_slot()),
+            _ => None,
         }
     }
 

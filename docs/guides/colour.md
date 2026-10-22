@@ -2,7 +2,7 @@
 
 A plot that maps its data to colours, such as a filled contour, a surface, a scalar image or a series coloured by data, does so through a **colour scale**. A colour scale is a node of the figure that turns a number into a colour, and every plot that maps numbers to colours names its scale. Several plots, in one axes or in several, may name the same scale, and then share its colormap, its limits and therefore its colours. A scale belongs to the figure rather than to an axes, so the colours of a plot never depend on where the plot lies.
 
-This guide shows how a program creates scales, gives them to plots and chooses what a scale draws for values it cannot place. It assumes the plotting functions of [getting started](getting-started.md#plotting-functions). The examples use the prelude and the following data:
+This guide shows how a program creates scales, gives them to plots, chooses what a scale draws for values it cannot place, and shows a scale with a colourbar. It assumes the plotting functions of [getting started](getting-started.md#plotting-functions). The examples use the prelude and the following data:
 
 ```rust
 use ironlab::prelude::*;
@@ -214,18 +214,158 @@ A policy is one of the following:
 
 The policies belong to the scale, so every plot that names a scale treats such values alike. Validation checks a strict category against the values that a plot holds, never against values derived from them, such as the mean of the corners of a surface face. No value lies beyond automatic limits, because they are the range of the data, except a value that is not positive under a logarithmic norm.
 
+## Showing a scale with a colourbar
+
+A **colourbar** shows a colour scale as a bar beside or inside the plots it colours, with ticks that read the bar as an axis is read. It holds only which scale it shows and where it is drawn. The colours, limits, band edges, ticks, tick labels, title and keys all belong to the scale, so every colourbar of one scale agrees with every other and with every plot drawn through it, and changing the limits of the scale changes the bar with the plots. A colourbar is drawn in one of two places: in a panel of the tile layout, or inside the plot area of an axes.
+
+### A colourbar in a panel
+
+A [panel](legends.md#legend-panels) is a node of the figure that occupies tiles of the layout, as an axes does, and holds one key. `panel.colorbar(scale)` makes that key a colourbar of the scale with the given identifier (MATLAB's and matplotlib's `colorbar`) and returns a `PanelColorbarMut` handle:
+
+| Setter | Effect |
+| --- | --- |
+| `orientation(orientation)` | `ColorbarOrientation::Vertical`, the default, stands the bar upright with low values at the bottom and its tick labels on the right. `ColorbarOrientation::Horizontal` lays it flat with low values at the left and its tick labels below. |
+| `id()` | Returns the identifier of the panel. |
+
+A bar beside a plot belongs in a column whose size fits it, which `fit_col` makes:
+
+```rust
+let mut fig = Figure::new().tiles(1, 2).fit_col(1);
+let mut ax = fig.axes(0, 0);
+ax.contourf(&x, &y, &z);
+let s = ax.color_scale().colormap(Colormap::Magma).title("Distance").id();
+fig.panel(0, 1).colorbar(s);
+```
+
+The bar stretches along the cells of its panel, which are inset by the margins of the rows or columns they span, so that a vertical bar beside a row of plots is exactly as tall as their plot areas and a horizontal bar beneath a column is exactly as wide. Across its length the bar takes the room it needs, and the panel's alignment places it within the panel. In a [fitted](legends.md#fitting-rows-and-columns-to-their-legends) row or column, that room is the size of the track: the thickness of the bar, its ticks and tick labels, and its title. The title of a vertical bar is centred above the bar, in the margin above the first row the panel spans, where the title of an axes would be; the title of a horizontal bar is centred above the bar within the panel. A plot whose [aspect](getting-started.md#equal-aspect) is fixed may have a plot box smaller than its plot area, centred within it; the bar then runs from the near edge of the first drawn plot box to the far edge of the last, so that it is always as long as the plots it spans.
+
+A panel holds one key. Calling `colorbar` on a panel that holds a legend replaces the legend with a vertical colourbar, and calling `legend` on a panel that holds a colourbar replaces the colourbar with a legend of the default settings. Calling `colorbar` again on a panel that already holds a colourbar shows the new scale and keeps the orientation. An identifier that names no node is the validation error `UnknownColorScale`, and one that names a node other than a colour scale is `WrongNodeKind`; both name the panel.
+
+### One colourbar for a row of plots
+
+Plots that name one scale share its colours exactly, so one bar describes them all. A panel that spans the row beneath them, in a fitted row, shows the scale once, and its bar is as long as the plot areas of the whole row:
+
+```rust
+let mut fig = Figure::new().tiles(2, 3).fit_row(1);
+let shared = fig
+    .color_scale()
+    .colormap(Colormap::Inferno)
+    .limits(0.0, 1.5)
+    .title("Speed (m/s)")
+    .id();
+for col in 0..3 {
+    fig.axes(0, col).scalar_image(&z).color_scale(shared);
+}
+fig.panel_span(1, 0, 1, 3)
+    .colorbar(shared)
+    .orientation(ColorbarOrientation::Horizontal);
+```
+
+A vertical bar in a fitted column, spanning the rows of a stack of plots, serves a column in the same way.
+
+### A colourbar inside an axes
+
+`ax.colorbar(scale, side)` draws a colourbar inside the plot area of the axes, along one of its edges (MATLAB's `colorbar` with a location such as `'east'`), and returns an `InsideColorbarMut` handle whose `length(fraction)` sets how long the bar is:
+
+```rust
+let mut fig = Figure::new();
+let mut ax = fig.axes(0, 0);
+ax.scalar_image(&z);
+let s = ax.color_scale().title("Distance").id();
+ax.colorbar(s, InsideColorbarSide::East).length(0.6);
+```
+
+The side is an `InsideColorbarSide`: `South`, the default, and `North` lay the bar flat along the bottom or top edge, and `East` and `West` stand it upright along the right or left edge. The tick labels face the interior of the plot area. The bar, its keys, its labels and its title stand on a white box with an outline, drawn as the box of an inside legend is drawn, so that they read over any plot. The length is the length of the box, keys included, as a fraction of the edge, centred along it; it is 0.8 by default, and a length that is not a finite number greater than 0 and at most 1 is the validation error `InvalidColorbarLength`. Calling `colorbar` again moves the bar to the new side or scale and keeps its length, and `colorbar_off` removes it.
+
+An inside colourbar takes no margin, so the plot area keeps its size whether or not the bar is shown, and the bar covers what is drawn beneath it. It suits a plot with a quiet region along one edge, such as open water on a map. A bar that needs room of its own belongs in a panel.
+
+### How each kind of scale is drawn
+
+A colourbar draws its scale according to the kind of the scale, so that it cannot misrepresent the mapping:
+
+| Kind | The bar | Automatic ticks |
+| --- | --- | --- |
+| Continuous | A smooth gradient of 256 samples between the limits, placed linearly or logarithmically by the norm. | Round values, chosen as an axis chooses them; decades under a logarithmic norm. |
+| Discrete | One block of a single colour per band, between its edges. | Every band edge. |
+| Indexed | One block per entry, side by side, in the order of the entries. | Whole numbers only, each at the centre of the entry it names. |
+| Categorical | One outlined square per category, separated by margins, each with its label beside it. | None; each category is labelled by its own label. |
+
+The ends of a bar are always flat. The colour drawn for values out of range is never drawn at an end of the bar, because a colour there cannot be told apart from the last colour in range; such values are shown by [keys](#keys-for-values-out-of-range) instead.
+
+### Ticks and tick labels
+
+The ticks of a colourbar are set on its scale, with setters that mirror those of an axis:
+
+| Setter | Effect |
+| --- | --- |
+| `ticks(values)` | Places the ticks at the given values. The values of an indexed scale are entry indices, and each tick is drawn at the centre of its entry. |
+| `tick_step(step)` | Places a tick at every multiple of `step` within the range of the scale. |
+| `tick_labels(pairs)` | Places the ticks at the values of `(value, label)` pairs and labels each tick with its text, in one call, because a label means nothing apart from its value. A plain string is read as LaTeX, as every text of a figure is. |
+| `tick_labels_hidden()` | Hides the tick labels and keeps the ticks. |
+
+These setters apply to continuous, discrete and indexed scales, and leave a categorical scale, which labels every category itself, as it is. Explicit ticks and labels are checked as those of an axis are, with the validation errors `InvalidTicks` and `InvalidTickLabels`. A long palette is usually best labelled at a few named entries:
+
+```rust
+let mut fig = Figure::new();
+let terrain = fig
+    .indexed_scale(Colormap::Gray.sample(256))
+    .tick_labels([(0, "water"), (128, "land"), (255, "ice")])
+    .id();
+```
+
+### Keys for values out of range
+
+A colourbar can show, beside the bar, a **key** for each [category of values out of range](#values-out-of-range): a square as wide as the bar is thick, separated from the bar and from the next square by one margin, with its label on the side of the tick labels. Keys are off by default, and showing one never changes what the scale draws. `show_key(key)` shows the key of one category with its default label, and `key_label(key, text)` shows it with the given label:
+
+```rust
+let mut fig = Figure::new();
+fig.color_scale()
+    .limits(20.0, 100.0)
+    .above(Color::rgb(0.3, 0.85, 0.95))
+    .show_key(ColorScaleKey::Above) // labelled "> 100"
+    .key_label(ColorScaleKey::NonFinite, "No reading");
+```
+
+A `ColorScaleKey` names the category: `Below` and `Above` on a continuous or discrete scale, `Outside` on an indexed or categorical scale, and `NonFinite` on every kind. A key that the kind of the scale does not have leaves the scale as it is, as the policy setters do.
+
+The default labels use strict inequalities, because a value exactly at a limit lies inside the range. The limits are written as the ticks write them, and for a discrete scale they are its first and last band edges:
+
+| Key | Default label |
+| --- | --- |
+| Above | `> upper` |
+| Below | `< lower` |
+| Outside | `Out of range` |
+| NonFinite | `NaN / Inf` |
+
+A square shows what the policy of its category paints. A colour policy fills it with that colour, and a clamp below or above the range fills it with the end colour that the clamp paints. A transparent or strict policy paints nothing, so its square is empty, as is the square of a clamp outside the entries or of non-finite values, which paints no single colour. An empty square is the honest key for a region left blank, such as concentrations below the lower limit of a logarithmic scale.
+
+The keys lie beyond the end of the bar whose values they stand for, and the key for values that are not finite lies outermost, beyond the low end:
+
+| Bar | Order of the pieces |
+| --- | --- |
+| Vertical, continuous or discrete | From the top: the above key, the bar, the below key, the non-finite key. |
+| Horizontal, continuous or discrete | From the left: the non-finite key, the below key, the bar, the above key. |
+| Vertical, indexed | From the top: the bar, the outside key, the non-finite key. |
+| Horizontal, indexed | From the left: the non-finite key, the outside key, the bar. |
+| Categorical | After the categories: the outside key, then the non-finite key. |
+
+Along a horizontal bar the labels lie side by side beneath the squares, so the margin between the pieces widens until no two labels meet.
+
 ## Colour scales in a figure file
 
 A figure file holds its colour scales in the `color_scales` list of the figure, and each colour-mapped plot holds the identifier of its scale in its `color_scale` property. A colour-mapped plot that names no scale is the validation error `MissingColorScale`, because the axes holds no colormap to fall back on. The [figure schema reference](../reference/figure-schema.md#colour-scales) describes every property, the [mapping rules](../reference/figure-schema.md#mapping-rules) and the [automatic limits](../reference/figure-schema.md#automatic-limits).
 
-A scale is not yet drawn as a colourbar or as a key in a legend. In a [legend](legends.md), the sample of a colour-mapped plot is drawn in the middle colour of its scale.
+A colourbar is stored where it is shown: a panel that holds one has the content `{"type": "colorbar", "value": {"scale": …, "orientation": …}}`, and an axes that shows one inside its plot area holds it in its `colorbar` property. Both are described under [panel content](../reference/figure-schema.md#panel-content) and [inside colourbars](../reference/figure-schema.md#inside-colourbar) in the reference.
 
 ## Examples in the gallery
 
-- [Coloured trajectory](../gallery/coloured_trajectory.md) colours the flight of a baseball, in a vacuum and through air, by its speed, with one value per point, so that each segment is a gradient.
+- [Colourbar shared by a row](../gallery/row_shared_colorbar.md) shows one scale for three plots with one horizontal bar in a fitted row, and a key for the temperatures above the scale.
+- [Inside colourbar](../gallery/inside_colorbar.md) draws the bar of a bathymetry map inside the plot area, over open water, with a key naming the land above the range of the scale.
+- [Indexed palette](../gallery/indexed_palette.md) draws an 8-bit elevation raster through its 256-entry palette, whose bar labels three entries by name.
+- [Coloured trajectory](../gallery/coloured_trajectory.md) colours the flight of a baseball, in a vacuum and through air, by its speed, with one value per point, so that each segment is a gradient, and shows the speeds with a horizontal colourbar.
 - [Scatter](../gallery/scatter_2d.md) colours and sizes the markers of a scatter by data.
-- [Discrete colour scale](../gallery/discrete_contourf.md) fills the pressure coefficient around a cylinder through a discrete scale, with black isolines that take the same band edges.
-- [Logarithmic colour scale](../gallery/log_colour_scale.md) draws the concentration downwind of a stack, which spans four decades, through a logarithmic scale that leaves the cleanest air undrawn.
+- [Discrete colour scale](../gallery/discrete_contourf.md) fills the pressure coefficient around a cylinder through a discrete scale, with black isolines and a banded colourbar that take the same band edges.
+- [Logarithmic colour scale](../gallery/log_colour_scale.md) draws the concentration downwind of a stack, which spans four decades, through a logarithmic scale that leaves the cleanest air undrawn, and shows an empty key for it beside the bar.
 - [Indexed image](../gallery/indexed_image.md) draws numbered classes through a 256-entry palette, with indices beyond the palette drawn in a fixed colour.
 - [Mapped image](../gallery/mapped_image.md) draws a field through a continuous scale, with a disc of NaN left transparent.
 - [Measured speed faded by its confidence](../gallery/piv_confidence.md) fixes the limits of the scales of two axes to the same range, and leaves speeds beyond them undrawn in one of them.

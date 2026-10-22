@@ -568,7 +568,9 @@ impl Fx {
 
     /// Returns the legend of the legend panel with the given identifier for modification.
     pub fn legend_mut(&mut self, id: NodeId) -> &mut PanelLegend {
-        let PanelContent::Legend(legend) = &mut self.panel_mut(id).content;
+        let PanelContent::Legend(legend) = &mut self.panel_mut(id).content else {
+            panic!("panel {id} holds a legend");
+        };
         legend
     }
 

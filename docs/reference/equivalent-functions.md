@@ -73,6 +73,21 @@ MATLAB and matplotlib set the colormap and the colour limits of an axes, or of o
 | Colour out-of-range values | no option for values beyond the limits | `cmap.set_under`, `set_over` and `set_bad` | no option | `.below(..)`, `.above(..)`, `.outside(..)` and `.non_finite(..)` on the scale |
 | Sample a colormap into a palette | `parula(256)`, or any colormap function with a count | `cmap(np.linspace(0, 1, n))` | `px.colors.sample_colorscale` | `Colormap::Viridis.sample(256)` |
 
+### Colourbars
+
+A colourbar in IronLAB shows a scale rather than a plot, and everything it draws, its ticks and title included, belongs to that scale, so the setters below are called on the scale. The [colour guide](../guides/colour.md#showing-a-scale-with-a-colourbar) describes colourbars.
+
+| Purpose | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Show a colourbar beside an axes | `colorbar` | `fig.colorbar(mappable, ax=ax)` | `showscale=True` on the trace | `fig.panel(row, col).colorbar(scale)` in a fitted column |
+| Lay the bar flat beneath the plots | `colorbar('southoutside')` | `orientation="horizontal"` | `colorbar=dict(orientation="h")` | `.orientation(ColorbarOrientation::Horizontal)` on the panel's colourbar, in a fitted row |
+| Share one bar across several axes | `colorbar` on a tiled layout with `Layout.Tile = 'east'` | `fig.colorbar(mappable, ax=[ax1, ax2, ax3])` | `coloraxis` shared by the traces | `fig.panel_span(..).colorbar(scale)` spanning their rows or columns |
+| Draw the bar inside the plot area | `colorbar('east')` and the other inside locations | `cax=ax.inset_axes(..)` | `colorbar=dict(x=, y=, len=)` | `ax.colorbar(scale, InsideColorbarSide::East)`, with `.length(fraction)` |
+| Title the bar | `title(c, text)` or `c.Label.String` | `cbar.set_label(text)` | `colorbar=dict(title=text)` | `.title(text)` on the scale |
+| Place the ticks | `c.Ticks = v` | `cbar.set_ticks(v)` | `colorbar=dict(tickvals=v)` | `.ticks(v)` or `.tick_step(step)` on the scale |
+| Label the ticks | `c.TickLabels = labels` | `cbar.set_ticks(v, labels=labels)` | `colorbar=dict(tickvals=v, ticktext=labels)` | `.tick_labels([(value, label), ..])` on the scale |
+| Show the colour of values beyond the limits | no option | `extend="min"`, `"max"` or `"both"`, drawn as pointed ends | no option | `.show_key(ColorScaleKey::Above)` and the other keys on the scale, drawn as separate squares |
+
 ### Levels of filled contours
 
 | Purpose | MATLAB | matplotlib | Plotly | IronLAB |

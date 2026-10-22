@@ -19,6 +19,11 @@ pub(crate) struct TextBlock {
 }
 
 impl TextBlock {
+    /// The source text the block was typeset from.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
     /// The advance width in points.
     pub fn width(&self) -> f64 {
         finite_or_zero(self.layout.width)

@@ -13,18 +13,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
-/// legend, label, name of a data array, coordinate array, colour or alpha array, colour
+/// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
 /// scale reference, contour levels, pixel range or plane offset), by full Protocol Buffers
 /// name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 33] = [
+pub const OPTIONAL_IN_IR: [&str; 34] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.DataArray.name",
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
+    "ironlab.ir.v0.Axes.colorbar",
     "ironlab.ir.v0.Axis.label",
     "ironlab.ir.v0.Series.label",
     "ironlab.ir.v0.Series.z",
@@ -698,14 +699,17 @@ pub fn legend_panel(id: NodeId, cell: Cell) -> Panel {
 pub fn panel_legend(panel: &Panel) -> &PanelLegend {
     match &panel.content {
         PanelContent::Legend(legend) => legend,
+        PanelContent::Colorbar(_) => panic!("panel {} holds a colourbar", panel.id),
     }
 }
 
 /// Returns the legend of a panel for modification, panicking for a panel of another
 /// content.
 pub fn panel_legend_mut(panel: &mut Panel) -> &mut PanelLegend {
+    let id = panel.id;
     match &mut panel.content {
         PanelContent::Legend(legend) => legend,
+        PanelContent::Colorbar(_) => panic!("panel {id} holds a colourbar"),
     }
 }
 
@@ -791,6 +795,9 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// panels, which between them and the inside legends use every variant of the layout of
 /// legend entries, each listing a named line of an axes whose legend names it; one panel
 /// lists its entries automatically and the other lists an explicit item of every kind.
+/// Two colourbar panels follow the legend panels, one of each orientation, each showing
+/// a scale that no artist names, one of them spanning two rows of the fitted column; and
+/// four axes hold an inside colourbar, one on each side.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -1698,6 +1705,58 @@ pub fn kitchen_sink_figure() -> Figure {
         },
     ];
 
+    // Two colourbar panels, after the legend panels so that those keep their positions:
+    // a vertical bar of the grey scale, which no artist names, spanning the first two rows
+    // of the fitted column beside the plots of those rows (#88); and a horizontal key of
+    // the categorical status scale, which no artist names either, with its "not entered"
+    // key, in the free cell of the last row. Inside colourbars on four axes, two of them
+    // three-dimensional, use every side, the default length, the full length and shorter
+    // ones.
+    let tall_bar = b.node();
+    let wide_bar = b.node();
+    b.fig.panels.extend([
+        Panel {
+            id: tall_bar,
+            cell: Cell {
+                row: 0,
+                col: 4,
+                row_span: 2,
+                col_span: 1,
+            },
+            align: PanelLocation::West,
+            content: PanelContent::Colorbar(PanelColorbar {
+                scale: gray_scale,
+                orientation: ColorbarOrientation::Vertical,
+            }),
+        },
+        Panel {
+            id: wide_bar,
+            cell: Cell {
+                row: 3,
+                col: 1,
+                row_span: 1,
+                col_span: 1,
+            },
+            align: PanelLocation::North,
+            content: PanelContent::Colorbar(PanelColorbar {
+                scale: status_scale,
+                orientation: ColorbarOrientation::Horizontal,
+            }),
+        },
+    ]);
+    for (axes, scale, side, length) in [
+        (scatters, scatter_scale, InsideColorbarSide::South, 0.8),
+        (contours, contour_scale, InsideColorbarSide::East, 1.0),
+        (three, three_scale, InsideColorbarSide::West, 0.5),
+        (surfaces, surface_scale, InsideColorbarSide::North, 0.25),
+    ] {
+        b.axes(axes).colorbar = Some(InsideColorbar {
+            scale,
+            side,
+            length,
+        });
+    }
+
     b.fig.links = vec![
         AxisLink {
             dimension: Dimension::X,
@@ -1950,6 +2009,9 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             visit(at("view3d.pan_x"), &mut view3d.pan_x);
             visit(at("view3d.pan_y"), &mut view3d.pan_y);
         }
+        if let Some(colorbar) = &mut axes.colorbar {
+            visit(at("colorbar.length"), &mut colorbar.length);
+        }
         for (name, limits) in [
             ("x.limits", &mut axes.x.limits),
             ("y.limits", &mut axes.y.limits),
@@ -2020,6 +2082,8 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 let at = format!("panels[{p}].content.legend.entries");
                 visit_legend_entries(visit, &at, &mut legend.entries);
             }
+            // A colourbar holds no number of its own: its scale holds them.
+            PanelContent::Colorbar(_) => {}
         }
     }
 }

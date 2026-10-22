@@ -271,17 +271,19 @@ pub(super) enum Along {
 /// lies in it alone. `margins` are the margins of the axes, or `None` before they are known. The cross dimension of a
 /// panel is measured with the shares of `previous`: the columns are fitted to the rows of `previous`, the rows to
 /// those columns, and the columns again to those rows. A panel whose row is fitted as well as its column is given an
-/// unbounded height when its column is fitted, and its row is then fitted to the width that results.
+/// unbounded height when its column is fitted, and its row is then fitted to the width that results. `panel_tops`
+/// holds the margin each panel needs above its area, as [`place`] takes it.
 pub(super) fn fit_tracks(
     ctx: &Ctx,
     grid_area: Rect,
     margins: Option<&[Margins]>,
+    panel_tops: &[f64],
     previous: &Fits,
-    content: impl Fn(usize, Along, f64) -> f64,
+    content: impl Fn(&Ctx, usize, Along, f64) -> f64,
 ) -> Fits {
     let figure = ctx.figure;
     let layout = &figure.layout;
-    let aligned = AlignedMargins::new(figure, margins.unwrap_or(&[]));
+    let aligned = AlignedMargins::new(figure, margins.unwrap_or(&[]), panel_tops);
     let pad = page_padding(ctx);
     let padding = |lo: Option<f64>, hi: Option<f64>| {
         f64::from(u8::from(lo.is_none())) * pad + f64::from(u8::from(hi.is_none())) * pad
@@ -300,7 +302,8 @@ pub(super) fn fit_tracks(
             } else {
                 rows.inset(r, re, pad).1
             };
-            let need = content(p, Along::Cols, cross) + padding(aligned.left[c], aligned.right[c]);
+            let need =
+                content(ctx, p, Along::Cols, cross) + padding(aligned.left[c], aligned.right[c]);
             shares[c] = shares[c].map(|s| s.max(need));
         }
         fits.cols = shares;
@@ -315,7 +318,8 @@ pub(super) fn fit_tracks(
                 continue;
             }
             let cross = columns.inset(c, ce, pad).1;
-            let need = content(p, Along::Rows, cross) + padding(aligned.top[r], aligned.bottom[r]);
+            let need =
+                content(ctx, p, Along::Rows, cross) + padding(aligned.top[r], aligned.bottom[r]);
             shares[r] = shares[r].map(|s| s.max(need));
         }
         fits.rows = shares;
@@ -335,7 +339,9 @@ pub(super) fn in_fitted_rows(fits: &Fits, layout: &TileLayout, cell: Cell) -> bo
 
 /// The margins of the plot areas, aligned across the tile layout: the largest left margin of the axes starting in
 /// each column, the largest right margin of those ending in each column, and likewise the top and bottom margins by
-/// row. A row or column in which no axes starts or ends has no margin on that side.
+/// row. A row or column in which no axes starts or ends has no margin on that side. A panel that needs a margin above
+/// its area, for the heading of a colourbar that stands along its rows, widens the top margin of its first row in
+/// the same way, so that the margin is the largest that any cell of the row needs rather than a sum.
 struct AlignedMargins {
     left: Vec<Option<f64>>,
     right: Vec<Option<f64>>,
@@ -344,7 +350,7 @@ struct AlignedMargins {
 }
 
 impl AlignedMargins {
-    fn new(figure: &Figure, margins: &[Margins]) -> Self {
+    fn new(figure: &Figure, margins: &[Margins], panel_tops: &[f64]) -> Self {
         let rows = figure.layout.rows.max(1) as usize;
         let cols = figure.layout.cols.max(1) as usize;
         let mut aligned = Self {
@@ -360,6 +366,12 @@ impl AlignedMargins {
             widen(&mut aligned.right[ce], m.right);
             widen(&mut aligned.top[r], m.top);
             widen(&mut aligned.bottom[re], m.bottom);
+        }
+        for (panel, &top) in figure.panels.iter().zip(panel_tops) {
+            if top > 0.0 {
+                let (r, ..) = span_indices(&figure.layout, panel.cell);
+                widen(&mut aligned.top[r], top);
+            }
         }
         aligned
     }
@@ -494,11 +506,19 @@ pub(super) struct Placement {
 ///
 /// A panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
 /// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row or
-/// column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
-pub(super) fn place(ctx: &Ctx, fits: &Fits, grid_area: Rect, margins: &[Margins]) -> Placement {
+/// column holds no axes is inset by the page padding instead. A panel contributes no margins of its own, except the
+/// margin above its area that `panel_tops` gives it, in the order the figure lists the panels, which widens the top
+/// margin of its first row as an axes title does.
+pub(super) fn place(
+    ctx: &Ctx,
+    fits: &Fits,
+    grid_area: Rect,
+    margins: &[Margins],
+    panel_tops: &[f64],
+) -> Placement {
     let figure = ctx.figure;
     let layout = &figure.layout;
-    let aligned = AlignedMargins::new(figure, margins);
+    let aligned = AlignedMargins::new(figure, margins, panel_tops);
     let columns = aligned.columns(layout, fits, grid_area);
     let rows = aligned.rows(layout, fits, grid_area);
     let rect = |cell: Cell, inset: Option<f64>| {

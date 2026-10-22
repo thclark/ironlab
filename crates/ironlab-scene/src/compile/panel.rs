@@ -5,7 +5,8 @@
 //! areas beside it, and this module prepares the content of each panel, records the area of each panel in the hit map
 //! and places a block of content within the area by the panel's alignment. A kind of content supplies only its size
 //! along a track ([`Content::size`]) and its drawing ([`Content::draw`]), each one arm of a match, together with the
-//! arm of [`prepare`] that measures it before the layout.
+//! arm of [`prepare`] that measures it before the layout, and, where it needs one, the margin above its area that its
+//! heading takes ([`Content::top_margin`]).
 
 use ironlab_ir::{Legend, NodeId, Panel, PanelContent, PanelLocation};
 
@@ -13,14 +14,19 @@ use crate::display::{Item, Rect};
 use crate::hit::{HitMap, PanelHit};
 
 use super::Ctx;
+use super::colorbar::{self, Colorbar};
 use super::layout::{self, Along, Fits};
 use super::legend::{self, Candidate, PanelListing};
+use super::style::ColourScales;
 
 /// The content of a panel, prepared and measured before the layout because a fitted row or column takes its size
 /// from it.
 pub(super) enum Content<'a> {
     /// A legend, with its entries chosen and measured.
     Legend(PanelListing<'a>),
+    /// A colourbar, with its scale resolved, or `None` when it names no colour scale of the figure, which leaves the
+    /// panel empty.
+    Colorbar(Option<Colorbar<'a>>),
 }
 
 /// Prepares the content of every panel of the figure, in the order the figure lists them.
@@ -28,10 +34,11 @@ pub(super) enum Content<'a> {
 /// `candidates` holds the legend candidates of every axes of the figure, in the order the figure lists them. When
 /// two panels share an identifier, only the first is named by the axes that name that identifier; the later ones are
 /// prepared as if no axes named them.
-pub(super) fn prepare<'a>(
+pub(super) fn prepare<'a, 's>(
     ctx: &mut Ctx<'a>,
-    candidates: &[Vec<Candidate<'a>>],
-) -> Vec<Content<'a>> {
+    candidates: &'s [Vec<Candidate<'a>>],
+    scales: &'s ColourScales<'a>,
+) -> Vec<Content<'s>> {
     let figure = ctx.figure;
     // Why: a panel gathers what the axes naming it contribute in the reading order of their cells, by the row and
     // then the column of their top-left tiles, so that the order follows the page rather than the order of the axes
@@ -59,6 +66,9 @@ pub(super) fn prepare<'a>(
                         ctx, panel.id, content, &gathered, candidates,
                     ))
                 }
+                PanelContent::Colorbar(content) => {
+                    Content::Colorbar(colorbar::prepare_panel(ctx, panel, content, scales))
+                }
             }
         })
         .collect()
@@ -67,19 +77,32 @@ pub(super) fn prepare<'a>(
 impl Content<'_> {
     /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the content
     /// needs when the other dimension of the area is `cross`, which is infinite when that dimension is fitted too.
-    pub(super) fn size(&self, font_size: f64, along: Along, cross: f64) -> f64 {
+    pub(super) fn size(&self, ctx: &Ctx, along: Along, cross: f64) -> f64 {
         match self {
-            Content::Legend(legend) => legend.size(font_size, along, cross),
+            Content::Legend(legend) => legend.size(ctx.font_size, along, cross),
+            Content::Colorbar(bar) => bar.as_ref().map_or(0.0, |b| b.size(ctx, along, cross)),
+        }
+    }
+
+    /// Returns the margin the content needs above the area of its panel, which widens the top margin of the first row
+    /// the panel spans: the heading of a colourbar that stands along its rows, and nothing for any other content.
+    pub(super) fn top_margin(&self, ctx: &Ctx) -> f64 {
+        match self {
+            Content::Colorbar(Some(bar)) => bar.top_margin(ctx),
+            Content::Legend(_) | Content::Colorbar(None) => 0.0,
         }
     }
 
     /// Draws the content of `panel` in its `area`. `fitted_rows` says whether the panel lies in fitted rows alone, so
-    /// that the height of its area follows its content rather than the other way round.
+    /// that the height of its area follows its content rather than the other way round. `plots` holds the drawn plot
+    /// box of each axes, in the order the figure lists them, to which a colourbar fits its length.
+    #[allow(clippy::too_many_arguments)]
     fn draw(
         &self,
         ctx: &mut Ctx,
         panel: &Panel,
         area: Rect,
+        plots: &[Rect],
         fitted_rows: bool,
         out: &mut Vec<Item>,
         hits: &mut HitMap,
@@ -93,17 +116,25 @@ impl Content<'_> {
                 };
                 legend::draw_panel(ctx, panel, content, area, fill, out, hits);
             }
+            Content::Colorbar(bar) => {
+                if let Some(bar) = bar {
+                    let area = fit_to_plots(ctx, panel, area, plots, bar.vertical());
+                    bar.draw_panel(ctx, panel, area, out, hits);
+                }
+            }
         }
     }
 }
 
 /// Draws every panel of the figure in its area, after every axes, and records the area of each in the hit map.
 ///
-/// `areas` and `contents` hold the area and the prepared content of each panel, in the order the figure lists them.
+/// `areas` and `contents` hold the area and the prepared content of each panel, in the order the figure lists them, and
+/// `plots` the drawn plot box of each axes, in the order the figure lists them.
 pub(super) fn draw(
     ctx: &mut Ctx,
     fits: &Fits,
     areas: Vec<Rect>,
+    plots: &[Rect],
     contents: &[Content],
     out: &mut Vec<Item>,
     hits: &mut HitMap,
@@ -115,7 +146,35 @@ pub(super) fn draw(
             rect: area,
         });
         let fitted_rows = layout::in_fitted_rows(fits, &figure.layout, panel.cell);
-        content.draw(ctx, panel, area, fitted_rows, out, hits);
+        content.draw(ctx, panel, area, plots, fitted_rows, out, hits);
+    }
+}
+
+/// Returns the area in which a panel colourbar is drawn: `area` along its width, and along its length the span from
+/// the near edge of the first drawn plot box to the far edge of the last, among the axes in the rows (when `vertical`)
+/// or the columns it spans. A fixed aspect can shrink a plot box within its plot area, and the bar then still matches
+/// the boxes beside it. When the spanned rows or columns hold no axes, the area is returned as it is.
+fn fit_to_plots(ctx: &Ctx, panel: &Panel, area: Rect, plots: &[Rect], vertical: bool) -> Rect {
+    let figure = ctx.figure;
+    let (r, c, re, ce) = layout::clamp_cell(&figure.layout, panel.cell);
+    let (first, end) = if vertical { (r, re) } else { (c, ce) };
+    let spanned = figure.axes.iter().zip(plots).filter_map(|(axes, plot)| {
+        let (ar, ac, are, ace) = layout::clamp_cell(&figure.layout, axes.cell);
+        let (a, ae) = if vertical { (ar, are) } else { (ac, ace) };
+        (a < end && first < ae).then_some(*plot)
+    });
+    let span = spanned.fold(None, |span: Option<(f64, f64)>, plot| {
+        let (lo, hi) = if vertical {
+            (plot.y, plot.bottom())
+        } else {
+            (plot.x, plot.right())
+        };
+        Some(span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))))
+    });
+    match span {
+        Some((lo, hi)) if vertical => Rect::new(area.x, lo, area.width, hi - lo),
+        Some((lo, hi)) => Rect::new(lo, area.y, hi - lo, area.height),
+        None => area,
     }
 }
 

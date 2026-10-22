@@ -547,6 +547,44 @@ impl ColorScale {
             ColorScaleClass::Above => Some(above),
         }
     }
+
+    /// Returns the out-of-range category that a key of the given kind shows, or `None`
+    /// when the kind of the scale has no such category: below or above on an indexed or
+    /// categorical scale, and outside on a continuous or discrete one.
+    ///
+    /// Unlike [`ColorScale::category`], which gives every class of value a category, this
+    /// never stands one category in for another, so that a colourbar draws each key of
+    /// its scale once.
+    #[must_use]
+    pub fn key(&self, key: ColorScaleKey) -> Option<&ColorScaleOutOfRange> {
+        match (&self.kind, key) {
+            (_, ColorScaleKey::NonFinite) => Some(&self.non_finite),
+            (ColorScaleKind::Continuous(scale), ColorScaleKey::Below) => Some(&scale.below),
+            (ColorScaleKind::Continuous(scale), ColorScaleKey::Above) => Some(&scale.above),
+            (ColorScaleKind::Discrete(scale), ColorScaleKey::Below) => Some(&scale.below),
+            (ColorScaleKind::Discrete(scale), ColorScaleKey::Above) => Some(&scale.above),
+            (ColorScaleKind::Indexed(scale), ColorScaleKey::Outside) => Some(&scale.outside),
+            (ColorScaleKind::Categorical(scale), ColorScaleKey::Outside) => Some(&scale.outside),
+            _ => None,
+        }
+    }
+}
+
+/// The out-of-range categories of a colour scale that a colourbar may show as key squares,
+/// separate from the bar; [`ColorScale::key`] returns the category behind each.
+///
+/// The type is not part of the data model and is never serialised: it names a category in
+/// the scene compiler, the facade and the viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorScaleKey {
+    /// The values below the range of a continuous or discrete scale.
+    Below,
+    /// The values above the range of a continuous or discrete scale.
+    Above,
+    /// The values that name no entry of an indexed or categorical scale.
+    Outside,
+    /// The values that are NaN or infinite, on every kind of scale.
+    NonFinite,
 }
 
 /// The domain of a colour scale with its limits and band edges resolved to numbers, which

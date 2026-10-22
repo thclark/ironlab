@@ -12,12 +12,13 @@ use crate::wire as w;
 use crate::{
     Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, CategoricalColorScale, Cell, Color,
     ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, ColorSpec, Colormap, ColormapName, ContinuousColorScale, Contour,
-    ContourPlacement, Coords, DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Figure,
-    FigureSize, FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
-    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
-    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
+    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, Colormap, ColormapName,
+    ContinuousColorScale, Contour, ContourPlacement, Coords, DashStyle, DataArray, Dimension,
+    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
+    ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
+    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape,
+    MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel, PanelColorbar,
     PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
     Quiver, QuiverScale, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks, TileLayout,
     TitleAlign, TrackSize, Transaction, Value, Values, View3d,
@@ -106,6 +107,8 @@ wire_enum! {
         Center, North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest,
     }
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
+    ColorbarOrientation => ColorbarOrientation { Vertical, Horizontal }
+    InsideColorbarSide => InsideColorbarSide { South, North, East, West }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
     AspectAdjust => AspectAdjust { Box, Limits }
     TitleAlign => TitleAlign { Center, Left, Right }
@@ -407,6 +410,11 @@ fn encode_panel_content(content: &PanelContent) -> w::PanelContent {
         PanelContent::Legend(legend) => w::PanelContentKind::Legend(w::PanelContentLegend {
             legend: Some(encode_panel_legend(legend)),
         }),
+        PanelContent::Colorbar(colorbar) => {
+            w::PanelContentKind::Colorbar(w::PanelContentColorbar {
+                colorbar: Some(encode_panel_colorbar(*colorbar)),
+            })
+        }
     };
     w::PanelContent { kind: Some(kind) }
 }
@@ -499,7 +507,23 @@ impl Encode for Axes {
             title_align: self.title_align.to_wire(),
             aspect: Some(encode_aspect(self.aspect)),
             aspect_adjust: self.aspect_adjust.to_wire(),
+            colorbar: self.colorbar.map(encode_inside_colorbar),
         }
+    }
+}
+
+fn encode_inside_colorbar(colorbar: InsideColorbar) -> w::InsideColorbar {
+    w::InsideColorbar {
+        scale: Some(colorbar.scale.0),
+        side: colorbar.side.to_wire(),
+        length: Some(colorbar.length),
+    }
+}
+
+fn encode_panel_colorbar(colorbar: PanelColorbar) -> w::PanelColorbar {
+    w::PanelColorbar {
+        scale: Some(colorbar.scale.0),
+        orientation: colorbar.orientation.to_wire(),
     }
 }
 
@@ -1163,6 +1187,34 @@ fn decode_panel_content(wire: Option<w::PanelContent>, at: &str) -> Result<Panel
                 None => PanelLegend::default(),
             })
         }
+        w::PanelContentKind::Colorbar(content) => {
+            let at = join(at, "colorbar");
+            let colorbar = required(content.colorbar, &at, "colorbar")?;
+            PanelContent::Colorbar(decode_panel_colorbar(colorbar, &join(&at, "colorbar"))?)
+        }
+    })
+}
+
+/// Decodes the colourbar content of a panel, which must name its scale.
+fn decode_panel_colorbar(wire: w::PanelColorbar, at: &str) -> Result<PanelColorbar> {
+    Ok(PanelColorbar {
+        scale: reference(wire.scale, at, "scale")?,
+        orientation: decode_enum(
+            wire.orientation,
+            Some(ColorbarOrientation::default()),
+            at,
+            "orientation",
+        )?,
+    })
+}
+
+/// Decodes the colourbar inside an axes, which must name its scale.
+fn decode_inside_colorbar(wire: w::InsideColorbar, at: &str) -> Result<InsideColorbar> {
+    let default = InsideColorbar::default();
+    Ok(InsideColorbar {
+        scale: reference(wire.scale, at, "scale")?,
+        side: decode_enum(wire.side, Some(default.side), at, "side")?,
+        length: wire.length.unwrap_or(default.length),
     })
 }
 
@@ -1458,6 +1510,10 @@ impl Decode for Axes {
             x: decode_axis(wire.x, &join(at, "x"))?,
             y: decode_axis(wire.y, &join(at, "y"))?,
             z: decode_axis(wire.z, &join(at, "z"))?,
+            colorbar: wire
+                .colorbar
+                .map(|colorbar| decode_inside_colorbar(colorbar, &join(at, "colorbar")))
+                .transpose()?,
             box_: wire.r#box.unwrap_or(default.box_),
             legend,
             artists,
@@ -2155,6 +2211,18 @@ fn encode_value(value: &Value) -> w::Value {
         Value::ColorScaleLevels(v) => w::ValueKind::ColorScaleLevels(w::ValueColorScaleLevels {
             value: Some(encode_color_scale_levels(v)),
         }),
+        Value::PanelColorbar(v) => w::ValueKind::PanelColorbar(w::ValuePanelColorbar {
+            value: Some(encode_panel_colorbar(*v)),
+        }),
+        Value::ColorbarOrientation(v) => {
+            w::ValueKind::ColorbarOrientation(w::ValueColorbarOrientation { value: v.to_wire() })
+        }
+        Value::InsideColorbar(v) => w::ValueKind::InsideColorbar(w::ValueInsideColorbar {
+            value: Some(encode_inside_colorbar(*v)),
+        }),
+        Value::InsideColorbarSide(v) => {
+            w::ValueKind::InsideColorbarSide(w::ValueInsideColorbarSide { value: v.to_wire() })
+        }
     };
     w::Value { kind: Some(kind) }
 }
@@ -2544,5 +2612,25 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             let (levels, at) = value_message(v.value, at, "color_scale_levels_value")?;
             Value::ColorScaleLevels(decode_color_scale_levels(Some(levels), &at)?)
         }
+        w::ValueKind::PanelColorbar(v) => {
+            let (colorbar, at) = value_message(v.value, at, "panel_colorbar_value")?;
+            Value::PanelColorbar(decode_panel_colorbar(colorbar, &at)?)
+        }
+        w::ValueKind::ColorbarOrientation(v) => Value::ColorbarOrientation(decode_enum(
+            v.value,
+            None,
+            &join(at, "colorbar_orientation_value"),
+            "value",
+        )?),
+        w::ValueKind::InsideColorbar(v) => {
+            let (colorbar, at) = value_message(v.value, at, "inside_colorbar_value")?;
+            Value::InsideColorbar(decode_inside_colorbar(colorbar, &at)?)
+        }
+        w::ValueKind::InsideColorbarSide(v) => Value::InsideColorbarSide(decode_enum(
+            v.value,
+            None,
+            &join(at, "inside_colorbar_side_value"),
+            "value",
+        )?),
     })
 }

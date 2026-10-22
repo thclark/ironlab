@@ -11,7 +11,7 @@ use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
-use super::{legend, limits::Range};
+use super::{colorbar, legend, limits::Range};
 
 /// The width of the axes box and tick marks, in points.
 const FRAME_WIDTH: f64 = 0.5;
@@ -153,6 +153,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
+    colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
     hits.axes.push(AxesHit {

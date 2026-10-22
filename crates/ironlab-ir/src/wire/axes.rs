@@ -30,9 +30,33 @@ proto_file! {
         message Aspect aspect = 14;
         /// How a fixed aspect is kept.
         enum AspectAdjust aspect_adjust = 15;
+        /// The colourbar drawn inside the plot area; absent when the axes shows none.
+        message InsideColorbar colorbar = 16;
         /// The numbers and names of the colormap and colour limits of the axes, which
         /// colour scales replaced.
         reserved 9, 10, colormap, clim;
+    }
+
+    /// A colourbar drawn inside the plot area of an axes, along one of its edges.
+    message InsideColorbar {
+        /// The node identifier of the colour scale that the bar shows; it must be present.
+        optional uint64 scale = 1;
+        /// The edge of the plot area along which the bar lies.
+        enum InsideColorbarSide side = 2;
+        /// The length of the bar and its keys as a fraction of the edge; absent means 0.8.
+        optional double length = 3;
+    }
+
+    /// The edge of the plot area along which an inside colourbar lies.
+    enum InsideColorbarSide {
+        /// Along the bottom edge, horizontal.
+        South = 1;
+        /// Along the top edge, horizontal.
+        North = 2;
+        /// Along the right edge, vertical.
+        East = 3;
+        /// Along the left edge, vertical.
+        West = 4;
     }
 
     /// How the title of an axes is aligned with its plot area.

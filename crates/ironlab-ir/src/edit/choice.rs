@@ -24,8 +24,8 @@
 use crate::artist::Coords;
 use crate::artist::{Artist, ContourPlacement, Grid, ImagePlane, Levels, QuiverScale, Series};
 use crate::axes::{
-    Aspect, AspectAdjust, Axes, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, Projection, Scale,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -40,7 +40,7 @@ use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation, PanelLegend,
 };
 use crate::nodes::NodeKind;
-use crate::panel::{PanelContent, PanelLocation};
+use crate::panel::{ColorbarOrientation, PanelColorbar, PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
 use crate::text::{Interpreter, Text};
 
@@ -126,6 +126,11 @@ const FALLBACK_LISTED_COLORS: [Color; 2] = [Color::BLACK, Color::WHITE];
 /// unavailable at the property and applying it is refused.
 const FALLBACK_PANEL: NodeId = NodeId(0);
 
+/// The colour scale that a panel's colourbar refers to when the content it replaces names
+/// none. The figure need not have it, in which case the choice is unavailable at the
+/// property and applying it is refused.
+const FALLBACK_SCALE: NodeId = NodeId(0);
+
 /// Returns the choices of a value type, in the order in which they are offered, each
 /// carrying a value that suits the value it replaces.
 ///
@@ -177,6 +182,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::ColormapName => colormap_name_choices(),
         ValueType::LegendLocation => legend_location_choices(),
         ValueType::PanelLocation => panel_location_choices(),
+        ValueType::ColorbarOrientation => colorbar_orientation_choices(),
+        ValueType::InsideColorbarSide => inside_colorbar_side_choices(),
         ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
@@ -205,6 +212,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
+        | ValueType::PanelColorbar
+        | ValueType::InsideColorbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -281,10 +290,11 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 ///
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
-const RULES: [Rule; 4] = [
+const RULES: [Rule; 5] = [
     colormapped_without_a_value_to_index_by,
     clamp_without_a_nearest_end_of_the_colormap,
     legend_panel_that_the_figure_lacks,
+    colorbar_scale_that_the_figure_lacks,
     tick_text_without_matching_values,
 ];
 
@@ -457,6 +467,30 @@ fn legend_panel_that_the_figure_lacks(
     }
 }
 
+/// Why a colourbar is unavailable as the content of a panel when it names no colour scale.
+const NO_SUCH_COLOR_SCALE: &str = "The figure has no colour scale of this identifier for the \
+     colourbar to show. A colour scale is created by the program that builds the figure, and \
+     a panel can then show it as a colourbar.";
+
+/// Marks a panel's colourbar unavailable when the figure has no colour scale of the
+/// identifier it names, and leaves every other choice alone.
+fn colorbar_scale_that_the_figure_lacks(
+    figure: &Figure,
+    _kind: NodeKind,
+    _node: NodeId,
+    _path: &PropertyPath,
+    value: &Value,
+) -> Option<&'static str> {
+    match value {
+        Value::PanelContent(PanelContent::Colorbar(colorbar))
+            if figure.color_scale(colorbar.scale).is_none() =>
+        {
+            Some(NO_SUCH_COLOR_SCALE)
+        }
+        _ => None,
+    }
+}
+
 /// Why explicit tick labels are unavailable on an axis whose ticks are not explicit values.
 const TICK_TEXT_WITHOUT_VALUES: &str = "Explicit tick labels name the ticks one by one, so \
      they are available only where the ticks of the axis are explicit values, with one label \
@@ -557,6 +591,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::ColormapName(v) => colormap_name_label(v),
         Value::LegendLocation(v) => legend_location_label(v),
         Value::PanelLocation(v) => panel_location_label(v),
+        Value::ColorbarOrientation(v) => colorbar_orientation_label(v),
+        Value::InsideColorbarSide(v) => inside_colorbar_side_label(v),
         Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
@@ -586,6 +622,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::InsideLegend(_)
         | Value::LegendEntryLayout(_)
         | Value::PanelLegend(_)
+        | Value::PanelColorbar(_)
+        | Value::InsideColorbar(_)
         | Value::LineStyle(_)
         | Value::MarkerStyle(_)
         | Value::ImagePlacement(_)
@@ -813,6 +851,13 @@ tagged_choices! {
             Some(Value::PanelContent(PanelContent::Legend(legend))) => legend.clone(),
             _ => PanelLegend::default(),
         });
+        PanelContent::Colorbar(_) => "Colourbar" = PanelContent::Colorbar(match replacing {
+            Some(Value::PanelContent(PanelContent::Colorbar(colorbar))) => *colorbar,
+            _ => PanelColorbar {
+                scale: FALLBACK_SCALE,
+                ..PanelColorbar::default()
+            },
+        });
     }
 
     // A kind keeps what the kind it replaces shares with it: a continuous and a discrete
@@ -963,6 +1008,18 @@ plain_choices! {
         PanelLocation::NorthWest => "North west";
         PanelLocation::SouthEast => "South east";
         PanelLocation::SouthWest => "South west";
+    }
+
+    ColorbarOrientation as ColorbarOrientation (colorbar_orientation_choices, colorbar_orientation_label) {
+        ColorbarOrientation::Vertical => "Vertical";
+        ColorbarOrientation::Horizontal => "Horizontal";
+    }
+
+    InsideColorbarSide as InsideColorbarSide (inside_colorbar_side_choices, inside_colorbar_side_label) {
+        InsideColorbarSide::South => "South";
+        InsideColorbarSide::North => "North";
+        InsideColorbarSide::East => "East";
+        InsideColorbarSide::West => "West";
     }
 
     LegendEntryOrder as LegendEntryOrder (legend_entry_order_choices, legend_entry_order_label) {

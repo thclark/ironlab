@@ -1808,6 +1808,9 @@ fn the_inverse_of_an_append_with_retain_restores_the_discarded_entries() {
 fn a_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() {
     let fig = kitchen_sink_figure();
     let [first, second] = [fig.panels[0].id, fig.panels[1].id];
+    // The panels after the first two, which the edits below leave where they are.
+    let rest: Vec<NodeId> = fig.panels[2..].iter().map(|panel| panel.id).collect();
+    let then_rest = |head: &[NodeId]| -> Vec<NodeId> { [head, &rest].concat() };
     let spare = legend_panel(
         NodeId(5_000),
         Cell {
@@ -1826,7 +1829,7 @@ fn a_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() 
         node: Node::Panel(spare.clone()),
     };
     let (inserted, inverse) = applied(&fig, &tx([insert])).unwrap();
-    assert_eq!(panel_ids(&inserted), [first, spare.id, second]);
+    assert_eq!(panel_ids(&inserted), then_rest(&[first, spare.id, second]));
     assert_eq!(inserted.node_kind(spare.id), Some(NodeKind::Panel));
     assert_eq!(applied(&inserted, &inverse).unwrap().0, fig);
 
@@ -1836,12 +1839,12 @@ fn a_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() 
         index: Some(0),
     };
     let (moved, inverse) = applied(&fig, &tx([reorder])).unwrap();
-    assert_eq!(panel_ids(&moved), [second, first]);
+    assert_eq!(panel_ids(&moved), then_rest(&[second, first]));
     assert_eq!(applied(&moved, &inverse).unwrap().0, fig);
 
     // The inserted panel is named by no legend, so removing it leaves the figure valid.
     let (removed, inverse) = applied(&inserted, &tx([Edit::Remove { node: spare.id }])).unwrap();
-    assert_eq!(panel_ids(&removed), [first, second]);
+    assert_eq!(panel_ids(&removed), then_rest(&[first, second]));
     assert_eq!(applied(&removed, &inverse).unwrap().0, inserted);
 }
 

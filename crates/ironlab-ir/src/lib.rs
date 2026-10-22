@@ -90,14 +90,14 @@ pub use artist::{
     PixelRange, Quiver, QuiverScale, ScalarImage, Series, Surface,
 };
 pub use axes::{
-    Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
+    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
 };
 pub use color_scale::{
     CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,
-    ColorScaleDomain, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
-    ColorScaleSlot, Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale,
-    LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
+    ColorScaleDomain, ColorScaleKey, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    ColorScaleOutOfRange, ColorScaleSlot, Colormap, ContinuousColorScale, DiscreteColorScale,
+    IndexedColorScale, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
 };
 pub use data::{DataArray, NdArray, NdArrayElement, Values};
 pub use edit::{
@@ -115,7 +115,7 @@ pub use legend::{
     LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
 };
 pub use link::{AxisLink, Dimension};
-pub use panel::{Panel, PanelContent, PanelLocation};
+pub use panel::{ColorbarOrientation, Panel, PanelColorbar, PanelContent, PanelLocation};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 pub use text::{Interpreter, Text};
 pub use validate::{IssueKind, ValidationIssue, ValidationReport};
