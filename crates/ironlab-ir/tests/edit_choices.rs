@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 33] = [
+const WITH_CHOICES: [ValueType; 34] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -31,6 +31,7 @@ const WITH_CHOICES: [ValueType; 33] = [
     ValueType::PanelContent,
     ValueType::ColorbarOrientation,
     ValueType::InsideColorbarSide,
+    ValueType::ColorbarTitlePlacement,
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
@@ -561,6 +562,7 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
                 scale: NodeId(7),
                 orientation: ColorbarOrientation::Horizontal,
+                ..PanelColorbar::default()
             })),
         ],
     );
@@ -569,6 +571,13 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         vec![
             Value::ColorbarOrientation(ColorbarOrientation::Vertical),
             Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+        ],
+    );
+    covered(
+        ValueType::ColorbarTitlePlacement,
+        vec![
+            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along),
+            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
         ],
     );
     covered(

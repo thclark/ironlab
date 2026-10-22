@@ -111,11 +111,13 @@ pub use figure::{
 pub use ids::NodeId;
 pub use layout::{Cell, TileLayout, TrackSize};
 pub use legend::{
-    InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
-    LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
+    DEFAULT_BAR_ROWS, InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
 };
 pub use link::{AxisLink, Dimension};
-pub use panel::{ColorbarOrientation, Panel, PanelColorbar, PanelContent, PanelLocation};
+pub use panel::{
+    ColorbarOrientation, ColorbarTitlePlacement, Panel, PanelColorbar, PanelContent, PanelLocation,
+};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 pub use text::{Interpreter, Text};
 pub use validate::{IssueKind, ValidationIssue, ValidationReport};

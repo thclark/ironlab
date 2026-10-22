@@ -900,6 +900,8 @@ fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
             ..Cell::default()
         },
         align: PanelLocation::Center,
+        title: None,
+        title_align: ironlab_ir::TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend {
             layout: LegendEntryLayout {
                 columns: LegendEntryColumns::Count(1),

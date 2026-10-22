@@ -15,11 +15,11 @@ use ironlab_ir::{
     Artist, Color, ColorScaleKind, ColorSpec, Interpreter, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
     LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Panel, PanelLegend,
-    PanelLocation, ScalarImage, Series, Text,
+    PanelLocation, ScalarImage, Series, Text, TitleAlign,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
-use crate::hit::{HitMap, LegendHit, LegendOwner};
+use crate::hit::{ColorbarKeyHit, HitMap, LegendHit, LegendOwner};
 use crate::maths::quiver;
 
 use super::artists::AxesInput;
@@ -51,8 +51,9 @@ static NO_NAME: Text = Text {
     interpreter: Interpreter::None,
 };
 
-/// The number of entry rows along which a standing bar item runs.
-const BAR_ROWS: f64 = 5.0;
+/// The most entry rows along which a standing bar item runs, whatever it asks for: far more than any page holds, so
+/// that an absurd count lays out a bar too long for the legend, which then overflows, rather than exhausting memory.
+const MAX_BAR_ROWS: u32 = 1000;
 
 /// The number of segments in which a line sample sweeps a scale of many colours, enough that no step shows.
 const LINE_SWEEP_SEGMENTS: usize = 32;
@@ -215,6 +216,8 @@ pub(super) enum Chosen<'a> {
     Bar {
         scale: &'a ResolvedScale<'a>,
         full_row: bool,
+        /// The number of entry rows along which a standing bar runs.
+        rows: usize,
     },
 }
 
@@ -237,12 +240,12 @@ impl Listed<'_> {
 /// The entries of a legend with their labels measured, ready to be arranged.
 pub(super) struct Listing<'a> {
     items: Vec<Listed<'a>>,
-    /// The height of the row of an entry with a one-line label, its gap included, along which a standing bar item
-    /// runs five times.
+    /// The height of the row of an entry with a one-line label, its gap included, which each row of a standing bar
+    /// item takes.
     pitch: f64,
     /// The space that the row of an entry with a one-line label leaves above and below its label, half the gap
-    /// between the labels of neighbouring rows. A bar item leaves it above its title, so that the title is as far
-    /// from the label of the entry above as the labels of two entry rows are from each other.
+    /// between the labels of neighbouring rows. A lying bar item leaves it above and below itself, so that it is as
+    /// far from the labels of the entries around it as the labels of two entry rows are from each other.
     head: f64,
 }
 
@@ -272,23 +275,22 @@ impl<'a> Listing<'a> {
                 }
                 // The ends of a standing bar are kept half a label inside its rows, so that the tick labels at its
                 // ends, centred on them, stay clear of the entries above and below.
-                Chosen::Bar { scale, full_row } => Listed::Bar(LegendBar::new(
+                Chosen::Bar {
+                    scale,
+                    full_row,
+                    rows,
+                } => Listed::Bar(LegendBar::new(
                     ctx,
                     owner,
                     scale,
                     full_row,
-                    BAR_ROWS * pitch,
+                    rows,
+                    pitch,
                     line / 2.0,
                 )),
             })
             .collect();
         Self { items, pitch, head }
-    }
-
-    /// Returns the space a standing bar item leaves above itself: [`Listing::head`] above its title when it is titled,
-    /// and nothing when it is not, because its bar is already kept half a label inside its rows.
-    fn head_of(&self, bar: &LegendBar) -> f64 {
-        if bar.titled() { self.head } else { 0.0 }
     }
 
     /// Returns the size of the block of entries, padding included, arranged as `mode` chooses within `max_width ×
@@ -389,7 +391,7 @@ fn panel_inset(font_size: f64, legend: &PanelLegend) -> f64 {
 /// Where an entry lies in the arrangement of a legend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Place {
-    /// The first row of the entry; a standing bar item runs down five rows from it.
+    /// The first row of the entry; a standing bar item runs down the rows of its keys and its bar from it.
     row: usize,
     /// The column of the entry, or `None` for an entry that spans every column on a row of its own.
     column: Option<usize>,
@@ -399,7 +401,8 @@ struct Place {
 struct Span {
     /// Whether the member spans every column, on a row of its own.
     full: bool,
-    /// The height that the member needs of each row it runs down: one row for an entry, five for a standing bar item.
+    /// The height that the member needs of each row it runs down: one row for an entry, and for a standing bar item
+    /// the rows of its bar and of its keys.
     heights: Vec<f64>,
     /// The width of the member's label, or of what stands for it, beyond the sample column; for a member on a row of
     /// its own, its whole width.
@@ -412,7 +415,8 @@ struct Grid {
     places: Vec<Place>,
     /// The number of rows that each entry runs down, in the order of the entries.
     spans: Vec<usize>,
-    /// The width of the widest label in each column, among the entries that do not span every column.
+    /// The width of the widest label in each column, among the entries that do not span every column; negative for a
+    /// column whose bar item is narrower than the sample column and its gap.
     label_widths: Vec<f64>,
     /// The height of each row, the gap below it included.
     row_heights: Vec<f64>,
@@ -474,7 +478,9 @@ fn inside_entries<'a>(
                 LegendItemContent::Custom { label, sample } => {
                     vec![Chosen::Entry(Entry::custom(label, sample, item.full_row))]
                 }
-                LegendItemContent::ColorScale(id) => scale_item(scales, *id, item.full_row),
+                LegendItemContent::ColorScale { scale, rows } => {
+                    scale_item(scales, *scale, item.full_row, *rows)
+                }
             })
             .collect(),
     }
@@ -482,10 +488,15 @@ fn inside_entries<'a>(
 
 /// Returns what a scale item of a legend lists: one entry per category of a categorical scale, labelled with the
 /// category's label beside a swatch of its colour, followed by an entry for each out-of-range key the scale shows,
-/// in the order of a colourbar's keys; a bar item for any other kind of scale; and nothing for an identifier that
-/// names no colour scale, which validation reports. A categorical scale with no categories, which validation also
-/// reports, lists nothing.
-fn scale_item<'a>(scales: &'a ColourScales<'a>, id: NodeId, full_row: bool) -> Vec<Chosen<'a>> {
+/// in the order of a colourbar's keys; a bar item `rows` entry rows long for any other kind of scale (at least one row,
+/// as validation requires); and nothing for an identifier that names no colour scale, which validation reports. A
+/// categorical scale with no categories, which validation also reports, lists nothing.
+fn scale_item<'a>(
+    scales: &'a ColourScales<'a>,
+    id: NodeId,
+    full_row: bool,
+    rows: u32,
+) -> Vec<Chosen<'a>> {
     let Some(scale) = scales.get(id) else {
         return Vec::new();
     };
@@ -507,7 +518,11 @@ fn scale_item<'a>(scales: &'a ColourScales<'a>, id: NodeId, full_row: bool) -> V
                 })
             })
             .collect(),
-        _ => vec![Chosen::Bar { scale, full_row }],
+        _ => vec![Chosen::Bar {
+            scale,
+            full_row,
+            rows: rows.clamp(1, MAX_BAR_ROWS) as usize,
+        }],
     }
 }
 
@@ -570,20 +585,42 @@ impl<'a> PanelListing<'a> {
     }
 
     /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the legend
-    /// needs for its entries, its insets included, when the other dimension of the area is `cross`.
-    pub(super) fn size(&self, font_size: f64, along: Along, cross: f64) -> f64 {
+    /// needs for its entries and the panel's title `heading` above them, its insets included, when the other
+    /// dimension of the area is `cross`.
+    pub(super) fn size(
+        &self,
+        font_size: f64,
+        along: Along,
+        cross: f64,
+        heading: Option<&TextBlock>,
+    ) -> f64 {
         let inset = panel_inset(font_size, self.legend);
+        let m = Metrics::new(font_size);
+        let part = heading_part(&m, heading, self.listing.items.is_empty());
         let (fill, max) = match along {
             Along::Rows => (Fill::Width, (cross - 2.0 * inset, f64::INFINITY)),
-            Along::Cols => (Fill::Height, (f64::INFINITY, cross - 2.0 * inset)),
+            Along::Cols => (Fill::Height, (f64::INFINITY, cross - 2.0 * inset - part)),
         };
         let (w, h) = self.listing.size(font_size, self.legend.layout, fill, max);
         2.0 * inset
             + match along {
-                Along::Rows => h,
-                Along::Cols => w,
+                Along::Rows => h + part,
+                Along::Cols => w.max(heading_width(&m, heading, self.listing.items.is_empty())),
             }
     }
+}
+
+/// Returns the height that the title of a legend panel takes above the block of entries: its line and one gap, the
+/// space above it being the padding of the block. Above no entries the title takes only its line.
+fn heading_part(m: &Metrics, heading: Option<&TextBlock>, empty: bool) -> f64 {
+    heading.map_or(0.0, |h| h.total_height() + if empty { 0.0 } else { m.gap })
+}
+
+/// Returns the least width of a block of entries headed by the title of a legend panel: the title with half the
+/// padding on either side, the margin by which the entries' click targets are inset in the block, which the title
+/// is aligned with. Above no entries it is the title's width alone.
+fn heading_width(m: &Metrics, heading: Option<&TextBlock>, empty: bool) -> f64 {
+    heading.map_or(0.0, |h| h.width() + if empty { 0.0 } else { m.pad })
 }
 
 /// Returns the entries of the legend of a panel.
@@ -654,7 +691,9 @@ fn explicit_panel_entry<'a>(
         LegendItemContent::Custom { label, sample } => {
             vec![Chosen::Entry(Entry::custom(label, sample, item.full_row))]
         }
-        LegendItemContent::ColorScale(id) => scale_item(scales, *id, item.full_row),
+        LegendItemContent::ColorScale { scale, rows } => {
+            scale_item(scales, *scale, item.full_row, *rows)
+        }
     }
 }
 
@@ -703,15 +742,20 @@ pub(super) fn draw_inside(
     );
 }
 
-/// Draws the legend of a panel in the panel's `area`, arranging automatic columns as `fill` says,
-/// and records the entries that stand for artists in the hit map.
+/// Draws the legend of a panel in the panel's `area`, headed by the panel's title `heading` when it has one,
+/// arranging automatic columns as `fill` says, and records the entries that stand for artists in the hit map.
 ///
-/// A boxed legend outlines `area` as an axes outlines its plot area, and keeps its entries the legend inset inside
-/// that border. A boxed legend with no entries draws only its border, and an unboxed one draws nothing.
+/// A boxed legend outlines `area` as an axes outlines its plot area, and keeps its entries and its heading the legend
+/// inset inside that border. The heading lies above the block of entries, aligned with the left edge, the centre or
+/// the right edge of the entries' click targets as the panel's title alignment says; a block narrower than its
+/// heading is aligned with the heading in the same way. A boxed legend with no entries draws only its border and its
+/// heading, and an unboxed one only its heading.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_panel(
     ctx: &mut Ctx,
     panel: &Panel,
     content: &PanelListing,
+    heading: Option<&TextBlock>,
     area: Rect,
     fill: Fill,
     out: &mut Vec<Item>,
@@ -724,13 +768,22 @@ pub(super) fn draw_panel(
         out.extend(axes2d::frame(panel.id, area));
     }
     let inset = panel_inset(ctx.font_size, legend);
+    let m = Metrics::new(ctx.font_size);
+    let empty = listing.items.is_empty();
+    let part = heading_part(&m, heading, empty);
+    let least = heading_width(&m, heading, empty);
     let available = Rect::new(
         area.x + inset,
-        area.y + inset,
+        area.y + inset + part,
         (area.width - 2.0 * inset).max(0.0),
-        (area.height - 2.0 * inset).max(0.0),
+        (area.height - 2.0 * inset - part).max(0.0),
     );
-    render(
+    let aligned = |lo: f64, hi: f64, inner: f64| match panel.title_align {
+        TitleAlign::Left => lo,
+        TitleAlign::Center => lo + (hi - lo - inner) / 2.0,
+        TitleAlign::Right => hi - inner,
+    };
+    let placed = render(
         ctx,
         Block {
             owner: LegendOwner::Panel(panel.id),
@@ -741,10 +794,41 @@ pub(super) fn draw_panel(
             available,
         },
         listing,
-        |width, height| panel::place(area, width, height, panel.align, inset),
+        |width, height| {
+            let whole = width.max(least);
+            let r = panel::place(area, whole, height + part, panel.align, inset);
+            Rect::new(aligned(r.x, r.right(), width), r.y + part, width, height)
+        },
         out,
         hits,
     );
+    let Some(heading) = heading else {
+        return;
+    };
+    let (left, top) = match placed {
+        // The title lies the block's padding below the top of the heading and block together, aligned with the
+        // entries' click targets, which are inset half the padding in the block.
+        Some(block) => (
+            aligned(
+                block.x + m.pad / 2.0,
+                block.right() - m.pad / 2.0,
+                heading.width(),
+            ),
+            block.y - part + m.pad,
+        ),
+        None => {
+            let r = panel::place(
+                area,
+                heading.width(),
+                heading.total_height(),
+                panel.align,
+                inset,
+            );
+            (r.x, r.y)
+        }
+    };
+    let origin = Point::new(left, top + heading.height());
+    heading.draw_on_page(ctx, origin, INK, panel.id, out);
 }
 
 /// Merges entries with the same label and the same sample into one entry that stands for all of their
@@ -809,7 +893,8 @@ struct Block {
     available: Rect,
 }
 
-/// Arranges, draws and records a block of measured entries.
+/// Arranges, draws and records a block of measured entries, and returns the rectangle of the block, or `None` when
+/// there are no entries to draw.
 ///
 /// `place` returns the rectangle of a block of the given width and height. When the block does not fit the
 /// available area even in as many columns as fit its width, a [`SceneWarningKind::LegendOverflow`] is reported, the
@@ -823,9 +908,9 @@ fn render(
     place: impl FnOnce(f64, f64) -> Rect,
     out: &mut Vec<Item>,
     hits: &mut HitMap,
-) {
+) -> Option<Rect> {
     if listing.items.is_empty() {
-        return;
+        return None;
     }
     let m = Metrics::new(ctx.font_size);
     let area = block.available;
@@ -905,33 +990,52 @@ fn render(
         }
         let (entry, label) = match member {
             Listed::Entry { entry, label } => (entry, label),
-            // A bar item is drawn below the space that an entry row leaves above its label, as a label is centred in
-            // its row.
+            // A lying bar item is drawn below the space that an entry row leaves above its label, as a label is
+            // centred in its row.
             Listed::Bar(bar) if bar.lying() => {
                 let r = Rect::new(x, y + listing.head, width, bar.height());
-                bar.draw(ctx, r, &mut items, &mut bars);
+                bars.colorbars.push(bar.draw(ctx, r, &mut items));
                 continue;
             }
+            // A standing bar item runs down the rows of its bar, between the rows of the keys above and below it,
+            // each of which is drawn as a swatch entry and recorded among the bar's keys.
             Listed::Bar(bar) => {
-                let head = listing.head_of(bar);
-                let r = Rect::new(x, y + head, width, h - head);
-                bar.draw(ctx, r, &mut items, &mut bars);
+                let tops: Vec<f64> = grid.row_heights[place.row..place.row + span]
+                    .iter()
+                    .scan(y, |at, h| {
+                        let top = *at;
+                        *at += h;
+                        Some(top)
+                    })
+                    .chain(std::iter::once(y + h))
+                    .collect();
+                let (keys, above) = bar.keys();
+                let (first, last) = (above, above + bar.rows());
+                let r = Rect::new(x, tops[first], width, tops[last] - tops[first]);
+                let mut hit = bar.draw(ctx, r, &mut items);
+                for (k, key) in keys.iter().enumerate() {
+                    let row = if k < above { k } else { last + k - above };
+                    let cell = Rect::new(x, tops[row], m.sample_width, tops[row + 1] - tops[row]);
+                    let sample = SampleLook::Swatch {
+                        fill: key.fill,
+                        outline: Some(SWATCH_OUTLINE),
+                    };
+                    draw_sample(block.source, &sample, cell, 1.0, &m, &mut items);
+                    draw_label(&key.label, cell, 1.0, &m, block.source, &mut items);
+                    hit.keys.push(ColorbarKeyHit {
+                        key: key.key,
+                        rect: swatch_square(cell, &m),
+                        label: key.text.clone(),
+                    });
+                }
+                bars.colorbars.push(hit);
                 continue;
             }
         };
         let alpha = if entry.visible { 1.0 } else { HIDDEN_ALPHA };
         let cell = Rect::new(x, y, m.sample_width, h);
         draw_sample(block.source, &entry.sample, cell, alpha, &m, &mut items);
-        let origin = Point::new(
-            cell.right() + m.gap,
-            y + (h - label.total_height()) / 2.0 + label.height(),
-        );
-        label.draw(
-            origin,
-            INK.with_alpha_factor(alpha),
-            block.source,
-            &mut items,
-        );
+        draw_label(label, cell, alpha, &m, block.source, &mut items);
         // An item that stands for no artist has nothing to hide or show, so it is not a click target.
         if !entry.targets.is_empty() {
             hits.legend_entries.push(LegendHit {
@@ -955,6 +1059,35 @@ fn render(
     } else {
         out.extend(items);
     }
+    Some(rect)
+}
+
+/// Draws the label of an entry beside the sample cell `cell` of its row, centred across the row, faded by `alpha`.
+fn draw_label(
+    label: &TextBlock,
+    cell: Rect,
+    alpha: f32,
+    m: &Metrics,
+    source: NodeId,
+    out: &mut Vec<Item>,
+) {
+    let origin = Point::new(
+        cell.right() + m.gap,
+        cell.y + (cell.height - label.total_height()) / 2.0 + label.height(),
+    );
+    label.draw(origin, INK.with_alpha_factor(alpha), source, out);
+}
+
+/// Returns the square of a swatch drawn in the sample cell `cell` of a row: as large as the swatch side, the cell's
+/// width and its height allow, centred in the cell.
+fn swatch_square(cell: Rect, m: &Metrics) -> Rect {
+    let side = m.swatch.min(cell.width).min(cell.height);
+    Rect::new(
+        cell.x + (cell.width - side) / 2.0,
+        cell.y + (cell.height - side) / 2.0,
+        side,
+        side,
+    )
 }
 
 /// Returns whether `inner` lies inside `outer`.
@@ -968,11 +1101,10 @@ fn contains(outer: Rect, inner: Rect) -> bool {
 /// Returns what the arrangement needs of each member of a listing.
 ///
 /// An entry needs one row as tall as its label, and at least the shortest row, with the gap below it. A standing bar
-/// item needs five rows, each as tall as the row of an entry with a one-line label, the first taller by what the
-/// item has above its rows (its title and the keys above the bar) and, when it is titled, by the space an entry row
-/// leaves above its label, and the last by what the item has below them, and is as wide beyond the sample column as its bar, ticks,
-/// labels and title reach beyond it. A lying bar item needs one row as tall as itself with that space above and below
-/// it, and the width it needs.
+/// item needs the rows it asks for, each as tall as the row of an entry with a one-line label, with a row for each of
+/// its keys above and below them, each as an entry row of the key's label, and is as wide beyond the sample column as
+/// its bar, ticks, labels and title reach beyond it, and its key labels. A lying bar item needs one row as tall as
+/// itself with the space an entry row leaves above its label above and below it, and the width it needs.
 fn spans(listing: &Listing, m: &Metrics) -> Vec<Span> {
     let beyond_sample = m.column_width(0.0);
     listing
@@ -994,14 +1126,25 @@ fn spans(listing: &Listing, m: &Metrics) -> Vec<Span> {
                 width: bar.width(),
             },
             Listed::Bar(bar) => {
-                let (lead, trail) = bar.ends();
-                let mut heights = vec![listing.pitch; BAR_ROWS as usize];
-                heights[0] += lead + listing.head_of(bar);
-                heights[BAR_ROWS as usize - 1] += trail;
+                let (keys, above) = bar.keys();
+                let row =
+                    |key: &colorbar::KeyRow| key.label.total_height().max(m.min_row) + m.row_gap;
+                let heights = keys[..above]
+                    .iter()
+                    .map(row)
+                    .chain(std::iter::repeat_n(listing.pitch, bar.rows()))
+                    .chain(keys[above..].iter().map(row))
+                    .collect();
+                // The bar's width beyond the sample column may be negative: a column that holds nothing but the bar
+                // is then exactly as wide as the bar.
+                let labels = keys
+                    .iter()
+                    .map(|k| k.label.width())
+                    .fold(f64::NEG_INFINITY, f64::max);
                 Span {
                     full: false,
                     heights,
-                    width: (bar.width() - beyond_sample).max(0.0),
+                    width: (bar.width() - beyond_sample).max(labels),
                 }
             }
         })
@@ -1154,7 +1297,8 @@ fn grid(spans: &[Span], columns: usize, order: LegendEntryOrder, m: &Metrics) ->
         .filter_map(|p| p.column.map(|c| c + 1))
         .max()
         .unwrap_or(0);
-    let mut label_widths = vec![0.0f64; used];
+    // A column is as wide as its widest member needs, which for a bar item alone may be less than an empty label.
+    let mut label_widths = vec![f64::NEG_INFINITY; used];
     let mut row_heights = vec![0.0f64; row];
     let mut full_width = 0.0f64;
     for (span, place) in spans.iter().zip(&places) {
@@ -1614,13 +1758,7 @@ fn draw_sample(
             outline(band, edge, out);
         }
         SampleLook::Swatch { fill, outline } => {
-            let side = m.swatch.min(cell.width).min(cell.height);
-            let square = Rect::new(
-                cell.x + (cell.width - side) / 2.0,
-                cy - side / 2.0,
-                side,
-                side,
-            );
+            let square = swatch_square(cell, m);
             out.extend(colorbar::swatch(
                 source,
                 square,

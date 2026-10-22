@@ -2,7 +2,8 @@
 //! item of a legend panel or of a legend inside an axes.
 //!
 //! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_color_keys.rs`
-//! (`LegendItemContent::ColorScale(NodeId)` and `LegendItem::color_scale(NodeId)`):
+//! (`LegendItemContent::ColorScale { scale, rows }` and `LegendItem::color_scale(NodeId)`, which
+//! gives five rows):
 //!
 //! - `PanelLegendMut::item` keeps its name and its argument, anything that converts into a
 //!   `LegendItem` or a bare `NodeId`, as the plan's facade example
@@ -113,7 +114,7 @@ fn item_recognises_a_scale_of_every_kind() {
     assert_eq!(
         contents,
         [continuous, discrete, indexed, categorical]
-            .map(LegendItemContent::ColorScale)
+            .map(|scale| LegendItemContent::ColorScale { scale, rows: 5 })
             .to_vec()
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());

@@ -24,7 +24,9 @@ use crate::legend::{
     PanelLegend,
 };
 use crate::link::AxisLink;
-use crate::panel::{ColorbarOrientation, PanelColorbar, PanelContent, PanelLocation};
+use crate::panel::{
+    ColorbarOrientation, ColorbarTitlePlacement, PanelColorbar, PanelContent, PanelLocation,
+};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -183,6 +185,8 @@ pub enum Value {
     InsideColorbar(InsideColorbar),
     /// The edge along which an inside colourbar lies.
     InsideColorbarSide(InsideColorbarSide),
+    /// Where the title of a colour scale is drawn beside a colourbar.
+    ColorbarTitlePlacement(ColorbarTitlePlacement),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -321,6 +325,8 @@ pub enum ValueType {
     InsideColorbar,
     /// See [`Value::InsideColorbarSide`].
     InsideColorbarSide,
+    /// See [`Value::ColorbarTitlePlacement`].
+    ColorbarTitlePlacement,
 }
 
 impl Value {
@@ -397,6 +403,7 @@ impl Value {
             Value::ColorbarOrientation(_) => ValueType::ColorbarOrientation,
             Value::InsideColorbar(_) => ValueType::InsideColorbar,
             Value::InsideColorbarSide(_) => ValueType::InsideColorbarSide,
+            Value::ColorbarTitlePlacement(_) => ValueType::ColorbarTitlePlacement,
         })
     }
 }

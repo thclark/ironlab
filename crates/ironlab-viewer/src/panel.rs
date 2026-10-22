@@ -953,6 +953,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::PanelContent
         | ValueType::ColorbarOrientation
         | ValueType::InsideColorbarSide
+        | ValueType::ColorbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape

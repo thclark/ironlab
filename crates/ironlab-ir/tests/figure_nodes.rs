@@ -999,6 +999,8 @@ fn the_json_form_of_node_and_data_edits_is_documented() {
                         "id": 6,
                         "cell": { "row": 0, "col": 0, "row_span": 1, "col_span": 1 },
                         "align": "center",
+                        "title": null,
+                        "title_align": "left",
                         "content": {
                             "type": "legend",
                             "value": {

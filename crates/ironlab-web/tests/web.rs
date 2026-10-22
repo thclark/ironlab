@@ -858,9 +858,12 @@ fn figure_with_colourbar() -> Figure {
                 ..Cell::default()
             },
             align: PanelLocation::Center,
+            title: None,
+            title_align: ironlab_ir::TitleAlign::Left,
             content: PanelContent::Colorbar(PanelColorbar {
                 scale: NodeId(10),
                 orientation: ColorbarOrientation::Vertical,
+                ..PanelColorbar::default()
             }),
         }],
         ..titled_figure("Bar")

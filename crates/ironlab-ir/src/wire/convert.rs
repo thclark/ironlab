@@ -12,16 +12,16 @@ use crate::wire as w;
 use crate::{
     Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, CategoricalColorScale, Cell, Color,
     ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, Colormap, ColormapName,
-    ContinuousColorScale, Contour, ContourPlacement, Coords, DashStyle, DataArray, Dimension,
-    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
-    ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter,
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
-    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape,
-    MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel, PanelColorbar,
-    PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
-    Quiver, QuiverScale, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks, TileLayout,
-    TitleAlign, TrackSize, Transaction, Value, Values, View3d,
+    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
+    ColormapName, ContinuousColorScale, Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS,
+    DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid,
+    Image, ImagePlacement, ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide,
+    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
+    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
+    PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection,
+    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks,
+    TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -108,6 +108,7 @@ wire_enum! {
     }
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
     ColorbarOrientation => ColorbarOrientation { Vertical, Horizontal }
+    ColorbarTitlePlacement => ColorbarTitlePlacement { Along, Above }
     InsideColorbarSide => InsideColorbarSide { South, North, East, West }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
     AspectAdjust => AspectAdjust { Box, Limits }
@@ -401,6 +402,8 @@ impl Encode for Panel {
             cell: Some(encode_cell(self.cell)),
             align: self.align.to_wire(),
             content: Some(encode_panel_content(&self.content)),
+            title: self.title.as_ref().map(encode_text),
+            title_align: self.title_align.to_wire(),
         }
     }
 }
@@ -452,9 +455,10 @@ fn encode_legend_item(item: &LegendItem) -> w::LegendItem {
                 sample: Some(encode_legend_sample(*sample)),
             })
         }
-        LegendItemContent::ColorScale(scale) => {
+        LegendItemContent::ColorScale { scale, rows } => {
             w::LegendItemContentKind::ColorScale(w::LegendItemContentColorScale {
                 scale: Some(scale.0),
+                rows: Some(*rows),
             })
         }
     };
@@ -522,6 +526,7 @@ fn encode_inside_colorbar(colorbar: InsideColorbar) -> w::InsideColorbar {
         scale: Some(colorbar.scale.0),
         side: colorbar.side.to_wire(),
         length: Some(colorbar.length),
+        title_placement: colorbar.title_placement.to_wire(),
     }
 }
 
@@ -529,6 +534,8 @@ fn encode_panel_colorbar(colorbar: PanelColorbar) -> w::PanelColorbar {
     w::PanelColorbar {
         scale: Some(colorbar.scale.0),
         orientation: colorbar.orientation.to_wire(),
+        length: colorbar.length,
+        title_placement: colorbar.title_placement.to_wire(),
     }
 }
 
@@ -1173,6 +1180,13 @@ impl Decode for Panel {
             id: node_id(wire.id, at)?,
             cell: wire.cell.map_or(Cell::default(), decode_cell),
             align: decode_enum(wire.align, Some(PanelLocation::default()), at, "align")?,
+            title: wire
+                .title
+                .map(|t| decode_text(t, &join(at, "title")))
+                .transpose()?,
+            // A panel title is aligned with the left edge of its content unless it says
+            // otherwise, unlike an axes title, which is centred.
+            title_align: decode_enum(wire.title_align, Some(TitleAlign::Left), at, "title_align")?,
             content: decode_panel_content(wire.content, &join(at, "content"))?,
         })
     }
@@ -1210,6 +1224,13 @@ fn decode_panel_colorbar(wire: w::PanelColorbar, at: &str) -> Result<PanelColorb
             at,
             "orientation",
         )?,
+        length: wire.length,
+        title_placement: decode_enum(
+            wire.title_placement,
+            Some(ColorbarTitlePlacement::default()),
+            at,
+            "title_placement",
+        )?,
     })
 }
 
@@ -1220,6 +1241,12 @@ fn decode_inside_colorbar(wire: w::InsideColorbar, at: &str) -> Result<InsideCol
         scale: reference(wire.scale, at, "scale")?,
         side: decode_enum(wire.side, Some(default.side), at, "side")?,
         length: wire.length.unwrap_or(default.length),
+        title_placement: decode_enum(
+            wire.title_placement,
+            Some(default.title_placement),
+            at,
+            "title_placement",
+        )?,
     })
 }
 
@@ -1270,9 +1297,14 @@ fn decode_legend_item(wire: w::LegendItem, at: &str) -> Result<LegendItem> {
                     sample: decode_legend_sample(custom.sample, &at)?,
                 }
             }
-            w::LegendItemContentKind::ColorScale(scale) => LegendItemContent::ColorScale(NodeId(
-                required(scale.scale, &join(at, "content.color_scale"), "scale")?,
-            )),
+            w::LegendItemContentKind::ColorScale(scale) => LegendItemContent::ColorScale {
+                scale: NodeId(required(
+                    scale.scale,
+                    &join(at, "content.color_scale"),
+                    "scale",
+                )?),
+                rows: scale.rows.unwrap_or(DEFAULT_BAR_ROWS),
+            },
         };
     Ok(LegendItem {
         content,
@@ -2231,6 +2263,11 @@ fn encode_value(value: &Value) -> w::Value {
         Value::InsideColorbarSide(v) => {
             w::ValueKind::InsideColorbarSide(w::ValueInsideColorbarSide { value: v.to_wire() })
         }
+        Value::ColorbarTitlePlacement(v) => {
+            w::ValueKind::ColorbarTitlePlacement(w::ValueColorbarTitlePlacement {
+                value: v.to_wire(),
+            })
+        }
     };
     w::Value { kind: Some(kind) }
 }
@@ -2638,6 +2675,12 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "inside_colorbar_side_value"),
+            "value",
+        )?),
+        w::ValueKind::ColorbarTitlePlacement(v) => Value::ColorbarTitlePlacement(decode_enum(
+            v.value,
+            None,
+            &join(at, "colorbar_title_placement_value"),
             "value",
         )?),
     })

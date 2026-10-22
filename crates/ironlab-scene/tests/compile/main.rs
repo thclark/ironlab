@@ -13,6 +13,7 @@ mod aspect;
 mod blended;
 mod color_scales;
 mod colorbar_hits;
+mod colorbar_layout;
 mod colorbars;
 mod decimation;
 mod dense;

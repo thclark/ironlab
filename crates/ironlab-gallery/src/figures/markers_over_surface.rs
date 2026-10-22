@@ -3,9 +3,10 @@ use ironlab::prelude::*;
 pub const TITLE: &str = "Markers over a surface";
 pub const DESCRIPTION: &str = "A synthetic hill drawn as a surface coloured by its elevation, with the survey points \
      measured on it drawn as markers of two kinds: points measured by GNSS and points measured by total station. \
-     One legend panel beside the plot keys both: the two kinds of marker as ordinary entries, and the colour scale of \
-     the surface as a bar item, a vertical colourbar five entries long that lies in the column of the entries and is \
-     titled and ticked as a colourbar of the scale is.";
+     One unboxed legend panel beside the plot, headed by its title, keys both: the two kinds of marker as ordinary \
+     entries, and the colour scale of the surface as a bar item, a vertical colourbar that lies in the column of the \
+     entries, seven rows long so that its title fits along it, and is ticked and titled as a colourbar of the scale \
+     is.";
 
 /// The number of grid nodes along each side of the surface.
 const NODES: usize = 41;
@@ -62,7 +63,9 @@ pub fn figure() -> Figure {
         .tick_step(100.0)
         .title("Elevation (m)")
         .id();
-    let key = fig.panel(0, 1).legend().boxed(false).id();
+    // Why: a border is drawn round the panel's whole cell so that it continues the plot boxes beside it, and a
+    // three-dimensional axes has no plot box for it to continue, so the key is left unboxed.
+    let key = fig.panel(0, 1).title("Key").legend().boxed(false).id();
 
     let mut ax = fig.axes(0, 0);
     ax.surf(&x, &y, &z)
@@ -92,7 +95,12 @@ pub fn figure() -> Figure {
         .view(-35.0, 35.0)
         .legend_in(key);
 
-    // The key lists the two kinds of survey point and then the scale of the surface as a bar item.
-    fig.panel(0, 1).legend().item(gnss).item(station).item(height);
+    // The key lists the two kinds of survey point and then the scale of the surface as a bar item, long enough for
+    // the title of the scale to lie along it.
+    fig.panel(0, 1)
+        .legend()
+        .item(gnss)
+        .item(station)
+        .item(LegendItem::color_scale(height).with_rows(7));
     fig
 }

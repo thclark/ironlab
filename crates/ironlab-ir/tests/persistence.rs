@@ -816,6 +816,8 @@ fn legends_panels_and_layout_weights_are_written_in_the_documented_json_form() {
             "id": 9,
             "cell": { "row": 1, "col": 0, "row_span": 1, "col_span": 1 },
             "align": "center",
+            "title": null,
+            "title_align": "left",
             "content": {
                 "type": "legend",
                 "value": {
@@ -940,6 +942,8 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
             ..Cell::default()
         },
         align: PanelLocation::Center,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend {
             entries: LegendEntries::Explicit(items),
             ..PanelLegend::default()

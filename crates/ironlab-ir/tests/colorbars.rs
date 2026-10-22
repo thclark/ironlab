@@ -11,7 +11,9 @@
 //! // crates/ironlab-ir/src/panel.rs
 //! pub enum PanelContent { Legend(PanelLegend), Colorbar(PanelColorbar) }
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, ...)]
-//! pub struct PanelColorbar { pub scale: NodeId, pub orientation: ColorbarOrientation }
+//! pub struct PanelColorbar { pub scale: NodeId, pub orientation: ColorbarOrientation, ... }
+//! // (`length` and `title`, and the panel's `title` and `title_align`, belong to the layout
+//! // stage; see `colorbar_layout.rs`.)
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, ...)]
 //! #[serde(rename_all = "snake_case")]
 //! pub enum ColorbarOrientation { #[default] Vertical, Horizontal }
@@ -19,7 +21,7 @@
 //! // crates/ironlab-ir/src/axes.rs
 //! pub struct Axes { ..., pub colorbar: Option<InsideColorbar>, ... }   // None by default
 //! #[derive(Debug, Clone, Copy, PartialEq, ...)]
-//! pub struct InsideColorbar { pub scale: NodeId, pub side: InsideColorbarSide, pub length: f64 }
+//! pub struct InsideColorbar { pub scale: NodeId, pub side: InsideColorbarSide, pub length: f64, ... }
 //! impl Default for InsideColorbar      // scale NodeId::default(), side South, length 0.8
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, ...)]
 //! #[serde(rename_all = "snake_case")]
@@ -124,15 +126,19 @@ fn bars() -> Bars {
             col_span: 1,
         },
         align: PanelLocation::Center,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Colorbar(PanelColorbar {
             scale,
             orientation: ColorbarOrientation::Vertical,
+            ..PanelColorbar::default()
         }),
     });
     b.axes(axes[1]).colorbar = Some(InsideColorbar {
         scale,
         side: InsideColorbarSide::South,
         length: 0.8,
+        title_placement: ColorbarTitlePlacement::Along,
     });
     Bars {
         fig: b.build(),
@@ -208,9 +214,12 @@ fn colourbars_round_trip_through_json_and_protobuf() {
             col_span: 1,
         },
         align: PanelLocation::SouthWest,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Colorbar(PanelColorbar {
             scale: fig.color_scales[0].id,
             orientation: ColorbarOrientation::Horizontal,
+            ..PanelColorbar::default()
         }),
     });
     for side in [
@@ -273,12 +282,17 @@ fn the_json_form_of_a_colourbar_follows_the_tagged_form_of_panel_content() {
         value["panels"][0]["content"],
         json!({
             "type": "colorbar",
-            "value": { "scale": s.scale.0, "orientation": "vertical" }
+            "value": {
+                "scale": s.scale.0,
+                "orientation": "vertical",
+                "length": null,
+                "title_placement": "along"
+            }
         })
     );
     assert_eq!(
         value["axes"][1]["colorbar"],
-        json!({ "scale": s.scale.0, "side": "south", "length": 0.8 })
+        json!({ "scale": s.scale.0, "side": "south", "length": 0.8, "title_placement": "along" })
     );
     assert!(
         value["axes"][0]["colorbar"].is_null(),
@@ -603,9 +617,12 @@ fn a_colourbar_panel_alone_in_a_fitted_column_is_valid() {
             col_span: 3,
         },
         align: PanelLocation::Center,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Colorbar(PanelColorbar {
             scale,
             orientation: ColorbarOrientation::Horizontal,
+            ..PanelColorbar::default()
         }),
     });
     let report = b.build().validate();
@@ -651,6 +668,7 @@ fn a_panel_s_content_is_switched_between_a_legend_and_a_colourbar_by_one_set() {
             Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
                 scale: s.scale,
                 orientation: ColorbarOrientation::Horizontal,
+                ..PanelColorbar::default()
             })),
         )]),
     )
@@ -741,6 +759,7 @@ fn the_orientation_side_and_length_are_set_by_path_and_undone() {
             scale: s.scale,
             side: InsideColorbarSide::East,
             length: 0.5,
+            title_placement: ColorbarTitlePlacement::Along,
         })
     );
     assert_eq!(applied(&edited, &inverse).unwrap().0, s.fig);
@@ -761,6 +780,7 @@ fn an_inside_colourbar_is_added_by_setting_it_and_its_fields_are_absent_until_th
         scale: s.scale,
         side: InsideColorbarSide::West,
         length: 0.6,
+        title_placement: ColorbarTitlePlacement::Above,
     };
     let (edited, inverse) = applied(
         &s.fig,
@@ -826,6 +846,8 @@ fn the_content_of_a_panel_offers_a_legend_and_a_colourbar() {
     let current = Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
         scale: NodeId(77),
         orientation: ColorbarOrientation::Horizontal,
+        length: Some(0.5),
+        title_placement: ColorbarTitlePlacement::Above,
     }));
     let kept = choices(ValueType::PanelContent, Some(&current))
         .into_iter()

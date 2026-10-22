@@ -1,8 +1,8 @@
 //! The handles to a panel and to the legend it holds.
 
 use ironlab_ir::{
-    ColorbarOrientation, Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem,
-    LegendSample, NodeId, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendSample, NodeId,
+    Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
 };
 
 use crate::colorbar::PanelColorbarMut;
@@ -66,6 +66,37 @@ impl PanelMut<'_> {
         self
     }
 
+    /// Sets the heading drawn at the top of the panel's content. In a boxed legend the
+    /// heading lies inside the border, above the entries; above a vertical colourbar that
+    /// spans plots it lies in the margin above them, as an axes title does. The title is the
+    /// panel's, so it stays when the content changes between a legend and a colourbar, and
+    /// the viewer's tree names the panel by it.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// fig.panel(0, 1).title("Key").legend();
+    /// ```
+    pub fn title(&mut self, title: impl Into<Text>) -> &mut Self {
+        self.panel().title = Some(title.into());
+        self
+    }
+
+    /// Sets how the title is aligned with the content of the panel: with its left edge
+    /// (the default), its centre or its right edge.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// fig.panel(0, 1).title("Key").title_align(TitleAlign::Center);
+    /// ```
+    pub fn title_align(&mut self, align: TitleAlign) -> &mut Self {
+        self.panel().title_align = align;
+        self
+    }
+
     /// Makes the content of the panel a legend, keeping the legend the panel already
     /// holds, and returns the handle through which the legend is set. A colourbar the panel
     /// holds is replaced by a legend with the default settings.
@@ -88,10 +119,11 @@ impl PanelMut<'_> {
     /// given identifier (MATLAB's and matplotlib's `colorbar`), and returns the handle
     /// through which the colourbar is set.
     ///
-    /// A colourbar the panel already holds keeps its orientation and takes the new scale; a
-    /// legend the panel holds is replaced by a vertical colourbar. The bar stretches along
-    /// the cells of the panel, so a panel spanning a row of axes, in a row whose size fits
-    /// its content, shows one scale for the whole row. An identifier that names no colour
+    /// A colourbar the panel already holds keeps its orientation, its length and the
+    /// placement of its title, and takes the new scale; a legend the panel holds is replaced
+    /// by a vertical colourbar of automatic length, with the scale's title along it. The bar
+    /// runs along the cells of the panel, so a panel spanning a row of axes, in a row whose
+    /// size fits its content, shows one scale for the whole row. An identifier that names no colour
     /// scale is reported by [`Figure::validate`](crate::Figure::validate).
     ///
     /// ```
@@ -111,7 +143,7 @@ impl PanelMut<'_> {
             PanelContent::Legend(_) => {
                 panel.content = PanelContent::Colorbar(PanelColorbar {
                     scale,
-                    orientation: ColorbarOrientation::default(),
+                    ..PanelColorbar::default()
                 });
             }
         }
@@ -255,8 +287,9 @@ impl PanelLegendMut<'_> {
     ///
     /// A colour scale may be any scale of the figure, whether or not an artist uses it. A
     /// categorical scale is listed as one entry per category, and any other scale as a
-    /// vertical bar five entry rows long in one column, titled and ticked as its colourbar
-    /// is (see the colour guide).
+    /// vertical bar five entry rows long in one column, ticked and titled along its length
+    /// as its colourbar is, with each key it shows as an entry row of its own (see the
+    /// colour guide); `LegendItem::color_scale(id).with_rows(n)` asks for another length.
     ///
     /// Items are listed in the order they are appended, whatever the order in which their
     /// artists are drawn, so a reference series drawn last, on top of the others, can be

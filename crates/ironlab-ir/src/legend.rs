@@ -163,14 +163,31 @@ impl LegendItem {
     }
 
     /// Returns an item, not on a row of its own, that shows the colour scale with this
-    /// node identifier.
+    /// node identifier, whose bar runs along [`DEFAULT_BAR_ROWS`] entry rows.
     pub fn color_scale(scale: NodeId) -> Self {
         Self {
-            content: LegendItemContent::ColorScale(scale),
+            content: LegendItemContent::ColorScale {
+                scale,
+                rows: DEFAULT_BAR_ROWS,
+            },
             full_row: false,
         }
     }
+
+    /// Returns the item with the bar of a colour-scale item `rows` entry rows long; an item
+    /// of any other content is returned unchanged.
+    #[must_use]
+    pub fn with_rows(mut self, rows: u32) -> Self {
+        if let LegendItemContent::ColorScale { rows: r, .. } = &mut self.content {
+            *r = rows;
+        }
+        self
+    }
 }
+
+/// The number of entry rows along which the bar of a colour-scale item runs unless the
+/// item says otherwise.
+pub const DEFAULT_BAR_ROWS: u32 = 5;
 
 impl From<NodeId> for LegendItem {
     /// Returns an item, not on a row of its own, that lists the artist with this node
@@ -185,7 +202,7 @@ impl From<NodeId> for LegendItem {
 /// In JSON the content is an object whose `type` names the variant, such as
 /// `{"type": "artist", "value": 12}`,
 /// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}` or
-/// `{"type": "color_scale", "value": 4}`.
+/// `{"type": "color_scale", "value": {"scale": 4, "rows": 5}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendItemContent {
@@ -206,12 +223,22 @@ pub enum LegendItemContent {
     /// its out-of-range keys that is shown; these are ordinary entries, which a legend
     /// panel merges with any other entry of the same label and look, and a legend inside
     /// a plot area merges with nothing. A continuous, discrete or indexed scale
-    /// is drawn as a vertical bar five entry rows long in one column, titled with the
-    /// title of the scale, ticked on the side of the labels and accompanied by its
-    /// out-of-range keys, as a colourbar of the scale is drawn. On a row of its own, the
-    /// bar is horizontal and spans the width of the legend. Clicking the item does
-    /// nothing, because a scale is not an artist.
-    ColorScale(NodeId),
+    /// is drawn as a vertical bar `rows` entry rows long in one column, ticked on the side
+    /// of the labels and titled along the bar beyond its tick labels, as a colourbar of the
+    /// scale is drawn; each of its out-of-range keys that is shown is an entry row of its
+    /// own, a swatch beside a label, directly above the bar (the above key) or below it
+    /// (the below or outside key, then the non-finite key). On a row of its own, the bar is
+    /// horizontal, spans the width of the legend and is titled below its tick labels.
+    /// Clicking the item does nothing, because a scale is not an artist.
+    ColorScale {
+        /// The node identifier of the colour scale.
+        scale: NodeId,
+        /// The number of entry rows along which a standing bar runs: at least 1. It is
+        /// ignored by a categorical scale, which lists one entry per category, and by an
+        /// item on a row of its own, whose bar lies across the legend; it is validated
+        /// whatever the kind of the scale or the row of the item.
+        rows: u32,
+    },
 }
 
 /// The sample of a legend item that stands for no artist.

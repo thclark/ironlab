@@ -1024,8 +1024,8 @@ impl AxesMut<'_> {
     /// on a boxed backdrop over the artists and takes no margin, so the plot area keeps its
     /// size; a bar that needs room of its own belongs in a panel (see
     /// [`PanelMut::colorbar`](crate::PanelMut::colorbar)). A colourbar the axes already
-    /// shows keeps its length and takes the new scale and edge; a new one is four fifths
-    /// of the edge long. An identifier that names no colour scale is reported by
+    /// shows keeps its length and the placement of its title and takes the new scale and
+    /// edge; a new one is four fifths of the edge long, with the scale's title along it. An identifier that names no colour scale is reported by
     /// [`validate`](crate::Figure::validate).
     ///
     /// ```
@@ -1042,13 +1042,11 @@ impl AxesMut<'_> {
     /// ```
     pub fn colorbar(&mut self, scale: NodeId, side: InsideColorbarSide) -> InsideColorbarMut<'_> {
         let axes = self.axes();
-        let length = axes
-            .colorbar
-            .map_or(InsideColorbar::default().length, |colorbar| colorbar.length);
+        let kept = axes.colorbar.unwrap_or_default();
         axes.colorbar = Some(InsideColorbar {
             scale,
             side,
-            length,
+            ..kept
         });
         InsideColorbarMut::new(self.fig, self.id)
     }

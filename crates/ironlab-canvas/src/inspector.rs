@@ -111,8 +111,10 @@ pub struct TreeRow {
 /// typeset LaTeX.
 ///
 /// An axes with no title is named by the cell it occupies, as `Axes (row 0, col 1)`,
-/// because that is what tells two untitled axes apart on screen, and a panel is always
-/// named by its content and its cell, as `Legend panel (rows 0–1, col 2)`. A data array
+/// because that is what tells two untitled axes apart on screen. A panel with a title is
+/// named by its title followed by its cell, as `Key (row 2, col 0)`, because two panels
+/// may carry one title, and a panel without one by its content and its cell, as `Legend
+/// panel (rows 0–1, col 2)`. A data array
 /// with no name is named by its shape, as `Data array (1000 × 3)`, and a colour scale with
 /// no title by its kind, as `Colour scale (continuous)`. A figure with no title
 /// and an artist with no label are named by their kind alone, with no empty brackets. A
@@ -238,13 +240,17 @@ fn data_array_name(data: &DataArray) -> String {
     }
 }
 
-/// The name of a panel: the kind of its content, followed in brackets by its cell.
+/// The name of a panel: its title, or the kind of its content when it has no title or a
+/// blank one, followed in brackets by its cell.
 fn panel_label(panel: &Panel) -> String {
-    let content = match panel.content {
-        PanelContent::Legend(_) => "Legend panel",
-        PanelContent::Colorbar(_) => "Colourbar panel",
-    };
-    format!("{content} ({})", cell_label(panel.cell))
+    let name = text_label(panel.title.as_ref()).unwrap_or_else(|| {
+        match panel.content {
+            PanelContent::Legend(_) => "Legend panel",
+            PanelContent::Colorbar(_) => "Colourbar panel",
+        }
+        .to_owned()
+    });
+    format!("{name} ({})", cell_label(panel.cell))
 }
 
 /// The name of a block of cells of the tile layout, by its rows and columns: a single
@@ -730,6 +736,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::PanelContent
         | ValueType::ColorbarOrientation
         | ValueType::InsideColorbarSide
+        | ValueType::ColorbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::ColorSpec
@@ -824,6 +831,7 @@ fn editor_for(
         | ValueType::PanelContent
         | ValueType::ColorbarOrientation
         | ValueType::InsideColorbarSide
+        | ValueType::ColorbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape

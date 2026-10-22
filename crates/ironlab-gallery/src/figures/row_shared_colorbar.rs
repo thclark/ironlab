@@ -5,7 +5,8 @@ pub const DESCRIPTION: &str = "The temperature of a thin aluminium plate at thre
      spot 2 mm wide at its centre by 400 K. Heat diffuses outward with the diffusivity of aluminium, so the spot \
      widens and its peak falls as the energy spreads over a larger area. The three images name one colour scale, \
      fixed from 20 to 100 °C, and one horizontal colourbar in a panel spanning the row beneath them shows it; the \
-     bar and its key together are exactly as long as the three plot boxes. The first frame is hotter than the top of \
+     bar and its key together are half as long as the row of three plot boxes, centred beneath it, and the title of \
+     the scale lies along the bar, below its labels. The first frame is hotter than the top of \
      the scale at its centre, so values above 100 °C are drawn in cyan rather than clipped to the last colour, and \
      the key beside the bar says so.";
 

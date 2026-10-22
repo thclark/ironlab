@@ -45,6 +45,8 @@ proto_file! {
         enum InsideColorbarSide side = 2;
         /// The length of the bar and its keys as a fraction of the edge; absent means 0.8.
         optional double length = 3;
+        /// Where the title of the scale is drawn beside the bar.
+        enum ColorbarTitlePlacement title_placement = 4;
     }
 
     /// The edge of the plot area along which an inside colourbar lies.
@@ -59,13 +61,23 @@ proto_file! {
         West = 4;
     }
 
-    /// How the title of an axes is aligned with its plot area.
+    /// Where the title of a colour scale is drawn beside a colourbar of the scale.
+    enum ColorbarTitlePlacement {
+        /// Beyond the tick labels, centred on the bar, reading from bottom to top beside a
+        /// vertical bar.
+        Along = 1;
+        /// As an upright heading beside the bar.
+        Above = 2;
+    }
+
+    /// How a title is aligned with what it heads: the plot area of an axes, or the
+    /// content of a panel.
     enum TitleAlign {
-        /// The title is centred over the plot area.
+        /// The title is centred over what it heads.
         Center = 1;
-        /// The left edge of the title is on the left edge of the plot area.
+        /// The left edge of the title is on the left edge of what it heads.
         Left = 2;
-        /// The right edge of the title is on the right edge of the plot area.
+        /// The right edge of the title is on the right edge of what it heads.
         Right = 3;
     }
 

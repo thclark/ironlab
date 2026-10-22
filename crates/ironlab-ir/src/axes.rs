@@ -7,6 +7,7 @@ use crate::artist::Artist;
 use crate::ids::NodeId;
 use crate::layout::Cell;
 use crate::legend::Legend;
+use crate::panel::ColorbarTitlePlacement;
 use crate::text::Text;
 
 /// A plotting region placed in one or more cells of the figure's tile layout.
@@ -81,6 +82,8 @@ pub struct InsideColorbar {
     /// The length of the bar, together with any keys it shows, as a fraction of the edge it
     /// lies along, centred on it: a finite number greater than 0 and at most 1.
     pub length: f64,
+    /// Where the title of the scale is drawn beside the bar, within the box behind it.
+    pub title_placement: ColorbarTitlePlacement,
 }
 
 impl Default for InsideColorbar {
@@ -90,6 +93,7 @@ impl Default for InsideColorbar {
             scale: NodeId::default(),
             side: InsideColorbarSide::South,
             length: 0.8,
+            title_placement: ColorbarTitlePlacement::Along,
         }
     }
 }
@@ -171,16 +175,17 @@ pub enum AspectAdjust {
     Limits,
 }
 
-/// How the title of an axes is aligned with its plot area.
+/// How a title is aligned with what it heads: the title of an axes with its plot area, and
+/// the title of a panel with the panel's content.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TitleAlign {
-    /// The title is centred over the plot area.
+    /// The title is centred over the plot area or the content.
     #[default]
     Center,
-    /// The left edge of the title is on the left edge of the plot area.
+    /// The left edge of the title is on the left edge of the plot area or the content.
     Left,
-    /// The right edge of the title is on the right edge of the plot area.
+    /// The right edge of the title is on the right edge of the plot area or the content.
     Right,
 }
 

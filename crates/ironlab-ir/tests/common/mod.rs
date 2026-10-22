@@ -20,8 +20,10 @@ use ironlab_ir::*;
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 34] = [
+pub const OPTIONAL_IN_IR: [&str; 36] = [
     "ironlab.ir.v0.Figure.title",
+    "ironlab.ir.v0.Panel.title",
+    "ironlab.ir.v0.PanelColorbar.length",
     "ironlab.ir.v0.DataArray.name",
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
@@ -691,6 +693,8 @@ pub fn legend_panel(id: NodeId, cell: Cell) -> Panel {
         id,
         cell,
         align: PanelLocation::Center,
+        title: None,
+        title_align: TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend::default()),
     }
 }
@@ -1642,6 +1646,10 @@ pub fn kitchen_sink_figure() -> Figure {
                 col_span: 1,
             },
             align: PanelLocation::SouthWest,
+            // A titled legend panel whose title is aligned with the right edge of its
+            // entries.
+            title: Some(Text::new(r"Key, $\beta$")),
+            title_align: TitleAlign::Right,
             content: PanelContent::Legend(PanelLegend {
                 boxed: true,
                 layout: LegendEntryLayout {
@@ -1660,6 +1668,8 @@ pub fn kitchen_sink_figure() -> Figure {
                 col_span: 2,
             },
             align: PanelLocation::Center,
+            title: None,
+            title_align: TitleAlign::Left,
             content: PanelContent::Legend(PanelLegend {
                 boxed: false,
                 layout: LegendEntryLayout {
@@ -1703,7 +1713,9 @@ pub fn kitchen_sink_figure() -> Figure {
                     ),
                     // Two colour scales that no artist names: the categories of the
                     // status scale, and the grey palette as a bar on a row of its own.
-                    LegendItem::color_scale(status_scale),
+                    // The status scale with rows other than the default, which a
+                    // categorical scale ignores but the encodings must still carry.
+                    LegendItem::color_scale(status_scale).with_rows(3),
                     LegendItem {
                         full_row: true,
                         ..LegendItem::color_scale(gray_scale)
@@ -1732,9 +1744,15 @@ pub fn kitchen_sink_figure() -> Figure {
                 col_span: 1,
             },
             align: PanelLocation::West,
+            // A centred panel title over a bar of automatic length whose scale title is a
+            // heading above it.
+            title: Some(Text::plain("Grey level")),
+            title_align: TitleAlign::Center,
             content: PanelContent::Colorbar(PanelColorbar {
                 scale: gray_scale,
                 orientation: ColorbarOrientation::Vertical,
+                length: None,
+                title_placement: ColorbarTitlePlacement::Above,
             }),
         },
         Panel {
@@ -1746,22 +1764,52 @@ pub fn kitchen_sink_figure() -> Figure {
                 col_span: 1,
             },
             align: PanelLocation::North,
+            title: None,
+            title_align: TitleAlign::Left,
+            // Three quarters of the span, with the scale's title along the bar.
             content: PanelContent::Colorbar(PanelColorbar {
                 scale: status_scale,
                 orientation: ColorbarOrientation::Horizontal,
+                length: Some(0.75),
+                title_placement: ColorbarTitlePlacement::Along,
             }),
         },
     ]);
-    for (axes, scale, side, length) in [
-        (scatters, scatter_scale, InsideColorbarSide::South, 0.8),
-        (contours, contour_scale, InsideColorbarSide::East, 1.0),
-        (three, three_scale, InsideColorbarSide::West, 0.5),
-        (surfaces, surface_scale, InsideColorbarSide::North, 0.25),
+    for (axes, scale, side, length, title_placement) in [
+        (
+            scatters,
+            scatter_scale,
+            InsideColorbarSide::South,
+            0.8,
+            ColorbarTitlePlacement::Along,
+        ),
+        (
+            contours,
+            contour_scale,
+            InsideColorbarSide::East,
+            1.0,
+            ColorbarTitlePlacement::Above,
+        ),
+        (
+            three,
+            three_scale,
+            InsideColorbarSide::West,
+            0.5,
+            ColorbarTitlePlacement::Along,
+        ),
+        (
+            surfaces,
+            surface_scale,
+            InsideColorbarSide::North,
+            0.25,
+            ColorbarTitlePlacement::Above,
+        ),
     ] {
         b.axes(axes).colorbar = Some(InsideColorbar {
             scale,
             side,
             length,
+            title_placement,
         });
     }
 
