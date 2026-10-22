@@ -24,7 +24,7 @@ use ironlab_ir::{
 };
 
 use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba};
-use crate::hit::{ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner};
+use crate::hit::{AxisMap, ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner};
 use crate::maths::ticks;
 
 use super::Ctx;
@@ -118,6 +118,8 @@ pub(super) struct Colorbar<'a> {
 struct Measured {
     ticks: Option<(AxisTicks, Range)>,
     key_labels: Vec<TextBlock>,
+    /// The source text of each key label as drawn, which the hit map publishes.
+    key_texts: Vec<String>,
 }
 
 /// Where the pieces of a colourbar are laid: from `start` along its length, with the bar between `cross` and
@@ -242,18 +244,23 @@ impl<'a> Colorbar<'a> {
         let bar_length = length - self.squares() as f64 * (m.thickness + gap);
         let ticks = self.ticks(ctx, bar_length);
         let size = TICK_SCALE * ctx.font_size;
-        let key_labels = self
+        let (key_labels, key_texts) = self
             .keys
             .iter()
             .map(|key| match key.label {
-                Some(text) => measure(ctx, text, size, self.source),
+                Some(text) => (measure(ctx, text, size, self.source), text.content.clone()),
                 None => {
                     let text = self.default_key_label(key.key, ticks.as_ref());
-                    measure_str(ctx, &text, text.contains('$'), size, self.source)
+                    let block = measure_str(ctx, &text, text.contains('$'), size, self.source);
+                    (block, text)
                 }
             })
-            .collect();
-        Measured { ticks, key_labels }
+            .unzip();
+        Measured {
+            ticks,
+            key_labels,
+            key_texts,
+        }
     }
 
     /// Computes the ticks of a bar `length` points long, or `None` for a categorical scale, whose squares are labelled
@@ -653,6 +660,11 @@ impl<'a> Colorbar<'a> {
             entries: Vec::new(),
             keys: Vec::new(),
             backdrop: None,
+            map: None,
+            edges: match &self.scale.domain {
+                ColorScaleDomain::Discrete { edges, .. } => edges.clone(),
+                _ => Vec::new(),
+            },
         };
         let mut u = 0.0;
         for piece in &self.pieces {
@@ -666,6 +678,20 @@ impl<'a> Colorbar<'a> {
             match *piece {
                 Piece::Bar => {
                     hit.bar = r;
+                    hit.map = measured.ticks.as_ref().map(|(_, range)| {
+                        let (start, end) = if self.vertical {
+                            (r.bottom(), r.y)
+                        } else {
+                            (r.x, r.right())
+                        };
+                        AxisMap {
+                            min: range.min,
+                            max: range.max,
+                            log: range.log,
+                            start,
+                            end,
+                        }
+                    });
                     self.draw_bar(m, measured, r, strip.outward, out);
                     if let Some((t, range)) = &measured.ticks {
                         for (v, label) in t.major.iter().zip(&t.labels) {
@@ -715,6 +741,7 @@ impl<'a> Colorbar<'a> {
                     hit.keys.push(ColorbarKeyHit {
                         key: key.key,
                         rect: r,
+                        label: measured.key_texts[i].clone(),
                     });
                 }
             }

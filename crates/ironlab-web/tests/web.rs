@@ -824,3 +824,123 @@ async fn a_figure_opened_on_a_canvas_renders_and_a_pan_is_undoable() {
     handle.release();
     canvas.remove();
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Colourbars (stage 6 of the colourbar epic)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// A figure of one 2D axes beside a fitted column holding a standing colourbar panel of a continuous scale of manual
+/// limits [0, 10], which no artist uses.
+fn figure_with_colourbar() -> Figure {
+    use ironlab_ir::{
+        Cell, ColorScale, ColorScaleKind, ColorbarOrientation, ContinuousColorScale, Panel,
+        PanelColorbar, PanelContent, PanelLocation, TileLayout, TrackSize,
+    };
+    let mut layout = TileLayout::new(1, 2);
+    layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
+    Figure {
+        layout,
+        color_scales: vec![ColorScale {
+            id: NodeId(10),
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                limits: Limits::Manual {
+                    min: 0.0,
+                    max: 10.0,
+                },
+                ..ContinuousColorScale::default()
+            }),
+            ..ColorScale::default()
+        }],
+        panels: vec![Panel {
+            id: NodeId(20),
+            cell: Cell {
+                col: 1,
+                ..Cell::default()
+            },
+            align: PanelLocation::Center,
+            content: PanelContent::Colorbar(PanelColorbar {
+                scale: NodeId(10),
+                orientation: ColorbarOrientation::Vertical,
+            }),
+        }],
+        ..titled_figure("Bar")
+    }
+}
+
+/// The position, in CSS pixels of a 400 × 300 canvas, of the point at fraction `f` of the length of the first
+/// colourbar of `figure` from its low end, found by fitting the figure as the handle fits it.
+fn on_colourbar(figure: &Figure, f: f64) -> emath::Pos2 {
+    let text = TextEngine::new();
+    let mut canvas = ironlab_canvas::FigureCanvas::new(figure.clone());
+    // The handle fits a figure with no margin, so that the page covers the canvas; a bar is thin enough that the
+    // default margin would put the position beside it.
+    canvas.set_margin(0.0);
+    canvas.resize(
+        emath::Rect::from_min_size(emath::Pos2::ZERO, emath::vec2(400.0, 300.0)),
+        ironlab_canvas::MAX_TILE_SIDE,
+    );
+    let fit = canvas
+        .fit(&text)
+        .expect("the figure fits a 400 × 300 canvas");
+    let bar = canvas
+        .scene(&text)
+        .hit_map
+        .colorbars
+        .first()
+        .expect("the figure draws a colourbar")
+        .bar;
+    fit.to_screen.apply(ironlab_scene::display::Point::new(
+        bar.x + bar.width / 2.0,
+        bar.bottom() - f * bar.height,
+    ))
+}
+
+// Why: the browser host has only raw pointer and wheel events, which it forwards to the same canvas as the egui host,
+// so a page must get from a bar exactly what the viewer gives: a hover over the bar is a datatip reading the scale,
+// and a wheel over it zooms the scale in one undoable step, which the saved figure carries. Twins:
+// `a_callout_over_a_bar_rings_a_value_and_outlines_a_band` and
+// `the_wheel_and_a_drag_over_a_bar_zoom_and_pan_the_scale_through_the_fit` in
+// `crates/ironlab-canvas/tests/figure_canvas.rs`.
+#[wasm_bindgen_test]
+fn a_bar_is_read_and_zoomed_on_a_headless_handle() {
+    let figure = figure_with_colourbar();
+    let handle = headless(&figure.to_protobuf(), "fig");
+    handle.resize(400, 300, 1.0);
+    let at = on_colourbar(&figure, 0.4);
+
+    let hovered = outcome(handle.pointer_move(at.x, at.y, 0));
+    let tip = hovered.datatip.expect("hovering the bar gives a datatip");
+    assert!(
+        tip.text.starts_with("value = "),
+        "the datatip reads the scale: {:?}",
+        tip.text
+    );
+    assert!(!hovered.redraw, "a hover changes nothing");
+
+    let zoomed = outcome(handle.wheel(at.x, at.y, -100.0, 1.0));
+    assert!(
+        zoomed.redraw,
+        "a wheel over the bar zooms its scale: {zoomed:?}"
+    );
+    assert!(zoomed.can_undo, "in one step of the history");
+    let saved = decode(Format::Fig, &handle.save());
+    match saved.color_scales[0].kind.limits() {
+        Some(Limits::Manual { min, max }) => assert!(
+            min > 0.0 && max < 10.0,
+            "the zoom is about a value inside the bar: [{min}, {max}]"
+        ),
+        other => panic!("the saved scale carries the zoom, not {other:?}"),
+    }
+    assert_eq!(
+        saved.axes[0].x.limits, figure.axes[0].x.limits,
+        "the axes beside the bar is not zoomed"
+    );
+
+    let undone = outcome(handle.undo());
+    assert!(undone.redraw && !undone.can_undo, "{undone:?}");
+    assert_eq!(
+        decode(Format::Fig, &handle.save()),
+        decode(Format::Fig, &figure.to_protobuf()),
+        "with the zoom undone, the save is the figure that was opened"
+    );
+}

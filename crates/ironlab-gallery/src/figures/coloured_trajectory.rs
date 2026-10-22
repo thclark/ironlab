@@ -73,7 +73,7 @@ pub fn figure() -> Figure {
         .title("A baseball struck at 40 m/s, coloured by its speed")
         .tag("line")
         .tag("legend")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("dashes")
         .tag("comparison")
         .tag("aspect")

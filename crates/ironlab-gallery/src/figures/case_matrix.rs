@@ -45,7 +45,7 @@ pub fn figure() -> Figure {
         .title("Convergence of the transition model")
         .tag("image")
         .tag("scatter")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("colorbar")
         .tag("legend")
         .tag("simulations")

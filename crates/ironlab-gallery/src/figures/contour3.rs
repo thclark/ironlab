@@ -13,7 +13,6 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 100.0)
         .title(r"Isolines of $\ln(1 + |z_3|)$ at their levels")
         .tag("contour")
-        .tag("colormap")
         .tag("levels")
         .parameter("dimensionality", "3D")
         .parameter("artists", 1)

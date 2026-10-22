@@ -46,7 +46,8 @@ pub use export::{ExportError, export_display_list};
 pub use export::{export_pdf, write_pdf};
 pub use figure_canvas::{
     CANVAS_MARGIN, Callout, Cursor, DATATIP_RING_POINTS, FigureCanvas, Fit, Gesture, Marker,
-    Pointer, REBUILD_RATIO, WHEEL_ZOOM_RATE, datatip_text, pixel_datatip_text, wheel_factor,
+    Pointer, REBUILD_RATIO, WHEEL_ZOOM_RATE, colorbar_tip_text, datatip_text, pixel_datatip_text,
+    wheel_factor,
 };
 pub use gpu::{
     DEPTH_FORMAT, Draw, DrawKind, DrawList, GpuConfig, GpuPainter, JOIN_AT_END, JOIN_AT_START,
@@ -54,8 +55,8 @@ pub use gpu::{
     Viewport,
 };
 pub use interaction::{
-    DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip, PixelValue,
-    ROTATE_DEGREES_PER_POINT, Tip, Tool,
+    ColorbarReading, ColorbarTip, DATATIP_RADIUS_POINTS, Datatip, FigureState, PixelDatatip,
+    PixelValue, ROTATE_DEGREES_PER_POINT, Tip, Tool,
 };
 pub use offscreen::{OffscreenRenderer, PngError, RenderError, RenderedImage};
 #[cfg(not(target_arch = "wasm32"))]

@@ -50,11 +50,20 @@
 //! - **Click** on a legend entry sets `visible` on its artist and selects it; a click elsewhere inside an axes
 //!   selects that axes and changes nothing. The selection is what the property editor shows, and no gesture
 //!   changes it.
-//! - **Refit** removes the view entries of every axes, but keeps visibility, because hiding a plot is a choice
-//!   about content rather than about the view.
-//! - **Datatips** change nothing: [`FigureState::tip_at`] names the drawn point nearest the pointer within
-//!   [`DATATIP_RADIUS_POINTS`] or, when there is none, the pixel of the image under it, each read from the user's
-//!   own arrays.
+//! - **Refit** removes the view entries of every axes and the limits of every colour scale, but keeps visibility,
+//!   because hiding a plot is a choice about content rather than about the view.
+//! - **Datatips** change nothing: [`FigureState::tip_at`] names what the colourbar under the pointer reads, or else
+//!   the drawn point nearest the pointer within [`DATATIP_RADIUS_POINTS`] or, when there is none, the pixel of the
+//!   image under it, each read from the user's own arrays.
+//! - **Colourbars** are on top: a bar inside a plot area is drawn over the artists, and the box behind it hides
+//!   them, so the colourbars are asked first by every gesture and by the datatip. Hovering a bar reads the value under
+//!   the pointer on a continuous bar, the band on a discrete bar, the entry on an indexed bar, the category of a
+//!   square and the label of a key ([`ColorbarTip`]). The wheel over a continuous bar, or over a discrete bar of
+//!   automatic levels, zooms the scale's limits about the value under the pointer, a drag along it pans them with
+//!   every tool, and a double-click restores them from the source, each by the same rules and the same arithmetic as
+//!   the gesture on an axis, through one set of `kind.continuous.limits` or `kind.discrete.levels.limits`. A gesture
+//!   on any other bar, on a bar item of a legend, on a key or on the box behind an inside bar changes nothing. A click
+//!   on a bar selects its scale.
 //!
 //! Each gesture is one step of the undo history: a whole drag is one step, as is a wheel notch, a legend click, a
 //! double-click and a reset. A 2D gesture on an axes whose limits are [`Limits::Auto`] starts from the limits the
@@ -63,11 +72,13 @@
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, AspectAdjust, Axes, Axis, CategoricalColorScale, ColorScaleClass, ColorScaleDomain,
-    ColorScaleKind, ColorScaleSlot, Coords, Dimension, Edit, EditError, Figure, Limits, NdArray,
-    NodeId, PixelRange, Projection, PropertyPath, Scale, Transaction, Value, View3d, command,
+    ColorScaleKey, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot,
+    ColorbarOrientation, Coords, Dimension, DiscreteColorScale, Edit, EditError, Figure,
+    IndexedColorScale, Limits, NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale,
+    TickLabels, Ticks, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
-use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap};
+use ironlab_scene::hit::{AxesHitKind, AxisMap, ColorbarHit, ColorbarOwner, HitMap};
 use ironlab_scene::maths::aspect;
 
 use crate::problems::{Origin, Problem};
@@ -164,13 +175,78 @@ pub enum PixelValue {
     Value(f64),
 }
 
-/// What lies under the pointer: a drawn data point, or, where none is within reach, a pixel of an image.
+/// What lies under the pointer: a colourbar, a drawn data point, or, where none is within reach, a pixel of an
+/// image.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tip {
     /// A point of a series.
     Point(Datatip),
     /// A pixel of an image.
     Pixel(PixelDatatip),
+    /// A colourbar: its bar, one of its squares or one of its keys.
+    Colorbar(ColorbarTip),
+}
+
+/// What a colourbar says under the pointer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorbarTip {
+    /// What holds the bar: a panel, an axes, or a legend whose bar item it is.
+    pub owner: ColorbarOwner,
+    /// The colour scale the bar shows.
+    pub scale: NodeId,
+    /// The source text of the scale's title, when it has one.
+    pub title: Option<String>,
+    /// Where a callout is anchored, in figure space: the point on the centre line of a continuous bar level with the
+    /// pointer, or the centre of the piece read.
+    pub position: Point,
+    /// The piece read, in figure space — a band, an entry's block, a category's square or a key's square — or `None`
+    /// on a continuous bar, which has no pieces.
+    pub piece: Option<Rect>,
+    /// What the bar reads there.
+    pub reading: ColorbarReading,
+}
+
+/// What a colourbar reads under the pointer, in the terms of the kind of its scale.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ColorbarReading {
+    /// The value under the pointer on a continuous bar.
+    Value(f64),
+    /// The band under the pointer on a discrete bar, from its lower edge to its upper edge; a value on an edge
+    /// belongs to the upper band, as the scale classifies it.
+    Band { low: f64, high: f64 },
+    /// The entry under the pointer on an indexed bar, with the label of the tick at that entry, when the scale labels
+    /// its ticks explicitly and one of them falls there.
+    Entry { index: usize, label: Option<String> },
+    /// The category of the square under the pointer, with its label's source text.
+    Category { index: usize, label: String },
+    /// The out-of-range key under the pointer, with the label it is drawn with.
+    Key { key: ColorScaleKey, label: String },
+}
+
+/// What of a colourbar lies under the pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BarPart {
+    /// The bar of a continuous, discrete or indexed scale.
+    Bar,
+    /// The square of the category with this index.
+    Category(usize),
+    /// The out-of-range key with this position among the bar's keys.
+    Key(usize),
+    /// The box behind an inside bar, beside the bar and its keys, which hides what lies beneath.
+    Backdrop,
+}
+
+/// The limits of a colour scale that a gesture on one of its bars moves.
+#[derive(Clone, Debug, PartialEq)]
+struct ScaleTarget {
+    /// The colour scale.
+    scale: NodeId,
+    /// The path of its limits: `kind.continuous.limits` or `kind.discrete.levels.limits`.
+    path: PropertyPath,
+    /// How its values lie along the bar, with the limits the gesture starts from.
+    map: AxisMap,
+    /// Whether the bar stands, so that its values run along figure-space y rather than x.
+    vertical: bool,
 }
 
 /// The gesture that a primary-button drag performs.
@@ -188,7 +264,7 @@ pub enum Tool {
 /// The state captured at the start of a drag.
 #[derive(Clone, Debug, PartialEq)]
 struct Drag {
-    /// The axes under the pointer when the drag started.
+    /// The axes, or the colour scale of the bar, under the pointer when the drag started.
     axes: NodeId,
     /// The plot rectangle of that axes at the start of the drag.
     plot_rect: Rect,
@@ -210,6 +286,8 @@ enum DragKind {
     },
     /// A 3D axes, with its view at the start of the drag.
     ThreeD { view: View3d },
+    /// A colourbar, with the limits of its scale at the start of the drag.
+    Scale(ScaleTarget),
 }
 
 /// The interactive state of one figure in the viewer: its source, the user's overlay, and their composition.
@@ -432,6 +510,14 @@ impl FigureState {
         if !(zoom_factor.is_finite() && zoom_factor > 0.0) || zoom_factor == 1.0 {
             return false;
         }
+        if let Some(target) = self.bar_gesture(hit, at) {
+            let Some(target) = target else {
+                return false;
+            };
+            let coord = if target.vertical { at.y } else { at.x };
+            let limits = zoomed(&target.map, coord, zoom_factor);
+            return self.step(|state| state.set_scale_limits(&target, limits));
+        }
         let Some(axes_hit) = hit.axes_at(at) else {
             return false;
         };
@@ -442,14 +528,8 @@ impl FigureState {
         match (&axes_hit.kind, axes.projection) {
             (AxesHitKind::TwoD { x, y }, Projection::TwoD) => {
                 let (x, y) = current_maps(axes, x, y);
-                let zoom = |map: &AxisMap, coord: f64| {
-                    let (a, b) = scale_limits(map);
-                    let t = (coord - map.start) / (map.end - map.start);
-                    let c = a + t * (b - a);
-                    (c - (c - a) / zoom_factor, c + (b - c) / zoom_factor)
-                };
-                let x_limits = zoom(&x, at.x);
-                let y_limits = zoom(&y, at.y);
+                let x_limits = zoomed(&x, at.x, zoom_factor);
+                let y_limits = zoomed(&y, at.y, zoom_factor);
                 self.step(|state| {
                     let changed_x = state.set_scaled_limits(id, Dimension::X, &x, x_limits);
                     let changed_y = state.set_scaled_limits(id, Dimension::Y, &y, y_limits);
@@ -473,6 +553,20 @@ impl FigureState {
     /// by the subsequent updates.
     pub fn drag_start(&mut self, hit: &HitMap, at: Point) {
         self.end_drag();
+        if let Some(target) = self.bar_gesture(hit, at) {
+            let Some(target) = target else {
+                return;
+            };
+            self.drag = Some(Drag {
+                axes: target.scale,
+                plot_rect: Rect::new(at.x, at.y, 0.0, 0.0),
+                start: at,
+                last: at,
+                kind: DragKind::Scale(target),
+            });
+            self.overlay.begin_step();
+            return;
+        }
         let Some(axes_hit) = hit.axes_at(at) else {
             return;
         };
@@ -515,26 +609,33 @@ impl FigureState {
         let drag = drag.clone();
         let (dx, dy) = (at.x - drag.start.x, at.y - drag.start.y);
         match (self.tool, &drag.kind) {
-            (Tool::Pan, DragKind::TwoD { x, y, .. }) => {
-                let pan = |map: &AxisMap, from: f64, to: f64| {
-                    let (a, b) = scale_limits(map);
-                    let per_point = (b - a) / (map.end - map.start);
-                    let shift = (from - to) * per_point;
-                    (a + shift, b + shift)
+            // A bar has one dimension and no camera, so a drag along it pans its scale whatever the tool.
+            (_, DragKind::Scale(target)) => {
+                let (from, to) = if target.vertical {
+                    (drag.start.y, at.y)
+                } else {
+                    (drag.start.x, at.x)
                 };
+                if from == to {
+                    // Returning to the start of the drag restores the limits captured at its start.
+                    return self.restore_scale(target);
+                }
+                self.set_scale_limits(target, panned(&target.map, from, to))
+            }
+            (Tool::Pan, DragKind::TwoD { x, y, .. }) => {
                 let changed_x = dx != 0.0
                     && self.set_scaled_limits(
                         drag.axes,
                         Dimension::X,
                         x,
-                        pan(x, drag.start.x, at.x),
+                        panned(x, drag.start.x, at.x),
                     );
                 let changed_y = dy != 0.0
                     && self.set_scaled_limits(
                         drag.axes,
                         Dimension::Y,
                         y,
-                        pan(y, drag.start.y, at.y),
+                        panned(y, drag.start.y, at.y),
                     );
                 // Returning to the start of the drag restores the limits captured at its start.
                 let restored_x = dx == 0.0 && self.restore_captured(drag.axes, Dimension::X, x);
@@ -580,7 +681,14 @@ impl FigureState {
             return false;
         }
         let mut changed = false;
-        if self.tool == Tool::Zoom {
+        let on_bar = matches!(
+            self.drag,
+            Some(Drag {
+                kind: DragKind::Scale(_),
+                ..
+            })
+        );
+        if self.tool == Tool::Zoom && !on_bar {
             if is_finite(at)
                 && let Some(drag) = self.drag.as_mut()
             {
@@ -658,6 +766,21 @@ impl FigureState {
     /// Over a legend entry it toggles the entry's artist instead, as [`FigureState::click`] does. Returns whether the
     /// figure changed.
     pub fn double_click(&mut self, hit: &HitMap, at: Point) -> bool {
+        if let Some(target) = self.bar_gesture(hit, at) {
+            let Some(target) = target else {
+                return false;
+            };
+            self.select(Some(target.scale));
+            return self.step(|state| {
+                let before = state.overlay.entries().to_vec();
+                state.overlay.reset_view(target.scale);
+                let changed = state.overlay.entries() != before;
+                if changed {
+                    state.recompose();
+                }
+                changed
+            });
+        }
         if hit.legend_entry_at(at).is_some() {
             return self.click(hit, at);
         }
@@ -697,6 +820,12 @@ impl FigureState {
     /// artists unless every one of them is already hidden, in which case it shows them all. The first of the
     /// artists is selected.
     pub fn click(&mut self, hit: &HitMap, at: Point) -> bool {
+        if let Some((bar, part)) = colorbar_under(hit, at) {
+            if part != BarPart::Backdrop {
+                self.select(Some(bar.scale));
+            }
+            return false;
+        }
         let Some(entry) = hit.legend_entry_at(at) else {
             if let Some(axes) = hit.axes_at(at) {
                 self.select(Some(axes.id));
@@ -820,11 +949,180 @@ impl FigureState {
     /// A point wins over the pixel beneath it because it is small, so that the pixel is read everywhere the pointer
     /// is not within reach of a point, and because a series drawn over an image is painted on top of it,
     /// so that a pointer within reach of one of its points means the point rather than the pixel it covers.
+    ///
+    /// A colourbar is asked first, because a bar inside a plot area is drawn over the artists: over a bar, one of
+    /// its squares or one of its keys the tip is what the bar reads, as [`FigureState::colorbar_tip`] finds it, and
+    /// over the box behind an inside bar there is no tip, because the box hides what lies beneath it.
     #[must_use]
     pub fn tip_at(&self, hit: &HitMap, at: Point) -> Option<Tip> {
+        if colorbar_under(hit, at).is_some() {
+            return self.colorbar_tip(hit, at).map(Tip::Colorbar);
+        }
         self.datatip(hit, at)
             .map(Tip::Point)
             .or_else(|| self.pixel_datatip(hit, at).map(Tip::Pixel))
+    }
+
+    /// Returns what the colourbar under the pointer says, or `None` where no bar, square or key lies.
+    ///
+    /// The bar is the one painted last under the pointer. A continuous bar reads the value under the pointer, by
+    /// inverting the mapping the bar was drawn with ([`ColorbarHit::map`]); a discrete bar reads the band under it,
+    /// from the edges the bar drew, a value on an edge belonging to the upper band; an indexed bar reads the entry
+    /// whose block is under it, with the label of an explicitly labelled tick at that entry; a square reads its
+    /// category and a key the label it is drawn with. The title, the tick labels and the gaps between pieces read
+    /// nothing, and neither does the box behind an inside bar.
+    #[must_use]
+    pub fn colorbar_tip(&self, hit: &HitMap, at: Point) -> Option<ColorbarTip> {
+        let (bar, part) = colorbar_under(hit, at)?;
+        let scale = self.composed.color_scale(bar.scale)?;
+        let centre = |r: Rect| Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0);
+        let (position, piece, reading) = match part {
+            BarPart::Backdrop => return None,
+            BarPart::Key(i) => {
+                let key = &bar.keys[i];
+                let reading = ColorbarReading::Key {
+                    key: key.key,
+                    label: key.label.clone(),
+                };
+                (centre(key.rect), Some(key.rect), reading)
+            }
+            BarPart::Category(i) => {
+                let ColorScaleKind::Categorical(categorical) = &scale.kind else {
+                    return None;
+                };
+                let label = categorical.categories.get(i)?.label.content.clone();
+                let square = bar.entries[i];
+                let reading = ColorbarReading::Category { index: i, label };
+                (centre(square), Some(square), reading)
+            }
+            BarPart::Bar => {
+                let map = bar.map?;
+                let vertical = bar.orientation == ColorbarOrientation::Vertical;
+                let value = map.to_data(if vertical { at.y } else { at.x });
+                match &scale.kind {
+                    ColorScaleKind::Continuous(_) => {
+                        let r = bar.bar;
+                        let position = if vertical {
+                            Point::new(r.x + r.width / 2.0, at.y)
+                        } else {
+                            Point::new(at.x, r.y + r.height / 2.0)
+                        };
+                        (position, None, ColorbarReading::Value(value))
+                    }
+                    ColorScaleKind::Discrete(_) => {
+                        let (low, high) = band_of(&bar.edges, value)?;
+                        let piece = span_of(bar, &map, low, high);
+                        (
+                            centre(piece),
+                            Some(piece),
+                            ColorbarReading::Band { low, high },
+                        )
+                    }
+                    ColorScaleKind::Indexed(indexed) => {
+                        let count = indexed.colors.len();
+                        if count == 0 || !value.is_finite() {
+                            return None;
+                        }
+                        // Saturating: a value beyond either end of the bar names the entry at that end.
+                        let index = (value.round().max(0.0) as usize).min(count - 1);
+                        let piece = span_of(bar, &map, index as f64 - 0.5, index as f64 + 0.5);
+                        let reading = ColorbarReading::Entry {
+                            index,
+                            label: tick_label_at(indexed, index),
+                        };
+                        (centre(piece), Some(piece), reading)
+                    }
+                    ColorScaleKind::Categorical(_) => return None,
+                }
+            }
+        };
+        Some(ColorbarTip {
+            owner: bar.owner,
+            scale: bar.scale,
+            title: scale.title.as_ref().map(|title| title.content.clone()),
+            position,
+            piece,
+            reading,
+        })
+    }
+
+    /// Returns `None` when no colourbar lies under the pointer, so that the gesture falls to what lies beneath, and
+    /// otherwise whether the bar there takes the gesture: the limits it moves when the pointer is on the bar of a
+    /// continuous scale, or of a discrete scale of automatic levels, held by a panel or an axes, and `None` on any
+    /// other part of a colourbar, which the gesture leaves alone.
+    ///
+    /// Manual limits are read from the displayed figure rather than from the hit map, which may have been compiled
+    /// before the latest edit, so that two quick gestures compose; automatic limits are the ones the bar was drawn
+    /// with, which the compiler resolved.
+    fn bar_gesture(&self, hit: &HitMap, at: Point) -> Option<Option<ScaleTarget>> {
+        let (bar, part) = colorbar_under(hit, at)?;
+        if part != BarPart::Bar || matches!(bar.owner, ColorbarOwner::Legend(_)) {
+            return Some(None);
+        }
+        let (Some(drawn), Some(scale)) = (bar.map, self.composed.color_scale(bar.scale)) else {
+            return Some(None);
+        };
+        let (path, limits, norm) = match &scale.kind {
+            ColorScaleKind::Continuous(continuous) => (
+                path(&["kind", "continuous", "limits"]),
+                continuous.limits,
+                continuous.norm,
+            ),
+            ColorScaleKind::Discrete(DiscreteColorScale {
+                levels: ColorScaleLevels::Auto { limits, .. },
+                norm,
+                ..
+            }) => (
+                path(&["kind", "discrete", "levels", "limits"]),
+                *limits,
+                *norm,
+            ),
+            _ => return Some(None),
+        };
+        let (min, max) = match limits {
+            Limits::Manual { min, max } => (min, max),
+            Limits::Auto => (drawn.min, drawn.max),
+        };
+        Some(Some(ScaleTarget {
+            scale: bar.scale,
+            path,
+            map: AxisMap {
+                min,
+                max,
+                log: norm == ColorScaleNorm::Log,
+                ..drawn
+            },
+            vertical: bar.orientation == ColorbarOrientation::Vertical,
+        }))
+    }
+
+    /// Sets the manual limits of a scale given in the scale space of its map (base-10 logarithms under a logarithmic
+    /// norm). Returns whether the figure changed; limits that are not finite, not increasing or, under a logarithmic
+    /// norm, not positive are refused before anything is recorded.
+    fn set_scale_limits(&mut self, target: &ScaleTarget, (a, b): (f64, f64)) -> bool {
+        let (min, max) = (from_scale(&target.map, a), from_scale(&target.map, b));
+        let usable =
+            min.is_finite() && max.is_finite() && min < max && (!target.map.log || min > 0.0);
+        usable
+            && self.record(&Transaction {
+                edits: vec![Edit::Set {
+                    node: target.scale,
+                    path: target.path.clone(),
+                    value: Value::Limits(Limits::Manual { min, max }),
+                }],
+            })
+    }
+
+    /// Restores the limits of a scale captured at the start of a drag, unless the figure still shows them (including
+    /// when they are automatic and unchanged). Returns whether the figure changed.
+    fn restore_scale(&mut self, target: &ScaleTarget) -> bool {
+        match self.composed.get(target.scale, &target.path) {
+            Ok(Value::Limits(Limits::Manual { .. })) => {
+                let (min, max) = scale_limits(&target.map);
+                self.set_scale_limits(target, (min, max))
+            }
+            _ => false,
+        }
     }
 
     /// Removes the view entries of every axes from the overlay, so that the figure shows the limits and
@@ -1188,4 +1486,82 @@ fn from_scale(map: &AxisMap, value: f64) -> f64 {
 /// The limits of `map` in its scale space.
 fn scale_limits(map: &AxisMap) -> (f64, f64) {
     (to_scale(map, map.min), to_scale(map, map.max))
+}
+
+/// Returns the limits, in the scale space of `map`, of a zoom by `factor` (greater than one zooms in) about the value
+/// at figure-space coordinate `coord`, which stays where it is.
+fn zoomed(map: &AxisMap, coord: f64, factor: f64) -> (f64, f64) {
+    let (a, b) = scale_limits(map);
+    let t = (coord - map.start) / (map.end - map.start);
+    let c = a + t * (b - a);
+    (c - (c - a) / factor, c + (b - c) / factor)
+}
+
+/// Returns the limits, in the scale space of `map`, of a pan that moves the value grabbed at figure-space coordinate
+/// `from` to `to`.
+fn panned(map: &AxisMap, from: f64, to: f64) -> (f64, f64) {
+    let (a, b) = scale_limits(map);
+    let per_point = (b - a) / (map.end - map.start);
+    let shift = (from - to) * per_point;
+    (a + shift, b + shift)
+}
+
+/// Returns the colourbar painted last under `p`, with the part of it there, or `None` where no colourbar lies.
+///
+/// The squares of a categorical scale are its geometry, so the gaps between them belong to nothing; an inside bar's
+/// box belongs to its bar, so that what lies beneath stays hidden.
+fn colorbar_under(hit: &HitMap, p: Point) -> Option<(&ColorbarHit, BarPart)> {
+    hit.colorbars.iter().rev().find_map(|bar| {
+        let part = if let Some(i) = bar.keys.iter().position(|key| key.rect.contains(p)) {
+            BarPart::Key(i)
+        } else if let Some(i) = bar.entries.iter().position(|square| square.contains(p)) {
+            BarPart::Category(i)
+        } else if bar.map.is_some() && bar.bar.contains(p) {
+            BarPart::Bar
+        } else if bar.backdrop.is_some_and(|backdrop| backdrop.contains(p)) {
+            BarPart::Backdrop
+        } else {
+            return None;
+        };
+        Some((bar, part))
+    })
+}
+
+/// Returns the band of `edges` that holds `value`: the band from the last edge at or below it, so that a value on an
+/// edge belongs to the upper band, as the scale classifies it, with a value at or beyond the last edge in the last
+/// band and one below the first in the first. A tolerance of a millionth of a millionth of the span absorbs the
+/// rounding of a pointer placed exactly on an edge.
+fn band_of(edges: &[f64], value: f64) -> Option<(f64, f64)> {
+    let (first, last) = (*edges.first()?, *edges.last()?);
+    if edges.len() < 2 || !value.is_finite() {
+        return None;
+    }
+    let tolerance = 1e-12 * (last - first).abs();
+    let band = edges[..edges.len() - 1]
+        .iter()
+        .rposition(|edge| *edge <= value + tolerance)
+        .unwrap_or(0);
+    Some((edges[band], edges[band + 1]))
+}
+
+/// Returns the rectangle of a bar from `low` to `high` along it, across its whole thickness.
+fn span_of(bar: &ColorbarHit, map: &AxisMap, low: f64, high: f64) -> Rect {
+    let (a, b) = (map.to_figure(low), map.to_figure(high));
+    let r = bar.bar;
+    if bar.orientation == ColorbarOrientation::Vertical {
+        Rect::new(r.x, a.min(b), r.width, (a - b).abs())
+    } else {
+        Rect::new(a.min(b), r.y, (a - b).abs(), r.height)
+    }
+}
+
+/// Returns the source text of the label of the tick an indexed scale places at entry `index`, when its ticks are
+/// explicit values with explicit labels and one of them is that entry.
+fn tick_label_at(scale: &IndexedColorScale, index: usize) -> Option<String> {
+    let (Ticks::Values(values), TickLabels::Text(labels)) = (&scale.ticks, &scale.tick_labels)
+    else {
+        return None;
+    };
+    let at = values.iter().position(|value| *value == index as f64)?;
+    labels.get(at).map(|label| label.content.clone())
 }

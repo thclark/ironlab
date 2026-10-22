@@ -29,7 +29,9 @@ use ironlab_text::TextEngine;
 
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::DrawList;
-use crate::interaction::{Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool};
+use crate::interaction::{
+    ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool,
+};
 use crate::problems::Problem;
 
 /// The rate at which a wheel scroll zooms: a scroll of `d` points zooms by `exp(d · rate)`, so that one notch of a
@@ -141,6 +143,36 @@ pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
     lines.join("\n")
 }
 
+/// The text of the callout that names what a colourbar reads under the pointer: the title of the scale when it has
+/// one, then the reading in the words of the bar's kind, every number formatted as the point datatip formats its
+/// coordinates, so that the callouts read as one.
+///
+/// A continuous bar reads `value = …`; a discrete bar `band = low – high`; an indexed bar `entry = label (index k)`
+/// where a labelled tick names the entry and `index = k` otherwise; a categorical square `category = label (index k)`,
+/// as a pixel of a categorical image reads; and a key its label alone, which is the whole statement of what it stands
+/// for.
+#[must_use]
+pub fn colorbar_tip_text(tip: &ColorbarTip) -> String {
+    let mut lines = Vec::new();
+    if let Some(title) = &tip.title {
+        lines.push(title.clone());
+    }
+    lines.push(match &tip.reading {
+        ColorbarReading::Value(value) => format!("value = {}", datatip_value(*value)),
+        ColorbarReading::Band { low, high } => {
+            format!("band = {} – {}", datatip_value(*low), datatip_value(*high))
+        }
+        ColorbarReading::Entry {
+            index,
+            label: Some(label),
+        } => format!("entry = {label} (index {index})"),
+        ColorbarReading::Entry { index, label: None } => format!("index = {index}"),
+        ColorbarReading::Category { index, label } => format!("category = {label} (index {index})"),
+        ColorbarReading::Key { label, .. } => label.clone(),
+    });
+    lines.join("\n")
+}
+
 /// The corners of the pixel in `row` and `column` of a drawn image, on screen and in the order they are joined, or
 /// `None` when the pixel is smaller on screen than the ring drawn around a point, so that it is ringed instead and
 /// the mark is never too small to see, or when its placement cannot be inverted.
@@ -178,8 +210,8 @@ pub enum Marker {
     /// A ring of `radius` screen points about `centre`: around a drawn point, or around the centre of a pixel too
     /// small on screen to outline.
     Ring { centre: Pos2, radius: f32 },
-    /// The four corners of a pixel on screen, in the order they are joined, so that the reader sees the extent that
-    /// was read.
+    /// The four corners of a pixel, or of the piece of a colourbar read, on screen, in the order they are joined, so
+    /// that the reader sees the extent that was read.
     Outline([Pos2; 4]),
 }
 
@@ -516,15 +548,16 @@ impl FigureCanvas {
         ))
     }
 
-    /// What lies under the pointer, a drawn data point or, where none is within reach, the pixel of an image, as a
-    /// mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the figure draws
-    /// nothing.
+    /// What lies under the pointer — a colourbar, a drawn data point or, where none is within reach, the pixel of an
+    /// image — as a mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the
+    /// figure draws nothing.
     ///
-    /// Both come from the hit map of the current compilation, so a point names the index and the values of the
+    /// All come from the hit map of the current compilation, so a point names the index and the values of the
     /// user's own data even where the series was thinned to fit the view, and a pixel names the row and column of
     /// the user's own array. A point is ringed. A pixel is outlined, so that the reader sees the extent that was
     /// read, or ringed at its centre when it is smaller on screen than the ring, so that the mark is never too small
-    /// to see.
+    /// to see. A colourbar's reading is ringed where it was taken on a continuous bar, which has no pieces, and the
+    /// piece read (a band, an entry's block, a square or a key) is outlined on every other bar.
     pub fn callout(&mut self, text: &TextEngine) -> Option<Callout> {
         if self.dragging {
             return None;
@@ -552,6 +585,23 @@ impl FigureCanvas {
                     text: pixel_datatip_text(&tip),
                 }
             }
+            Tip::Colorbar(tip) => Callout {
+                marker: tip.piece.map_or_else(
+                    || ring(tip.position),
+                    |r| {
+                        Marker::Outline(
+                            [
+                                (r.x, r.y),
+                                (r.right(), r.y),
+                                (r.right(), r.bottom()),
+                                (r.x, r.bottom()),
+                            ]
+                            .map(|(x, y)| to_screen.apply(Point::new(x, y))),
+                        )
+                    },
+                ),
+                text: colorbar_tip_text(&tip),
+            },
         })
     }
 

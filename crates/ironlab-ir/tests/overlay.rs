@@ -1229,3 +1229,72 @@ fn undo_redo_and_empty_gestures_with_nothing_to_do_change_nothing() {
     assert!(overlay.entries().is_empty());
     assert!(!overlay.can_undo());
 }
+
+// ---------------------------------------------------------------------------------
+// The limits of a colour scale are part of the view
+// ---------------------------------------------------------------------------------
+
+// Why: a gesture on a colourbar pans or zooms the limits of its colour scale exactly as a
+// gesture on an axes pans or zooms its limits (stage 6 of the colourbar epic), so the
+// limits of a scale are a view entry like the limits of an axis: resetting the view of the
+// scale, as a double-click on its bar does, and resetting every view, as Refit does,
+// remove them. Every other property of the scale, such as its norm and the number of its
+// automatic bands, is a choice about content and is kept.
+#[test]
+fn the_limits_of_a_colour_scale_are_view_entries_and_its_other_properties_are_not() {
+    let f = fixture();
+    let (continuous, discrete) = (NodeId(50), NodeId(51));
+    let build = || {
+        let mut overlay = Overlay::new();
+        record(
+            &mut overlay,
+            continuous,
+            "kind.continuous.limits",
+            limits(1.0, 2.0),
+        );
+        record(
+            &mut overlay,
+            continuous,
+            "kind.continuous.norm",
+            Value::ColorScaleNorm(ColorScaleNorm::Log),
+        );
+        record(
+            &mut overlay,
+            discrete,
+            "kind.discrete.levels.limits",
+            limits(0.0, 4.0),
+        );
+        record(
+            &mut overlay,
+            discrete,
+            "kind.discrete.levels.count",
+            Value::UInt32(3),
+        );
+        record(&mut overlay, f.a, "x.limits", limits(0.0, 1.0));
+        overlay
+    };
+
+    let mut overlay = build();
+    overlay.reset_view(continuous);
+    assert_eq!(
+        keys(&overlay),
+        [
+            (continuous, "kind.continuous.norm".to_owned()),
+            (discrete, "kind.discrete.levels.limits".to_owned()),
+            (discrete, "kind.discrete.levels.count".to_owned()),
+            (f.a, "x.limits".to_owned()),
+        ],
+        "resetting one scale removes its limits alone"
+    );
+
+    let mut overlay = build();
+    overlay.reset_all_views();
+    assert_eq!(
+        keys(&overlay),
+        [
+            (continuous, "kind.continuous.norm".to_owned()),
+            (discrete, "kind.discrete.levels.count".to_owned()),
+        ],
+        "Refit removes the limits of every scale with those of every axes"
+    );
+}

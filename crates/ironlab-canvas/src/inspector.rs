@@ -6,9 +6,10 @@
 //! - **What is in the figure?** [`tree_rows`] turns the displayed figure into the rows of
 //!   the object tree: the figure, its data arrays, its colour scales, its axes and their
 //!   artists, and its panels, each labelled as a user would name it.
-//! - **What can be changed about one node?** [`property_groups`] reads the property
-//!   registry of [`ironlab_ir::properties`], keeps the properties that the node can
-//!   actually show, gathers them under the value they belong to, orders them by the name
+//! - **What can be changed about one node?** [`property_groups`] reads the properties
+//!   of the node as it stands from [`ironlab_ir::properties_of`] (the registry of its kind
+//!   and one property per entry of each palette it holds), keeps the properties that the
+//!   node can actually show, gathers them under the value they belong to, orders them by the name
 //!   the user reads, and says which widget each one needs and which of them the overlay
 //!   overrides.
 //! - **What does a change commit?** [`commit`] turns a new value into the transaction
@@ -52,11 +53,14 @@
 //! because the values it holds are the rows beneath it.
 //!
 //! A property that the figure ignores altogether is hidden instead of shown read-only,
-//! because there is nothing about it worth reading. [`is_shown`] decides that. The list of
-//! the entries of an indexed colour scale, of the categories of a categorical one and of
-//! the colours of a listed colormap have no row at all, because the property registry of
-//! the IR gives them no path: like the data a plot draws, they come from the program that
-//! builds the figure.
+//! because there is nothing about it worth reading. [`is_shown`] decides that.
+//!
+//! The entries of a palette — the colours of an indexed colour scale, the categories of a
+//! categorical one and the colours of a listed colormap — each have rows of their own: a
+//! colour row per entry, and a colour row and a label row per category, ordered by index.
+//! The list itself has no row, because the IR gives it no settable path: how many entries
+//! a palette has, and in which order, comes from the program that builds the figure, as
+//! the data a plot draws does.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -64,7 +68,7 @@ use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, Cell, Choice, ColorScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
     NodeKind, Panel, PanelContent, Parameter, Projection, Property, PropertyPath, Transaction,
-    Value, ValueType, command, properties, property_choices,
+    Value, ValueType, command, properties_of, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -367,8 +371,33 @@ pub struct PropertyGroup {
 /// ignored because a reader looking for `Limits` and a reader looking for `limits` are
 /// looking for the same row, and the sort is stable so that two names that differ only in
 /// case keep the order the registry gave them rather than swapping between frames.
+///
+/// A name is compared segment by segment, and a segment of digits, which names an entry of
+/// a palette by its index, is compared as a number, so that entry 10 follows entry 9
+/// rather than entry 1.
 fn order_by_name<T>(items: &mut [T], name: impl Fn(&T) -> &str) {
-    items.sort_by_key(|item| name(item).to_lowercase());
+    items.sort_by_cached_key(|item| name_key(name(item)));
+}
+
+/// One segment of a name as it is ordered: an index before any word, indices by value and
+/// words ignoring case.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum NameSegment {
+    Index(u128),
+    Word(String),
+}
+
+/// Returns the key by which a name is ordered.
+fn name_key(name: &str) -> Vec<NameSegment> {
+    name.split('.')
+        .map(|segment| {
+            let digits = !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit());
+            match segment.parse() {
+                Ok(index) if digits => NameSegment::Index(index),
+                _ => NameSegment::Word(segment.to_lowercase()),
+            }
+        })
+        .collect()
 }
 
 /// Returns the properties of a node, grouped by the first segment of their paths.
@@ -408,7 +437,7 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
 
     let mut covered: Vec<PropertyPath> = Vec::new();
     let mut rows: Vec<PropertyRow> = Vec::new();
-    for property in properties(kind) {
+    for property in properties_of(figure, node) {
         if !is_shown(figure, node, kind, &property.path) {
             continue;
         }

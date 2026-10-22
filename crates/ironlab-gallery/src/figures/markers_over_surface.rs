@@ -48,7 +48,7 @@ pub fn figure() -> Figure {
         .title("Survey of a hill")
         .tag("surface")
         .tag("scatter")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("legend")
         .tag("measurements")
         .parameter("dimensionality", "3D")
