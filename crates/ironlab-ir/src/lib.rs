@@ -102,7 +102,7 @@ pub use color_scale::{
 pub use data::{DataArray, NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
-    ValueType, choices, properties, property_choices,
+    ValueType, choices, properties, properties_of, property_choices,
 };
 pub use error::{IrError, ProtobufError};
 pub use figure::{

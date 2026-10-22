@@ -86,6 +86,8 @@ pub struct Dropped {
     /// Why it could not be applied: [`EditError::UnknownNode`] when its node no longer
     /// exists, [`EditError::UnknownPath`], [`EditError::InactiveVariant`] or
     /// [`EditError::AbsentValue`] when its path is no longer reachable,
+    /// [`EditError::EntryOutOfRange`] when its path names an entry of a palette that the
+    /// palette no longer has,
     /// [`EditError::TypeMismatch`] when its value does not have the type of the
     /// property, and [`EditError::Invalid`] when applying it would add validation errors
     /// that the source does not have.
@@ -353,18 +355,24 @@ impl Overlay {
         true
     }
 
-    /// Removes the view entries of one axes: the entries of that axes whose path is
-    /// `x.limits`, `y.limits`, `z.limits` or `projection.view3d`, or below one of them.
+    /// Removes the view entries of one node: the entries of that node whose path is a view
+    /// property, or below one. The view properties are the limits and the
+    /// three-dimensional camera of an axes (`x.limits`, `y.limits`, `z.limits` and
+    /// `projection.view3d`) and the limits of a colour scale (`kind.continuous.limits` and
+    /// `kind.discrete.levels.limits`), which a gesture on a colourbar pans and zooms as a
+    /// gesture on an axes pans and zooms its limits.
     ///
-    /// Every other entry, including the visibility of artists and entries above those
-    /// paths (such as `projection`), is kept, because hiding a plot is a choice about
-    /// content rather than about the view. Unless a step is open, a reset that removes an
-    /// entry is one undo step, and a reset that removes nothing adds no step.
-    pub fn reset_view(&mut self, axes: NodeId) {
-        self.reset(|entry| entry.node == axes);
+    /// Every other entry, including the visibility of artists, the norm and the number of
+    /// bands of a scale, and entries above those paths (such as `projection`), is kept,
+    /// because hiding a plot or choosing a norm is a choice about content rather than
+    /// about the view. Unless a step is open, a reset that removes an entry is one undo
+    /// step, and a reset that removes nothing adds no step.
+    pub fn reset_view(&mut self, node: NodeId) {
+        self.reset(|entry| entry.node == node);
     }
 
-    /// Removes the view entries of every axes, as [`Overlay::reset_view`] does for one.
+    /// Removes the view entries of every node, as [`Overlay::reset_view`] does for one:
+    /// the limits and views of every axes and the limits of every colour scale.
     pub fn reset_all_views(&mut self) {
         self.reset(|_| true);
     }
@@ -430,14 +438,17 @@ impl Overlay {
     }
 }
 
-/// Returns whether a path names a property of the view of an axes, or a property below
-/// one: its limits along a dimension, or its three-dimensional camera view.
+/// Returns whether a path names a property of the view, or a property below one: the
+/// limits of an axes along a dimension, its three-dimensional camera view, or the limits
+/// of a continuous colour scale or of the automatic levels of a discrete one.
 fn is_view_property(path: &PropertyPath) -> bool {
     [
         PropertyPath::of(&["x", "limits"]),
         PropertyPath::of(&["y", "limits"]),
         PropertyPath::of(&["z", "limits"]),
         PropertyPath::of(&["projection", "view3d"]),
+        PropertyPath::of(&["kind", "continuous", "limits"]),
+        PropertyPath::of(&["kind", "discrete", "levels", "limits"]),
     ]
     .iter()
     .any(|view| view.contains(path))

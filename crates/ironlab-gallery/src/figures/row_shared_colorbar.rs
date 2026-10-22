@@ -48,7 +48,7 @@ pub fn figure() -> Figure {
         .title("Temperature of an aluminium plate after a laser pulse")
         .tag("image")
         .tag("subplots")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("colorbar")
         .tag("out-of-range")
         .tag("aspect")

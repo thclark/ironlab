@@ -34,7 +34,7 @@ pub fn figure() -> Figure {
         .title("Bathymetry around a volcanic island")
         .tag("image")
         .tag("contour")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("colorbar")
         .tag("out-of-range")
         .tag("aspect")

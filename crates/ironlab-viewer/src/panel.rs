@@ -622,6 +622,10 @@ fn choice_control(
 /// Draws the control of a colour: a swatch of it and its hex, which opens the picker.
 /// The undo step is held open while the picker is open, so that a colour chosen by
 /// several movements of the picker is one step.
+///
+/// The picker holds 8-bit components, so a colour is committed only when the picker
+/// changed it: a colour whose components are not multiples of 1/255, such as an entry of a
+/// palette computed by a program, is drawn without being rounded into the figure.
 fn color_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
@@ -632,13 +636,13 @@ fn color_control(
     let Value::Color(current) = row.value else {
         return false;
     };
-    let mut rgba = to_color32(current);
+    let shown = to_color32(current);
+    let mut rgba = shown;
     let id = control_id(row);
     hint(swatch(ui, &mut rgba, id), row.docs);
     let open = egui::Popup::is_id_open(ui.ctx(), id.with("picker"));
     panel.hold(state, id, open);
-    let chosen = from_color32(rgba);
-    chosen != current && set(state, node, &row.path, Value::Color(chosen))
+    rgba != shown && set(state, node, &row.path, Value::Color(from_color32(rgba)))
 }
 
 /// Draws the control of a text property: a field holding its source. A rich text keeps

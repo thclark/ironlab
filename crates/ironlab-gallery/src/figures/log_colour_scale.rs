@@ -53,7 +53,7 @@ pub fn figure() -> Figure {
         .title("Ground-level concentration downwind of a 60 m stack")
         .tag("image")
         .tag("contour")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("out-of-range")
         .tag("colorbar")
         .parameter("dimensionality", "2D")

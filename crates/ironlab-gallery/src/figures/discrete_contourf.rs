@@ -34,7 +34,7 @@ pub fn figure() -> Figure {
         .title(r"Pressure coefficient $C_p$ of the potential flow past a cylinder")
         .tag("contour")
         .tag("line")
-        .tag("colormap")
+        .tag("color-scale")
         .tag("levels")
         .tag("aspect")
         .tag("colorbar")

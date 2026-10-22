@@ -767,7 +767,18 @@ A change to a figure is an **edit**, and edits are applied in a **transaction**,
 | `replace_data` | `node`, `array` | Replaces the values of an existing data array, which keeps its identifier and its name, so that every artist that refers to it draws the new values. It never creates a data array; `insert` does. |
 | `append_data` | `node`, `array`, `retain` | Appends entries to an existing data array along its first dimension. The entries must have the element type of the array and its shape after the first dimension. When `retain` is set, only the last `retain` entries are kept, which gives a rolling window for streamed data. |
 
-The identifiers, the schema version, the provenance, the lists of nodes and the values of a data array cannot be set with `set`: nodes change only through `insert`, `remove` and `move`, and values only through `replace_data` and `append_data`. An edit that names no node of the figure is refused with the error `UnknownNode`, or `UnknownData` for a data edit, and a data edit that names a node other than a data array, such as an axes, is refused with `WrongNodeKind`. After its edits, a transaction is [validated](#validation), and it is rolled back when validation reports an error that the figure did not have before; warnings never reject a transaction. Applying a transaction returns its inverse, which restores the figure exactly.
+The identifiers, the schema version, the provenance, the lists of nodes and the values of a data array cannot be set with `set`: nodes change only through `insert`, `remove` and `move`, and values only through `replace_data` and `append_data`.
+
+A path segment of decimal digits names one **entry of a palette** by its index, after the segment that names the list, and it is the only place in a path where a numeric segment appears:
+
+| Path | Value | What it names |
+| --- | --- | --- |
+| `kind.indexed.colors.<i>` | Color | Entry `i` of an [indexed scale](#colour-scale-kinds); its components are `kind.indexed.colors.<i>.r` and so on. |
+| `kind.categorical.categories.<i>.color` | Color | The colour of category `i` of a categorical scale. |
+| `kind.categorical.categories.<i>.label` | Text | The label of category `i`, with `.content` and `.interpreter` below it. |
+| `kind.continuous.colormap.colors.<i>`, `kind.discrete.colormap.colors.<i>` | Color | Colour `i` of a [listed colormap](#colormaps); a named colormap has no such colours, and a path to one is the error `InactiveVariant`. |
+
+The index is written in canonical decimal form, without a sign, a leading zero or an exponent, so that one entry has exactly one path, which clients compare as text; any other spelling, such as `01` or `+1`, is the error `UnknownPath`. An index past the last entry of the list is the error `EntryOutOfRange`, which names the node, the path and the number of entries, so that a client can tell a palette that shrank from a misspelt path. The list itself (`kind.indexed.colors`, `kind.categorical.categories` and `….colormap.colors`) and a category as a whole are read-only, because how many entries a palette has, and in which order, comes from the program that builds the figure. The registry of the settable properties of a kind of node lists no entry path, because which entries there are depends on the node; the properties of one node as it stands, its entries included, are listed by `properties_of`. An edit that names no node of the figure is refused with the error `UnknownNode`, or `UnknownData` for a data edit, and a data edit that names a node other than a data array, such as an axes, is refused with `WrongNodeKind`. After its edits, a transaction is [validated](#validation), and it is rolled back when validation reports an error that the figure did not have before; warnings never reject a transaction. Applying a transaction returns its inverse, which restores the figure exactly.
 
 ## Validation
 
