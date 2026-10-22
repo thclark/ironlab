@@ -2408,12 +2408,12 @@ fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
 // Legend
 // ---------------------------------------------------------------------------------------------------------------
 
-// WHY: a legend entry must look like the artist it names, and an image has no line or marker, so its sample is a
-// filled patch: the middle colour of the axes colormap for the two colormapped kinds, which is where a colourbar
-// would centre, and the mean colour of the finite pixels for a true-colour image, so that the patch resembles the
-// raster; the samples name the axes as their source, like every other part of the legend.
+// WHY: a legend entry must look like the artist it names, and a true-colour image has no line, marker or scale, so its
+// sample is a filled patch of the mean colour of its finite pixels, which resembles the raster. The sample of a
+// colour-mapped image is a sweep of its scale, which `legend_color_keys.rs` pins; here it is enough that every named
+// image has an entry, in artist order, whose label is drawn by the axes like every other part of the legend.
 #[test]
-fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
+fn a_named_image_has_a_legend_entry_and_a_true_colour_image_is_keyed_by_its_mean_colour() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     fx.axes_scale_mut(ax).colormap = ColormapName::Magma.into();
@@ -2468,25 +2468,23 @@ fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
         "one entry per named image, in artist order"
     );
     let leaves = leaves(&scene);
-    let expected = [
-        (mapped_image, MAGMA[128]),
-        (indexed, MAGMA[128]),
-        (true_colour, [85, 85, 85]),
-    ];
-    for (artist, colour) in expected {
+    let entry = entries
+        .iter()
+        .find(|e| entry_artist(e) == true_colour)
+        .unwrap();
+    let patches = patches_in(&leaves, ax, entry.rect);
+    assert_eq!(
+        patches.len(),
+        1,
+        "one filled patch lies inside the entry of the true-colour image: {patches:?}"
+    );
+    assert_eq!(
+        patches[0],
+        ([85, 85, 85], 1.0),
+        "the patch takes the mean colour of the finite pixels, opaque"
+    );
+    for artist in [mapped_image, indexed, true_colour] {
         let entry = entries.iter().find(|e| entry_artist(e) == artist).unwrap();
-        let patches = patches_in(&leaves, ax, entry.rect);
-        assert_eq!(
-            patches.len(),
-            1,
-            "one filled patch lies inside the entry of {artist}: {patches:?}"
-        );
-        let (rgb, alpha) = patches[0];
-        assert_eq!(
-            rgb, colour,
-            "the sample of {artist} takes the expected colour"
-        );
-        assert_eq!(alpha, 1.0, "the sample of a visible artist is opaque");
         assert!(
             leaves.iter().any(|l| l.source == Some(ax)
                 && l.glyphs().is_some()

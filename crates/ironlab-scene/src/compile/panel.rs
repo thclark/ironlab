@@ -63,7 +63,7 @@ pub(super) fn prepare<'a, 's>(
                 PanelContent::Legend(content) => {
                     let gathered: Vec<&Candidate> = naming.flat_map(|i| &candidates[i]).collect();
                     Content::Legend(PanelListing::new(
-                        ctx, panel.id, content, &gathered, candidates,
+                        ctx, panel.id, content, &gathered, candidates, scales,
                     ))
                 }
                 PanelContent::Colorbar(content) => {
@@ -153,7 +153,9 @@ pub(super) fn draw(
 /// Returns the area in which a panel colourbar is drawn: `area` along its width, and along its length the span from
 /// the near edge of the first drawn plot box to the far edge of the last, among the axes in the rows (when `vertical`)
 /// or the columns it spans. A fixed aspect can shrink a plot box within its plot area, and the bar then still matches
-/// the boxes beside it. When the spanned rows or columns hold no axes, the area is returned as it is.
+/// the boxes beside it. Only the part of each plot box within `area` counts, so that an axes spanning more rows or
+/// columns than the panel never stretches the bar over a neighbouring panel. When the spanned rows or columns hold no
+/// axes, or none of their plot boxes overlaps `area`, the area is returned as it is.
 fn fit_to_plots(ctx: &Ctx, panel: &Panel, area: Rect, plots: &[Rect], vertical: bool) -> Rect {
     let figure = ctx.figure;
     let (r, c, re, ce) = layout::clamp_cell(&figure.layout, panel.cell);
@@ -163,12 +165,21 @@ fn fit_to_plots(ctx: &Ctx, panel: &Panel, area: Rect, plots: &[Rect], vertical: 
         let (a, ae) = if vertical { (ar, are) } else { (ac, ace) };
         (a < end && first < ae).then_some(*plot)
     });
+    let (start, stop) = if vertical {
+        (area.y, area.bottom())
+    } else {
+        (area.x, area.right())
+    };
     let span = spanned.fold(None, |span: Option<(f64, f64)>, plot| {
         let (lo, hi) = if vertical {
             (plot.y, plot.bottom())
         } else {
             (plot.x, plot.right())
         };
+        let (lo, hi) = (lo.max(start), hi.min(stop));
+        if hi <= lo {
+            return span;
+        }
         Some(span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))))
     });
     match span {

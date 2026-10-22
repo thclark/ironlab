@@ -11,6 +11,12 @@
 //! rows or columns it spans, and is placed across that area by the panel's alignment. An inside colourbar lies along
 //! one edge of the plot area, inset from it by one margin, with its labels toward the interior, and takes no margin
 //! of the layout.
+//!
+//! A legend that lists a continuous, discrete or indexed scale draws the same colourbar as a bar item ([`LegendBar`]):
+//! standing in one column of the legend, five entry rows long, or lying across the legend on a row of its own. The
+//! sample of a colour-mapped artist in a legend is a sweep of its scale ([`sweep`]), the colours of a lying bar.
+
+use std::borrow::Cow;
 
 use ironlab_ir::{
     Axes, Axis, ColorScaleDomain, ColorScaleKey, ColorScaleKind, ColorScaleNorm, ColorScaleSlot,
@@ -18,7 +24,7 @@ use ironlab_ir::{
 };
 
 use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba};
-use crate::hit::{ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap};
+use crate::hit::{ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner};
 use crate::maths::ticks;
 
 use super::Ctx;
@@ -136,7 +142,9 @@ impl<'a> Colorbar<'a> {
         vertical: bool,
     ) -> Self {
         let source = match owner {
-            ColorbarOwner::Panel(id) | ColorbarOwner::Axes(id) => id,
+            ColorbarOwner::Panel(id)
+            | ColorbarOwner::Axes(id)
+            | ColorbarOwner::Legend(LegendOwner::Axes(id) | LegendOwner::Panel(id)) => id,
         };
         let fs = ctx.font_size;
         let title = scale
@@ -343,8 +351,9 @@ impl<'a> Colorbar<'a> {
         match key {
             ColorScaleKey::Below => format!("< {}", limit(low)),
             ColorScaleKey::Above => format!("> {}", limit(high)),
-            ColorScaleKey::Outside => "Out of range".to_owned(),
-            ColorScaleKey::NonFinite => "NaN / Inf".to_owned(),
+            ColorScaleKey::Outside | ColorScaleKey::NonFinite => {
+                plain_key_label(key).unwrap_or_default().to_owned()
+            }
         }
     }
 
@@ -850,17 +859,242 @@ impl<'a> Colorbar<'a> {
     }
 }
 
+/// Returns the default label of a key that names no limit: `Out of range` for the outside key and `NaN / Inf` for
+/// the non-finite key; the labels of the keys beyond the limits, which name them, are written by the colourbar.
+fn plain_key_label(key: ColorScaleKey) -> Option<&'static str> {
+    match key {
+        ColorScaleKey::Outside => Some("Out of range"),
+        ColorScaleKey::NonFinite => Some("NaN / Inf"),
+        ColorScaleKey::Below | ColorScaleKey::Above => None,
+    }
+}
+
+/// Returns the swatches that a categorical scale shows in a legend, each with its fill and its label: one per
+/// category, in category order, labelled with the category's label, then one per out-of-range key the scale shows,
+/// in the order of a colourbar's keys (outside, then non-finite), filled as the key of a colourbar is and labelled
+/// with the author's label or the default one. A scale of any other kind shows none.
+pub(super) fn category_swatches<'a>(
+    scale: &'a ResolvedScale<'a>,
+) -> Vec<(Option<Rgba>, Cow<'a, Text>)> {
+    let ColorScaleKind::Categorical(c) = &scale.scale.kind else {
+        return Vec::new();
+    };
+    let categories = c.categories.iter().enumerate().map(|(i, category)| {
+        (
+            scale.slot_colour(ColorScaleSlot::Entry(i)),
+            Cow::Borrowed(&category.label),
+        )
+    });
+    let keys = [ColorScaleKey::Outside, ColorScaleKey::NonFinite]
+        .into_iter()
+        .filter_map(|key| {
+            let category = scale.scale.key(key).filter(|c| c.show_key)?;
+            let label = match &category.label {
+                Some(label) => Cow::Borrowed(label),
+                None => Cow::Owned(Text::plain(plain_key_label(key)?)),
+            };
+            Some((scale.key_colour(key), label))
+        });
+    categories.chain(keys).collect()
+}
+
+/// Returns the colours of a sweep of a scale, from its low end: the colours of a lying bar of a continuous scale,
+/// sampled finely enough that no band shows, one colour per band of a discrete scale, and the entry colours of an
+/// indexed or categorical scale. A legend draws them side by side across the sample of a colour-mapped artist, each
+/// over an equal share of it, so that the sample shows what the scale means rather than a single colour of it.
+pub(super) fn sweep(scale: &ResolvedScale) -> Vec<Option<Rgba>> {
+    match &scale.domain {
+        ColorScaleDomain::Continuous { .. } => (0..CONTINUOUS_SAMPLES)
+            .map(|k| {
+                let t = (k as f64 + 0.5) / CONTINUOUS_SAMPLES as f64;
+                scale.slot_colour(ColorScaleSlot::Position(t))
+            })
+            .collect(),
+        ColorScaleDomain::Discrete { edges, .. } => (0..edges.len().saturating_sub(1).max(1))
+            .map(|band| scale.slot_colour(ColorScaleSlot::Band(band)))
+            .collect(),
+        ColorScaleDomain::Entries { count } => (0..*count)
+            .map(|entry| scale.slot_colour(ColorScaleSlot::Entry(entry)))
+            .collect(),
+    }
+}
+
+/// Returns the image item of a row of colours lying side by side across `r`, the first at the left, each over an
+/// equal share of its width, or `None` without a colour.
+pub(super) fn colour_row(source: NodeId, r: Rect, colours: &[Option<Rgba>]) -> Option<Item> {
+    let raster = image::pack(colours.iter().copied().map(image::pixel).collect());
+    let width = u32::try_from(colours.len()).ok().filter(|n| *n > 0)?;
+    Some(Item {
+        source: Some(source),
+        kind: ItemKind::Image(ImageItem {
+            rect: r,
+            width,
+            height: 1,
+            channels: raster.channels,
+            samples: raster.samples,
+            depth: None,
+        }),
+    })
+}
+
+/// A bar item of a legend: a continuous, discrete or indexed scale drawn as a colourbar among the entries of a
+/// legend, with the colourbar's title, ticks, tick labels and out-of-range keys.
+///
+/// A standing bar item lies in one column over five rows of entries, the bar starting at the left edge of the sample
+/// column and its labels to its right; its title above the bar and its keys above and below it add to the extent of
+/// the item, so that the bar keeps the length of the rows. A lying bar item spans the width of the legend on a row of
+/// its own, titled above and labelled below.
+pub(super) struct LegendBar<'a> {
+    bar: Colorbar<'a>,
+    /// The distance by which each end of a standing bar is kept inside its rows, so that the tick labels at its ends
+    /// stay clear of the entries above and below.
+    inset: f64,
+    /// The extent of a standing item above its rows (its title and the keys above the bar), and below them (the keys
+    /// below the bar).
+    lead: f64,
+    trail: f64,
+    /// The width of the item: across a standing bar, its title included; along a lying bar, the least it needs.
+    width: f64,
+    /// The height of a lying item, its title included.
+    height: f64,
+}
+
+impl<'a> LegendBar<'a> {
+    /// Prepares the bar item of `scale` in the legend `owner`, lying on a row of its own when `full_row`, and measures
+    /// it for a standing bar over `rows` points of entry rows whose ends are kept `inset` inside them.
+    pub(super) fn new(
+        ctx: &mut Ctx,
+        owner: LegendOwner,
+        scale: &'a ResolvedScale<'a>,
+        full_row: bool,
+        rows: f64,
+        inset: f64,
+    ) -> Self {
+        let bar = Colorbar::new(ctx, ColorbarOwner::Legend(owner), scale, !full_row);
+        let m = Metrics::new(ctx.font_size);
+        let mut scratch = ctx.scratch();
+        let title_width = bar.title.as_ref().map_or(0.0, TextBlock::width);
+        let title = bar.title_part(&m);
+        let square = m.thickness + m.gap;
+        if full_row {
+            let measured = bar.measure(&mut scratch, &m, f64::INFINITY, m.gap);
+            let gap = bar.gap(&m, &measured, f64::INFINITY);
+            let natural = bar.natural_length(&m, gap) + 2.0 * bar.end_overhang(&m, &measured);
+            return Self {
+                inset,
+                lead: 0.0,
+                trail: 0.0,
+                width: natural.max(title_width),
+                height: title + bar.across(&m, &measured),
+                bar,
+            };
+        }
+        let before = bar.pieces.iter().take_while(|p| **p != Piece::Bar).count() as f64;
+        let after = bar.squares() as f64 - before;
+        let length = (rows - 2.0 * inset).max(0.0) + bar.squares() as f64 * square;
+        let measured = bar.measure(&mut scratch, &m, length, m.gap);
+        Self {
+            inset,
+            lead: title + before * square,
+            trail: after * square,
+            width: bar.across(&m, &measured).max(title_width),
+            height: 0.0,
+            bar,
+        }
+    }
+
+    /// Returns whether the item lies on a row of its own.
+    pub(super) fn lying(&self) -> bool {
+        !self.bar.vertical
+    }
+
+    /// Returns whether the item has a title, drawn as a heading at its top.
+    pub(super) fn titled(&self) -> bool {
+        self.bar.title.is_some()
+    }
+
+    /// Returns the extent of a standing item above its rows and below them.
+    pub(super) fn ends(&self) -> (f64, f64) {
+        (self.lead, self.trail)
+    }
+
+    /// Returns the width of the item: the least width of a lying item, and the width of a standing one.
+    pub(super) fn width(&self) -> f64 {
+        self.width
+    }
+
+    /// Returns the height of a lying item.
+    pub(super) fn height(&self) -> f64 {
+        self.height
+    }
+
+    /// Draws the item in `r` and records its bar in the hit map: a standing item from the left edge of `r`, over the
+    /// height of `r`, its title at the top; a lying item across the width of `r`, its title centred at the top.
+    pub(super) fn draw(&self, ctx: &mut Ctx, r: Rect, out: &mut Vec<Item>, hits: &mut HitMap) {
+        let bar = &self.bar;
+        let m = Metrics::new(ctx.font_size);
+        let title = bar.title_part(&m);
+        if bar.vertical {
+            let square = m.thickness + m.gap;
+            let top = r.y + self.lead + self.inset;
+            let bottom = r.bottom() - self.trail - self.inset;
+            let start = top - (self.lead - title);
+            let length = (bottom - top).max(0.0) + bar.squares() as f64 * square;
+            let measured = bar.measure(ctx, &m, length, m.gap);
+            let strip = Strip {
+                start,
+                cross: r.x,
+                outward: 1.0,
+                bounds: None,
+            };
+            let hit = bar.draw_strip(ctx, &m, &measured, strip, length, m.gap, out);
+            bar.draw_title(ctx, Point::new(r.x, r.y), true, out);
+            hits.colorbars.push(hit);
+        } else {
+            let (measured, gap) = bar.measure_fitted(ctx, &m, r.width);
+            let overhang = bar.end_overhang(&m, &measured);
+            let strip = Strip {
+                start: r.x + overhang,
+                cross: r.y + title,
+                outward: 1.0,
+                bounds: Some((r.x, r.right())),
+            };
+            let length = (r.width - 2.0 * overhang).max(0.0);
+            let hit = bar.draw_strip(ctx, &m, &measured, strip, length, gap, out);
+            let title_width = bar.title.as_ref().map_or(0.0, TextBlock::width);
+            let left = r.x + (r.width - title_width).max(0.0) / 2.0;
+            bar.draw_title(ctx, Point::new(left, r.y), true, out);
+            hits.colorbars.push(hit);
+        }
+    }
+}
+
 /// Returns a square filled with `fill`, or empty without one, outlined in black.
 fn square(source: NodeId, r: Rect, fill: Option<Rgba>) -> Option<Item> {
+    swatch(source, r, fill, Some(OUTLINE))
+}
+
+/// Returns a square filled with `fill` and outlined thinly in `outline`, each left out when absent: the swatch of a
+/// legend, which with a black outline is the square of a category or a key of a colourbar, so that a category reads
+/// the same in a bar and in a legend.
+pub(super) fn swatch(
+    source: NodeId,
+    r: Rect,
+    fill: Option<Rgba>,
+    outline: Option<Rgba>,
+) -> Option<Item> {
     let mut b = PathBuilder::new();
     b.rect(r);
     paths::item(
         source,
         b.finish(),
         fill.map(paths::fill),
-        Some(paths::solid(OUTLINE, OUTLINE_WIDTH)),
+        outline.map(|c| paths::solid(c, OUTLINE_WIDTH)),
     )
 }
+
+/// The outline of a swatch, black so that a swatch of any colour, or none, reads as a swatch.
+pub(super) const SWATCH_OUTLINE: Rgba = OUTLINE;
 
 /// Returns the fraction of `range` from its low end at which `value` lies, in the space of its scale.
 fn fraction(range: Range, value: f64) -> f64 {

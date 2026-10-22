@@ -78,7 +78,7 @@ pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
-pub use legend::{PanelLegendMut, PanelMut};
+pub use legend::{LegendItemRef, PanelLegendMut, PanelMut};
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
 

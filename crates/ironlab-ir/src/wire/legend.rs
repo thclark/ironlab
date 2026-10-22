@@ -84,7 +84,15 @@ proto_file! {
             Artist(LegendItemContentArtist) artist = 1;
             /// A label beside a sample, standing for no artist.
             Custom(LegendItemContentCustom) custom = 2;
+            /// A colour scale of the figure.
+            ColorScale(LegendItemContentColorScale) color_scale = 3;
         }
+    }
+
+    /// A colour scale of the figure, shown as its categories or as a bar.
+    message LegendItemContentColorScale {
+        /// The node identifier of the colour scale; it must be present.
+        optional uint64 scale = 1;
     }
 
     /// An artist of the figure, labelled by its label.

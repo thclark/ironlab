@@ -21,6 +21,7 @@ mod fitted_tracks;
 mod images;
 mod layout;
 mod legend;
+mod legend_color_keys;
 mod legend_items;
 mod markers;
 mod panel_legend;

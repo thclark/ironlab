@@ -484,11 +484,58 @@ fn alpha_of_one_and_opacity_of_one_leave_an_image_exactly_as_it_was() {
     assert_eq!(with, without);
 }
 
+/// The alpha of every fill and every stroke of the leaves of axes `ax` drawn inside a legend entry, as
+/// `(fills, strokes)`. The pixels of an image count as fills, so that the test holds whether a sample is drawn as
+/// paths or as an image (a sweep of a scale may be either); an 8-bit pixel's alpha is exact to half a step.
+fn sample_alphas(scene: &Scene, ax: NodeId, artist: NodeId) -> (Vec<f32>, Vec<f32>) {
+    let entry = scene
+        .hit_map
+        .legend_entries
+        .iter()
+        .find(|e| e.legend == LegendOwner::Axes(ax) && entry_artist(e) == artist)
+        .expect("the artist has a legend entry");
+    let drawn: Vec<Leaf> = leaves(scene)
+        .into_iter()
+        .filter(|l| l.source == Some(ax) && l.bbox().is_some_and(|b| inside(b, entry.rect, 0.5)))
+        .collect();
+    let mut fills: Vec<f32> = drawn
+        .iter()
+        .filter_map(Leaf::path)
+        .filter_map(|p| p.fill.as_ref().map(|f| f.color.a))
+        .collect();
+    for image in drawn.iter().filter_map(Leaf::image) {
+        for row in 0..image.height as usize {
+            for column in 0..image.width as usize {
+                fills.push(f32::from(pixel(image, row, column)[3]) / 255.0);
+            }
+        }
+    }
+    let strokes = drawn
+        .iter()
+        .filter_map(Leaf::path)
+        .filter_map(|p| p.stroke.as_ref().map(|s| s.color.a))
+        .collect();
+    (fills, strokes)
+}
+
+/// Asserts that a sample draws some of the given paint, and that every piece of it has the expected alpha.
+#[track_caller]
+fn assert_all_alpha(actual: &[f32], expected: f64, what: &str) {
+    assert!(!actual.is_empty(), "{what} is drawn");
+    for a in actual {
+        assert!(
+            (f64::from(*a) - expected).abs() <= 0.5 / 255.0 + 1e-6,
+            "{what}: alpha {a}, expected {expected}: {actual:?}"
+        );
+    }
+}
+
 // Why: the legend key of an artist should look like the artist, so a translucent surface or image is keyed by a
-// translucent patch; the alpha arrays vary over the artist and have no single value to show, so only the opacity
-// carries into the key.
+// translucent sample; the alpha arrays vary over the artist and have no single value to show, so only the opacity
+// carries into the key. The sample of a colour-mapped image is a sweep of its scale, drawn as paths or as an image,
+// and every part of it takes the opacity.
 #[test]
-fn the_legend_patch_of_a_surface_or_image_takes_its_opacity() {
+fn the_legend_sample_of_a_surface_or_image_takes_its_opacity() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let surface = fx.surface(
@@ -512,29 +559,16 @@ fn the_legend_patch_of_a_surface_or_image_takes_its_opacity() {
         ..InsideLegend::default()
     }));
     let scene = compile_figure(&fx.build());
-    let leaves = leaves(&scene);
     for (artist, expected) in [(surface, 0.4), (image, 0.25)] {
-        let entry = scene
-            .hit_map
-            .legend_entries
-            .iter()
-            .find(|e| e.legend == LegendOwner::Axes(ax) && entry_artist(e) == artist)
-            .expect("the artist has a legend entry");
-        let fills: Vec<f32> = leaves
-            .iter()
-            .filter(|l| {
-                l.source == Some(ax) && l.bbox().is_some_and(|b| inside(b, entry.rect, 0.5))
-            })
-            .filter_map(|l| l.path().and_then(|p| p.fill.as_ref()).map(|f| f.color.a))
-            .collect();
-        assert_eq!(fills.len(), 1, "one patch keys {artist}: {fills:?}");
-        assert_alpha(fills[0], expected, "the legend patch");
+        let (fills, _) = sample_alphas(&scene, ax, artist);
+        assert_all_alpha(&fills, expected, "the fill of the legend sample");
     }
 }
 
 // Why: the legend key of a contour should look like the contour, so a contour whose bands or isolines are faded is
-// keyed by a sample faded the same way: the patch of a filled contour takes the fill opacity in its fill and the
-// line opacity in its edge, each independently, and the line of an unfilled contour takes the line opacity.
+// keyed by a sample faded the same way: the sample of a filled contour (a sweep of its scale) takes the fill opacity
+// in its fill and the line opacity in its edge, each independently, and the line of an unfilled contour takes the
+// line opacity.
 #[test]
 fn the_legend_sample_of_a_contour_takes_its_opacities() {
     let mut fx = Fx::new();
@@ -570,47 +604,16 @@ fn the_legend_sample_of_a_contour_takes_its_opacities() {
         ..InsideLegend::default()
     }));
     let scene = compile_figure(&fx.build());
-    let leaves = leaves(&scene);
-    let sample = |artist: NodeId| {
-        let entry = scene
-            .hit_map
-            .legend_entries
-            .iter()
-            .find(|e| e.legend == LegendOwner::Axes(ax) && entry_artist(e) == artist)
-            .expect("the artist has a legend entry");
-        let paths: Vec<_> = leaves
-            .iter()
-            .filter(|l| {
-                l.source == Some(ax) && l.bbox().is_some_and(|b| inside(b, entry.rect, 0.5))
-            })
-            .filter_map(Leaf::path)
-            .map(|p| {
-                (
-                    p.fill.as_ref().map(|f| f.color.a),
-                    p.stroke.as_ref().map(|s| s.color.a),
-                )
-            })
-            .collect();
-        assert_eq!(paths.len(), 1, "one sample keys {artist}: {paths:?}");
-        paths[0]
-    };
-    let (fill, edge) = sample(filled);
-    assert_alpha(fill.expect("the patch is filled"), 0.4, "the patch fill");
-    assert_alpha(
-        edge.expect("the patch has an edge"),
-        0.5 * 0.8,
-        "the patch edge",
-    );
-    let (fill, stroke) = sample(lines);
+    let (fills, edges) = sample_alphas(&scene, ax, filled);
+    assert_all_alpha(&fills, 0.4, "the fill of the filled contour's sample");
+    assert_all_alpha(&edges, 0.5 * 0.8, "the edge of the filled contour's sample");
+    let (fills, strokes) = sample_alphas(&scene, ax, lines);
     assert_eq!(
-        fill, None,
+        fills,
+        Vec::<f32>::new(),
         "the line sample of an unfilled contour has no fill"
     );
-    assert_alpha(
-        stroke.expect("the line is stroked"),
-        0.25,
-        "the line sample",
-    );
+    assert_all_alpha(&strokes, 0.25, "the line sample");
 }
 
 // Why: compilation never fails, but a figure can reach it without validation (built by hand, or mid-edit); an alpha

@@ -257,13 +257,6 @@ impl ResolvedScale<'_> {
         })
     }
 
-    /// Returns the middle colour of the scale, which a legend sample takes for an artist whose colours vary: the
-    /// colormap colour at the middle of a continuous or discrete scale, and the middle entry of an indexed or
-    /// categorical one.
-    pub fn middle(&self) -> Option<Rgba> {
-        self.palette.at(0.5)
-    }
-
     /// Returns the levels of a contour that takes them from the scale: the band edges of a discrete scale, and, for
     /// an indexed or categorical scale of `n` entries, the half-integers 0.5, 1.5, …, n − 1.5 between entries, so
     /// that each band holds one whole number. Returns `None` for a continuous scale, whose contours take automatic
@@ -327,14 +320,6 @@ impl<'a> ColourScales<'a> {
             .color_mapping()
             .and_then(|mapping| mapping.color_scale)
             .and_then(|id| self.get(id))
-    }
-
-    /// Returns the middle colour that a legend sample takes for an artist whose colours vary: the middle colour of
-    /// its scale, or the middle of viridis when it colours nothing through a scale.
-    pub fn middle_of(&self, artist: &Artist) -> Rgba {
-        self.of(artist)
-            .and_then(ResolvedScale::middle)
-            .unwrap_or_else(viridis_middle)
     }
 }
 
