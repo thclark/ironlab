@@ -68,7 +68,7 @@ struct Metrics {
 impl Metrics {
     fn new(fs: f64) -> Self {
         Self {
-            thickness: 1.2 * fs,
+            thickness: fs,
             tick: 0.3 * fs,
             label_gap: 0.55 * fs,
             gap: 0.5 * fs,
