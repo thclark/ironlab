@@ -1,6 +1,17 @@
 //! Wire types of `ironlab/ir/v0/data.proto`.
 
 proto_file! {
+    /// A numeric array of the figure, which artists refer to by its node identifier.
+    message DataArray {
+        /// The node identifier of the array, unique within the figure; it must be
+        /// present.
+        optional uint64 id = 1;
+        /// The values of the array; it must be present.
+        message NdArray array = 2;
+        /// The name that identifies the array to tools; absent when it has none.
+        optional string name = 3;
+    }
+
     /// The element type of an array, which names the field of the array that holds
     /// its values.
     enum NdArrayElement {

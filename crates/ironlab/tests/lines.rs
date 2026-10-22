@@ -37,7 +37,7 @@ fn plot_uses_ir_default_styles_with_automatic_colour() {
     assert_eq!(l.line.color, ColorSpec::Auto);
     assert_eq!(l.marker, MarkerStyle::default());
     assert!(l.visible);
-    assert_eq!(l.display_name, None);
+    assert_eq!(l.label, None);
 }
 
 // WHY: the plot must land in the axes it was called on, in call order, because
@@ -67,7 +67,7 @@ fn line_setters_map_to_ir_fields() {
     let id = fig
         .axes(0, 0)
         .plot([0.0, 1.0], [0.0, 1.0])
-        .display_name("measured")
+        .label("measured")
         .color(red)
         .line_width(1.75)
         .dash(Dash::Dashed)
@@ -78,7 +78,7 @@ fn line_setters_map_to_ir_fields() {
         .id();
 
     let l = line(&fig, id);
-    assert_eq!(l.display_name, Some(Text::new("measured")));
+    assert_eq!(l.label, Some(Text::new("measured")));
     assert_eq!(l.line.color, ColorSpec::Rgba { color: red });
     assert_eq!(l.line.width_pt, 1.75);
     assert_eq!(l.line.dash, DashStyle::Dashed);
@@ -112,20 +112,14 @@ fn line_color_leaves_marker_edge_automatic() {
 // has to keep the LaTeX interpreter; conversely users need a way to show literal
 // dollar signs.
 #[test]
-fn display_name_interpreter_follows_text_conversion() {
+fn label_interpreter_follows_text_conversion() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let math = ax.plot([0.0], [0.0]).display_name("$\\sin x$").id();
-    let owned = ax
-        .plot([0.0], [0.0])
-        .display_name(String::from("$x^2$"))
-        .id();
-    let literal = ax
-        .plot([0.0], [0.0])
-        .display_name(Text::plain("costs $5"))
-        .id();
+    let math = ax.plot([0.0], [0.0]).label("$\\sin x$").id();
+    let owned = ax.plot([0.0], [0.0]).label(String::from("$x^2$")).id();
+    let literal = ax.plot([0.0], [0.0]).label(Text::plain("costs $5")).id();
 
-    let name = |id| line(&fig, id).display_name.clone().unwrap();
+    let name = |id| line(&fig, id).label.clone().unwrap();
     assert_eq!(name(math).content, "$\\sin x$");
     assert_eq!(name(math).interpreter, Interpreter::Latex);
     assert_eq!(name(owned).interpreter, Interpreter::Latex);

@@ -120,8 +120,8 @@ fn special_floats_in_values_and_arrays_round_trip_through_protobuf_bit_for_bit()
             max: SPECIAL_F64[2],
         }),
     ));
-    edits.push(Edit::PutData {
-        id: DataId(1),
+    edits.push(Edit::ReplaceData {
+        node: NodeId(1),
         array: NdArray::vector(SPECIAL_F64.to_vec()),
     });
     let original = tx(edits);
@@ -147,23 +147,27 @@ fn special_floats_in_values_and_arrays_round_trip_through_protobuf_bit_for_bit()
 #[test]
 fn an_inverse_that_restores_special_floats_in_data_survives_protobuf() {
     let mut fig = kitchen_sink_figure();
-    let replaced = DataId(1000);
-    let removed = DataId(1001);
-    fig.data
-        .insert(replaced, NdArray::vector(SPECIAL_F64.to_vec()));
-    fig.data.insert(
-        removed,
-        NdArray::vector(SPECIAL_F64.iter().rev().copied().collect()),
-    );
+    let replaced = NodeId(9_000);
+    let removed = NodeId(9_001);
+    fig.data.push(DataArray {
+        id: replaced,
+        name: None,
+        array: NdArray::vector(SPECIAL_F64.to_vec()),
+    });
+    fig.data.push(DataArray {
+        id: removed,
+        name: Some("removed".to_owned()),
+        array: NdArray::vector(SPECIAL_F64.iter().rev().copied().collect()),
+    });
     let before = float_bits(&fig);
 
     let mut mirror = fig.clone();
     let transaction = tx([
-        Edit::PutData {
-            id: replaced,
+        Edit::ReplaceData {
+            node: replaced,
             array: NdArray::vector(vec![0.0; SPECIAL_F64.len()]),
         },
-        Edit::RemoveData { id: removed },
+        Edit::Remove { node: removed },
     ]);
     let inverse = fig.apply(&transaction).unwrap();
     mirror
@@ -181,8 +185,8 @@ fn an_inverse_that_restores_special_floats_in_data_survives_protobuf() {
 fn negative_zero_and_nan_in_arrays_survive_json() {
     let original = tx([
         set(NodeId(1), "projection.view3d.pan_x", Value::Double(-0.0)),
-        Edit::PutData {
-            id: DataId(1),
+        Edit::ReplaceData {
+            node: NodeId(1),
             array: NdArray::vector(vec![-0.0, f64::NAN, f64::INFINITY]),
         },
     ]);
@@ -192,7 +196,7 @@ fn negative_zero_and_nan_in_arrays_survive_json() {
             value: Value::Double(pan),
             ..
         },
-        Edit::PutData { array, .. },
+        Edit::ReplaceData { array, .. },
     ] = decoded.edits.as_slice()
     else {
         panic!("unexpected edits {decoded:?}");
@@ -210,8 +214,8 @@ fn negative_zero_and_nan_in_arrays_survive_json() {
 #[test]
 fn an_array_of_bytes_in_an_edit_is_tagged_with_its_element_in_json() {
     let bytes = NdArray::from_shape_u8(vec![2], vec![0, 255]).unwrap();
-    let transaction = tx([Edit::PutData {
-        id: DataId(5),
+    let transaction = tx([Edit::ReplaceData {
+        node: NodeId(5),
         array: bytes.clone(),
     }]);
     let json: serde_json::Value = serde_json::from_str(&transaction.to_json()).unwrap();
@@ -219,8 +223,8 @@ fn an_array_of_bytes_in_an_edit_is_tagged_with_its_element_in_json() {
         json,
         serde_json::json!({
             "edits": [{
-                "type": "put_data",
-                "id": 5,
+                "type": "replace_data",
+                "node": 5,
                 "array": {"shape": [2], "element": "u8", "values": [0, 255]}
             }]
         })
@@ -242,7 +246,7 @@ fn the_json_form_of_an_edit_is_tagged_and_uses_dotted_paths() {
         ),
         set(NodeId(3), "title", Value::Unset),
         Edit::AppendData {
-            id: DataId(2),
+            node: NodeId(2),
             array: rows(1, 2, 0.0),
             retain: Some(100),
         },
@@ -261,7 +265,7 @@ fn the_json_form_of_an_edit_is_tagged_and_uses_dotted_paths() {
                 {"type": "set", "node": 3, "path": "title", "value": {"type": "unset"}},
                 {
                     "type": "append_data",
-                    "id": 2,
+                    "node": 2,
                     "array": {"shape": [1, 2], "values": [0.0, 1.0]},
                     "retain": 100
                 }
@@ -493,15 +497,17 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
         "edits[0].move_node.parent",
     );
     assert_missing(
-        decode_wire(wire_tx(wire::EditKind::PutData(wire::EditPutData {
-            id: None,
-            array: Some(one_value()),
-        }))),
-        "edits[0].put_data.id",
+        decode_wire(wire_tx(wire::EditKind::ReplaceData(
+            wire::EditReplaceData {
+                node: None,
+                array: Some(one_value()),
+            },
+        ))),
+        "edits[0].replace_data.node",
     );
     assert_missing(
         decode_wire(wire_tx(wire::EditKind::AppendData(wire::EditAppendData {
-            id: Some(1),
+            node: Some(1),
             array: None,
             retain: Some(3),
         }))),
@@ -509,18 +515,11 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
     );
     assert_missing(
         decode_wire(wire_tx(wire::EditKind::AppendData(wire::EditAppendData {
-            id: None,
+            node: None,
             array: Some(one_value()),
             retain: None,
         }))),
-        "edits[0].append_data.id",
-    );
-    assert_missing(
-        decode_wire(wire_tx(wire::EditKind::PutData(wire::EditPutData {
-            id: Some(1),
-            array: None,
-        }))),
-        "edits[0].put_data.array",
+        "edits[0].append_data.node",
     );
     assert_missing(
         decode_wire(wire::Transaction {
@@ -529,13 +528,68 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
                     kind: Some(wire::EditKind::Remove(wire::EditRemove { node: Some(1) })),
                 },
                 wire::Edit {
-                    kind: Some(wire::EditKind::RemoveData(wire::EditRemoveData {
-                        id: None,
+                    kind: Some(wire::EditKind::ReplaceData(wire::EditReplaceData {
+                        node: Some(1),
+                        array: None,
                     })),
                 },
             ],
         }),
-        "edits[1].remove_data.id",
+        "edits[1].replace_data.array",
+    );
+    // A data array inserted as a node has no default identifier or array, as the data
+    // arrays of a figure have none; its name may be absent.
+    assert_missing(
+        decode_wire(wire_tx(wire::EditKind::Insert(wire::EditInsert {
+            parent: Some(1),
+            index: None,
+            node: Some(wire::Node {
+                kind: Some(wire::NodeKind::DataArray(wire::DataArray {
+                    id: Some(5),
+                    array: None,
+                    name: None,
+                })),
+            }),
+        }))),
+        "edits[0].insert_node.node.data_array.array",
+    );
+    assert_missing(
+        decode_wire(wire_tx(wire::EditKind::Insert(wire::EditInsert {
+            parent: Some(1),
+            index: None,
+            node: Some(wire::Node {
+                kind: Some(wire::NodeKind::DataArray(wire::DataArray {
+                    id: None,
+                    array: Some(one_value()),
+                    name: Some("t".to_owned()),
+                })),
+            }),
+        }))),
+        "edits[0].insert_node.node.data_array.id",
+    );
+    let unnamed = decode_wire(wire_tx(wire::EditKind::Insert(wire::EditInsert {
+        parent: Some(1),
+        index: None,
+        node: Some(wire::Node {
+            kind: Some(wire::NodeKind::DataArray(wire::DataArray {
+                id: Some(5),
+                array: Some(one_value()),
+                name: None,
+            })),
+        }),
+    })))
+    .expect("a data array without a name decodes");
+    assert_eq!(
+        unnamed.edits,
+        [Edit::Insert {
+            parent: NodeId(1),
+            index: None,
+            node: Node::DataArray(DataArray {
+                id: NodeId(5),
+                name: None,
+                array: NdArray::vector(vec![1.0]),
+            }),
+        }]
     );
 }
 

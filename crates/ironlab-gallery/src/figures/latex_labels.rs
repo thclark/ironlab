@@ -11,10 +11,10 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
         .title(r"Resonance of a damped oscillator with $\omega_0 = 10\,\mathrm{rad\,s^{-1}}$")
-        .label("line")
-        .label("legend")
-        .label("latex")
-        .label("signals")
+        .tag("line")
+        .tag("legend")
+        .tag("latex")
+        .tag("signals")
         .parameter("dimensionality", "2D")
         .parameter("artists", 4)
         .parameter("data_points", 2008)
@@ -30,7 +30,7 @@ pub fn figure() -> Figure {
             })
             .collect();
         ax.plot(&omega, &amplification)
-            .display_name(format!(r"$\zeta = {zeta}$"));
+            .label(format!(r"$\zeta = {zeta}$"));
     }
     ax.title(r"$\frac{|X|}{X_\mathrm{st}} = \frac{1}{\sqrt{(1 - r^2)^2 + (2 \zeta r)^2}}$, where $r = \omega / \omega_0$")
         .xlabel(r"Angular frequency $\omega$ ($\mathrm{rad\,s^{-1}}$)")

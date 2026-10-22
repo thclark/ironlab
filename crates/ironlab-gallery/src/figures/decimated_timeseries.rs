@@ -6,7 +6,7 @@ pub const TITLE: &str = "Data decimation for very large datasets";
 pub const DESCRIPTION: &str = "Both panels plot the same hundred-thousand-sample vibration record. The upper (over \
      its whole time extent) is decimated (points and lines are collapsed where they overlap) for quick rendering and compact \
      export, while retaining significant features in the data. When zoomed in, as in the lower panel, data is rendered in \
-     full.";
+     full. The two panels share one stored copy of the record.";
 
 /// The number of samples in the record, which is far more than any plot of it can resolve.
 const SAMPLES: usize = 100_000;
@@ -102,20 +102,24 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 120.0)
         .tiles(2, 1)
         .title("A vibration record and a window into it")
-        .label("line")
-        .label("subplots")
-        .label("comparison")
-        .label("decimation")
-        .label("export")
-        .label("interaction")
-        .label("signals")
+        .tag("line")
+        .tag("subplots")
+        .tag("comparison")
+        .tag("decimation")
+        .tag("export")
+        .tag("interaction")
+        .tag("signals")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
-        .parameter("data_points", 400_000)
+        .parameter("data_points", 200_000)
         .parameter("has_legend", false);
 
+    // Both panels plot the same arrays, so the record is stored once in the figure rather than once per panel.
+    let t = fig.data("time (s)", &t).id();
+    let acceleration = fig.data("acceleration (m s⁻²)", &acceleration).id();
+
     let mut overview = fig.axes(0, 0);
-    overview.plot(&t, &acceleration);
+    overview.plot(t, acceleration);
     overview
         .title("The whole record, 100 000 samples")
         .xlabel(r"Time $t$ (s)")
@@ -125,7 +129,7 @@ pub fn figure() -> Figure {
     // The lower panel plots the same record and differs only in its x limits, so what it adds is detail that the
     // view of the upper panel cannot resolve rather than different data.
     let mut window = fig.axes(1, 0);
-    window.plot(&t, &acceleration);
+    window.plot(t, acceleration);
     window
         .title("A window of 0.15 s about the burst at 4.2 s")
         .xlim(

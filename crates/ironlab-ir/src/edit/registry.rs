@@ -2,50 +2,7 @@
 
 use crate::edit::path::PropertyPath;
 use crate::edit::value::ValueType;
-
-/// The kind of a node, which determines the properties it has.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum NodeKind {
-    /// The figure, the root node.
-    Figure,
-    /// An axes.
-    Axes,
-    /// A line artist.
-    Line,
-    /// A scatter artist.
-    Scatter,
-    /// A contour artist.
-    Contour,
-    /// A quiver artist.
-    Quiver,
-    /// A surface artist.
-    Surface,
-    /// A true-colour image artist.
-    Image,
-    /// A colour-indexed image artist.
-    IndexedImage,
-    /// A colour-mapped image artist.
-    MappedImage,
-    /// A legend panel.
-    PanelLegend,
-}
-
-impl NodeKind {
-    /// Every kind of node, in declaration order.
-    pub const ALL: [NodeKind; 11] = [
-        NodeKind::Figure,
-        NodeKind::Axes,
-        NodeKind::Line,
-        NodeKind::Scatter,
-        NodeKind::Contour,
-        NodeKind::Quiver,
-        NodeKind::Surface,
-        NodeKind::Image,
-        NodeKind::IndexedImage,
-        NodeKind::MappedImage,
-        NodeKind::PanelLegend,
-    ];
-}
+use crate::nodes::NodeKind;
 
 /// A settable property of a kind of node, as listed by [`properties`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +31,8 @@ pub struct Property {
 /// on its x axis lists `x`, `x.label`, `x.label.content`, `x.limits`, `x.limits.min` and
 /// so on. A path that descends into a variant is listed once even when several variants
 /// share the field (as the x data of rectilinear and curvilinear grids do). Identifiers,
-/// the schema version, the provenance, the node lists and the data table are not
-/// settable and are not listed.
+/// the schema version, the provenance, the node lists and the values of a data array are
+/// not settable and are not listed.
 ///
 /// The property editor uses this list to offer and document properties, and the list is
 /// compared with that of the `main` branch so that renamed or removed paths are reported

@@ -1,20 +1,24 @@
 //! Node identifier allocation, data insertion and node lookup.
+//!
+//! Data arrays, axes, artists and panels share one identifier space with the figure, so
+//! allocation and lookup are tested over every kind of node.
 
 mod common;
 
 use std::collections::BTreeSet;
 
-use common::{kitchen_sink_figure, single_line_figure};
+use common::{array, kitchen_sink_figure, single_line_figure};
 use ironlab_ir::*;
 
 /// Every node identifier in a figure, found without the API under test.
 fn all_node_ids(fig: &Figure) -> BTreeSet<NodeId> {
     let mut ids = BTreeSet::from([fig.id]);
+    ids.extend(fig.data.iter().map(|data| data.id));
     for axes in &fig.axes {
         ids.insert(axes.id);
         ids.extend(axes.artists.iter().map(Artist::id));
     }
-    ids.extend(fig.panel_legends.iter().map(|panel| panel.id));
+    ids.extend(fig.panels.iter().map(|panel| panel.id));
     ids
 }
 
@@ -70,23 +74,63 @@ fn allocation_state_does_not_affect_figure_equality() {
     assert_eq!(allocated, original);
 }
 
-// Why: inserting data must never overwrite an array that artists already reference,
-// including in a loaded figure with sparse data identifiers.
+// Why: inserting data must never overwrite an array that artists already reference, nor
+// take the identifier of any other node, including in a loaded figure whose identifiers
+// are sparse; and an added array has no name until one is given.
 #[test]
-fn added_data_never_replaces_existing_arrays() {
+fn added_data_never_replaces_existing_arrays_or_takes_a_node_identifier() {
     let mut fig = Figure::from_json(include_str!("fixtures/decay.fig.json")).unwrap();
     let before = fig.data.clone();
+    let existing = all_node_ids(&fig);
 
     let first = fig.add_data(NdArray::vector(vec![42.0]));
     let second = fig.add_data(NdArray::vector(vec![43.0]));
 
-    assert!(!before.contains_key(&first) && !before.contains_key(&second));
+    assert!(!existing.contains(&first) && !existing.contains(&second));
     assert_ne!(first, second);
-    for (id, array) in &before {
-        assert_eq!(&fig.data[id], array, "{id:?} was modified");
+    assert_eq!(
+        &fig.data[..before.len()],
+        &before[..],
+        "an existing array changed"
+    );
+    assert_eq!(array(&fig, first), &NdArray::vector(vec![42.0]));
+    assert_eq!(array(&fig, second), &NdArray::vector(vec![43.0]));
+    assert_eq!(fig.data_array(first).unwrap().name, None);
+}
+
+// Why: data arrays share the identifier space of every other node, so an identifier
+// allocated after `add_data` must differ from the array's, or a new axes could take the
+// identifier that artists use to name their data.
+#[test]
+fn allocation_after_adding_data_avoids_the_identifier_of_the_array() {
+    let mut fig = Figure::new();
+    let data = fig.add_data(NdArray::vector(vec![1.0]));
+    let next = fig.alloc_node_id();
+    assert_ne!(next, data);
+    assert_ne!(next, fig.id);
+    assert_ne!(data, fig.id);
+}
+
+// Why: artists, the facade and the scene compiler find an array by the identifier that
+// an artist names, so the lookup must find exactly that array and must not return one for
+// the identifier of a node of another kind.
+#[test]
+fn data_array_lookup_finds_only_data_arrays() {
+    let mut fig = kitchen_sink_figure();
+    let target = fig.data[2].id;
+    assert_eq!(fig.data_array(target).map(|d| d.id), Some(target));
+    for other in [
+        fig.id,
+        fig.axes[0].id,
+        fig.axes[0].artists[0].id(),
+        fig.panels[0].id,
+        NodeId(u64::MAX),
+    ] {
+        assert!(fig.data_array(other).is_none(), "{other:?}");
     }
-    assert_eq!(fig.data[&first], NdArray::vector(vec![42.0]));
-    assert_eq!(fig.data[&second], NdArray::vector(vec![43.0]));
+
+    fig.data_array_mut(target).unwrap().name = Some("renamed".to_owned());
+    assert_eq!(fig.data[2].name.as_deref(), Some("renamed"));
 }
 
 // Why: the viewer and facade address axes by identifier; a lookup must find exactly that
@@ -152,36 +196,38 @@ fn artist_visibility_toggle_changes_only_that_artist_and_persists() {
     assert_eq!(reopened, expected);
 }
 
-// Why: a legend panel is a node, so an identifier allocated after a figure is loaded must
-// lie above a panel's identifier even when the panel holds the largest identifier of the
+// Why: a panel is a node, so an identifier allocated after a figure is loaded must lie
+// above a panel's identifier even when the panel holds the largest identifier of the
 // figure; otherwise a new axes could take the identifier of a panel that legends name.
 #[test]
-fn allocation_after_loading_lies_above_the_identifiers_of_legend_panels() {
+fn allocation_after_loading_lies_above_the_identifiers_of_panels() {
     let mut fig = kitchen_sink_figure();
-    let largest = fig.panel_legends[1].id.0 + 1_000;
-    fig.panel_legends[1].id = NodeId(largest);
+    let largest = all_node_ids(&fig).last().unwrap().0 + 1_000;
+    fig.panels[1].id = NodeId(largest);
     let mut loaded = Figure::from_json(&fig.to_json()).unwrap();
     assert!(loaded.alloc_node_id().0 > largest);
     let mut loaded = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
     assert!(loaded.alloc_node_id().0 > largest);
 }
 
-// Why: legends name a legend panel by identifier, so the lookup must find exactly that
-// panel, and must not return one for the identifier of an axes, an artist or the figure.
+// Why: legends name a panel by identifier, so the lookup must find exactly that panel,
+// and must not return one for the identifier of a data array, an axes, an artist or the
+// figure.
 #[test]
-fn legend_panel_lookup_finds_only_legend_panels() {
+fn panel_lookup_finds_only_panels() {
     let mut fig = kitchen_sink_figure();
-    let target = fig.panel_legends[1].id;
-    assert_eq!(fig.panel_legend(target).map(|panel| panel.id), Some(target));
+    let target = fig.panels[1].id;
+    assert_eq!(fig.panel(target).map(|panel| panel.id), Some(target));
     for other in [
         fig.id,
+        fig.data[0].id,
         fig.axes[0].id,
         fig.axes[0].artists[0].id(),
         NodeId(u64::MAX),
     ] {
-        assert!(fig.panel_legend(other).is_none(), "{other:?}");
+        assert!(fig.panel(other).is_none(), "{other:?}");
     }
 
-    fig.panel_legend_mut(target).unwrap().boxed = true;
-    assert!(fig.panel_legends[1].boxed);
+    fig.panel_mut(target).unwrap().align = PanelLocation::North;
+    assert_eq!(fig.panels[1].align, PanelLocation::North);
 }

@@ -11,17 +11,49 @@ use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
     Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Cell, Color, ColorSpec, ColormapName,
-    Contour, ContourPlacement, Coords, DashStyle, DataId, Dimension, Edit, Figure, FigureSize,
+    Contour, ContourPlacement, Coords, DashStyle, DataArray, Dimension, Edit, Figure, FigureSize,
     FontSetId, Grid, Image, ImagePlacement, ImagePlane, IndexedImage, InsideLegend, Interpreter,
     Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
     LegendItemContent, LegendLocation, LegendSample, Levels, Limits, Line, LineStyle, MappedImage,
-    MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, PanelLegend,
-    Parameter, PixelRange, Projection, Provenance, Quiver, QuiverScale, Scale, Scatter,
-    ScatterColor, ScatterSize, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize,
-    Transaction, Value, Values, View3d,
+    MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
+    PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection, Provenance,
+    Quiver, QuiverScale, Scale, Scatter, ScatterColor, ScatterSize, Surface, Text, TickLabels,
+    Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
+
+// ---------------------------------------------------------------------------------
+// Nodes
+// ---------------------------------------------------------------------------------
+
+/// A domain type that is encoded as a wire message of its own.
+///
+/// Every kind of node, every kind of artist, [`Artist`] and [`Node`] implement it. The
+/// implementations for [`Artist`] and [`Node`] are generated from the declaration of the
+/// kinds of node, and set the variant of the wire oneof of the same name as the kind.
+pub(crate) trait Encode {
+    /// The wire message.
+    type Message;
+
+    /// Returns the wire message of the value.
+    fn encode(&self) -> Self::Message;
+}
+
+/// A domain type that is decoded from a wire message of its own, as [`Encode`] encodes
+/// it.
+pub(crate) trait Decode: Sized {
+    /// The wire message.
+    type Message;
+
+    /// Decodes the message at path `at`.
+    fn decode(wire: Self::Message, at: &str) -> Result<Self>;
+
+    /// Decodes the message held by the field `field` of the message at path `at`.
+    fn decode_field(wire: Self::Message, at: &str, field: &str) -> Result<Self> {
+        Self::decode(wire, &join(at, field))
+    }
+}
 
 // ---------------------------------------------------------------------------------
 // Enums
@@ -67,6 +99,9 @@ wire_enum! {
     LegendLocation => LegendLocation {
         NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Center, Best,
     }
+    PanelLocation => PanelLocation {
+        Center, North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest,
+    }
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
     AspectAdjust => AspectAdjust { Box, Limits }
@@ -94,12 +129,8 @@ impl From<&Figure> for w::Figure {
             font_size_pt: Some(figure.font_size_pt),
             background: Some(encode_color(figure.background)),
             layout: Some(encode_tile_layout(&figure.layout)),
-            data: figure
-                .data
-                .iter()
-                .map(|(id, array)| (id.0, encode_array(array)))
-                .collect(),
-            axes: figure.axes.iter().map(encode_axes).collect(),
+            data: figure.data.iter().map(DataArray::encode).collect(),
+            axes: figure.axes.iter().map(Axes::encode).collect(),
             links: encode_links(&figure.links),
             provenance: Some(w::Provenance {
                 ironlab_version: figure.provenance.ironlab_version.clone(),
@@ -114,14 +145,22 @@ impl From<&Figure> for w::Figure {
                 .iter()
                 .map(|(name, parameter)| (name.clone(), encode_parameter(parameter)))
                 .collect(),
-            // Labels are a sequence rather than a map, so they are written in the order the
+            // Tags are a sequence rather than a map, so they are written in the order the
             // figure carries them rather than sorted; that order is part of the figure's value.
-            labels: figure.labels.clone(),
-            panel_legends: figure
-                .panel_legends
-                .iter()
-                .map(encode_panel_legend)
-                .collect(),
+            tags: figure.tags.clone(),
+            panels: figure.panels.iter().map(Panel::encode).collect(),
+        }
+    }
+}
+
+impl Encode for DataArray {
+    type Message = w::DataArray;
+
+    fn encode(&self) -> w::DataArray {
+        w::DataArray {
+            id: Some(self.id.0),
+            array: Some(encode_array(&self.array)),
+            name: self.name.clone(),
         }
     }
 }
@@ -346,14 +385,33 @@ fn encode_inside_legend(legend: &InsideLegend) -> w::InsideLegend {
     }
 }
 
-fn encode_panel_legend(panel: &PanelLegend) -> w::PanelLegend {
+impl Encode for Panel {
+    type Message = w::Panel;
+
+    fn encode(&self) -> w::Panel {
+        w::Panel {
+            id: Some(self.id.0),
+            cell: Some(encode_cell(self.cell)),
+            align: self.align.to_wire(),
+            content: Some(encode_panel_content(&self.content)),
+        }
+    }
+}
+
+fn encode_panel_content(content: &PanelContent) -> w::PanelContent {
+    let kind = match content {
+        PanelContent::Legend(legend) => w::PanelContentKind::Legend(w::PanelContentLegend {
+            legend: Some(encode_panel_legend(legend)),
+        }),
+    };
+    w::PanelContent { kind: Some(kind) }
+}
+
+fn encode_panel_legend(legend: &PanelLegend) -> w::PanelLegend {
     w::PanelLegend {
-        id: Some(panel.id.0),
-        cell: Some(encode_cell(panel.cell)),
-        align: panel.align.to_wire(),
-        boxed: Some(panel.boxed),
-        layout: Some(encode_legend_entry_layout(panel.layout)),
-        entries: Some(encode_legend_entries(&panel.entries)),
+        boxed: Some(legend.boxed),
+        layout: Some(encode_legend_entry_layout(legend.layout)),
+        entries: Some(encode_legend_entries(&legend.entries)),
     }
 }
 
@@ -419,23 +477,27 @@ fn encode_legend_entry_columns(columns: LegendEntryColumns) -> w::LegendEntryCol
     w::LegendEntryColumns { kind: Some(kind) }
 }
 
-fn encode_axes(axes: &Axes) -> w::Axes {
-    w::Axes {
-        id: Some(axes.id.0),
-        cell: Some(encode_cell(axes.cell)),
-        projection: Some(encode_projection(axes.projection)),
-        title: axes.title.as_ref().map(encode_text),
-        x: Some(encode_axis(&axes.x)),
-        y: Some(encode_axis(&axes.y)),
-        z: Some(encode_axis(&axes.z)),
-        r#box: Some(axes.box_),
-        colormap: axes.colormap.to_wire(),
-        clim: Some(encode_limits(axes.clim)),
-        legend: axes.legend.as_ref().map(encode_legend),
-        artists: axes.artists.iter().map(encode_artist).collect(),
-        title_align: axes.title_align.to_wire(),
-        aspect: Some(encode_aspect(axes.aspect)),
-        aspect_adjust: axes.aspect_adjust.to_wire(),
+impl Encode for Axes {
+    type Message = w::Axes;
+
+    fn encode(&self) -> w::Axes {
+        w::Axes {
+            id: Some(self.id.0),
+            cell: Some(encode_cell(self.cell)),
+            projection: Some(encode_projection(self.projection)),
+            title: self.title.as_ref().map(encode_text),
+            x: Some(encode_axis(&self.x)),
+            y: Some(encode_axis(&self.y)),
+            z: Some(encode_axis(&self.z)),
+            r#box: Some(self.box_),
+            colormap: self.colormap.to_wire(),
+            clim: Some(encode_limits(self.clim)),
+            legend: self.legend.as_ref().map(encode_legend),
+            artists: self.artists.iter().map(Artist::encode).collect(),
+            title_align: self.title_align.to_wire(),
+            aspect: Some(encode_aspect(self.aspect)),
+            aspect_adjust: self.aspect_adjust.to_wire(),
+        }
     }
 }
 
@@ -562,111 +624,161 @@ fn encode_out_of_range(policy: OutOfRange) -> w::OutOfRange {
     w::OutOfRange { kind: Some(kind) }
 }
 
-fn encode_artist(artist: &Artist) -> w::Artist {
-    let kind = match artist {
-        Artist::Line(line) => w::ArtistKind::Line(w::Line {
-            id: Some(line.id.0),
-            display_name: line.display_name.as_ref().map(encode_text),
-            visible: Some(line.visible),
-            x: Some(line.x.0),
-            y: Some(line.y.0),
-            z: line.z.map(|id| id.0),
-            line: Some(encode_line_style(line.line)),
-            marker: Some(encode_marker_style(line.marker)),
-            x_coords: line.x_coords.to_wire(),
-            y_coords: line.y_coords.to_wire(),
-            clip: Some(line.clip),
-        }),
-        Artist::Scatter(scatter) => w::ArtistKind::Scatter(w::Scatter {
-            id: Some(scatter.id.0),
-            display_name: scatter.display_name.as_ref().map(encode_text),
-            visible: Some(scatter.visible),
-            x: Some(scatter.x.0),
-            y: Some(scatter.y.0),
-            z: scatter.z.map(|id| id.0),
-            size: Some(encode_scatter_size(scatter.size)),
-            color: Some(encode_scatter_color(scatter.color)),
-            marker: Some(encode_marker_style(scatter.marker)),
-            x_coords: scatter.x_coords.to_wire(),
-            y_coords: scatter.y_coords.to_wire(),
-            clip: Some(scatter.clip),
-        }),
-        Artist::Contour(contour) => w::ArtistKind::Contour(w::Contour {
-            id: Some(contour.id.0),
-            display_name: contour.display_name.as_ref().map(encode_text),
-            visible: Some(contour.visible),
-            grid: Some(encode_grid(contour.grid)),
-            z: Some(contour.z.0),
-            levels: Some(encode_levels(&contour.levels)),
-            fill: Some(contour.fill),
-            placement: Some(encode_contour_placement(contour.placement)),
-            line: Some(encode_line_style(contour.line)),
-            line_opacity: Some(contour.line_opacity),
-            fill_opacity: Some(contour.fill_opacity),
-        }),
-        Artist::Quiver(quiver) => w::ArtistKind::Quiver(w::Quiver {
-            id: Some(quiver.id.0),
-            display_name: quiver.display_name.as_ref().map(encode_text),
-            visible: Some(quiver.visible),
-            x: Some(quiver.x.0),
-            y: Some(quiver.y.0),
-            z: quiver.z.map(|id| id.0),
-            u: Some(quiver.u.0),
-            v: Some(quiver.v.0),
-            w: quiver.w.map(|id| id.0),
-            scale: Some(encode_quiver_scale(quiver.scale)),
-            line: Some(encode_line_style(quiver.line)),
-            head_size: Some(quiver.head_size),
-        }),
-        Artist::Surface(surface) => w::ArtistKind::Surface(w::Surface {
-            id: Some(surface.id.0),
-            display_name: surface.display_name.as_ref().map(encode_text),
-            visible: Some(surface.visible),
-            grid: Some(encode_grid(surface.grid)),
-            z: Some(surface.z.0),
-            c: surface.c.map(|id| id.0),
-            face: Some(encode_color_spec(surface.face)),
-            edge: Some(encode_color_spec(surface.edge)),
-            edge_width_pt: Some(surface.edge_width_pt),
-            face_alpha: surface.face_alpha.map(|id| id.0),
-            edge_alpha: surface.edge_alpha.map(|id| id.0),
-            face_opacity: Some(surface.face_opacity),
-            edge_opacity: Some(surface.edge_opacity),
-        }),
-        Artist::Image(image) => w::ArtistKind::Image(w::Image {
-            id: Some(image.id.0),
-            display_name: image.display_name.as_ref().map(encode_text),
-            visible: Some(image.visible),
-            pixels: Some(image.pixels.0),
-            placement: Some(encode_image_placement(image.placement)),
-            opacity: Some(image.opacity),
-        }),
-        Artist::IndexedImage(image) => w::ArtistKind::IndexedImage(w::IndexedImage {
-            id: Some(image.id.0),
-            display_name: image.display_name.as_ref().map(encode_text),
-            visible: Some(image.visible),
-            indices: Some(image.indices.0),
-            placement: Some(encode_image_placement(image.placement)),
-            below: Some(encode_out_of_range(image.below)),
-            above: Some(encode_out_of_range(image.above)),
-            non_finite: Some(encode_out_of_range(image.non_finite)),
-            alpha: image.alpha.map(|id| id.0),
-            opacity: Some(image.opacity),
-        }),
-        Artist::MappedImage(image) => w::ArtistKind::MappedImage(w::MappedImage {
-            id: Some(image.id.0),
-            display_name: image.display_name.as_ref().map(encode_text),
-            visible: Some(image.visible),
-            values: Some(image.values.0),
-            placement: Some(encode_image_placement(image.placement)),
-            below: Some(encode_out_of_range(image.below)),
-            above: Some(encode_out_of_range(image.above)),
-            non_finite: Some(encode_out_of_range(image.non_finite)),
-            alpha: image.alpha.map(|id| id.0),
-            opacity: Some(image.opacity),
-        }),
-    };
-    w::Artist { kind: Some(kind) }
+impl Encode for Line {
+    type Message = w::Line;
+
+    fn encode(&self) -> w::Line {
+        w::Line {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            x: Some(self.x.0),
+            y: Some(self.y.0),
+            z: self.z.map(|id| id.0),
+            line: Some(encode_line_style(self.line)),
+            marker: Some(encode_marker_style(self.marker)),
+            x_coords: self.x_coords.to_wire(),
+            y_coords: self.y_coords.to_wire(),
+            clip: Some(self.clip),
+        }
+    }
+}
+
+impl Encode for Scatter {
+    type Message = w::Scatter;
+
+    fn encode(&self) -> w::Scatter {
+        w::Scatter {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            x: Some(self.x.0),
+            y: Some(self.y.0),
+            z: self.z.map(|id| id.0),
+            size: Some(encode_scatter_size(self.size)),
+            color: Some(encode_scatter_color(self.color)),
+            marker: Some(encode_marker_style(self.marker)),
+            x_coords: self.x_coords.to_wire(),
+            y_coords: self.y_coords.to_wire(),
+            clip: Some(self.clip),
+        }
+    }
+}
+
+impl Encode for Contour {
+    type Message = w::Contour;
+
+    fn encode(&self) -> w::Contour {
+        w::Contour {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            grid: Some(encode_grid(self.grid)),
+            z: Some(self.z.0),
+            levels: Some(encode_levels(&self.levels)),
+            fill: Some(self.fill),
+            placement: Some(encode_contour_placement(self.placement)),
+            line: Some(encode_line_style(self.line)),
+            line_opacity: Some(self.line_opacity),
+            fill_opacity: Some(self.fill_opacity),
+        }
+    }
+}
+
+impl Encode for Quiver {
+    type Message = w::Quiver;
+
+    fn encode(&self) -> w::Quiver {
+        w::Quiver {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            x: Some(self.x.0),
+            y: Some(self.y.0),
+            z: self.z.map(|id| id.0),
+            u: Some(self.u.0),
+            v: Some(self.v.0),
+            w: self.w.map(|id| id.0),
+            scale: Some(encode_quiver_scale(self.scale)),
+            line: Some(encode_line_style(self.line)),
+            head_size: Some(self.head_size),
+        }
+    }
+}
+
+impl Encode for Surface {
+    type Message = w::Surface;
+
+    fn encode(&self) -> w::Surface {
+        w::Surface {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            grid: Some(encode_grid(self.grid)),
+            z: Some(self.z.0),
+            c: self.c.map(|id| id.0),
+            face: Some(encode_color_spec(self.face)),
+            edge: Some(encode_color_spec(self.edge)),
+            edge_width_pt: Some(self.edge_width_pt),
+            face_alpha: self.face_alpha.map(|id| id.0),
+            edge_alpha: self.edge_alpha.map(|id| id.0),
+            face_opacity: Some(self.face_opacity),
+            edge_opacity: Some(self.edge_opacity),
+        }
+    }
+}
+
+impl Encode for Image {
+    type Message = w::Image;
+
+    fn encode(&self) -> w::Image {
+        w::Image {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            pixels: Some(self.pixels.0),
+            placement: Some(encode_image_placement(self.placement)),
+            opacity: Some(self.opacity),
+        }
+    }
+}
+
+impl Encode for IndexedImage {
+    type Message = w::IndexedImage;
+
+    fn encode(&self) -> w::IndexedImage {
+        w::IndexedImage {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            indices: Some(self.indices.0),
+            placement: Some(encode_image_placement(self.placement)),
+            below: Some(encode_out_of_range(self.below)),
+            above: Some(encode_out_of_range(self.above)),
+            non_finite: Some(encode_out_of_range(self.non_finite)),
+            alpha: self.alpha.map(|id| id.0),
+            opacity: Some(self.opacity),
+        }
+    }
+}
+
+impl Encode for MappedImage {
+    type Message = w::MappedImage;
+
+    fn encode(&self) -> w::MappedImage {
+        w::MappedImage {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            values: Some(self.values.0),
+            placement: Some(encode_image_placement(self.placement)),
+            below: Some(encode_out_of_range(self.below)),
+            above: Some(encode_out_of_range(self.above)),
+            non_finite: Some(encode_out_of_range(self.non_finite)),
+            alpha: self.alpha.map(|id| id.0),
+            opacity: Some(self.opacity),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -692,7 +804,7 @@ fn join(at: &str, field: &str) -> String {
 }
 
 /// Returns a value that has no default, or reports it as missing.
-fn required<T>(value: Option<T>, at: &str, field: &str) -> Result<T> {
+pub(crate) fn required<T>(value: Option<T>, at: &str, field: &str) -> Result<T> {
     value.ok_or_else(|| ProtobufError::MissingField {
         field: join(at, field),
     })
@@ -703,9 +815,10 @@ fn node_id(value: Option<u64>, at: &str) -> Result<NodeId> {
     required(value, at, "id").map(NodeId)
 }
 
-/// Returns a reference to a data array, which has no default.
-fn data_id(value: Option<u64>, at: &str, field: &str) -> Result<DataId> {
-    required(value, at, field).map(DataId)
+/// Returns a reference to a node, such as the data array of an artist, which has no
+/// default.
+fn reference(value: Option<u64>, at: &str, field: &str) -> Result<NodeId> {
+    required(value, at, field).map(NodeId)
 }
 
 /// Decodes an enum value, taking `default` for the unspecified value, or reporting the
@@ -729,22 +842,20 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
     let data = wire
         .data
         .into_iter()
-        .map(|(key, array)| {
-            let array = decode_array(array, &format!("data[{key}]"))?;
-            Ok((DataId(key), array))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
+        .enumerate()
+        .map(|(i, data)| DataArray::decode(data, &format!("data[{i}]")))
+        .collect::<Result<Vec<_>>>()?;
     let axes = wire
         .axes
         .into_iter()
         .enumerate()
-        .map(|(i, axes)| decode_axes(axes, &format!("axes[{i}]")))
+        .map(|(i, axes)| Axes::decode(axes, &format!("axes[{i}]")))
         .collect::<Result<Vec<_>>>()?;
-    let panel_legends = wire
-        .panel_legends
+    let panels = wire
+        .panels
         .into_iter()
         .enumerate()
-        .map(|(i, panel)| decode_panel_legend(panel, &format!("panel_legends[{i}]")))
+        .map(|(i, panel)| Panel::decode(panel, &format!("panels[{i}]")))
         .collect::<Result<Vec<_>>>()?;
     let links = decode_links(wire.links, "")?;
     let parameters = wire
@@ -770,7 +881,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             .unwrap_or(default.layout),
         data,
         axes,
-        panel_legends,
+        panels,
         links,
         provenance: Provenance {
             ironlab_version: provenance.ironlab_version,
@@ -779,7 +890,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
             fonts: provenance.fonts,
         },
         parameters,
-        labels: wire.labels,
+        tags: wire.tags,
         id_allocator: default.id_allocator,
     })
 }
@@ -936,12 +1047,53 @@ fn decode_inside_legend(wire: w::InsideLegend, at: &str) -> Result<InsideLegend>
     })
 }
 
+/// Decodes a data array, whose identifier and array have no default.
+impl Decode for DataArray {
+    type Message = w::DataArray;
+
+    fn decode(wire: w::DataArray, at: &str) -> Result<Self> {
+        Ok(DataArray {
+            id: node_id(wire.id, at)?,
+            name: wire.name,
+            array: decode_array(required(wire.array, at, "array")?, &join(at, "array"))?,
+        })
+    }
+}
+
+impl Decode for Panel {
+    type Message = w::Panel;
+
+    fn decode(wire: w::Panel, at: &str) -> Result<Self> {
+        Ok(Panel {
+            id: node_id(wire.id, at)?,
+            cell: wire.cell.map_or(Cell::default(), decode_cell),
+            align: decode_enum(wire.align, Some(PanelLocation::default()), at, "align")?,
+            content: decode_panel_content(wire.content, &join(at, "content"))?,
+        })
+    }
+}
+
+/// Decodes the content of a panel, which has no default: a legend is no likelier than
+/// any other key.
+fn decode_panel_content(wire: Option<w::PanelContent>, at: &str) -> Result<PanelContent> {
+    let content = wire.ok_or_else(|| ProtobufError::MissingField {
+        field: at.to_owned(),
+    })?;
+    Ok(match required(content.kind, at, "kind")? {
+        w::PanelContentKind::Legend(legend) => {
+            let at = join(at, "legend");
+            PanelContent::Legend(match legend.legend {
+                Some(legend) => decode_panel_legend(legend, &join(&at, "legend"))?,
+                None => PanelLegend::default(),
+            })
+        }
+    })
+}
+
+/// Decodes the legend content of a panel onto the defaults of a panel's legend.
 fn decode_panel_legend(wire: w::PanelLegend, at: &str) -> Result<PanelLegend> {
     let default = PanelLegend::default();
     Ok(PanelLegend {
-        id: node_id(wire.id, at)?,
-        cell: wire.cell.map_or(default.cell, decode_cell),
-        align: decode_enum(wire.align, Some(default.align), at, "align")?,
         boxed: wire.boxed.unwrap_or(default.boxed),
         layout: decode_legend_entry_layout(wire.layout, default.layout, &join(at, "layout"))?,
         entries: decode_legend_entries(wire.entries, &join(at, "entries"))?,
@@ -1055,9 +1207,8 @@ fn decode_text(wire: w::Text, at: &str) -> Result<Text> {
     })
 }
 
-fn decode_display_name(wire: Option<w::Text>, at: &str) -> Result<Option<Text>> {
-    wire.map(|t| decode_text(t, &join(at, "display_name")))
-        .transpose()
+fn decode_label(wire: Option<w::Text>, at: &str) -> Result<Option<Text>> {
+    wire.map(|t| decode_text(t, &join(at, "label"))).transpose()
 }
 
 fn decode_color(wire: w::Color) -> Color {
@@ -1192,90 +1343,73 @@ fn decode_projection(wire: Option<w::Projection>, default: Projection) -> Projec
     }
 }
 
-fn decode_axes(wire: w::Axes, at: &str) -> Result<Axes> {
-    let default = Axes::default();
-    let legend = wire
-        .legend
-        .map(|legend| decode_legend(legend, &join(at, "legend")))
-        .transpose()?;
-    let artists = wire
-        .artists
-        .into_iter()
-        .enumerate()
-        .map(|(i, artist)| decode_artist(artist, &format!("{at}.artists[{i}]")))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(Axes {
-        id: node_id(wire.id, at)?,
-        cell: wire.cell.map_or(default.cell, decode_cell),
-        projection: decode_projection(wire.projection, default.projection),
-        title: wire
-            .title
-            .map(|t| decode_text(t, &join(at, "title")))
-            .transpose()?,
-        title_align: decode_enum(
-            wire.title_align,
-            Some(default.title_align),
-            at,
-            "title_align",
-        )?,
-        aspect: decode_aspect(wire.aspect, &join(at, "aspect"))?,
-        aspect_adjust: decode_enum(
-            wire.aspect_adjust,
-            Some(default.aspect_adjust),
-            at,
-            "aspect_adjust",
-        )?,
-        x: decode_axis(wire.x, &join(at, "x"))?,
-        y: decode_axis(wire.y, &join(at, "y"))?,
-        z: decode_axis(wire.z, &join(at, "z"))?,
-        box_: wire.r#box.unwrap_or(default.box_),
-        colormap: decode_enum(wire.colormap, Some(default.colormap), at, "colormap")?,
-        clim: decode_limits(wire.clim, default.clim, &join(at, "clim"))?,
-        legend,
-        artists,
-    })
+impl Decode for Axes {
+    type Message = w::Axes;
+
+    fn decode(wire: w::Axes, at: &str) -> Result<Self> {
+        let default = Axes::default();
+        let legend = wire
+            .legend
+            .map(|legend| decode_legend(legend, &join(at, "legend")))
+            .transpose()?;
+        let artists = wire
+            .artists
+            .into_iter()
+            .enumerate()
+            .map(|(i, artist)| Artist::decode(artist, &format!("{at}.artists[{i}]")))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Axes {
+            id: node_id(wire.id, at)?,
+            cell: wire.cell.map_or(default.cell, decode_cell),
+            projection: decode_projection(wire.projection, default.projection),
+            title: wire
+                .title
+                .map(|t| decode_text(t, &join(at, "title")))
+                .transpose()?,
+            title_align: decode_enum(
+                wire.title_align,
+                Some(default.title_align),
+                at,
+                "title_align",
+            )?,
+            aspect: decode_aspect(wire.aspect, &join(at, "aspect"))?,
+            aspect_adjust: decode_enum(
+                wire.aspect_adjust,
+                Some(default.aspect_adjust),
+                at,
+                "aspect_adjust",
+            )?,
+            x: decode_axis(wire.x, &join(at, "x"))?,
+            y: decode_axis(wire.y, &join(at, "y"))?,
+            z: decode_axis(wire.z, &join(at, "z"))?,
+            box_: wire.r#box.unwrap_or(default.box_),
+            colormap: decode_enum(wire.colormap, Some(default.colormap), at, "colormap")?,
+            clim: decode_limits(wire.clim, default.clim, &join(at, "clim"))?,
+            legend,
+            artists,
+        })
+    }
 }
 
-fn decode_artist(wire: w::Artist, at: &str) -> Result<Artist> {
-    Ok(match required(wire.kind, at, "kind")? {
-        w::ArtistKind::Line(line) => Artist::Line(decode_line(line, &join(at, "line"))?),
-        w::ArtistKind::Scatter(scatter) => {
-            Artist::Scatter(decode_scatter(scatter, &join(at, "scatter"))?)
-        }
-        w::ArtistKind::Contour(contour) => {
-            Artist::Contour(decode_contour(contour, &join(at, "contour"))?)
-        }
-        w::ArtistKind::Quiver(quiver) => {
-            Artist::Quiver(decode_quiver(quiver, &join(at, "quiver"))?)
-        }
-        w::ArtistKind::Surface(surface) => {
-            Artist::Surface(decode_surface(surface, &join(at, "surface"))?)
-        }
-        w::ArtistKind::Image(image) => Artist::Image(decode_image(image, &join(at, "image"))?),
-        w::ArtistKind::IndexedImage(image) => {
-            Artist::IndexedImage(decode_indexed_image(image, &join(at, "indexed_image"))?)
-        }
-        w::ArtistKind::MappedImage(image) => {
-            Artist::MappedImage(decode_mapped_image(image, &join(at, "mapped_image"))?)
-        }
-    })
-}
+impl Decode for Line {
+    type Message = w::Line;
 
-fn decode_line(wire: w::Line, at: &str) -> Result<Line> {
-    let default = Line::default();
-    Ok(Line {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        x: data_id(wire.x, at, "x")?,
-        y: data_id(wire.y, at, "y")?,
-        z: wire.z.map(DataId),
-        line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
-        marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
-        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
-        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
-        clip: wire.clip.unwrap_or(default.clip),
-    })
+    fn decode(wire: w::Line, at: &str) -> Result<Self> {
+        let default = Line::default();
+        Ok(Line {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            x: reference(wire.x, at, "x")?,
+            y: reference(wire.y, at, "y")?,
+            z: wire.z.map(NodeId),
+            line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+            marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+            x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+            y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+            clip: wire.clip.unwrap_or(default.clip),
+        })
+    }
 }
 
 /// Decodes the size of scatter markers; `at` is the path of the size itself.
@@ -1291,7 +1425,7 @@ fn decode_scatter_size(wire: Option<w::ScatterSize>, at: &str) -> Result<Scatter
             }
         }
         Some(w::ScatterSizeKind::Data(data)) => ScatterSize::Data {
-            data: data_id(data.data, at, "data.data")?,
+            data: reference(data.data, at, "data.data")?,
         },
     })
 }
@@ -1309,7 +1443,7 @@ fn decode_scatter_color(wire: Option<w::ScatterColor>, at: &str) -> Result<Scatt
             }
         }
         Some(w::ScatterColorKind::Data(data)) => ScatterColor::Data {
-            data: data_id(data.data, at, "data.data")?,
+            data: reference(data.data, at, "data.data")?,
         },
     })
 }
@@ -1353,24 +1487,28 @@ fn decode_quiver_scale(wire: Option<w::QuiverScale>, at: &str) -> Result<QuiverS
     })
 }
 
-fn decode_scatter(wire: w::Scatter, at: &str) -> Result<Scatter> {
-    let default = Scatter::default();
-    let size = decode_scatter_size(wire.size, &join(at, "size"))?;
-    let color = decode_scatter_color(wire.color, &join(at, "color"))?;
-    Ok(Scatter {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        x: data_id(wire.x, at, "x")?,
-        y: data_id(wire.y, at, "y")?,
-        z: wire.z.map(DataId),
-        size,
-        color,
-        marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
-        x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
-        y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
-        clip: wire.clip.unwrap_or(default.clip),
-    })
+impl Decode for Scatter {
+    type Message = w::Scatter;
+
+    fn decode(wire: w::Scatter, at: &str) -> Result<Self> {
+        let default = Scatter::default();
+        let size = decode_scatter_size(wire.size, &join(at, "size"))?;
+        let color = decode_scatter_color(wire.color, &join(at, "color"))?;
+        Ok(Scatter {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            x: reference(wire.x, at, "x")?,
+            y: reference(wire.y, at, "y")?,
+            z: wire.z.map(NodeId),
+            size,
+            color,
+            marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
+            x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
+            y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
+            clip: wire.clip.unwrap_or(default.clip),
+        })
+    }
 }
 
 /// Decodes the grid of a contour or surface, which has no default; `at` is the path of
@@ -1383,75 +1521,87 @@ fn decode_grid(wire: Option<w::Grid>, at: &str) -> Result<Grid> {
         w::GridKind::Rectilinear(grid) => {
             let at = join(at, "rectilinear");
             Grid::Rectilinear {
-                x: data_id(grid.x, &at, "x")?,
-                y: data_id(grid.y, &at, "y")?,
+                x: reference(grid.x, &at, "x")?,
+                y: reference(grid.y, &at, "y")?,
             }
         }
         w::GridKind::Curvilinear(grid) => {
             let at = join(at, "curvilinear");
             Grid::Curvilinear {
-                x: data_id(grid.x, &at, "x")?,
-                y: data_id(grid.y, &at, "y")?,
+                x: reference(grid.x, &at, "x")?,
+                y: reference(grid.y, &at, "y")?,
             }
         }
     })
 }
 
-fn decode_contour(wire: w::Contour, at: &str) -> Result<Contour> {
-    let default = Contour::default();
-    let levels = decode_levels(wire.levels);
-    let placement = decode_contour_placement(wire.placement);
-    Ok(Contour {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        grid: decode_grid(wire.grid, &join(at, "grid"))?,
-        z: data_id(wire.z, at, "z")?,
-        levels,
-        fill: wire.fill.unwrap_or(default.fill),
-        placement,
-        line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
-        line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
-        fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
-    })
+impl Decode for Contour {
+    type Message = w::Contour;
+
+    fn decode(wire: w::Contour, at: &str) -> Result<Self> {
+        let default = Contour::default();
+        let levels = decode_levels(wire.levels);
+        let placement = decode_contour_placement(wire.placement);
+        Ok(Contour {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            grid: decode_grid(wire.grid, &join(at, "grid"))?,
+            z: reference(wire.z, at, "z")?,
+            levels,
+            fill: wire.fill.unwrap_or(default.fill),
+            placement,
+            line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+            line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
+            fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
+        })
+    }
 }
 
-fn decode_quiver(wire: w::Quiver, at: &str) -> Result<Quiver> {
-    let default = Quiver::default();
-    let scale = decode_quiver_scale(wire.scale, &join(at, "scale"))?;
-    Ok(Quiver {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        x: data_id(wire.x, at, "x")?,
-        y: data_id(wire.y, at, "y")?,
-        z: wire.z.map(DataId),
-        u: data_id(wire.u, at, "u")?,
-        v: data_id(wire.v, at, "v")?,
-        w: wire.w.map(DataId),
-        scale,
-        line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
-        head_size: wire.head_size.unwrap_or(default.head_size),
-    })
+impl Decode for Quiver {
+    type Message = w::Quiver;
+
+    fn decode(wire: w::Quiver, at: &str) -> Result<Self> {
+        let default = Quiver::default();
+        let scale = decode_quiver_scale(wire.scale, &join(at, "scale"))?;
+        Ok(Quiver {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            x: reference(wire.x, at, "x")?,
+            y: reference(wire.y, at, "y")?,
+            z: wire.z.map(NodeId),
+            u: reference(wire.u, at, "u")?,
+            v: reference(wire.v, at, "v")?,
+            w: wire.w.map(NodeId),
+            scale,
+            line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+            head_size: wire.head_size.unwrap_or(default.head_size),
+        })
+    }
 }
 
-fn decode_surface(wire: w::Surface, at: &str) -> Result<Surface> {
-    let default = Surface::default();
-    Ok(Surface {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        grid: decode_grid(wire.grid, &join(at, "grid"))?,
-        z: data_id(wire.z, at, "z")?,
-        c: wire.c.map(DataId),
-        face: decode_color_spec(wire.face, default.face),
-        edge: decode_color_spec(wire.edge, default.edge),
-        edge_width_pt: wire.edge_width_pt.unwrap_or(default.edge_width_pt),
-        face_alpha: wire.face_alpha.map(DataId),
-        edge_alpha: wire.edge_alpha.map(DataId),
-        face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
-        edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
-    })
+impl Decode for Surface {
+    type Message = w::Surface;
+
+    fn decode(wire: w::Surface, at: &str) -> Result<Self> {
+        let default = Surface::default();
+        Ok(Surface {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            grid: decode_grid(wire.grid, &join(at, "grid"))?,
+            z: reference(wire.z, at, "z")?,
+            c: wire.c.map(NodeId),
+            face: decode_color_spec(wire.face, default.face),
+            edge: decode_color_spec(wire.edge, default.edge),
+            edge_width_pt: wire.edge_width_pt.unwrap_or(default.edge_width_pt),
+            face_alpha: wire.face_alpha.map(NodeId),
+            edge_alpha: wire.edge_alpha.map(NodeId),
+            face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+            edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
+        })
+    }
 }
 
 /// Decodes the centres of the first and last pixels of an image along an axis, neither
@@ -1506,48 +1656,60 @@ fn decode_out_of_range(wire: Option<w::OutOfRange>) -> OutOfRange {
     }
 }
 
-fn decode_image(wire: w::Image, at: &str) -> Result<Image> {
-    let default = Image::default();
-    Ok(Image {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        pixels: data_id(wire.pixels, at, "pixels")?,
-        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
-        opacity: wire.opacity.unwrap_or(default.opacity),
-    })
+impl Decode for Image {
+    type Message = w::Image;
+
+    fn decode(wire: w::Image, at: &str) -> Result<Self> {
+        let default = Image::default();
+        Ok(Image {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            pixels: reference(wire.pixels, at, "pixels")?,
+            placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+            opacity: wire.opacity.unwrap_or(default.opacity),
+        })
+    }
 }
 
-fn decode_indexed_image(wire: w::IndexedImage, at: &str) -> Result<IndexedImage> {
-    let default = IndexedImage::default();
-    Ok(IndexedImage {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        indices: data_id(wire.indices, at, "indices")?,
-        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
-        below: decode_out_of_range(wire.below),
-        above: decode_out_of_range(wire.above),
-        non_finite: decode_out_of_range(wire.non_finite),
-        alpha: wire.alpha.map(DataId),
-        opacity: wire.opacity.unwrap_or(default.opacity),
-    })
+impl Decode for IndexedImage {
+    type Message = w::IndexedImage;
+
+    fn decode(wire: w::IndexedImage, at: &str) -> Result<Self> {
+        let default = IndexedImage::default();
+        Ok(IndexedImage {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            indices: reference(wire.indices, at, "indices")?,
+            placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+            below: decode_out_of_range(wire.below),
+            above: decode_out_of_range(wire.above),
+            non_finite: decode_out_of_range(wire.non_finite),
+            alpha: wire.alpha.map(NodeId),
+            opacity: wire.opacity.unwrap_or(default.opacity),
+        })
+    }
 }
 
-fn decode_mapped_image(wire: w::MappedImage, at: &str) -> Result<MappedImage> {
-    let default = MappedImage::default();
-    Ok(MappedImage {
-        id: node_id(wire.id, at)?,
-        display_name: decode_display_name(wire.display_name, at)?,
-        visible: wire.visible.unwrap_or(default.visible),
-        values: data_id(wire.values, at, "values")?,
-        placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
-        below: decode_out_of_range(wire.below),
-        above: decode_out_of_range(wire.above),
-        non_finite: decode_out_of_range(wire.non_finite),
-        alpha: wire.alpha.map(DataId),
-        opacity: wire.opacity.unwrap_or(default.opacity),
-    })
+impl Decode for MappedImage {
+    type Message = w::MappedImage;
+
+    fn decode(wire: w::MappedImage, at: &str) -> Result<Self> {
+        let default = MappedImage::default();
+        Ok(MappedImage {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            values: reference(wire.values, at, "values")?,
+            placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
+            below: decode_out_of_range(wire.below),
+            above: decode_out_of_range(wire.above),
+            non_finite: decode_out_of_range(wire.non_finite),
+            alpha: wire.alpha.map(NodeId),
+            opacity: wire.opacity.unwrap_or(default.opacity),
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -1577,7 +1739,7 @@ fn encode_edit(edit: &Edit) -> w::Edit {
         } => w::EditKind::Insert(w::EditInsert {
             parent: Some(parent.0),
             index: *index,
-            node: Some(encode_node(node)),
+            node: Some(node.encode()),
         }),
         Edit::Remove { node } => w::EditKind::Remove(w::EditRemove { node: Some(node.0) }),
         Edit::Move {
@@ -1589,27 +1751,21 @@ fn encode_edit(edit: &Edit) -> w::Edit {
             parent: Some(parent.0),
             index: *index,
         }),
-        Edit::PutData { id, array } => w::EditKind::PutData(w::EditPutData {
-            id: Some(id.0),
+        Edit::ReplaceData { node, array } => w::EditKind::ReplaceData(w::EditReplaceData {
+            node: Some(node.0),
             array: Some(encode_array(array)),
         }),
-        Edit::AppendData { id, array, retain } => w::EditKind::AppendData(w::EditAppendData {
-            id: Some(id.0),
+        Edit::AppendData {
+            node,
+            array,
+            retain,
+        } => w::EditKind::AppendData(w::EditAppendData {
+            node: Some(node.0),
             array: Some(encode_array(array)),
             retain: *retain,
         }),
-        Edit::RemoveData { id } => w::EditKind::RemoveData(w::EditRemoveData { id: Some(id.0) }),
     };
     w::Edit { kind: Some(kind) }
-}
-
-fn encode_node(node: &Node) -> w::Node {
-    let kind = match node {
-        Node::Axes(axes) => w::NodeKind::Axes(encode_axes(axes)),
-        Node::Artist(artist) => w::NodeKind::Artist(encode_artist(artist)),
-        Node::PanelLegend(panel) => w::NodeKind::PanelLegend(encode_panel_legend(panel)),
-    };
-    w::Node { kind: Some(kind) }
 }
 
 fn encode_value(value: &Value) -> w::Value {
@@ -1620,7 +1776,6 @@ fn encode_value(value: &Value) -> w::Value {
         Value::Double(v) => w::ValueKind::Double(w::ValueDouble { value: Some(*v) }),
         Value::Float(v) => w::ValueKind::Float(w::ValueFloat { value: Some(*v) }),
         Value::String(v) => w::ValueKind::String(w::ValueString { value: v.clone() }),
-        Value::DataId(v) => w::ValueKind::DataId(w::ValueDataId { value: Some(v.0) }),
         Value::NodeId(v) => w::ValueKind::NodeId(w::ValueNodeId { value: Some(v.0) }),
         Value::Doubles(v) => w::ValueKind::Doubles(w::ValueDoubles { values: v.clone() }),
         Value::TrackSizes(v) => w::ValueKind::TrackSizes(w::ValueTrackSizes {
@@ -1683,6 +1838,15 @@ fn encode_value(value: &Value) -> w::Value {
         Value::LegendLocation(v) => {
             w::ValueKind::LegendLocation(w::ValueLegendLocation { value: v.to_wire() })
         }
+        Value::PanelLocation(v) => {
+            w::ValueKind::PanelLocation(w::ValuePanelLocation { value: v.to_wire() })
+        }
+        Value::PanelContent(v) => w::ValueKind::PanelContent(w::ValuePanelContent {
+            value: Some(encode_panel_content(v)),
+        }),
+        Value::PanelLegend(v) => w::ValueKind::PanelLegend(w::ValuePanelLegend {
+            value: Some(encode_panel_legend(v)),
+        }),
         Value::LegendEntryLayout(v) => w::ValueKind::LegendEntryLayout(w::ValueLegendEntryLayout {
             value: Some(encode_legend_entry_layout(*v)),
         }),
@@ -1795,7 +1959,7 @@ fn decode_edit(wire: w::Edit, at: &str) -> Result<Edit> {
             Edit::Insert {
                 parent: NodeId(required(insert.parent, &at, "parent")?),
                 index: insert.index,
-                node: decode_node(required(insert.node, &at, "node")?, &join(&at, "node"))?,
+                node: Node::decode_field(required(insert.node, &at, "node")?, &at, "node")?,
             }
         }
         w::EditKind::Remove(remove) => Edit::Remove {
@@ -1809,33 +1973,20 @@ fn decode_edit(wire: w::Edit, at: &str) -> Result<Edit> {
                 index: move_node.index,
             }
         }
-        w::EditKind::PutData(put) => {
-            let at = join(at, "put_data");
-            Edit::PutData {
-                id: DataId(required(put.id, &at, "id")?),
-                array: decode_array(required(put.array, &at, "array")?, &join(&at, "array"))?,
+        w::EditKind::ReplaceData(replace) => {
+            let at = join(at, "replace_data");
+            Edit::ReplaceData {
+                node: NodeId(required(replace.node, &at, "node")?),
+                array: decode_array(required(replace.array, &at, "array")?, &join(&at, "array"))?,
             }
         }
         w::EditKind::AppendData(append) => {
             let at = join(at, "append_data");
             Edit::AppendData {
-                id: DataId(required(append.id, &at, "id")?),
+                node: NodeId(required(append.node, &at, "node")?),
                 array: decode_array(required(append.array, &at, "array")?, &join(&at, "array"))?,
                 retain: append.retain,
             }
-        }
-        w::EditKind::RemoveData(remove) => Edit::RemoveData {
-            id: DataId(required(remove.id, &join(at, "remove_data"), "id")?),
-        },
-    })
-}
-
-fn decode_node(wire: w::Node, at: &str) -> Result<Node> {
-    Ok(match required(wire.kind, at, "kind")? {
-        w::NodeKind::Axes(axes) => Node::Axes(Box::new(decode_axes(axes, &join(at, "axes"))?)),
-        w::NodeKind::Artist(artist) => Node::Artist(decode_artist(artist, &join(at, "artist"))?),
-        w::NodeKind::PanelLegend(panel) => {
-            Node::PanelLegend(decode_panel_legend(panel, &join(at, "panel_legend"))?)
         }
     })
 }
@@ -1866,11 +2017,6 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             Value::Float(required(v.value, &join(at, "float_value"), "value")?)
         }
         w::ValueKind::String(v) => Value::String(v.value),
-        w::ValueKind::DataId(v) => Value::DataId(DataId(required(
-            v.value,
-            &join(at, "data_id_value"),
-            "value",
-        )?)),
         w::ValueKind::Doubles(v) => Value::Doubles(v.values),
         w::ValueKind::TrackSizes(v) => {
             let at = join(at, "track_sizes_value");
@@ -1984,6 +2130,20 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "legend_location_value"),
             "value",
         )?),
+        w::ValueKind::PanelLocation(v) => Value::PanelLocation(decode_enum(
+            v.value,
+            None,
+            &join(at, "panel_location_value"),
+            "value",
+        )?),
+        w::ValueKind::PanelContent(v) => {
+            let at = join(at, "panel_content_value");
+            Value::PanelContent(decode_panel_content(v.value, &join(&at, "value"))?)
+        }
+        w::ValueKind::PanelLegend(v) => {
+            let (legend, at) = value_message(v.value, at, "panel_legend_value")?;
+            Value::PanelLegend(decode_panel_legend(legend, &at)?)
+        }
         w::ValueKind::InsideLegend(v) => {
             let (legend, at) = value_message(v.value, at, "inside_legend_value")?;
             Value::InsideLegend(decode_inside_legend(legend, &at)?)

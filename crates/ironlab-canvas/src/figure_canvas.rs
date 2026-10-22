@@ -72,14 +72,14 @@ fn datatip_value(value: f64) -> String {
     }
 }
 
-/// The text of the callout that names the data point under the pointer, one item per line: the name of the series
+/// The text of the callout that names the data point under the pointer, one item per line: the label of the series
 /// when it has one, its data coordinates (leaving out any the artist places as fractions of the plot area), and the index the point has in the artist's own data arrays, which is what the
 /// user would use to find the same point in the data they plotted.
 #[must_use]
 pub fn datatip_text(tip: &Datatip) -> String {
     let mut lines = Vec::new();
-    if let Some(name) = &tip.name {
-        lines.push(name.clone());
+    if let Some(label) = &tip.label {
+        lines.push(label.clone());
     }
     // A coordinate placed as a fraction of the plot area is not data, so the callout leaves it out.
     if let Some(x) = tip.x {
@@ -95,7 +95,7 @@ pub fn datatip_text(tip: &Datatip) -> String {
     lines.join("\n")
 }
 
-/// The text of the callout that names the pixel under the pointer, one item per line: the name of the image when
+/// The text of the callout that names the pixel under the pointer, one item per line: the label of the image when
 /// it has one, the row and column of the pixel in the artist's own array, the coordinates of the pixel's centre,
 /// and what the array holds there, every number formatted as the point datatip formats its coordinates, so that
 /// the two callouts read as one.
@@ -106,8 +106,8 @@ pub fn datatip_text(tip: &Datatip) -> String {
 #[must_use]
 pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
     let mut lines = Vec::new();
-    if let Some(name) = &tip.name {
-        lines.push(name.clone());
+    if let Some(label) = &tip.label {
+        lines.push(label.clone());
     }
     lines.push(format!("row {}, column {}", tip.row, tip.column));
     lines.push(format!("x = {}", datatip_value(tip.x)));

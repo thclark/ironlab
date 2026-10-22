@@ -45,6 +45,8 @@ nav = [
     { "0019 Axis direction, ticks, blended coordinates and aspect" = "adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md" },
     { "0020 Explicit legend entries and rows and columns fitted to their legends" = "adrs/0020-explicit-legend-entries-and-fitted-tracks.md" },
     { "0021 Images refused on logarithmic axes, and alpha data and opacity" = "adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md" },
+    { "0022 Figure nodes in one identifier space, and panels that hold content" = "adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md" },
+    { "0023 Titles, labels, names and tags" = "adrs/0023-titles-labels-names-and-tags.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

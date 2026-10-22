@@ -33,8 +33,8 @@ use std::collections::BTreeMap;
 
 use ironlab_ir::{
     Axis, Cell as IrCell, Choice, Color, FigureSize, ImagePlacement, InsideLegend,
-    LegendEntryLayout, LineStyle, MarkerStyle, NodeId, Parameter, PixelRange, PropertyPath, Text,
-    TileLayout, TrackSize, Value, ValueType, View3d, choices,
+    LegendEntryLayout, LineStyle, MarkerStyle, NodeId, PanelLegend, Parameter, PixelRange,
+    PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d, choices,
 };
 
 use crate::widgets::{
@@ -246,8 +246,9 @@ fn footer(ui: &mut egui::Ui, state: &mut FigureState) -> bool {
 // The object tree
 // ---------------------------------------------------------------------------------
 
-/// Draws the figure, its axes and their artists as a collapsible tree, and selects the
-/// node whose row is clicked.
+/// Draws the figure, its data arrays, its axes and their artists, and its panels as a
+/// collapsible tree, and selects the node whose row is clicked. The data arrays and the
+/// panels are gathered under a group each, which starts closed and selects nothing.
 ///
 /// The tree is drawn as it always was, with egui's own collapsing headers and selectable
 /// labels in the context's own spacing, beneath the heading the rest of the panel shares.
@@ -290,8 +291,14 @@ fn subtree(
         tree_label(ui, row, selection, clicked);
         return index + 1;
     }
-    let id = ui.make_persistent_id(("ironlab_tree", row.node.0));
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+    let id = match row.node {
+        Some(node) => ui.make_persistent_id(("ironlab_tree", node.0)),
+        None => ui.make_persistent_id(("ironlab_tree_group", row.kind)),
+    };
+    // A group starts closed, so that a figure of many data arrays does not push its axes
+    // and plots out of sight; a node starts open.
+    let open = row.node.is_some();
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open)
         .show_header(ui, |ui| tree_label(ui, row, selection, clicked))
         .body(|ui| {
             let mut next = index + 1;
@@ -302,7 +309,8 @@ fn subtree(
     end
 }
 
-/// Draws one selectable row of the tree.
+/// Draws one row of the tree: a selectable label for a node, and a plain label for a
+/// group, which selects nothing.
 fn tree_label(
     ui: &mut egui::Ui,
     row: &TreeRow,
@@ -310,17 +318,21 @@ fn tree_label(
     clicked: &Cell<Option<NodeId>>,
 ) {
     let mut text = egui::RichText::new(&row.label);
+    let Some(node) = row.node else {
+        ui.label(text);
+        return;
+    };
     if row.dimmed {
         text = text.color(ui.visuals().weak_text_color());
     }
-    let response = ui.selectable_label(selection == Some(row.node), text);
+    let response = ui.selectable_label(selection == Some(node), text);
     let response = if row.dimmed {
         response.on_hover_text("This plot is hidden.")
     } else {
         response
     };
     if response.clicked() {
-        clicked.set(Some(row.node));
+        clicked.set(Some(node));
     }
 }
 
@@ -774,7 +786,7 @@ fn numbers_control(
 
 /// Draws the control of a list of words: a field holding them separated by commas.
 ///
-/// The labels of a figure are short words rather than sentences, and there are a handful of
+/// The tags of a figure are short words rather than sentences, and there are a handful of
 /// them, so one field holding the lot reads as what it is and is quicker to change than a
 /// row of fields would be. A word is trimmed of the spaces around it, and an empty one is
 /// dropped, so that a trailing comma while typing does not make a label of nothing; the
@@ -825,7 +837,7 @@ fn read_only_control(ui: &mut egui::Ui, row: &PropertyRow, value: &str, reason: 
 /// array's shape.
 fn data_label(row: &PropertyRow, shape: Option<&[usize]>) -> String {
     match &row.value {
-        Value::DataId(id) => format!("{id} {}", shape_label(shape)),
+        Value::NodeId(id) => format!("{id} {}", shape_label(shape)),
         _ => shape_label(shape),
     }
 }
@@ -890,11 +902,12 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::LegendEntryLayout => {
             Some(Value::LegendEntryLayout(LegendEntryLayout::default()))
         }
+        ValueType::PanelLegend => Some(Value::PanelLegend(PanelLegend::default())),
         ValueType::LineStyle => Some(Value::LineStyle(LineStyle::default())),
         ValueType::MarkerStyle => Some(Value::MarkerStyle(MarkerStyle::default())),
         ValueType::ImagePlacement => Some(Value::ImagePlacement(ImagePlacement::default())),
         ValueType::PixelRange => Some(Value::PixelRange(PixelRange::default())),
-        ValueType::DataId | ValueType::NodeId => None,
+        ValueType::NodeId => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
         | ValueType::Limits
@@ -916,6 +929,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::ColormapName
         | ValueType::Legend
         | ValueType::LegendLocation
+        | ValueType::PanelLocation
+        | ValueType::PanelContent
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape

@@ -27,11 +27,11 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 - **Presence.** Singular numeric and boolean fields are declared `optional`, so that a value that was written is distinguished from an absent one, and every value, including negative zero, reloads bit for bit.
 - **Tagged variants.** An entity that takes one of several forms is a message with a single oneof named `kind`. Each variant of the oneof is a message of its own, such as `LimitsManual` with the fields `min` and `max`, so that a variant can gain fields in a later version without changing the others. A variant that holds a single value is also a message, such as `ParameterNumber` with the field `value`.
 - **Numeric arrays.** An array is a `repeated uint64 shape`, an `NdArrayElement element` that names the type of its values, and one of two payloads: a packed `repeated double values` holds 64-bit floating-point values, in which NaN and infinities are stored natively as IEEE 754 values, and a `bytes u8_values` holds 8-bit unsigned integers, one byte per value. The encoder writes the element of every array and leaves the other payload empty. A reader takes an unspecified element as `ND_ARRAY_ELEMENT_F64`, which is what every file written before the element existed holds, and an array whose payloads disagree with its element (values in the other payload, or in both) is rejected with an error.
-- **Data table.** The `data` of a figure is a `map<uint64, NdArray>` keyed by DataId, written in ascending order of key.
+- **Data arrays.** The `data` of a figure is a `repeated DataArray`, written in the order the figure lists its data arrays. A DataArray holds its `id`, its `array` and its `name`, an `optional string` that is absent when the array has no name.
 - **Parameters.** The `parameters` of a figure are a `map<string, Parameter>` keyed by name, written in ascending order of the UTF-8 bytes of the name, so that a figure always encodes to the same bytes.
-- **Labels.** The `labels` of a figure are a `repeated string`, written in the order the figure carries them rather than sorted, because that order is part of the figure's value and is the order the viewer lists them in.
+- **Tags.** The `tags` of a figure are a `repeated string`, written in the order the figure carries them rather than sorted, because that order is part of the figure's value and is the order the viewer lists them in.
 - **Colours.** A Color is a message of four `float` components, `r`, `g`, `b` and `a`, each from 0 to 1, stored at the full precision of the model.
-- **Absent values.** An absent message, an absent field with presence, an unset oneof and an `_UNSPECIFIED` enum value take the default of their context in the model. For example, an absent line colour of a contour is colormapped, whereas an absent line colour of a line is automatic, and an absent [opacity](#alpha-and-opacity) is 1. The encoder writes every field that has a value, so a file written by IronLAB never relies on these defaults. An optional data reference, such as the colour data of a surface or the [alpha](#alpha-and-opacity) of an image, is written only when it is present, because 0 is a valid DataId and cannot stand for an absent one.
+- **Absent values.** An absent message, an absent field with presence, an unset oneof and an `_UNSPECIFIED` enum value take the default of their context in the model. For example, an absent line colour of a contour is colormapped, whereas an absent line colour of a line is automatic, and an absent [opacity](#alpha-and-opacity) is 1. The encoder writes every field that has a value, so a file written by IronLAB never relies on these defaults. An optional data reference, such as the colour data of a surface or the [alpha](#alpha-and-opacity) of an image, is written only when it is present, because 0 is a valid NodeId and cannot stand for an absent one.
 - **Required values.** A value that has no default in the model, namely the kind of an artist, the dimension of an axis link, and the kind of a parameter together with its value when it is a boolean, an integer or a number, makes decoding fail with an error when it is absent or unspecified.
 - **Fields without presence.** Strings, bytes, repeated fields, maps and colour components cannot be distinguished from their empty or zero values, so they decode as the value on the wire: an empty string is empty and an empty list is empty.
 - **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
@@ -43,10 +43,9 @@ Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` ch
 
 The JSON encoding follows these conventions.
 
-- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. An entity whose forms each hold a single value, namely a [parameter](#parameters), the [legend](#legend) of an axes, the [number of legend columns](#legend-entry-layout), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [size of a row or column](#tile-layout), the [entries of a legend](#legend-entries) and the content of a legend item, holds that value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
+- **Tagged variants.** An entity that takes one of several forms (such as an artist, a projection or limits) is a JSON object whose `type` property names the form in `snake_case`, alongside that form's own properties. For example, manual limits are `{"type": "manual", "min": 0, "max": 1}`. An entity whose forms each hold a single value, namely a [parameter](#parameters), the [legend](#legend) of an axes, the [number of legend columns](#legend-entry-layout), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [size of a row or column](#tile-layout), the [entries of a legend](#legend-entries), the content of a legend item and the [content of a panel](#panel-content), holds that value in a `value` property, as in `{"type": "number", "value": 100000.0}`.
 - **Enumerations.** An entity that is only a choice of name (such as a scale or a colormap) is a `snake_case` string, for example `"log"` or `"north_east"`.
-- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters`, the `labels` and the `panel_legends` of a figure, each of which is omitted when the figure has none, the `row_weights` and `col_weights` of the [tile layout](#tile-layout), each of which is omitted when it is empty, the `entries` of a [legend](#legend-entries), which are omitted when they are automatic, and the [alpha and opacity](#alpha-and-opacity) of surfaces and images: an alpha reference is omitted when it is absent, and an opacity is omitted when it is 1. A file that omits them, such as a file written before they existed, therefore reads as opaque artists without alpha.
-- **Data table.** The `data` of a figure is an object keyed by DataId written as a decimal string.
+- **Optional properties.** A property that may be absent is written as `null` when it has no value. The exceptions are the `parameters`, the `tags` and the `panels` of a figure, each of which is omitted when the figure has none, the `row_weights` and `col_weights` of the [tile layout](#tile-layout), each of which is omitted when it is empty, the `entries` of a [legend](#legend-entries), which are omitted when they are automatic, and the [alpha and opacity](#alpha-and-opacity) of surfaces and images: an alpha reference is omitted when it is absent, and an opacity is omitted when it is 1. A file that omits them, such as a file written before they existed, therefore reads as opaque artists without alpha.
 - **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array of floating-point values, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Data arrays.** An array of 8-bit values carries `"element": "u8"` and writes its values as integers. An array of floating-point values has no `element` property, and an `element` of `null` or `"f64"` is read in the same way, so a file written before the element existed still loads. Under `"u8"`, every value must be an integer from 0 to 255: a whole number written with a fraction, such as `1.0`, is accepted as the byte it denotes, and `null`, a fraction, a number outside the range, a string and any other element name are refused.
 - **Colours.** A Color is a string of eight bits per component, as described in [colours](#colours), so a colour that is not a multiple of 1/255 is rounded when it is saved as JSON.
@@ -75,11 +74,12 @@ Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set,
 The following conventions apply throughout the model, in both encodings.
 
 - **Units.** Physical sizes are in millimetres (`_mm`), font sizes and line widths are in points (`_pt`, 1/72 inch), and angles are in degrees (`_deg`).
-- **Identifiers.** Nodes (the figure, its axes, their artists and its legend panels) are identified by a `NodeId`, and arrays by a `DataId`. Both are unsigned 64-bit integers.
+- **Identifiers.** Every node of a figure (the figure itself, its data arrays, its axes, their artists and its panels) is identified by a `NodeId`, an unsigned 64-bit integer, from one identifier space shared by all of them. Every reference from one node to another, such as an artist's reference to its data or a legend's reference to its panel, is a NodeId, and a reference to a node of the wrong kind is reported by [validation](#validation). The reasons for one identifier space are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md).
+- **Titles, labels, names and tags.** A property that holds text is named by whether and where its text is drawn. A **title** is drawn as a heading above what it names, such as the title of a figure or of an axes. A **label** is drawn beside what it identifies, such as an axis label, a tick label or the label of an artist in a legend. A **name** identifies a node to tools and is never drawn, such as the name of a [data array](#data-arrays) or of a [parameter](#parameters). A **tag** describes a figure to the figure browser and is never drawn. The rule is recorded in [ADR 0023](../adrs/0023-titles-labels-names-and-tags.md).
 
 ## Figure
 
-The figure is the root of the model: a page of a fixed physical size holding axes, the data they plot, the links between them and the legend panels that list their entries.
+The figure is the root of the model: a page of a fixed physical size holding the data arrays that its artists plot, its axes, the links between them, and the panels that hold its keys.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
@@ -90,14 +90,14 @@ The figure is the root of the model: a page of a fixed physical size holding axe
 | `font_set` | string | The font set used for all text. The only font set is `"stix_two"`: STIX Two Text for text and STIX Two Math for mathematics. |
 | `font_size_pt` | number | The base font size, from which titles and tick labels are scaled. The default is 9 pt. |
 | `background` | Color | The colour of the page. The default is white. |
-| `layout` | TileLayout | The grid of tiles in which axes and legend panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
-| `data` | map | The [data arrays](#data-arrays), keyed by DataId. |
+| `layout` | TileLayout | The grid of tiles in which axes and panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
+| `data` | array of DataArray | The [data arrays](#data-arrays) of the figure, which artists refer to by NodeId. |
 | `axes` | array of Axes | The axes of the figure, in drawing order. |
-| `panel_legends` | array of PanelLegend | The [legend panels](#legend-panels) of the figure, which occupy tiles of the layout as axes do and are drawn after every axes. Omitted from JSON when the figure has none. |
+| `panels` | array of Panel | The [panels](#panels) of the figure, which occupy tiles of the layout as axes do, hold its keys, and are drawn after every axes. Omitted from JSON when the figure has none. |
 | `links` | array of AxisLink | The groups of axes whose limits are [linked](#links). |
 | `provenance` | Provenance | A record of the software that wrote the figure; see [provenance](#provenance). |
 | `parameters` | map | Named values that describe the figure, used to sort, filter and search collections of figures; see [parameters](#parameters). Omitted from JSON when the figure has none. |
-| `labels` | array of string | Free words that describe the figure, used to filter and group collections of figures; see [labels](#labels). Omitted from JSON when the figure has none. |
+| `tags` | array of string | Free words that describe the figure, used to filter and group collections of figures; see [tags](#tags). Omitted from JSON when the figure has none. |
 
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
@@ -105,7 +105,7 @@ Every property of this table and of the tables below can be read in the viewer's
 
 ### Tile layout
 
-The tile layout divides the page below the figure title into a grid of tiles. Axes and legend panels each occupy a rectangular block of tiles, named by a `cell`.
+The tile layout divides the page below the figure title into a grid of tiles. Axes and panels each occupy a rectangular block of tiles, named by a `cell`.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
@@ -212,10 +212,10 @@ A categorical axis is expressed with these properties rather than with a type of
 
 ### Legend
 
-The legend of an axes lists every artist of the axes that has a display name, in artist order, unless its [entries](#legend-entries) are an explicit list. It takes one of two forms, each of which holds its content in a `value` property:
+The legend of an axes lists every artist of the axes that has a label, in artist order, unless its [entries](#legend-entries) are an explicit list. It takes one of two forms, each of which holds its content in a `value` property:
 
 - `{"type": "inside", "value": InsideLegend}` draws the entries in a legend inside the plot area of the axes. This is the form that a legend takes by default.
-- `{"type": "panel", "value": NodeId}` lists the entries in the [legend panel](#legend-panels) with that identifier, together with the entries of every other axes that names the same panel. The identifier must be that of a legend panel of the figure. Which panel an axes uses is part of the arrangement of the figure, so the property editor shows it read-only.
+- `{"type": "panel", "value": NodeId}` lists the entries in the [legend panel](#legend-panels) with that identifier, together with the entries of every other axes that names the same panel. The identifier must be that of a [panel](#panels) of the figure whose content is a legend: an identifier that names no node is the error `DanglingPanelLegend`, and one that names another kind of node, or a panel holding another kind of content, is the error `WrongNodeKind`. Which panel an axes uses is part of the arrangement of the figure, so the property editor shows it read-only.
 
 An axes therefore shows its entries either inside its plot area or in a panel, never in both. In Protocol Buffers the two forms are the variants `inside`, a `LegendInside` whose field `inside` holds the InsideLegend, and `panel`, a `LegendPanel` whose field `panel` holds the identifier.
 
@@ -232,7 +232,7 @@ An InsideLegend has four properties:
 
 #### Legend location
 
-A legend location is one of `north_east`, `north_west`, `south_east`, `south_west` (the corners), `north`, `south`, `east`, `west` (the centres of the edges), `center`, or `best`. Inside a plot area, `best` chooses the corner that overlaps the least data, and `center` places the legend over the centre of the plot, where it covers the data. Within a legend panel, which holds no data to avoid, `best` places the entries at the centre.
+A legend location is one of `north_east`, `north_west`, `south_east`, `south_west` (the corners), `north`, `south`, `east`, `west` (the centres of the edges), `center`, or `best`. Inside a plot area, `best` chooses the corner that overlaps the least data, and `center` places the legend over the centre of the plot, where it covers the data. The content of a panel is placed by a [panel location](#panel-location) instead, which offers the same locations without `best`.
 
 #### Legend entry layout
 
@@ -249,34 +249,56 @@ The default layout depends on where the entries are shown: an inside legend uses
 
 The entries of a legend take one of two forms:
 
-- `{"type": "auto"}` lists every artist with a display name: for a legend inside a plot area, the artists of its axes in artist order, and for a legend panel, the artists of every axes that names the panel, merged by name and look, in the reading order of the layout. This is the default.
+- `{"type": "auto"}` lists every artist with a label: for a legend inside a plot area, the artists of its axes in artist order, and for a legend panel, the artists of every axes that names the panel, merged by label and look, in the reading order of the layout. This is the default.
 - `{"type": "explicit", "value": [LegendItem, ...]}` lists exactly the given items, in the given order, whatever the order in which the artists are drawn. An explicit list of no items lists nothing.
 
 A LegendItem has two properties:
 
 | Property | Meaning |
 | --- | --- |
-| `content` | What the item lists: `{"type": "artist", "value": NodeId}` lists that artist, labelled by its display name beside the sample drawn for it, and `{"type": "custom", "value": {"label": Text, "sample": LegendSample}}` shows a label beside a sample and stands for no artist. |
+| `content` | What the item lists: `{"type": "artist", "value": NodeId}` lists that artist, with its label beside the sample drawn for it, and `{"type": "custom", "value": {"label": Text, "sample": LegendSample}}` shows a label beside a sample and stands for no artist. |
 | `full_row` | Whether the item spans every column of the legend, on a row of its own at its position in the list. The label of such an item sets the width of no column. |
 
-The items between two items on rows of their own form a group, which fills the columns on its own; every group has the same number of columns and the same order, and the columns of all groups share their widths, so that they line up. An item that names an artist in a legend panel may name an artist of any axes of the figure, and also stands for every artist of the axes that name the panel whose display name and look match it, so that clicking it in the viewer hides or shows that series in all of them. An item that names an artist is greyed only when every artist it stands for is hidden, as a merged automatic entry is. An item that stands for no artist is never greyed, and clicking it does nothing.
+The items between two items on rows of their own form a group, which fills the columns on its own; every group has the same number of columns and the same order, and the columns of all groups share their widths, so that they line up. An item that names an artist in a legend panel may name an artist of any axes of the figure, and also stands for every artist of the axes that name the panel whose label and look match it, so that clicking it in the viewer hides or shows that series in all of them. An item that names an artist is greyed only when every artist it stands for is hidden, as a merged automatic entry is. An item that stands for no artist is never greyed, and clicking it does nothing.
 
 A LegendSample is the sample of an item that stands for no artist, in one of two forms, each identified by its `type`:
 
 - `{"type": "line", "line": LineStyle, "marker": MarkerStyle}` is drawn as the sample of a line artist is drawn: a horizontal line in the [LineStyle](#linestyle) with a marker in the [MarkerStyle](#markerstyle) at its centre. A dash of `none` draws the marker alone, and a marker shape of `none` draws the line alone. A line colour of `auto` is the ink in which the axes and labels of the figure are drawn, because the item belongs to no axes whose colour order could supply one, and a marker colour of `auto` takes the line colour.
 - `{"type": "swatch", "color": Color}` is a filled rectangle of the colour.
 
-In Protocol Buffers the entries are a `LegendEntries` message whose oneof holds a `LegendEntriesAuto` or a `LegendEntriesExplicit`, in field 4 of an `InsideLegend` and field 6 of a `PanelLegend`; an absent message means automatic entries. Which entries a legend lists is part of how the figure is described by its author, so the property editor does not show them, and the [legends guide](../guides/legends.md#choosing-the-entries) explains how to build them.
+In Protocol Buffers the entries are a `LegendEntries` message whose oneof holds a `LegendEntriesAuto` or a `LegendEntriesExplicit`, in field 4 of an `InsideLegend` and field 3 of a `PanelLegend`; an absent message means automatic entries. Which entries a legend lists is part of how the figure is described by its author, so the property editor does not show them, and the [legends guide](../guides/legends.md#choosing-the-entries) explains how to build them.
 
-## Legend panels
+## Panels
 
-A legend panel is a legend of the figure rather than of one axes. It occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend, or the items of an explicit list of [entries](#legend-entries). A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same display name and are drawn the same way; the entries are listed in the reading order of the cells of their axes, by the row and then the column of the top-left tile of each cell, with the order of the axes in the figure breaking ties, and then in the order of the artists of each axes. The merge rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
+A **panel** is a node of the figure that occupies a block of tiles of the [tile layout](#tile-layout), as an axes does, and holds one key. Everything that follows from a panel occupying tiles is the same whatever it holds: how a [fitted](#tile-layout) row or column takes its size from the panels in it, how a panel is aligned with the plot areas around it, where its content is placed within it, and how [validation](#validation) checks its cell with `CellOutOfLayout` and `OverlappingCells`. The content decides only what is drawn in the panel and how much space that needs. The reasons for one kind of node with several kinds of content are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md#a-panel-is-one-node-kind-whose-content-decides-what-it-draws).
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `id` | NodeId | The identifier of the legend panel, unique among the nodes of the figure. |
+| `id` | NodeId | The identifier of the panel. |
 | `cell` | object | The block of tiles occupied, with the same properties as the `cell` of an [axes](#axes). The property editor shows it read-only, as it does the cell of an axes. |
-| `align` | string | Where the block of entries is placed within the panel, as a [legend location](#legend-location). The default is `center`. |
+| `align` | string | Where the content is placed within the panel, as a [panel location](#panel-location). The default is `center`. |
+| `content` | PanelContent | What the panel holds, as [panel content](#panel-content). The property editor shows the kind of content read-only, because what a panel holds is part of the arrangement of the figure, and lets the properties of the content be changed. |
+
+### Panel location
+
+A panel location is one of `north_east`, `north_west`, `south_east`, `south_west` (the corners), `north`, `south`, `east`, `west` (the centres of the edges) or `center`. These are the [legend locations](#legend-location) without `best`, because a panel holds no data for its content to avoid. In Protocol Buffers a panel location is the enum `PanelLocation`, whose values are prefixed `PANEL_LOCATION_`.
+
+### Panel content
+
+The content of a panel is a tagged variant that holds its value in a `value` property. The only kind of content is a legend:
+
+- `{"type": "legend", "value": PanelLegend}` holds a [legend](#legend-panels) that lists the entries of every axes whose legend names the panel.
+
+In Protocol Buffers the content is a `PanelContent` message whose oneof `kind` holds a `PanelContentLegend`, whose field `legend` holds the PanelLegend; an absent PanelLegend is the default legend of a panel.
+
+### Legend panels
+
+A panel whose content is a legend is called a **legend panel**. It is a legend of the figure rather than of one axes: it lists the entries of every axes whose [legend](#legend) names it, so that several axes can share one legend, or the items of an explicit list of [entries](#legend-entries). A figure may have several legend panels, for example one beneath each column of axes. A panel with no entries to list is valid but empty, and [validation](#validation) warns of it. A panel lists each series once when entries of several axes have the same label and are drawn the same way; the entries are listed in the reading order of the cells of their axes, by the row and then the column of the top-left tile of each cell, with the order of the axes in the figure breaking ties, and then in the order of the artists of each axes. The merge rule, the order of the entries and the placement of a panel are described in the [legends guide](../guides/legends.md#sharing-and-merging-entries), and the reasons for them in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md).
+
+The legend of a panel, a **PanelLegend**, holds only what a legend needs, because the cell and the alignment belong to the panel:
+
+| Property | Type | Meaning |
+| --- | --- | --- |
 | `boxed` | boolean | Whether the area of the panel is outlined by a border, drawn as the box of an [axes](#axes) is drawn and without a background. The area is aligned with the plot areas around it, so the border continues the edges of their boxes, and the entries are kept inset from it. The default is `true`. |
 | `layout` | object | How the entries are arranged in columns, as a [legend entry layout](#legend-entry-layout). The default is automatic columns, filled column by column. |
 | `entries` | object | Which entries the panel lists, and in what order, as [legend entries](#legend-entries). The default is automatic entries. Omitted from JSON when the entries are automatic. |
@@ -288,7 +310,7 @@ An artist is a drawable node of an axes. Every artist has three common propertie
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `id` | NodeId | The identifier of the artist. |
-| `display_name` | Text or `null` | The name shown in the legend. An artist without a display name has no legend entry. |
+| `label` | Text or `null` | The label drawn beside the sample of the artist in a legend. An artist without a label is not listed by automatic [legend entries](#legend-entries). |
 | `visible` | boolean | Whether the artist is drawn. A hidden artist emits nothing, but its data still contributes to automatic limits and it keeps its place in the colour order, so hiding it changes nothing else. |
 
 The artist variants are listed below, each with the MATLAB functions it represents. Array lengths and shapes are checked by validation, not by the schema.
@@ -299,8 +321,8 @@ A polyline through data points, with optional markers (MATLAB's `plot`, `plot3`,
 
 | Property | Meaning |
 | --- | --- |
-| `x`, `y` | DataIds of the point coordinates, one value per point. |
-| `z` | DataId of the z coordinates, or `null`. Allowed only in three-dimensional axes; without it, points lie in the plane z = 0. |
+| `x`, `y` | NodeIds of the data arrays of the point coordinates, one value per point. |
+| `z` | NodeId of the data array of the z coordinates, or `null`. Allowed only in three-dimensional axes; without it, points lie in the plane z = 0. |
 | `line` | The LineStyle of the line. A non-finite coordinate breaks the line. |
 | `marker` | The MarkerStyle of the markers drawn at the points. |
 | `x_coords`, `y_coords` | The [coordinates](#coordinates-and-clipping) of the x and y values: `data` (the default) or `axes_fraction`. |
@@ -313,8 +335,8 @@ Markers at data points, each with its own size and colour (MATLAB's `scatter` an
 | Property | Meaning |
 | --- | --- |
 | `x`, `y`, `z`, `x_coords`, `y_coords`, `clip` | As for a line. |
-| `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": DataId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
-| `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": DataId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
+| `size` | `{"type": "scalar", "value": number}` gives every marker the same size in points; `{"type": "data", "data": NodeId}` gives one size per point. It overrides `marker.size_pt`, which the property editor therefore shows read-only on a scatter. |
+| `color` | `{"type": "spec", "spec": ColorSpec}` gives every marker the same colour; `{"type": "data", "data": NodeId}` gives one value per point, mapped through the axes colormap and colour limits. The colour applies wherever `marker.face` or `marker.edge` is `auto`. |
 | `marker` | The MarkerStyle; its shape defaults to `circle`. |
 
 ### Coordinates and clipping
@@ -337,7 +359,7 @@ Isolines or filled bands of a scalar field sampled on a grid (MATLAB's `contour`
 | Property | Meaning |
 | --- | --- |
 | `grid` | The [grid](#grids) on which the field is sampled. |
-| `z` | DataId of the field, an array of shape `[ny, nx]`. |
+| `z` | NodeId of the data array of the field, an array of shape `[ny, nx]`. |
 | `levels` | `{"type": "auto", "count": integer}` chooses about `count` levels at round values (the default count is 10); `{"type": "explicit", "values": [number, …]}` gives strictly increasing levels. |
 | `fill` | `true` fills the bands between levels (`contourf`); `false` draws only isolines. |
 | `placement` | `{"type": "plane", "z": number or null}` places every contour in one horizontal plane, at the bottom of the z axis when `z` is `null`; `{"type": "at_level"}` places each isoline at the height of its level (`contour3`) and is valid only in three-dimensional axes. |
@@ -351,9 +373,9 @@ Arrows representing a vector field (MATLAB's `quiver` and `quiver3`).
 
 | Property | Meaning |
 | --- | --- |
-| `x`, `y`, `z` | DataIds of the arrow tails, one value per arrow; `z` as for a line. |
-| `u`, `v` | DataIds of the vector components, one value per arrow. |
-| `w` | DataId of the z components, or `null`. Allowed only in three-dimensional axes. |
+| `x`, `y`, `z` | NodeIds of the data arrays of the arrow tails, one value per arrow; `z` as for a line. |
+| `u`, `v` | NodeIds of the data arrays of the vector components, one value per arrow. |
+| `w` | NodeId of the data array of the z components, or `null`. Allowed only in three-dimensional axes. |
 | `scale` | `{"type": "auto"}` scales arrows so that they do not overlap; `{"type": "factor", "value": number}` multiplies the automatic scale; `{"type": "off"}` draws vectors with their lengths in data units. |
 | `line` | The LineStyle of the shafts and heads. |
 | `head_size` | The length of each arrow head as a fraction of its arrow's length. The default is 0.3. |
@@ -369,13 +391,13 @@ Every node of a surface is placed through the scale of its axis, in either proje
 | Property | Meaning |
 | --- | --- |
 | `grid` | The [grid](#grids) on which the surface is sampled. |
-| `z` | DataId of the field, an array of shape `[ny, nx]`: the height of every node in a three-dimensional axes, and the colour data of every node unless `c` is given. |
-| `c` | DataId of colour data with the same shape as `z`, or `null` to colour by `z`. |
+| `z` | NodeId of the data array of the field, an array of shape `[ny, nx]`: the height of every node in a three-dimensional axes, and the colour data of every node unless `c` is given. |
+| `c` | NodeId of the data array of colour data with the same shape as `z`, or `null` to colour by `z`. |
 | `face` | The ColorSpec of the faces. A colormapped face takes the colour of the mean of its four corner values; a face with a missing corner is not drawn. |
 | `edge` | The ColorSpec of the face edges. |
 | `edge_width_pt` | The width of the edges. The default is 0.5 pt. |
-| `face_alpha` | DataId of the [alpha](#alpha-and-opacity) of the faces at every node, an array of floating-point values with the same shape as `z`, or absent for faces whose alpha is 1. A face takes the mean of the alpha at its four corners, each clamped to `[0, 1]` before the mean is taken, as it takes the mean of their colour data; a face with a corner whose alpha is not finite is transparent. |
-| `edge_alpha` | DataId of the alpha of the face edges at every node, with the same shape as `z`, or absent for edges whose alpha is 1. The edges of a face take the mean of the edge alpha at its corners, clamped and made transparent by a non-finite value as the face alpha is. It may name the same array as `face_alpha`. |
+| `face_alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of the faces at every node, an array of floating-point values with the same shape as `z`, or absent for faces whose alpha is 1. A face takes the mean of the alpha at its four corners, each clamped to `[0, 1]` before the mean is taken, as it takes the mean of their colour data; a face with a corner whose alpha is not finite is transparent. |
+| `edge_alpha` | NodeId of the data array of the alpha of the face edges at every node, with the same shape as `z`, or absent for edges whose alpha is 1. The edges of a face take the mean of the edge alpha at its corners, clamped and made transparent by a non-finite value as the face alpha is. It may name the same array as `face_alpha`. |
 | `face_opacity` | The [opacity](#alpha-and-opacity) of the faces, a number from 0 to 1, which multiplies the alpha of every face. The default is 1. |
 | `edge_opacity` | The opacity of the face edges, a number from 0 to 1, which multiplies the alpha of every edge. The default is 1. |
 
@@ -387,7 +409,7 @@ A true-colour image: a raster of pixels, each with its own colour (MATLAB's `ima
 
 | Property | Meaning |
 | --- | --- |
-| `pixels` | DataId of the pixels, an array of shape `[ny, nx, 3]` (the red, green and blue components of every pixel) or `[ny, nx, 4]` (with an alpha component). Floating-point components lie from 0 to 1 and 8-bit components from 0 to 255. A pixel with a non-finite component is transparent. |
+| `pixels` | NodeId of the data array of the pixels, an array of shape `[ny, nx, 3]` (the red, green and blue components of every pixel) or `[ny, nx, 4]` (with an alpha component). Floating-point components lie from 0 to 1 and 8-bit components from 0 to 255. A pixel with a non-finite component is transparent. |
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
 | `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel: its alpha component in an array of four components, and 1 in an array of three. The default is 1. A true-colour image has no separate alpha array, because an array of four components already gives every pixel its own alpha. |
 
@@ -397,12 +419,12 @@ A colour-indexed image, whose pixels name entries of the axes colormap directly 
 
 | Property | Meaning |
 | --- | --- |
-| `indices` | DataId of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap, so every index greater than −1 and less than 256 names an entry. The indices neither use nor change the colour limits of the axes. |
+| `indices` | NodeId of the data array of the indices, an array of shape `[ny, nx]` of floating-point or 8-bit values. An index is looked up without any mapping: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the 256-entry colormap, so every index greater than −1 and less than 256 names an entry. The indices neither use nor change the colour limits of the axes. |
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
 | `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose truncated index is less than 0. |
 | `above` | The policy for a pixel whose truncated index is greater than 255. |
 | `non_finite` | The policy for a pixel whose index is NaN or infinite. |
-| `alpha` | DataId of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``indices``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
+| `alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``indices``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
 | `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel. The default is 1. |
 
 ### `mapped_image`
@@ -411,12 +433,12 @@ A colour-mapped image, whose pixels are data values scaled through the colour li
 
 | Property | Meaning |
 | --- | --- |
-| `values` | DataId of the values, an array of shape `[ny, nx]` of floating-point or 8-bit values, mapped through the axes colormap and colour limits as the colour data of a surface is. The values contribute to automatic colour limits in the same way. |
+| `values` | NodeId of the data array of the values, an array of shape `[ny, nx]` of floating-point or 8-bit values, mapped through the axes colormap and colour limits as the colour data of a surface is. The values contribute to automatic colour limits in the same way. |
 | `placement` | The [ImagePlacement](#image-placement) of the pixels in the axes. |
 | `below` | The [OutOfRange](#out-of-range-policies) policy for a pixel whose value is less than the lower colour limit. |
 | `above` | The policy for a pixel whose value is greater than the upper colour limit. |
 | `non_finite` | The policy for a pixel whose value is NaN or infinite. |
-| `alpha` | DataId of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``values``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
+| `alpha` | NodeId of the data array of the [alpha](#alpha-and-opacity) of every pixel, an array of the same shape as ``values``, or absent for pixels whose alpha is 1. It may hold floating-point values from 0 to 1 or 8-bit values from 0 to 255, as the components of a true-colour image may. A floating-point value outside `[0, 1]` is clamped to that range, and a pixel whose alpha is not finite is transparent. The alpha also multiplies the colour of a pixel drawn by a fixed-colour [out-of-range policy](#out-of-range-policies). |
 | `opacity` | The [opacity](#alpha-and-opacity) of the image, a number from 0 to 1, which multiplies the alpha of every pixel. The default is 1. |
 
 ### Image placement
@@ -508,7 +530,19 @@ Mathematics that the typesetter cannot handle is drawn as its raw source and rep
 
 ## Data arrays
 
-Artists refer to their numeric data by DataId rather than containing it, so that several artists can share one array and each array is stored once. Each entry of the figure's `data` object is an **NdArray**:
+A **data array** is a node of the figure that holds one numeric array. Artists refer to their data by the NodeId of a data array rather than containing it, so several artists, of any axes and in any role, can share one array, which is then stored once. Editing a shared array changes every artist that refers to it. The decision is recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md), and [sharing data between plots](../guides/getting-started.md#sharing-data-between-plots) shows how a program shares an array.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `id` | NodeId | The identifier of the data array. |
+| `name` | string or `null` | The name that identifies the array to tools such as the viewer's property editor, or `null` when the array has none. The name is never drawn, and it constrains nothing: two arrays may share a name, and a name may be empty. |
+| `array` | NdArray | The values of the array. |
+
+The values of a data array change only through the `replace_data` and `append_data` [edits](#edits). The property editor lists the data arrays of a figure, named by their names or, for an array without one, by its shape, but changes neither their names nor their values, because the data comes from the program that wrote the figure. A data array that no artist refers to is valid, and [validation](#validation) reports it with the warning `UnusedData`, because it costs space in every saved file.
+
+### NdArray
+
+The values of a data array are an **NdArray**:
 
 | Property | Meaning |
 | --- | --- |
@@ -526,8 +560,8 @@ Rows of a field correspond to y and columns to x, as in MATLAB: the value in row
 
 A **Grid** describes where the nodes of a field of shape `[ny, nx]` lie.
 
-- `{"type": "rectilinear", "x": DataId, "y": DataId}` is an axis-aligned grid: `x` holds `nx` column coordinates and `y` holds `ny` row coordinates.
-- `{"type": "curvilinear", "x": DataId, "y": DataId}` is a structured grid in which every node has its own coordinates: `x` and `y` are both arrays of shape `[ny, nx]`.
+- `{"type": "rectilinear", "x": NodeId, "y": NodeId}` is an axis-aligned grid: `x` holds `nx` column coordinates and `y` holds `ny` row coordinates.
+- `{"type": "curvilinear", "x": NodeId, "y": NodeId}` is a structured grid in which every node has its own coordinates: `x` and `y` are both arrays of shape `[ny, nx]`.
 
 ## Links
 
@@ -578,25 +612,42 @@ The form is stated explicitly because JSON has a single number type: without it,
 }
 ```
 
-## Labels
+## Tags
 
-A **label** is a free word that describes a figure, such as `surface` or `piv`. Labels are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. Like parameters, they do not affect drawing; they are stored with the figure so that collections of figures can be filtered and grouped by them.
+A **tag** is a free word that describes a figure, such as `surface` or `piv`. Tags are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. Like parameters, they are never drawn; they are stored with the figure so that collections of figures can be filtered and grouped by them. They were formerly called labels, and were renamed so that a label is always text that is drawn, as [ADR 0023](../adrs/0023-titles-labels-names-and-tags.md) records.
 
-The `labels` of a figure are an array of strings, kept in the order they were given, because that order is part of the figure's value and is the order the viewer lists them in. It is the one collection in the schema that is not sorted on writing.
+The `tags` of a figure are an array of strings, kept in the order they were given, because that order is part of the figure's value and is the order the viewer lists them in. It is the one collection in the schema that is not sorted on writing.
 
-A label must not be empty, and no label may occur twice in one figure. Labels are compared exactly, so `Surface` and `surface` are two distinct labels and neither is a repeat of the other. Both rules are reported by [validation](#validation), and the JSON Schema states them as well, as `minLength` on the items of the array and `uniqueItems` on the array itself, so a program generating figures from the schema is stopped before it writes one. The Protocol Buffers schema cannot express either rule, so a file in that encoding may carry an empty or repeated label; the viewer reports it and shows the labels once each, rather than altering the file.
+A tag must not be empty, and no tag may occur twice in one figure. Tags are compared exactly, so `Surface` and `surface` are two distinct tags and neither is a repeat of the other. Both rules are reported by [validation](#validation) as the error `InvalidTag`, and the JSON Schema states them as well, as `minLength` on the items of the array and `uniqueItems` on the array itself, so a program generating figures from the schema is stopped before it writes one. The Protocol Buffers schema cannot express either rule, so a file in that encoding may carry an empty or repeated tag; the viewer reports it and shows the tags once each, rather than altering the file.
 
 ```json
-"labels": ["surface", "3d", "piv"]
+"tags": ["surface", "3d", "piv"]
 ```
 
-Labels are edited in the viewer's [property editor](../guides/viewer.md#labels) as well as through the API, and are what the [figure browser](../guides/viewer.md#the-figure-browser) filters and groups a collection of figures by.
+Tags are edited in the viewer's [property editor](../guides/viewer.md#tags) as well as through the API, and are what the [figure browser](../guides/viewer.md#the-figure-browser) filters and groups a collection of figures by.
+
+## Edits
+
+A change to a figure is an **edit**, and edits are applied in a **transaction**, which applies all of its edits in order or none of them. A transaction is the Protocol Buffers message `Transaction` of `ironlab/ir/v0/edit.proto`, and a JSON object of the same structure whose `edits` are objects with a `type` that names the kind of edit. The viewer records every gesture and every change in its property editor as a transaction, and the reasons for the design are recorded in [ADR 0008](../adrs/0008-typed-edits-and-a-view-overlay.md) and, for data arrays and panels, in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md#data-arrays-and-panels-change-through-the-structural-edits).
+
+| Edit | Fields | Effect |
+| --- | --- | --- |
+| `set` | `node`, `path`, `value` | Replaces the value of one property of a node, addressed by a path of field names that starts at the fields of the node, such as `x.limits` of an axes, `line.width_pt` of a line or `content.legend.layout.columns` of a panel. |
+| `insert` | `parent`, `index`, `node` | Inserts a node with its subtree: a data array, an axes or a panel into the figure, which is then the parent, or an artist into an axes. `index` is the position in the parent's list of nodes of that kind, or `null` to append. The identifiers of the node and of its descendants must not be in use. |
+| `remove` | `node` | Removes a data array, an axes, an artist or a panel, with its subtree. |
+| `move` | `node`, `parent`, `index` | Moves a data array, an axes or a panel within the figure's list of its kind, or an artist within its axes or to another axes. |
+| `replace_data` | `node`, `array` | Replaces the values of an existing data array, which keeps its identifier and its name, so that every artist that refers to it draws the new values. It never creates a data array; `insert` does. |
+| `append_data` | `node`, `array`, `retain` | Appends entries to an existing data array along its first dimension. The entries must have the element type of the array and its shape after the first dimension. When `retain` is set, only the last `retain` entries are kept, which gives a rolling window for streamed data. |
+
+The identifiers, the schema version, the provenance, the lists of nodes and the values of a data array cannot be set with `set`: nodes change only through `insert`, `remove` and `move`, and values only through `replace_data` and `append_data`. An edit that names no node of the figure is refused with the error `UnknownNode`, or `UnknownData` for a data edit, and a data edit that names a node other than a data array, such as an axes, is refused with `WrongNodeKind`. After its edits, a transaction is [validated](#validation), and it is rolled back when validation reports an error that the figure did not have before; warnings never reject a transaction. Applying a transaction returns its inverse, which restores the figure exactly.
 
 ## Validation
 
 The encodings describe the structure of a figure but cannot express every rule. `Figure::validate` checks the rest and returns errors, which prevent a figure from being exported or shown, and warnings, which do not.
 
-Errors are reported for a reference to a DataId that is not in `data`, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values, the alpha of a surface among them), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional; for a surface, colour data or alpha whose shape differs from the shape of `z`; for a colour-indexed or colour-mapped image, alpha whose shape differs from the shape of its indices or values), an opacity that is not a finite number from 0 to 1 (`InvalidOpacity`), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a legend panel outside the tile layout or with a zero span, more row or column sizes than rows or columns or a weight that is not a finite positive number (`InvalidLayoutWeights`), an axes that lies in fitted rows alone or in fitted columns alone (`AxesInFittedTrack`), a legend that names a legend panel the figure does not have, an item of an explicit list of legend entries that names no artist of the figure, or, in a legend inside a plot area, an artist of another axes (`DanglingLegendItem`), a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), an aspect ratio of y or of z that is not a finite positive number (`InvalidAspect`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, an image whose plane has a logarithmic axis (`ImageOnLogAxis`), an image in a three-dimensional axes whose plane is offset to a coordinate that is not positive along a logarithmic third axis (`InvalidImagePlacement`), and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list: a panel with automatic entries that no axes names in its legend, or whose axes have no artist with a display name, and a panel with an explicit list of no items. A panel with an explicit list of items is never empty, whether or not an axes names it. The warning `DuplicateLegendItem` is reported for an item of an explicit list whose content repeats that of an earlier item, because the legend then lists it twice, and the warning `UnnamedLegendItem` for an item that names an artist without a display name, which is listed with its sample and no label. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or legend panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the legend panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+Errors are reported for a reference to data that names no node of the figure (`UnknownData`), a reference that names a node of the wrong kind (`WrongNodeKind`), namely an artist's data that names a node other than a data array, a legend that names a node other than a panel holding a legend, and an item of an explicit list of legend entries that names a node other than an artist, an array whose number of values does not match its shape, an artist other than an image that refers to an array of 8-bit values (every artist other than the three image kinds requires floating-point values, the alpha of a surface among them), arrays of one artist with inconsistent lengths or shapes (for an image, pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices or values that are not two-dimensional; for a surface, colour data or alpha whose shape differs from the shape of `z`; for a colour-indexed or colour-mapped image, alpha whose shape differs from the shape of its indices or values), an opacity that is not a finite number from 0 to 1 (`InvalidOpacity`), an artist or placement that needs the z axis in a two-dimensional axes (z or w data, contours at their level, or an image on the xz or yz plane; a surface is not among them, because a two-dimensional axes shows it from directly above), a line or scatter in a three-dimensional axes with a dimension in [axes-fraction coordinates](#coordinates-and-clipping), a link to an identifier that is not an axes, two nodes with the same identifier, a cell of an axes or a panel outside the tile layout or with a zero span, more row or column sizes than rows or columns or a weight that is not a finite positive number (`InvalidLayoutWeights`), an axes that lies in fitted rows alone or in fitted columns alone (`AxesInFittedTrack`), a legend that names no node as its panel (`DanglingPanelLegend`), an item of an explicit list of legend entries that names no artist of the figure, or, in a legend inside a plot area, an artist of another axes (`DanglingLegendItem`), a legend with a fixed number of columns of zero, a non-positive figure size or font size, invalid manual limits, a tick step that is not a finite positive number or a tick origin that is not finite (`InvalidTicks`), an explicit tick value that is not finite or, on a logarithmic axis, not positive (`InvalidTicks`), explicit tick labels whose ticks are not explicit values of the same number (`InvalidTickLabels`), an aspect ratio of y or of z that is not a finite positive number (`InvalidAspect`), empty, non-finite or non-increasing contour levels, a parameter with an empty name or a non-finite number, a tag that is empty or repeated (`InvalidTag`), an image placement whose pixel centres or plane offset are not finite or whose first and last centres coincide along an axis of more than one pixel, an image whose plane has a logarithmic axis (`ImageOnLogAxis`), an image in a three-dimensional axes whose plane is offset to a coordinate that is not positive along a logarithmic third axis (`InvalidImagePlacement`), and a pixel of a colour-indexed or colour-mapped image that falls in a category whose [out-of-range policy](#out-of-range-policies) is strict. Warnings are reported for an artist that is left out of the drawing because it draws with less than its data holds: finite non-positive data plotted along a logarithmic axis, which is not drawn; a line or scatter whose released `clip` has no effect, as [coordinates and clipping](#coordinates-and-clipping) describes, reported as `IneffectiveClip`; and an artist whose data gives it nothing to draw, namely a line, scatter or quiver of no points, an image of any kind with no rows or no columns, and a contour or surface whose field has no rows or no columns or a single row or a single column, between whose nodes there is no cell. The same warning, `NothingToDraw`, is reported for a [legend panel](#legend-panels) that has no entries to list: a panel with automatic entries that no axes names in its legend, or whose axes have no artist with a label, and a panel with an explicit list of no items. A panel with an explicit list of items is never empty, whether or not an axes names it. The warning `DuplicateLegendItem` is reported for an item of an explicit list whose content repeats that of an earlier item, because the legend then lists it twice, and the warning `UnnamedLegendItem` for an item that names an artist without a label, which is listed with its sample alone. The warning `UnusedData` is reported for a [data array](#data-arrays) that no artist refers to; a hidden artist still refers to its data. For an artist, `NothingToDraw` names the artist and states which case applies and the shape of the array; it is reported only for an artist that is reported for no error, so that an error stands alone. The warning `OverlappingCells` is reported when the cells of two nodes of the [tile layout](#tile-layout), axes or panels, share at least one tile, so that one is drawn over the other. It is reported once for each such pair, against the later of the two nodes, taking the axes before the panels and each in the order the figure lists them, and its message names both nodes. A cell outside the tile layout, which is an error, is not compared with any other. Empty and singleton data are valid in every artist, so a figure built before its data arrives, or streamed from nothing, is valid at every step; the reasons are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md).
+
+The issues of each node are reported in the order of the node tree: the figure, then its data arrays, then each axes followed by its artists, and then its panels. The checks that compare several nodes, namely duplicate identifiers, overlapping cells and unused data arrays, are reported after them.
 
 ## A minimal JSON file
 
@@ -612,13 +663,13 @@ The following JSON file describes one two-dimensional axes with a line through t
   "font_size_pt": 9.0,
   "background": "#ffffff",
   "layout": { "rows": 1, "cols": 1 },
-  "data": {
-    "0": { "shape": [3], "values": [0.0, 1.0, 2.0] },
-    "1": { "shape": [3], "values": [0.0, 1.0, null] }
-  },
+  "data": [
+    { "id": 1, "name": null, "array": { "shape": [3], "values": [0.0, 1.0, 2.0] } },
+    { "id": 2, "name": null, "array": { "shape": [3], "values": [0.0, 1.0, null] } }
+  ],
   "axes": [
     {
-      "id": 1,
+      "id": 3,
       "cell": { "row": 0, "col": 0, "row_span": 1, "col_span": 1 },
       "projection": { "type": "two_d" },
       "title": null,
@@ -635,11 +686,11 @@ The following JSON file describes one two-dimensional axes with a line through t
       "artists": [
         {
           "type": "line",
-          "id": 2,
-          "display_name": null,
+          "id": 4,
+          "label": null,
           "visible": true,
-          "x": 0,
-          "y": 1,
+          "x": 1,
+          "y": 2,
           "z": null,
           "line": { "color": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
           "marker": { "shape": "circle", "size_pt": 4.0, "face": { "type": "none" }, "edge": { "type": "auto" } },
@@ -660,7 +711,7 @@ The following JSON file describes one two-dimensional axes with a line through t
 }
 ```
 
-The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, labels or legend panels, and its tile layout has no weights, so the file has none of those properties.
+The third y value is `null`, so it is missing: the line ends at the second point, and a marker is drawn only at the first two. The figure has no parameters, tags or panels, and its tile layout has no weights, so the file has none of those properties.
 
 ## Versioning
 
@@ -681,7 +732,7 @@ The schema has had the following versions:
 - **0.6.0** added the [alpha and opacity](#alpha-and-opacity) of the image, surface and contour artists: `opacity` on every image kind, `alpha` on [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), `face_alpha`, `edge_alpha`, `face_opacity` and `edge_opacity` on [`surface`](#surface), and `line_opacity` and `fill_opacity` on [`contour`](#contour). A reader of version 0.5 would draw such artists opaque, so a file of version 0.5 is rejected.
 - **0.5.0** added the direction (`reverse`), the [ticks](#ticks) and the [tick labels](#tick-labels) of an axis, the [coordinates and clipping](#coordinates-and-clipping) (`x_coords`, `y_coords`, `clip`) of lines and scatters, the markers `v_line` and `h_line`, the dash patterns `dash_dot_dot` and `long_dash`, the [aspect](#aspect) (`aspect`, `aspect_adjust`) and the title alignment (`title_align`) of an axes, the [explicit entries](#legend-entries) (`entries`) of a legend, and fitted tracks in the row and column sizes of the [tile layout](#tile-layout). A file of version 0.4 is rejected.
 - **0.4.0** added [legend panels](#legend-panels) (`panel_legends`), changed the [legend](#legend) of an axes from a single object into a choice between a legend inside the plot area and a legend panel, added the [layout of legend entries](#legend-entry-layout) in columns and the legend location `center`, and added the row and column weights of the [tile layout](#tile-layout). A file of version 0.3 is rejected.
-- **0.3.1** added the [labels](#labels) of a figure. It is a patch version because a reader of version 0.3.0 that ignores labels still draws the figure correctly, so files are exchanged in both directions between the two.
+- **0.3.1** added the labels of a figure, which are now its [tags](#tags). It is a patch version because a reader of version 0.3.0 that ignores them still draws the figure correctly, so files are exchanged in both directions between the two.
 - **0.3.0** added the image artists [`image`](#image), [`indexed_image`](#indexed_image) and [`mapped_image`](#mapped_image), with their [placement](#image-placement) and [out-of-range policies](#out-of-range-policies), and the element type of a [data array](#data-arrays), which lets an array hold 8-bit values (`element` in JSON, and `element` with the `u8_values` payload in Protocol Buffers). A file of version 0.2 is rejected.
 - **0.2.0** added the [parameters](#parameters) of a figure, and replaced the `pan` array of a View3d with the properties `pan_x` and `pan_y`, so that JSON uses the same names as Protocol Buffers. A file of version 0.1 is rejected.
 - **0.1.0** was the first version.
@@ -690,9 +741,9 @@ The schema has had the following versions:
 
 The model is designed so that further MATLAB plot types are added without restructuring it. Before any new plot type or entity is implemented, its data structure and options are defined in `ironlab-ir` and reviewed, as the project rules require.
 
-- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by DataId, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour. A pseudocolour plot (`pcolor`) needed no new variant, because it is a [surface](#surface) in a two-dimensional axes.
+- **Most plot types are new artist variants.** Bar charts, histograms, stem, stairs, area and error-bar plots, patches and streamlines each become a new variant of Artist: a new `type` in JSON and a new variant of the `kind` oneof in Protocol Buffers. Each variant has the three common properties, refers to its data by the NodeIds of data arrays, reuses LineStyle, MarkerStyle, ColorSpec and Grid where they apply, and states its array-shape rules in validation. The three [image artists](#image) were added in this way; the two mapped kinds take their colours from the axes colormap and colour limits, as surfaces do, and add only what a raster needs beyond that, namely a placement and a policy for the pixels the colormap cannot colour. A pseudocolour plot (`pcolor`) needed no new variant, because it is a [surface](#surface) in a two-dimensional axes.
 - **New coordinate systems are new projections.** Polar and geographic axes become new variants of Projection, each with its own view properties, alongside `two_d` and `three_d`.
-- **New axes-level decorations are new axes properties.** A colorbar, for example, becomes an optional property of an axes that refers to the axes colormap and colour limits, so that it cannot disagree with them.
+- **New keys are new kinds of panel content.** A key that occupies tiles of the layout is a new variant of [panel content](#panel-content) rather than a new kind of node, so it is placed, fitted and checked as every panel is. Colourbars are planned in this way, as panel content and as an option drawn inside the plot area of an axes.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.
 
 Each such addition is a new variant of a tagged entity and therefore increments the minor version of the schema, as described in [versioning](#versioning). The scene compiler then learns to draw the new variant; neither backend changes, as explained in the [architecture reference](architecture.md#one-path-to-pixels).

@@ -61,12 +61,14 @@
 //!   written before the element existed holds, and rejects an array whose payloads
 //!   disagree with its element (values in the other payload, or in both) as
 //!   [`ProtobufError::InvalidValue`](crate::ProtobufError::InvalidValue).
-//! - The data table of a figure is a `map<uint64, NdArray>`, encoded in ascending key
-//!   order so that a figure always encodes to the same bytes. (Figures that compare
-//!   equal may still encode differently, because the equality of figures does not
-//!   distinguish negative from positive zero or one NaN from another.)
+//! - The data arrays of a figure are a `repeated DataArray`, each with its node
+//!   identifier, its array and its optional name, encoded in the order of the figure, so
+//!   that a figure always encodes to the same bytes. (Figures that compare equal may
+//!   still encode differently, because the equality of figures does not distinguish
+//!   negative from positive zero or one NaN from another.)
 //! - The parameters of a figure are a `map<string, Parameter>`, encoded in ascending
-//!   order of the UTF-8 bytes of the name, for the same reason.
+//!   order of the UTF-8 bytes of the name, so that a figure always encodes to the same
+//!   bytes.
 //! - Field 1 of `Figure` is `schema_version`. It never changes, so that any reader can
 //!   check the version of a file before decoding the rest of it.
 //!
@@ -87,9 +89,10 @@
 //!
 //! - the kind of an artist, the dimension of an axis link, and the kind of a figure
 //!   parameter together with its value when it is a boolean, an integer or a number;
-//! - every identifier that refers to a node or a data array and is not optional in the
-//!   domain: the identifier of the figure, of each axes, of each artist and of each
-//!   legend panel, the legend panel that the legend of an axes names, the x and y
+//! - the content of a panel, and the array of a data array;
+//! - every identifier that refers to a node and is not optional in the domain: the
+//!   identifier of the figure, of each data array, of each axes, of each artist and of
+//!   each panel, the panel that the legend of an axes names, the x and y
 //!   data of a line, scatter or quiver, the u and v data of a quiver, the z data of a
 //!   contour or surface, the grid of a contour or surface (its kind and both of its
 //!   coordinate arrays), the data of per-point scatter sizes and colours, and the
@@ -110,8 +113,8 @@
 //!
 //! Optional references and values (the z data of a line, scatter or quiver, the w data
 //! of a quiver, the colour data and the face and edge alpha of a surface, the alpha of
-//! a colour-indexed or colour-mapped image, and the pixel ranges and plane offset of an
-//! image) are absent in the domain when they are absent on the wire, and the encoder
+//! a colour-indexed or colour-mapped image, the pixel ranges and plane offset of an
+//! image, and the name of a data array) are absent in the domain when they are absent on the wire, and the encoder
 //! writes them as absent rather than as a zero, which would move an image. An absent
 //! [`Provenance`](crate::Provenance) decodes as an empty
 //! provenance (empty strings and no fonts) rather than as the provenance of this build,
@@ -432,6 +435,7 @@ mod figure;
 mod layout;
 mod legend;
 mod link;
+mod panel;
 mod style;
 mod text;
 
@@ -443,8 +447,13 @@ pub use figure::*;
 pub use layout::*;
 pub use legend::*;
 pub use link::*;
+pub use panel::*;
 pub use style::*;
 pub use text::*;
+
+/// The conversions of the nodes of a figure, whose dispatch over the kinds of node and of
+/// artist the declaration of the kinds of node generates.
+pub(crate) use convert::{Decode, Encode, required};
 
 /// The Protocol Buffers package of the figure format.
 pub const PACKAGE: &str = "ironlab.ir.v0";
@@ -488,6 +497,7 @@ pub(crate) const FILES: &[schema::FileDef] = &[
     figure::FILE,
     axes::FILE,
     legend::FILE,
+    panel::FILE,
     layout::FILE,
     artist::FILE,
     style::FILE,

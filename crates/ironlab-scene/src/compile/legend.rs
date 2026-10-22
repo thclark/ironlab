@@ -11,7 +11,8 @@
 use ironlab_ir::{
     Artist, ColorSpec, IndexedImage, Interpreter, Legend, LegendEntries, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation,
-    LegendSample, LineStyle, MappedImage, MarkerStyle, NodeId, PanelLegend, ScatterSize, Text,
+    LegendSample, LineStyle, MappedImage, MarkerStyle, NodeId, Panel, PanelLegend, PanelLocation,
+    ScatterSize, Text,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
@@ -23,6 +24,8 @@ use super::axes2d;
 use super::data::{ArtistData, Prepared};
 use super::decor::TICK_SCALE;
 use super::image;
+use super::layout::Along;
+use super::panel;
 use super::paths::{self, PathBuilder};
 use super::style::{self, ColourScale, INK, Paint};
 use super::text::{TextBlock, measure};
@@ -38,7 +41,7 @@ const HIDDEN_ALPHA: f32 = 0.35;
 /// reported as an overflow.
 const FIT_TOLERANCE: f64 = 1e-6;
 
-/// The label of an item that names an artist without a display name.
+/// The label of an item that names an artist without a label.
 static NO_NAME: Text = Text {
     content: String::new(),
     interpreter: Interpreter::None,
@@ -207,11 +210,11 @@ impl Metrics {
 
 /// Returns the inset that a legend panel keeps between its border and its entries, for the base font size
 /// `font_size`: the inset of an inside legend when the panel is boxed, and none otherwise.
-pub(super) fn panel_inset(font_size: f64, panel: &PanelLegend) -> f64 {
+fn panel_inset(font_size: f64, legend: &PanelLegend) -> f64 {
     // Why: entries against a border look cramped and read as part of the frame, so a boxed panel keeps them the
     // inset an inside legend keeps from the box of its axes; an unboxed panel has no frame to clear, and its block
     // sits flush with the edges it is aligned to.
-    if panel.boxed {
+    if legend.boxed {
         Metrics::new(font_size).inset
     } else {
         0.0
@@ -255,7 +258,7 @@ pub(super) fn candidates<'a>(
             Some(Candidate {
                 axes: axes.id,
                 artist: p.artist.id(),
-                name: p.artist.display_name(),
+                name: p.artist.label(),
                 sample: sample(p.artist, data, colour, colours.middle()),
                 visible: p.artist.visible(),
             })
@@ -287,27 +290,68 @@ fn inside_entries<'a>(entries: &'a LegendEntries, own: &[Candidate<'a>]) -> Vec<
     }
 }
 
-/// Returns the entries of a legend panel.
+/// The legend of a panel with its entries chosen and measured.
+pub(super) struct PanelListing<'a> {
+    legend: &'a PanelLegend,
+    listing: Listing<'a>,
+}
+
+impl<'a> PanelListing<'a> {
+    /// Chooses and measures the entries of the legend of the panel `panel`, from the candidates `gathered` of the
+    /// axes that name the panel and the candidates `figure` of every axes, as [`panel_entries`] describes.
+    pub(super) fn new(
+        ctx: &mut Ctx,
+        panel: NodeId,
+        legend: &'a PanelLegend,
+        gathered: &[&Candidate<'a>],
+        figure: &[Vec<Candidate<'a>>],
+    ) -> Self {
+        let entries = panel_entries(ctx, panel, legend, gathered, figure);
+        Self {
+            legend,
+            listing: Listing::new(ctx, panel, entries),
+        }
+    }
+
+    /// Returns the height (along [`Along::Rows`]) or width (along [`Along::Cols`]) of the area that the legend
+    /// needs for its entries, its insets included, when the other dimension of the area is `cross`.
+    pub(super) fn size(&self, font_size: f64, along: Along, cross: f64) -> f64 {
+        let inset = panel_inset(font_size, self.legend);
+        let (fill, max) = match along {
+            Along::Rows => (Fill::Width, (cross - 2.0 * inset, f64::INFINITY)),
+            Along::Cols => (Fill::Height, (f64::INFINITY, cross - 2.0 * inset)),
+        };
+        let (w, h) = self.listing.size(font_size, self.legend.layout, fill, max);
+        2.0 * inset
+            + match along {
+                Along::Rows => h,
+                Along::Cols => w,
+            }
+    }
+}
+
+/// Returns the entries of the legend of a panel.
 ///
 /// `gathered` holds the candidates of the axes that name the panel, in the reading order of their cells, and
 /// `figure` the candidates of every axes of the figure. Automatic entries are the named candidates gathered, with
 /// those of the same name and look merged into one. An explicit list gives exactly its items, in their order: an
 /// artist item takes the artist from any axes of the figure, and also stands for every gathered candidate of the
-/// same display name and look, so that clicking it acts on the same series in every axes that names the panel.
-pub(super) fn panel_entries<'a>(
+/// same label and look, so that clicking it acts on the same series in every axes that names the panel.
+fn panel_entries<'a>(
     ctx: &mut Ctx,
-    panel: &'a PanelLegend,
+    panel: NodeId,
+    legend: &'a PanelLegend,
     gathered: &[&Candidate<'a>],
     figure: &[Vec<Candidate<'a>>],
 ) -> Vec<Entry<'a>> {
-    match &panel.entries {
+    match &legend.entries {
         LegendEntries::Auto => {
             let entries = gathered
                 .iter()
                 .filter(|c| c.name.is_some())
                 .map(|c| Entry::of(c, false))
                 .collect();
-            merge(ctx, LegendOwner::Panel(panel.id), entries)
+            merge(ctx, LegendOwner::Panel(panel), entries)
         }
         LegendEntries::Explicit(items) => items
             .iter()
@@ -390,31 +434,27 @@ pub(super) fn draw_inside(
     );
 }
 
-/// Draws a legend panel in `area` with its listing, arranging automatic columns as `fill` says, and records the
-/// entries that stand for artists in the hit map.
+/// Draws the legend of a panel in the panel's `area`, arranging automatic columns as `fill` says,
+/// and records the entries that stand for artists in the hit map.
 ///
-/// A boxed panel outlines `area` as an axes outlines its plot area, and keeps its entries the legend inset inside
-/// that border. A boxed panel with no entries draws only its border, and an unboxed one draws nothing.
+/// A boxed legend outlines `area` as an axes outlines its plot area, and keeps its entries the legend inset inside
+/// that border. A boxed legend with no entries draws only its border, and an unboxed one draws nothing.
 pub(super) fn draw_panel(
     ctx: &mut Ctx,
-    panel: &PanelLegend,
+    panel: &Panel,
+    content: &PanelListing,
     area: Rect,
-    listing: &Listing,
     fill: Fill,
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
+    let PanelListing { legend, listing } = content;
     // Why: the panel's area is aligned with the plot areas of the axes in its rows and columns, so a border drawn
     // as their box is drawn continues the edges of their boxes.
-    if panel.boxed {
+    if legend.boxed {
         out.extend(axes2d::frame(panel.id, area));
     }
-    // A panel holds no data to avoid, so the best location is the centre.
-    let align = match panel.align {
-        LegendLocation::Best => LegendLocation::Center,
-        align => align,
-    };
-    let inset = panel_inset(ctx.font_size, panel);
+    let inset = panel_inset(ctx.font_size, legend);
     let available = Rect::new(
         area.x + inset,
         area.y + inset,
@@ -426,22 +466,22 @@ pub(super) fn draw_panel(
         Block {
             owner: LegendOwner::Panel(panel.id),
             source: panel.id,
-            layout: panel.layout,
+            layout: legend.layout,
             fill,
             boxed: false,
             available,
         },
         listing,
-        |width, height| place(area, width, height, align, inset, &[]),
+        |width, height| panel::place(area, width, height, panel.align, inset),
         out,
         hits,
     );
 }
 
-/// Merges entries with the same display name and the same sample into one entry that stands for all of their
+/// Merges entries with the same label and the same sample into one entry that stands for all of their
 /// artists, keeping the order in which each merged entry first appears.
 ///
-/// Entries that share a display name but not a sample are all listed, and one [`SceneWarningKind::LegendNameClash`]
+/// Entries that share a label but not a sample are all listed, and one [`SceneWarningKind::LegendNameClash`]
 /// is reported for each such name, because the reader cannot tell which entry stands for which series.
 fn merge<'a>(ctx: &mut Ctx, owner: LegendOwner, entries: Vec<Entry<'a>>) -> Vec<Entry<'a>> {
     let mut merged: Vec<Entry<'a>> = Vec::new();
@@ -806,29 +846,23 @@ fn place(
     inset: f64,
     points: &[Point],
 ) -> Rect {
-    let left = area.x + inset;
-    let right = area.right() - inset - width;
-    let top = area.y + inset;
-    let bottom = area.bottom() - inset - height;
-    let cx = area.x + (area.width - width) / 2.0;
-    let cy = area.y + (area.height - height) / 2.0;
-    let at = |x: f64, y: f64| Rect::new(x, y, width, height);
+    let at = |align| panel::place(area, width, height, align, inset);
     match location {
-        LegendLocation::NorthEast => at(right, top),
-        LegendLocation::NorthWest => at(left, top),
-        LegendLocation::SouthEast => at(right, bottom),
-        LegendLocation::SouthWest => at(left, bottom),
-        LegendLocation::North => at(cx, top),
-        LegendLocation::South => at(cx, bottom),
-        LegendLocation::East => at(right, cy),
-        LegendLocation::West => at(left, cy),
-        LegendLocation::Center => at(cx, cy),
+        LegendLocation::NorthEast => at(PanelLocation::NorthEast),
+        LegendLocation::NorthWest => at(PanelLocation::NorthWest),
+        LegendLocation::SouthEast => at(PanelLocation::SouthEast),
+        LegendLocation::SouthWest => at(PanelLocation::SouthWest),
+        LegendLocation::North => at(PanelLocation::North),
+        LegendLocation::South => at(PanelLocation::South),
+        LegendLocation::East => at(PanelLocation::East),
+        LegendLocation::West => at(PanelLocation::West),
+        LegendLocation::Center => at(PanelLocation::Center),
         LegendLocation::Best => {
             let candidates = [
-                at(right, top),
-                at(left, top),
-                at(right, bottom),
-                at(left, bottom),
+                at(PanelLocation::NorthEast),
+                at(PanelLocation::NorthWest),
+                at(PanelLocation::SouthEast),
+                at(PanelLocation::SouthWest),
             ];
             let covered = |r: &Rect| points.iter().filter(|p| r.contains(**p)).count();
             candidates

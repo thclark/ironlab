@@ -10,7 +10,7 @@
 //! - [`panel`] draws the property editor as a side panel: the object tree above, the inspector below, both built by
 //!   [`ironlab_canvas::inspector`].
 //! - [`browse`] works out what a collection of figures offers to be filtered, ordered and grouped by, from the
-//!   labels and parameters its figures carry, and applies what the user chose; it is pure logic with no egui in it.
+//!   tags and parameters its figures carry, and applies what the user chose; it is pure logic with no egui in it.
 //! - [`sidebar`] draws that as the figure browser: a left-hand panel that narrows the open figures down to the one
 //!   to look at.
 //! - [`widgets`] holds every control of the interface, drawn in one design language.
@@ -33,7 +33,7 @@ pub mod widgets;
 pub use app::{ToolbarResponse, ViewerApp, run, toolbar};
 pub use browse::{
     Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
-    Group, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets, parameter_names,
+    Group, Query, Results, Sort, SortKey, Term, browsable_tags, describe_facets, parameter_names,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use callback::GpuCallback;

@@ -68,8 +68,8 @@ fn stack_over_fitted_row(
     fx.fig.layout.row_weights = (0..axes_rows).map(|_| W).chain([TrackSize::Fit]).collect();
     let axes: Vec<NodeId> = (0..axes_rows).map(|row| fx.axes2d(row, 0)).collect();
     let panel = fx.panel(cell(axes_rows, 0, 1, 1));
-    fx.panel_mut(panel).layout = layout;
-    fx.panel_mut(panel).boxed = boxed;
+    fx.legend_mut(panel).layout = layout;
+    fx.legend_mut(panel).boxed = boxed;
     let lines = names
         .iter()
         .map(|name| fx.named_line(axes[0], name, |_| {}))
@@ -246,7 +246,7 @@ fn automatic_columns_in_a_fitted_row_take_the_fewest_rows_the_width_allows() {
     );
     // One row fewer would need more columns than the width holds.
     let (mut fx, _, _, panel) = stack_over_fitted_row(1, &long, AUTO, true);
-    fx.panel_mut(panel).layout = fixed(12_usize.div_ceil(rows - 1) as u32);
+    fx.legend_mut(panel).layout = fixed(12_usize.div_ceil(rows - 1) as u32);
     let fewer_rows = compile_figure(&fx.build());
     assert!(
         overflows(&fewer_rows, panel),
@@ -272,7 +272,7 @@ fn a_key_beneath_a_stack_of_linked_axes_fits_its_fitted_row() {
         ..LegendItem::artist(lines[0])
     }];
     items.extend(lines[1..].iter().map(|&l| LegendItem::artist(l)));
-    fx.panel_mut(panel).entries = LegendEntries::Explicit(items);
+    fx.legend_mut(panel).entries = LegendEntries::Explicit(items);
     let scene = compile_figure(&fx.build());
     assert!(!overflows(&scene, panel), "{:?}", scene.warnings);
     let area = panel_rect(&scene, panel);
@@ -300,7 +300,7 @@ fn a_panel_in_a_fitted_row_beside_a_tall_axes_lines_up_with_its_plot_and_fits() 
         fx.named_line(ax, &name, |_| {});
     }
     let panel = fx.panel(cell(1, 1, 1, 1));
-    fx.panel_mut(panel).layout = fixed(1);
+    fx.legend_mut(panel).layout = fixed(1);
     fx.legend_in(ax, panel);
     let scene = compile_figure(&fx.build());
     assert!(!overflows(&scene, panel), "{:?}", scene.warnings);
@@ -323,12 +323,12 @@ fn a_fitted_row_holding_two_panels_is_as_tall_as_the_taller() {
         let a = fx.panel(cell(1, 0, 1, 1));
         let b = fx.panel(cell(1, 1, 1, 1));
         for (panel, n, prefix) in [(a, left, "L"), (b, right, "R")] {
-            fx.panel_mut(panel).layout = fixed(1);
+            fx.legend_mut(panel).layout = fixed(1);
             let items = names(prefix, n)
                 .iter()
                 .map(|name| LegendItem::artist(fx.named_line(ax, name, |_| {})))
                 .collect();
-            fx.panel_mut(panel).entries = LegendEntries::Explicit(items);
+            fx.legend_mut(panel).entries = LegendEntries::Explicit(items);
         }
         let scene = compile_figure(&fx.build());
         assert!(

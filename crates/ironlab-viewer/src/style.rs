@@ -88,7 +88,7 @@ pub const PROBLEM: Color32 = Color32::from_rgb(229, 146, 128);
 /// figure and the dark panels beside it both read as objects against it.
 pub const SURROUND: Color32 = Color32::from_rgb(43, 43, 46);
 
-/// The fill of a chip that narrows a parameter: a wash of blue, the same construction as [`LABEL_CHIP_FILL`] in
+/// The fill of a chip that narrows a parameter: a wash of blue, the same construction as [`TAG_CHIP_FILL`] in
 /// another hue, so that the two kinds of chip read as one kind of thing.
 pub const CHIP_FILL: Color32 = Color32::from_rgb(29, 43, 56);
 
@@ -104,20 +104,20 @@ pub const CHIP_KEY: Color32 = Color32::from_rgb(143, 196, 230);
 /// The value on a chip.
 pub const CHIP_TEXT: Color32 = Color32::from_rgb(191, 227, 247);
 
-/// The fill of a chip that narrows the labels, and of a tag beneath the canvas: a wash of green.
-pub const LABEL_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
+/// The fill of a chip that narrows the tags, and of a tag beneath the canvas: a wash of green.
+pub const TAG_CHIP_FILL: Color32 = Color32::from_rgb(43, 58, 47);
 
-/// The fill of a chip that narrows the labels while the pointer is over it.
-pub const LABEL_CHIP_HOVER: Color32 = Color32::from_rgb(55, 74, 60);
+/// The fill of a chip that narrows the tags while the pointer is over it.
+pub const TAG_CHIP_HOVER: Color32 = Color32::from_rgb(55, 74, 60);
 
-/// The outline of a chip that narrows the labels, and of a tag.
-pub const LABEL_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
+/// The outline of a chip that narrows the tags, and of a tag.
+pub const TAG_CHIP_STROKE: Color32 = Color32::from_rgb(63, 90, 70);
 
-/// The word "labels" on a chip that narrows the labels.
-pub const LABEL_CHIP_KEY: Color32 = Color32::from_rgb(143, 191, 158);
+/// The word "tags" on a chip that narrows the tags.
+pub const TAG_CHIP_KEY: Color32 = Color32::from_rgb(143, 191, 158);
 
-/// The labels on a chip that narrows the labels, and the word of a tag.
-pub const LABEL_CHIP_TEXT: Color32 = Color32::from_rgb(188, 217, 196);
+/// The tags on a chip that narrows the tags, and the word of a tag.
+pub const TAG_CHIP_TEXT: Color32 = Color32::from_rgb(188, 217, 196);
 
 /// A bar of the histogram above a numeric range, for the figures the range leaves out.
 pub const HISTOGRAM_BAR: Color32 = Color32::from_gray(63);

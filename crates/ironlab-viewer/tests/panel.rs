@@ -78,27 +78,39 @@ fn groups_of(state: &FigureState, node: NodeId) -> Vec<PropertyGroup> {
 fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
     let figure = figure_with_artists();
     let rows = tree_rows(&figure);
-    let summary: Vec<(NodeId, usize, &str)> = rows
+    let summary: Vec<(Option<NodeId>, usize, &str)> = rows
         .iter()
         .map(|row| (row.node, row.depth, row.label.as_str()))
         .collect();
     assert_eq!(
         summary,
         [
-            (FIGURE, 0, "Figure"),
-            (FLAT, 1, "Axes (Speed)"),
-            (LINE, 2, "Line (Measured)"),
-            (SCATTER, 2, "Scatter"),
-            (SOLID, 1, "Axes (row 0, col 1)"),
-            (SURFACE, 2, "Surface"),
+            (Some(FIGURE), 0, "Figure"),
+            (None, 1, "Data arrays"),
+            (Some(array_id(0)), 2, "Data array (3)"),
+            (Some(array_id(1)), 2, "Data array (3)"),
+            (Some(array_id(2)), 2, "Data array (3)"),
+            (Some(array_id(3)), 2, "Data array (2)"),
+            (Some(array_id(4)), 2, "Data array (2 × 3)"),
+            (Some(FLAT), 1, "Axes (Speed)"),
+            (Some(LINE), 2, "Line (Measured)"),
+            (Some(SCATTER), 2, "Scatter"),
+            (Some(SOLID), 1, "Axes (row 0, col 1)"),
+            (Some(SURFACE), 2, "Surface"),
         ],
         "every row names its kind first, and the name of the object itself follows in \
-         brackets when it has one"
+         brackets when it has one; the data arrays are gathered in a group of their own"
     );
     assert_eq!(
         rows.iter().map(|row| row.kind).collect::<Vec<NodeKind>>(),
         [
             NodeKind::Figure,
+            NodeKind::DataArray,
+            NodeKind::DataArray,
+            NodeKind::DataArray,
+            NodeKind::DataArray,
+            NodeKind::DataArray,
+            NodeKind::DataArray,
             NodeKind::Axes,
             NodeKind::Line,
             NodeKind::Scatter,
@@ -127,12 +139,12 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
         artists: vec![
             Artist::Line(Line {
                 id: NodeId(3),
-                display_name: Some(Text::new(r"$\sin \omega t$")),
+                label: Some(Text::new(r"$\sin \omega t$")),
                 ..Line::default()
             }),
             Artist::Scatter(Scatter {
                 id: NodeId(4),
-                display_name: Some(Text::plain("Samples")),
+                label: Some(Text::plain("Samples")),
                 ..Scatter::default()
             }),
             Artist::Contour(Contour {
@@ -141,7 +153,7 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
             }),
             Artist::Quiver(Quiver {
                 id: NodeId(6),
-                display_name: Some(Text::plain("Wind")),
+                label: Some(Text::plain("Wind")),
                 ..Quiver::default()
             }),
             Artist::Surface(Surface {
@@ -154,7 +166,7 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
             }),
             Artist::IndexedImage(IndexedImage {
                 id: NodeId(9),
-                display_name: Some(Text::plain("Classes")),
+                label: Some(Text::plain("Classes")),
                 ..IndexedImage::default()
             }),
             Artist::MappedImage(MappedImage {
@@ -199,7 +211,7 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
             "Mapped image",
             "Axes (row 1, col 2)",
         ],
-        "a title or display name is shown in brackets after the kind, as its source; an \
+        "a title or label is shown in brackets after the kind, as its source; an \
          axes with no title shows its cell instead, and a figure or artist with no name \
          shows its kind alone"
     );
@@ -215,6 +227,112 @@ fn every_row_names_its_kind_first_and_its_own_name_in_brackets() {
     );
 }
 
+// Why: a data array draws nothing, so the tree names it by what tells it apart from the
+// others: the name the program gave it, or, when it has none, its shape. A panel holds a
+// key rather than a title, so it is named by what it holds and where it sits, with a span
+// written as the range of rows or columns it covers. Both are gathered under a group of
+// their own, which is not a node and so selects nothing; a figure with neither has no
+// such group, as the test above shows.
+#[test]
+fn data_arrays_and_panels_are_gathered_in_groups_and_named_by_what_tells_them_apart() {
+    use ironlab_ir::{Cell, DataArray, NdArray, Panel, PanelContent, PanelLegend, PanelLocation};
+
+    let array = |id: u64, name: Option<&str>, shape: Vec<usize>| {
+        let len = shape.iter().product();
+        DataArray {
+            id: NodeId(id),
+            name: name.map(str::to_owned),
+            array: NdArray::from_shape(shape, vec![0.0; len]).expect("the shape matches"),
+        }
+    };
+    let panel = |id: u64, cell: Cell| Panel {
+        id: NodeId(id),
+        cell,
+        align: PanelLocation::Center,
+        content: PanelContent::Legend(PanelLegend::default()),
+    };
+    let figure = Figure {
+        id: NodeId(1),
+        data: vec![
+            array(2, Some("pressure"), vec![4]),
+            array(3, None, vec![1000, 3]),
+            array(4, Some("  "), vec![2, 2]),
+        ],
+        panels: vec![
+            panel(
+                5,
+                Cell {
+                    row: 2,
+                    ..Cell::default()
+                },
+            ),
+            panel(
+                6,
+                Cell {
+                    col: 2,
+                    row_span: 2,
+                    ..Cell::default()
+                },
+            ),
+        ],
+        ..Figure::new()
+    };
+
+    let summary: Vec<(Option<NodeId>, NodeKind, usize, String)> = tree_rows(&figure)
+        .into_iter()
+        .map(|row| (row.node, row.kind, row.depth, row.label))
+        .collect();
+    let entry = |node: Option<u64>, kind, depth, label: &str| {
+        (node.map(NodeId), kind, depth, label.to_owned())
+    };
+    assert_eq!(
+        summary,
+        [
+            entry(Some(1), NodeKind::Figure, 0, "Figure"),
+            entry(None, NodeKind::DataArray, 1, "Data arrays"),
+            entry(Some(2), NodeKind::DataArray, 2, "Data array (pressure)"),
+            entry(Some(3), NodeKind::DataArray, 2, "Data array (1000 × 3)"),
+            entry(Some(4), NodeKind::DataArray, 2, "Data array (2 × 2)"),
+            entry(None, NodeKind::Panel, 1, "Panels"),
+            entry(Some(5), NodeKind::Panel, 2, "Legend panel (row 2, col 0)"),
+            entry(
+                Some(6),
+                NodeKind::Panel,
+                2,
+                "Legend panel (rows 0–1, col 2)"
+            ),
+        ],
+        "a blank name is no name, so that array is named by its shape"
+    );
+
+    // The name of a data array, like the data itself, comes from the program.
+    let state = FigureState::new(figure);
+    let groups = groups_of(&state, NodeId(2));
+    let name = row(&groups, "name", "");
+    assert_eq!(name.value, Value::String("pressure".to_owned()));
+    assert!(
+        matches!(name.editor, Editor::ReadOnly { .. }),
+        "the name of a data array is shown read-only, not {:?}",
+        name.editor
+    );
+
+    // Which key a panel holds is structure, like its cell, so the choice of content is
+    // read-only; how that key looks is not structure, so its properties stay editable.
+    let groups = groups_of(&state, NodeId(5));
+    let content = row(&groups, "content", "");
+    assert!(
+        matches!(content.editor, Editor::ReadOnly { .. }),
+        "the content of a panel is shown read-only, not {:?}",
+        content.editor
+    );
+    let boxed = row(&groups, "content", "legend.boxed");
+    assert!(
+        !matches!(boxed.editor, Editor::ReadOnly { .. }),
+        "the properties of the legend a panel holds stay editable, not {:?}",
+        boxed.editor
+    );
+}
+
 // Why: a hidden plot is still in the tree and still editable, so the tree must show which
 // plots are hidden; without that the user cannot tell why a plot is missing from the
 // canvas.
@@ -224,7 +342,7 @@ fn the_tree_greys_a_hidden_artist_and_nothing_else() {
     let dimmed: Vec<NodeId> = tree_rows(&figure)
         .into_iter()
         .filter(|row| row.dimmed)
-        .map(|row| row.node)
+        .filter_map(|row| row.node)
         .collect();
     assert_eq!(dimmed, [SCATTER], "only the hidden scatter is greyed");
 }
@@ -646,7 +764,7 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
             targets: vec![(FLAT, artist)],
             rect: Rect::new(60.0, 30.0, 20.0, 10.0),
         }],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     }
@@ -687,7 +805,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -716,7 +834,7 @@ fn the_selection_survives_a_gesture() {
     let hit = HitMap {
         axes: vec![hit_2d(FLAT.0, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -1060,8 +1178,18 @@ fn adding_a_parameter_records_one_set_of_the_whole_map() {
 fn the_panel_draws_every_kind_of_node_without_changing_the_figure() {
     let figure = figure_with_every_artist();
     let expected = figure.clone();
-    let nodes: Vec<NodeId> = tree_rows(&figure).iter().map(|row| row.node).collect();
-    assert_eq!(nodes.len(), 10, "the figure holds every kind of node");
+    let rows = tree_rows(&figure);
+    let kinds: std::collections::BTreeSet<NodeKind> = rows
+        .iter()
+        .filter(|row| row.node.is_some())
+        .map(|row| row.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        NodeKind::ALL.into_iter().collect(),
+        "the figure holds every kind of node"
+    );
+    let nodes: Vec<NodeId> = rows.iter().filter_map(|row| row.node).collect();
 
     for node in nodes {
         let mut harness = panel_harness(figure.clone(), Some(node));
@@ -1479,7 +1607,8 @@ fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_
     let figure = figure_with_every_artist();
     let labels: Vec<String> = tree_rows(&figure)
         .into_iter()
-        .filter(|row| row.depth == 2)
+        .filter(|row| row.depth == 2 && row.kind != NodeKind::DataArray)
+        .filter(|row| row.kind != NodeKind::Panel)
         .map(|row| row.label)
         .collect();
     assert_eq!(
@@ -1896,6 +2025,12 @@ fn the_object_tree_keeps_drawing_order_rather_than_taking_the_inspectors() {
         labels,
         [
             "Figure",
+            "Data arrays",
+            "Data array (3)",
+            "Data array (3)",
+            "Data array (3)",
+            "Data array (2)",
+            "Data array (2 × 3)",
             "Axes (Speed)",
             "Line (Measured)",
             "Scatter",
@@ -2065,19 +2200,23 @@ fn selected_state(figure: Figure, node: NodeId) -> FigureState {
 /// many changes, and returns how many it counts.
 fn change_every_node_but(state: &mut FigureState, spared: NodeId) -> usize {
     for row in tree_rows(state.figure()) {
-        if row.node == spared || row.kind == NodeKind::Figure {
+        // A data array takes its name from the program, and a group is not a node.
+        let Some(node) = row.node.filter(|_| row.kind != NodeKind::DataArray) else {
+            continue;
+        };
+        if node == spared || row.kind == NodeKind::Figure {
             continue;
         }
-        let name = Value::Text(ironlab_ir::Text::plain(format!("Renamed {}", row.node.0)));
+        let name = Value::Text(ironlab_ir::Text::plain(format!("Renamed {}", node.0)));
         let property = if row.kind == NodeKind::Axes {
             "title"
         } else {
-            "display_name"
+            "label"
         };
         assert!(
-            state.try_record(&set(row.node.0, property, name)),
+            state.try_record(&set(node.0, property, name)),
             "the figure accepts a new {property} for {}",
-            row.node
+            node
         );
     }
     let changes = state.change_count();
@@ -2236,7 +2375,7 @@ fn a_short_window_takes_the_room_from_the_object_tree_rather_than_the_inspector(
     // The first property of the line, which the inspector draws at the top of whatever
     // room it is left, so that what is measured is the room rather than how far the
     // inspector has been scrolled.
-    let row = name_rect(&harness, "display_name");
+    let row = name_rect(&harness, "label");
     assert!(
         tree.height() < TREE_HEIGHT,
         "the tree gave up part of its usual height: {} points",
@@ -2539,18 +2678,18 @@ fn a_narrow_panel_takes_the_room_from_the_controls_rather_than_the_names() {
 }
 
 // ---------------------------------------------------------------------------------
-// The labels of a figure
+// The tags of a figure
 // ---------------------------------------------------------------------------------
 
-// Why: labels are what the figure browser filters and groups by, so being able to give a
+// Why: tags are what the figure browser filters and groups by, so being able to give a
 // figure one without going back to the code is the difference between the browser being
 // useful on the figures at hand and only on figures built for it. They are edited as one
 // field of comma-separated words because they are short and few, so what the field does
 // with the spaces and the empty words between the commas is the whole of its behaviour.
 #[test]
-fn the_labels_of_a_figure_are_edited_as_one_field_of_comma_separated_words() {
+fn the_tags_of_a_figure_are_edited_as_one_field_of_comma_separated_words() {
     let mut figure = figure_with_artists();
-    figure.labels = vec!["wake".to_owned()];
+    figure.tags = vec!["wake".to_owned()];
     let mut harness = panel_harness(figure, Some(FIGURE));
     harness.run();
 
@@ -2563,20 +2702,20 @@ fn the_labels_of_a_figure_are_edited_as_one_field_of_comma_separated_words() {
     harness.run();
 
     assert_eq!(
-        harness.state().figure.figure().labels,
+        harness.state().figure.figure().tags,
         ["wake", "piv"],
         "the words are trimmed, and the empty one after the trailing comma is dropped \
-         rather than becoming a label of nothing"
+         rather than becoming a tag of nothing"
     );
 }
 
-// Why: a repeated label says no more than it did the first time, so the figure refuses it.
+// Why: a repeated tag says no more than it did the first time, so the figure refuses it.
 // The refusal has to reach the problems list rather than happening silently, or the reader
 // is left looking at a field whose contents the figure does not hold.
 #[test]
-fn a_label_typed_twice_is_refused_and_reported() {
+fn a_tag_typed_twice_is_refused_and_reported() {
     let mut figure = figure_with_artists();
-    figure.labels = vec!["wake".to_owned()];
+    figure.tags = vec!["wake".to_owned()];
     let mut harness = panel_harness(figure, Some(FIGURE));
     harness.run();
     assert!(
@@ -2590,9 +2729,9 @@ fn a_label_typed_twice_is_refused_and_reported() {
     harness.run();
 
     assert_eq!(
-        harness.state().figure.figure().labels,
+        harness.state().figure.figure().tags,
         ["wake"],
-        "the figure keeps the labels it had"
+        "the figure keeps the tags it had"
     );
     let reported: Vec<&str> = harness
         .state()
@@ -2603,7 +2742,7 @@ fn a_label_typed_twice_is_refused_and_reported() {
         .collect();
     assert!(
         reported.iter().any(|detail| detail.contains("wake")),
-        "and the refusal is reported, naming the label: {reported:?}"
+        "and the refusal is reported, naming the tag: {reported:?}"
     );
 }
 

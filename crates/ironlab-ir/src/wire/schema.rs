@@ -104,13 +104,6 @@ pub(crate) struct ReservedDef {
 }
 
 /// A number or a name that a message or an enum reserves.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no declaration of the schema reserves anything yet; remove this once one does"
-    )
-)]
 #[derive(Clone, Copy)]
 pub(crate) enum ReservedItem {
     /// A field number of a message or a value number of an enum.

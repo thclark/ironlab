@@ -19,9 +19,9 @@ use std::path::Path;
 use std::process::Command;
 
 use common::{
-    BLOCK_PT, BLOCK_TOLERANCE, TEXT, Workspace, assert_same_picture, difference,
-    figure_with_mapped_image, find_image, gpu_required, rasterise, rendered_or_skip, rgb_of, run,
-    tools_available,
+    BLOCK_PT, BLOCK_TOLERANCE, TEXT, Workspace, array_id, assert_same_picture, data_arrays,
+    difference, figure_with_mapped_image, find_image, gpu_required, rasterise, rendered_or_skip,
+    rgb_of, run, tools_available,
 };
 use image::RgbImage;
 use ironlab_canvas::{
@@ -29,8 +29,8 @@ use ironlab_canvas::{
     with_shared_renderer,
 };
 use ironlab_ir::{
-    Artist, Axes, Axis, Cell, Color, ColorSpec, DataId, Figure, Grid, Limits, Line, NdArray,
-    NodeId, Projection, Surface, Text, TileLayout, View3d,
+    Artist, Axes, Axis, Cell, Color, ColorSpec, Figure, Grid, Limits, Line, NdArray, NodeId,
+    Projection, Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{
     DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterImage, RasterOptions,
@@ -160,8 +160,8 @@ fn surface_figure_of(
     f: impl Fn(f64, f64) -> f64,
 ) -> Figure {
     let (axis, values) = field(side, f);
-    let (gx, gy, z) = (DataId(0), DataId(1), DataId(2));
-    let data = std::collections::BTreeMap::from([
+    let (gx, gy, z) = (array_id(0), array_id(1), array_id(2));
+    let data = data_arrays([
         (gx, NdArray::vector(axis.clone())),
         (gy, NdArray::vector(axis)),
         (
@@ -455,16 +455,16 @@ fn crossing_planes_figure() -> Figure {
     let (axis, rising) = field(side, |x, _| 0.2 + 0.6 * x);
     let (_, falling) = field(side, |_, y| 0.8 - 0.6 * y);
     let (gx, gy, z1, z2, lx, ly, lz) = (
-        DataId(0),
-        DataId(1),
-        DataId(2),
-        DataId(3),
-        DataId(4),
-        DataId(5),
-        DataId(6),
+        array_id(0),
+        array_id(1),
+        array_id(2),
+        array_id(3),
+        array_id(4),
+        array_id(5),
+        array_id(6),
     );
     let matrix = |values| NdArray::from_shape(vec![side, side], values).expect("a square field");
-    let data = std::collections::BTreeMap::from([
+    let data = data_arrays([
         (gx, NdArray::vector(axis.clone())),
         (gy, NdArray::vector(axis)),
         (z1, matrix(rising)),
@@ -756,20 +756,20 @@ fn verified_and_embedded_figure() -> Figure {
     let (planes_axis, rising) = field(planes_side, |x, _| 0.2 + 0.6 * x);
     let (_, falling) = field(planes_side, |_, y| 0.8 - 0.6 * y);
     let (sx, sy, z_smooth, px, py, z_rising, z_falling, lx, ly, lz) = (
-        DataId(0),
-        DataId(1),
-        DataId(2),
-        DataId(3),
-        DataId(4),
-        DataId(5),
-        DataId(6),
-        DataId(7),
-        DataId(8),
-        DataId(9),
+        array_id(0),
+        array_id(1),
+        array_id(2),
+        array_id(3),
+        array_id(4),
+        array_id(5),
+        array_id(6),
+        array_id(7),
+        array_id(8),
+        array_id(9),
     );
     let matrix =
         |side, values| NdArray::from_shape(vec![side, side], values).expect("a square field");
-    let data = std::collections::BTreeMap::from([
+    let data = data_arrays([
         (sx, NdArray::vector(smooth_axis.clone())),
         (sy, NdArray::vector(smooth_axis)),
         (z_smooth, matrix(SMOOTH_SIDE, smooth)),

@@ -8,13 +8,12 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId, Text,
+    Artist, Axes, Axis, DataArray, Figure, FigureSize, Limits, Line, NdArray, NodeId, Text,
 };
 use ironlab_scene::display::Point;
 use ironlab_text::TextEngine;
@@ -32,13 +31,21 @@ fn area() -> Rect {
 /// A figure of one two-dimensional axes with manual limits x ∈ [0, 10] and y ∈ [0, 5], holding one line through
 /// three points, so that there is an axes to pan and zoom and a drawn point to hover.
 fn figure() -> Figure {
-    let (x, y) = (DataId(10), DataId(11));
+    let (x, y) = (NodeId(10), NodeId(11));
     Figure {
         id: NodeId(1),
-        data: BTreeMap::from([
-            (x, NdArray::vector(vec![2.0, 5.0, 8.0])),
-            (y, NdArray::vector(vec![1.0, 2.5, 4.0])),
-        ]),
+        data: vec![
+            DataArray {
+                id: x,
+                name: None,
+                array: NdArray::vector(vec![2.0, 5.0, 8.0]),
+            },
+            DataArray {
+                id: y,
+                name: None,
+                array: NdArray::vector(vec![1.0, 2.5, 4.0]),
+            },
+        ],
         axes: vec![Axes {
             id: NodeId(2),
             x: Axis {
@@ -54,7 +61,7 @@ fn figure() -> Figure {
             },
             artists: vec![Artist::Line(Line {
                 id: NodeId(3),
-                display_name: Some(Text::plain("Samples")),
+                label: Some(Text::plain("Samples")),
                 x,
                 y,
                 ..Line::default()

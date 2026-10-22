@@ -32,7 +32,7 @@ fn sample_figure() -> Figure {
         .parameter("solver", "k–ω SST");
     fig.axes(0, 0)
         .plot(&x, &x)
-        .display_name("$y = x$")
+        .label("$y = x$")
         .marker(Marker::Circle);
     fig.axes(0, 0).legend(LegendLocation::NorthWest);
     fig.axes(0, 1).surf(&x, &x, &z);
@@ -260,7 +260,7 @@ fn figure_with_an_undrawn_surface() -> (Figure, NodeId) {
     fig.axes(0, 0).plot(&x, &x);
     let surface = fig
         .axes(0, 0)
-        .surface(&x, [0.0], &Matrix::from_fn(1, 4, |_, col| col as f64))
+        .surface(&x, [0.0], Matrix::from_fn(1, 4, |_, col| col as f64))
         .id();
     (fig, surface)
 }

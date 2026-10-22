@@ -12,9 +12,10 @@
 use std::collections::BTreeSet;
 
 use crate::artist::{Artist, Grid, ScatterColor, ScatterSize};
-use crate::edit::{Edit, NodeTree, Transaction};
+use crate::edit::{Edit, Transaction};
 use crate::figure::Figure;
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
+use crate::nodes::NodeTree;
 
 /// A selected node, with optional selected points of its primary data array.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +59,7 @@ impl Selection {
     ///   length of the array as left by the earlier edits of the transaction, not from
     ///   its length in `before`;
     /// - replacing any array that the selected artist refers to with
-    ///   [`Edit::PutData`] keeps the node and drops the indices;
+    ///   [`Edit::ReplaceData`] keeps the node and drops the indices;
     /// - removing the selected node, or its ancestor at the time of the removal, clears
     ///   the selection, even when a later edit inserts a node with the same identifier;
     ///   an artist that an earlier edit moved out of a removed axes stays selected;
@@ -70,7 +71,7 @@ impl Selection {
         // The length of the primary array along its first dimension, and the number of
         // values in one entry of it, as the edits so far leave them.
         let mut window = arrays.as_ref().and_then(|arrays| {
-            let array = before.data.get(&arrays.primary)?;
+            let array = &before.data_array(arrays.primary)?.array;
             let (&entries, rest) = array.shape.split_first()?;
             Some((entries, rest.iter().product::<usize>()))
         });
@@ -82,16 +83,22 @@ impl Selection {
                     }
                     tree.apply(edit);
                 }
-                Edit::PutData { id, .. } => {
+                Edit::ReplaceData { node, .. } => {
                     if arrays
                         .as_ref()
-                        .is_some_and(|arrays| arrays.all.contains(id))
+                        .is_some_and(|arrays| arrays.all.contains(node))
                     {
                         indices = None;
                     }
                 }
-                Edit::AppendData { id, array, retain } => {
-                    let primary = arrays.as_ref().is_some_and(|arrays| arrays.primary == *id);
+                Edit::AppendData {
+                    node,
+                    array,
+                    retain,
+                } => {
+                    let primary = arrays
+                        .as_ref()
+                        .is_some_and(|arrays| arrays.primary == *node);
                     if let Some((entries, values)) = &mut window
                         && primary
                     {
@@ -124,8 +131,8 @@ impl Selection {
 /// The data arrays of an artist: the primary array, whose entries its indices number,
 /// and every array it refers to.
 struct Arrays {
-    primary: DataId,
-    all: Vec<DataId>,
+    primary: NodeId,
+    all: Vec<NodeId>,
 }
 
 /// Returns the arrays of an artist of the figure, or `None` when the node is not an
@@ -184,7 +191,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
 }
 
 /// Returns the coordinate arrays of a grid.
-fn grid_data(grid: Grid) -> (DataId, DataId) {
+fn grid_data(grid: Grid) -> (NodeId, NodeId) {
     match grid {
         Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => (x, y),
     }

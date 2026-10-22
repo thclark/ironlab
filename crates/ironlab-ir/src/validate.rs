@@ -1,20 +1,23 @@
 //! Structural validation of figures.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels,
-    OutOfRange, PixelRange, ScatterColor, ScatterSize,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, Scatter, ScatterColor,
+    ScatterSize, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
-use crate::data::{NdArray, NdArrayElement, Values};
+use crate::data::{DataArray, NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
 use crate::layout::{Cell, TrackSize};
 use crate::legend::{
     Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItem, LegendItemContent,
 };
 use crate::link::Dimension;
+use crate::nodes::{NodeKind, visit};
+use crate::panel::{Panel, PanelContent};
 
 /// The outcome of validating a figure.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -46,10 +49,24 @@ pub struct ValidationIssue {
 /// The category of a validation problem.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IssueKind {
-    /// An artist refers to a data identifier that is not in the data table.
+    /// An artist refers to its data by an identifier that is not a node of the figure.
     UnknownData,
-    /// An array's number of values differs from the product of its shape.
+    /// A reference names a node of the figure that is not of the kind it requires: an
+    /// artist's data that is not a data array, the panel of a legend that is not a panel
+    /// holding a legend, or an item of an explicit list of legend entries that names a
+    /// node that is not an artist. It is reported against the node that holds the
+    /// reference, and a reference that names no node at all is reported as
+    /// [`IssueKind::UnknownData`], [`IssueKind::DanglingPanelLegend`] or
+    /// [`IssueKind::DanglingLegendItem`] instead.
+    WrongNodeKind,
+    /// A data array's number of values differs from the product of its shape. It is
+    /// reported against the data array.
     InvalidArray,
+    /// A data array that no artist refers to. This is a warning, not an error, because an
+    /// array may be inserted before the artist that will use it, but an array that stays
+    /// unused costs space in every saved file. An artist that is hidden still refers to
+    /// its data.
+    UnusedData,
     /// The arrays referenced by an artist have inconsistent lengths or shapes.
     ShapeMismatch,
     /// An artist refers to an array whose element type it cannot use: every artist
@@ -76,39 +93,40 @@ pub enum IssueKind {
     DanglingLink,
     /// Two nodes share an identifier.
     DuplicateNodeId,
-    /// The cell of an axes or of a legend panel lies outside the figure's tile layout or
-    /// has a zero span.
+    /// The cell of an axes or of a panel lies outside the figure's tile layout or has a
+    /// zero span.
     CellOutOfLayout,
-    /// The cells of two nodes placed in the tile layout, axes or legend panels, share at
-    /// least one tile, so that the later is drawn over the earlier. This is a warning, not
-    /// an error, because the figure can still be drawn. Each overlapping pair is reported
-    /// once, against the later of the two nodes in the order axes first, then legend
-    /// panels, each in the order the figure lists them, and the message names both nodes.
+    /// The cells of two nodes placed in the tile layout, axes or panels, share at least one
+    /// tile, so that the later is drawn over the earlier. This is a warning, not an error,
+    /// because the figure can still be drawn. Each overlapping pair is reported once,
+    /// against the later of the two nodes in the order axes first, then panels, each in
+    /// the order the figure lists them, and the message names both nodes.
     /// A cell outside the tile layout, which is reported as [`IssueKind::CellOutOfLayout`],
     /// is not compared with any other.
     OverlappingCells,
-    /// The legend of an axes names a legend panel that the figure does not have.
+    /// The legend of an axes names a panel by an identifier that is not a node of the
+    /// figure.
     DanglingPanelLegend,
     /// The tile layout has more row sizes than rows or more column sizes than columns,
     /// or a weight that is not a finite positive number.
     InvalidLayoutWeights,
     /// An axes lies in fitted rows alone, or in fitted columns alone. A fitted row or
-    /// column takes its size from the legend panels in it, and an axes has no content
+    /// column takes its size from the panels in it, and an axes has no content
     /// size of its own, so the axes would have no height or no width. An axes that spans
     /// a fitted row or column together with a weighted one is valid.
     AxesInFittedTrack,
-    /// An item of an explicit list of legend entries names an artist that the figure
-    /// does not have, or, in a legend inside a plot area, an artist of another axes.
+    /// An item of an explicit list of legend entries names an identifier that is not a
+    /// node of the figure, or, in a legend inside a plot area, an artist of another axes.
     DanglingLegendItem,
     /// An explicit list of legend entries holds the same item more than once: two items
     /// that name the same artist, or two items with the same label and sample. This is a
     /// warning, not an error, because the legend can still be drawn: every item is
     /// listed where it stands.
     DuplicateLegendItem,
-    /// An item of an explicit list of legend entries names an artist that has no display
-    /// name, so the item shows its sample without a label. This is a warning, not an
-    /// error, because the legend can still be drawn and a display name can be given
-    /// later, in code or in the viewer.
+    /// An item of an explicit list of legend entries names an artist that has no label,
+    /// so the item shows its sample without a label. This is a warning, not an error,
+    /// because the legend can still be drawn and a label can be given later, in code or
+    /// in the viewer.
     UnnamedLegendItem,
     /// A legend, inside a plot area or in a panel, has a fixed number of columns of
     /// zero.
@@ -147,19 +165,19 @@ pub enum IssueKind {
     /// before its data arrives, or streamed from nothing, passes through these states. It
     /// is reported only when the artist's references and shapes are otherwise valid, so
     /// that an artist reported for an error is not reported twice. It is also reported
-    /// against a legend panel that has no entries to list, because no axes names it in
-    /// its legend or no axes that names it has an artist with a display name.
+    /// against a panel holding a legend that has no entries to list, because no axes
+    /// names it in its legend or no axes that names it has an artist with a label.
     NothingToDraw,
     /// A figure parameter has an empty name, or is a number that is not finite (which
     /// JSON cannot represent).
     InvalidParameter,
-    /// A figure label is empty, or occurs more than once.
+    /// A figure tag is empty, or occurs more than once.
     ///
-    /// An empty label describes nothing and cannot be chosen in the viewer, and a label
-    /// repeated is a label that says no more than it did the first time; both are
-    /// mistakes in the code that built the figure rather than choices it could have
-    /// meant, so both are errors.
-    InvalidLabel,
+    /// An empty tag describes nothing and cannot be chosen in the viewer, and a tag
+    /// repeated is a tag that says no more than it did the first time; both are mistakes
+    /// in the code that built the figure rather than choices it could have meant, so both
+    /// are errors.
+    InvalidTag,
     /// The placement of an image cannot be drawn: a pixel centre or the offset of its
     /// plane is not finite, the centres of the first and last pixels along an axis
     /// coincide although the image has more than one pixel along that axis, or, in a
@@ -187,8 +205,10 @@ pub enum IssueKind {
 impl Figure {
     /// Checks the figure for structural problems.
     ///
-    /// Errors report unknown data identifiers, arrays whose values do not match their
-    /// shape, arrays of 8-bit values referenced by an artist other than an image (every
+    /// Errors report data references that name no node, references that name a node of
+    /// the wrong kind (an artist's data that is not a data array, a legend's panel that
+    /// is not a panel holding a legend, and a legend item that is not an artist), data
+    /// arrays whose values do not match their shape, arrays of 8-bit values referenced by an artist other than an image (every
     /// other artist requires 64-bit floating-point values, the alpha of a surface among
     /// them), inconsistent array lengths and shapes within an artist (for an image,
     /// pixels that are not an array of shape `[ny, nx, 3]` or `[ny, nx, 4]`, or indices
@@ -198,18 +218,18 @@ impl Figure {
     /// number from 0 to 1,
     /// 3D artists in 2D axes (an image on the xz or yz plane among them), lines and
     /// scatters in 3D axes with a dimension in axes-fraction coordinates, links to
-    /// identifiers that are not axes, duplicate node identifiers, cells of axes and
-    /// legend panels outside the tile layout, layout sizes that are too many or weights
+    /// identifiers that are not axes, duplicate node identifiers (data arrays included),
+    /// cells of axes and panels outside the tile layout, layout sizes that are too many or weights
     /// that are not finite and positive, axes that lie in fitted rows alone or in fitted
-    /// columns alone, legends that name a legend panel the figure does not have, items of
-    /// an explicit list of legend entries that name no artist of the figure (or, inside a
-    /// plot area, an artist of another axes),
+    /// columns alone, legends that name no node as their panel, items of an explicit list
+    /// of legend entries that name no node (or, inside a plot area, an artist of another
+    /// axes),
     /// legends with a fixed number of zero columns, a non-positive figure size or font
     /// size, invalid manual limits, ticks that cannot be placed (a regular step that is
     /// not finite and positive or an origin that is not finite, and explicit tick values
     /// that are not finite or, on a logarithmic axis, not positive), explicit tick labels
     /// that do not name explicit tick values one by one, invalid
-    /// contour levels, parameters with an empty name or a non-finite number, labels that
+    /// contour levels, parameters with an empty name or a non-finite number, tags that
     /// are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
     /// last centres coincide along an axis of more than one pixel, an image whose plane
@@ -223,18 +243,18 @@ impl Figure {
     /// places no dimension in axes-fraction coordinates of a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
     /// line, scatter or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
-    /// column, which has no cell between its nodes), a legend panel with no entries
-    /// to list, which no axes names or whose axes have no artist with a display name, or
+    /// column, which has no cell between its nodes), a panel holding a legend with no
+    /// entries to list, which no axes names or whose axes have no artist with a label, or
     /// whose explicit list has no items, an item of an explicit list that repeats an
-    /// earlier item, an item that names an artist without a display name, and
-    /// two nodes of the tile layout, axes or legend panels, whose cells share a tile, once
-    /// per pair against the later node (axes before legend panels, each in the order the
-    /// figure lists them), comparing only cells that lie within the layout;
+    /// earlier item, an item that names an artist without a label, a data array that no
+    /// artist refers to, and two nodes of the tile layout, axes or panels, whose cells
+    /// share a tile, once per pair against the later node (axes before panels, each in
+    /// the order the figure lists them), comparing only cells that lie within the layout;
     /// data that is not plotted along an
     /// axis (such as quiver components, colour data, the pixels of an image, or the
     /// values of a dimension in axes-fraction coordinates) never produces the first of
-    /// these. An array of 8-bit values that no artist refers to
-    /// is not an error.
+    /// these. An array of 8-bit values that no artist refers to is not an error; it is
+    /// reported only as unused.
     ///
     /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when drawing, and
     /// so is the offset of an image in the xy plane of a 2D axes. A line, scatter or
@@ -248,32 +268,122 @@ impl Figure {
     /// reported for no error, so that the error, which is what must be fixed, stands
     /// alone.
     pub fn validate(&self) -> ValidationReport {
+        let mut kinds = HashMap::new();
+        let mut counts: BTreeMap<NodeId, usize> = BTreeMap::new();
+        visit(self, None, &mut |node, _| {
+            kinds.entry(node.id()).or_insert(node.kind());
+            *counts.entry(node.id()).or_default() += 1;
+        });
+        let mut arrays = HashMap::new();
+        for data in &self.data {
+            arrays.entry(data.id).or_insert(&data.array);
+        }
         let mut validator = Validator {
             figure: self,
+            kinds: &kinds,
+            arrays: &arrays,
             report: ValidationReport::default(),
         };
-        validator.check_figure();
-        validator.check_layout_weights();
-        for panel in &self.panel_legends {
-            validator.check_cell(panel.id, panel.cell);
-            validator.check_legend_entry_layout(panel.id, panel.layout);
-            validator.check_legend_items(panel.id, None, &panel.entries);
-            validator.check_panel_has_entries(panel.id, &panel.entries);
-        }
+        self.check_nodes(&mut validator);
+        validator.check_duplicate_ids(&counts);
         validator.check_overlapping_cells();
-        for axes in &self.axes {
-            validator.check_axes(axes);
-            for artist in &axes.artists {
-                validator.check_artist(axes, artist);
-            }
-        }
+        validator.check_unused_data();
         validator.report
     }
 }
 
+/// The checks of one kind of node.
+///
+/// The declaration of the kinds of node generates the walk that calls the check of every
+/// node of a figure, in tree order, with the node's parent, so a kind without a check
+/// does not compile. The checks that span several nodes (duplicate identifiers,
+/// overlapping cells and unused data) are made once the walk is done.
+pub(crate) trait Check {
+    /// The node of which nodes of this kind are children: the figure for a top-level
+    /// kind, an axes for an artist, and nothing for the figure itself.
+    type Parent;
+
+    /// Reports the problems of the node.
+    fn check(&self, validator: &mut Validator<'_>, parent: &Self::Parent);
+}
+
+/// How validation sees one kind of artist.
+///
+/// The declaration of the kinds of node generates [`Artist::usage`], which dispatches to
+/// the usage of each kind, so a kind of artist without a usage does not compile. Every
+/// artist is then checked by the same code, [`Validator::check_artist`], from its usage.
+pub(crate) trait Usage {
+    /// Returns how the artist uses its data and the dimensions of its axes.
+    fn usage(&self) -> ArtistUsage<'_>;
+}
+
+impl Check for Figure {
+    type Parent = ();
+
+    fn check(&self, validator: &mut Validator<'_>, _: &()) {
+        validator.check_figure();
+        validator.check_layout_weights();
+    }
+}
+
+impl Check for DataArray {
+    type Parent = Figure;
+
+    fn check(&self, validator: &mut Validator<'_>, _: &Figure) {
+        if !is_consistent(&self.array) {
+            validator.error(
+                Some(self.id),
+                IssueKind::InvalidArray,
+                format!(
+                    "{} has {} values, which does not match its shape {:?}",
+                    self.id,
+                    self.array.len(),
+                    self.array.shape
+                ),
+            );
+        }
+    }
+}
+
+impl Check for Axes {
+    type Parent = Figure;
+
+    fn check(&self, validator: &mut Validator<'_>, _: &Figure) {
+        validator.check_axes(self);
+    }
+}
+
+impl Check for Panel {
+    type Parent = Figure;
+
+    fn check(&self, validator: &mut Validator<'_>, _: &Figure) {
+        validator.check_cell(self.id, self.cell);
+        match &self.content {
+            PanelContent::Legend(legend) => {
+                validator.check_legend_entry_layout(self.id, legend.layout);
+                validator.check_legend_items(self.id, None, &legend.entries);
+                validator.check_panel_has_entries(self.id, &legend.entries);
+            }
+        }
+    }
+}
+
+impl Check for Artist {
+    type Parent = Axes;
+
+    fn check(&self, validator: &mut Validator<'_>, axes: &Axes) {
+        validator.check_artist(axes, self.id(), self.usage());
+    }
+}
+
 /// Accumulates the issues found in a figure.
-struct Validator<'a> {
+pub(crate) struct Validator<'a> {
     figure: &'a Figure,
+    /// The kind of every node, by identifier; a shared identifier takes the kind of the
+    /// first node in tree order, as a lookup by identifier finds it.
+    kinds: &'a HashMap<NodeId, NodeKind>,
+    /// The array of every data array, by identifier; a shared identifier takes the first.
+    arrays: &'a HashMap<NodeId, &'a NdArray>,
     report: ValidationReport,
 }
 
@@ -312,8 +422,7 @@ impl Validator<'_> {
         });
     }
 
-    /// Checks the figure-level properties, the parameters, the labels, the data table,
-    /// node identifiers and links.
+    /// Checks the figure-level properties, the parameters, the tags and the links.
     fn check_figure(&mut self) {
         let figure = self.figure;
         let sizes = [
@@ -350,52 +459,24 @@ impl Validator<'_> {
             }
         }
 
-        // Labels are compared exactly, so labels differing only in case are distinct and
+        // Tags are compared exactly, so tags differing only in case are distinct and
         // neither is a repeat of the other.
         let mut seen: BTreeSet<&str> = BTreeSet::new();
-        for (index, label) in figure.labels.iter().enumerate() {
-            if label.is_empty() {
-                // An empty label has no text to name it by, so it is named by where it
-                // is: a figure carrying twenty labels would otherwise report a fault the
-                // reader cannot find.
+        for (index, tag) in figure.tags.iter().enumerate() {
+            if tag.is_empty() {
+                // An empty tag has no text to name it by, so it is named by where it is: a
+                // figure carrying twenty tags would otherwise report a fault the reader
+                // cannot find.
                 self.error(
                     Some(figure.id),
-                    IssueKind::InvalidLabel,
-                    format!("the label in position {} is empty", index + 1),
+                    IssueKind::InvalidTag,
+                    format!("the tag in position {} is empty", index + 1),
                 );
-            } else if !seen.insert(label.as_str()) {
+            } else if !seen.insert(tag.as_str()) {
                 self.error(
                     Some(figure.id),
-                    IssueKind::InvalidLabel,
-                    format!("the label {label:?} occurs more than once"),
-                );
-            }
-        }
-
-        for (id, array) in &figure.data {
-            if !is_consistent(array) {
-                self.error(
-                    None,
-                    IssueKind::InvalidArray,
-                    format!(
-                        "{id} has {} values, which does not match its shape {:?}",
-                        array.len(),
-                        array.shape
-                    ),
-                );
-            }
-        }
-
-        let mut counts: BTreeMap<NodeId, usize> = BTreeMap::new();
-        for id in figure.node_ids() {
-            *counts.entry(id).or_default() += 1;
-        }
-        for (id, count) in counts {
-            if count > 1 {
-                self.error(
-                    Some(id),
-                    IssueKind::DuplicateNodeId,
-                    format!("{count} nodes share the identifier of {id}"),
+                    IssueKind::InvalidTag,
+                    format!("the tag {tag:?} occurs more than once"),
                 );
             }
         }
@@ -412,6 +493,20 @@ impl Validator<'_> {
                         ),
                     );
                 }
+            }
+        }
+    }
+
+    /// Reports every identifier that `counts`, the number of nodes of each identifier,
+    /// gives to more than one node.
+    fn check_duplicate_ids(&mut self, counts: &BTreeMap<NodeId, usize>) {
+        for (&id, &count) in counts {
+            if count > 1 {
+                self.error(
+                    Some(id),
+                    IssueKind::DuplicateNodeId,
+                    format!("{count} nodes share the identifier of {id}"),
+                );
             }
         }
     }
@@ -463,7 +558,7 @@ impl Validator<'_> {
             && u64::from(cell.col) + u64::from(cell.col_span) <= u64::from(layout.cols)
     }
 
-    /// Checks that a cell of an axes or a legend panel lies within the tile layout.
+    /// Checks that a cell of an axes or a panel lies within the tile layout.
     fn check_cell(&mut self, node: NodeId, cell: Cell) {
         if !self.in_layout(cell) {
             let layout = &self.figure.layout;
@@ -476,7 +571,7 @@ impl Validator<'_> {
     }
 
     /// Warns of every pair of nodes in the tile layout whose cells share a tile, against the
-    /// later node of the pair, taking the axes first and then the legend panels. Cells
+    /// later node of the pair, taking the axes first and then the panels. Cells
     /// outside the layout are reported by [`Self::check_cell`] and are not compared.
     fn check_overlapping_cells(&mut self) {
         let figure = self.figure;
@@ -484,12 +579,7 @@ impl Validator<'_> {
             .axes
             .iter()
             .map(|axes| (axes.id, axes.cell))
-            .chain(
-                figure
-                    .panel_legends
-                    .iter()
-                    .map(|panel| (panel.id, panel.cell)),
-            )
+            .chain(figure.panels.iter().map(|panel| (panel.id, panel.cell)))
             .filter(|&(_, cell)| self.in_layout(cell))
             .collect();
         for (j, &(later, b)) in placed.iter().enumerate() {
@@ -548,7 +638,7 @@ impl Validator<'_> {
                     IssueKind::AxesInFittedTrack,
                     format!(
                         "the axes lies in fitted {tracks} alone, which take their size from \
-                         legend panels, so the axes would have no {extent}"
+                         panels, so the axes would have no {extent}"
                     ),
                 );
             }
@@ -557,7 +647,7 @@ impl Validator<'_> {
 
     /// Checks the items of an explicit list of legend entries: that each artist they name
     /// is an artist of the figure (of the axes `own`, for a legend inside its plot area)
-    /// with a display name, and that no item is listed twice.
+    /// with a label, and that no item is listed twice.
     fn check_legend_items(&mut self, legend: NodeId, own: Option<&Axes>, entries: &LegendEntries) {
         let LegendEntries::Explicit(items) = entries else {
             return;
@@ -587,7 +677,13 @@ impl Validator<'_> {
                 Some(axes) => axes.artists.iter().find(|a| a.id() == *artist),
                 None => figure.artist(*artist).map(|(_, a)| a),
             };
+            let not_an_artist = self.kinds.contains_key(artist) && figure.artist(*artist).is_none();
             match found {
+                None if not_an_artist => self.error(
+                    Some(legend),
+                    IssueKind::WrongNodeKind,
+                    format!("legend item {index} names {artist}, which is not an artist"),
+                ),
                 None => {
                     let whose = if own.is_some() {
                         "an artist of the axes"
@@ -600,12 +696,12 @@ impl Validator<'_> {
                         format!("legend item {index} names {artist}, which is not {whose}"),
                     );
                 }
-                Some(found) if found.display_name().is_none() => self.warning(
+                Some(found) if found.label().is_none() => self.warning(
                     Some(legend),
                     IssueKind::UnnamedLegendItem,
                     format!(
-                        "legend item {index} names {artist}, which has no display name, so the \
-                         item has no label"
+                        "legend item {index} names {artist}, which has no label, so the item \
+                         has no label"
                     ),
                 ),
                 Some(_) => {}
@@ -623,14 +719,28 @@ impl Validator<'_> {
                 self.check_legend_entry_layout(axes.id, inside.layout);
                 self.check_legend_items(axes.id, Some(axes), &inside.entries);
             }
-            Some(Legend::Panel(panel)) if self.figure.panel_legend(*panel).is_none() => {
-                self.error(
+            Some(Legend::Panel(panel)) => match self.figure.panel(*panel) {
+                // Every content of a panel is a legend so far; a content of another kind
+                // will be a reference to the wrong kind of node.
+                Some(Panel {
+                    content: PanelContent::Legend(_),
+                    ..
+                }) => {}
+                None if self.kinds.contains_key(panel) => self.error(
+                    Some(axes.id),
+                    IssueKind::WrongNodeKind,
+                    format!(
+                        "the legend lists its entries in {panel}, which is not a panel holding a \
+                         legend"
+                    ),
+                ),
+                None => self.error(
                     Some(axes.id),
                     IssueKind::DanglingPanelLegend,
-                    format!("the legend lists its entries in {panel}, which is not a legend panel"),
-                );
-            }
-            Some(Legend::Panel(_)) | None => {}
+                    format!("the legend lists its entries in {panel}, which is not in the figure"),
+                ),
+            },
+            None => {}
         }
 
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });
@@ -734,11 +844,9 @@ impl Validator<'_> {
         }
     }
 
-    /// Checks one artist of an axes.
-    fn check_artist(&mut self, axes: &Axes, artist: &Artist) {
-        let id = artist.id();
+    /// Checks one artist of an axes, as its usage describes it.
+    fn check_artist(&mut self, axes: &Axes, id: NodeId, usage: ArtistUsage<'_>) {
         let three_d = matches!(axes.projection, Projection::ThreeD { .. });
-        let usage = ArtistUsage::of(artist);
 
         if !three_d && usage.three_d {
             self.error(
@@ -758,12 +866,7 @@ impl Validator<'_> {
             );
         }
 
-        let released = match artist {
-            Artist::Line(line) => !line.clip,
-            Artist::Scatter(scatter) => !scatter.clip,
-            _ => false,
-        };
-        if released && (three_d || !usage.fraction.iter().any(|&fraction| fraction)) {
+        if usage.clip_released && (three_d || !usage.fraction.iter().any(|&fraction| fraction)) {
             self.warning(
                 Some(id),
                 IssueKind::IneffectiveClip,
@@ -774,32 +877,33 @@ impl Validator<'_> {
             );
         }
 
-        if let Artist::Contour(contour) = artist {
-            self.check_levels(contour);
+        if let Some(levels) = usage.levels {
+            self.check_levels(id, levels);
         }
         // An artist reported for an invalid opacity is not also reported as having nothing to
         // draw, so that the error stands alone.
         let errors_before = self.report.errors.len();
-        self.check_opacities(id, artist);
+        self.check_opacities(id, &usage.opacities);
 
         let references_are_valid =
             self.check_references(id, &usage.references, usage.accepts_bytes);
-        match ImageView::of(artist) {
-            Some(image) => self.check_image(
+        match &usage.shape {
+            Shape::Image(image) => self.check_image(
                 axes,
                 three_d,
                 id,
-                &image,
+                image,
                 references_are_valid,
                 errors_before,
             ),
-            None if references_are_valid
-                && self.check_shapes(id, artist)
-                && self.report.errors.len() == errors_before =>
+            shape
+                if references_are_valid
+                    && self.check_shapes(id, shape)
+                    && self.report.errors.len() == errors_before =>
             {
-                self.check_something_to_draw(id, artist);
+                self.check_something_to_draw(id, shape);
             }
-            None => {}
+            _ => {}
         }
 
         for &(dimension, data) in &usage.positions {
@@ -814,7 +918,7 @@ impl Validator<'_> {
             if axis.scale != Scale::Log {
                 continue;
             }
-            let Some(values) = self.figure.data.get(&data).and_then(NdArray::as_f64) else {
+            let Some(values) = self.arrays.get(&data).and_then(|array| array.as_f64()) else {
                 continue;
             };
             if values.iter().any(|&v| v.is_finite() && v <= 0.0) {
@@ -831,21 +935,7 @@ impl Validator<'_> {
     }
 
     /// Reports each opacity of an artist that is not a finite number from 0 to 1.
-    fn check_opacities(&mut self, node: NodeId, artist: &Artist) {
-        let opacities: &[(&str, f64)] = match artist {
-            Artist::Surface(surface) => &[
-                ("face opacity", surface.face_opacity),
-                ("edge opacity", surface.edge_opacity),
-            ],
-            Artist::Image(image) => &[("opacity", image.opacity)],
-            Artist::IndexedImage(image) => &[("opacity", image.opacity)],
-            Artist::MappedImage(image) => &[("opacity", image.opacity)],
-            Artist::Contour(contour) => &[
-                ("line opacity", contour.line_opacity),
-                ("fill opacity", contour.fill_opacity),
-            ],
-            Artist::Line(_) | Artist::Scatter(_) | Artist::Quiver(_) => &[],
-        };
+    fn check_opacities(&mut self, node: NodeId, opacities: &[(&str, f64)]) {
         for &(what, opacity) in opacities {
             if !(0.0..=1.0).contains(&opacity) {
                 self.error(
@@ -857,20 +947,20 @@ impl Validator<'_> {
         }
     }
 
-    /// Reports each distinct unknown data reference of an artist and, unless the artist
-    /// accepts 8-bit values, each distinct reference to an array of them, and returns
-    /// whether every reference is to a known array of an element type the artist can
-    /// use whose values match its shape.
+    /// Reports each distinct data reference of an artist that names no node or a node
+    /// that is not a data array and, unless the artist accepts 8-bit values, each distinct
+    /// reference to an array of them, and returns whether every reference is to a data
+    /// array of an element type the artist can use whose values match its shape.
     fn check_references(
         &mut self,
         node: NodeId,
-        references: &[DataId],
+        references: &[NodeId],
         accepts_bytes: bool,
     ) -> bool {
         let mut valid = true;
-        let mut reported: Vec<DataId> = Vec::new();
+        let mut reported: Vec<NodeId> = Vec::new();
         for &data in references {
-            let problem = match self.figure.data.get(&data) {
+            let problem = match self.arrays.get(&data) {
                 Some(array) if !accepts_bytes && array.element() != NdArrayElement::F64 => Some((
                     IssueKind::ElementTypeMismatch,
                     format!(
@@ -882,10 +972,16 @@ impl Validator<'_> {
                     valid &= is_consistent(array);
                     None
                 }
-                None => Some((
-                    IssueKind::UnknownData,
-                    format!("{data} is not in the data table"),
-                )),
+                None => Some(match self.kinds.get(&data) {
+                    Some(kind) => (
+                        IssueKind::WrongNodeKind,
+                        format!("{data} is a node of kind {kind:?}, not a data array"),
+                    ),
+                    None => (
+                        IssueKind::UnknownData,
+                        format!("{data} is not a node of the figure"),
+                    ),
+                }),
             };
             if let Some((kind, message)) = problem {
                 valid = false;
@@ -900,54 +996,27 @@ impl Validator<'_> {
 
     /// Checks the lengths and shapes of the arrays of an artist other than an image, all
     /// of which exist, and returns whether they agree.
-    fn check_shapes(&mut self, node: NodeId, artist: &Artist) -> bool {
-        let data = &self.figure.data;
-        match artist {
-            Artist::Line(line) => {
-                let counts = [Some(line.x), Some(line.y), line.z];
-                self.check_equal_counts(node, "the coordinate arrays", &counts)
-            }
-            Artist::Scatter(scatter) => {
-                let size = match scatter.size {
-                    ScatterSize::Data { data } => Some(data),
-                    ScatterSize::Scalar { .. } => None,
-                };
-                let color = match scatter.color {
-                    ScatterColor::Data { data } => Some(data),
-                    ScatterColor::Spec { .. } => None,
-                };
-                let counts = [Some(scatter.x), Some(scatter.y), scatter.z, size, color];
-                self.check_equal_counts(node, "the coordinate, size and colour arrays", &counts)
-            }
-            Artist::Quiver(quiver) => {
-                let counts = [
-                    Some(quiver.x),
-                    Some(quiver.y),
-                    quiver.z,
-                    Some(quiver.u),
-                    Some(quiver.v),
-                    quiver.w,
-                ];
-                self.check_equal_counts(node, "the position and component arrays", &counts)
-            }
-            Artist::Contour(contour) => self.check_grid(node, contour.grid, contour.z),
-            Artist::Surface(surface) => {
-                let grid_agrees = self.check_grid(node, surface.grid, surface.z);
+    fn check_shapes(&mut self, node: NodeId, shape: &Shape<'_>) -> bool {
+        let data = self.arrays;
+        match shape {
+            Shape::Points { what, arrays, .. } => self.check_equal_counts(node, what, arrays),
+            Shape::Grid {
+                grid,
+                field,
+                like_field,
+            } => {
+                let grid_agrees = self.check_grid(node, *grid, *field);
                 let mut agree = true;
-                for (what, array) in [
-                    ("the colour data", surface.c),
-                    ("the face alpha", surface.face_alpha),
-                    ("the edge alpha", surface.edge_alpha),
-                ] {
+                for &(what, array) in like_field {
                     if let Some(array) = array
-                        && data[&array].shape != data[&surface.z].shape
+                        && data[&array].shape != data[field].shape
                     {
                         self.error(
                             Some(node),
                             IssueKind::ShapeMismatch,
                             format!(
                                 "{what} has shape {:?}, but the field has shape {:?}",
-                                data[&array].shape, data[&surface.z].shape
+                                data[&array].shape, data[field].shape
                             ),
                         );
                         agree = false;
@@ -957,19 +1026,19 @@ impl Validator<'_> {
             }
             // The shape of an image is checked by `check_image`, which also needs the
             // number of pixels along each axis of the image.
-            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => true,
+            Shape::Image(_) => true,
         }
     }
 
-    /// Warns of a legend panel that has no entries to list, because no axes names it or
-    /// no axes that names it has an artist with a display name.
+    /// Warns of a panel holding a legend that has no entries to list, because no axes
+    /// names it or no axes that names it has an artist with a label.
     fn check_panel_has_entries(&mut self, panel: NodeId, entries: &LegendEntries) {
         if let LegendEntries::Explicit(items) = entries {
             if items.is_empty() {
                 self.warning(
                     Some(panel),
                     IssueKind::NothingToDraw,
-                    "the legend panel has an explicit list of no items, so the panel is empty"
+                    "the legend of the panel has an explicit list of no items, so the panel is empty"
                         .to_owned(),
                 );
             }
@@ -982,16 +1051,12 @@ impl Validator<'_> {
             .filter(|axes| axes.legend == Some(Legend::Panel(panel)))
             .peekable();
         let message = if axes.peek().is_none() {
-            "no axes lists its entries in the legend panel, so the panel is empty"
-        } else if axes.any(|axes| {
-            axes.artists
-                .iter()
-                .any(|artist| artist.display_name().is_some())
-        }) {
+            "no axes lists its entries in the panel, so the panel is empty"
+        } else if axes.any(|axes| axes.artists.iter().any(|artist| artist.label().is_some())) {
             return;
         } else {
-            "no artist of the axes that list their entries in the legend panel has a display \
-             name, so the panel is empty"
+            "no artist of the axes that list their entries in the panel has a label, so the \
+             panel is empty"
         };
         self.warning(Some(panel), IssueKind::NothingToDraw, message.to_string());
     }
@@ -1000,18 +1065,11 @@ impl Validator<'_> {
     /// shape, give it nothing to draw: a line, scatter or quiver of no points, or a
     /// contour or surface whose field has no rows or no columns or a single row or a
     /// single column, between whose nodes there is no cell.
-    fn check_something_to_draw(&mut self, node: NodeId, artist: &Artist) {
-        let data = &self.figure.data;
-        let (what, shape) = match artist {
-            Artist::Line(line) => ("the coordinate arrays", &data[&line.x].shape),
-            Artist::Scatter(scatter) => ("the coordinate arrays", &data[&scatter.x].shape),
-            Artist::Quiver(quiver) => ("the position arrays", &data[&quiver.x].shape),
-            Artist::Contour(contour) => ("the field", &data[&contour.z].shape),
-            Artist::Surface(surface) => ("the field", &data[&surface.z].shape),
-            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => return,
-        };
-        let message = match artist {
-            Artist::Contour(_) | Artist::Surface(_) => {
+    fn check_something_to_draw(&mut self, node: NodeId, shape: &Shape<'_>) {
+        let data = self.arrays;
+        let message = match shape {
+            Shape::Grid { field, .. } => {
+                let shape = &data[field].shape;
                 let &[ny, nx] = shape.as_slice() else {
                     return;
                 };
@@ -1019,20 +1077,22 @@ impl Validator<'_> {
                     return;
                 };
                 format!(
-                    "{what} has shape {shape:?}: it {case}, and a contour or surface draws the \
-                     cells between the nodes of its grid, of which there is none, so the artist \
-                     is left out of the drawing"
+                    "the field has shape {shape:?}: it {case}, and a contour or surface draws \
+                     the cells between the nodes of its grid, of which there is none, so the \
+                     artist is left out of the drawing"
                 )
             }
-            _ => {
+            Shape::Points { points, x, .. } => {
+                let shape = &data[x].shape;
                 if shape.iter().product::<usize>() > 0 {
                     return;
                 }
                 format!(
-                    "{what} have shape {shape:?}, so the artist has no points and is left out \
+                    "{points} have shape {shape:?}, so the artist has no points and is left out \
                      of the drawing"
                 )
             }
+            Shape::Image(_) => return,
         };
         self.warning(Some(node), IssueKind::NothingToDraw, message);
     }
@@ -1073,7 +1133,7 @@ impl Validator<'_> {
             (_, 0) => "no columns",
             _ => return,
         };
-        let shape = &self.figure.data[&image.data].shape;
+        let shape = &self.arrays[&image.data].shape;
         self.warning(
             Some(node),
             IssueKind::NothingToDraw,
@@ -1088,7 +1148,7 @@ impl Validator<'_> {
     /// Checks that the array of an image has the shape its kind requires, and returns
     /// the number of rows and columns of pixels when it has.
     fn check_image_shape(&mut self, node: NodeId, image: &ImageView) -> Option<[usize; 2]> {
-        let shape = &self.figure.data[&image.data].shape;
+        let shape = &self.arrays[&image.data].shape;
         let message = match (image.channels, shape.as_slice()) {
             (true, &[ny, nx, 3 | 4]) | (false, &[ny, nx]) => return Some([ny, nx]),
             (true, _) => format!(
@@ -1116,7 +1176,7 @@ impl Validator<'_> {
         let Some(alpha) = image.alpha else {
             return true;
         };
-        let shape = &self.figure.data[&alpha].shape;
+        let shape = &self.arrays[&alpha].shape;
         if shape.as_slice() == pixels {
             return true;
         }
@@ -1286,7 +1346,7 @@ impl Validator<'_> {
         image: &ImageView,
         policies: &Policies,
     ) {
-        let array = &self.figure.data[&image.data];
+        let array = self.arrays[&image.data];
         // The range outside which a pixel lies below or above, and how such a pixel is
         // described.
         let (range, below, above) = match policies.range {
@@ -1342,11 +1402,11 @@ impl Validator<'_> {
 
     /// Reports a shape mismatch when the present arrays differ in element count, and
     /// returns whether they agree.
-    fn check_equal_counts(&mut self, node: NodeId, what: &str, arrays: &[Option<DataId>]) -> bool {
+    fn check_equal_counts(&mut self, node: NodeId, what: &str, arrays: &[Option<NodeId>]) -> bool {
         let counts: Vec<usize> = arrays
             .iter()
             .flatten()
-            .map(|id| self.figure.data[id].len())
+            .map(|id| self.arrays[id].len())
             .collect();
         if counts.windows(2).any(|pair| pair[0] != pair[1]) {
             self.error(
@@ -1361,8 +1421,8 @@ impl Validator<'_> {
 
     /// Checks that a field is two-dimensional and that its grid matches it, and returns
     /// whether both hold.
-    fn check_grid(&mut self, node: NodeId, grid: Grid, field: DataId) -> bool {
-        let data = &self.figure.data;
+    fn check_grid(&mut self, node: NodeId, grid: Grid, field: NodeId) -> bool {
+        let data = self.arrays;
         let shape = &data[&field].shape;
         let &[ny, nx] = shape.as_slice() else {
             self.error(
@@ -1399,9 +1459,32 @@ impl Validator<'_> {
         true
     }
 
-    /// Checks the contour levels of a contour.
-    fn check_levels(&mut self, contour: &Contour) {
-        let problem = match &contour.levels {
+    /// Warns of every data array that no artist refers to.
+    fn check_unused_data(&mut self) {
+        let figure = self.figure;
+        let used: BTreeSet<NodeId> = figure
+            .axes
+            .iter()
+            .flat_map(|axes| &axes.artists)
+            .flat_map(|artist| artist.usage().references)
+            .collect();
+        for data in &figure.data {
+            if !used.contains(&data.id) {
+                self.warning(
+                    Some(data.id),
+                    IssueKind::UnusedData,
+                    format!(
+                        "no artist refers to {}, which is stored but never drawn",
+                        data.id
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Checks the levels of a contour.
+    fn check_levels(&mut self, node: NodeId, levels: &Levels) {
+        let problem = match levels {
             Levels::Auto { count: 0 } => Some("the automatic level count is zero"),
             Levels::Auto { .. } => None,
             Levels::Explicit { values } if values.is_empty() => Some("there are no levels"),
@@ -1414,11 +1497,7 @@ impl Validator<'_> {
             Levels::Explicit { .. } => None,
         };
         if let Some(message) = problem {
-            self.error(
-                Some(contour.id),
-                IssueKind::InvalidLevels,
-                message.to_owned(),
-            );
+            self.error(Some(node), IssueKind::InvalidLevels, message.to_owned());
         }
     }
 }
@@ -1474,9 +1553,9 @@ fn for_each_value(array: &NdArray, mut visit: impl FnMut(f64)) {
 }
 
 /// One of the three image kinds, seen through what validation needs of it.
-struct ImageView<'a> {
+pub(crate) struct ImageView<'a> {
     /// The pixels, indices or values of the image.
-    data: DataId,
+    data: NodeId,
     /// The name of the data field, for messages.
     what: &'static str,
     /// Whether the array holds the colour components of every pixel along a third
@@ -1484,7 +1563,7 @@ struct ImageView<'a> {
     channels: bool,
     /// The alpha of every pixel of a colour-indexed or colour-mapped image, if it has
     /// one.
-    alpha: Option<DataId>,
+    alpha: Option<NodeId>,
     /// Where the pixels lie in the axes.
     placement: &'a ImagePlacement,
     /// The out-of-range policies of a colour-indexed or colour-mapped image, or `None`
@@ -1514,58 +1593,13 @@ enum Range {
     ColourLimits,
 }
 
-impl<'a> ImageView<'a> {
-    fn of(artist: &'a Artist) -> Option<Self> {
-        Some(match artist {
-            Artist::Image(image) => Self {
-                data: image.pixels,
-                what: "pixels",
-                channels: true,
-                alpha: None,
-                placement: &image.placement,
-                policies: None,
-            },
-            Artist::IndexedImage(image) => Self {
-                data: image.indices,
-                what: "indices",
-                channels: false,
-                alpha: image.alpha,
-                placement: &image.placement,
-                policies: Some(Policies {
-                    below: image.below,
-                    above: image.above,
-                    non_finite: image.non_finite,
-                    range: Range::Colormap,
-                }),
-            },
-            Artist::MappedImage(image) => Self {
-                data: image.values,
-                what: "values",
-                channels: false,
-                alpha: image.alpha,
-                placement: &image.placement,
-                policies: Some(Policies {
-                    below: image.below,
-                    above: image.above,
-                    non_finite: image.non_finite,
-                    range: Range::ColourLimits,
-                }),
-            },
-            Artist::Line(_)
-            | Artist::Scatter(_)
-            | Artist::Contour(_)
-            | Artist::Quiver(_)
-            | Artist::Surface(_) => return None,
-        })
-    }
-}
-
-/// How an artist uses its data and the dimensions of its axes.
-struct ArtistUsage {
-    /// Every data identifier the artist refers to.
-    references: Vec<DataId>,
+/// How an artist uses its data and the dimensions of its axes, and the checks of its own
+/// that its kind adds.
+pub(crate) struct ArtistUsage<'a> {
+    /// The identifier of every data array the artist refers to.
+    references: Vec<NodeId>,
     /// The arrays whose values are plotted as positions along a dimension.
-    positions: Vec<(Dimension, DataId)>,
+    positions: Vec<(Dimension, NodeId)>,
     /// Whether the artist can only be drawn in a three-dimensional axes, because it needs
     /// the z axis to be placed. A surface does not: seen from directly above, it is the
     /// pseudocolour plot of a two-dimensional axes.
@@ -1575,22 +1609,45 @@ struct ArtistUsage {
     /// Whether the x and y values of a line or scatter are fractions of the plot area
     /// rather than data.
     fraction: [bool; 2],
+    /// Whether the artist releases its clip, as only a line or a scatter can.
+    clip_released: bool,
+    /// Each opacity of the artist, with its name for messages.
+    opacities: Vec<(&'static str, f64)>,
+    /// The levels of a contour.
+    levels: Option<&'a Levels>,
+    /// How the arrays of the artist must agree in shape.
+    shape: Shape<'a>,
 }
 
-impl ArtistUsage {
-    /// The usage of an image, which refers to its pixels, indices or values and to its
-    /// alpha, if it has one, each of either element type, plots nothing as a position
-    /// along an axis, and needs a three-dimensional axes when it lies on a wall.
-    fn image(data: DataId, alpha: Option<DataId>, placement: &ImagePlacement) -> Self {
-        Self {
-            references: [Some(data), alpha].into_iter().flatten().collect(),
-            positions: Vec::new(),
-            three_d: !matches!(placement.plane, ImagePlane::Xy { .. }),
-            accepts_bytes: true,
-            fraction: [false; 2],
-        }
-    }
+/// How the arrays of an artist must agree in shape, and what gives it something to draw.
+enum Shape<'a> {
+    /// Arrays of one value per point, which must have the same number of elements; the
+    /// artist has nothing to draw when the array of x positions is empty.
+    Points {
+        /// The arrays, named as a mismatch of their numbers of elements describes them.
+        what: &'static str,
+        /// The arrays, of which those present are compared.
+        arrays: Vec<Option<NodeId>>,
+        /// The arrays of positions, named as an artist with no points describes them.
+        points: &'static str,
+        /// The array of x positions.
+        x: NodeId,
+    },
+    /// A field on a grid, which must be two-dimensional and match its grid; the artist
+    /// has nothing to draw when the grid has no cell between its nodes.
+    Grid {
+        /// The grid on which the field is sampled.
+        grid: Grid,
+        /// The field.
+        field: NodeId,
+        /// The arrays that must have the shape of the field, each named for messages.
+        like_field: Vec<(&'static str, Option<NodeId>)>,
+    },
+    /// An image, which [`Validator::check_image`] checks.
+    Image(ImageView<'a>),
+}
 
+impl ArtistUsage<'_> {
     /// Returns whether the values along `dimension` are fractions of the plot area.
     fn is_fraction(&self, dimension: Dimension) -> bool {
         match dimension {
@@ -1599,97 +1656,246 @@ impl ArtistUsage {
             Dimension::Z => false,
         }
     }
+}
 
-    fn of(artist: &Artist) -> Self {
-        let grid_positions = |grid: Grid| match grid {
-            Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => {
-                vec![(Dimension::X, x), (Dimension::Y, y)]
-            }
-        };
-        match artist {
-            Artist::Line(line) => {
-                let mut positions = vec![(Dimension::X, line.x), (Dimension::Y, line.y)];
-                positions.extend(line.z.map(|z| (Dimension::Z, z)));
-                Self {
-                    references: positions.iter().map(|&(_, id)| id).collect(),
-                    positions,
-                    three_d: line.z.is_some(),
-                    accepts_bytes: false,
-                    fraction: fractions(line.x_coords, line.y_coords),
-                }
-            }
-            Artist::Scatter(scatter) => {
-                let mut positions = vec![(Dimension::X, scatter.x), (Dimension::Y, scatter.y)];
-                positions.extend(scatter.z.map(|z| (Dimension::Z, z)));
-                let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
-                if let ScatterSize::Data { data } = scatter.size {
-                    references.push(data);
-                }
-                if let ScatterColor::Data { data } = scatter.color {
-                    references.push(data);
-                }
-                Self {
-                    references,
-                    positions,
-                    three_d: scatter.z.is_some(),
-                    accepts_bytes: false,
-                    fraction: fractions(scatter.x_coords, scatter.y_coords),
-                }
-            }
-            Artist::Quiver(quiver) => {
-                let mut positions = vec![(Dimension::X, quiver.x), (Dimension::Y, quiver.y)];
-                positions.extend(quiver.z.map(|z| (Dimension::Z, z)));
-                let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
-                references.extend([quiver.u, quiver.v]);
-                references.extend(quiver.w);
-                Self {
-                    references,
-                    positions,
-                    three_d: quiver.z.is_some() || quiver.w.is_some(),
-                    accepts_bytes: false,
-                    fraction: [false; 2],
-                }
-            }
-            Artist::Contour(contour) => {
-                let at_level = contour.placement == ContourPlacement::AtLevel;
-                let mut positions = grid_positions(contour.grid);
-                let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
-                references.push(contour.z);
-                if at_level {
-                    positions.push((Dimension::Z, contour.z));
-                }
-                Self {
-                    references,
-                    positions,
-                    three_d: at_level,
-                    accepts_bytes: false,
-                    fraction: [false; 2],
-                }
-            }
-            Artist::Surface(surface) => {
-                let mut positions = grid_positions(surface.grid);
-                positions.push((Dimension::Z, surface.z));
-                let mut references: Vec<DataId> = positions.iter().map(|&(_, id)| id).collect();
-                references.extend(surface.c);
-                references.extend(surface.face_alpha);
-                references.extend(surface.edge_alpha);
-                // A surface is valid in either projection. In a two-dimensional axes it is
-                // seen from directly above, so its field positions nothing there; the
-                // caller passes over positions along z in a two-dimensional axes.
-                Self {
-                    references,
-                    positions,
-                    three_d: false,
-                    accepts_bytes: false,
-                    fraction: [false; 2],
-                }
-            }
-            Artist::Image(image) => Self::image(image.pixels, None, &image.placement),
-            Artist::IndexedImage(image) => {
-                Self::image(image.indices, image.alpha, &image.placement)
-            }
-            Artist::MappedImage(image) => Self::image(image.values, image.alpha, &image.placement),
+impl<'a> ArtistUsage<'a> {
+    /// The usage of an artist that uses its data and its axes as `references`,
+    /// `positions`, `three_d` and `shape` say, accepts only 64-bit floating-point values,
+    /// places every dimension in data coordinates, keeps its clip, and has no opacity and
+    /// no levels; the kinds of artist that differ say so.
+    fn new(
+        references: Vec<NodeId>,
+        positions: Vec<(Dimension, NodeId)>,
+        three_d: bool,
+        shape: Shape<'a>,
+    ) -> Self {
+        Self {
+            references,
+            positions,
+            three_d,
+            accepts_bytes: false,
+            fraction: [false; 2],
+            clip_released: false,
+            opacities: Vec::new(),
+            levels: None,
+            shape,
         }
+    }
+
+    /// The usage of an image, which refers to its pixels, indices or values and to its
+    /// alpha, if it has one, each of either element type, plots nothing as a position
+    /// along an axis, and needs a three-dimensional axes when it lies on a wall.
+    fn image(image: ImageView<'a>, opacity: f64) -> Self {
+        Self {
+            accepts_bytes: true,
+            opacities: vec![("opacity", opacity)],
+            ..Self::new(
+                [Some(image.data), image.alpha]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+                Vec::new(),
+                !matches!(image.placement.plane, ImagePlane::Xy { .. }),
+                Shape::Image(image),
+            )
+        }
+    }
+}
+
+/// Returns the arrays of a grid plotted as positions along x and y.
+fn grid_positions(grid: Grid) -> Vec<(Dimension, NodeId)> {
+    match grid {
+        Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => {
+            vec![(Dimension::X, x), (Dimension::Y, y)]
+        }
+    }
+}
+
+/// Returns the arrays of x, y and, when present, z positions of a line, scatter or quiver.
+fn point_positions(x: NodeId, y: NodeId, z: Option<NodeId>) -> Vec<(Dimension, NodeId)> {
+    let mut positions = vec![(Dimension::X, x), (Dimension::Y, y)];
+    positions.extend(z.map(|z| (Dimension::Z, z)));
+    positions
+}
+
+/// Returns the identifiers of the arrays of positions.
+fn ids(positions: &[(Dimension, NodeId)]) -> Vec<NodeId> {
+    positions.iter().map(|&(_, id)| id).collect()
+}
+
+impl Usage for Line {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let positions = point_positions(self.x, self.y, self.z);
+        let shape = Shape::Points {
+            what: "the coordinate arrays",
+            arrays: vec![Some(self.x), Some(self.y), self.z],
+            points: "the coordinate arrays",
+            x: self.x,
+        };
+        ArtistUsage {
+            fraction: fractions(self.x_coords, self.y_coords),
+            clip_released: !self.clip,
+            ..ArtistUsage::new(ids(&positions), positions, self.z.is_some(), shape)
+        }
+    }
+}
+
+impl Usage for Scatter {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let positions = point_positions(self.x, self.y, self.z);
+        let size = match self.size {
+            ScatterSize::Data { data } => Some(data),
+            ScatterSize::Scalar { .. } => None,
+        };
+        let color = match self.color {
+            ScatterColor::Data { data } => Some(data),
+            ScatterColor::Spec { .. } => None,
+        };
+        let mut references = ids(&positions);
+        references.extend(size);
+        references.extend(color);
+        let shape = Shape::Points {
+            what: "the coordinate, size and colour arrays",
+            arrays: vec![Some(self.x), Some(self.y), self.z, size, color],
+            points: "the coordinate arrays",
+            x: self.x,
+        };
+        ArtistUsage {
+            fraction: fractions(self.x_coords, self.y_coords),
+            clip_released: !self.clip,
+            ..ArtistUsage::new(references, positions, self.z.is_some(), shape)
+        }
+    }
+}
+
+impl Usage for Quiver {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let positions = point_positions(self.x, self.y, self.z);
+        let mut references = ids(&positions);
+        references.extend([self.u, self.v]);
+        references.extend(self.w);
+        let shape = Shape::Points {
+            what: "the position and component arrays",
+            arrays: vec![
+                Some(self.x),
+                Some(self.y),
+                self.z,
+                Some(self.u),
+                Some(self.v),
+                self.w,
+            ],
+            points: "the position arrays",
+            x: self.x,
+        };
+        let three_d = self.z.is_some() || self.w.is_some();
+        ArtistUsage::new(references, positions, three_d, shape)
+    }
+}
+
+impl Usage for Contour {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let at_level = self.placement == ContourPlacement::AtLevel;
+        let mut positions = grid_positions(self.grid);
+        let mut references = ids(&positions);
+        references.push(self.z);
+        if at_level {
+            positions.push((Dimension::Z, self.z));
+        }
+        let shape = Shape::Grid {
+            grid: self.grid,
+            field: self.z,
+            like_field: Vec::new(),
+        };
+        ArtistUsage {
+            opacities: vec![
+                ("line opacity", self.line_opacity),
+                ("fill opacity", self.fill_opacity),
+            ],
+            levels: Some(&self.levels),
+            ..ArtistUsage::new(references, positions, at_level, shape)
+        }
+    }
+}
+
+impl Usage for Surface {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let mut positions = grid_positions(self.grid);
+        positions.push((Dimension::Z, self.z));
+        let mut references = ids(&positions);
+        references.extend(self.c);
+        references.extend(self.face_alpha);
+        references.extend(self.edge_alpha);
+        let shape = Shape::Grid {
+            grid: self.grid,
+            field: self.z,
+            like_field: vec![
+                ("the colour data", self.c),
+                ("the face alpha", self.face_alpha),
+                ("the edge alpha", self.edge_alpha),
+            ],
+        };
+        // A surface is valid in either projection. In a two-dimensional axes it is seen
+        // from directly above, so its field positions nothing there; the check of an
+        // artist passes over positions along z in a two-dimensional axes.
+        ArtistUsage {
+            opacities: vec![
+                ("face opacity", self.face_opacity),
+                ("edge opacity", self.edge_opacity),
+            ],
+            ..ArtistUsage::new(references, positions, false, shape)
+        }
+    }
+}
+
+impl Usage for Image {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let image = ImageView {
+            data: self.pixels,
+            what: "pixels",
+            channels: true,
+            alpha: None,
+            placement: &self.placement,
+            policies: None,
+        };
+        ArtistUsage::image(image, self.opacity)
+    }
+}
+
+impl Usage for IndexedImage {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let image = ImageView {
+            data: self.indices,
+            what: "indices",
+            channels: false,
+            alpha: self.alpha,
+            placement: &self.placement,
+            policies: Some(Policies {
+                below: self.below,
+                above: self.above,
+                non_finite: self.non_finite,
+                range: Range::Colormap,
+            }),
+        };
+        ArtistUsage::image(image, self.opacity)
+    }
+}
+
+impl Usage for MappedImage {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let image = ImageView {
+            data: self.values,
+            what: "values",
+            channels: false,
+            alpha: self.alpha,
+            placement: &self.placement,
+            policies: Some(Policies {
+                below: self.below,
+                above: self.above,
+                non_finite: self.non_finite,
+                range: Range::ColourLimits,
+            }),
+        };
+        ArtistUsage::image(image, self.opacity)
     }
 }
 

@@ -100,9 +100,14 @@ fn alpha_setters_store_their_arrays_and_release_the_ones_they_replace() {
         again.ir().data.len(),
         4,
         "the two grid vectors, the field and the second alpha, without the first: {:?}",
-        again.ir().data.keys().collect::<Vec<_>>()
+        again
+            .ir()
+            .data
+            .iter()
+            .map(|data| data.id)
+            .collect::<Vec<_>>()
     );
-    assert!(again.ir().data.contains_key(&kept));
+    assert!(again.ir().data_array(kept).is_some());
 }
 
 // WHY: an opacity is checked by validation rather than by the setter, so that a figure

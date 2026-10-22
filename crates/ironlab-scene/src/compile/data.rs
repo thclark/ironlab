@@ -10,9 +10,9 @@
 //! validation of the figure agree about which artists are absent.
 
 use ironlab_ir::{
-    Artist, Axes, ContourPlacement, Coords as ArtistCoords, DataId, Dimension, Figure, Grid,
-    ImagePlacement, ImagePlane, NdArray, OutOfRange, PixelRange, QuiverScale, Scale, ScatterColor,
-    ScatterSize,
+    Artist, Axes, ContourPlacement, Coords as ArtistCoords, Dimension, Figure, Grid,
+    ImagePlacement, ImagePlane, NdArray, NodeId, OutOfRange, PixelRange, QuiverScale, Scale,
+    ScatterColor, ScatterSize,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -154,11 +154,11 @@ pub(super) fn prepare_axes<'a>(ctx: &mut Ctx<'a>, axes: &'a Axes) -> Vec<Prepare
 }
 
 /// Looks up an array and checks that its values match its shape.
-fn array(figure: &Figure, id: DataId) -> Result<&NdArray, String> {
-    let array = figure
-        .data
-        .get(&id)
-        .ok_or_else(|| format!("it refers to {id}, which is not in the data table"))?;
+fn array(figure: &Figure, id: NodeId) -> Result<&NdArray, String> {
+    let array = &figure
+        .data_array(id)
+        .ok_or_else(|| format!("it refers to {id}, which is not a data array of the figure"))?
+        .array;
     let expected = array
         .shape
         .iter()
@@ -175,7 +175,7 @@ fn array(figure: &Figure, id: DataId) -> Result<&NdArray, String> {
 
 /// Looks up an array that must hold floating-point values, which every artist requires. `what` names the role of
 /// the array in the artist, such as `x` or `colour`.
-fn f64_values<'a>(figure: &'a Figure, id: DataId, what: &str) -> Result<&'a [f64], String> {
+fn f64_values<'a>(figure: &'a Figure, id: NodeId, what: &str) -> Result<&'a [f64], String> {
     array(figure, id)?.as_f64().ok_or_else(|| {
         format!(
             "its {what} array {id} holds 8-bit values and the artist requires floating-point values"
@@ -186,7 +186,7 @@ fn f64_values<'a>(figure: &'a Figure, id: DataId, what: &str) -> Result<&'a [f64
 /// Looks up an array of floating-point values that must hold `len` values.
 fn values_of_len<'a>(
     figure: &'a Figure,
-    id: DataId,
+    id: NodeId,
     len: usize,
     what: &str,
 ) -> Result<&'a [f64], String> {
@@ -201,7 +201,7 @@ fn values_of_len<'a>(
 }
 
 /// Resolves the x, y and optional z arrays of a point set, which must have equal lengths.
-fn points(figure: &Figure, x: DataId, y: DataId, z: Option<DataId>) -> Result<Points<'_>, String> {
+fn points(figure: &Figure, x: NodeId, y: NodeId, z: Option<NodeId>) -> Result<Points<'_>, String> {
     let x = f64_values(figure, x, "x")?;
     let y = values_of_len(figure, y, x.len(), "y")?;
     let z = z
@@ -212,7 +212,7 @@ fn points(figure: &Figure, x: DataId, y: DataId, z: Option<DataId>) -> Result<Po
 
 /// Checks that a point set, whose arrays agree in length, holds at least one point, because an artist of no points
 /// draws nothing and is left out with a warning that names it.
-fn at_least_one_point(points: Points<'_>, x: DataId) -> Result<Points<'_>, String> {
+fn at_least_one_point(points: Points<'_>, x: NodeId) -> Result<Points<'_>, String> {
     if points.len() == 0 {
         return Err(format!(
             "its x array {x} holds no values, so it has no points"
@@ -238,7 +238,7 @@ fn nodes_without_cells(ny: usize, nx: usize) -> Option<&'static str> {
 /// Resolves a gridded field: its `[ny, nx]` values and the grid coordinates. A field with no rows or no columns, or
 /// a single row or a single column, has no cell between its nodes, and a contour or surface draws the cells, so
 /// such a field is an error that names the case and the shape of the field.
-fn grid<'a>(figure: &'a Figure, grid: &Grid, z: DataId) -> Result<GridRef<'a>, String> {
+fn grid<'a>(figure: &'a Figure, grid: &Grid, z: NodeId) -> Result<GridRef<'a>, String> {
     let field = array(figure, z)?;
     let [ny, nx] = field.shape[..] else {
         return Err(format!(
@@ -327,7 +327,7 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
         }
         Artist::Surface(surface) => {
             let grid = grid(figure, &surface.grid, surface.z)?;
-            let per_node = |id: Option<DataId>, what: &str| {
+            let per_node = |id: Option<NodeId>, what: &str| {
                 id.map(|id| {
                     let values = f64_values(figure, id, what)?;
                     if values.len() == grid.z.len() {
@@ -384,7 +384,7 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
 
 /// The transparency of an image artist: the identifier of its alpha array, if it has one, and its opacity.
 struct Look {
-    alpha: Option<DataId>,
+    alpha: Option<NodeId>,
     opacity: f64,
 }
 
@@ -395,7 +395,7 @@ struct Look {
 fn image_data<'a>(
     figure: &'a Figure,
     axes: &Axes,
-    id: DataId,
+    id: NodeId,
     kind: ImageKind,
     placement: ImagePlacement,
     look: Look,

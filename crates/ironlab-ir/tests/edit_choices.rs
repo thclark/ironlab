@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 27] = [
+const WITH_CHOICES: [ValueType; 29] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -27,6 +27,8 @@ const WITH_CHOICES: [ValueType; 27] = [
     ValueType::LegendLocation,
     ValueType::LegendEntryColumns,
     ValueType::LegendEntryOrder,
+    ValueType::PanelLocation,
+    ValueType::PanelContent,
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
@@ -237,16 +239,16 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
     let curvilinear = replacing(
         ValueType::Grid,
         Value::Grid(Grid::Rectilinear {
-            x: DataId(11),
-            y: DataId(12),
+            x: NodeId(11),
+            y: NodeId(12),
         }),
         "Curvilinear",
     );
     assert_eq!(
         curvilinear,
         Value::Grid(Grid::Curvilinear {
-            x: DataId(11),
-            y: DataId(12)
+            x: NodeId(11),
+            y: NodeId(12)
         }),
         "a grid keeps the coordinate arrays it replaces"
     );
@@ -409,7 +411,7 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ValueType::ScatterSize,
         vec![
             Value::ScatterSize(ScatterSize::Scalar { value: 4.0 }),
-            Value::ScatterSize(ScatterSize::Data { data: DataId(0) }),
+            Value::ScatterSize(ScatterSize::Data { data: NodeId(0) }),
         ],
     );
     covered(
@@ -418,19 +420,19 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::ScatterColor(ScatterColor::Spec {
                 spec: ColorSpec::Auto,
             }),
-            Value::ScatterColor(ScatterColor::Data { data: DataId(0) }),
+            Value::ScatterColor(ScatterColor::Data { data: NodeId(0) }),
         ],
     );
     covered(
         ValueType::Grid,
         vec![
             Value::Grid(Grid::Rectilinear {
-                x: DataId(0),
-                y: DataId(1),
+                x: NodeId(0),
+                y: NodeId(1),
             }),
             Value::Grid(Grid::Curvilinear {
-                x: DataId(0),
-                y: DataId(1),
+                x: NodeId(0),
+                y: NodeId(1),
             }),
         ],
     );
@@ -514,6 +516,28 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::LegendLocation(LegendLocation::Center),
             Value::LegendLocation(LegendLocation::Best),
         ],
+    );
+    // A panel's location has no `Best`, because a cell holds nothing for its content to
+    // avoid.
+    covered(
+        ValueType::PanelLocation,
+        vec![
+            Value::PanelLocation(PanelLocation::Center),
+            Value::PanelLocation(PanelLocation::North),
+            Value::PanelLocation(PanelLocation::South),
+            Value::PanelLocation(PanelLocation::East),
+            Value::PanelLocation(PanelLocation::West),
+            Value::PanelLocation(PanelLocation::NorthEast),
+            Value::PanelLocation(PanelLocation::NorthWest),
+            Value::PanelLocation(PanelLocation::SouthEast),
+            Value::PanelLocation(PanelLocation::SouthWest),
+        ],
+    );
+    covered(
+        ValueType::PanelContent,
+        vec![Value::PanelContent(PanelContent::Legend(
+            PanelLegend::default(),
+        ))],
     );
     covered(
         ValueType::Legend,
@@ -948,7 +972,7 @@ fn a_legend_panel_choice_is_available_only_for_a_panel_the_figure_has() {
     // With no panel to keep, the choice names the fallback panel 0, which the figure
     // (whose identifiers start at 1) does not have.
     assert_eq!(offered[1].value, Value::Legend(Legend::Panel(NodeId(0))));
-    assert!(fig.panel_legend(NodeId(0)).is_none());
+    assert!(fig.panel(NodeId(0)).is_none());
     assert!(!offered[1].available(), "{offered:?}");
 }
 

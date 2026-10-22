@@ -24,12 +24,12 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
         .title("Fourier series of a square wave")
-        .label("line")
-        .label("legend")
-        .label("export")
-        .label("interaction")
-        .label("latex")
-        .label("signals")
+        .tag("line")
+        .tag("legend")
+        .tag("export")
+        .tag("interaction")
+        .tag("latex")
+        .tag("signals")
         .parameter("dimensionality", "2D")
         .parameter("artists", 4)
         .parameter("data_points", 6408)
@@ -41,7 +41,7 @@ pub fn figure() -> Figure {
             .map(|&x| square_wave_partial_sum(x, terms))
             .collect();
         // Doubled braces are literal braces in a Rust format string, so {{{terms}}} becomes {4} in the LaTeX.
-        ax.plot(&x, &partial_sum).display_name(format!(
+        ax.plot(&x, &partial_sum).label(format!(
             r"$S_{{{terms}}}(x) = \frac{{4}}{{\pi}} \sum_{{k=1}}^{{{terms}}} \frac{{\sin((2k-1)x)}}{{2k-1}}$"
         ));
     }

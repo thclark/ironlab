@@ -6,7 +6,8 @@
 mod common;
 
 use common::{
-    FigureBuilder, floats_mut, image_variants_figure, kitchen_sink_figure, single_line_figure,
+    FigureBuilder, array_mut, drop_unreferenced_data, floats_mut, image_variants_figure,
+    kitchen_sink_figure, legend_panel, panel_legend_mut, single_line_figure,
 };
 use ironlab_ir::*;
 
@@ -48,25 +49,27 @@ struct GridFixture {
 /// 3 × 4 array `bytes` of 8-bit values, and the pixels of a 3 × 4 image as 8-bit RGB
 /// components (`rgb`) and as floating-point RGBA components (`rgba`).
 struct GridData {
-    gx: DataId,
-    gy: DataId,
-    field: DataId,
-    cx: DataId,
-    cy: DataId,
-    p: DataId,
-    q: DataId,
-    r: DataId,
-    short: DataId,
-    column: DataId,
-    bytes: DataId,
-    rgb: DataId,
-    rgba: DataId,
+    gx: NodeId,
+    gy: NodeId,
+    field: NodeId,
+    cx: NodeId,
+    cy: NodeId,
+    p: NodeId,
+    q: NodeId,
+    r: NodeId,
+    short: NodeId,
+    column: NodeId,
+    bytes: NodeId,
+    rgb: NodeId,
+    rgba: NodeId,
 }
 
 /// A deferred constructor of the artist placed in a [`GridFixture`].
 type MakeArtist = Box<dyn FnOnce(NodeId, &GridData) -> Artist>;
 
-/// Builds a figure with one 2D or 3D axes holding the single artist made by `make`.
+/// Builds a figure with one 2D or 3D axes holding the single artist made by `make`, and
+/// only the arrays of [`GridData`] that the artist refers to, so that the arrays it does
+/// not use raise no unused-data warning.
 fn grid_fixture(three_d: bool, make: impl FnOnce(NodeId, &GridData) -> Artist) -> GridFixture {
     let mut b = FigureBuilder::new();
     let axes = if three_d {
@@ -95,10 +98,9 @@ fn grid_fixture(three_d: bool, make: impl FnOnce(NodeId, &GridData) -> Artist) -
     let artist = b.node();
     let made = make(artist, &data);
     b.push(axes, made);
-    GridFixture {
-        fig: b.build(),
-        artist,
-    }
+    let mut fig = b.build();
+    drop_unreferenced_data(&mut fig);
+    GridFixture { fig, artist }
 }
 
 // Why: a check that reports errors on a correct figure is as harmful as a missing check;
@@ -123,7 +125,7 @@ fn empty_default_figure_is_valid() {
 #[test]
 fn reference_to_missing_data_is_an_error_on_the_artist() {
     let (mut fig, _, line) = single_line_figure();
-    line_mut(&mut fig).y = DataId(999);
+    line_mut(&mut fig).y = NodeId(999);
     let report = fig.validate();
     assert!(
         has_error(&report, IssueKind::UnknownData, Some(line)),
@@ -140,7 +142,7 @@ fn optional_reference_to_missing_data_is_an_error() {
             id,
             x: d.p,
             y: d.q,
-            z: Some(DataId(999)),
+            z: Some(NodeId(999)),
             ..Line::default()
         })
     });
@@ -151,13 +153,25 @@ fn optional_reference_to_missing_data_is_an_error() {
     );
 }
 
+/// Adds an unnamed data array with the given identifier to a figure, without the API
+/// under test.
+fn push_data(fig: &mut Figure, id: NodeId, array: NdArray) {
+    fig.data.push(DataArray {
+        id,
+        name: None,
+        array,
+    });
+}
+
 // Why: an array whose shape disagrees with its value count would cause out-of-bounds
-// indexing in every renderer, and it can only arrive through a hand-edited file.
+// indexing in every renderer, and it can only arrive through a hand-edited file. A data
+// array is a node, so the error names it, and a user can find the faulty array.
 #[test]
 fn array_whose_shape_does_not_match_its_values_is_an_error() {
     let (mut fig, _, _) = single_line_figure();
-    fig.data.insert(
-        DataId(50),
+    push_data(
+        &mut fig,
+        NodeId(50),
         NdArray {
             shape: vec![2, 2],
             values: Values::F64(vec![1.0, 2.0, 3.0]),
@@ -165,7 +179,7 @@ fn array_whose_shape_does_not_match_its_values_is_an_error() {
     );
     let report = fig.validate();
     assert!(
-        error_kinds(&report).contains(&IssueKind::InvalidArray),
+        has_error(&report, IssueKind::InvalidArray, Some(NodeId(50))),
         "{report:?}"
     );
 }
@@ -177,8 +191,9 @@ fn array_whose_shape_does_not_match_its_values_is_an_error() {
 #[test]
 fn array_of_bytes_whose_shape_does_not_match_its_values_is_an_error() {
     let (mut fig, _, _) = single_line_figure();
-    fig.data.insert(
-        DataId(50),
+    push_data(
+        &mut fig,
+        NodeId(50),
         NdArray {
             shape: vec![2, 2],
             values: Values::U8(vec![1, 2, 3]),
@@ -193,18 +208,27 @@ fn array_of_bytes_whose_shape_does_not_match_its_values_is_an_error() {
 }
 
 // Why: an array of bytes that no artist refers to is ordinary data (an image's pixels
-// waiting for their artist), so a check that reported it would make correct figures
-// invalid.
+// waiting for their artist), so an error would make correct figures invalid; it is
+// reported only by the unused-data warning that any unreferenced array raises, and not
+// for its element type, which matters only to an artist that reads it.
 #[test]
-fn unreferenced_array_of_bytes_is_valid() {
+fn unreferenced_array_of_bytes_is_valid_and_only_warned_as_unused() {
     let (mut fig, _, _) = single_line_figure();
-    fig.data.insert(
-        DataId(50),
+    push_data(
+        &mut fig,
+        NodeId(50),
         NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
     );
     let report = fig.validate();
     assert_eq!(report.errors, vec![]);
-    assert_eq!(report.warnings, vec![]);
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .map(|w| (w.kind, w.node))
+            .collect::<Vec<_>>(),
+        [(IssueKind::UnusedData, Some(NodeId(50)))]
+    );
 }
 
 // Why: every artist other than an image reads floats, so such an artist that refers to
@@ -216,8 +240,7 @@ fn unreferenced_array_of_bytes_is_valid() {
 fn artist_referring_to_an_array_of_bytes_is_an_element_type_mismatch() {
     let (mut fig, _, line) = single_line_figure();
     let x = line_mut(&mut fig).x;
-    fig.data
-        .insert(x, NdArray::from_shape_u8(vec![3], vec![1, 2, 3]).unwrap());
+    *array_mut(&mut fig, x) = NdArray::from_shape_u8(vec![3], vec![1, 2, 3]).unwrap();
     let report = fig.validate();
     assert!(
         has_error(&report, IssueKind::ElementTypeMismatch, Some(line)),
@@ -686,7 +709,7 @@ fn assert_no_issues(report: &ValidationReport, at: &str) {
 // not fire for the smallest grid that has a cell.
 #[test]
 fn a_field_with_no_cells_is_a_warning_that_the_artist_draws_nothing() {
-    type Make = fn(NodeId, Grid, DataId) -> Artist;
+    type Make = fn(NodeId, Grid, NodeId) -> Artist;
     let contour: Make = |id, grid, z| {
         Artist::Contour(Contour {
             id,
@@ -937,7 +960,7 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
     /// A deferred constructor of an artist that stores its own arrays in the builder.
     type MakeWith = Box<dyn FnOnce(&mut FigureBuilder, NodeId) -> Artist>;
     /// Stores an empty vector and returns its identifier.
-    fn empty(b: &mut FigureBuilder) -> DataId {
+    fn empty(b: &mut FigureBuilder) -> NodeId {
         b.data(NdArray::vector(vec![]))
     }
     let cases: Vec<(&str, IssueKind, MakeWith)> = vec![
@@ -948,7 +971,7 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
                 Artist::Line(Line {
                     id,
                     x: empty(b),
-                    y: DataId(999),
+                    y: NodeId(999),
                     ..Line::default()
                 })
             }),
@@ -1004,7 +1027,7 @@ fn an_artist_reported_for_its_references_or_shapes_is_not_also_reported_as_drawi
                         x: b.vector(&[0.0, 1.0]),
                         y: empty(b),
                     },
-                    z: DataId(999),
+                    z: NodeId(999),
                     ..Surface::default()
                 })
             }),
@@ -1074,14 +1097,14 @@ fn surface_field_in_two_dimensional_axes_is_not_a_position_on_a_log_axis() {
         _ => unreachable!(),
     };
     fx.fig.axes[0].z.scale = Scale::Log;
-    floats_mut(fx.fig.data.get_mut(&field).unwrap())[5] = -2.0;
+    floats_mut(array_mut(&mut fx.fig, field))[5] = -2.0;
     let report = fx.fig.validate();
     assert_eq!(report.errors, vec![]);
     assert_eq!(report.warnings, vec![]);
 
     // The x coordinate of the first node of the fixture is zero.
     fx.fig.axes[0].x.scale = Scale::Log;
-    assert_eq!(floats_mut(fx.fig.data.get_mut(&cx).unwrap())[0], 0.0);
+    assert_eq!(floats_mut(array_mut(&mut fx.fig, cx))[0], 0.0);
     let report = fx.fig.validate();
     assert_eq!(report.errors, vec![]);
     assert!(
@@ -1241,7 +1264,7 @@ fn non_positive_data_on_a_log_axis_is_a_warning() {
         let (mut fig, _, line) = single_line_figure();
         fig.axes[0].y.scale = Scale::Log;
         let y = line_mut(&mut fig).y;
-        floats_mut(fig.data.get_mut(&y).unwrap())[1] = bad;
+        floats_mut(array_mut(&mut fig, y))[1] = bad;
         let report = fig.validate();
         assert!(
             has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(line)),
@@ -1262,8 +1285,8 @@ fn log_axis_warning_is_limited_to_finite_data_on_that_axis() {
     fig.axes[0].x.scale = Scale::Log;
     let y = line_mut(&mut fig).y;
     let x = line_mut(&mut fig).x;
-    floats_mut(fig.data.get_mut(&y).unwrap())[1] = -5.0;
-    floats_mut(fig.data.get_mut(&x).unwrap())[1] = f64::NAN;
+    floats_mut(array_mut(&mut fig, y))[1] = -5.0;
+    floats_mut(array_mut(&mut fig, x))[1] = f64::NAN;
     let report = fig.validate();
     assert_eq!(report.warnings, vec![]);
 }
@@ -1286,7 +1309,7 @@ fn non_positive_surface_heights_on_a_log_z_axis_are_a_warning() {
         Artist::Surface(s) => s.z,
         _ => unreachable!(),
     };
-    floats_mut(fx.fig.data.get_mut(&field).unwrap())[5] = 0.0;
+    floats_mut(array_mut(&mut fx.fig, field))[5] = 0.0;
     let report = fx.fig.validate();
     assert!(
         has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(fx.artist)),
@@ -1351,7 +1374,7 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
         Artist::Surface(s) => s.c.unwrap(),
         _ => unreachable!(),
     };
-    floats_mut(fx.fig.data.get_mut(&colour).unwrap())[0] = -1.0;
+    floats_mut(array_mut(&mut fx.fig, colour))[0] = -1.0;
     let report = fx.fig.validate();
     assert_eq!(report.errors, vec![]);
     assert_eq!(report.warnings, vec![]);
@@ -1546,7 +1569,7 @@ fn every_invalid_parameter_is_reported() {
 // ---------------------------------------------------------------------------------
 
 /// A true-colour image of the given pixels with the given placement.
-fn image_at(id: NodeId, pixels: DataId, placement: ImagePlacement) -> Artist {
+fn image_at(id: NodeId, pixels: NodeId, placement: ImagePlacement) -> Artist {
     Artist::Image(Image {
         id,
         pixels,
@@ -1557,7 +1580,7 @@ fn image_at(id: NodeId, pixels: DataId, placement: ImagePlacement) -> Artist {
 
 /// A colour-indexed image of the given indices with the given placement and the default
 /// (transparent) policies.
-fn indexed_at(id: NodeId, indices: DataId, placement: ImagePlacement) -> Artist {
+fn indexed_at(id: NodeId, indices: NodeId, placement: ImagePlacement) -> Artist {
     Artist::IndexedImage(IndexedImage {
         id,
         indices,
@@ -1568,7 +1591,7 @@ fn indexed_at(id: NodeId, indices: DataId, placement: ImagePlacement) -> Artist 
 
 /// A colour-mapped image of the given values with the given placement and the default
 /// (transparent) policies.
-fn mapped_at(id: NodeId, values: DataId, placement: ImagePlacement) -> Artist {
+fn mapped_at(id: NodeId, values: NodeId, placement: ImagePlacement) -> Artist {
     Artist::MappedImage(MappedImage {
         id,
         values,
@@ -1581,7 +1604,7 @@ fn mapped_at(id: NodeId, values: DataId, placement: ImagePlacement) -> Artist {
 /// below the map, above it and non-finite.
 fn indexed_with(
     id: NodeId,
-    indices: DataId,
+    indices: NodeId,
     [below, above, non_finite]: [OutOfRange; 3],
 ) -> Artist {
     Artist::IndexedImage(IndexedImage {
@@ -1596,7 +1619,7 @@ fn indexed_with(
 
 /// A colour-mapped image in the default placement with the given policies for values
 /// below the colour limits, above them and non-finite.
-fn mapped_with(id: NodeId, values: DataId, [below, above, non_finite]: [OutOfRange; 3]) -> Artist {
+fn mapped_with(id: NodeId, values: NodeId, [below, above, non_finite]: [OutOfRange; 3]) -> Artist {
     Artist::MappedImage(MappedImage {
         id,
         values,
@@ -1616,11 +1639,11 @@ fn on(plane: ImagePlane) -> ImagePlacement {
 }
 
 /// A constructor of an image artist from an identifier, its array and its placement.
-type MakeImage = fn(NodeId, DataId, ImagePlacement) -> Artist;
+type MakeImage = fn(NodeId, NodeId, ImagePlacement) -> Artist;
 
 /// One image kind named for assertion messages, with its constructor and the array of
 /// a [`GridFixture`] that suits it.
-type ImageKind = (&'static str, MakeImage, fn(&GridData) -> DataId);
+type ImageKind = (&'static str, MakeImage, fn(&GridData) -> NodeId);
 
 /// The three image kinds, named for assertion messages, each with the array of a
 /// [`GridFixture`] that suits it: the RGB pixels, the 8-bit indices and the field.
@@ -1638,7 +1661,7 @@ fn image_fixture(
     three_d: bool,
     shape: Vec<usize>,
     bytes: bool,
-    make: impl FnOnce(NodeId, DataId) -> Artist,
+    make: impl FnOnce(NodeId, NodeId) -> Artist,
 ) -> GridFixture {
     let mut b = FigureBuilder::new();
     let axes = if three_d {
@@ -1664,7 +1687,7 @@ fn image_fixture(
 }
 
 /// Returns the array that the single image artist of a fixture draws.
-fn image_data(fx: &GridFixture) -> DataId {
+fn image_data(fx: &GridFixture) -> NodeId {
     match &fx.fig.axes[0].artists[0] {
         Artist::Image(a) => a.pixels,
         Artist::IndexedImage(a) => a.indices,
@@ -2178,12 +2201,7 @@ fn strict_categories_of_an_indexed_image_report_exactly_the_pixels_they_cover() 
                 indexed_with(id, data, policies)
             });
             let data = image_data(&fx);
-            floats_mut(
-                fx.fig
-                    .data
-                    .get_mut(&data)
-                    .expect("the fixture holds the indices"),
-            )[5] = index;
+            floats_mut(array_mut(&mut fx.fig, data))[5] = index;
             let report = fx.fig.validate();
             let at = format!("index {index} with a strict {} category", names[strict]);
             if covered_by == Some(strict) {
@@ -2364,7 +2382,7 @@ fn lenient_policies_accept_every_pixel() {
             indexed_with(id, data, [policy; 3])
         });
         let data = image_data(&fx);
-        *floats_mut(fx.fig.data.get_mut(&data).expect("the indices")) = offending.clone();
+        *floats_mut(array_mut(&mut fx.fig, data)) = offending.clone();
         assert_eq!(
             fx.fig.validate().errors,
             vec![],
@@ -2376,7 +2394,7 @@ fn lenient_policies_accept_every_pixel() {
         });
         fx.fig.axes[0].clim = Limits::Manual { min: 0.0, max: 1.0 };
         let data = image_data(&fx);
-        *floats_mut(fx.fig.data.get_mut(&data).expect("the values")) = offending.clone();
+        *floats_mut(array_mut(&mut fx.fig, data)) = offending.clone();
         assert_eq!(
             fx.fig.validate().errors,
             vec![],
@@ -2392,7 +2410,7 @@ fn lenient_policies_accept_every_pixel() {
 fn an_image_referring_to_unknown_data_is_an_unknown_data_error() {
     for (name, make, _) in image_kinds() {
         let fx = grid_fixture(false, |id, _| {
-            make(id, DataId(999), ImagePlacement::default())
+            make(id, NodeId(999), ImagePlacement::default())
         });
         let report = fx.fig.validate();
         assert!(
@@ -2428,22 +2446,24 @@ fn figure_with_a_legend_panel() -> (Figure, NodeId, NodeId) {
     let (mut fig, axes, _) = single_line_figure();
     fig.layout = TileLayout::new(1, 2);
     let panel = NodeId(100);
-    fig.panel_legends.push(PanelLegend {
-        id: panel,
-        cell: Cell {
+    fig.panels.push(legend_panel(
+        panel,
+        Cell {
             col: 1,
             ..Cell::default()
         },
-        ..PanelLegend::default()
-    });
+    ));
     (fig, axes, panel)
 }
 
-// Why: an axes whose legend names a legend panel that the figure does not have would list
-// its entries nowhere, silently, so the reference must be reported against the axes; and
-// a reference to a panel that exists must not be.
+// Why: an axes whose legend names a panel that the figure does not have would list its
+// entries nowhere, silently, so the reference must be reported against the axes; a
+// reference to a node that exists but is not a panel (the axes itself, an artist or a data
+// array) is a different mistake, reported as naming a node of the wrong kind, so that the
+// user looks for a wrong identifier rather than a missing panel; and a reference to a
+// legend panel that exists must not be reported.
 #[test]
-fn a_legend_naming_no_legend_panel_is_an_error_and_one_naming_a_panel_is_not() {
+fn a_legend_naming_no_panel_or_a_node_of_another_kind_is_an_error_and_one_naming_a_panel_is_not() {
     let (mut fig, axes, panel) = figure_with_a_legend_panel();
     fig.axes[0].legend = Some(Legend::Panel(panel));
     assert_eq!(
@@ -2452,14 +2472,32 @@ fn a_legend_naming_no_legend_panel_is_an_error_and_one_naming_a_panel_is_not() {
         "a panel that exists is valid"
     );
 
-    // The identifier of the axes itself and an identifier of no node are both dangling,
-    // because neither is a legend panel.
-    for missing in [axes, NodeId(999)] {
-        fig.axes[0].legend = Some(Legend::Panel(missing));
+    fig.axes[0].legend = Some(Legend::Panel(NodeId(999)));
+    let report = fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        vec![IssueKind::DanglingPanelLegend],
+        "{report:?}"
+    );
+    assert!(has_error(
+        &report,
+        IssueKind::DanglingPanelLegend,
+        Some(axes)
+    ));
+
+    let line = fig.axes[0].artists[0].id();
+    let data = fig.data[0].id;
+    for other in [axes, line, data, fig.id] {
+        fig.axes[0].legend = Some(Legend::Panel(other));
         let report = fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::WrongNodeKind],
+            "{other:?}: {report:?}"
+        );
         assert!(
-            has_error(&report, IssueKind::DanglingPanelLegend, Some(axes)),
-            "{missing:?}: {report:?}"
+            has_error(&report, IssueKind::WrongNodeKind, Some(axes)),
+            "{other:?}: {report:?}"
         );
     }
 }
@@ -2490,7 +2528,7 @@ fn a_legend_panel_cell_outside_the_layout_or_with_zero_span_is_an_error() {
         },
     ] {
         let (mut fig, _, panel) = figure_with_a_legend_panel();
-        fig.panel_legends[0].cell = cell;
+        fig.panels[0].cell = cell;
         let report = fig.validate();
         assert!(
             has_error(&report, IssueKind::CellOutOfLayout, Some(panel)),
@@ -2499,22 +2537,30 @@ fn a_legend_panel_cell_outside_the_layout_or_with_zero_span_is_an_error() {
     }
 }
 
-// Why: a legend panel is a node addressed by its identifier in edits and in the legends
-// that name it, so its identifier must be distinct from every other node's, and a clash
-// must be found whichever node it clashes with.
+// Why: a panel is a node addressed by its identifier in edits and in the legends that
+// name it, so its identifier must be distinct from every other node's, data arrays
+// included, and a clash must be found whichever node it clashes with.
 #[test]
-fn a_legend_panel_sharing_an_identifier_with_another_node_is_an_error() {
+fn a_panel_sharing_an_identifier_with_another_node_is_an_error() {
     let (mut fig, axes, panel) = figure_with_a_legend_panel();
-    fig.panel_legends[0].id = axes;
+    fig.panels[0].id = axes;
     assert!(
         has_error(&fig.validate(), IssueKind::DuplicateNodeId, Some(axes)),
         "a panel sharing the identifier of an axes"
     );
 
     let (mut fig, _, _) = figure_with_a_legend_panel();
-    let mut second = fig.panel_legends[0].clone();
+    let data = fig.data[0].id;
+    fig.panels[0].id = data;
+    assert!(
+        has_error(&fig.validate(), IssueKind::DuplicateNodeId, Some(data)),
+        "a panel sharing the identifier of a data array"
+    );
+
+    let (mut fig, _, _) = figure_with_a_legend_panel();
+    let mut second = fig.panels[0].clone();
     second.cell.col = 0;
-    fig.panel_legends.push(second);
+    fig.panels.push(second);
     assert!(
         has_error(&fig.validate(), IssueKind::DuplicateNodeId, Some(panel)),
         "two panels sharing an identifier"
@@ -2598,7 +2644,7 @@ fn a_legend_with_zero_columns_is_an_error_inside_a_plot_area_and_in_a_panel() {
     ));
 
     let (mut fig, _, _) = figure_with_a_legend_panel();
-    fig.panel_legends[0].layout = zero;
+    panel_legend_mut(&mut fig.panels[0]).layout = zero;
     assert!(has_error(
         &fig.validate(),
         IssueKind::InvalidLegendColumns,
@@ -2611,7 +2657,7 @@ fn a_legend_with_zero_columns_is_an_error_inside_a_plot_area_and_in_a_panel() {
             columns,
             order: LegendEntryOrder::RowMajor,
         };
-        fig.panel_legends[0].layout = layout;
+        panel_legend_mut(&mut fig.panels[0]).layout = layout;
         fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
             layout,
             ..InsideLegend::default()
@@ -2636,7 +2682,7 @@ fn a_legend_panel_with_no_entries_has_nothing_to_draw() {
         "a panel no axes points at: {report:?}"
     );
 
-    // An axes points at the panel, but its only artist has no display name.
+    // An axes points at the panel, but its only artist has no label.
     let (mut fig, _, panel) = figure_with_a_legend_panel();
     fig.axes[0].legend = Some(Legend::Panel(panel));
     let report = fig.validate();
@@ -2647,7 +2693,7 @@ fn a_legend_panel_with_no_entries_has_nothing_to_draw() {
     );
 
     // Naming the artist gives the panel an entry.
-    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    line_mut(&mut fig).label = Some(Text::new("Named"));
     let report = fig.validate();
     assert_eq!(report.warnings, vec![], "a panel with an entry");
 }
@@ -2729,7 +2775,7 @@ fn an_axes_in_fitted_rows_or_fitted_columns_alone_is_an_error() {
     let (mut fig, axes, panel) = figure_with_a_legend_panel();
     fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     fig.axes[0].legend = Some(Legend::Panel(panel));
-    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    line_mut(&mut fig).label = Some(Text::new("Named"));
     let report = fig.validate();
     assert_eq!(report.errors, vec![], "a panel in a fitted column");
     assert!(!has_error(
@@ -2740,7 +2786,7 @@ fn an_axes_in_fitted_rows_or_fitted_columns_alone_is_an_error() {
 }
 
 /// A figure of two axes in the first two cells of a 1 × 3 layout, each with one line of
-/// a display name, and a legend panel in the third cell that no axes names. Returns the
+/// a label, and a legend panel in the third cell that no axes names. Returns the
 /// figure, the identifiers of the axes, those of their lines, and that of the panel.
 fn two_axes_and_a_panel() -> (Figure, [NodeId; 2], [NodeId; 2], NodeId) {
     let mut b = FigureBuilder::new();
@@ -2754,7 +2800,7 @@ fn two_axes_and_a_panel() -> (Figure, [NodeId; 2], [NodeId; 2], NodeId) {
             axes[k],
             Artist::Line(Line {
                 id: lines[k],
-                display_name: Some(Text::plain(format!("line {k}"))),
+                label: Some(Text::plain(format!("line {k}"))),
                 x,
                 y: x,
                 ..Line::default()
@@ -2763,11 +2809,7 @@ fn two_axes_and_a_panel() -> (Figure, [NodeId; 2], [NodeId; 2], NodeId) {
     }
     let panel = b.node();
     b.fig.layout = TileLayout::new(1, 3);
-    b.fig.panel_legends.push(PanelLegend {
-        id: panel,
-        cell: cell(0, 2, 1, 1),
-        ..PanelLegend::default()
-    });
+    b.fig.panels.push(legend_panel(panel, cell(0, 2, 1, 1)));
     (b.build(), axes, lines, panel)
 }
 
@@ -2789,31 +2831,55 @@ fn inside_listing(entries: LegendEntries) -> Option<Legend> {
 // or the axes of a legend inside a plot area. A panel may list an artist of any axes of
 // the figure, including one whose axes does not name the panel (which is how a shared
 // legend is built), but a legend inside a plot area lists only the artists of its own
-// axes, because it describes that plot alone. A node that is not an artist (such as an
-// axes) is not listable either.
+// axes, because it describes that plot alone. A node that exists but is not an artist
+// (such as an axes, a panel, a data array or the figure) is not listable either, and is
+// reported as a reference to the wrong kind of node rather than as dangling, so that the
+// user looks for a wrong identifier rather than a missing artist.
 #[test]
 fn an_explicit_legend_item_naming_an_artist_outside_its_scope_is_dangling() {
     let (base, axes, lines, panel) = two_axes_and_a_panel();
 
-    for missing in [NodeId(999), axes[0], panel] {
+    let mut fig = base.clone();
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::artist(NodeId(999))]);
+    let report = fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        [IssueKind::DanglingLegendItem],
+        "a panel naming no node: {report:?}"
+    );
+    assert!(has_error(
+        &report,
+        IssueKind::DanglingLegendItem,
+        Some(panel)
+    ));
+
+    for other in [axes[0], panel, base.data[0].id, base.id] {
         let mut fig = base.clone();
-        fig.panel_legends[0].entries = explicit([LegendItem::artist(missing)]);
+        panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::artist(other)]);
         let report = fig.validate();
         assert_eq!(
             error_kinds(&report),
-            [IssueKind::DanglingLegendItem],
-            "a panel naming {missing:?}: {report:?}"
+            [IssueKind::WrongNodeKind],
+            "a panel naming {other:?}: {report:?}"
         );
-        assert!(has_error(
-            &report,
-            IssueKind::DanglingLegendItem,
-            Some(panel)
-        ));
+        assert!(has_error(&report, IssueKind::WrongNodeKind, Some(panel)));
     }
+
+    // An inside legend naming its own axes names a node that is not an artist.
+    let mut fig = base.clone();
+    fig.panels.clear();
+    fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(axes[0])]));
+    let report = fig.validate();
+    assert_eq!(
+        error_kinds(&report),
+        [IssueKind::WrongNodeKind],
+        "{report:?}"
+    );
+    assert!(has_error(&report, IssueKind::WrongNodeKind, Some(axes[0])));
 
     // A panel lists artists of any axes, though no axes names the panel.
     let mut fig = base.clone();
-    fig.panel_legends[0].entries = explicit(lines.map(LegendItem::artist));
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit(lines.map(LegendItem::artist));
     let report = fig.validate();
     assert_eq!(
         report.errors,
@@ -2828,7 +2894,7 @@ fn an_explicit_legend_item_naming_an_artist_outside_its_scope_is_dangling() {
 
     // An inside legend lists the artists of its own axes only.
     let mut fig = base.clone();
-    fig.panel_legends.clear();
+    fig.panels.clear();
     fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(lines[1])]));
     let report = fig.validate();
     assert_eq!(error_kinds(&report), [IssueKind::DanglingLegendItem]);
@@ -2880,7 +2946,7 @@ fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
         ),
     ] {
         let mut fig = base.clone();
-        fig.panel_legends[0].entries = explicit(items);
+        panel_legend_mut(&mut fig.panels[0]).entries = explicit(items);
         let report = fig.validate();
         assert!(report.is_valid(), "{at}: {report:?}");
         assert!(
@@ -2893,7 +2959,7 @@ fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
     // Custom items that differ in their label alone, or in their sample alone, are
     // distinct items.
     let mut fig = base.clone();
-    fig.panel_legends[0].entries = explicit([
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([
         swatch("upper", Color::BLACK),
         swatch("lower", Color::BLACK),
         swatch("upper", Color::WHITE),
@@ -2912,16 +2978,16 @@ fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
     );
 }
 
-// Why: an artist without a display name is left out of an automatic legend, but an
+// Why: an artist without a label is left out of an automatic legend, but an
 // explicit item names it on purpose and shows its sample without a label. That is
 // almost always a name not yet given, which can be given later in code or in the viewer,
 // so it is a warning against the legend's owner and never an error; naming the artist
 // clears it.
 #[test]
-fn an_explicit_item_naming_an_artist_without_a_display_name_is_a_warning() {
+fn an_explicit_item_naming_an_artist_without_a_label_is_a_warning() {
     let (mut fig, axes, panel) = figure_with_a_legend_panel();
     let line = fig.axes[0].artists[0].id();
-    fig.panel_legends[0].entries = explicit([LegendItem::artist(line)]);
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::artist(line)]);
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(
@@ -2929,7 +2995,7 @@ fn an_explicit_item_naming_an_artist_without_a_display_name_is_a_warning() {
         "a panel naming an unnamed artist: {report:?}"
     );
 
-    fig.panel_legends.clear();
+    fig.panels.clear();
     fig.axes[0].legend = inside_listing(explicit([LegendItem::artist(line)]));
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
@@ -2938,7 +3004,7 @@ fn an_explicit_item_naming_an_artist_without_a_display_name_is_a_warning() {
         "an inside legend naming an unnamed artist: {report:?}"
     );
 
-    line_mut(&mut fig).display_name = Some(Text::new("Named"));
+    line_mut(&mut fig).label = Some(Text::new("Named"));
     assert_eq!(fig.validate().warnings, vec![], "a named artist");
 }
 
@@ -2950,7 +3016,7 @@ fn an_explicit_item_naming_an_artist_without_a_display_name_is_a_warning() {
 #[test]
 fn a_panel_with_an_explicit_list_has_nothing_to_draw_only_when_the_list_is_empty() {
     let (mut fig, _, _, panel) = two_axes_and_a_panel();
-    fig.panel_legends[0].entries = explicit([LegendItem::custom(
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::custom(
         LegendSample::marker(MarkerShape::Circle, Color::BLACK),
         "measured",
     )]);
@@ -2967,7 +3033,7 @@ fn a_panel_with_an_explicit_list_has_nothing_to_draw_only_when_the_list_is_empty
     );
 
     // The first axes, whose line is named, names the panel.
-    fig.panel_legends[0].entries = explicit([]);
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([]);
     fig.axes[0].legend = Some(Legend::Panel(panel));
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
@@ -2991,8 +3057,8 @@ fn an_item_on_a_row_of_its_own_is_valid_with_automatic_columns() {
         columns: LegendEntryColumns::Auto,
         order: LegendEntryOrder::RowMajor,
     };
-    fig.panel_legends[0].layout = automatic;
-    fig.panel_legends[0].entries = explicit([full_row.clone(), lines[1].into()]);
+    panel_legend_mut(&mut fig.panels[0]).layout = automatic;
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([full_row.clone(), lines[1].into()]);
     fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
         layout: automatic,
         entries: explicit([full_row, lines[0].into()]),
@@ -3041,8 +3107,8 @@ fn cell(row: u32, col: u32, row_span: u32, col_span: u32) -> Cell {
 fn an_axes_and_a_legend_panel_in_the_same_tile_are_a_warning_naming_both() {
     let (mut fig, axes, panel) = figure_with_a_legend_panel();
     fig.axes[0].legend = Some(Legend::Panel(panel));
-    line_mut(&mut fig).display_name = Some(Text::new("Named"));
-    fig.panel_legends[0].cell = Cell::default();
+    line_mut(&mut fig).label = Some(Text::new("Named"));
+    fig.panels[0].cell = Cell::default();
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     let found = overlaps(&report);
@@ -3122,11 +3188,7 @@ fn adjacent_cells_are_not_reported_as_overlapping() {
     fig.layout = TileLayout::new(2, 2);
     push_axes(&mut fig, NodeId(200), cell(0, 1, 1, 1));
     push_axes(&mut fig, NodeId(201), cell(1, 1, 1, 1));
-    fig.panel_legends.push(PanelLegend {
-        id: NodeId(300),
-        cell: cell(1, 0, 1, 1),
-        ..PanelLegend::default()
-    });
+    fig.panels.push(legend_panel(NodeId(300), cell(1, 0, 1, 1)));
     assert_eq!(overlaps(&fig.validate()), vec![]);
 }
 
@@ -3138,11 +3200,7 @@ fn a_spanned_axes_beside_a_legend_panel_is_not_reported_as_overlapping() {
     let (mut fig, _, _) = single_line_figure();
     fig.layout = TileLayout::new(2, 3);
     fig.axes[0].cell = cell(0, 0, 2, 2);
-    fig.panel_legends.push(PanelLegend {
-        id: NodeId(300),
-        cell: cell(0, 2, 2, 1),
-        ..PanelLegend::default()
-    });
+    fig.panels.push(legend_panel(NodeId(300), cell(0, 2, 2, 1)));
     assert_eq!(overlaps(&fig.validate()), vec![]);
 }
 
@@ -3153,7 +3211,7 @@ fn a_spanned_axes_beside_a_legend_panel_is_not_reported_as_overlapping() {
 #[test]
 fn a_cell_outside_the_layout_is_not_also_reported_as_overlapping() {
     let (mut fig, _, panel) = figure_with_a_legend_panel();
-    fig.panel_legends[0].cell = cell(0, 0, 1, 3);
+    fig.panels[0].cell = cell(0, 0, 1, 3);
     let report = fig.validate();
     assert!(has_error(&report, IssueKind::CellOutOfLayout, Some(panel)));
     assert_eq!(overlaps(&report), vec![]);
@@ -3263,12 +3321,12 @@ fn fractions_on_a_logarithmic_axis_are_not_non_positive_data() {
     fig.axes[0].x.scale = Scale::Log;
     fig.axes[0].y.scale = Scale::Log;
     let y = line_mut(&mut fig).y;
-    floats_mut(fig.data.get_mut(&y).unwrap()).copy_from_slice(&[0.0, 0.5, 1.0]);
+    floats_mut(array_mut(&mut fig, y)).copy_from_slice(&[0.0, 0.5, 1.0]);
     line_mut(&mut fig).y_coords = Coords::AxesFraction;
     assert_eq!(fig.validate().warnings, vec![]);
 
     let x = line_mut(&mut fig).x;
-    floats_mut(fig.data.get_mut(&x).unwrap())[0] = -1.0;
+    floats_mut(array_mut(&mut fig, x))[0] = -1.0;
     let report = fig.validate();
     assert!(
         has_warning(&report, IssueKind::NonPositiveOnLogAxis, Some(line)),
@@ -3588,7 +3646,7 @@ fn surface_alpha_must_be_floats_of_the_field_shape() {
     for (what, set) in [
         (
             "face",
-            (|s: &mut Surface, id| s.face_alpha = Some(id)) as fn(&mut Surface, DataId),
+            (|s: &mut Surface, id| s.face_alpha = Some(id)) as fn(&mut Surface, NodeId),
         ),
         ("edge", |s: &mut Surface, id| s.edge_alpha = Some(id)),
     ] {
@@ -3615,7 +3673,7 @@ fn surface_alpha_must_be_floats_of_the_field_shape() {
             "{what}: {report:?}"
         );
 
-        let missing = surface_fixture(|s, _| set(s, DataId(999)));
+        let missing = surface_fixture(|s, _| set(s, NodeId(999)));
         let report = missing.fig.validate();
         assert_eq!(
             error_kinds(&report),
@@ -3637,8 +3695,8 @@ fn one_array_may_be_the_alpha_of_both_the_faces_and_the_edges() {
     assert_no_issues(&shared.fig.validate(), "shared alpha");
 
     let missing = surface_fixture(|s, _| {
-        s.face_alpha = Some(DataId(999));
-        s.edge_alpha = Some(DataId(999));
+        s.face_alpha = Some(NodeId(999));
+        s.edge_alpha = Some(NodeId(999));
     });
     let report = missing.fig.validate();
     assert_eq!(error_kinds(&report), [IssueKind::UnknownData], "{report:?}");
@@ -3650,7 +3708,7 @@ fn one_array_may_be_the_alpha_of_both_the_faces_and_the_edges() {
 // type is valid for the alpha, as it is for the pixels.
 #[test]
 fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
-    type Make = fn(NodeId, DataId, DataId) -> Artist;
+    type Make = fn(NodeId, NodeId, NodeId) -> Artist;
     let kinds: [(&str, Make); 2] = [
         ("indexed", |id, data, alpha| {
             Artist::IndexedImage(IndexedImage {
@@ -3688,7 +3746,7 @@ fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
             "{what}: {report:?}"
         );
 
-        let missing = grid_fixture(false, |id, d| make(id, d.field, DataId(999)));
+        let missing = grid_fixture(false, |id, d| make(id, d.field, NodeId(999)));
         let report = missing.fig.validate();
         assert_eq!(
             error_kinds(&report),
@@ -3711,7 +3769,7 @@ fn alpha_values_outside_zero_to_one_or_not_finite_are_valid() {
         unreachable!()
     };
     let alpha = surface.face_alpha.expect("the fixture sets it");
-    let values = floats_mut(fx.fig.data.get_mut(&alpha).expect("the array exists"));
+    let values = floats_mut(array_mut(&mut fx.fig, alpha));
     values[0] = -1.0;
     values[1] = 2.0;
     values[2] = f64::NAN;
@@ -3758,11 +3816,9 @@ fn an_invalid_opacity_stands_alone_against_an_artist_with_nothing_to_draw() {
         Grid::Rectilinear { y, .. } => (y, surface.z),
         Grid::Curvilinear { .. } => unreachable!("the fixture grid is rectilinear"),
     };
-    fx.fig.data.insert(gy, NdArray::vector(vec![0.0]));
-    fx.fig.data.insert(
-        field,
-        NdArray::from_shape(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("the shape matches"),
-    );
+    *array_mut(&mut fx.fig, gy) = NdArray::vector(vec![0.0]);
+    *array_mut(&mut fx.fig, field) =
+        NdArray::from_shape(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("the shape matches");
     let report = fx.fig.validate();
     assert_eq!(
         error_kinds(&report),

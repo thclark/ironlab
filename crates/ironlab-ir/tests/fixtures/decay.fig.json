@@ -7,10 +7,10 @@
   "font_size_pt": 9.0,
   "background": "#ffffff",
   "layout": { "rows": 1, "cols": 1 },
-  "data": {
-    "0": { "shape": [3], "values": [0.0, 1.0, 2.0] },
-    "7": { "shape": [3], "values": [1.0, null, 0.135] }
-  },
+  "data": [
+    { "id": 0, "name": "t (s)", "array": { "shape": [3], "values": [0.0, 1.0, 2.0] } },
+    { "id": 7, "name": null, "array": { "shape": [3], "values": [1.0, null, 0.135] } }
+  ],
   "axes": [
     {
       "id": 2,
@@ -69,7 +69,7 @@
         {
           "type": "line",
           "id": 3,
-          "display_name": { "content": "decay, $5", "interpreter": "none" },
+          "label": { "content": "decay, $5", "interpreter": "none" },
           "visible": true,
           "x": 0,
           "y": 7,

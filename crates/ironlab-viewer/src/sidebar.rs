@@ -217,7 +217,7 @@ fn controls(
             egui::Id::new(PANEL_ID).with("search"),
         )
         .on_hover_text(
-            "Type words to search the titles, labels and parameters. \
+            "Type words to search the titles, tags and parameters. \
              A term such as rig:CFD or angle>=8 asks about one parameter, and a leading minus excludes.",
         );
     });
@@ -612,8 +612,8 @@ fn range_control(
 }
 
 /// Draws one chip per filter: the parameter's name, what it was narrowed to, and the cross that says clicking it
-/// takes the filter away. A chip on the labels is drawn in the green of a tag, so that it reads as a filter on
-/// labels rather than on a parameter.
+/// takes the filter away. A chip on the tags is drawn in the green of a tag, so that it reads as a filter on
+/// tags rather than on a parameter.
 fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
     let mut remove = None;
     for filter in &browser.browse.filters {
@@ -630,7 +630,7 @@ fn chips(ui: &mut egui::Ui, browser: &mut FigureBrowser) {
             ),
         };
         let tint = match filter.key {
-            FacetKey::Labels => Tint::LABEL,
+            FacetKey::Tags => Tint::TAG,
             FacetKey::Parameter(_) => Tint::PARAMETER,
         };
         if Control::chip(filter.key.name(), &value, tint)
@@ -845,7 +845,7 @@ fn heading(ui: &mut egui::Ui, name: &str, count: usize, open: bool, height: f32)
 /// Draws one figure of the list, and returns whether it was chosen.
 ///
 /// The row is two lines: the title, and beneath it whatever the reader is most likely to want beside the title —
-/// the value the list is ordered by when it is ordered by a parameter, and the figure's labels otherwise.
+/// the value the list is ordered by when it is ordered by a parameter, and the figure's tags otherwise.
 fn figure_row(
     ui: &mut egui::Ui,
     card: &FigureCard,
@@ -860,7 +860,7 @@ fn figure_row(
             None => format!("no {name}"),
         },
         SortKey::Title => card
-            .labels
+            .tags
             .iter()
             .take(4)
             .cloned()

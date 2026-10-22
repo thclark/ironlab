@@ -4,17 +4,15 @@ use ironlab_ir::{
     Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, ColormapName, Contour,
     ContourPlacement, Coords, Dimension, Image, IndexedImage, InsideLegend, IrError, Legend,
     LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, Line, MappedImage,
-    NdArray, NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks,
-    TitleAlign, View3d,
+    NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, TitleAlign,
+    View3d,
 };
 
 use crate::artists::{
     ContourMut, ImageMut, IndexedImageMut, LineMut, MappedImageMut, QuiverMut, ScatterMut,
     SurfaceMut,
 };
-use crate::grid::{GridCoords, matrix_array, store_grid};
-use crate::matrix::Matrix;
-use crate::pixels::{ImageValues, Pixels};
+use crate::data::{DataSource, store_grid};
 
 /// The colour of a reference line drawn by [`hline`](AxesMut::hline) or
 /// [`vline`](AxesMut::vline): the dark grey of MATLAB's `xline` and `yline`, which is
@@ -32,8 +30,10 @@ const REFERENCE_LINE_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
 /// the new plot whose setters can be chained. Property setters return the axes handle
 /// so that they can be chained too.
 ///
-/// Every array is copied into the figure, so the caller's data may be dropped or
-/// changed afterwards. Plotting functions that need three dimensions (`plot3`,
+/// Every data argument is a [`DataSource`]: values, which are copied into the figure so
+/// that the caller's data may be dropped or changed afterwards, or the identifier of a data
+/// array of the figure, which the new plot shares (see [`Figure::data`](crate::Figure::data)).
+/// Plotting functions that need three dimensions (`plot3`,
 /// `scatter3`, `contour3`, `quiver3`, `surf` and `mesh`) convert a two-dimensional
 /// axes to three dimensions with the default view, as MATLAB does; so does placing an
 /// image on a wall of the axes with [`plane`](ImageMut::plane). [`surface`](AxesMut::surface)
@@ -47,7 +47,7 @@ const REFERENCE_LINE_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
 ///
 /// let mut fig = Figure::new();
 /// let mut ax = fig.axes(0, 0);
-/// ax.plot(&x, &y).marker(Marker::Circle).display_name("$x^2$");
+/// ax.plot(&x, &y).marker(Marker::Circle).label("$x^2$");
 /// ax.title("A parabola").xlabel("$x$").ylabel("$y$").grid(true);
 /// ```
 #[derive(Debug)]
@@ -77,43 +77,43 @@ impl AxesMut<'_> {
     ///
     /// The line is solid, 0.75 pt wide and has no markers; its colour is the next
     /// colour of the axes colour order, chosen when the figure is drawn.
-    pub fn plot(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> LineMut<'_> {
-        self.add_line(x.as_ref(), y.as_ref(), None)
+    pub fn plot(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
+        self.add_line(x.into(), y.into(), None)
     }
 
     /// Plots a line through the points `(x[i], y[i], z[i])` in three dimensions
     /// (MATLAB's `plot3`), converting the axes to three dimensions.
     pub fn plot3(
         &mut self,
-        x: impl AsRef<[f64]>,
-        y: impl AsRef<[f64]>,
-        z: impl AsRef<[f64]>,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> LineMut<'_> {
         self.make_3d();
-        self.add_line(x.as_ref(), y.as_ref(), Some(z.as_ref()))
+        self.add_line(x.into(), y.into(), Some(z.into()))
     }
 
     /// Plots a line with logarithmic x and y axes (MATLAB's `loglog`).
     ///
     /// Points with a non-positive coordinate are not drawn, and
     /// [`Figure::validate`](crate::Figure::validate) warns about them.
-    pub fn loglog(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> LineMut<'_> {
+    pub fn loglog(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
         self.set_xy_scales(Scale::Log, Scale::Log);
-        self.add_line(x.as_ref(), y.as_ref(), None)
+        self.add_line(x.into(), y.into(), None)
     }
 
     /// Plots a line with a logarithmic x axis and a linear y axis (MATLAB's
     /// `semilogx`).
-    pub fn semilogx(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> LineMut<'_> {
+    pub fn semilogx(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
         self.set_xy_scales(Scale::Log, Scale::Linear);
-        self.add_line(x.as_ref(), y.as_ref(), None)
+        self.add_line(x.into(), y.into(), None)
     }
 
     /// Plots a line with a linear x axis and a logarithmic y axis (MATLAB's
     /// `semilogy`).
-    pub fn semilogy(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> LineMut<'_> {
+    pub fn semilogy(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
         self.set_xy_scales(Scale::Linear, Scale::Log);
-        self.add_line(x.as_ref(), y.as_ref(), None)
+        self.add_line(x.into(), y.into(), None)
     }
 
     // Reference lines.
@@ -131,7 +131,7 @@ impl AxesMut<'_> {
     /// [`line_width`](LineMut::line_width)) change its look. A reference line is valid
     /// only in a two-dimensional axes.
     pub fn hline(&mut self, y: f64) -> LineMut<'_> {
-        let mut line = self.add_line(&[0.0, 1.0], &[y, y], None);
+        let mut line = self.add_line([0.0, 1.0].into(), [y, y].into(), None);
         line.x_coords(Coords::AxesFraction)
             .color(REFERENCE_LINE_COLOR);
         line
@@ -144,7 +144,7 @@ impl AxesMut<'_> {
     /// x and y exchanged: its y values are the fractions 0 and 1 of the plot area and
     /// its x values the data value `x`, which takes part in the automatic x limits.
     pub fn vline(&mut self, x: f64) -> LineMut<'_> {
-        let mut line = self.add_line(&[x, x], &[0.0, 1.0], None);
+        let mut line = self.add_line([x, x].into(), [0.0, 1.0].into(), None);
         line.y_coords(Coords::AxesFraction)
             .color(REFERENCE_LINE_COLOR);
         line
@@ -155,20 +155,24 @@ impl AxesMut<'_> {
     /// Draws a marker at each point `(x[i], y[i])` (MATLAB's `scatter`).
     ///
     /// Markers are unfilled 4 pt circles in the next colour of the axes colour order.
-    pub fn scatter(&mut self, x: impl AsRef<[f64]>, y: impl AsRef<[f64]>) -> ScatterMut<'_> {
-        self.add_scatter(x.as_ref(), y.as_ref(), None)
+    pub fn scatter(
+        &mut self,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+    ) -> ScatterMut<'_> {
+        self.add_scatter(x.into(), y.into(), None)
     }
 
     /// Draws a marker at each point `(x[i], y[i], z[i])` in three dimensions
     /// (MATLAB's `scatter3`), converting the axes to three dimensions.
     pub fn scatter3(
         &mut self,
-        x: impl AsRef<[f64]>,
-        y: impl AsRef<[f64]>,
-        z: impl AsRef<[f64]>,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> ScatterMut<'_> {
         self.make_3d();
-        self.add_scatter(x.as_ref(), y.as_ref(), Some(z.as_ref()))
+        self.add_scatter(x.into(), y.into(), Some(z.into()))
     }
 
     // Contour plots.
@@ -176,8 +180,22 @@ impl AxesMut<'_> {
     /// Draws isolines of the field `z` sampled on a grid (MATLAB's `contour`).
     ///
     /// The field has one row per y coordinate and one column per x coordinate; see
-    /// [`GridCoords`] for the accepted forms of `x` and `y`. Ten levels are chosen
+    /// [`DataSource`] for the accepted forms of `x`, `y` and `z`. Ten levels are chosen
     /// automatically and each isoline is coloured from the colormap by its level.
+    ///
+    /// The coordinates `x` and `y` describe the grid, here and in every other gridded
+    /// plot ([`contourf`](AxesMut::contourf), [`contour3`](AxesMut::contour3),
+    /// [`surf`](AxesMut::surf), [`mesh`](AxesMut::mesh) and
+    /// [`surface`](AxesMut::surface)). Two vectors give one coordinate per column (x) and
+    /// per row (y) of an axis-aligned, rectilinear grid, which is the preferred form
+    /// because it is stored once per dimension rather than once per node. When either is a
+    /// matrix of the field's shape, the grid is curvilinear and each matrix gives the
+    /// coordinate of every node. A vector of values mixed with a matrix is then repeated
+    /// into a matrix of the field's shape, as [`meshgrid`](crate::meshgrid) would, when its
+    /// length matches the field along its dimension; a vector of any other length, and a
+    /// vector given by identifier, is stored as given, so that
+    /// [`Figure::validate`](crate::Figure::validate) reports the mismatch. The rank of an
+    /// array given by identifier is read from the figure.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -191,36 +209,42 @@ impl AxesMut<'_> {
     /// ```
     pub fn contour(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> ContourMut<'_> {
         let placement = ContourPlacement::default();
-        self.add_contour(x.into(), y.into(), z, false, placement)
+        self.add_contour(x.into(), y.into(), z.into(), false, placement)
     }
 
     /// Fills the bands between levels of the field `z` sampled on a grid (MATLAB's
     /// `contourf`).
     pub fn contourf(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> ContourMut<'_> {
         let placement = ContourPlacement::default();
-        self.add_contour(x.into(), y.into(), z, true, placement)
+        self.add_contour(x.into(), y.into(), z.into(), true, placement)
     }
 
     /// Draws each isoline of the field `z` at the height of its level (MATLAB's
     /// `contour3`), converting the axes to three dimensions.
     pub fn contour3(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> ContourMut<'_> {
         self.make_3d();
-        self.add_contour(x.into(), y.into(), z, false, ContourPlacement::AtLevel)
+        self.add_contour(
+            x.into(),
+            y.into(),
+            z.into(),
+            false,
+            ContourPlacement::AtLevel,
+        )
     }
 
     // Vector fields.
@@ -232,15 +256,15 @@ impl AxesMut<'_> {
     /// [`QuiverMut::scale`] and [`QuiverMut::no_scale`].
     pub fn quiver(
         &mut self,
-        x: impl AsRef<[f64]>,
-        y: impl AsRef<[f64]>,
-        u: impl AsRef<[f64]>,
-        v: impl AsRef<[f64]>,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        u: impl Into<DataSource>,
+        v: impl Into<DataSource>,
     ) -> QuiverMut<'_> {
-        let x = self.store_vector(x.as_ref());
-        let y = self.store_vector(y.as_ref());
-        let u = self.store_vector(u.as_ref());
-        let v = self.store_vector(v.as_ref());
+        let x = x.into().store(self.fig);
+        let y = y.into().store(self.fig);
+        let u = u.into().store(self.fig);
+        let v = v.into().store(self.fig);
         let id = self.push_artist(|id| {
             Artist::Quiver(Quiver {
                 id,
@@ -259,20 +283,20 @@ impl AxesMut<'_> {
     /// dimensions.
     pub fn quiver3(
         &mut self,
-        x: impl AsRef<[f64]>,
-        y: impl AsRef<[f64]>,
-        z: impl AsRef<[f64]>,
-        u: impl AsRef<[f64]>,
-        v: impl AsRef<[f64]>,
-        w: impl AsRef<[f64]>,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
+        u: impl Into<DataSource>,
+        v: impl Into<DataSource>,
+        w: impl Into<DataSource>,
     ) -> QuiverMut<'_> {
         self.make_3d();
-        let x = self.store_vector(x.as_ref());
-        let y = self.store_vector(y.as_ref());
-        let z = self.store_vector(z.as_ref());
-        let u = self.store_vector(u.as_ref());
-        let v = self.store_vector(v.as_ref());
-        let w = self.store_vector(w.as_ref());
+        let x = x.into().store(self.fig);
+        let y = y.into().store(self.fig);
+        let z = z.into().store(self.fig);
+        let u = u.into().store(self.fig);
+        let v = v.into().store(self.fig);
+        let w = w.into().store(self.fig);
         let id = self.push_artist(|id| {
             Artist::Quiver(Quiver {
                 id,
@@ -298,13 +322,13 @@ impl AxesMut<'_> {
     /// axes.
     pub fn surf(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> SurfaceMut<'_> {
         self.make_3d();
         let defaults = Surface::default();
-        self.add_surface(x.into(), y.into(), z, defaults.face, defaults.edge)
+        self.add_surface(x.into(), y.into(), z.into(), defaults.face, defaults.edge)
     }
 
     /// Draws the surface of heights `z` over a grid as a wireframe (MATLAB's `mesh`),
@@ -314,15 +338,15 @@ impl AxesMut<'_> {
     /// behind them, and edges are coloured from the colormap by height.
     pub fn mesh(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> SurfaceMut<'_> {
         self.make_3d();
         let face = ColorSpec::Rgba {
             color: self.fig.background,
         };
-        self.add_surface(x.into(), y.into(), z, face, ColorSpec::Colormapped)
+        self.add_surface(x.into(), y.into(), z.into(), face, ColorSpec::Colormapped)
     }
 
     /// Draws the surface of the field `z` over a grid and leaves the axes as it is: a
@@ -368,12 +392,12 @@ impl AxesMut<'_> {
     /// ```
     pub fn surface(
         &mut self,
-        x: impl Into<GridCoords>,
-        y: impl Into<GridCoords>,
-        z: &Matrix,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+        z: impl Into<DataSource>,
     ) -> SurfaceMut<'_> {
         let defaults = Surface::default();
-        self.add_surface(x.into(), y.into(), z, defaults.face, defaults.edge)
+        self.add_surface(x.into(), y.into(), z.into(), defaults.face, defaults.edge)
     }
 
     // Images.
@@ -403,8 +427,8 @@ impl AxesMut<'_> {
     /// let mut fig = Figure::new();
     /// fig.axes(0, 0).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0);
     /// ```
-    pub fn image(&mut self, pixels: &Pixels) -> ImageMut<'_> {
-        let pixels = self.fig.add_data(pixels.to_array());
+    pub fn image(&mut self, pixels: impl Into<DataSource>) -> ImageMut<'_> {
+        let pixels = pixels.into().store(self.fig);
         let id = self.push_artist(|id| {
             Artist::Image(Image {
                 id,
@@ -435,8 +459,8 @@ impl AxesMut<'_> {
     /// let mut fig = Figure::new();
     /// fig.axes(0, 0).indexed_image(&classes).above(OutOfRange::Clamp);
     /// ```
-    pub fn indexed_image(&mut self, indices: impl Into<ImageValues>) -> IndexedImageMut<'_> {
-        let indices = self.fig.add_data(indices.into().into_array());
+    pub fn indexed_image(&mut self, indices: impl Into<DataSource>) -> IndexedImageMut<'_> {
+        let indices = indices.into().store(self.fig);
         let id = self.push_artist(|id| {
             Artist::IndexedImage(IndexedImage {
                 id,
@@ -474,8 +498,8 @@ impl AxesMut<'_> {
     ///     .non_finite(Color::BLACK);
     /// fig.axes(0, 0).colormap(Colormap::Magma).clim(-1.0, 1.0);
     /// ```
-    pub fn mapped_image(&mut self, values: impl Into<ImageValues>) -> MappedImageMut<'_> {
-        let values = self.fig.add_data(values.into().into_array());
+    pub fn mapped_image(&mut self, values: impl Into<DataSource>) -> MappedImageMut<'_> {
+        let values = values.into().store(self.fig);
         let id = self.push_artist(|id| {
             Artist::MappedImage(MappedImage {
                 id,
@@ -818,7 +842,7 @@ impl AxesMut<'_> {
         self
     }
 
-    /// Shows a boxed legend of every artist that has a display name, at the given
+    /// Shows a boxed legend of every artist that has a label, at the given
     /// location.
     pub fn legend(&mut self, location: LegendLocation) -> &mut Self {
         self.axes().legend = Some(Legend::Inside(InsideLegend {
@@ -831,22 +855,22 @@ impl AxesMut<'_> {
     /// Lists the entries of the axes in the legend panel with the given identifier,
     /// replacing any legend inside the plot area.
     ///
-    /// The identifier is that of a panel created with [`Figure::panel_legend`] or
-    /// [`Figure::panel_legend_span`](crate::Figure::panel_legend_span); one that names no
-    /// panel is reported by [`validate`](crate::Figure::validate).
+    /// The identifier is that of a panel created with [`Figure::panel`] or
+    /// [`Figure::panel_span`](crate::Figure::panel_span); one that names no panel holding a
+    /// legend is reported by [`validate`](crate::Figure::validate).
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// let key = fig.panel_legend(0, 1).id();
+    /// let key = fig.panel(0, 1).id();
     /// let mut ax = fig.axes(0, 0);
-    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]).display_name("Linear");
+    /// ax.plot(&[0.0, 1.0], &[0.0, 1.0]).label("Linear");
     /// ax.legend_in(key);
     /// assert!(fig.validate().is_valid());
     /// ```
     ///
-    /// [`Figure::panel_legend`]: crate::Figure::panel_legend
+    /// [`Figure::panel`]: crate::Figure::panel
     pub fn legend_in(&mut self, panel: NodeId) -> &mut Self {
         self.axes().legend = Some(Legend::Panel(panel));
         self
@@ -904,7 +928,7 @@ impl AxesMut<'_> {
     /// its entries in a legend panel.
     ///
     /// `LegendEntries::Auto`, the default, lists every artist of the axes that has a
-    /// display name, in the order the artists were added. An explicit list names exactly
+    /// label, in the order the artists were added. An explicit list names exactly
     /// the items to list, in their order, whatever the order in which the artists are
     /// drawn; an item that names an artist must name an artist of this axes.
     ///
@@ -914,9 +938,9 @@ impl AxesMut<'_> {
     /// let x = linspace(0.0, 1.0, 11);
     /// let mut fig = Figure::new();
     /// let mut ax = fig.axes(0, 0);
-    /// let member = ax.plot(&x, &x).display_name("Member").id();
+    /// let member = ax.plot(&x, &x).label("Member").id();
     /// // The reference is drawn last, on top of the member, but listed first.
-    /// let reference = ax.plot(&x, &x).display_name("Reference").id();
+    /// let reference = ax.plot(&x, &x).label("Reference").id();
     /// ax.legend(LegendLocation::NorthWest)
     ///     .legend_entries(LegendEntries::Explicit(vec![
     ///         LegendItem::artist(reference),
@@ -1033,11 +1057,6 @@ impl AxesMut<'_> {
         self
     }
 
-    /// Copies a vector into the figure's data table.
-    fn store_vector(&mut self, values: &[f64]) -> ironlab_ir::DataId {
-        self.fig.add_data(NdArray::vector(values.to_vec()))
-    }
-
     /// Appends the artist built from a newly allocated identifier to the axes and
     /// returns that identifier.
     fn push_artist(&mut self, build: impl FnOnce(NodeId) -> Artist) -> NodeId {
@@ -1047,10 +1066,10 @@ impl AxesMut<'_> {
     }
 
     /// Adds a line, with z data when given.
-    fn add_line(&mut self, x: &[f64], y: &[f64], z: Option<&[f64]>) -> LineMut<'_> {
-        let x = self.store_vector(x);
-        let y = self.store_vector(y);
-        let z = z.map(|z| self.store_vector(z));
+    fn add_line(&mut self, x: DataSource, y: DataSource, z: Option<DataSource>) -> LineMut<'_> {
+        let x = x.store(self.fig);
+        let y = y.store(self.fig);
+        let z = z.map(|z| z.store(self.fig));
         let id = self.push_artist(|id| {
             Artist::Line(Line {
                 id,
@@ -1064,10 +1083,15 @@ impl AxesMut<'_> {
     }
 
     /// Adds a scatter, with z data when given.
-    fn add_scatter(&mut self, x: &[f64], y: &[f64], z: Option<&[f64]>) -> ScatterMut<'_> {
-        let x = self.store_vector(x);
-        let y = self.store_vector(y);
-        let z = z.map(|z| self.store_vector(z));
+    fn add_scatter(
+        &mut self,
+        x: DataSource,
+        y: DataSource,
+        z: Option<DataSource>,
+    ) -> ScatterMut<'_> {
+        let x = x.store(self.fig);
+        let y = y.store(self.fig);
+        let z = z.map(|z| z.store(self.fig));
         let id = self.push_artist(|id| {
             Artist::Scatter(Scatter {
                 id,
@@ -1083,14 +1107,13 @@ impl AxesMut<'_> {
     /// Adds contours of a gridded field.
     fn add_contour(
         &mut self,
-        x: GridCoords,
-        y: GridCoords,
-        z: &Matrix,
+        x: DataSource,
+        y: DataSource,
+        z: DataSource,
         fill: bool,
         placement: ContourPlacement,
     ) -> ContourMut<'_> {
-        let grid = store_grid(self.fig, x, y, z);
-        let z = self.fig.add_data(matrix_array(z));
+        let (grid, z) = store_grid(self.fig, x, y, z);
         let id = self.push_artist(|id| {
             Artist::Contour(Contour {
                 id,
@@ -1107,14 +1130,13 @@ impl AxesMut<'_> {
     /// Adds a surface over a gridded field, leaving the projection of the axes as it is.
     fn add_surface(
         &mut self,
-        x: GridCoords,
-        y: GridCoords,
-        z: &Matrix,
+        x: DataSource,
+        y: DataSource,
+        z: DataSource,
         face: ColorSpec,
         edge: ColorSpec,
     ) -> SurfaceMut<'_> {
-        let grid = store_grid(self.fig, x, y, z);
-        let z = self.fig.add_data(matrix_array(z));
+        let (grid, z) = store_grid(self.fig, x, y, z);
         let id = self.push_artist(|id| {
             Artist::Surface(Surface {
                 id,

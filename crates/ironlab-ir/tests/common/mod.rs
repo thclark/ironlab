@@ -1,46 +1,47 @@
 //! Shared fixtures for the IR integration tests.
 //!
-//! Fixtures assign node and data identifiers explicitly rather than through
-//! `Figure::alloc_node_id` and `Figure::add_data`, so that tests of other behaviour
-//! do not depend on the allocation behaviour under test elsewhere.
+//! Fixtures assign node identifiers, data arrays included, explicitly rather than
+//! through `Figure::alloc_node_id` and `Figure::add_data`, so that tests of other
+//! behaviour do not depend on the allocation behaviour under test elsewhere.
 
 #![allow(dead_code)]
 
 pub mod edits;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
-/// legend, display name, coordinate array, colour or alpha array, pixel range or plane
+/// legend, label, name of a data array, coordinate array, colour or alpha array, pixel range or plane
 /// offset), by full Protocol Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 27] = [
+pub const OPTIONAL_IN_IR: [&str; 28] = [
     "ironlab.ir.v0.Figure.title",
+    "ironlab.ir.v0.DataArray.name",
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
     "ironlab.ir.v0.Axis.label",
-    "ironlab.ir.v0.Line.display_name",
+    "ironlab.ir.v0.Line.label",
     "ironlab.ir.v0.Line.z",
-    "ironlab.ir.v0.Scatter.display_name",
+    "ironlab.ir.v0.Scatter.label",
     "ironlab.ir.v0.Scatter.z",
-    "ironlab.ir.v0.Contour.display_name",
+    "ironlab.ir.v0.Contour.label",
     "ironlab.ir.v0.ContourPlacementPlane.z",
-    "ironlab.ir.v0.Quiver.display_name",
+    "ironlab.ir.v0.Quiver.label",
     "ironlab.ir.v0.Quiver.z",
     "ironlab.ir.v0.Quiver.w",
-    "ironlab.ir.v0.Surface.display_name",
+    "ironlab.ir.v0.Surface.label",
     "ironlab.ir.v0.Surface.c",
     "ironlab.ir.v0.Surface.face_alpha",
     "ironlab.ir.v0.Surface.edge_alpha",
-    "ironlab.ir.v0.Image.display_name",
-    "ironlab.ir.v0.IndexedImage.display_name",
+    "ironlab.ir.v0.Image.label",
+    "ironlab.ir.v0.IndexedImage.label",
     "ironlab.ir.v0.IndexedImage.alpha",
-    "ironlab.ir.v0.MappedImage.display_name",
+    "ironlab.ir.v0.MappedImage.label",
     "ironlab.ir.v0.MappedImage.alpha",
     "ironlab.ir.v0.ImagePlacement.columns",
     "ironlab.ir.v0.ImagePlacement.rows",
@@ -50,6 +51,11 @@ pub const OPTIONAL_IN_IR: [&str; 27] = [
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.
+///
+/// Data arrays are nodes and share the one identifier space, but the builder numbers them
+/// from 1000 rather than interleaving them with axes and artists, so that the identifiers
+/// of axes and artists stay small and stable however many arrays a fixture adds. No
+/// fixture holds anywhere near a thousand axes and artists, so the two ranges never meet.
 pub struct FigureBuilder {
     pub fig: Figure,
     next_node: u64,
@@ -71,7 +77,7 @@ impl FigureBuilder {
         Self {
             fig,
             next_node: 2,
-            next_data: 0,
+            next_data: 1_000,
         }
     }
 
@@ -82,22 +88,35 @@ impl FigureBuilder {
         id
     }
 
-    /// Inserts an array under a fresh data identifier.
-    pub fn data(&mut self, array: NdArray) -> DataId {
-        let id = DataId(self.next_data);
+    /// Adds an unnamed data array under a fresh node identifier.
+    pub fn data(&mut self, array: NdArray) -> NodeId {
+        let id = NodeId(self.next_data);
         self.next_data += 1;
-        self.fig.data.insert(id, array);
+        self.fig.data.push(DataArray {
+            id,
+            name: None,
+            array,
+        });
         id
     }
 
+    /// Returns the data array with the given identifier, found without the API under test.
+    pub fn data_array(&mut self, id: NodeId) -> &mut DataArray {
+        self.fig
+            .data
+            .iter_mut()
+            .find(|d| d.id == id)
+            .expect("fixture data array exists")
+    }
+
     /// Inserts a one-dimensional array.
-    pub fn vector(&mut self, values: &[f64]) -> DataId {
+    pub fn vector(&mut self, values: &[f64]) -> NodeId {
         self.data(NdArray::vector(values.to_vec()))
     }
 
     /// Inserts a row-major `ny` × `nx` array whose value in row `j` and column `i` is
     /// `f(j, i)`.
-    pub fn matrix(&mut self, ny: usize, nx: usize, f: impl Fn(usize, usize) -> f64) -> DataId {
+    pub fn matrix(&mut self, ny: usize, nx: usize, f: impl Fn(usize, usize) -> f64) -> NodeId {
         let values = (0..ny)
             .flat_map(|j| (0..nx).map(move |i| (j, i)))
             .map(|(j, i)| f(j, i))
@@ -106,7 +125,7 @@ impl FigureBuilder {
     }
 
     /// Inserts an array of 8-bit values with the given shape.
-    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> DataId {
+    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> NodeId {
         self.data(NdArray::from_shape_u8(shape, values).expect("the shape matches the values"))
     }
 
@@ -165,6 +184,155 @@ pub fn floats_mut(array: &mut NdArray) -> &mut Vec<f64> {
     match &mut array.values {
         Values::F64(values) => values,
         Values::U8(_) => panic!("the fixture array holds 8-bit values, not floats"),
+    }
+}
+
+/// Finds the array of a data array by identifier without using the API under test.
+pub fn array(fig: &Figure, id: NodeId) -> &NdArray {
+    &fig.data
+        .iter()
+        .find(|d| d.id == id)
+        .unwrap_or_else(|| panic!("{id} is not a data array of the figure"))
+        .array
+}
+
+/// Finds the array of a data array by identifier for modification, without using the API
+/// under test.
+pub fn array_mut(fig: &mut Figure, id: NodeId) -> &mut NdArray {
+    &mut fig
+        .data
+        .iter_mut()
+        .find(|d| d.id == id)
+        .unwrap_or_else(|| panic!("{id} is not a data array of the figure"))
+        .array
+}
+
+/// Returns the data arrays an artist refers to, in the order of its fields, with
+/// repeats, written out by hand so that tests do not depend on the validator's own list.
+pub fn data_references(artist: &Artist) -> Vec<NodeId> {
+    let grid = |grid: &Grid| match *grid {
+        Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => [x, y],
+    };
+    match artist {
+        Artist::Line(a) => [a.x, a.y].into_iter().chain(a.z).collect(),
+        Artist::Scatter(a) => {
+            let mut refs: Vec<NodeId> = [a.x, a.y].into_iter().chain(a.z).collect();
+            if let ScatterSize::Data { data } = a.size {
+                refs.push(data);
+            }
+            if let ScatterColor::Data { data } = a.color {
+                refs.push(data);
+            }
+            refs
+        }
+        Artist::Contour(a) => grid(&a.grid).into_iter().chain([a.z]).collect(),
+        Artist::Quiver(a) => [a.x, a.y]
+            .into_iter()
+            .chain(a.z)
+            .chain([a.u, a.v])
+            .chain(a.w)
+            .collect(),
+        Artist::Surface(a) => grid(&a.grid)
+            .into_iter()
+            .chain([a.z])
+            .chain(a.c)
+            .chain(a.face_alpha)
+            .chain(a.edge_alpha)
+            .collect(),
+        Artist::Image(a) => vec![a.pixels],
+        Artist::IndexedImage(a) => [a.indices].into_iter().chain(a.alpha).collect(),
+        Artist::MappedImage(a) => [a.values].into_iter().chain(a.alpha).collect(),
+    }
+}
+
+/// Returns the data references of an artist for modification, in the same order as
+/// [`data_references`], written out by hand so that tests can retarget each reference in
+/// turn without depending on the validator's own list.
+pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
+    fn grid(grid: &mut Grid) -> [&mut NodeId; 2] {
+        match grid {
+            Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => [x, y],
+        }
+    }
+    match artist {
+        Artist::Line(a) => [&mut a.x, &mut a.y]
+            .into_iter()
+            .chain(a.z.as_mut())
+            .collect(),
+        Artist::Scatter(a) => {
+            let mut refs: Vec<&mut NodeId> = [&mut a.x, &mut a.y]
+                .into_iter()
+                .chain(a.z.as_mut())
+                .collect();
+            if let ScatterSize::Data { data } = &mut a.size {
+                refs.push(data);
+            }
+            if let ScatterColor::Data { data } = &mut a.color {
+                refs.push(data);
+            }
+            refs
+        }
+        Artist::Contour(a) => grid(&mut a.grid).into_iter().chain([&mut a.z]).collect(),
+        Artist::Quiver(a) => [&mut a.x, &mut a.y]
+            .into_iter()
+            .chain(a.z.as_mut())
+            .chain([&mut a.u, &mut a.v])
+            .chain(a.w.as_mut())
+            .collect(),
+        Artist::Surface(a) => grid(&mut a.grid)
+            .into_iter()
+            .chain([&mut a.z])
+            .chain(a.c.as_mut())
+            .chain(a.face_alpha.as_mut())
+            .chain(a.edge_alpha.as_mut())
+            .collect(),
+        Artist::Image(a) => vec![&mut a.pixels],
+        Artist::IndexedImage(a) => [&mut a.indices]
+            .into_iter()
+            .chain(a.alpha.as_mut())
+            .collect(),
+        Artist::MappedImage(a) => [&mut a.values]
+            .into_iter()
+            .chain(a.alpha.as_mut())
+            .collect(),
+    }
+}
+
+/// Removes every data array that no artist of the figure refers to, so that a fixture
+/// built from a pool of arrays holds only what its artists use and validates without an
+/// unused-data warning.
+pub fn drop_unreferenced_data(fig: &mut Figure) {
+    let used: BTreeSet<NodeId> = fig
+        .axes
+        .iter()
+        .flat_map(|axes| axes.artists.iter().flat_map(data_references))
+        .collect();
+    fig.data.retain(|data| used.contains(&data.id));
+}
+
+/// A legend panel: a panel whose content is a legend with the defaults of
+/// [`PanelLegend`], centred in the given cell.
+pub fn legend_panel(id: NodeId, cell: Cell) -> Panel {
+    Panel {
+        id,
+        cell,
+        align: PanelLocation::Center,
+        content: PanelContent::Legend(PanelLegend::default()),
+    }
+}
+
+/// Returns the legend of a panel, panicking for a panel of another content.
+pub fn panel_legend(panel: &Panel) -> &PanelLegend {
+    match &panel.content {
+        PanelContent::Legend(legend) => legend,
+    }
+}
+
+/// Returns the legend of a panel for modification, panicking for a panel of another
+/// content.
+pub fn panel_legend_mut(panel: &mut Panel) -> &mut PanelLegend {
+    match &mut panel.content {
+        PanelContent::Legend(legend) => legend,
     }
 }
 
@@ -239,7 +407,8 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 
 /// A valid figure that uses every artist variant and every variant of every enum in
 /// the schema, including NaN data, non-default styles, links on every dimension, a
-/// figure parameter of every kind, labels that are not in alphabetical order, and images
+/// figure parameter of every kind, tags that are not in alphabetical order, data arrays
+/// with and without a name, data shared by artists of several axes, and images
 /// of every kind on the floor of a 2D axes and on the walls of a 3D axes, of floats and
 /// of bytes, with every plane, every out-of-range policy, and pixel ranges that are
 /// absent, ascending and mirrored. Its tile layout has weights for some of its rows and
@@ -286,17 +455,21 @@ pub fn kitchen_sink_figure() -> Figure {
         ("reynolds_number".to_owned(), Parameter::Number(1.0e5)),
         ("solver".to_owned(), Parameter::String("k–ω SST".to_owned())),
     ]);
-    // Out of alphabetical order, and one label not ASCII, so that a fixture written or
+    // Out of alphabetical order, and one tag not ASCII, so that a fixture written or
     // read through a sorted collection is caught.
-    b.fig.labels = vec![
+    b.fig.tags = vec![
         "validated".to_owned(),
         "grenzschicht".to_owned(),
         "k–ω".to_owned(),
     ];
 
-    // Shared data. Positive values so that log axes produce no warnings.
+    // Shared data, each array stored once and referred to by artists of several axes.
+    // Positive values so that log axes produce no warnings. Two arrays carry a name, one
+    // of them not ASCII, and the rest have none, so that both forms are exercised.
     let t = b.vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    b.data_array(t).name = Some("time (s)".to_owned());
     let t_nan = b.vector(&[1.0, 4.0, f64::NAN, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0]);
+    b.data_array(t_nan).name = Some("t² with a gap".to_owned());
     let (ny, nx) = (3, 4);
     let gx = b.vector(&[0.0, 1.0, 2.0, 3.0]);
     let gy = b.vector(&[0.0, 0.5, 1.0]);
@@ -405,7 +578,7 @@ pub fn kitchen_sink_figure() -> Figure {
             lines,
             Artist::Line(Line {
                 id,
-                display_name: Some(Text::new(format!("series ${k}$"))),
+                label: Some(Text::new(format!("series ${k}$"))),
                 visible: k % 2 == 0,
                 x: t,
                 y: t_nan,
@@ -443,7 +616,7 @@ pub fn kitchen_sink_figure() -> Figure {
         scatters,
         Artist::Scatter(Scatter {
             id,
-            display_name: None,
+            label: None,
             visible: true,
             x: t,
             y: t,
@@ -642,7 +815,7 @@ pub fn kitchen_sink_figure() -> Figure {
         surfaces,
         Artist::Surface(Surface {
             id,
-            display_name: Some(Text::plain("surf")),
+            label: Some(Text::plain("surf")),
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
             c: Some(cx),
@@ -654,7 +827,7 @@ pub fn kitchen_sink_figure() -> Figure {
         surfaces,
         Artist::Surface(Surface {
             id,
-            display_name: Some(Text::plain("mesh")),
+            label: Some(Text::plain("mesh")),
             visible: false,
             grid: Grid::Curvilinear { x: cx, y: cy },
             z: field,
@@ -681,7 +854,7 @@ pub fn kitchen_sink_figure() -> Figure {
         surfaces,
         Artist::Image(Image {
             id,
-            display_name: None,
+            label: None,
             visible: false,
             pixels: rgba_pixels,
             placement: ImagePlacement {
@@ -700,7 +873,7 @@ pub fn kitchen_sink_figure() -> Figure {
         surfaces,
         Artist::IndexedImage(IndexedImage {
             id,
-            display_name: Some(Text::plain("classes")),
+            label: Some(Text::plain("classes")),
             indices: cx,
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: None },
@@ -762,7 +935,7 @@ pub fn kitchen_sink_figure() -> Figure {
         east,
         Artist::Image(Image {
             id,
-            display_name: Some(Text::plain("photo")),
+            label: Some(Text::plain("photo")),
             pixels: rgb_pixels,
             ..Image::default()
         }),
@@ -801,7 +974,7 @@ pub fn kitchen_sink_figure() -> Figure {
         west,
         Artist::MappedImage(MappedImage {
             id,
-            display_name: Some(Text::new("$T$ (K)")),
+            label: Some(Text::new("$T$ (K)")),
             values: field,
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: None },
@@ -870,15 +1043,15 @@ pub fn kitchen_sink_figure() -> Figure {
             axes,
             Artist::Line(Line {
                 id,
-                display_name: Some(Text::plain(name)),
+                label: Some(Text::plain(name)),
                 x: t,
                 y: t_nan,
                 ..Line::default()
             }),
         );
     }
-    b.fig.panel_legends = vec![
-        PanelLegend {
+    b.fig.panels = vec![
+        Panel {
             id: fixed_panel,
             // In the fitted column alone, which takes the width of this panel.
             cell: Cell {
@@ -887,15 +1060,17 @@ pub fn kitchen_sink_figure() -> Figure {
                 row_span: 1,
                 col_span: 1,
             },
-            align: LegendLocation::SouthWest,
-            boxed: true,
-            layout: LegendEntryLayout {
-                columns: LegendEntryColumns::Count(2),
-                order: LegendEntryOrder::RowMajor,
-            },
-            entries: LegendEntries::Auto,
+            align: PanelLocation::SouthWest,
+            content: PanelContent::Legend(PanelLegend {
+                boxed: true,
+                layout: LegendEntryLayout {
+                    columns: LegendEntryColumns::Count(2),
+                    order: LegendEntryOrder::RowMajor,
+                },
+                entries: LegendEntries::Auto,
+            }),
         },
-        PanelLegend {
+        Panel {
             id: auto_panel,
             cell: Cell {
                 row: 3,
@@ -903,48 +1078,50 @@ pub fn kitchen_sink_figure() -> Figure {
                 row_span: 1,
                 col_span: 2,
             },
-            align: LegendLocation::Center,
-            boxed: false,
-            layout: LegendEntryLayout {
-                columns: LegendEntryColumns::Auto,
-                order: LegendEntryOrder::ColumnMajor,
-            },
-            // An explicit list of every kind of item: the artist of the axes that names
-            // the panel, on a row of its own, then two items that stand for no artist,
-            // one of each kind of sample.
-            entries: LegendEntries::Explicit(vec![
-                LegendItem {
-                    full_row: true,
-                    ..LegendItem::artist(auto_listed_line)
+            align: PanelLocation::Center,
+            content: PanelContent::Legend(PanelLegend {
+                boxed: false,
+                layout: LegendEntryLayout {
+                    columns: LegendEntryColumns::Auto,
+                    order: LegendEntryOrder::ColumnMajor,
                 },
-                LegendItem::custom(
-                    LegendSample::Line {
-                        line: LineStyle {
-                            color: ColorSpec::None,
-                            width_pt: 1.25,
-                            dash: DashStyle::None,
-                        },
-                        marker: MarkerStyle {
-                            shape: MarkerShape::TriangleUp,
-                            size_pt: 5.5,
-                            face: ColorSpec::Rgba {
-                                color: Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0),
-                            },
-                            edge: ColorSpec::Auto,
-                        },
+                // An explicit list of every kind of item: the artist of the axes that names
+                // the panel, on a row of its own, then two items that stand for no artist,
+                // one of each kind of sample.
+                entries: LegendEntries::Explicit(vec![
+                    LegendItem {
+                        full_row: true,
+                        ..LegendItem::artist(auto_listed_line)
                     },
-                    Text::new("Separation $x_s$"),
-                ),
-                LegendItem::custom(
-                    LegendSample::swatch(Color::rgba(
-                        0.0,
-                        128.0 / 255.0,
-                        64.0 / 255.0,
-                        128.0 / 255.0,
-                    )),
-                    Text::plain("Lower surface"),
-                ),
-            ]),
+                    LegendItem::custom(
+                        LegendSample::Line {
+                            line: LineStyle {
+                                color: ColorSpec::None,
+                                width_pt: 1.25,
+                                dash: DashStyle::None,
+                            },
+                            marker: MarkerStyle {
+                                shape: MarkerShape::TriangleUp,
+                                size_pt: 5.5,
+                                face: ColorSpec::Rgba {
+                                    color: Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0),
+                                },
+                                edge: ColorSpec::Auto,
+                            },
+                        },
+                        Text::new("Separation $x_s$"),
+                    ),
+                    LegendItem::custom(
+                        LegendSample::swatch(Color::rgba(
+                            0.0,
+                            128.0 / 255.0,
+                            64.0 / 255.0,
+                            128.0 / 255.0,
+                        )),
+                        Text::plain("Lower surface"),
+                    ),
+                ]),
+            }),
         },
     ];
 
@@ -1159,10 +1336,10 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             visit(format!("parameters[{name:?}]"), value);
         }
     }
-    for (id, array) in fig.data.iter_mut() {
-        if let Values::F64(values) = &mut array.values {
+    for data in fig.data.iter_mut() {
+        if let Values::F64(values) = &mut data.array.values {
             for (i, value) in values.iter_mut().enumerate() {
-                visit(format!("data[{}][{i}]", id.0), value);
+                visit(format!("data[{}][{i}]", data.id.0), value);
             }
         }
     }
@@ -1229,9 +1406,13 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
             visit_legend_entries(visit, &at("legend.entries"), &mut inside.entries);
         }
     }
-    for (p, panel) in fig.panel_legends.iter_mut().enumerate() {
-        let at = format!("panel_legends[{p}].entries");
-        visit_legend_entries(visit, &at, &mut panel.entries);
+    for (p, panel) in fig.panels.iter_mut().enumerate() {
+        match &mut panel.content {
+            PanelContent::Legend(legend) => {
+                let at = format!("panels[{p}].content.legend.entries");
+                visit_legend_entries(visit, &at, &mut legend.entries);
+            }
+        }
     }
 }
 

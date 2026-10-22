@@ -2,16 +2,16 @@
 
 mod common;
 
-use common::FigureBuilder;
-use common::edits::{Streaming, applied, axes_node, rows, set, streaming_figure, tx};
+use common::edits::{Streaming, applied, axes_node, data_node, rows, set, streaming_figure, tx};
+use common::{FigureBuilder, array};
 use ironlab_ir::selection::Selection;
 use ironlab_ir::*;
 
 /// Appends one value per entry to the x and y data of the first line.
 fn append_to_line(s: &Streaming, count: usize, retain: Option<u64>) -> Transaction {
     let values: Vec<f64> = (0..count).map(|k| 100.0 + k as f64).collect();
-    tx([s.x, s.y].map(|id| Edit::AppendData {
-        id,
+    tx([s.x, s.y].map(|node| Edit::AppendData {
+        node,
         array: NdArray::vector(values.clone()),
         retain,
     }))
@@ -79,12 +79,12 @@ fn discarding_rows_of_a_field_shifts_flat_indices_by_whole_rows() {
     // Four rows of three plus one appended, keeping four, discards one row of three values.
     let transaction = tx([
         Edit::AppendData {
-            id: s.z,
+            node: s.z,
             array: rows(1, 3, 100.0),
             retain: Some(4),
         },
         Edit::AppendData {
-            id: s.gy,
+            node: s.gy,
             array: NdArray::vector(vec![4.0]),
             retain: Some(4),
         },
@@ -114,16 +114,16 @@ fn when_every_selected_index_is_discarded_an_empty_set_of_indices_remains() {
 #[test]
 fn replacing_any_array_of_the_selected_artist_keeps_the_node_and_drops_the_indices() {
     let s = streaming_figure();
-    let replace_y = tx([Edit::PutData {
-        id: s.y,
+    let replace_y = tx([Edit::ReplaceData {
+        node: s.y,
         array: NdArray::vector(vec![0.0; 5]),
     }]);
     assert_eq!(
         updated(&s, &Selection::points(s.line, [0, 2]), &replace_y),
         Some(Selection::node(s.line))
     );
-    let replace_grid = tx([Edit::PutData {
-        id: s.gx,
+    let replace_grid = tx([Edit::ReplaceData {
+        node: s.gx,
         array: NdArray::vector(vec![5.0, 6.0, 7.0]),
     }]);
     assert_eq!(
@@ -198,18 +198,19 @@ fn edits_of_unrelated_data_and_nodes_leave_the_selection_unchanged() {
     let selection = Selection::points(s.line, [0, 4]);
     let transaction = tx([
         Edit::AppendData {
-            id: s.other_x,
+            node: s.other_x,
             array: NdArray::vector(vec![4.0]),
             retain: Some(2),
         },
         Edit::AppendData {
-            id: s.other_y,
+            node: s.other_y,
             array: NdArray::vector(vec![16.0]),
             retain: Some(2),
         },
-        Edit::PutData {
-            id: DataId(100),
-            array: NdArray::vector(vec![1.0]),
+        Edit::Insert {
+            parent: s.fig.id,
+            index: None,
+            node: data_node(NodeId(101), NdArray::vector(vec![1.0])),
         },
         set(
             s.other_axes,
@@ -237,8 +238,8 @@ fn a_node_selected_as_a_whole_is_unaffected_by_its_data_edits() {
         updated(&s, &selection, &append_to_line(&s, 2, Some(3))),
         Some(selection.clone())
     );
-    let replace = tx([Edit::PutData {
-        id: s.x,
+    let replace = tx([Edit::ReplaceData {
+        node: s.x,
         array: NdArray::vector(vec![0.0; 5]),
     }]);
     assert_eq!(updated(&s, &selection, &replace), Some(selection));
@@ -248,7 +249,7 @@ fn a_node_selected_as_a_whole_is_unaffected_by_its_data_edits() {
 /// three rows and two columns: floating-point RGBA pixels, 8-bit indices and values.
 /// Returns the figure, the artists and their arrays, in the order image, indexed image,
 /// mapped image.
-fn images_figure() -> (Figure, [NodeId; 3], [DataId; 3]) {
+fn images_figure() -> (Figure, [NodeId; 3], [NodeId; 3]) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     let pixels = b.data(
@@ -311,7 +312,7 @@ fn the_primary_array_of_each_image_kind_is_its_data_field() {
         let selection = Selection::points(artists[k], [0, row_values[k] + 1, 2 * row_values[k]]);
         // Append one row and keep three: the first row is discarded.
         let appended = tx([Edit::AppendData {
-            id: arrays[k],
+            node: arrays[k],
             array: one_row[k].clone(),
             retain: Some(3),
         }]);
@@ -322,9 +323,9 @@ fn the_primary_array_of_each_image_kind_is_its_data_field() {
             "artist {k}"
         );
 
-        let replaced = tx([Edit::PutData {
-            id: arrays[k],
-            array: fig.data[&arrays[k]].clone(),
+        let replaced = tx([Edit::ReplaceData {
+            node: arrays[k],
+            array: array(&fig, arrays[k]).clone(),
         }]);
         assert_eq!(
             selection.updated(&fig, &replaced),
@@ -333,9 +334,9 @@ fn the_primary_array_of_each_image_kind_is_its_data_field() {
         );
 
         let other = (k + 1) % 3;
-        let unrelated = tx([Edit::PutData {
-            id: arrays[other],
-            array: fig.data[&arrays[other]].clone(),
+        let unrelated = tx([Edit::ReplaceData {
+            node: arrays[other],
+            array: array(&fig, arrays[other]).clone(),
         }]);
         assert_eq!(
             selection.updated(&fig, &unrelated),

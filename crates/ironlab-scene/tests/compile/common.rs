@@ -1,14 +1,14 @@
 //! Fixture builders that assemble figures directly from `ironlab_ir` types.
 //!
-//! Node and data identifiers are allocated explicitly by [`Fx`], so the fixtures do not depend on
+//! Node identifiers, data arrays' included, are allocated explicitly by [`Fx`], so the fixtures do not depend on
 //! the IR's own allocation helpers.
 
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Artist, Axes, Cell, Contour, DataId, Figure, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Legend, Line, MappedImage, NdArray, NodeId, PanelLegend, PixelRange, Projection,
-    Quiver, Scatter, Surface, Text, View3d,
+    Artist, Axes, Cell, Contour, DataArray, Figure, Grid, Image, ImagePlacement, ImagePlane,
+    IndexedImage, Legend, Line, MappedImage, NdArray, NodeId, Panel, PanelContent, PanelLegend,
+    PixelRange, Projection, Quiver, Scatter, Surface, Text, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::Lut;
@@ -123,7 +123,6 @@ pub fn xy(columns: Option<PixelRange>, rows: Option<PixelRange>) -> ImagePlaceme
 pub struct Fx {
     pub fig: Figure,
     next_node: u64,
-    next_data: u64,
 }
 
 impl Fx {
@@ -133,11 +132,7 @@ impl Fx {
             id: NodeId(1),
             ..Figure::default()
         };
-        Self {
-            fig,
-            next_node: 2,
-            next_data: 1,
-        }
+        Self { fig, next_node: 2 }
     }
 
     /// Allocates a fresh node identifier.
@@ -148,24 +143,27 @@ impl Fx {
     }
 
     /// Stores a one-dimensional array and returns its identifier.
-    pub fn vector(&mut self, values: &[f64]) -> DataId {
+    pub fn vector(&mut self, values: &[f64]) -> NodeId {
         self.store(NdArray::vector(values.to_vec()))
     }
 
     /// Stores a two-dimensional array of shape `[ny, nx]` and returns its identifier.
-    pub fn matrix(&mut self, ny: usize, nx: usize, values: Vec<f64>) -> DataId {
+    pub fn matrix(&mut self, ny: usize, nx: usize, values: Vec<f64>) -> NodeId {
         self.store(NdArray::from_shape(vec![ny, nx], values).expect("matrix shape"))
     }
 
     /// Stores an array of 8-bit values with the given shape and returns its identifier.
-    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> DataId {
+    pub fn bytes(&mut self, shape: Vec<usize>, values: Vec<u8>) -> NodeId {
         self.store(NdArray::from_shape_u8(shape, values).expect("byte array shape"))
     }
 
-    fn store(&mut self, array: NdArray) -> DataId {
-        let id = DataId(self.next_data);
-        self.next_data += 1;
-        self.fig.data.insert(id, array);
+    fn store(&mut self, array: NdArray) -> NodeId {
+        let id = self.node();
+        self.fig.data.push(DataArray {
+            id,
+            name: None,
+            array,
+        });
         id
     }
 
@@ -265,7 +263,7 @@ impl Fx {
     }
 
     /// Samples `f(x, y)` on the rectilinear grid `x × y` and returns the grid and the field.
-    pub fn field(&mut self, x: &[f64], y: &[f64], f: impl Fn(f64, f64) -> f64) -> (Grid, DataId) {
+    pub fn field(&mut self, x: &[f64], y: &[f64], f: impl Fn(f64, f64) -> f64) -> (Grid, NodeId) {
         let values = y
             .iter()
             .flat_map(|&yv| x.iter().map(move |&xv| (xv, yv)))
@@ -351,7 +349,7 @@ impl Fx {
     }
 
     /// Stores an array of either element type with the given shape and returns its identifier.
-    pub fn samples(&mut self, shape: Vec<usize>, values: impl Into<Samples>) -> DataId {
+    pub fn samples(&mut self, shape: Vec<usize>, values: impl Into<Samples>) -> NodeId {
         let array = match values.into() {
             Samples::F64(values) => NdArray::from_shape(shape, values),
             Samples::U8(values) => NdArray::from_shape_u8(shape, values),
@@ -428,21 +426,24 @@ impl Fx {
     /// Adds a legend panel with default properties in the given cell block and returns its identifier.
     pub fn panel(&mut self, cell: Cell) -> NodeId {
         let id = self.node();
-        self.fig.panel_legends.push(PanelLegend {
+        self.fig.panels.push(Panel {
             id,
             cell,
-            ..PanelLegend::default()
+            align: Default::default(),
+            content: PanelContent::Legend(PanelLegend::default()),
         });
         id
     }
 
-    /// Returns the legend panel with the given identifier for modification.
-    pub fn panel_mut(&mut self, id: NodeId) -> &mut PanelLegend {
-        self.fig
-            .panel_legends
-            .iter_mut()
-            .find(|p| p.id == id)
-            .expect("fixture legend panel exists")
+    /// Returns the panel with the given identifier for modification.
+    pub fn panel_mut(&mut self, id: NodeId) -> &mut Panel {
+        self.fig.panel_mut(id).expect("fixture panel exists")
+    }
+
+    /// Returns the legend of the legend panel with the given identifier for modification.
+    pub fn legend_mut(&mut self, id: NodeId) -> &mut PanelLegend {
+        let PanelContent::Legend(legend) = &mut self.panel_mut(id).content;
+        legend
     }
 
     /// Lists the entries of an axes in the legend panel `panel`.
@@ -450,10 +451,10 @@ impl Fx {
         self.ax(axes).legend = Some(Legend::Panel(panel));
     }
 
-    /// Adds a line from (0, 0) to (1, 1) with the given display name, customised by `edit`.
+    /// Adds a line from (0, 0) to (1, 1) with the given label, customised by `edit`.
     pub fn named_line(&mut self, axes: NodeId, name: &str, edit: impl FnOnce(&mut Line)) -> NodeId {
         self.line(axes, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
-            l.display_name = text(name);
+            l.label = text(name);
             edit(l);
         })
     }

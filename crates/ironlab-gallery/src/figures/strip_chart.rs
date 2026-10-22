@@ -110,19 +110,19 @@ pub fn figure() -> Figure {
         .tiles(2, 2)
         .row_weights([9.0, 2.0])
         .title("Transition position in its station interval")
-        .label("line")
-        .label("scatter")
-        .label("subplots")
-        .label("legend")
-        .label("markers")
-        .label("ticks")
-        .label("reversed-axes")
-        .label("reference-lines")
+        .tag("line")
+        .tag("scatter")
+        .tag("subplots")
+        .tag("legend")
+        .tag("markers")
+        .tag("ticks")
+        .tag("reversed-axes")
+        .tag("reference-lines")
         .parameter("dimensionality", "2D")
         .parameter("artists", 46)
         .parameter("data_points", 1224)
         .parameter("has_legend", true);
-    let key = fig.panel_legend_span(1, 0, 1, 2).boxed(false).id();
+    let key = fig.panel_span(1, 0, 1, 2).legend().boxed(false).id();
 
     for (col, upper) in [(0, true), (1, false)] {
         let mut ax = fig.axes(0, col);
@@ -148,7 +148,7 @@ pub fn figure() -> Figure {
                 let y = vec![row; x.len()];
                 let mut scatter = ax.scatter(&x, &y);
                 // Every case's points of one kind share the name and the look, so the key lists each kind once.
-                scatter.display_name(kind.name()).size(4.0);
+                scatter.label(kind.name()).size(4.0);
                 match kind {
                     Kind::Free => scatter.marker(Marker::Circle).color(BLUE).filled(),
                     Kind::Unconverged => scatter.marker(Marker::Circle).color(BLUE),

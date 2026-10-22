@@ -3,15 +3,17 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
 use crate::link::Dimension;
 use crate::style::{Color, ColorSpec, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
 /// A drawable node of an axes.
 ///
-/// Every artist has a node identifier, an optional display name shown in the
-/// legend, and a visibility flag. Future plot types are added as new variants.
+/// Every artist has a node identifier, an optional label drawn beside it in a legend,
+/// and a visibility flag. An artist refers to its data by the node identifiers of data
+/// arrays of the figure. Future plot types are added as new variants, each with a line in
+/// the declaration of the kinds of node, which generates the methods of `Artist`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Artist {
@@ -36,64 +38,6 @@ pub enum Artist {
     MappedImage(MappedImage),
 }
 
-impl Artist {
-    /// Returns the node identifier of the artist.
-    pub fn id(&self) -> NodeId {
-        match self {
-            Artist::Line(a) => a.id,
-            Artist::Scatter(a) => a.id,
-            Artist::Contour(a) => a.id,
-            Artist::Quiver(a) => a.id,
-            Artist::Surface(a) => a.id,
-            Artist::Image(a) => a.id,
-            Artist::IndexedImage(a) => a.id,
-            Artist::MappedImage(a) => a.id,
-        }
-    }
-
-    /// Returns the name shown for the artist in the legend.
-    pub fn display_name(&self) -> Option<&Text> {
-        match self {
-            Artist::Line(a) => a.display_name.as_ref(),
-            Artist::Scatter(a) => a.display_name.as_ref(),
-            Artist::Contour(a) => a.display_name.as_ref(),
-            Artist::Quiver(a) => a.display_name.as_ref(),
-            Artist::Surface(a) => a.display_name.as_ref(),
-            Artist::Image(a) => a.display_name.as_ref(),
-            Artist::IndexedImage(a) => a.display_name.as_ref(),
-            Artist::MappedImage(a) => a.display_name.as_ref(),
-        }
-    }
-
-    /// Returns whether the artist is drawn.
-    pub fn visible(&self) -> bool {
-        match self {
-            Artist::Line(a) => a.visible,
-            Artist::Scatter(a) => a.visible,
-            Artist::Contour(a) => a.visible,
-            Artist::Quiver(a) => a.visible,
-            Artist::Surface(a) => a.visible,
-            Artist::Image(a) => a.visible,
-            Artist::IndexedImage(a) => a.visible,
-            Artist::MappedImage(a) => a.visible,
-        }
-    }
-
-    /// Sets whether the artist is drawn.
-    pub fn set_visible(&mut self, visible: bool) {
-        match self {
-            Artist::Line(a) => a.visible = visible,
-            Artist::Scatter(a) => a.visible = visible,
-            Artist::Contour(a) => a.visible = visible,
-            Artist::Quiver(a) => a.visible = visible,
-            Artist::Surface(a) => a.visible = visible,
-            Artist::Image(a) => a.visible = visible,
-            Artist::IndexedImage(a) => a.visible = visible,
-            Artist::MappedImage(a) => a.visible = visible,
-        }
-    }
-}
-
 /// A polyline through data points, with optional markers at the points.
 ///
 /// The x, y and (in 3D) z arrays hold one value per point and must have the same
@@ -102,17 +46,17 @@ impl Artist {
 pub struct Line {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The x coordinates of the points.
-    pub x: DataId,
+    pub x: NodeId,
     /// The y coordinates of the points.
-    pub y: DataId,
+    pub y: NodeId,
     /// The z coordinates of the points, allowed only in 3D axes; when absent in 3D
     /// axes the points lie in the plane z = 0.
-    pub z: Option<DataId>,
+    pub z: Option<NodeId>,
     /// The style of the line through the points.
     pub line: LineStyle,
     /// The style of the markers at the points.
@@ -135,10 +79,10 @@ impl Default for Line {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            x: DataId::default(),
-            y: DataId::default(),
+            x: NodeId::default(),
+            y: NodeId::default(),
             z: None,
             line: LineStyle::default(),
             marker: MarkerStyle::default(),
@@ -157,17 +101,17 @@ impl Default for Line {
 pub struct Scatter {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The x coordinates of the points.
-    pub x: DataId,
+    pub x: NodeId,
     /// The y coordinates of the points.
-    pub y: DataId,
+    pub y: NodeId,
     /// The z coordinates of the points, allowed only in 3D axes; when absent in 3D
     /// axes the points lie in the plane z = 0.
-    pub z: Option<DataId>,
+    pub z: Option<NodeId>,
     /// The size of the markers, which overrides `marker.size_pt`.
     pub size: ScatterSize,
     /// The colour of the markers, applied wherever `marker.face` or `marker.edge`
@@ -193,10 +137,10 @@ impl Default for Scatter {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            x: DataId::default(),
-            y: DataId::default(),
+            x: NodeId::default(),
+            y: NodeId::default(),
             z: None,
             size: ScatterSize::default(),
             color: ScatterColor::default(),
@@ -243,7 +187,7 @@ pub enum ScatterSize {
     /// Each marker has its own size.
     Data {
         /// An array of marker sizes in points, one per point.
-        data: DataId,
+        data: NodeId,
     },
 }
 
@@ -266,7 +210,7 @@ pub enum ScatterColor {
     Data {
         /// An array of values, one per point, mapped through the axes colormap and
         /// colour limits.
-        data: DataId,
+        data: NodeId,
     },
 }
 
@@ -283,14 +227,14 @@ impl Default for ScatterColor {
 pub struct Contour {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The grid on which the field is sampled.
     pub grid: Grid,
     /// The field values, a two-dimensional array of shape `[ny, nx]`.
-    pub z: DataId,
+    pub z: NodeId,
     /// The field values at which isolines are drawn or between which bands are filled.
     pub levels: Levels,
     /// Whether the bands between levels are filled (contourf) rather than only the
@@ -318,10 +262,10 @@ impl Default for Contour {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
             grid: Grid::default(),
-            z: DataId::default(),
+            z: NodeId::default(),
             levels: Levels::default(),
             fill: false,
             placement: ContourPlacement::default(),
@@ -342,24 +286,24 @@ pub enum Grid {
     /// An axis-aligned grid defined by one coordinate vector per axis.
     Rectilinear {
         /// The x coordinates of the columns, an array of `nx` values.
-        x: DataId,
+        x: NodeId,
         /// The y coordinates of the rows, an array of `ny` values.
-        y: DataId,
+        y: NodeId,
     },
     /// A structured grid whose every node has its own coordinates.
     Curvilinear {
         /// The x coordinate of every node, an array of shape `[ny, nx]`.
-        x: DataId,
+        x: NodeId,
         /// The y coordinate of every node, an array of shape `[ny, nx]`.
-        y: DataId,
+        y: NodeId,
     },
 }
 
 impl Default for Grid {
     fn default() -> Self {
         Grid::Rectilinear {
-            x: DataId::default(),
-            y: DataId::default(),
+            x: NodeId::default(),
+            y: NodeId::default(),
         }
     }
 }
@@ -415,24 +359,24 @@ impl Default for ContourPlacement {
 pub struct Quiver {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The x coordinates of the arrow tails.
-    pub x: DataId,
+    pub x: NodeId,
     /// The y coordinates of the arrow tails.
-    pub y: DataId,
+    pub y: NodeId,
     /// The z coordinates of the arrow tails, allowed only in 3D axes; when absent in
     /// 3D axes the tails lie in the plane z = 0.
-    pub z: Option<DataId>,
+    pub z: Option<NodeId>,
     /// The x components of the vectors.
-    pub u: DataId,
+    pub u: NodeId,
     /// The y components of the vectors.
-    pub v: DataId,
+    pub v: NodeId,
     /// The z components of the vectors, allowed only in 3D axes; when absent in 3D
     /// axes the vectors lie in horizontal planes.
-    pub w: Option<DataId>,
+    pub w: Option<NodeId>,
     /// How vector lengths are scaled into arrow lengths.
     pub scale: QuiverScale,
     /// The style of the arrow shafts and heads.
@@ -445,13 +389,13 @@ impl Default for Quiver {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            x: DataId::default(),
-            y: DataId::default(),
+            x: NodeId::default(),
+            y: NodeId::default(),
             z: None,
-            u: DataId::default(),
-            v: DataId::default(),
+            u: NodeId::default(),
+            v: NodeId::default(),
             w: None,
             scale: QuiverScale::default(),
             line: LineStyle::default(),
@@ -487,18 +431,18 @@ pub enum QuiverScale {
 pub struct Surface {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The grid on which the surface is sampled.
     pub grid: Grid,
     /// The field, a two-dimensional array of shape `[ny, nx]`: the height of every node in
     /// a three-dimensional axes, and the colour data of every node unless `c` is given.
-    pub z: DataId,
+    pub z: NodeId,
     /// The colour data of every node, with the same shape as `z`; when absent the
     /// surface is coloured by `z`.
-    pub c: Option<DataId>,
+    pub c: Option<NodeId>,
     /// The colour of the faces.
     pub face: ColorSpec,
     /// The colour of the face edges.
@@ -514,7 +458,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub face_alpha: Option<DataId>,
+    pub face_alpha: Option<NodeId>,
     /// The alpha of the face edges at every node, an array of 64-bit floating-point
     /// values with the same shape as `z`, or `None` for edges that are uniformly opaque
     /// before [`edge_opacity`](Surface::edge_opacity) applies. The edges of a face take
@@ -524,7 +468,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub edge_alpha: Option<DataId>,
+    pub edge_alpha: Option<NodeId>,
     /// The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every face: the face colour's own alpha and, when present, the
     /// [`face_alpha`](Surface::face_alpha) of the face.
@@ -545,10 +489,10 @@ impl Default for Surface {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
             grid: Grid::default(),
-            z: DataId::default(),
+            z: NodeId::default(),
             c: None,
             face: ColorSpec::Colormapped,
             edge: ColorSpec::Rgba {
@@ -583,8 +527,8 @@ fn is_opaque(opacity: &f64) -> bool {
 pub struct Image {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The pixels, a three-dimensional array of shape `[ny, nx, 3]` (the red, green and
@@ -593,7 +537,7 @@ pub struct Image {
     /// `(j * nx + i) * channels`. The array may hold floating-point components from 0
     /// to 1 or 8-bit components from 0 to 255. A pixel with a non-finite component is
     /// transparent.
-    pub pixels: DataId,
+    pub pixels: NodeId,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
     /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
@@ -610,9 +554,9 @@ impl Default for Image {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            pixels: DataId::default(),
+            pixels: NodeId::default(),
             placement: ImagePlacement::default(),
             opacity: 1.0,
         }
@@ -630,14 +574,14 @@ impl Default for Image {
 pub struct IndexedImage {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The indices, a two-dimensional array of shape `[ny, nx]`. The array may hold
     /// floating-point indices, which are truncated toward zero, or 8-bit indices, which
     /// always lie within the colormap.
-    pub indices: DataId,
+    pub indices: NodeId,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
     /// What is drawn for a pixel whose truncated index is less than 0.
@@ -656,7 +600,7 @@ pub struct IndexedImage {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alpha: Option<DataId>,
+    pub alpha: Option<NodeId>,
     /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every pixel: the alpha of its colour and, when present, its value
     /// in [`alpha`](IndexedImage::alpha).
@@ -670,9 +614,9 @@ impl Default for IndexedImage {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            indices: DataId::default(),
+            indices: NodeId::default(),
             placement: ImagePlacement::default(),
             below: OutOfRange::default(),
             above: OutOfRange::default(),
@@ -693,14 +637,14 @@ impl Default for IndexedImage {
 pub struct MappedImage {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The name shown for the artist in the legend.
-    pub display_name: Option<Text>,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
     /// The values, a two-dimensional array of shape `[ny, nx]`, mapped through the axes
     /// colormap and colour limits. The array may hold floating-point or 8-bit values; an
     /// 8-bit value is mapped as the number it denotes.
-    pub values: DataId,
+    pub values: NodeId,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
     /// What is drawn for a pixel whose value is less than the lower colour limit.
@@ -719,7 +663,7 @@ pub struct MappedImage {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alpha: Option<DataId>,
+    pub alpha: Option<NodeId>,
     /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every pixel: the alpha of its colour and, when present, its value
     /// in [`alpha`](MappedImage::alpha).
@@ -733,9 +677,9 @@ impl Default for MappedImage {
     fn default() -> Self {
         Self {
             id: NodeId::default(),
-            display_name: None,
+            label: None,
             visible: true,
-            values: DataId::default(),
+            values: NodeId::default(),
             placement: ImagePlacement::default(),
             below: OutOfRange::default(),
             above: OutOfRange::default(),

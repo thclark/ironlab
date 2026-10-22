@@ -22,12 +22,12 @@ fn gallery_like() -> ironlab_ir::Figure {
     let mut y: Vec<f64> = x.iter().map(|v| v.sin()).collect();
     y[7] = f64::NAN;
     fx.line(lines, &x, &y, None, |l| {
-        l.display_name = text("$\\sin x$");
+        l.label = text("$\\sin x$");
         l.line.dash = DashStyle::DashDot;
         l.marker.shape = MarkerShape::Diamond;
     });
     fx.scatter(lines, &x, &x, None, |s, fx| {
-        s.display_name = text("Scatter");
+        s.label = text("Scatter");
         s.color = ScatterColor::Data {
             data: fx.vector(&linspace(-1.0, 1.0, 25)),
         };

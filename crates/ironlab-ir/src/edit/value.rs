@@ -14,12 +14,14 @@ use crate::axes::{
     TitleAlign, View3d,
 };
 use crate::figure::{FigureSize, FontSetId, Parameter};
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
 use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
+    PanelLegend,
 };
 use crate::link::AxisLink;
+use crate::panel::{PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -55,13 +57,12 @@ pub enum Value {
     Float(f32),
     /// A string: the source of a text.
     String(String),
-    /// A reference to a data array, such as the x data of a line.
-    DataId(DataId),
-    /// A reference to a node, such as the legend panel named by the legend of an axes.
+    /// A reference to a node, such as the data array that holds the x data of a line or
+    /// the panel named by the legend of an axes.
     NodeId(NodeId),
     /// A list of double-precision numbers, such as explicit contour levels.
     Doubles(Vec<f64>),
-    /// A list of strings: the labels of a figure.
+    /// A list of strings: the tags of a figure.
     Strings(Vec<String>),
     /// A text, such as a title.
     Text(Text),
@@ -81,7 +82,7 @@ pub enum Value {
     Links(Vec<AxisLink>),
     /// The named parameters of a figure.
     Parameters(BTreeMap<String, Parameter>),
-    /// The cells occupied by an axes or a legend panel.
+    /// The cells occupied by an axes or a panel.
     Cell(Cell),
     /// The projection of an axes.
     Projection(Projection),
@@ -109,8 +110,14 @@ pub enum Value {
     Legend(Legend),
     /// A legend drawn inside the plot area of its axes.
     InsideLegend(InsideLegend),
-    /// The placement of a legend, or of the entries within a legend panel.
+    /// The placement of a legend inside the plot area of its axes.
     LegendLocation(LegendLocation),
+    /// The placement of the content of a panel within the panel.
+    PanelLocation(PanelLocation),
+    /// What a panel holds.
+    PanelContent(PanelContent),
+    /// The legend content of a panel.
+    PanelLegend(PanelLegend),
     /// How the entries of a legend are arranged in columns.
     LegendEntryLayout(LegendEntryLayout),
     /// The number of columns of a legend.
@@ -167,8 +174,6 @@ pub enum ValueType {
     Float,
     /// See [`Value::String`].
     String,
-    /// See [`Value::DataId`].
-    DataId,
     /// See [`Value::NodeId`].
     NodeId,
     /// See [`Value::Doubles`].
@@ -223,6 +228,12 @@ pub enum ValueType {
     InsideLegend,
     /// See [`Value::LegendLocation`].
     LegendLocation,
+    /// See [`Value::PanelLocation`].
+    PanelLocation,
+    /// See [`Value::PanelContent`].
+    PanelContent,
+    /// See [`Value::PanelLegend`].
+    PanelLegend,
     /// See [`Value::LegendEntryLayout`].
     LegendEntryLayout,
     /// See [`Value::LegendEntryColumns`].
@@ -278,7 +289,6 @@ impl Value {
             Value::Double(_) => ValueType::Double,
             Value::Float(_) => ValueType::Float,
             Value::String(_) => ValueType::String,
-            Value::DataId(_) => ValueType::DataId,
             Value::NodeId(_) => ValueType::NodeId,
             Value::Doubles(_) => ValueType::Doubles,
             Value::Strings(_) => ValueType::Strings,
@@ -306,6 +316,9 @@ impl Value {
             Value::Legend(_) => ValueType::Legend,
             Value::InsideLegend(_) => ValueType::InsideLegend,
             Value::LegendLocation(_) => ValueType::LegendLocation,
+            Value::PanelLocation(_) => ValueType::PanelLocation,
+            Value::PanelContent(_) => ValueType::PanelContent,
+            Value::PanelLegend(_) => ValueType::PanelLegend,
             Value::LegendEntryLayout(_) => ValueType::LegendEntryLayout,
             Value::LegendEntryColumns(_) => ValueType::LegendEntryColumns,
             Value::LegendEntryOrder(_) => ValueType::LegendEntryOrder,

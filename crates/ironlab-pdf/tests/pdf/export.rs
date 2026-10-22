@@ -4,8 +4,8 @@
 //! implemented; tests of `PdfOptions::for_figure` do not.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, Color, ColorSpec, DataId, Figure, FigureSize, Grid, Image, ImagePlacement,
-    Limits, Line, NdArray, NodeId, PixelRange, Provenance, Scale, Surface, Text,
+    Artist, Axes, Axis, Color, ColorSpec, DataArray, Figure, FigureSize, Grid, Image,
+    ImagePlacement, Limits, Line, NdArray, NodeId, PixelRange, Provenance, Scale, Surface, Text,
 };
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
 
@@ -323,16 +323,22 @@ fn a_dense_figure_exports_exactly_the_geometry_that_the_screen_draws() {
 /// opacity of one half and no edges, and whose right half is a one-pixel blue true-colour image with an opacity of
 /// one half.
 fn half_opaque_surface_and_image() -> Figure {
-    let mut data = std::collections::BTreeMap::new();
-    data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
-    data.insert(
-        DataId(1),
-        NdArray::from_shape(vec![2, 2], vec![0.0; 4]).expect("2 × 2"),
-    );
-    data.insert(
-        DataId(2),
-        NdArray::from_shape_u8(vec![1, 1, 3], vec![0, 0, 255]).expect("one pixel"),
-    );
+    let array = |id, array| DataArray {
+        id: NodeId(id),
+        name: None,
+        array,
+    };
+    let data = vec![
+        array(10, NdArray::vector(vec![0.0, 1.0])),
+        array(
+            11,
+            NdArray::from_shape(vec![2, 2], vec![0.0; 4]).expect("2 × 2"),
+        ),
+        array(
+            12,
+            NdArray::from_shape_u8(vec![1, 1, 3], vec![0, 0, 255]).expect("one pixel"),
+        ),
+    ];
     let limits = |min, max| Axis {
         limits: Limits::Manual { min, max },
         ..Axis::default()
@@ -351,10 +357,10 @@ fn half_opaque_surface_and_image() -> Figure {
                 Artist::Surface(Surface {
                     id: NodeId(3),
                     grid: Grid::Rectilinear {
-                        x: DataId(0),
-                        y: DataId(0),
+                        x: NodeId(10),
+                        y: NodeId(10),
                     },
-                    z: DataId(1),
+                    z: NodeId(11),
                     face: ColorSpec::Rgba {
                         color: Color::rgb(1.0, 0.0, 0.0),
                     },
@@ -364,7 +370,7 @@ fn half_opaque_surface_and_image() -> Figure {
                 }),
                 Artist::Image(Image {
                     id: NodeId(4),
-                    pixels: DataId(2),
+                    pixels: NodeId(12),
                     placement: ImagePlacement {
                         columns: Some(PixelRange {
                             first: 1.5,

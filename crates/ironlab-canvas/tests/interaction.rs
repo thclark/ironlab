@@ -12,9 +12,9 @@ use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_
 use std::f64::consts::TAU;
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Color, Coords, DataId, Dimension, Figure, Image,
-    ImagePlacement, IndexedImage, Limits, Line, MappedImage, NdArray, NodeId, OutOfRange,
-    PixelRange, Scale, Text, Value, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Color, Coords, Dimension, Figure, Image, ImagePlacement,
+    IndexedImage, Limits, Line, MappedImage, NdArray, NodeId, OutOfRange, PixelRange, Scale, Text,
+    Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -26,7 +26,7 @@ fn single_2d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -38,7 +38,7 @@ fn single_3d() -> (FigureState, HitMap) {
     let hit = HitMap {
         axes: vec![hit_3d(2, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -108,7 +108,7 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -142,7 +142,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -168,7 +168,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -193,7 +193,7 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -316,7 +316,7 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
             ..hit_2d(2, PLOT)
         }],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -370,7 +370,7 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
             hit_2d(4, rect_c),
         ],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -615,7 +615,7 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
     let hit = HitMap {
         axes: vec![hit_2d(2, rect_a), hit_2d(3, rect_b), hit_2d(4, rect_c)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -723,7 +723,7 @@ fn figure_with_legend() -> (FigureState, HitMap) {
     let mut axes = axes_2d(2);
     axes.artists.push(Artist::Line(Line {
         id: NodeId(10),
-        display_name: Some(Text::new("series")),
+        label: Some(Text::new("series")),
         ..Line::default()
     }));
     let state = FigureState::new(figure_with(vec![axes], vec![]));
@@ -734,7 +734,7 @@ fn figure_with_legend() -> (FigureState, HitMap) {
             targets: vec![(NodeId(2), NodeId(10))],
             rect: Rect::new(200.0, 25.0, 45.0, 10.0),
         }],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -768,13 +768,13 @@ fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
     let mut left = axes_2d(2);
     left.artists.push(Artist::Line(Line {
         id: NodeId(10),
-        display_name: Some(Text::new("shared")),
+        label: Some(Text::new("shared")),
         ..Line::default()
     }));
     let mut right = axes_2d(3);
     right.artists.push(Artist::Line(Line {
         id: NodeId(11),
-        display_name: Some(Text::new("shared")),
+        label: Some(Text::new("shared")),
         ..Line::default()
     }));
     let state = FigureState::new(figure_with(vec![left, right], vec![]));
@@ -785,7 +785,7 @@ fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
             targets: vec![(NodeId(2), NodeId(10)), (NodeId(3), NodeId(11))],
             rect: Rect::new(60.0, 200.0, 45.0, 10.0),
         }],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -856,14 +856,14 @@ fn double_clicking_a_legend_entry_toggles_twice_and_keeps_the_limits() {
 fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
     use ironlab_ir::{
         Cell, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendItem,
-        LegendSample, PanelLegend, TileLayout,
+        LegendSample, Panel, PanelContent, PanelLegend, PanelLocation, TileLayout,
     };
     let line = |id: u64| {
         Artist::Line(Line {
             id: NodeId(id),
-            display_name: Some(Text::plain("base")),
-            x: DataId(0),
-            y: DataId(0),
+            label: Some(Text::plain("base")),
+            x: array_id(0),
+            y: array_id(0),
             ..Line::default()
         })
     };
@@ -881,22 +881,25 @@ fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
     figure.layout = TileLayout::new(3, 1);
     figure
         .data
-        .insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
-    figure.panel_legends.push(PanelLegend {
+        .push(data_array(array_id(0), NdArray::vector(vec![0.0, 1.0])));
+    figure.panels.push(Panel {
         id: NodeId(50),
         cell: Cell {
             row: 2,
             ..Cell::default()
         },
-        layout: LegendEntryLayout {
-            columns: LegendEntryColumns::Count(1),
-            ..LegendEntryLayout::default()
-        },
-        entries: LegendEntries::Explicit(vec![
-            LegendItem::artist(NodeId(10)),
-            LegendItem::custom(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "upper"),
-        ]),
-        ..PanelLegend::default()
+        align: PanelLocation::Center,
+        content: PanelContent::Legend(PanelLegend {
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(1),
+                ..LegendEntryLayout::default()
+            },
+            entries: LegendEntries::Explicit(vec![
+                LegendItem::artist(NodeId(10)),
+                LegendItem::custom(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "upper"),
+            ]),
+            ..PanelLegend::default()
+        }),
     });
     let state = FigureState::new(figure);
     let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
@@ -1200,10 +1203,10 @@ fn dense_line(n: usize) -> (FigureState, Vec<f64>, Vec<f64>) {
     let y: Vec<f64> = (0..n)
         .map(|i| (i as f64 / 250.0).sin() + i as f64 / 1e6)
         .collect();
-    let (xi, yi) = (DataId(0), DataId(1));
+    let (xi, yi) = (array_id(0), array_id(1));
     let figure = Figure {
         id: NodeId(1),
-        data: std::collections::BTreeMap::from([
+        data: data_arrays([
             (xi, NdArray::vector(x.clone())),
             (yi, NdArray::vector(y.clone())),
         ]),
@@ -1211,7 +1214,7 @@ fn dense_line(n: usize) -> (FigureState, Vec<f64>, Vec<f64>) {
             id: NodeId(2),
             artists: vec![Artist::Line(Line {
                 id: NodeId(3),
-                display_name: Some(Text::plain("Measured")),
+                label: Some(Text::plain("Measured")),
                 x: xi,
                 y: yi,
                 ..Line::default()
@@ -1247,7 +1250,7 @@ fn a_datatip_on_a_decimated_series_reports_the_index_and_values_of_the_original_
 
     assert_eq!(tip.artist, NodeId(3));
     assert_eq!(tip.axes, NodeId(2));
-    assert_eq!(tip.name.as_deref(), Some("Measured"));
+    assert_eq!(tip.label.as_deref(), Some("Measured"));
     assert_ne!(
         tip.index, position_in_the_drawn_series,
         "the index reported is the one in the source data, not the place in the drawn series"
@@ -1322,7 +1325,7 @@ fn figure_of(data: Vec<NdArray>, artists: Vec<Artist>) -> Figure {
         data: data
             .into_iter()
             .enumerate()
-            .map(|(k, array)| (DataId(k as u64), array))
+            .map(|(k, array)| data_array(array_id(k as u64), array))
             .collect(),
         axes: vec![Axes {
             id: NodeId(2),
@@ -1361,7 +1364,7 @@ fn placed(columns: Option<(f64, f64)>, rows: Option<(f64, f64)>) -> ImagePlaceme
 fn mapped_image(id: u64, values: u64, placement: ImagePlacement) -> Artist {
     Artist::MappedImage(MappedImage {
         id: NodeId(id),
-        values: DataId(values),
+        values: array_id(values),
         placement,
         ..MappedImage::default()
     })
@@ -1400,7 +1403,7 @@ fn pixel_tip_at(state: &FigureState, hit: &HitMap, x: f64, y: f64) -> PixelDatat
 #[test]
 fn a_pixel_datatip_under_a_pixel_centre_names_that_pixel_its_centre_and_its_stored_value() {
     let mut figure = figure_with_mapped_image(3, 4);
-    mapped_image_mut(&mut figure, 3).display_name = Some(Text::plain("Heat"));
+    mapped_image_mut(&mut figure, 3).label = Some(Text::plain("Heat"));
     let (state, hit) = compiled(figure);
 
     for (j, i) in [(0, 0), (2, 3), (1, 2)] {
@@ -1437,7 +1440,7 @@ fn a_pixel_datatip_under_a_pixel_centre_names_that_pixel_its_centre_and_its_stor
     let tip = pixel_tip_at(&state, &hit, 3.0, 2.0);
     assert_eq!(tip.axes, NodeId(2));
     assert_eq!(tip.artist, NodeId(3));
-    assert_eq!(tip.name.as_deref(), Some("Heat"));
+    assert_eq!(tip.label.as_deref(), Some("Heat"));
 
     let bytes =
         NdArray::from_shape_u8(vec![1, 2], vec![0, 255]).expect("the shape matches the values");
@@ -1620,7 +1623,7 @@ fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
     let indexed = |id: u64, indices: u64| {
         Artist::IndexedImage(IndexedImage {
             id: NodeId(id),
-            indices: DataId(indices),
+            indices: array_id(indices),
             ..IndexedImage::default()
         })
     };
@@ -1641,7 +1644,7 @@ fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
     assert_eq!(tip.artist, NodeId(3));
     assert_eq!(tip.axes, NodeId(2));
     assert_eq!(
-        tip.name, None,
+        tip.label, None,
         "an image without a display name has none to show"
     );
 
@@ -1668,7 +1671,7 @@ fn a_pixel_datatip_on_a_true_colour_image_reports_the_components_in_stored_units
     let image = |id: u64, pixels: u64| {
         Artist::Image(Image {
             id: NodeId(id),
-            pixels: DataId(pixels),
+            pixels: array_id(pixels),
             ..Image::default()
         })
     };
@@ -1751,7 +1754,7 @@ fn a_pixel_datatip_is_read_only_where_a_drawn_image_lies_in_a_two_dimensional_ax
 
     let solid = Figure {
         id: NodeId(1),
-        data: [(DataId(0), numbered(2, 2))].into(),
+        data: data_arrays([(array_id(0), numbered(2, 2))]),
         axes: vec![Axes {
             artists: vec![mapped_image(3, 0, ImagePlacement::default())],
             ..axes_3d(2)
@@ -1819,8 +1822,8 @@ fn tip_at_prefers_a_drawn_point_within_reach_over_the_pixel_beneath_it() {
             mapped_image(3, 0, ImagePlacement::default()),
             Artist::Line(Line {
                 id: NodeId(4),
-                x: DataId(1),
-                y: DataId(2),
+                x: array_id(1),
+                y: array_id(2),
                 ..Line::default()
             }),
         ],
@@ -1980,10 +1983,10 @@ fn switching_the_axis_beneath_an_image_to_a_logarithmic_scale_is_refused_with_th
 // blended artist reports its data coordinate only, both in its values and in the text of its callout.
 #[test]
 fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
-    let (alpha, top) = (DataId(0), DataId(1));
+    let (alpha, top) = (array_id(0), array_id(1));
     let figure = Figure {
         id: NodeId(1),
-        data: std::collections::BTreeMap::from([
+        data: data_arrays([
             (alpha, NdArray::vector(vec![-2.0, 3.5])),
             (top, NdArray::vector(vec![0.985, 0.985])),
         ]),
@@ -2031,13 +2034,10 @@ fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
 
 /// A figure of one 2D axes holding the line `line`, whose x and y data are `x` and `y`.
 fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Line) -> Figure {
-    let (xi, yi) = (DataId(0), DataId(1));
+    let (xi, yi) = (array_id(0), array_id(1));
     Figure {
         id: NodeId(1),
-        data: std::collections::BTreeMap::from([
-            (xi, NdArray::vector(x)),
-            (yi, NdArray::vector(y)),
-        ]),
+        data: data_arrays([(xi, NdArray::vector(x)), (yi, NdArray::vector(y))]),
         axes: vec![Axes {
             id: NodeId(2),
             artists: vec![Artist::Line(Line {
@@ -2123,9 +2123,9 @@ fn reversed_figure(reverse_x: bool, log: bool) -> Figure {
         ],
         vec![Artist::Line(Line {
             id: NodeId(3),
-            x: DataId(0),
-            y: DataId(1),
-            display_name: Some(Text::plain("Cp")),
+            x: array_id(0),
+            y: array_id(1),
+            label: Some(Text::plain("Cp")),
             ..Line::default()
         })],
     );
@@ -2341,8 +2341,8 @@ fn section_figure(adjust: AspectAdjust) -> Figure {
         vec![NdArray::vector(x), NdArray::vector(y)],
         vec![Artist::Line(Line {
             id: NodeId(3),
-            x: DataId(0),
-            y: DataId(1),
+            x: array_id(0),
+            y: array_id(1),
             ..Line::default()
         })],
     );
@@ -2659,16 +2659,16 @@ fn circle_3d(adjust: AspectAdjust) -> Figure {
         vec![
             Artist::Line(Line {
                 id: NodeId(3),
-                x: DataId(0),
-                y: DataId(1),
-                z: Some(DataId(2)),
+                x: array_id(0),
+                y: array_id(1),
+                z: Some(array_id(2)),
                 ..Line::default()
             }),
             Artist::Line(Line {
                 id: NodeId(4),
-                x: DataId(3),
-                y: DataId(3),
-                z: Some(DataId(4)),
+                x: array_id(3),
+                y: array_id(3),
+                z: Some(array_id(4)),
                 ..Line::default()
             }),
         ],

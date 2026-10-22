@@ -75,7 +75,7 @@ fn panned_2d_state() -> FigureState {
     let hit = HitMap {
         axes: vec![hit_2d(2, PLOT)],
         legend_entries: vec![],
-        legend_panels: vec![],
+        panels: vec![],
         artists: vec![],
         images: vec![],
     };
@@ -785,12 +785,12 @@ fn hovering_over_an_image_reads_the_pixel_under_the_pointer() {
     );
 }
 
-/// A pixel datatip for the pixel in row 1, column 2, centred on (12.5, −0.5), of an artist named `name`.
-fn pixel_tip(name: Option<&str>, value: PixelValue) -> PixelDatatip {
+/// A pixel datatip for the pixel in row 1, column 2, centred on (12.5, −0.5), of an artist labelled `label`.
+fn pixel_tip(label: Option<&str>, value: PixelValue) -> PixelDatatip {
     PixelDatatip {
         axes: NodeId(2),
         artist: NodeId(3),
-        name: name.map(str::to_owned),
+        label: label.map(str::to_owned),
         row: 1,
         column: 2,
         x: 12.5,

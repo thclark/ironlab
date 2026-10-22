@@ -93,7 +93,7 @@ impl Problem {
 fn node_label(figure: &Figure, node: NodeId) -> String {
     tree_rows(figure)
         .into_iter()
-        .find(|row| row.node == node)
+        .find(|row| row.node == Some(node))
         .map_or_else(|| format!("Node {}", node.0), |row| row.label)
 }
 

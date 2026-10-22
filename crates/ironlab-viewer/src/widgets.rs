@@ -37,7 +37,7 @@ pub enum Role {
     /// Words that name a section: the caption of a row of controls and the heading of a group, in spaced
     /// capitals. 11 pt.
     Label,
-    /// Data beside words: a count, a parameter's name, the labels beneath a title, a value in a table. 11 pt,
+    /// Data beside words: a count, a parameter's name, the tags beneath a title, a value in a table. 11 pt,
     /// monospaced.
     Data,
 }
@@ -463,12 +463,12 @@ impl Tint {
         text: style::CHIP_TEXT,
         data: style::CHIP_KEY,
     };
-    pub const LABEL: Self = Self {
-        fill: style::LABEL_CHIP_FILL,
-        hover: style::LABEL_CHIP_HOVER,
-        stroke: style::LABEL_CHIP_STROKE,
-        text: style::LABEL_CHIP_TEXT,
-        data: style::LABEL_CHIP_KEY,
+    pub const TAG: Self = Self {
+        fill: style::TAG_CHIP_FILL,
+        hover: style::TAG_CHIP_HOVER,
+        stroke: style::TAG_CHIP_STROKE,
+        text: style::TAG_CHIP_TEXT,
+        data: style::TAG_CHIP_KEY,
     };
 }
 
@@ -555,7 +555,7 @@ impl<'a> Control<'a> {
     /// A tag: a tinted control that is read and not clicked.
     #[must_use]
     pub fn tag(words: &'a str) -> Self {
-        let mut tag = Self::new(text(Role::Data, words), Face::Tinted(Tint::LABEL));
+        let mut tag = Self::new(text(Role::Data, words), Face::Tinted(Tint::TAG));
         tag.clickable = false;
         tag
     }

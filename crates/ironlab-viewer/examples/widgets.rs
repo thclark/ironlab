@@ -33,7 +33,7 @@ struct Editor {
     stroke: egui::Color32,
     title: String,
     interpreter: usize,
-    labels: String,
+    tags: String,
     levels: String,
     legend_set: bool,
     restored: Vec<&'static str>,
@@ -65,7 +65,7 @@ impl Default for Editor {
             stroke: egui::Color32::from_rgb(31, 119, 180),
             title: "Lift against angle".to_owned(),
             interpreter: 1,
-            labels: "wake, piv".to_owned(),
+            tags: "wake, piv".to_owned(),
             levels: "0.5, 1, 2, 4".to_owned(),
             legend_set: false,
             restored: Vec::new(),
@@ -243,12 +243,8 @@ impl Gallery {
                 section(ui, "Chips and tags: click a chip to remove it");
                 ui.horizontal_wrapped(|ui| {
                     let mut remove = None;
-                    for (index, (name, value, labels)) in self.chips.iter().enumerate() {
-                        let tint = if *labels {
-                            Tint::LABEL
-                        } else {
-                            Tint::PARAMETER
-                        };
+                    for (index, (name, value, tags)) in self.chips.iter().enumerate() {
+                        let tint = if *tags { Tint::TAG } else { Tint::PARAMETER };
                         if Control::chip(name, value, tint).show(ui).clicked() {
                             remove = Some(index);
                         }
@@ -284,7 +280,7 @@ impl Gallery {
             ui.spacing_mut().item_spacing.y = 0.0;
             let one = Row::height(ui, false);
             for (index, (name, detail)) in [
-                ("labels", "30 values · 100%"),
+                ("tags", "30 values · 100%"),
                 ("rig", "3 values · 100%"),
                 ("data_points", "25 values · 100%"),
             ]
@@ -576,11 +572,11 @@ impl Gallery {
                     },
                 );
             });
-        Property::new("labels")
-            .docs("The labels of the figure, separated by commas.")
+        Property::new("tags")
+            .docs("The tags of the figure, separated by commas.")
             .striped(striped())
             .show(ui, |ui| {
-                field(ui, &mut editor.labels, "empty", egui::Id::new("g_labels"));
+                field(ui, &mut editor.tags, "empty", egui::Id::new("g_tags"));
             });
         Property::new("levels")
             .docs("The values the contours are drawn at, separated by commas.")
@@ -749,7 +745,7 @@ impl Gallery {
         vec![
             ("rig".into(), "CFD".into(), false),
             ("data_points".into(), "294 to 271000".into(), false),
-            ("labels".into(), "surface or 3d".into(), true),
+            ("tags".into(), "surface or 3d".into(), true),
         ]
     }
 }

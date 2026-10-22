@@ -1,6 +1,6 @@
 # Legends
 
-A legend lists the plots of a figure that have a display name, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
+A legend lists the plots of a figure that have a label, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** is a [panel](../reference/figure-schema.md#panels) of the figure that holds a legend: it occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
 
 This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
 
@@ -14,13 +14,13 @@ let b: Vec<f64> = t.iter().map(|t| t.cos()).collect();
 
 ## Legends inside an axes
 
-A plot has a legend entry only when it has a display name. An axes has no legend until one is asked for: `legend` shows a boxed legend of every named plot of the axes, in the order the plots were added, at the given location, and `legend_off` hides it again.
+A plot has a legend entry only when it has a label, which is the text drawn beside its sample. An axes has no legend until one is asked for: `legend` shows a boxed legend of every labelled plot of the axes, in the order the plots were added, at the given location, and `legend_off` hides it again.
 
 ```rust
 let mut fig = Figure::new();
 let mut ax = fig.axes(0, 0);
-ax.plot(&t, &a).display_name("$\\sin t$");
-ax.plot(&t, &b).display_name("$\\cos t$");
+ax.plot(&t, &a).label("$\\sin t$");
+ax.plot(&t, &b).label("$\\cos t$");
 ax.legend(LegendLocation::SouthEast);
 ```
 
@@ -59,18 +59,34 @@ ax.legend(LegendLocation::North)
 
 ### Creating a panel
 
-`fig.panel_legend(row, col)` returns the legend panel whose top-left tile is `(row, col)`, creating a panel in that single tile if there is none. `fig.panel_legend_span(row, col, row_span, col_span)` does the same and makes the panel cover the given numbers of rows and columns. Both return a `PanelLegendMut` handle, whose setters can be chained:
+A panel is a node of the figure that occupies tiles of the layout, as an axes does, and holds one key; a legend is the only key a panel holds at present. `fig.panel(row, col)` returns the panel whose top-left tile is `(row, col)`, creating a panel that holds a legend in that single tile if there is none. `fig.panel_span(row, col, row_span, col_span)` does the same and makes the panel cover the given numbers of rows and columns. Both return a `PanelMut` handle:
 
 | Method | Effect |
 | --- | --- |
-| `align(location)` | Places the block of entries within the panel, using the locations listed [above](#locations). The default is `Center`, and `Best` also means the centre, because a panel holds no data for its entries to avoid. |
+| `align(location)` | Places the content within the panel. The location is a `PanelLocation`, which offers the locations listed [above](#locations) except `Best`, because a panel holds no data for its content to avoid. The default is `Center`. |
+| `legend()` | Returns a `PanelLegendMut` handle to the legend that the panel holds, whose setters are listed below. |
+| `id()` | Returns the identifier of the panel, which axes use to send their entries to it. |
+
+The setters of a `PanelLegendMut` handle can be chained:
+
+| Method | Effect |
+| --- | --- |
 | `boxed(on)` | Outlines the panel with a border drawn as the box of an axes is drawn, which is the default. The area of a panel is aligned with the plot areas around it, so the border continues the edges of their boxes. `boxed(false)` removes the border. |
 | `columns(columns)` | Sets the number of columns of entries. A panel uses `LegendEntryColumns::Auto` by default. |
 | `order(order)` | Sets the order in which entries fill the columns, `LegendEntryOrder::ColumnMajor` (the default) or `LegendEntryOrder::RowMajor`. |
 | `collect_all()` | Sends the entries of every axes that the figure has at that moment to the panel. |
-| `id()` | Returns the identifier of the panel, which axes use to send their entries to it. |
+| `id()` | Returns the identifier of the panel, as `PanelMut::id` does. |
 
-Like an axes handle, the panel handle borrows the figure mutably, so it is held only while the panel is being set up. The identifier returned by `id()` is kept instead, to refer to the panel later.
+```rust
+let key = fig
+    .panel(0, 2)
+    .align(PanelLocation::NorthWest)
+    .legend()
+    .boxed(false)
+    .id();
+```
+
+Like an axes handle, both handles borrow the figure mutably, so they are held only while the panel is being set up. The identifier returned by `id()` is kept instead, to refer to the panel later. The reasons for making a legend the content of a panel, rather than a kind of node of its own, are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md#a-panel-is-one-node-kind-whose-content-decides-what-it-draws).
 
 A panel is placed in its tiles whether or not an axes already occupies them. A panel whose tiles include a tile of an axes is drawn over the plot, and [`validate`](getting-started.md#validating-a-figure) reports the pair with the warning `OverlappingCells`, as it reports two axes that share a tile. The warning names both nodes, and it is removed by giving the panel tiles of its own, for example by adding a row or column to the layout.
 
@@ -80,11 +96,11 @@ An axes sends its entries to a panel with `legend_in`, giving the identifier of 
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3);
-let key = fig.panel_legend(0, 2).id();
+let key = fig.panel(0, 2).id();
 for col in 0..2 {
     let mut ax = fig.axes(0, col);
-    ax.plot(&t, &a).display_name("Inlet");
-    ax.plot(&t, &b).display_name("Outlet");
+    ax.plot(&t, &a).label("Inlet");
+    ax.plot(&t, &b).label("Outlet");
     ax.legend_in(key);
 }
 ```
@@ -94,12 +110,12 @@ When every axes of the figure should share one panel, `collect_all` sends the en
 ```rust
 let mut fig = Figure::new().tiles(1, 3);
 for col in 0..2 {
-    fig.axes(0, col).plot(&t, &a).display_name("Inlet");
+    fig.axes(0, col).plot(&t, &a).label("Inlet");
 }
-fig.panel_legend(0, 2).collect_all();
+fig.panel(0, 2).legend().collect_all();
 ```
 
-An identifier that names no panel of the figure is reported as the error `DanglingPanelLegend` by [`validate`](getting-started.md#validating-a-figure). A panel that lists nothing, because no axes sends entries to it or none of those axes has a named plot, is valid and draws nothing, and validation reports it with the warning `NothingToDraw`, as it does an artist with no data.
+An identifier that names no node of the figure is reported as the error `DanglingPanelLegend` by [`validate`](getting-started.md#validating-a-figure), and one that names a node other than a panel holding a legend, such as an axes, as the error `WrongNodeKind`. A panel that lists nothing, because no axes sends entries to it or none of those axes has a labelled plot, is valid and draws nothing, and validation reports it with the warning `NothingToDraw`, as it does an artist with no data.
 
 ### How a panel lines up with the plots
 
@@ -111,28 +127,28 @@ By default a panel outlines its area with a border drawn exactly as the box of a
 
 A panel gathers the entries of every axes that sends entries to it, and merges entries that a reader could not tell apart. Two entries are merged into one when both of the following hold:
 
-- their display names are the same text, interpreted the same way; and
+- their labels are the same text, interpreted the same way; and
 - their samples draw the same picture: the same kind of sample, colour, line width, dash pattern, marker shape, marker size and marker edge.
 
 A merged entry is drawn from the first plot it stands for, and it stands for every plot it merges. Automatic colours are assigned from the colour order separately in each axes, so the first plot of every axes takes the first colour, the second plot the second colour, and so on. A series added in the same position in every axes, as in the examples above, therefore merges into a single entry without any colour being set.
 
-Two plots with the same display name but a different look are both listed, because merging them would leave one of the series without an entry that matches what is drawn. The two entries cannot be told apart by name, so the scene compiler reports one `LegendNameClash` warning for the name. The warning is shown in the viewer's [problems list](viewer.md#problems), and it is returned in the `scene` warnings of the report that `export_pdf` and `export_png` return. Giving the series different names, or the same look, removes the warning.
+Two plots with the same label but a different look are both listed, because merging them would leave one of the series without an entry that matches what is drawn. The two entries cannot be told apart by their labels, so the scene compiler reports one `LegendNameClash` warning for the label. The warning is shown in the viewer's [problems list](viewer.md#problems), and it is returned in the `scene` warnings of the report that `export_pdf` and `export_png` return. Giving the series different labels, or the same look, removes the warning.
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3);
-let key = fig.panel_legend(0, 2).id();
+let key = fig.panel(0, 2).id();
 let mut left = fig.axes(0, 0);
-left.plot(&t, &a).display_name("Model").color(Color::rgb(0.0, 0.0, 0.0));
+left.plot(&t, &a).label("Model").color(Color::rgb(0.0, 0.0, 0.0));
 left.legend_in(key);
 let mut right = fig.axes(0, 1);
-right.plot(&t, &b).display_name("Model").color(Color::rgb(0.8, 0.1, 0.1));
+right.plot(&t, &b).label("Model").color(Color::rgb(0.8, 0.1, 0.1));
 right.legend_in(key);
 // The panel lists "Model" twice, in black and in red, and the export warns of the clash.
 ```
 
 The entries of a panel are listed in the reading order of the page. The axes are taken by the top-left tile of their cells, row by row from the top and, within a row, column by column from the left, and the plots of each axes follow in the order they were added. Two axes whose cells start at the same tile are taken in the order they were created. The order in which the code creates the axes therefore does not matter: a figure that builds its right-hand plot first still lists the entries of the left-hand plot first. A merged entry takes the position at which its first plot appears in this order.
 
-A legend inside an axes lists every named plot of that axes and merges nothing.
+A legend inside an axes lists every labelled plot of that axes and merges nothing.
 
 ## Several panels
 
@@ -141,11 +157,11 @@ A figure may have any number of panels, and each axes chooses which of them rece
 ```rust
 let mut fig = Figure::new().tiles(3, 2).row_weights([2.0, 2.0, 1.0]);
 for col in 0..2 {
-    let key = fig.panel_legend(2, col).id();
+    let key = fig.panel(2, col).id();
     for row in 0..2 {
         let mut ax = fig.axes(row, col);
-        ax.plot(&t, &a).display_name(format!("Case {}", 2 * col + 1));
-        ax.plot(&t, &b).display_name(format!("Case {}", 2 * col + 2));
+        ax.plot(&t, &a).label(format!("Case {}", 2 * col + 1));
+        ax.plot(&t, &b).label(format!("Case {}", 2 * col + 2));
         ax.legend_in(key);
     }
 }
@@ -155,18 +171,18 @@ Each panel is aligned with the plot areas of its own column, and the two axes of
 
 ## Choosing the entries
 
-By default a legend lists every named plot, in the order described above, in which the plots of each axes follow the order in which they were added, which is also the order in which they are drawn. That order does not always suit the key. The reference of a family of cases, for example, is drawn last so that the other cases never hide it, but a reader expects it first in the key. An **explicit list** of entries names exactly the items that a legend lists, in the order they are given, whatever the order of drawing. There is no separate drawing order to set: a plot is drawn where it was added, and the explicit list decides the key alone.
+By default a legend lists every labelled plot, in the order described above, in which the plots of each axes follow the order in which they were added, which is also the order in which they are drawn. That order does not always suit the key. The reference of a family of cases, for example, is drawn last so that the other cases never hide it, but a reader expects it first in the key. An **explicit list** of entries names exactly the items that a legend lists, in the order they are given, whatever the order of drawing. There is no separate drawing order to set: a plot is drawn where it was added, and the explicit list decides the key alone.
 
-The item setters of a panel build an explicit list one item at a time. `item` appends an item that lists a plot, given its identifier, and the first call turns the automatic entries of the panel into an explicit list, so that the plots it does not name are no longer listed:
+The item setters of a panel's legend build an explicit list one item at a time. `item` appends an item that lists a plot, given its identifier, and the first call turns the automatic entries of the panel into an explicit list, so that the plots it does not name are no longer listed:
 
 ```rust
 let mut fig = Figure::new().tiles(2, 1).fit_row(1);
 let mut ax = fig.axes(0, 0);
-let small = ax.plot(&t, &a).display_name("Small perturbation").id();
-let large = ax.plot(&t, &b).display_name("Large perturbation").id();
+let small = ax.plot(&t, &a).label("Small perturbation").id();
+let large = ax.plot(&t, &b).label("Large perturbation").id();
 // The reference is added last, so that it is drawn on top of the others.
-let reference = ax.plot(&t, &a).display_name("Reference").color(Color::rgb(0.0, 0.0, 0.0)).id();
-let key = fig.panel_legend(1, 0).item(reference).item(small).item(large).id();
+let reference = ax.plot(&t, &a).label("Reference").color(Color::rgb(0.0, 0.0, 0.0)).id();
+let key = fig.panel(1, 0).legend().item(reference).item(small).item(large).id();
 fig.axes(0, 0).legend_in(key);
 ```
 
@@ -174,12 +190,12 @@ The key lies in a row [fitted to its legend](#fitting-rows-and-columns-to-their-
 
 | Method | Effect |
 | --- | --- |
-| `item(artist)` | Appends an item that lists the plot with this identifier, labelled by its display name beside its sample. It also accepts a `LegendItem`. |
+| `item(artist)` | Appends an item that lists the plot with this identifier, with its label beside its sample. It also accepts a `LegendItem`. |
 | `full_row(artist)` | Appends an item that lists the plot on a row of its own, spanning every column, as [described below](#items-on-a-row-of-their-own). |
 | `custom_item(sample, label)` | Appends an item that shows a sample and a label and stands for no plot, as [described below](#items-that-stand-for-no-plot). |
 | `entries(entries)` | Replaces the entries of the panel: `LegendEntries::Auto` restores the automatic entries, and `LegendEntries::Explicit(items)` sets a whole list of `LegendItem` values at once. |
 
-An item in a panel may name a plot of any axes of the figure, including one that sends its own entries elsewhere. It also stands for every plot of the axes that send their entries to the panel whose display name and look match it, as a merged entry does, so that an item naming the reference in one plot of a stack hides or shows the reference in every plot of the stack. Like a merged entry, the item is greyed only when every plot it stands for is hidden, and clicking it hides or shows all of them. A legend inside an axes takes an explicit list through `legend_entries`, whose items must name plots of that axes and merge nothing:
+An item in a panel may name a plot of any axes of the figure, including one that sends its own entries elsewhere. It also stands for every plot of the axes that send their entries to the panel whose label and look match it, as a merged entry does, so that an item naming the reference in one plot of a stack hides or shows the reference in every plot of the stack. Like a merged entry, the item is greyed only when every plot it stands for is hidden, and clicking it hides or shows all of them. A legend inside an axes takes an explicit list through `legend_entries`, whose items must name plots of that axes and merge nothing:
 
 ```rust
 ax.legend(LegendLocation::NorthWest).legend_entries(LegendEntries::Explicit(vec![
@@ -188,7 +204,7 @@ ax.legend(LegendLocation::NorthWest).legend_entries(LegendEntries::Explicit(vec!
 ]));
 ```
 
-[`validate`](getting-started.md#validating-a-figure) reports an item that names no plot of the figure, or, in a legend inside an axes, a plot of another axes, as the error `DanglingLegendItem`, and the scene compiler leaves such an item out. It reports an item that repeats an earlier item with the warning `DuplicateLegendItem`, because the legend then lists it twice, and an item naming a plot without a display name with the warning `UnnamedLegendItem`, because the item then has no label. An explicit list of no items lists nothing, and validation reports such a panel with the warning `NothingToDraw`.
+[`validate`](getting-started.md#validating-a-figure) reports an item that names no plot of the figure, or, in a legend inside an axes, a plot of another axes, as the error `DanglingLegendItem`, and the scene compiler leaves such an item out. It reports an item that repeats an earlier item with the warning `DuplicateLegendItem`, because the legend then lists it twice, and an item naming a plot without a label with the warning `UnnamedLegendItem`, because the item then shows its sample alone. An explicit list of no items lists nothing, and validation reports such a panel with the warning `NothingToDraw`.
 
 ### Items that stand for no plot
 
@@ -206,9 +222,10 @@ A panel that no axes sends its entries to may list such items alone, as a second
 ```rust
 let grey = Color::rgb(0.45, 0.45, 0.45);
 let mut fig = Figure::new().tiles(2, 2).fit_row(1);
-let curves = fig.panel_legend(1, 0).id();
+let curves = fig.panel(1, 0).id();
 // ... plots in the axes above, which send their entries to `curves` ...
-fig.panel_legend(1, 1)
+fig.panel(1, 1)
+    .legend()
     .custom_item(LegendSample::marker(Marker::Square, grey), "Transition")
     .custom_item(LegendSample::marker(Marker::TriangleUp, grey), "Separation")
     .custom_item(LegendSample::swatch(Color::rgb(0.85, 0.55, 0.0)), "Upper surface")
@@ -223,7 +240,8 @@ An item that stands for no plot is never greyed, and clicking it in the viewer d
 An item on a row of its own spans every column of the legend, and its label sets the width of no column, so a long label, such as that of a reference case, neither widens a column of short labels nor needs a column to itself. The item is placed at its position in the list: the items before it fill the columns above it, and the items after it fill the columns below it. Each run of items between two items on rows of their own is a group that fills the columns on its own, in the order of the legend, and the columns of every group share their widths, so that they line up. A reference listed first on a row of its own therefore sits above the members of its family in columns, and an item on a row of its own in the middle of a list heads a second group.
 
 ```rust
-let mut key = fig.panel_legend(1, 0);
+let mut panel = fig.panel(1, 0);
+let mut key = panel.legend();
 key.full_row(reference);
 for &level in &levels {
     key.item(level);
@@ -248,10 +266,10 @@ An axes or panel that spans several rows or columns takes the shares of all of t
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3).col_weights([2.0, 2.0, 1.0]);
-let key = fig.panel_legend(0, 2).align(LegendLocation::West).id();
+let key = fig.panel(0, 2).align(PanelLocation::West).id();
 let mut ax = fig.axes_span(0, 0, 1, 2);
-ax.plot(&t, &a).display_name("Inlet");
-ax.plot(&t, &b).display_name("Outlet");
+ax.plot(&t, &a).label("Inlet");
+ax.plot(&t, &b).label("Outlet");
 ax.legend_in(key);
 ```
 
@@ -264,11 +282,11 @@ A weight sizes a row as a share of the page, so the height that a key needs must
 ```rust
 // Three plots sharing the time axis, and a key beneath them as tall as its entries.
 let mut fig = Figure::new().tiles(4, 1).fit_row(3);
-let key = fig.panel_legend(3, 0).id();
+let key = fig.panel(3, 0).id();
 for row in 0..3 {
     let mut ax = fig.axes(row, 0);
-    ax.plot(&t, &a).display_name("Inlet");
-    ax.plot(&t, &b).display_name("Outlet");
+    ax.plot(&t, &a).label("Inlet");
+    ax.plot(&t, &b).label("Outlet");
     ax.legend_in(key);
 }
 fig.link_all_x()?;
@@ -286,12 +304,12 @@ A panel arranges its entries in as few columns as fit its height, so a panel acr
 
 ```rust
 let mut fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
-let key = fig.panel_legend_span(1, 0, 1, 2).id();
+let key = fig.panel_span(1, 0, 1, 2).id();
 for col in 0..2 {
     let mut ax = fig.axes(0, col);
     for k in 1..=12 {
         let y: Vec<f64> = t.iter().map(|t| (t * k as f64 / 4.0).sin()).collect();
-        ax.plot(&t, &y).display_name(format!("Mode {k}"));
+        ax.plot(&t, &y).label(format!("Mode {k}"));
     }
     ax.legend_in(key);
 }
@@ -310,7 +328,7 @@ let fits = |fig: &Figure| {
         .any(|warning| matches!(warning.kind, SceneWarningKind::LegendOverflow { .. }))
 };
 for columns in [1, 2, 3, 4] {
-    fig.panel_legend(1, 0).columns(LegendEntryColumns::Count(columns));
+    fig.panel(1, 0).legend().columns(LegendEntryColumns::Count(columns));
     if fits(&fig) {
         break;
     }
@@ -335,11 +353,11 @@ for warning in &report.scene {
 
 In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history. An item of an explicit list that names a plot behaves in the same way, and acts on every plot it stands for; an item that stands for no plot is not a toggle, and clicking it does nothing.
 
-The property editor lists each legend panel after the axes, named by the tile it occupies, as "Legend panel (row 2, col 0)". The alignment, border, columns and order of a panel, the location, box, columns and order of a legend inside an axes, and the sizes of the rows and columns of the tile layout can be changed there; the sizes are typed as a list of weights in which the word `fit` stands for a fitted size. The tiles a panel occupies, the panel that an axes sends its entries to and the explicit list of entries of a legend cannot, because they are part of the arrangement and the description of the figure, which are built in code. A legend with an explicit list is drawn and clicked in the viewer exactly as in an export.
+The property editor lists the panels of a figure after the axes, in a group named "Panels", each named by its content and the tiles it occupies, as "Legend panel (row 2, col 0)" or "Legend panel (rows 0–1, col 2)". The alignment of a panel, the border, columns and order of its legend, the location, box, columns and order of a legend inside an axes, and the sizes of the rows and columns of the tile layout can be changed there; the sizes are typed as a list of weights in which the word `fit` stands for a fitted size. The tiles a panel occupies, the kind of content it holds, the panel that an axes sends its entries to and the explicit list of entries of a legend cannot, because they are part of the arrangement and the description of the figure, which are built in code. A legend with an explicit list is drawn and clicked in the viewer exactly as in an export.
 
 ## Legends in a figure file
 
-In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "value": {...}}`, holding the location, box and entry layout, or `{"type": "panel", "value": 7}`, naming the identifier of a panel. The panels are listed in the `panel_legends` property of the figure, and the sizes of the rows and columns are the `row_weights` and `col_weights` of its `layout`. A shared panel beneath two plots, as in the [many entries](#many-entries) example, is stored as follows, with the rest of each axes left out:
+In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "value": {...}}`, holding the location, box and entry layout, or `{"type": "panel", "value": 7}`, naming the identifier of a panel. The panels are listed in the `panels` property of the figure, each holding its legend in its `content`, and the sizes of the rows and columns are the `row_weights` and `col_weights` of its `layout`. A shared panel beneath two plots, as in the [many entries](#many-entries) example, is stored as follows, with the rest of each axes left out:
 
 ```json
 {
@@ -352,13 +370,15 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
     {"id": 2, "cell": {"row": 0, "col": 0, "row_span": 1, "col_span": 1}, "legend": {"type": "panel", "value": 1}},
     {"id": 15, "cell": {"row": 0, "col": 1, "row_span": 1, "col_span": 1}, "legend": {"type": "panel", "value": 1}}
   ],
-  "panel_legends": [
+  "panels": [
     {
       "id": 1,
       "cell": {"row": 1, "col": 0, "row_span": 1, "col_span": 2},
       "align": "center",
-      "boxed": true,
-      "layout": {"columns": {"type": "auto"}, "order": "column_major"}
+      "content": {
+        "type": "legend",
+        "value": {"boxed": true, "layout": {"columns": {"type": "auto"}, "order": "column_major"}}
+      }
     }
   ]
 }
@@ -386,7 +406,7 @@ The entries of a legend are omitted while they are automatic. An explicit list i
 }
 ```
 
-Every property is described in the [figure schema reference](../reference/figure-schema.md#legend), and the reasons for the design are recorded in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md) and [ADR 0020](../adrs/0020-explicit-legend-entries-and-fitted-tracks.md).
+Every property is described in the [figure schema reference](../reference/figure-schema.md#legend), and the reasons for the design are recorded in [ADR 0018](../adrs/0018-legend-panels-with-entries-merged-by-name-and-look.md), [ADR 0020](../adrs/0020-explicit-legend-entries-and-fitted-tracks.md) and [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md).
 
 ## Examples in the gallery
 

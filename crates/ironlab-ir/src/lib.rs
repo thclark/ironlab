@@ -1,9 +1,10 @@
 //! Retained figure intermediate representation for IronLAB.
 //!
 //! The types in this crate are the single source of truth for the IronLAB figure
-//! format. A [`Figure`] is a serialisable tree of nodes (the figure, its axes and
-//! their artists), each identified by a stable [`NodeId`], together with a table of
-//! numeric arrays ([`NdArray`]) referenced by [`DataId`]. An array holds either 64-bit
+//! format. A [`Figure`] is a serialisable tree of nodes (the figure, its data arrays, its
+//! axes and their artists, and its panels), each identified by a stable [`NodeId`] from
+//! one identifier space. A data array ([`DataArray`]) holds a numeric array
+//! ([`NdArray`]) that artists refer to by the identifier of the data array. An array holds either 64-bit
 //! floating-point values or 8-bit unsigned integers, which is its element type
 //! ([`NdArrayElement`]); the three image artists accept either, and every other artist
 //! requires floating-point values.
@@ -48,11 +49,12 @@
 //!   at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each axis
 //!   of the plane; a colour-indexed or colour-mapped image draws nothing for a pixel it
 //!   cannot colour, whether the pixel lies below or above its range or is not finite.
-//! - Artists are visible and have no display name.
+//! - Artists are visible and have no label, and data arrays have no name.
 //! - A legend inside a plot area sits in the top-right corner, is boxed and lists its
-//!   entries in one column. A legend panel is outlined by a border drawn as the box of
-//!   an axes is drawn, centres its entries and arranges them in as few columns as fit
-//!   it. Entries fill each column before the next.
+//!   entries in one column. The content of a panel is centred in it, and a legend in a
+//!   panel is outlined by a border drawn as the box of an axes is drawn and arranges its
+//!   entries in as few columns as fit the panel. Entries fill each column before the
+//!   next.
 //! - The rows and columns of a tile layout all have a weight of one, so its plot areas
 //!   are of equal size.
 //! - A legend lists its entries automatically, rather than from an explicit list of items.
@@ -68,7 +70,9 @@ mod ids;
 mod layout;
 mod legend;
 mod link;
+mod nodes;
 pub mod overlay;
+mod panel;
 pub mod selection;
 mod style;
 mod text;
@@ -84,7 +88,7 @@ pub use axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
 };
-pub use data::{NdArray, NdArrayElement, Values};
+pub use data::{DataArray, NdArray, NdArrayElement, Values};
 pub use edit::{
     Choice, Edit, EditError, Node, NodeKind, PathError, Property, PropertyPath, Transaction, Value,
     ValueType, choices, properties, property_choices,
@@ -93,13 +97,14 @@ pub use error::{IrError, ProtobufError};
 pub use figure::{
     Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
 };
-pub use ids::{DataId, NodeId};
+pub use ids::NodeId;
 pub use layout::{Cell, TileLayout, TrackSize};
 pub use legend::{
     InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
     LegendItem, LegendItemContent, LegendLocation, LegendSample, PanelLegend,
 };
 pub use link::{AxisLink, Dimension};
+pub use panel::{Panel, PanelContent, PanelLocation};
 pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 pub use text::{Interpreter, Text};
 pub use validate::{IssueKind, ValidationIssue, ValidationReport};
@@ -146,7 +151,7 @@ pub fn json_schema_files() -> Vec<(PathBuf, String)> {
     /// Returns the module that declares the domain type of the given name.
     fn module_of(name: &str) -> &'static str {
         match name {
-            "NodeId" | "DataId" => "ids",
+            "NodeId" => "ids",
             // A property path has no wire message of its own: it is a string field of
             // the edit messages.
             "PropertyPath" => EDIT,

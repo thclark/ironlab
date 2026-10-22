@@ -95,12 +95,12 @@ fn marker_and_filled_set_the_marker_style() {
         .scatter([0.0], [0.0])
         .marker(Marker::Square)
         .filled()
-        .display_name("samples")
+        .label("samples")
         .id();
     let s = scatter(&fig, id);
     assert_eq!(s.marker.shape, MarkerShape::Square);
     assert_eq!(s.marker.face, ColorSpec::Auto);
-    assert_eq!(s.display_name, Some(Text::new("samples")));
+    assert_eq!(s.label, Some(Text::new("samples")));
 }
 
 // WHY: scatter3 must store z and promote the axes to 3D, like the other 3D functions.

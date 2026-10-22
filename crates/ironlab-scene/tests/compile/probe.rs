@@ -547,7 +547,7 @@ pub fn entry_artist(entry: &LegendHit) -> NodeId {
 pub fn panel_rect(scene: &Scene, id: NodeId) -> Rect {
     scene
         .hit_map
-        .legend_panels
+        .panels
         .iter()
         .find(|p| p.id == id)
         .unwrap_or_else(|| panic!("hit map has no legend panel {id}"))

@@ -278,10 +278,8 @@ fn every_item_lies_within_figure_bounds() {
     let left = fx.axes2d(0, 0);
     let x = linspace(-3.0, 3.0, 31);
     let y: Vec<f64> = x.iter().map(|v| v * v).collect();
-    fx.line(left, &x, &y, None, |l| l.display_name = text("Parabola"));
-    fx.scatter(left, &x, &y, None, |s, _| {
-        s.display_name = text("$y = x^2$")
-    });
+    fx.line(left, &x, &y, None, |l| l.label = text("Parabola"));
+    fx.scatter(left, &x, &y, None, |s, _| s.label = text("$y = x^2$"));
     let ax = fx.ax(left);
     ax.title = text("Left");
     ax.x.label = text("$x$ position");
