@@ -106,6 +106,9 @@ pub struct Datatip {
     pub y: Option<f64>,
     /// The z value, for an artist that has one.
     pub z: Option<f64>,
+    /// The colour value, for a series with colour data: the value of the point, or, when the data holds one value
+    /// per segment, the value of the segment that leaves the point, which the last point of the series has none of.
+    pub color: Option<f64>,
 }
 
 /// The pixel of an image under the pointer, as the viewer reports it.
@@ -164,7 +167,7 @@ pub enum PixelValue {
 /// What lies under the pointer: a drawn data point, or, where none is within reach, a pixel of an image.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tip {
-    /// A point of a line or a scatter.
+    /// A point of a series.
     Point(Datatip),
     /// A pixel of an image.
     Pixel(PixelDatatip),
@@ -735,16 +738,15 @@ impl FigureState {
     pub fn datatip(&self, hit: &HitMap, at: Point) -> Option<Datatip> {
         let (drawn, sample) = hit.sample_at(at, DATATIP_RADIUS_POINTS)?;
         let (_, artist) = self.composed.artist(drawn.artist)?;
-        let (x, y, z, coords) = match artist {
-            Artist::Line(line) => (line.x, line.y, line.z, [line.x_coords, line.y_coords]),
-            Artist::Scatter(scatter) => (
-                scatter.x,
-                scatter.y,
-                scatter.z,
-                [scatter.x_coords, scatter.y_coords],
-            ),
-            _ => return None,
+        let Artist::Series(series) = artist else {
+            return None;
         };
+        let (x, y, z, coords) = (
+            series.x,
+            series.y,
+            series.z,
+            [series.x_coords, series.y_coords],
+        );
         let index = sample.source_index;
         let value = |id: NodeId| self.composed.data_array(id)?.array.get(index);
         // A fraction of the plot area is where the point was drawn, not a measurement, so it is not reported as data.
@@ -761,6 +763,7 @@ impl FigureState {
             x: data(x, coords[0])?,
             y: data(y, coords[1])?,
             z: z.and_then(value),
+            color: series.color_data.and_then(value),
         })
     }
 
@@ -815,7 +818,7 @@ impl FigureState {
     /// [`FigureState::pixel_datatip`] finds it.
     ///
     /// A point wins over the pixel beneath it because it is small, so that the pixel is read everywhere the pointer
-    /// is not within reach of a point, and because a line or a scatter drawn over an image is painted on top of it,
+    /// is not within reach of a point, and because a series drawn over an image is painted on top of it,
     /// so that a pointer within reach of one of its points means the point rather than the pixel it covers.
     #[must_use]
     pub fn tip_at(&self, hit: &HitMap, at: Point) -> Option<Tip> {

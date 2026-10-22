@@ -226,8 +226,13 @@ fn arrange(
 ///   by `10^k`, and a single math label `$\times 10^{k}$` is drawn at the far end of the axis: for an x axis beyond
 ///   the right end of the axis, below the tick labels, and for a y axis above the top end of the axis. In a 3D axes
 ///   the label is drawn at the end of the axis's row of tick labels, beyond the label of the largest tick.
-/// - **Item granularity.** A line is stroked with one subpath per run of consecutive finite points, or, where the
-///   series is decimated, one per stretch of such a run that reaches the axes. The markers of an artist are one
+/// - **Item granularity.** The line of a series of one colour in a 2D axes is stroked as one path, with one subpath
+///   per run of consecutive placeable points, or, where the series is decimated, one per stretch of such a run that
+///   reaches the axes. Every other line of a series (one colour-mapped by colour data in a 2D axes, and every line
+///   in a 3D axes) is drawn segment by segment: each segment is one straight stroke, or, as a gradient, a run of
+///   pieces (see **Series**), and each corner between two drawn segments where the dash pattern is on is filled
+///   with a disc of the line's width in the colour at the corner, painted before the segments in a 2D axes and just
+///   behind them in a 3D axes, so that the corner looks as a round join of one path would. The markers of an artist are one
 ///   [`crate::display::ItemKind::Markers`] item in a 2D axes, and in a 3D axes one item per run of its markers
 ///   that the depth sort leaves together; every instance carries its position, size, colours and data index, and
 ///   the item the outline of the marker shape in unit space and the edge width. Each quiver arrow is one path item. Each surface face
@@ -237,13 +242,30 @@ fn arrange(
 ///   over the neighbouring faces (see **3D**); a face whose outline has no such inset is stroked instead. Each
 ///   filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
 ///   artist is one image item beneath one group that carries its placement (see **Images**).
-/// - **Decimation.** A line or scatter with more points than its plot rectangle can resolve is thinned to about
+/// - **Decimation.** A series with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
 ///   largest-triangle-three-buckets rule, applied to each run of placeable points separately so that a break in the
 ///   line is never smoothed over, and a set of markers by keeping the one painted on top in each square of half a
 ///   marker width. The thinning depends on the axis limits and on the 3D camera, so it is redone whenever the view
-///   changes, and the display list the PDF exporter draws is the one the screen shows.
-/// - **Picking.** The hit map records the points every line and scatter drew, each naming the index it has in the
+///   changes, and the display list the PDF exporter draws is the one the screen shows. Every colour of a thinned
+///   series is read at the source index of what it colours: a marker and an end of a gradient segment at the index
+///   of its point, and a segment coloured by one value per segment at the index of the first source segment it
+///   replaces, the one leaving its first point.
+/// - **Series.** A series draws its line unless its dash or its line colour is `none`, and its markers unless their
+///   shape is `none`. With one colour value per point, a colour-mapped line strokes each segment as a gradient: a
+///   run of pieces of one colour, laid end to end, of equal length, as many as the segment needs for no piece to be
+///   longer than 1 pt but at most 256, so that their number depends only on the segment's length on the page; each
+///   piece takes the colour that the straight sRGB interpolation between the colours of the segment's two points
+///   takes at its middle. With one value per segment, each segment is one stroke of the colour of its value. Every
+///   stroke of a line drawn segment by segment keeps the dash array of the line, with a dash offset equal (modulo
+///   the pattern) to its distance from the start of its run, so that the pattern runs on across segments and
+///   pieces. The colour of a series is its line colour, which an automatic marker face or edge follows: with a
+///   colour-mapped line and one value per point, the colour of each point. A colormapped marker face or edge takes
+///   its point's colour, and without colour data the colour of the series. A point whose colour value its scale
+///   draws nothing for draws no marker and breaks the line, so neither segment that meets it is drawn. Size data
+///   gives each marker its own diameter in points. A series that draws a line strokes its marker edges at its line
+///   width held to 0.5–1.5 pt, and one that draws no line at 0.5 pt.
+/// - **Picking.** The hit map records the points every series drew, each naming the index it has in the
 ///   artist's own data arrays, so a front end reports the index and the values of the user's data whether or not the
 ///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the inverse
 ///   of the image's placement with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
@@ -263,11 +285,12 @@ fn arrange(
 ///   the user supplied.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
-///   Within each axes, every line, scatter and quiver artist whose primary colour is `ColorSpec::Auto` (the
-///   `line.color` of a line or quiver, the `color` of a scatter) takes the next entry, in the order in which the axes
-///   lists its artists and including hidden artists. Artists with an explicit or colormapped primary colour, and
-///   contour and surface artists, take no entry. A marker face or edge set to `ColorSpec::Auto` takes the resolved
-///   primary colour of its artist and takes no entry of its own.
+///   Within each axes, every series and quiver whose primary colour, its `line.color`, is `ColorSpec::Auto` takes
+///   the next entry, in the order in which the axes lists its artists and including hidden artists. Artists with an
+///   explicit or colormapped primary colour, and contour and surface artists, take no entry, with one exception: a
+///   series whose line is colour-mapped by one value per segment and that draws markers with an automatic face or
+///   edge takes the next entry as its own colour, in which those markers are drawn. A marker face or edge set to
+///   `ColorSpec::Auto` takes the resolved primary colour of its artist and takes no entry of its own.
 /// - **Colour scales.** Every artist maps numbers to colours through the colour scale it names, by one rule
 ///   (`ResolvedScale::colour` in the `style` module): a continuous scale interpolates its colormap between its
 ///   limits in linear or logarithmic space; a discrete scale gives band `i` of `k` the colormap colour at `i / (k − 1)`, a value on an
@@ -282,8 +305,9 @@ fn arrange(
 ///   names it. An artist that maps numbers but names no colour scale, or names a node that is not one, and an
 ///   artist of which a number falls in a category whose policy is strict, is skipped with one warning naming it.
 /// - **Colormapped colours.** `ColorSpec::Auto` on the isolines of a contour and on the faces or edges of a surface
-///   means `ColorSpec::Colormapped`. A line or quiver whose colour is colormapped, and a scatter of one colormapped
-///   colour, has no number to map, so it takes the middle colour of viridis whatever scales the axes uses; so does
+///   means `ColorSpec::Colormapped`. A quiver whose colour is colormapped, and the colormapped line of a series
+///   without colour data, has no number to map, so it takes the middle colour of viridis whatever scales the axes
+///   uses; so does
 ///   a colormapped contour or surface colour of an artist that names no usable scale. The isolines of a filled
 ///   contour are drawn only when their colour is an explicit colour, because colormapped isolines would coincide
 ///   with the band colours.
@@ -314,7 +338,7 @@ fn arrange(
 ///   unless `c` is given. The faces are painted where the surface stands in the artist order and are clipped to the
 ///   plot rectangle. A grid of `ny × nx` nodes draws `(ny − 1) × (nx − 1)` faces, so a surface or contour whose
 ///   field has no rows or no columns, or a single row or a single column of nodes, has no face and is skipped with
-///   one warning naming it, in either projection; a line, scatter or quiver of no points is skipped the same way.
+///   one warning naming it, in either projection; a series or quiver of no points is skipped the same way.
 /// - **Images.** An image artist of any kind is drawn as one image item in pixel space, `[0, nx] × [0, ny]` for
 ///   `nx` columns and `ny` rows with the pixel in row `j` and column `i` covering `[i, i + 1] × [j, j + 1]`, beneath
 ///   one group whose transform maps pixel space into figure space; the group has no clip of its own and lies inside
@@ -396,7 +420,7 @@ fn arrange(
 ///   artist item names an artist of any axes, is left out when the figure has no such artist with usable data, and
 ///   stands for that artist and for every artist of the axes that name the panel with an equal label and an
 ///   equal sample, in reading order; an artist without a label is listed with an empty label. A custom item
-///   draws its own sample (a line sample as a line artist's, its automatic line colour being the ink of the labels and
+///   draws its own sample (a line sample as a series', its automatic line colour being the ink of the labels and
 ///   its automatic marker colours the line colour; a swatch as a filled patch), is never greyed and is not recorded
 ///   in the hit map. An item on a row of its own spans every column at its position in the list, and the items
 ///   between such rows form groups that each fill the columns, with shared column widths; its label sets no column's
@@ -420,7 +444,11 @@ fn arrange(
 ///   [`SceneWarningKind::LegendOverflow`], is drawn from the top-left corner of that area inside a group clipped to
 ///   it, and leaves out the entries that do not lie wholly inside it. A panel places its block by its alignment, the
 ///   `best` alignment meaning the centre, and an empty panel draws nothing. The hit rectangle of an entry encloses
-///   both its sample and its label. The sample of an image is a filled patch: the middle colour
+///   both its sample and its label. The sample of a series draws what the series draws: a line across the sample
+///   with its marker at the centre when it draws a line, and its marker alone otherwise, the marker always of the
+///   marker size rather than of any size data. A colour that colour data varies (a colour-mapped line, and a marker
+///   colour that takes each point's colour) takes the middle colour of the series' colour scale. The sample of an
+///   image is a filled patch: the middle colour
 ///   of its colour scale for a scalar image, and for a true-colour image the mean of the
 ///   quantised red, green and blue components of its pixels whose components are all finite, or no patch when it
 ///   has no such pixel. The four corners of every drawn image count among the data points that the `best` location
@@ -434,8 +462,10 @@ fn arrange(
 ///   its buffer at and tests every item of; the group is absent when no artist draws anything. Inside it, faces,
 ///   segments, markers and images are painted back to front for the current view, each sorted at a key of its own,
 ///   and primitives at equal keys keep artist order. Every path and image in the group carries the depth at which a
-///   depth buffer tests it, larger being nearer: a polyline (a line run, a contour isoline, a quiver arrow) one
-///   depth per vertex, a marker its own constant depth (carried by the instance), a filled contour band and a
+///   depth buffer tests it, larger being nearer: a polyline (a segment or gradient piece of a series, a contour
+///   isoline, a quiver arrow) one depth per vertex, the depth of a gradient piece's ends interpolated along its
+///   segment, a corner disc of a series the constant depth of its corner less
+///   [`crate::maths::camera::EDGE_DEPTH_LIFT`], a marker its own constant depth (carried by the instance), a filled contour band and a
 ///   surface face the plane fitted to
 ///   their projected vertices (see [`crate::maths::camera::depth_plane`]; exact for a planar face and the
 ///   least-squares plane for a twisted one), and an image the plane over its pixel space. A face, fill and edge
@@ -448,8 +478,9 @@ fn arrange(
 ///   painted before every other primitive of the axes when that face is a back plane of the view (see
 ///   [`crate::maths::camera::back_planes`]) and after every other primitive when it is a front face, because
 ///   everything inside the box is in front of a back face and behind a front face; several images on faces keep
-///   artist order among themselves. A line, scatter
-///   or quiver without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
+///   artist order among themselves. Each segment of a series, and each piece of a gradient, is a primitive of its
+///   own, sorted at the mean depth of its two ends, so that a line passing through a surface is painted behind it
+///   and in front of it where it should be. A series or quiver without z data lies in the plane z = 0. When an axis has its grid enabled, each of its major ticks draws one
 ///   grid line on each of the two back planes (see [`crate::maths::camera::back_planes`]) that contain that axis's
 ///   direction, except where the grid line would coincide with an edge of the box. The edge that carries an axis's
 ///   tick labels has a short tick mark at each major tick, pointing away from the box towards the label. Any two tick
@@ -479,7 +510,11 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         .iter()
         .map(|axes| data::prepare_axes(&mut ctx, axes, &scales))
         .collect();
-    let primaries: Vec<Vec<style::Paint>> = figure.axes.iter().map(style::primaries).collect();
+    let primaries: Vec<Vec<style::Paint>> = figure
+        .axes
+        .iter()
+        .map(|axes| style::primaries(figure, axes))
+        .collect();
 
     // The content of the panels is prepared and measured before the layout, because a fitted row or column takes
     // its size from it.

@@ -69,9 +69,7 @@ mod pixels;
 
 pub use ironlab_ir as ir;
 
-pub use artists::{
-    ContourMut, ImageMut, LineMut, QuiverMut, ScalarImageMut, ScatterMut, SurfaceMut,
-};
+pub use artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, SurfaceMut};
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
@@ -181,9 +179,9 @@ pub mod prelude {
         Aspect, AspectAdjust, ByteMatrix, Color, ColorScaleMut, ColorScaleNorm, ColorSpec,
         Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error,
         Figure, ImageMut, ImagePlane, ImageValues, IntoColorSpec, LegendEntries,
-        LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation, LegendSample, LineMut,
-        Marker, Matrix, NodeId, OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter,
-        Pixels, QuiverMut, RasterOptions, RasterPolicy, ScalarImageMut, Scale, ScatterMut,
-        SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
+        LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Marker,
+        Matrix, NodeId, OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels,
+        QuiverMut, RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, SurfaceMut, Text,
+        TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
 }

@@ -307,7 +307,7 @@ fn the_aspect_holds_with_hidden_tick_labels() {
 #[test]
 fn a_legend_inside_a_shrunk_box_lies_inside_it() {
     let (mut fx, ax) = circle_axes(Aspect::Equal, AspectAdjust::Box);
-    if let ironlab_ir::Artist::Line(line) = &mut fx.ax(ax).artists[0] {
+    if let ironlab_ir::Artist::Series(line) = &mut fx.ax(ax).artists[0] {
         line.label = Some(ironlab_ir::Text::plain("section"));
     }
     fx.ax(ax).legend = Some(ironlab_ir::Legend::Inside(

@@ -723,11 +723,11 @@ fn row_and_column_sizes_are_set_through_a_transaction_on_the_wire() {
 // missing identifier is refused, with a path that leads into the node.
 #[test]
 fn an_inserted_node_is_decoded_with_the_rules_of_the_figure_format() {
-    let line = wire::Line {
+    let line = wire::Series {
         id: None,
         x: Some(0),
         y: Some(1),
-        ..wire::Line::default()
+        ..wire::Series::default()
     };
     assert_missing(
         decode_wire(wire_tx(wire::EditKind::Insert(wire::EditInsert {
@@ -735,11 +735,11 @@ fn an_inserted_node_is_decoded_with_the_rules_of_the_figure_format() {
             index: None,
             node: Some(wire::Node {
                 kind: Some(wire::NodeKind::Artist(wire::Artist {
-                    kind: Some(wire::ArtistKind::Line(line)),
+                    kind: Some(wire::ArtistKind::Series(line)),
                 })),
             }),
         }))),
-        "edits[0].insert_node.node.artist.line.id",
+        "edits[0].insert_node.node.artist.series.id",
     );
 }
 

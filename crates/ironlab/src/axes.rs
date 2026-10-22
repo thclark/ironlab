@@ -2,14 +2,12 @@
 
 use ironlab_ir::{
     Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, Contour, ContourPlacement, Coords,
-    Dimension, Image, InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns,
-    LegendEntryOrder, LegendLocation, Limits, Line, NodeId, Projection, Quiver, ScalarImage, Scale,
-    Scatter, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
+    DashStyle, Dimension, Image, InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryOrder, LegendLocation, Limits, MarkerShape, NodeId, Projection, Quiver, ScalarImage,
+    Scale, Series, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
 };
 
-use crate::artists::{
-    ContourMut, ImageMut, LineMut, QuiverMut, ScalarImageMut, ScatterMut, SurfaceMut,
-};
+use crate::artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, SurfaceMut};
 use crate::color_scale::{self, ColorScaleMut};
 use crate::data::{DataSource, store_grid};
 
@@ -70,14 +68,16 @@ impl AxesMut<'_> {
         self.id
     }
 
-    // Line plots.
+    // Series.
 
     /// Plots a line through the points `(x[i], y[i])` (MATLAB's `plot`).
     ///
-    /// The line is solid, 0.75 pt wide and has no markers; its colour is the next
-    /// colour of the axes colour order, chosen when the figure is drawn.
-    pub fn plot(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
-        self.add_line(x.into(), y.into(), None)
+    /// The series is a solid line 0.75 pt wide without markers; its colour is the next
+    /// colour of the axes colour order, chosen when the figure is drawn. The returned
+    /// [`SeriesMut`] adds markers, colours the series by data and sets every other
+    /// property of the series.
+    pub fn plot(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> SeriesMut<'_> {
+        self.add_series(x.into(), y.into(), None)
     }
 
     /// Plots a line through the points `(x[i], y[i], z[i])` in three dimensions
@@ -87,32 +87,40 @@ impl AxesMut<'_> {
         x: impl Into<DataSource>,
         y: impl Into<DataSource>,
         z: impl Into<DataSource>,
-    ) -> LineMut<'_> {
+    ) -> SeriesMut<'_> {
         self.make_3d();
-        self.add_line(x.into(), y.into(), Some(z.into()))
+        self.add_series(x.into(), y.into(), Some(z.into()))
     }
 
     /// Plots a line with logarithmic x and y axes (MATLAB's `loglog`).
     ///
     /// Points with a non-positive coordinate are not drawn, and
     /// [`Figure::validate`](crate::Figure::validate) warns about them.
-    pub fn loglog(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
+    pub fn loglog(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> SeriesMut<'_> {
         self.set_xy_scales(Scale::Log, Scale::Log);
-        self.add_line(x.into(), y.into(), None)
+        self.add_series(x.into(), y.into(), None)
     }
 
     /// Plots a line with a logarithmic x axis and a linear y axis (MATLAB's
     /// `semilogx`).
-    pub fn semilogx(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
+    pub fn semilogx(
+        &mut self,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+    ) -> SeriesMut<'_> {
         self.set_xy_scales(Scale::Log, Scale::Linear);
-        self.add_line(x.into(), y.into(), None)
+        self.add_series(x.into(), y.into(), None)
     }
 
     /// Plots a line with a linear x axis and a logarithmic y axis (MATLAB's
     /// `semilogy`).
-    pub fn semilogy(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> LineMut<'_> {
+    pub fn semilogy(
+        &mut self,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+    ) -> SeriesMut<'_> {
         self.set_xy_scales(Scale::Linear, Scale::Log);
-        self.add_line(x.into(), y.into(), None)
+        self.add_series(x.into(), y.into(), None)
     }
 
     // Reference lines.
@@ -120,17 +128,17 @@ impl AxesMut<'_> {
     /// Draws a horizontal reference line across the whole width of the plot area at
     /// `y` (Matplotlib's `axhline`, MATLAB's `yline`).
     ///
-    /// The line is a [`LineMut`] whose x values are the fractions 0 and 1 of the plot
+    /// The line is a series whose x values are the fractions 0 and 1 of the plot
     /// area ([`Coords::AxesFraction`]), so it spans the plot area at any limits, pan or
     /// zoom, and whose y values are the data value `y`. The x fractions take no part in
     /// the automatic x limits, but `y` takes part in the automatic y limits, so the line
     /// is always in view unless the y limits are fixed. It is solid, 0.75 pt wide and
     /// dark grey, and takes no colour from the axes colour order; the usual line setters
-    /// ([`dash`](LineMut::dash), [`color`](LineMut::color),
-    /// [`line_width`](LineMut::line_width)) change its look. A reference line is valid
+    /// ([`dash`](SeriesMut::dash), [`color`](SeriesMut::color),
+    /// [`line_width`](SeriesMut::line_width)) change its look. A reference line is valid
     /// only in a two-dimensional axes.
-    pub fn hline(&mut self, y: f64) -> LineMut<'_> {
-        let mut line = self.add_line([0.0, 1.0].into(), [y, y].into(), None);
+    pub fn hline(&mut self, y: f64) -> SeriesMut<'_> {
+        let mut line = self.add_series([0.0, 1.0].into(), [y, y].into(), None);
         line.x_coords(Coords::AxesFraction)
             .color(REFERENCE_LINE_COLOR);
         line
@@ -142,24 +150,24 @@ impl AxesMut<'_> {
     /// The line spans the plot area as [`hline`](AxesMut::hline) does, with the roles of
     /// x and y exchanged: its y values are the fractions 0 and 1 of the plot area and
     /// its x values the data value `x`, which takes part in the automatic x limits.
-    pub fn vline(&mut self, x: f64) -> LineMut<'_> {
-        let mut line = self.add_line([x, x].into(), [0.0, 1.0].into(), None);
+    pub fn vline(&mut self, x: f64) -> SeriesMut<'_> {
+        let mut line = self.add_series([x, x].into(), [0.0, 1.0].into(), None);
         line.y_coords(Coords::AxesFraction)
             .color(REFERENCE_LINE_COLOR);
         line
     }
 
-    // Scatter plots.
-
     /// Draws a marker at each point `(x[i], y[i])` (MATLAB's `scatter`).
     ///
-    /// Markers are unfilled 4 pt circles in the next colour of the axes colour order.
-    pub fn scatter(
-        &mut self,
-        x: impl Into<DataSource>,
-        y: impl Into<DataSource>,
-    ) -> ScatterMut<'_> {
-        self.add_scatter(x.into(), y.into(), None)
+    /// The series is unfilled 4 pt circles without a line, in the next colour of the
+    /// axes colour order. It differs from a series drawn by [`plot`](AxesMut::plot) only
+    /// in these defaults: [`dash`](SeriesMut::dash) joins the circles by a line, and
+    /// [`size_data`](SeriesMut::size_data) and [`color_data`](SeriesMut::color_data) size
+    /// and colour each marker by data.
+    pub fn scatter(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> SeriesMut<'_> {
+        let mut series = self.add_series(x.into(), y.into(), None);
+        series.dash(DashStyle::None).marker(MarkerShape::Circle);
+        series
     }
 
     /// Draws a marker at each point `(x[i], y[i], z[i])` in three dimensions
@@ -169,9 +177,11 @@ impl AxesMut<'_> {
         x: impl Into<DataSource>,
         y: impl Into<DataSource>,
         z: impl Into<DataSource>,
-    ) -> ScatterMut<'_> {
+    ) -> SeriesMut<'_> {
         self.make_3d();
-        self.add_scatter(x.into(), y.into(), Some(z.into()))
+        let mut series = self.add_series(x.into(), y.into(), Some(z.into()));
+        series.dash(DashStyle::None).marker(MarkerShape::Circle);
+        series
     }
 
     // Contour plots.
@@ -511,7 +521,7 @@ impl AxesMut<'_> {
     /// colours ([`contour`](AxesMut::contour), [`contourf`](AxesMut::contourf),
     /// [`contour3`](AxesMut::contour3), [`surf`](AxesMut::surf), [`mesh`](AxesMut::mesh),
     /// [`surface`](AxesMut::surface), [`scalar_image`](AxesMut::scalar_image) and
-    /// [`ScatterMut::colors`](crate::ScatterMut::colors)) names it, creating a
+    /// [`SeriesMut::color_data`](crate::SeriesMut::color_data)) names it, creating a
     /// continuous scale with automatic limits when the axes has none. This reproduces
     /// MATLAB's axes colormap and colour limits, which every colour-mapped plot of an axes
     /// shares.
@@ -1087,43 +1097,21 @@ impl AxesMut<'_> {
         id
     }
 
-    /// Adds a line, with z data when given.
-    fn add_line(&mut self, x: DataSource, y: DataSource, z: Option<DataSource>) -> LineMut<'_> {
+    /// Adds a series with the defaults of `plot`, with z data when given.
+    fn add_series(&mut self, x: DataSource, y: DataSource, z: Option<DataSource>) -> SeriesMut<'_> {
         let x = x.store(self.fig);
         let y = y.store(self.fig);
         let z = z.map(|z| z.store(self.fig));
         let id = self.push_artist(|id| {
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id,
                 x,
                 y,
                 z,
-                ..Line::default()
+                ..Series::default()
             })
         });
-        LineMut::new(self.fig, id)
-    }
-
-    /// Adds a scatter, with z data when given.
-    fn add_scatter(
-        &mut self,
-        x: DataSource,
-        y: DataSource,
-        z: Option<DataSource>,
-    ) -> ScatterMut<'_> {
-        let x = x.store(self.fig);
-        let y = y.store(self.fig);
-        let z = z.map(|z| z.store(self.fig));
-        let id = self.push_artist(|id| {
-            Artist::Scatter(Scatter {
-                id,
-                x,
-                y,
-                z,
-                ..Scatter::default()
-            })
-        });
-        ScatterMut::new(self.fig, id, None)
+        SeriesMut::new(self.fig, id, None)
     }
 
     /// Adds contours of a gridded field.

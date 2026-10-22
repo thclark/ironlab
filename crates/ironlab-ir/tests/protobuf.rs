@@ -577,8 +577,8 @@ fn extreme_identifiers_and_counts_survive_a_round_trip() {
         col_span: 1,
     };
     fig.data[0].id = NodeId(u64::MAX);
-    let Artist::Line(line) = &mut fig.axes[0].artists[0] else {
-        panic!("fixture holds a line");
+    let Artist::Series(line) = &mut fig.axes[0].artists[0] else {
+        panic!("fixture holds a series");
     };
     line.x = NodeId(u64::MAX);
     assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
@@ -977,7 +977,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     wire_columns(4, wire::LegendEntryOrder::RowMajor),
                 ),
                 artists: vec![
-                    wire_artist(wire::ArtistKind::Line(wire::Line {
+                    wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(30),
                         label: wire_text("line", wire::Interpreter::Latex),
                         visible: Some(false),
@@ -995,65 +995,54 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             wire_no_color(),
                             wire_colormapped(),
                         ),
+                        size_data: None,
+                        color_data: None,
+                        color_scale: None,
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::Data as i32,
                         clip: Some(false),
                     })),
-                    wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
+                    wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(31),
-                        label: wire_text("scatter", wire::Interpreter::None),
+                        label: wire_text("markers", wire::Interpreter::None),
                         visible: Some(true),
                         x: Some(B),
                         y: Some(C),
                         z: Some(A),
-                        size: Some(wire::ScatterSize {
-                            kind: Some(wire::ScatterSizeKind::Data(wire::ScatterSizeData {
-                                data: Some(C),
-                            })),
-                        }),
-                        color: Some(wire::ScatterColor {
-                            kind: Some(wire::ScatterColorKind::Data(wire::ScatterColorData {
-                                data: Some(D),
-                            })),
-                        }),
+                        line: wire_line_style(wire_colormapped(), 0.75, wire::DashStyle::None),
                         marker: wire_marker(
                             wire::MarkerShape::Square,
                             3.5,
                             wire_auto_color(),
                             wire_no_color(),
                         ),
+                        size_data: Some(C),
+                        color_data: Some(D),
+                        color_scale: Some(INDEXED),
                         x_coords: wire::Coords::Data as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(true),
-                        color_scale: Some(INDEXED),
                     })),
-                    wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
+                    wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(32),
                         label: None,
                         visible: Some(true),
                         x: Some(C),
                         y: Some(A),
                         z: None,
-                        size: Some(wire::ScatterSize {
-                            kind: Some(wire::ScatterSizeKind::Scalar(wire::ScatterSizeScalar {
-                                value: Some(4.5),
-                            })),
-                        }),
-                        color: Some(wire::ScatterColor {
-                            kind: Some(wire::ScatterColorKind::Spec(wire::ScatterColorSpec {
-                                spec: wire_colormapped(),
-                            })),
-                        }),
+                        line: wire_line_style(wire_colormapped(), 4.5, wire::DashStyle::Dotted),
                         marker: wire_marker(
                             wire::MarkerShape::Plus,
                             5.5,
                             wire_rgba(0.0625, 0.1875, 0.3125, 0.4375),
                             wire_auto_color(),
                         ),
+                        size_data: None,
+                        color_data: None,
+                        color_scale: None,
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(false),
-                        color_scale: None,
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -1610,7 +1599,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     ]),
                 })),
                 artists: vec![
-                    Artist::Line(Line {
+                    Artist::Series(Series {
                         id: NodeId(30),
                         label: text("line", Interpreter::Latex),
                         visible: false,
@@ -1630,41 +1619,53 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        size_data: None,
+                        color_data: None,
+                        color_scale: None,
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::Data,
                         clip: false,
                     }),
-                    Artist::Scatter(Scatter {
+                    Artist::Series(Series {
                         id: NodeId(31),
-                        label: text("scatter", Interpreter::None),
+                        label: text("markers", Interpreter::None),
                         visible: true,
                         x: NodeId(B),
                         y: NodeId(C),
                         z: Some(NodeId(A)),
-                        size: ScatterSize::Data { data: NodeId(C) },
-                        color: ScatterColor::Data { data: NodeId(D) },
+                        line: LineStyle {
+                            color: ColorSpec::Colormapped,
+                            width_pt: 0.75,
+                            dash: DashStyle::None,
+                        },
                         marker: MarkerStyle {
                             shape: MarkerShape::Square,
                             size_pt: 3.5,
                             face: ColorSpec::Auto,
                             edge: ColorSpec::None,
                         },
+                        size_data: Some(NodeId(C)),
+                        color_data: Some(NodeId(D)),
+                        color_scale: Some(NodeId(INDEXED)),
                         x_coords: Coords::Data,
                         y_coords: Coords::AxesFraction,
                         clip: true,
-                        color_scale: Some(NodeId(INDEXED)),
                     }),
-                    Artist::Scatter(Scatter {
+                    Artist::Series(Series {
                         id: NodeId(32),
                         label: None,
                         visible: true,
                         x: NodeId(C),
                         y: NodeId(A),
                         z: None,
-                        size: ScatterSize::Scalar { value: 4.5 },
-                        color: ScatterColor::Spec {
-                            spec: ColorSpec::Colormapped,
+                        line: LineStyle {
+                            color: ColorSpec::Colormapped,
+                            width_pt: 4.5,
+                            dash: DashStyle::Dotted,
                         },
+                        size_data: None,
+                        color_data: None,
+                        color_scale: None,
                         marker: MarkerStyle {
                             shape: MarkerShape::Plus,
                             size_pt: 5.5,
@@ -1676,7 +1677,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::AxesFraction,
                         clip: false,
-                        color_scale: None,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -2063,7 +2063,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                     Some(true),
                     wire_columns(1, wire::LegendEntryOrder::ColumnMajor),
                 ),
-                artists: vec![wire_artist(wire::ArtistKind::Line(wire::Line {
+                artists: vec![wire_artist(wire::ArtistKind::Series(wire::Series {
                     id: Some(3),
                     x: Some(0),
                     y: Some(0),
@@ -2074,7 +2074,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                         wire_no_color(),
                         wire_auto_color(),
                     ),
-                    ..wire::Line::default()
+                    ..wire::Series::default()
                 }))],
                 ..wire::Axes::default()
             }],
@@ -2086,9 +2086,9 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         }
     }
 
-    fn wire_line(fig: &mut wire::Figure) -> &mut wire::Line {
+    fn wire_line(fig: &mut wire::Figure) -> &mut wire::Series {
         match fig.axes[0].artists[0].kind.as_mut() {
-            Some(wire::ArtistKind::Line(line)) => line,
+            Some(wire::ArtistKind::Series(line)) => line,
             _ => unreachable!("the carrier holds a line"),
         }
     }
@@ -2114,9 +2114,9 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         }
     }
 
-    fn line(fig: &Figure) -> &Line {
+    fn line(fig: &Figure) -> &Series {
         match &fig.axes[0].artists[0] {
-            Artist::Line(line) => line,
+            Artist::Series(line) => line,
             other => panic!("the carrier's line decoded as {other:?}"),
         }
     }
@@ -2271,7 +2271,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 })),
             }),
             artists: vec![
-                wire_artist(wire::ArtistKind::Line(wire::Line {
+                wire_artist(wire::ArtistKind::Series(wire::Series {
                     id: Some(3),
                     visible: Some(false),
                     x: Some(0),
@@ -2283,25 +2283,24 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                         wire_no_color(),
                         wire_auto_color(),
                     ),
-                    ..wire::Line::default()
+                    ..wire::Series::default()
                 })),
-                wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
+                wire_artist(wire::ArtistKind::Series(wire::Series {
                     id: Some(4),
                     x: Some(0),
                     y: Some(0),
-                    size: Some(wire::ScatterSize {
-                        kind: Some(wire::ScatterSizeKind::Scalar(wire::ScatterSizeScalar {
-                            value: Some(0.0),
-                        })),
-                    }),
-                    // A scatter's marker is a circle by default.
+                    line: wire_line_style(wire_auto_color(), 0.0, wire::DashStyle::Solid),
                     marker: wire_marker(
                         wire::MarkerShape::None,
                         0.0,
                         wire_no_color(),
                         wire_auto_color(),
                     ),
-                    ..wire::Scatter::default()
+                    // Size and colour data of identifier zero, which are present and not
+                    // the absence that an unset field means.
+                    size_data: Some(0),
+                    color_data: Some(0),
+                    ..wire::Series::default()
                 })),
                 wire_artist(wire::ArtistKind::Contour(wire::Contour {
                     id: Some(5),
@@ -2515,18 +2514,20 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 entries: LegendEntries::Explicit(vec![]),
             })),
             artists: vec![
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id: NodeId(3),
                     visible: false,
                     line: zero_line,
                     marker: zero_marker,
-                    ..Line::default()
+                    ..Series::default()
                 }),
-                Artist::Scatter(Scatter {
+                Artist::Series(Series {
                     id: NodeId(4),
-                    size: ScatterSize::Scalar { value: 0.0 },
+                    line: zero_line,
                     marker: zero_marker,
-                    ..Scatter::default()
+                    size_data: Some(NodeId(0)),
+                    color_data: Some(NodeId(0)),
+                    ..Series::default()
                 }),
                 Artist::Contour(Contour {
                     id: NodeId(5),
@@ -2756,9 +2757,9 @@ fn a_message_holding_only_the_version_and_the_id_decodes_to_the_default_figure_w
 
 // Why: an `_UNSPECIFIED` enum value, an unset oneof and an empty nested message are how
 // other writers express "no preference", and each must decode to the default that the
-// IR gives that field in its context: a scatter's marker is a circle and a contour's
-// line is colormapped, although a bare marker style has no shape and a bare line style
-// is automatic. Likewise, a legend whose entries are absent or unset lists its entries
+// IR gives that field in its context: a series without a line or marker style draws the
+// default line without markers, and a contour's line is colormapped, although a bare
+// line style is automatic. Likewise, a legend whose entries are absent or unset lists its entries
 // automatically, a legend item without `full_row` shares its row, and a row size whose
 // kind is unset is a weight of one, as a row without a size is.
 #[test]
@@ -2783,21 +2784,22 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                 }),
             ),
             artists: vec![
-                artist(wire::ArtistKind::Line(wire::Line {
+                artist(wire::ArtistKind::Series(wire::Series {
                     id: Some(6),
                     x: Some(0),
                     y: Some(0),
                     line: Some(empty_line_style()),
                     marker: Some(wire::MarkerStyle::default()),
-                    ..wire::Line::default()
+                    ..wire::Series::default()
                 })),
-                artist(wire::ArtistKind::Scatter(wire::Scatter {
+                // Absent line and marker styles, size data, colour data and scale.
+                artist(wire::ArtistKind::Series(wire::Series {
                     id: Some(7),
                     x: Some(0),
                     y: Some(0),
-                    size: Some(wire::ScatterSize { kind: None }),
-                    marker: Some(wire::MarkerStyle::default()),
-                    ..wire::Scatter::default()
+                    line: None,
+                    marker: None,
+                    ..wire::Series::default()
                 })),
                 // Absent opacities: isolines and bands opaque.
                 artist(wire::ArtistKind::Contour(wire::Contour {
@@ -3042,13 +3044,13 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                 ..InsideLegend::default()
             })),
             artists: vec![
-                Artist::Line(Line {
+                Artist::Series(Series {
                     id: NodeId(6),
-                    ..Line::default()
+                    ..Series::default()
                 }),
-                Artist::Scatter(Scatter {
+                Artist::Series(Series {
                     id: NodeId(7),
-                    ..Scatter::default()
+                    ..Series::default()
                 }),
                 // Levels that are present with an absent count are automatic levels of the
                 // default count, not the absent levels that take the scale's.
@@ -3137,27 +3139,19 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
     /// that each case removes exactly one value.
     fn complete() -> wire::Figure {
         let artists = vec![
-            wire_artist(wire::ArtistKind::Line(wire::Line {
+            wire_artist(wire::ArtistKind::Series(wire::Series {
                 id: Some(3),
                 x: Some(0),
                 y: Some(1),
-                ..wire::Line::default()
+                ..wire::Series::default()
             })),
-            wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
+            wire_artist(wire::ArtistKind::Series(wire::Series {
                 id: Some(4),
                 x: Some(0),
                 y: Some(1),
-                size: Some(wire::ScatterSize {
-                    kind: Some(wire::ScatterSizeKind::Data(wire::ScatterSizeData {
-                        data: Some(2),
-                    })),
-                }),
-                color: Some(wire::ScatterColor {
-                    kind: Some(wire::ScatterColorKind::Data(wire::ScatterColorData {
-                        data: Some(2),
-                    })),
-                }),
-                ..wire::Scatter::default()
+                size_data: Some(2),
+                color_data: Some(2),
+                ..wire::Series::default()
             })),
             wire_artist(wire::ArtistKind::Contour(wire::Contour {
                 id: Some(5),
@@ -3374,7 +3368,7 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         .expect("the complete figure decodes, so each case fails only for its removal");
 
     type Removal = fn(&mut wire::Figure);
-    let cases: [(&str, Removal); 46] = [
+    let cases: [(&str, Removal); 44] = [
         ("id", |f| f.id = None),
         // A data array is a node, whose identifier has no default, and an array without
         // values is an empty array only when it says so: an absent array is a faulty
@@ -3391,31 +3385,19 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         ("axes[0].artists[0].kind", |f| {
             f.axes[0].artists[0].kind = None
         }),
-        ("axes[0].artists[0].line.id", |f| {
-            artist!(f, 0, Line).id = None
+        ("axes[0].artists[0].series.id", |f| {
+            artist!(f, 0, Series).id = None
         }),
-        ("axes[0].artists[0].line.x", |f| {
-            artist!(f, 0, Line).x = None
+        ("axes[0].artists[0].series.x", |f| {
+            artist!(f, 0, Series).x = None
         }),
-        ("axes[0].artists[0].line.y", |f| {
-            artist!(f, 0, Line).y = None
+        ("axes[0].artists[0].series.y", |f| {
+            artist!(f, 0, Series).y = None
         }),
-        ("axes[0].artists[1].scatter.x", |f| {
-            artist!(f, 1, Scatter).x = None
-        }),
-        ("axes[0].artists[1].scatter.size.data.data", |f| {
-            artist!(f, 1, Scatter).size = Some(wire::ScatterSize {
-                kind: Some(wire::ScatterSizeKind::Data(wire::ScatterSizeData {
-                    data: None,
-                })),
-            });
-        }),
-        ("axes[0].artists[1].scatter.color.data.data", |f| {
-            artist!(f, 1, Scatter).color = Some(wire::ScatterColor {
-                kind: Some(wire::ScatterColorKind::Data(wire::ScatterColorData {
-                    data: None,
-                })),
-            });
+        // The size and colour data of a series are optional, so only its coordinates are
+        // required whatever data it carries.
+        ("axes[0].artists[1].series.x", |f| {
+            artist!(f, 1, Series).x = None
         }),
         ("axes[0].artists[2].contour.grid", |f| {
             artist!(f, 2, Contour).grid = None
@@ -3642,7 +3624,8 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
 }
 
 // Why: the references and values that the IR itself makes optional (the z data of a
-// line, scatter or quiver, the w data of a quiver, the colour data and the face and edge
+// series or quiver, the size and colour data of a series, the w data of a quiver, the
+// colour data and the face and edge
 // alpha of a surface, the height of a contour plane, the levels of a contour, the colour
 // scale of a colour-mapped artist, the alpha of a scalar image, the title of a colour
 // scale and the label of its key, and the pixel ranges and plane offset of an image) must not
@@ -3658,10 +3641,14 @@ fn absent_optional_references_decode_as_absent() {
         .find(|a| a.id == axes)
         .expect("fixture axes exists")
         .artists;
-    artists.push(Artist::Scatter(Scatter {
+    artists.push(Artist::Series(Series {
         id: NodeId(60),
         z: None,
-        ..Scatter::default()
+        marker: MarkerStyle {
+            shape: MarkerShape::Circle,
+            ..MarkerStyle::default()
+        },
+        ..Series::default()
     }));
     artists.push(Artist::Quiver(Quiver {
         id: NodeId(61),
@@ -3708,9 +3695,11 @@ fn absent_optional_references_decode_as_absent() {
     let wire_figure = wire::Figure::from(&fig);
     for artist in &wire_figure.axes[0].artists {
         let absent = match artist.kind.as_ref().expect("the encoder writes every kind") {
-            wire::ArtistKind::Line(line) => line.z.is_none(),
-            wire::ArtistKind::Scatter(scatter) => {
-                scatter.z.is_none() && scatter.color_scale.is_none()
+            wire::ArtistKind::Series(series) => {
+                series.z.is_none()
+                    && series.size_data.is_none()
+                    && series.color_data.is_none()
+                    && series.color_scale.is_none()
             }
             wire::ArtistKind::Quiver(quiver) => quiver.z.is_none() && quiver.w.is_none(),
             wire::ArtistKind::Surface(surface) => {
@@ -3963,6 +3952,10 @@ fn hand_encoded_bytes() -> Vec<u8> {
             ]
             .concat(),
         ),
+        // Size data (field 9), colour data (field 10) and a colour scale (field 11).
+        varint_field(9, 0),
+        varint_field(10, 7),
+        varint_field(11, 31),
     ]
     .concat();
 
@@ -4212,7 +4205,8 @@ fn hand_encoded_bytes() -> Vec<u8> {
                 ),
             ),
         ),
-        length_delimited(12, &length_delimited(1, &line)),
+        // The series is the artist oneof variant 10.
+        length_delimited(12, &length_delimited(10, &line)),
         length_delimited(12, &length_delimited(6, &image)),
         length_delimited(12, &length_delimited(9, &indexed_image)),
         length_delimited(12, &length_delimited(9, &mapped_image)),
@@ -4564,7 +4558,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     ]),
                 })),
                 artists: vec![
-                    Artist::Line(Line {
+                    Artist::Series(Series {
                         id: NodeId(3),
                         label: Some(Text::plain("decay, $5")),
                         visible: true,
@@ -4584,6 +4578,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                             face: ColorSpec::None,
                             edge: ColorSpec::Colormapped,
                         },
+                        size_data: Some(NodeId(0)),
+                        color_data: Some(NodeId(7)),
+                        color_scale: Some(NodeId(31)),
                         x_coords: Coords::Data,
                         y_coords: Coords::Data,
                         clip: true,
@@ -4737,15 +4734,15 @@ fn unknown_fields_are_skipped_at_every_depth() {
     let mut wire_figure = wire::Figure::from(&fig);
     let mut wire_axes = wire_figure.axes.remove(0);
     let wire_artist = wire_axes.artists.remove(0);
-    let Some(wire::ArtistKind::Line(wire_line)) = wire_artist.kind else {
-        panic!("fixture holds a line");
+    let Some(wire::ArtistKind::Series(wire_line)) = wire_artist.kind else {
+        panic!("fixture holds a series");
     };
 
-    // Rebuild the nesting figure → axes (field 10) → artist (field 12) → line (field 1),
+    // Rebuild the nesting figure → axes (field 10) → artist (field 12) → series (field 10),
     // appending unknown fields at every level. Field order within a message does not
     // affect decoding.
     let line = [wire_line.encode_to_vec(), unknown_fields()].concat();
-    let artist = [length_delimited(1, &line), unknown_fields()].concat();
+    let artist = [length_delimited(10, &line), unknown_fields()].concat();
     let axes = [
         wire_axes.encode_to_vec(),
         length_delimited(12, &artist),
@@ -4908,11 +4905,11 @@ fn large_arrays_encode_at_eight_bytes_per_value() {
     let line = fig.alloc_node_id();
     fig.axes.push(Axes {
         id: axes,
-        artists: vec![Artist::Line(Line {
+        artists: vec![Artist::Series(Series {
             id: line,
             x,
             y,
-            ..Line::default()
+            ..Series::default()
         })],
         ..Axes::default()
     });

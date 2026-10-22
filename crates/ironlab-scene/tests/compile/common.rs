@@ -8,9 +8,10 @@ use std::sync::OnceLock;
 
 use ironlab_ir::{
     Artist, Axes, Cell, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
-    ContinuousColorScale, Contour, DataArray, Figure, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedColorScale, Legend, Line, NdArray, NodeId, OutOfRange, Panel, PanelContent, PanelLegend,
-    PixelRange, Projection, Quiver, ScalarImage, Scatter, ScatterColor, Surface, Text, View3d,
+    ContinuousColorScale, Contour, DashStyle, DataArray, Figure, Grid, Image, ImagePlacement,
+    ImagePlane, IndexedColorScale, Legend, LineStyle, MarkerShape, MarkerStyle, NdArray, NodeId,
+    OutOfRange, Panel, PanelContent, PanelLegend, PixelRange, Projection, Quiver, ScalarImage,
+    Series, Surface, Text, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::{Lut, VIRIDIS};
@@ -234,50 +235,74 @@ impl Fx {
         self.ax(axes).artists.push(artist);
     }
 
-    /// Adds a line through `(x, y)` (and `z` when given), customised by `edit`.
+    /// Adds a series through `(x, y)` (and `z` when given) with the defaults of `plot` (a solid automatic line
+    /// without markers), customised by `edit`.
     pub fn line(
         &mut self,
         axes: NodeId,
         x: &[f64],
         y: &[f64],
         z: Option<&[f64]>,
-        edit: impl FnOnce(&mut Line),
+        edit: impl FnOnce(&mut Series),
     ) -> NodeId {
-        let id = self.node();
-        let mut line = Line {
-            id,
-            x: self.vector(x),
-            y: self.vector(y),
-            z: z.map(|z| self.vector(z)),
-            ..Line::default()
-        };
-        edit(&mut line);
-        self.push(axes, Artist::Line(line));
-        id
+        self.series(axes, x, y, z, |s, _| edit(s))
     }
 
-    /// Adds a scatter at `(x, y)` (and `z` when given), customised by `edit`.
+    /// Adds a series at `(x, y)` (and `z` when given) with the defaults of `scatter` (automatic circles without a
+    /// line), customised by `edit`. A series given colour data without a scale names the scale of its axes.
     pub fn scatter(
         &mut self,
         axes: NodeId,
         x: &[f64],
         y: &[f64],
         z: Option<&[f64]>,
-        edit: impl FnOnce(&mut Scatter, &mut Self),
+        edit: impl FnOnce(&mut Series, &mut Self),
+    ) -> NodeId {
+        let id = self.series(axes, x, y, z, |s, fx| {
+            s.line = LineStyle {
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            };
+            s.marker = MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            };
+            edit(s, fx);
+        });
+        let unscaled = matches!(
+            self.ax(axes).artists.last(),
+            Some(Artist::Series(s)) if s.color_data.is_some() && s.color_scale.is_none()
+        );
+        if unscaled {
+            let scale = self.axes_scale(axes);
+            if let Some(Artist::Series(s)) = self.ax(axes).artists.last_mut() {
+                s.color_scale = Some(scale);
+            }
+        }
+        id
+    }
+
+    /// Adds a series through `(x, y)` (and `z` when given) with the defaults of `Series` (a solid automatic line
+    /// without markers), customised by `edit`. Unlike [`Fx::scatter`], it names no colour scale on its own: a series
+    /// coloured by data names the scale its test gives it.
+    pub fn series(
+        &mut self,
+        axes: NodeId,
+        x: &[f64],
+        y: &[f64],
+        z: Option<&[f64]>,
+        edit: impl FnOnce(&mut Series, &mut Self),
     ) -> NodeId {
         let id = self.node();
-        let mut scatter = Scatter {
+        let mut series = Series {
             id,
             x: self.vector(x),
             y: self.vector(y),
             z: z.map(|z| self.vector(z)),
-            ..Scatter::default()
+            ..Series::default()
         };
-        edit(&mut scatter, self);
-        if matches!(scatter.color, ScatterColor::Data { .. }) && scatter.color_scale.is_none() {
-            scatter.color_scale = Some(self.axes_scale(axes));
-        }
-        self.push(axes, Artist::Scatter(scatter));
+        edit(&mut series, self);
+        self.push(axes, Artist::Series(series));
         id
     }
 
@@ -553,7 +578,12 @@ impl Fx {
     }
 
     /// Adds a line from (0, 0) to (1, 1) with the given label, customised by `edit`.
-    pub fn named_line(&mut self, axes: NodeId, name: &str, edit: impl FnOnce(&mut Line)) -> NodeId {
+    pub fn named_line(
+        &mut self,
+        axes: NodeId,
+        name: &str,
+        edit: impl FnOnce(&mut Series),
+    ) -> NodeId {
         self.line(axes, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
             l.label = text(name);
             edit(l);

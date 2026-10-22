@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, DataArray, Figure, FigureSize, Limits, Line, NdArray, NodeId, Text,
+    Artist, Axes, Axis, DataArray, Figure, FigureSize, Limits, NdArray, NodeId, Series, Text,
 };
 use ironlab_scene::display::Point;
 use ironlab_text::TextEngine;
@@ -59,12 +59,12 @@ fn figure() -> Figure {
                 limits: Limits::Manual { min: 0.0, max: 5.0 },
                 ..Axis::default()
             },
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::plain("Samples")),
                 x,
                 y,
-                ..Line::default()
+                ..Series::default()
             })],
             ..Axes::default()
         }],

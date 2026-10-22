@@ -27,7 +27,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::artist::{Artist, ScatterColor};
+use crate::artist::Artist;
 use crate::axes::{ColormapName, Limits, TickLabels, Ticks};
 use crate::data::Values;
 use crate::figure::Figure;
@@ -697,7 +697,7 @@ pub struct ColorMapping {
     pub color_scale: Option<NodeId>,
     /// The data array of the numbers that the artist maps: the values of a scalar image,
     /// the field of a contour, the colour data of a surface (or its field when it has
-    /// none), and the colour data of a scatter.
+    /// none), and the colour data of a series.
     pub values: NodeId,
 }
 
@@ -710,8 +710,8 @@ impl Artist {
             Artist::ScalarImage(a) => a.color_scale,
             Artist::Contour(a) => a.color_scale,
             Artist::Surface(a) => a.color_scale,
-            Artist::Scatter(a) => a.color_scale,
-            Artist::Line(_) | Artist::Quiver(_) | Artist::Image(_) => None,
+            Artist::Series(a) => a.color_scale,
+            Artist::Quiver(_) | Artist::Image(_) => None,
         }
     }
 
@@ -719,13 +719,13 @@ impl Artist {
     ///
     /// A scalar image always maps its values. A contour maps its field when its bands are
     /// filled or its isolines are colour-mapped, a surface maps its colour data (or its
-    /// field) when its faces or its edges are colour-mapped, and a scatter maps its colour
-    /// data when it is coloured by data. On a contour's isolines and a surface's faces and
-    /// edges, an automatic colour is colour-mapped as an explicit `Colormapped` colour is,
-    /// because neither artist has a colour of its own for `Auto` to stand for. A line, a
-    /// quiver and a true-colour image map nothing, and neither does the single colour of a
-    /// scatter, even when it is colormapped: such a colour has no number to map and is
-    /// drawn in the middle colour of viridis.
+    /// field) when its faces or its edges are colour-mapped, and a series maps its colour
+    /// data whenever it has some, per point or per segment, whatever its colours. On a
+    /// contour's isolines and a surface's faces and edges, an automatic colour is
+    /// colour-mapped as an explicit `Colormapped` colour is, because neither artist has a
+    /// colour of its own for `Auto` to stand for. A series without colour data, a quiver
+    /// and a true-colour image map nothing, even when a colour is colormapped: such a
+    /// colour has no number to map and is drawn in the middle colour of viridis.
     ///
     /// This is the one rule by which validation, automatic limits and the scene compiler
     /// decide whether an artist is colour-mapped.
@@ -738,15 +738,10 @@ impl Artist {
             Artist::Surface(a) if mapped(a.face) || mapped(a.edge) => {
                 (a.color_scale, a.c.unwrap_or(a.z))
             }
-            Artist::Scatter(a) => match a.color {
-                ScatterColor::Data { data } => (a.color_scale, data),
-                ScatterColor::Spec { .. } => return None,
-            },
-            Artist::Contour(_)
-            | Artist::Surface(_)
-            | Artist::Line(_)
-            | Artist::Quiver(_)
-            | Artist::Image(_) => return None,
+            Artist::Series(a) => (a.color_scale, a.color_data?),
+            Artist::Contour(_) | Artist::Surface(_) | Artist::Quiver(_) | Artist::Image(_) => {
+                return None;
+            }
         };
         Some(ColorMapping {
             color_scale,

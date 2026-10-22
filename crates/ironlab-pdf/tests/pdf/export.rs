@@ -5,7 +5,7 @@
 
 use ironlab_ir::{
     Artist, Axes, Axis, Color, ColorScale, ColorSpec, DataArray, Figure, FigureSize, Grid, Image,
-    ImagePlacement, Limits, Line, NdArray, NodeId, PixelRange, Provenance, Scale, Surface, Text,
+    ImagePlacement, Limits, NdArray, NodeId, PixelRange, Provenance, Scale, Series, Surface, Text,
 };
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
 
@@ -39,11 +39,11 @@ fn damped_oscillation() -> Figure {
             label: Some(Text::new("Time (s)")),
             ..Axis::default()
         },
-        artists: vec![Artist::Line(Line {
+        artists: vec![Artist::Series(Series {
             id: line_id,
             x: x_id,
             y: y_id,
-            ..Line::default()
+            ..Series::default()
         })],
         ..Axes::default()
     });
@@ -258,11 +258,11 @@ fn dense_line(n: usize) -> Figure {
     let line_id = figure.alloc_node_id();
     figure.axes.push(Axes {
         id: axes_id,
-        artists: vec![Artist::Line(Line {
+        artists: vec![Artist::Series(Series {
             id: line_id,
             x: x_id,
             y: y_id,
-            ..Line::default()
+            ..Series::default()
         })],
         ..Axes::default()
     });

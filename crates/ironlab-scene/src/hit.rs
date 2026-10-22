@@ -96,7 +96,7 @@ pub struct PanelHit {
 
 /// The points one artist drew, in the order they were painted.
 ///
-/// Only artists made of individual data points — lines and scatters — have an entry. Each sample
+/// Only artists made of individual data points — series — have an entry. Each sample
 /// names the index the point has in the artist's own data arrays, so a front end reports the index
 /// and the values the user's data holds even when the series was decimated to fit the view; see
 /// [`crate::maths::decimate`]. A point the artist did not draw, because it could not be placed or
@@ -136,7 +136,7 @@ pub struct HitMap {
     pub legend_entries: Vec<LegendHit>,
     /// The area of every panel of the figure, in the order the figure lists them.
     pub panels: Vec<PanelHit>,
-    /// The drawn points of every line and scatter, in the order their axes were compiled.
+    /// The drawn points of every series, in the order their axes were compiled.
     pub artists: Vec<ArtistHit>,
     /// The placement of every image drawn in a two-dimensional axes, in paint order.
     pub images: Vec<ImageHit>,

@@ -25,8 +25,8 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.scatter(&x, &y)
-        .colors(&field_value)
-        .sizes(&marker_size)
+        .color_data(&field_value)
+        .size_data(&marker_size)
         .marker(Marker::Circle)
         .filled();
     ax.color_scale().colormap(Colormap::Plasma);

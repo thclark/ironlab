@@ -26,11 +26,11 @@ pub const OPTIONAL_IN_IR: [&str; 33] = [
     "ironlab.ir.v0.Axes.title",
     "ironlab.ir.v0.Axes.legend",
     "ironlab.ir.v0.Axis.label",
-    "ironlab.ir.v0.Line.label",
-    "ironlab.ir.v0.Line.z",
-    "ironlab.ir.v0.Scatter.label",
-    "ironlab.ir.v0.Scatter.z",
-    "ironlab.ir.v0.Scatter.color_scale",
+    "ironlab.ir.v0.Series.label",
+    "ironlab.ir.v0.Series.z",
+    "ironlab.ir.v0.Series.size_data",
+    "ironlab.ir.v0.Series.color_data",
+    "ironlab.ir.v0.Series.color_scale",
     "ironlab.ir.v0.Contour.label",
     "ironlab.ir.v0.Contour.levels",
     "ironlab.ir.v0.Contour.color_scale",
@@ -295,7 +295,7 @@ pub fn named(name: ColormapName) -> Colormap {
 /// of every kind on the kinds that have them; and one scale that no artist uses. Every
 /// artist that takes a scale names one: scalar images of floats and of bytes, a filled
 /// contour with no levels of its own on the discrete scale, a contour with explicit levels,
-/// a scatter coloured by data and a surface in a three-dimensional axes.
+/// a series of markers coloured by data and a surface in a three-dimensional axes.
 ///
 /// The strict policies fall on data that cannot violate them, so the figure validates
 /// without issues.
@@ -532,13 +532,22 @@ pub fn color_scale_variants_figure() -> Figure {
     let id = b.node();
     b.push(
         contours,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             x: px,
             y: px,
-            color: ScatterColor::Data { data: classes },
+            line: LineStyle {
+                color: ColorSpec::Colormapped,
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            color_data: Some(classes),
             color_scale: Some(four),
-            ..Scatter::default()
+            ..Series::default()
         }),
     );
 
@@ -599,17 +608,12 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
         Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y } => [x, y],
     };
     match artist {
-        Artist::Line(a) => [a.x, a.y].into_iter().chain(a.z).collect(),
-        Artist::Scatter(a) => {
-            let mut refs: Vec<NodeId> = [a.x, a.y].into_iter().chain(a.z).collect();
-            if let ScatterSize::Data { data } = a.size {
-                refs.push(data);
-            }
-            if let ScatterColor::Data { data } = a.color {
-                refs.push(data);
-            }
-            refs
-        }
+        Artist::Series(a) => [a.x, a.y]
+            .into_iter()
+            .chain(a.z)
+            .chain(a.size_data)
+            .chain(a.color_data)
+            .collect(),
         Artist::Contour(a) => grid(&a.grid).into_iter().chain([a.z]).collect(),
         Artist::Quiver(a) => [a.x, a.y]
             .into_iter()
@@ -639,23 +643,12 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
         }
     }
     match artist {
-        Artist::Line(a) => [&mut a.x, &mut a.y]
+        Artist::Series(a) => [&mut a.x, &mut a.y]
             .into_iter()
             .chain(a.z.as_mut())
+            .chain(a.size_data.as_mut())
+            .chain(a.color_data.as_mut())
             .collect(),
-        Artist::Scatter(a) => {
-            let mut refs: Vec<&mut NodeId> = [&mut a.x, &mut a.y]
-                .into_iter()
-                .chain(a.z.as_mut())
-                .collect();
-            if let ScatterSize::Data { data } = &mut a.size {
-                refs.push(data);
-            }
-            if let ScatterColor::Data { data } = &mut a.color {
-                refs.push(data);
-            }
-            refs
-        }
         Artist::Contour(a) => grid(&mut a.grid).into_iter().chain([&mut a.z]).collect(),
         Artist::Quiver(a) => [&mut a.x, &mut a.y]
             .into_iter()
@@ -735,11 +728,11 @@ pub fn single_line_figure() -> (Figure, NodeId, NodeId) {
     let line = b.node();
     b.push(
         axes,
-        Artist::Line(Line {
+        Artist::Series(Series {
             id: line,
             x,
             y,
-            ..Line::default()
+            ..Series::default()
         }),
     );
     (b.build(), axes, line)
@@ -1143,7 +1136,7 @@ pub fn kitchen_sink_figure() -> Figure {
         let id = b.node();
         b.push(
             lines,
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id,
                 label: Some(Text::new(format!("series ${k}$"))),
                 visible: k % 2 == 0,
@@ -1161,6 +1154,9 @@ pub fn kitchen_sink_figure() -> Figure {
                     face: color_specs[(k + 1) % color_specs.len()],
                     edge: color_specs[(k + 2) % color_specs.len()],
                 },
+                size_data: None,
+                color_data: None,
+                color_scale: None,
                 x_coords: coords[k % coords.len()].0,
                 y_coords: coords[k % coords.len()].1,
                 clip: k % 2 == 0,
@@ -1168,7 +1164,8 @@ pub fn kitchen_sink_figure() -> Figure {
         );
     }
 
-    // Axes 2: 2D scatter with both size and both colour variants.
+    // Axes 2: 2D series of markers without a line, of fixed size and colour and sized and
+    // coloured by data.
     let scatters = b.axes2d(0, 1);
     b.axes(scatters).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthWest,
@@ -1180,24 +1177,28 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         scatters,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             label: None,
             visible: true,
             x: t,
             y: t,
             z: None,
-            size: ScatterSize::Scalar { value: 6.0 },
-            color: ScatterColor::Spec {
-                spec: ColorSpec::Rgba {
+            line: LineStyle {
+                color: ColorSpec::Rgba {
                     color: Color::BLACK,
                 },
+                dash: DashStyle::None,
+                ..LineStyle::default()
             },
-            color_scale: None,
             marker: MarkerStyle {
                 shape: MarkerShape::Diamond,
+                size_pt: 6.0,
                 ..MarkerStyle::default()
             },
+            size_data: None,
+            color_data: None,
+            color_scale: None,
             x_coords: Coords::Data,
             y_coords: Coords::AxesFraction,
             clip: false,
@@ -1206,14 +1207,23 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         scatters,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             x: t,
             y: t_nan,
-            size: ScatterSize::Data { data: sizes },
-            color: ScatterColor::Data { data: colours },
+            line: LineStyle {
+                color: ColorSpec::Colormapped,
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            size_data: Some(sizes),
+            color_data: Some(colours),
             color_scale: Some(scatter_scale),
-            ..Scatter::default()
+            ..Series::default()
         }),
     );
 
@@ -1323,23 +1333,31 @@ pub fn kitchen_sink_figure() -> Figure {
     let id = b.node();
     b.push(
         three,
-        Artist::Line(Line {
+        Artist::Series(Series {
             id,
             x: t,
             y: t,
             z: Some(t_nan),
-            ..Line::default()
+            ..Series::default()
         }),
     );
     let id = b.node();
     b.push(
         three,
-        Artist::Scatter(Scatter {
+        Artist::Series(Series {
             id,
             x: t,
             y: t,
             z: Some(t),
-            ..Scatter::default()
+            line: LineStyle {
+                dash: DashStyle::None,
+                ..LineStyle::default()
+            },
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            ..Series::default()
         }),
     );
     let id = b.node();
@@ -1596,12 +1614,12 @@ pub fn kitchen_sink_figure() -> Figure {
         auto_listed_line = id;
         b.push(
             axes,
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id,
                 label: Some(Text::plain(name)),
                 x: t,
                 y: t_nan,
-                ..Line::default()
+                ..Series::default()
             }),
         );
     }
@@ -1945,15 +1963,9 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
         for (k, artist) in axes.artists.iter_mut().enumerate() {
             let at = |field: &str| format!("axes[{a}].artists[{k}].{field}");
             match artist {
-                Artist::Line(line) => {
-                    visit(at("line.width_pt"), &mut line.line.width_pt);
-                    visit(at("marker.size_pt"), &mut line.marker.size_pt);
-                }
-                Artist::Scatter(scatter) => {
-                    if let ScatterSize::Scalar { value } = &mut scatter.size {
-                        visit(at("size.value"), value);
-                    }
-                    visit(at("marker.size_pt"), &mut scatter.marker.size_pt);
+                Artist::Series(series) => {
+                    visit(at("line.width_pt"), &mut series.line.width_pt);
+                    visit(at("marker.size_pt"), &mut series.marker.size_pt);
                 }
                 Artist::Contour(contour) => {
                     if let Some(Levels::Explicit { values }) = &mut contour.levels {

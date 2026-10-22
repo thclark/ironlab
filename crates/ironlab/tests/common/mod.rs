@@ -31,17 +31,10 @@ pub fn parent(fig: &Figure, id: NodeId) -> &Axes {
         .unwrap_or_else(|| panic!("{id} is not an artist"))
 }
 
-pub fn line(fig: &Figure, id: NodeId) -> &ir::Line {
+pub fn series(fig: &Figure, id: NodeId) -> &ir::Series {
     match artist(fig, id) {
-        Artist::Line(a) => a,
-        other => panic!("expected a line, found {other:?}"),
-    }
-}
-
-pub fn scatter(fig: &Figure, id: NodeId) -> &ir::Scatter {
-    match artist(fig, id) {
-        Artist::Scatter(a) => a,
-        other => panic!("expected a scatter, found {other:?}"),
+        Artist::Series(a) => a,
+        other => panic!("expected a series, found {other:?}"),
     }
 }
 

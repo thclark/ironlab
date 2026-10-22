@@ -39,7 +39,7 @@
 //! - A tagged domain enum is a message with a single oneof named `kind`, whose
 //!   variants are messages named after the enum and the variant, so that a variant can
 //!   gain fields in a later version without changing the others. This holds even where
-//!   a variant holds a single scalar, as in `ScatterSizeScalar` and in the variants of
+//!   a variant holds a single scalar, as in `QuiverScaleFactor` and in the variants of
 //!   a figure `Parameter` (such as `ParameterNumber`, whose field `value` holds the
 //!   number), so that every tagged entity is read in the same way.
 //! - No field, oneof or oneof variant is named with a keyword of a language for which
@@ -94,10 +94,9 @@
 //! - every identifier that refers to a node and is not optional in the domain: the
 //!   identifier of the figure, of each data array, of each colour scale, of each axes,
 //!   of each artist and of each panel, the panel that the legend of an axes names, the x
-//!   and y data of a line, scatter or quiver, the u and v data of a quiver, the z data
-//!   of a contour or surface, the grid of a contour or surface (its kind and both of its
-//!   coordinate arrays), the data of per-point scatter sizes and colours, and the pixels
-//!   or values of an image. Zero is a valid identifier, so substituting it would
+//!   and y data of a series or quiver, the u and v data of a quiver, the z data of a
+//!   contour or surface, the grid of a contour or surface (its kind and both of its
+//!   coordinate arrays), and the pixels or values of an image. Zero is a valid identifier, so substituting it would
 //!   silently attach an artist to the wrong data;
 //! - the bounds of manual limits, the step and origin of regularly stepped ticks, the
 //!   factor of a quiver scale, the number of a fixed
@@ -112,9 +111,10 @@
 //!   [`ProtobufError::InvalidValue`](crate::ProtobufError::InvalidValue) like any other
 //!   path that is not valid.
 //!
-//! Optional references and values (the z data of a line, scatter or quiver, the w data
-//! of a quiver, the colour data and the face and edge alpha of a surface, the alpha of
-//! a scalar image, the colour scale of a scalar image, contour, surface or scatter, the
+//! Optional references and values (the z data of a series or quiver, the size and
+//! colour data of a series, the w data of a quiver, the colour data and the face and
+//! edge alpha of a surface, the alpha of a scalar image, the colour scale of a scalar
+//! image, contour, surface or series, the
 //! levels of a contour, the pixel ranges and plane offset of an image, the title of a
 //! colour scale, and the name of a data array) are absent in the domain when they are
 //! absent on the wire, and the encoder

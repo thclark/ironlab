@@ -43,10 +43,9 @@
 //!   of 1 and no pan.
 //! - A line style is a solid 0.75 pt line in the automatic colour, and a marker style
 //!   has no shape, a size of 4 pt, no face colour and the automatic edge colour.
-//! - A scatter uses circles of 4 pt in the automatic colour; a contour takes the
-//!   levels of its colour scale and draws them as colormapped, unfilled isolines in the
-//!   bottom plane; a quiver
-//!   scales arrows automatically with heads of 0.3 of the arrow length; a surface has
+//! - A series draws a line in the line style's defaults, without markers, size or
+//!   colour data; a contour takes the levels of its colour scale and draws them as
+//!   colormapped, unfilled isolines in the bottom plane; a quiver scales arrows automatically with heads of 0.3 of the arrow length; a surface has
 //!   colormapped faces and black edges 0.5 pt wide.
 //! - An image of either kind lies in the xy plane (the floor of a three-dimensional
 //!   axes, at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each
@@ -88,8 +87,7 @@ pub mod wire;
 
 pub use artist::{
     Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels,
-    Line, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize,
-    Surface,
+    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Surface,
 };
 pub use axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,

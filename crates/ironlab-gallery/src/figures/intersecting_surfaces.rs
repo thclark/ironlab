@@ -58,7 +58,7 @@ pub fn figure() -> Figure {
         .line_width(1.2);
     ax.scatter3(&points_x, &points_y, &points_z)
         .color(Color::rgb(0.1, 0.1, 0.5))
-        .size(3.0)
+        .marker_size(3.0)
         .filled();
     ax.xlabel("$x$").ylabel("$y$").zlabel("$z$");
     fig

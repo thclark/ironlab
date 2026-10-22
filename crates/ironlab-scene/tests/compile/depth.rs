@@ -9,7 +9,7 @@
 
 use ironlab_ir::{
     Artist, ColorSpec, ContourPlacement, ImagePlane, Levels, Limits, MarkerShape, NodeId,
-    QuiverScale, ScatterColor, Surface, View3d,
+    QuiverScale, Surface, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
@@ -631,28 +631,68 @@ fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
     }
 }
 
-// WHY: a line is depth-tested along its length, so each run must carry one depth per point, interpolated between
-// them, and those depths must be the ones the hit map reports for the same points, otherwise picking would name a
-// point at one depth while the buffer drew it at another. A gap in the data makes two runs, each with the depths of
-// its own points in point order, and a run that borrowed the depths of the other would be drawn slanted.
+/// The stroked path leaves of an artist, which for a line in a 3D axes are its segments.
+fn stroked_leaves(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
+    from_source(leaves, id)
+        .into_iter()
+        .filter(|l| l.path().is_some_and(|p| p.stroke.is_some()))
+        .collect()
+}
+
+/// Checks that a segment item of a 3D line is one straight stroke whose two vertices are drawn points of the line,
+/// each carrying the depth that the hit map reports for its point, and returns the source indices of the two points
+/// in increasing order.
+#[track_caller]
+fn segment_ends(segment: &Leaf, samples: &[Sample]) -> (usize, usize) {
+    let depths = vertex_depths(segment, "a line segment");
+    let vertices = segment.endpoints();
+    assert_eq!(
+        vertices.len(),
+        2,
+        "a segment is one straight stroke between two points: {segment:?}"
+    );
+    assert_eq!(depths.len(), 2, "a segment carries one depth per end");
+    let mut ends = Vec::new();
+    for (v, d) in vertices.iter().zip(&depths) {
+        let at = segment.transform.apply(*v);
+        let sample = samples
+            .iter()
+            .find(|s| points_close(s.position, at, 1e-6))
+            .unwrap_or_else(|| panic!("the vertex at {at:?} is a drawn point of the line"));
+        assert_eq!(
+            *d, sample.depth,
+            "the depth of point {} is its sample's",
+            sample.source_index
+        );
+        ends.push(sample.source_index);
+    }
+    (ends[0].min(ends[1]), ends[0].max(ends[1]))
+}
+
+// WHY: a line is depth-ordered segment by segment (#19), so that where it passes through a surface the part behind
+// is painted before the surface and the part in front after it. Each segment must therefore be an item of its own
+// carrying one depth per end, and those depths must be the ones the hit map reports for the same points, otherwise
+// picking would name a point at one depth while the buffer drew it at another. A gap in the data breaks the line, so
+// no segment may join the points on either side of it, and between them the segments join every pair of
+// consecutive drawn points of a run exactly once.
 #[test]
-fn a_line_run_carries_one_depth_per_point_equal_to_the_depths_of_its_samples() {
+fn each_segment_of_a_line_carries_the_depths_of_its_two_points_and_none_bridges_a_gap() {
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
     let (x, y, z) = (
-        [-0.8, -0.2, 0.3, 0.7, 0.9],
-        [0.5, -0.4, f64::NAN, 0.6, -0.7],
-        [-0.4, 0.2, 0.0, 0.6, 0.1],
+        [-0.8, -0.2, 0.3, 0.7, 0.9, 0.1],
+        [0.5, -0.4, f64::NAN, 0.6, -0.7, 0.2],
+        [-0.4, 0.2, 0.0, 0.6, 0.1, -0.5],
     );
-    let line = fx.line(ax, &x, &y, Some(&z), |_| {});
+    let line = fx.series(ax, &x, &y, Some(&z), |_, _| {});
     manual_unit_limits(&mut fx, ax);
     let scene = compile_figure(&fx.build());
 
     let samples = samples_of(&scene, line);
     assert_eq!(
         samples.iter().map(|s| s.source_index).collect::<Vec<_>>(),
-        vec![0, 1, 3, 4],
-        "the four placeable points are drawn"
+        vec![0, 1, 3, 4, 5],
+        "the five placeable points are drawn"
     );
     for s in samples {
         assert_close(
@@ -662,46 +702,15 @@ fn a_line_run_carries_one_depth_per_point_equal_to_the_depths_of_its_samples() {
         );
     }
 
-    let runs = from_source(&leaves(&scene), line);
+    let mut joined: Vec<(usize, usize)> = stroked_leaves(&leaves(&scene), line)
+        .iter()
+        .map(|segment| segment_ends(segment, samples))
+        .collect();
+    joined.sort_unstable();
     assert_eq!(
-        runs.len(),
-        2,
-        "the gap splits the line into two runs: {runs:?}"
-    );
-    let mut matched = Vec::new();
-    for run in &runs {
-        let depths = vertex_depths(run, "a line run");
-        let vertices = run.endpoints();
-        assert_eq!(
-            depths.len(),
-            vertices.len(),
-            "one depth per point of the run"
-        );
-        let mut indices = Vec::new();
-        for (v, d) in vertices.iter().zip(&depths) {
-            let at = run.transform.apply(*v);
-            let sample = samples
-                .iter()
-                .find(|s| points_close(s.position, at, 1e-6))
-                .unwrap_or_else(|| panic!("the vertex at {at:?} is a drawn point of the line"));
-            assert_eq!(
-                *d, sample.depth,
-                "the depth of point {} is its sample's",
-                sample.source_index
-            );
-            indices.push(sample.source_index);
-        }
-        assert!(
-            indices.windows(2).all(|w| w[0] < w[1]),
-            "the depths follow the points in order: {indices:?}"
-        );
-        matched.extend(indices);
-    }
-    matched.sort();
-    assert_eq!(
-        matched,
-        vec![0, 1, 3, 4],
-        "between them the runs carry every drawn point once"
+        joined,
+        vec![(0, 1), (3, 4), (4, 5)],
+        "one segment joins each pair of consecutive drawn points of a run, and none crosses the gap"
     );
 }
 
@@ -1375,9 +1384,8 @@ fn a_scatter_coloured_by_data_gives_each_remaining_marker_the_depth_of_its_own_p
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
     let scatter = fx.scatter(ax, &x, &y, Some(&z), |s, fx| {
-        s.color = ScatterColor::Data {
-            data: fx.vector(&values),
-        };
+        s.color_data = Some(fx.vector(&values));
+        s.line.color = ColorSpec::Colormapped;
     });
     manual_unit_limits(&mut fx, ax);
     let scene = compile_figure(&fx.build());
@@ -1403,11 +1411,12 @@ fn a_scatter_coloured_by_data_gives_each_remaining_marker_the_depth_of_its_own_p
     }
 }
 
-// WHY: a line longer than its plot resolves is thinned before it is drawn, so the depths a run carries must be
-// those of the points that survived, as the hit map reports them, and not of the raw series at the same positions
-// in the array; a run that took the depths of the raw series would drift along the curve as the view changed.
+// WHY: a line longer than its plot resolves is thinned before it is drawn, so its segments must join the points
+// that survived, in order, and carry their depths as the hit map reports them, not the depths of the raw series at
+// the same positions in the array; a segment that took the depths of the raw series would drift along the curve as
+// the view changed.
 #[test]
-fn a_thinned_line_run_carries_the_depths_of_the_points_that_survived() {
+fn the_segments_of_a_thinned_line_join_the_surviving_points_and_carry_their_depths() {
     let n = 5000;
     let t: Vec<f64> = (0..n).map(|i| i as f64 / (n - 1) as f64).collect();
     let x: Vec<f64> = t.iter().map(|t| 0.9 * (12.0 * t).cos()).collect();
@@ -1415,7 +1424,7 @@ fn a_thinned_line_run_carries_the_depths_of_the_points_that_survived() {
     let z: Vec<f64> = t.iter().map(|t| 2.0 * t - 1.0).collect();
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
-    let line = fx.line(ax, &x, &y, Some(&z), |_| {});
+    let line = fx.series(ax, &x, &y, Some(&z), |_, _| {});
     manual_unit_limits(&mut fx, ax);
     let scene = compile_figure(&fx.build());
 
@@ -1425,35 +1434,20 @@ fn a_thinned_line_run_carries_the_depths_of_the_points_that_survived() {
         "the series is thinned: {} of {n} points are drawn",
         samples.len()
     );
-    let runs = from_source(&leaves(&scene), line);
-    assert!(!runs.is_empty(), "the line is drawn");
-    let mut drawn = 0;
-    for run in &runs {
-        let depths = vertex_depths(run, "a thinned run");
-        let vertices = run.endpoints();
-        assert_eq!(
-            depths.len(),
-            vertices.len(),
-            "one depth per surviving point"
-        );
-        for (v, d) in vertices.iter().zip(&depths) {
-            let at = run.transform.apply(*v);
-            let sample = samples
-                .iter()
-                .find(|s| points_close(s.position, at, 1e-6))
-                .unwrap_or_else(|| panic!("the vertex at {at:?} is a surviving point"));
-            assert_eq!(
-                *d, sample.depth,
-                "the depth of point {} is its sample's",
-                sample.source_index
-            );
-            drawn += 1;
-        }
-    }
+    let mut joined: Vec<(usize, usize)> = stroked_leaves(&leaves(&scene), line)
+        .iter()
+        .map(|segment| segment_ends(segment, samples))
+        .collect();
+    joined.sort_unstable();
+    // The helix lies inside the limits and holds no gap, so it is one run, and its surviving points are recorded in
+    // source order.
+    let expected: Vec<(usize, usize)> = samples
+        .windows(2)
+        .map(|pair| (pair[0].source_index, pair[1].source_index))
+        .collect();
     assert_eq!(
-        drawn,
-        samples.len(),
-        "between them the runs carry every surviving point once"
+        joined, expected,
+        "one segment joins each pair of consecutive surviving points"
     );
 }
 

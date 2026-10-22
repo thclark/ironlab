@@ -9,10 +9,12 @@ use std::sync::Arc;
 
 use ironlab_ir::{
     Artist, Axes, ColorSpec, Contour, ContourPlacement, Coords as ArtistCoords, DashStyle, Levels,
-    Line, NodeId, Quiver, Scatter, ScatterSize, Surface, View3d,
+    NodeId, Quiver, Series, Surface, View3d,
 };
 
-use crate::display::{Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Transform};
+use crate::display::{
+    Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Stroke, Transform,
+};
 use crate::hit::{ArtistHit, AxisMap, ImageHit};
 use crate::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
@@ -23,7 +25,7 @@ use crate::maths::decimate::{self, Sample};
 use crate::maths::{polygon, quiver};
 
 use super::Ctx;
-use super::data::{ArtistData, ImageData, Points, Prepared};
+use super::data::{ArtistData, ImageData, Points, Prepared, SeriesColours};
 use super::decor::Decor;
 use super::image;
 use super::limits::Range;
@@ -200,7 +202,7 @@ pub(crate) type Prim = (f64, Item);
 pub(crate) struct Drawn {
     /// The items, tagged with the depths at which a 3D axes sorts them.
     pub prims: Vec<Prim>,
-    /// The points each line and scatter drew, for picking and datatips.
+    /// The points each series drew, for picking and datatips.
     pub hits: Vec<ArtistHit>,
     /// The placement of each image drawn in a 2D axes, for finding the pixel under a pointer.
     pub images: Vec<ImageHit>,
@@ -217,8 +219,8 @@ pub(crate) struct Drawn {
 struct Draw<'a, 'f> {
     /// The compilation, to which an artist skipped while it is drawn is reported.
     ctx: &'a mut Ctx<'f>,
-    /// The mapping of the artist being drawn: the axes' own, or a blend of it with the plot area for a line or
-    /// scatter that places a dimension in axes-fraction coordinates.
+    /// The mapping of the artist being drawn: the axes' own, or a blend of it with the plot area for a series that
+    /// places a dimension in axes-fraction coordinates.
     space: Space<'a>,
     /// The colour scales of the figure, through which artists map their numbers to colours.
     scales: &'a ColourScales<'a>,
@@ -280,7 +282,7 @@ impl Draw<'_, '_> {
 
 /// Draws every visible artist of an axes in artist order.
 ///
-/// Returns the items tagged with their depths, the drawn points of every line and scatter, each carrying the index
+/// Returns the items tagged with their depths, the drawn points of every series, each carrying the index
 /// it has in the artist's data arrays, the placement of every image drawn in a 2D axes, and the cell count of every
 /// artist a backend may rasterise. An artist that cannot be drawn after all (an image whose corners cannot be
 /// placed) is reported to `ctx` with a warning naming it.
@@ -321,17 +323,14 @@ pub(super) fn draw_artists(
             placement.clip_rect(input.plot, input.page)
         };
         match (prepared.artist, data) {
-            (Artist::Line(line), ArtistData::Line(points)) => {
-                draw_line(&mut draw, line, points, *primary)
-            }
             (
-                Artist::Scatter(scatter),
-                ArtistData::Scatter {
+                Artist::Series(series),
+                ArtistData::Series {
                     points,
                     sizes,
                     colours,
                 },
-            ) => draw_scatter(&mut draw, scatter, points, sizes, colours, *primary),
+            ) => draw_series(&mut draw, series, points, sizes, colours, *primary),
             (Artist::Contour(c), ArtistData::Contour(grid)) => draw_contour(&mut draw, c, &grid),
             (
                 Artist::Quiver(q),
@@ -371,7 +370,7 @@ pub(super) fn draw_artists(
     }
 }
 
-/// How a line or scatter is placed in a 2D axes: the coordinates of its x and y values and whether its clipping is
+/// How a series is placed in a 2D axes: the coordinates of its x and y values and whether its clipping is
 /// released along the dimensions it places as fractions of the plot area. Every other artist places data along every
 /// dimension and is clipped.
 #[derive(Clone, Copy)]
@@ -383,13 +382,9 @@ pub(crate) struct Placement {
 impl Placement {
     pub fn of(artist: &Artist) -> Self {
         match artist {
-            Artist::Line(line) => Self {
-                coords: [line.x_coords, line.y_coords],
-                clip: line.clip,
-            },
-            Artist::Scatter(scatter) => Self {
-                coords: [scatter.x_coords, scatter.y_coords],
-                clip: scatter.clip,
+            Artist::Series(series) => Self {
+                coords: [series.x_coords, series.y_coords],
+                clip: series.clip,
             },
             _ => Self {
                 coords: [ArtistCoords::Data; 2],
@@ -643,122 +638,318 @@ fn line_stroke(
     Some(paths::stroke(colour, width, dash))
 }
 
-/// Draws a polyline through the finite points of a line, followed by its markers.
+/// The longest a piece of a gradient segment may be, in points, unless the segment has [`MAX_GRADIENT_PIECES`]
+/// pieces: a few device pixels at print resolution, so that the seams between pieces cannot be seen.
+const MAX_GRADIENT_PIECE_PT: f64 = 1.0;
+
+/// The most pieces one gradient segment is cut into: no colormap holds more distinguishable colours than this along
+/// one segment, and the bound keeps a very long segment from costing thousands of paths.
+const MAX_GRADIENT_PIECES: usize = 256;
+
+/// Returns the number of pieces of one colour into which a gradient segment `length` points long on the page is
+/// cut, which depends on nothing else, so that a figure is reproducible and a larger figure is cut more finely.
 ///
-/// The polyline of each run is thinned by [`decimate::largest_triangle_three_buckets`] and the
-/// markers by [`decimate::bin`], so a series far denser than the plot rectangle can resolve costs
-/// only what the view can show.
-fn draw_line(draw: &mut Draw, line: &Line, points: Points, primary: Paint) {
-    let colour = primary.single(style::viridis_middle());
-    let mut drawn: Vec<Sample> = Vec::new();
-    if let Some(stroke) = line_stroke(&line.line, colour) {
-        let clip = expand(draw.clip, stroke.width);
-        let runs: Vec<Vec<Sample>> =
-            mapped_runs(&draw.space, (0..points.len()).map(|i| points.get(i)))
-                .into_iter()
-                .flat_map(|run| thin_polyline(run, draw.target, clip))
-                .collect();
-        drawn.extend(runs.iter().flatten().copied());
-        if draw.space.is_3d() {
-            for run in runs {
-                let mut b = PathBuilder::new();
-                b.polyline(&positions(&run), false);
-                let item = paths::item(line.id, b.finish(), None, Some(stroke.clone()));
-                draw.push_at(mean_depth(&run), item, || Depth::Vertices(depths(&run)));
-            }
+/// The pieces are of equal length: a segment no longer than [`MAX_GRADIENT_PIECE_PT`] is one piece, and a longer
+/// one is cut into the fewest pieces no longer than that, at most [`MAX_GRADIENT_PIECES`]. A segment of length
+/// `L > 1` pt is then cut into `⌈L⌉` pieces of `L / ⌈L⌉ ≥ L / (L + 1) > 0.5` pt, so that no piece is shorter than
+/// half a point unless its segment is a single piece.
+fn gradient_pieces(length: f64) -> usize {
+    if !(length.is_finite() && length > MAX_GRADIENT_PIECE_PT) {
+        return 1;
+    }
+    // The length is finite and positive, and the cast saturates, so the clamp bounds any value.
+    ((length / MAX_GRADIENT_PIECE_PT).ceil() as usize).clamp(1, MAX_GRADIENT_PIECES)
+}
+
+/// Returns the straight sRGB interpolation from `a` to `b` at `t`, alpha included.
+fn mix(a: Rgba, b: Rgba, t: f64) -> Rgba {
+    let t = t as f32;
+    let at = |p: f32, q: f32| p + (q - p) * t;
+    Rgba::new(at(a.r, b.r), at(a.g, b.g), at(a.b, b.b), at(a.a, b.a))
+}
+
+/// Returns whether a dash pattern, run from its start, is on (drawing) at `distance` along the line; a solid line,
+/// whose pattern is empty, is on everywhere.
+fn dash_on(dash: &[f64], distance: f64) -> bool {
+    let period: f64 = dash.iter().sum();
+    if !(period.is_finite() && period > 0.0) {
+        return true;
+    }
+    let mut phase = distance.rem_euclid(period);
+    for (k, &length) in dash.iter().enumerate() {
+        if phase < length {
+            return k % 2 == 0;
+        }
+        phase -= length;
+    }
+    true
+}
+
+/// The colours of one segment of a line drawn segment by segment.
+#[derive(Clone, Copy)]
+struct SegmentPaint {
+    /// The colour at the segment's first point.
+    from: Rgba,
+    /// The colour at the segment's second point.
+    to: Rgba,
+    /// Whether the segment is a gradient between the two colours, cut into pieces of one colour by
+    /// [`gradient_pieces`], rather than one stroke of the colour `from`.
+    gradient: bool,
+}
+
+/// Draws the line of a series segment by segment: each segment of each run is one stroke, or a run of pieces when it
+/// is a gradient, and in a 3D axes each piece is an item of its own, carrying the depths of its two ends and placed
+/// in the painter's order by its own depth, so that a line passing through a surface is drawn behind it and in front
+/// of it where it should be. `paint` gives the colours of the segment between two consecutive drawn points, or
+/// `None` for a segment that is not drawn.
+///
+/// Each stroke keeps the cap, width and dash array of `template`, with a dash offset equal to its distance from the
+/// start of its run, so that a dashed line keeps the rhythm of the same line drawn as one path. A corner between two
+/// drawn segments, which one path would join with a round join, is filled with a disc of the line's width in the
+/// colour at the corner, wherever the dash pattern is on there; the disc is painted before the segments in a 2D axes
+/// and just behind them in a 3D axes, so that it shows only outside the two segments, where the join would be.
+fn draw_segments(
+    draw: &mut Draw,
+    id: NodeId,
+    runs: &[Vec<Sample>],
+    template: &Stroke,
+    paint: impl Fn(&Sample, &Sample) -> Option<SegmentPaint>,
+) {
+    let period: f64 = template.dash.iter().sum();
+    let offset = |distance: f64| {
+        if template.dash.is_empty() || !(period.is_finite() && period > 0.0) {
+            0.0
         } else {
-            let mut b = PathBuilder::new();
-            for run in &runs {
-                b.polyline(&positions(run), false);
+            distance.rem_euclid(period)
+        }
+    };
+    let mut joins: Vec<(Sample, Rgba)> = Vec::new();
+    let mut pieces: Vec<(Sample, Sample, Rgba, f64)> = Vec::new();
+    for run in runs {
+        let mut distance = 0.0;
+        let mut previous: Option<Rgba> = None;
+        for pair in run.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let length = (b.position.x - a.position.x).hypot(b.position.y - a.position.y);
+            let segment = paint(&a, &b);
+            if let (Some(corner), Some(_)) = (previous, segment)
+                && dash_on(&template.dash, distance)
+            {
+                joins.push((a, corner));
             }
-            draw.push(0.0, paths::item(line.id, b.finish(), None, Some(stroke)));
+            if let Some(segment) = segment {
+                let n = if segment.gradient {
+                    gradient_pieces(length)
+                } else {
+                    1
+                };
+                // The ends of a piece are computed from the same parameter on either side, and the ends of the
+                // segment are its points exactly, so that pieces meet without gap or overlap and a segment carries
+                // exactly the depths of its points.
+                let at = |j: usize| {
+                    if j == 0 {
+                        return a;
+                    }
+                    if j == n {
+                        return b;
+                    }
+                    let t = j as f64 / n as f64;
+                    Sample {
+                        source_index: a.source_index,
+                        position: Point::new(
+                            a.position.x + (b.position.x - a.position.x) * t,
+                            a.position.y + (b.position.y - a.position.y) * t,
+                        ),
+                        depth: a.depth + (b.depth - a.depth) * t,
+                    }
+                };
+                for j in 0..n {
+                    let colour = if segment.gradient {
+                        mix(segment.from, segment.to, (j as f64 + 0.5) / n as f64)
+                    } else {
+                        segment.from
+                    };
+                    let start = distance + length * j as f64 / n as f64;
+                    pieces.push((at(j), at(j + 1), colour, start));
+                }
+            }
+            previous = segment.map(|segment| segment.to);
+            distance += length;
         }
     }
-    if let Some(outline) = style::marker_outline(line.marker.shape) {
-        let width = style::width_or(line.line.width_pt, 0.75).clamp(0.5, 1.5);
-        let samples = mapped_samples(&draw.space, (0..points.len()).map(|i| points.get(i)));
-        let samples = thin_markers(samples, draw.target, line.marker.size_pt, draw.clip);
+    for (corner, colour) in joins {
+        let mut b = PathBuilder::new();
+        b.circle(corner.position, template.width / 2.0);
+        let item = paths::item(id, b.finish(), Some(paths::fill(colour)), None);
+        let depth = corner.depth - EDGE_DEPTH_LIFT;
+        draw.push_at(depth, item, || Depth::Plane(DepthPlane::constant(depth)));
+    }
+    for (a, b, colour, start) in pieces {
+        let mut builder = PathBuilder::new();
+        builder.polyline(&[a.position, b.position], false);
+        let stroke = Stroke {
+            color: colour,
+            dash_offset: offset(start),
+            ..template.clone()
+        };
+        let item = paths::item(id, builder.finish(), None, Some(stroke));
+        draw.push_at((a.depth + b.depth) / 2.0, item, || {
+            Depth::Vertices(vec![a.depth, b.depth])
+        });
+    }
+}
+
+/// Draws a series: the line through its placeable points, when it draws one, followed by its markers.
+///
+/// The line of each run is thinned by [`decimate::largest_triangle_three_buckets`] and the markers by
+/// [`decimate::bin`], so a series far denser than the plot rectangle can resolve costs only what the view can show;
+/// a thinned segment joins two kept points, and every colour is read at the source index of its point or segment.
+///
+/// A line of one colour in a 2D axes is one stroked path with a subpath per run, exactly as the line that a series
+/// replaced. Any other line is drawn segment by segment by [`draw_segments`]: a colour-mapped line with one colour
+/// value per point strokes each segment as a gradient between the colours of its two points, one with a value per
+/// segment strokes each segment in the colour of its value (a thinned segment in that of the first source segment it
+/// replaces, the one leaving its first point), and every line of a 3D axes is depth-ordered segment by segment.
+///
+/// The colour of the series is its line colour (`primary`), which an automatic marker face or edge follows: with a
+/// colour-mapped line and one value per point, the colour of each point. A colormapped marker face or edge takes the
+/// colour of its point's value, and without colour data the colour of the series. A point whose colour value the
+/// scale draws nothing for (a non-finite value under the default transparent policy) is not drawn: it has no marker,
+/// and it breaks the line, so neither segment that meets it is drawn. A series that draws a line strokes its marker
+/// edges at its line width held to 0.5–1.5 pt, and one that draws no line at 0.5 pt, as the line and the scatter that
+/// a series replaced did.
+fn draw_series(
+    draw: &mut Draw,
+    series: &Series,
+    points: Points,
+    sizes: Option<&[f64]>,
+    colours: Option<SeriesColours>,
+    primary: Paint,
+) {
+    // The data stage lets colour data through only with a colour scale to map it.
+    let scale = series.color_scale.and_then(|id| draw.scales.get(id));
+    let map_all = |values: &[f64]| -> Vec<Option<Rgba>> {
+        values
+            .iter()
+            .map(|&value| scale.and_then(|scale| scale.colour(value)))
+            .collect()
+    };
+    let (point_colours, segment_colours) = match colours {
+        Some(SeriesColours::PerPoint(values)) => (Some(map_all(values)), None),
+        Some(SeriesColours::PerSegment(values)) => (None, Some(map_all(values))),
+        None => (None, None),
+    };
+    let own = primary.single(style::viridis_middle());
+    let mapped_line = series.line.color == ColorSpec::Colormapped;
+    // The colour of the series at a point, which an automatic marker colour follows.
+    let series_colour = |i: usize| match &point_colours {
+        Some(colours) if mapped_line => colours[i],
+        _ => own,
+    };
+    let part = |spec: ColorSpec, i: usize| match spec {
+        ColorSpec::Auto => series_colour(i),
+        ColorSpec::Colormapped => match &point_colours {
+            Some(colours) => colours[i],
+            None => series_colour(i),
+        },
+        ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+        ColorSpec::None => None,
+    };
+    // A point whose colour the scale draws nothing for cannot be placed, so it breaks the line as a gap does.
+    let at = |i: usize| match &point_colours {
+        Some(colours) if colours[i].is_none() => [f64::NAN; 3],
+        _ => points.get(i),
+    };
+
+    let mut drawn: Vec<Sample> = Vec::new();
+    let template = series
+        .draws_line()
+        .then(|| line_stroke(&series.line, Some(Rgba::BLACK)))
+        .flatten();
+    if let Some(template) = template {
+        let clip = expand(draw.clip, template.width);
+        let runs: Vec<Vec<Sample>> = mapped_runs(&draw.space, (0..points.len()).map(at))
+            .into_iter()
+            .flat_map(|run| thin_polyline(run, draw.target, clip))
+            .collect();
+        drawn.extend(runs.iter().flatten().copied());
+        let solid = |colour: Option<Rgba>| {
+            colour.map(|colour| SegmentPaint {
+                from: colour,
+                to: colour,
+                gradient: false,
+            })
+        };
+        match (&point_colours, &segment_colours) {
+            (Some(colours), _) if mapped_line => {
+                draw_segments(draw, series.id, &runs, &template, |a, b| {
+                    Some(SegmentPaint {
+                        from: colours[a.source_index]?,
+                        to: colours[b.source_index]?,
+                        gradient: true,
+                    })
+                });
+            }
+            (_, Some(colours)) if mapped_line => {
+                draw_segments(draw, series.id, &runs, &template, |a, _| {
+                    solid(colours[a.source_index])
+                });
+            }
+            _ if draw.space.is_3d() => {
+                draw_segments(draw, series.id, &runs, &template, |_, _| solid(own));
+            }
+            _ => {
+                if let Some(colour) = own {
+                    let mut b = PathBuilder::new();
+                    for run in &runs {
+                        b.polyline(&positions(run), false);
+                    }
+                    let stroke = Stroke {
+                        color: colour,
+                        ..template
+                    };
+                    draw.push(0.0, paths::item(series.id, b.finish(), None, Some(stroke)));
+                }
+            }
+        }
+    }
+    if let Some(outline) = style::marker_outline(series.marker.shape) {
+        let edge_width = if series.draws_line() {
+            style::width_or(series.line.width_pt, 0.75).clamp(0.5, 1.5)
+        } else {
+            0.5
+        };
+        let size_at = |i: usize| sizes.map_or(series.marker.size_pt, |sizes| sizes[i]);
+        let samples = mapped_samples(&draw.space, (0..points.len()).map(at));
+        let smallest = samples
+            .iter()
+            .map(|s| size_at(s.source_index))
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .fold(f64::INFINITY, f64::min);
+        let samples = thin_markers(samples, draw.target, smallest, draw.clip);
         for s in &samples {
-            let instance = style::marker_instance(
-                &line.marker,
+            let i = s.source_index;
+            let instance = style::marker_instance_coloured(
                 &outline,
                 style::MarkerPlace {
                     position: s.position,
-                    size: line.marker.size_pt,
+                    size: size_at(i),
                     depth: s.depth,
-                    source_index: s.source_index,
+                    source_index: i,
                 },
-                colour,
+                part(series.marker.face, i),
+                part(series.marker.edge, i),
                 1.0,
             );
             draw.push(
                 s.depth,
-                instance.map(|instance| style::marker_item(line.id, &outline, width, instance)),
+                instance
+                    .map(|instance| style::marker_item(series.id, &outline, edge_width, instance)),
             );
         }
         drawn.extend(samples);
     }
-    draw.record(line.id, drawn);
-}
-
-/// Draws one marker per placeable point of a scatter, thinned by [`decimate::bin`] when the points
-/// outnumber what the plot rectangle can resolve.
-fn draw_scatter(
-    draw: &mut Draw,
-    scatter: &Scatter,
-    points: Points,
-    sizes: Option<&[f64]>,
-    colours: Option<&[f64]>,
-    primary: Paint,
-) {
-    let Some(outline) = style::marker_outline(scatter.marker.shape) else {
-        return;
-    };
-    let scalar_size = match scatter.size {
-        ScatterSize::Scalar { value } => value,
-        ScatterSize::Data { .. } => scatter.marker.size_pt,
-    };
-    let size_at = |i: usize| sizes.map_or(scalar_size, |s| s[i]);
-    // The data stage lets a scatter coloured by data through only with a colour scale to map it.
-    let scale = colours
-        .and(scatter.color_scale)
-        .and_then(|id| draw.scales.get(id));
-    let colour_at = |i: usize| colours.and_then(|values| scale?.colour(values[i]));
-    // A point whose colour value the colour scale draws nothing for is not drawn, so it takes no
-    // part in the binning either.
-    let drawable = (0..points.len()).filter(|i| colours.is_none() || colour_at(*i).is_some());
-    let samples: Vec<Sample> = drawable
-        .filter_map(|i| draw.space.sample(i, points.get(i)))
-        .collect();
-    let smallest = samples
-        .iter()
-        .map(|s| size_at(s.source_index))
-        .filter(|v| v.is_finite() && *v > 0.0)
-        .fold(f64::INFINITY, f64::min);
-    let samples = thin_markers(samples, draw.target, smallest, draw.clip);
-    for s in &samples {
-        let colour = match colours {
-            Some(_) => colour_at(s.source_index),
-            None => primary.single(style::viridis_middle()),
-        };
-        let instance = style::marker_instance(
-            &scatter.marker,
-            &outline,
-            style::MarkerPlace {
-                position: s.position,
-                size: size_at(s.source_index),
-                depth: s.depth,
-                source_index: s.source_index,
-            },
-            colour,
-            1.0,
-        );
-        draw.push(
-            s.depth,
-            instance.map(|instance| style::marker_item(scatter.id, &outline, 0.5, instance)),
-        );
-    }
-    draw.record(scatter.id, samples);
+    draw.record(series.id, drawn);
 }
 
 /// Returns the finite range of a field's values.

@@ -21,7 +21,7 @@ pub fn figure() -> Figure {
         .parameter("data_points", 1200)
         .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
-    ax.scatter3(&x, &y, &z).colors(&z).size(3.0).filled();
+    ax.scatter3(&x, &y, &z).color_data(&z).marker_size(3.0).filled();
     ax.xlabel("$x$")
         .ylabel("$y$")
         .zlabel(r"$\ln(1 + |z_3|)$")

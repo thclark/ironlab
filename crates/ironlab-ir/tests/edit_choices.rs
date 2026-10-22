@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 33] = [
+const WITH_CHOICES: [ValueType; 31] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -33,8 +33,6 @@ const WITH_CHOICES: [ValueType; 33] = [
     ValueType::DashStyle,
     ValueType::MarkerShape,
     ValueType::Coords,
-    ValueType::ScatterSize,
-    ValueType::ScatterColor,
     ValueType::Grid,
     ValueType::Levels,
     ValueType::ContourPlacement,
@@ -217,14 +215,6 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
             .unwrap_or_else(|| panic!("{value_type:?} offers {label:?}"))
             .value
     };
-    assert_eq!(
-        fresh(ValueType::ScatterSize, "Single size"),
-        Value::ScatterSize(ScatterSize::default())
-    );
-    assert_eq!(
-        fresh(ValueType::ScatterColor, "Single colour"),
-        Value::ScatterColor(ScatterColor::default())
-    );
     assert_eq!(
         fresh(ValueType::Levels, "Automatic"),
         Value::Levels(Levels::default())
@@ -409,22 +399,6 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             }),
             Value::ColorSpec(ColorSpec::None),
             Value::ColorSpec(ColorSpec::Colormapped),
-        ],
-    );
-    covered(
-        ValueType::ScatterSize,
-        vec![
-            Value::ScatterSize(ScatterSize::Scalar { value: 4.0 }),
-            Value::ScatterSize(ScatterSize::Data { data: NodeId(0) }),
-        ],
-    );
-    covered(
-        ValueType::ScatterColor,
-        vec![
-            Value::ScatterColor(ScatterColor::Spec {
-                spec: ColorSpec::Auto,
-            }),
-            Value::ScatterColor(ScatterColor::Data { data: NodeId(0) }),
         ],
     );
     covered(
@@ -651,15 +625,34 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
 /// the artist names one, written by hand per kind of node so that the test checks
 /// [`property_choices`] against the behaviour of the compiler rather than against itself.
 ///
-/// Each isoline of a contour is coloured by its own level, and each face of a surface by
-/// its colour data or by its height. Nowhere else does the IR hold a value to look a
-/// colour up by: the compiler paints a colormapped line, quiver or single scatter colour
-/// in the middle colour of viridis, and draws a colormapped marker in the colour of the
-/// plot it belongs to, exactly as an automatic one.
-fn colormap_indexed(kind: NodeKind) -> Vec<&'static str> {
+/// Each isoline of a contour is coloured by its own level, each face of a surface by its
+/// colour data or by its height, and a series with colour data colours its line by it
+/// and, when the data holds one value per point, its markers too. Nowhere else does the
+/// IR hold a value to look a colour up by: the compiler paints a colormapped quiver, or a
+/// colormapped colour of a series without colour data, in the middle colour of viridis.
+fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'static str> {
     match kind {
         NodeKind::Contour => vec!["line.color"],
         NodeKind::Surface => vec!["face", "edge"],
+        NodeKind::Series => {
+            let Some((_, Artist::Series(series))) = figure.artist(node) else {
+                return vec![];
+            };
+            let length = |id: NodeId| {
+                figure
+                    .data
+                    .iter()
+                    .find(|data| data.id == id)
+                    .map(|data| data.array.len())
+            };
+            match series.color_data {
+                None => vec![],
+                Some(colors) if length(colors) == length(series.x) => {
+                    vec!["line.color", "marker.face", "marker.edge"]
+                }
+                Some(_) => vec!["line.color"],
+            }
+        }
         _ => vec![],
     }
 }
@@ -733,9 +726,9 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
         match artist {
             Artist::Contour(a) => a.color_scale = None,
             Artist::Surface(a) => a.color_scale = None,
-            Artist::Scatter(a) => a.color_scale = None,
+            Artist::Series(a) => a.color_scale = None,
             Artist::ScalarImage(a) => a.color_scale = None,
-            Artist::Line(_) | Artist::Quiver(_) | Artist::Image(_) => {}
+            Artist::Quiver(_) | Artist::Image(_) => {}
         }
     }
     figures.push(unscaled);
@@ -746,10 +739,11 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
                 .and_then(|(_, artist)| match artist {
                     Artist::Contour(a) => a.color_scale,
                     Artist::Surface(a) => a.color_scale,
+                    Artist::Series(a) => a.color_scale,
                     _ => None,
                 })
                 .is_some_and(|scale| figure.color_scales.iter().any(|s| s.id == scale));
-            let indexed = colormap_indexed(kind);
+            let indexed = colormap_indexed(&figure, node, kind);
             let paths = color_spec_paths(kind);
             assert!(
                 indexed
@@ -831,38 +825,71 @@ fn an_unavailable_choice_carries_a_reason_and_an_available_one_carries_none() {
 #[test]
 fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used() {
     let figure = representative_figures().remove(0);
-    let (line, kind) = nodes(&figure)
+    let line = nodes(&figure)
         .into_iter()
-        .find(|(_, kind)| *kind == NodeKind::Line)
-        .expect("a representative figure has a line");
-    assert_eq!(kind, NodeKind::Line);
+        .find(|&(node, kind)| {
+            kind == NodeKind::Series
+                && matches!(
+                    figure.artist(node),
+                    Some((_, Artist::Series(series))) if series.color_data.is_none()
+                )
+        })
+        .map(|(node, _)| node)
+        .expect("a representative figure has a series without colour data");
 
-    let reason = property_choices(&figure, line, &"line.color".parse().unwrap())
-        .into_iter()
-        .find(|choice| choice.label == "Colormapped")
-        .expect("a line lists the colormapped colour")
-        .unavailable
-        .expect("a line cannot be colormapped");
-    assert!(
-        reason.starts_with("A line is drawn in one colour and provides no value to look"),
-        "the reason must say what a line lacks: {reason}"
-    );
-    for available in ["surface", "isolines of a contour", "colour comes from data"] {
+    let reason_at = |figure: &Figure, node: NodeId, at: &str| {
+        property_choices(figure, node, &at.parse().unwrap())
+            .into_iter()
+            .find(|choice| choice.label == "Colormapped")
+            .unwrap_or_else(|| panic!("{at} lists the colormapped colour"))
+            .unavailable
+            .unwrap_or_else(|| panic!("{at} cannot be colormapped"))
+    };
+    for at in ["line.color", "marker.face"] {
+        let reason = reason_at(&figure, line, at);
         assert!(
-            reason.contains(available),
-            "the reason must send the user to {available:?}: {reason}"
+            reason.starts_with("This series has no colour data, so it provides no value to look"),
+            "the reason at {at} must say what the series lacks: {reason}"
         );
+        for available in [
+            "surface",
+            "isolines of a contour",
+            "series with colour data",
+        ] {
+            assert!(
+                reason.contains(available),
+                "the reason at {at} must send the user to {available:?}: {reason}"
+            );
+        }
     }
 
-    let marker = property_choices(&figure, line, &"marker.face".parse().unwrap())
-        .into_iter()
-        .find(|choice| choice.label == "Colormapped")
-        .expect("a marker lists the colormapped colour")
-        .unavailable
-        .expect("a marker cannot be colormapped");
+    // A marker of a series coloured per segment has no value at its point.
+    let mut b = common::FigureBuilder::new();
+    let axes = b.axes2d(0, 0);
+    let x = b.vector(&[0.0, 1.0, 2.0]);
+    let colours = b.vector(&[0.0, 1.0]);
+    let scale = b.color_scale(ColorScaleKind::default());
+    let id = b.node();
+    b.push(
+        axes,
+        Artist::Series(Series {
+            id,
+            x,
+            y: x,
+            color_data: Some(colours),
+            color_scale: Some(scale),
+            marker: MarkerStyle {
+                shape: MarkerShape::Circle,
+                ..MarkerStyle::default()
+            },
+            ..Series::default()
+        }),
+    );
+    let segmented = b.build();
+    let marker = reason_at(&segmented, id, "marker.edge");
     assert!(
-        marker.contains("takes the colour of the plot it belongs to"),
-        "a marker's reason must say where its colour comes from: {marker}"
+        marker.contains("one value per segment") && marker.contains("one value per point"),
+        "a marker's reason must say that its point has no value, and what would give it one: {marker}"
     );
 }
 
@@ -945,33 +972,41 @@ fn the_reason_clamping_is_unavailable_names_what_a_non_finite_value_lacks_and_wh
     );
 }
 
-// Why: a scatter coloured from data is the supported way to colour markers by value, and
-// it names the array to look the colour up by; marking the colormapped colour
-// specification unavailable must not touch it, or the scatter would appear to have lost
+// Why: a series coloured from data is the supported way to colour a line and markers by
+// value (#19, #44), so marking the colormapped colour unavailable where the IR has no
+// value must not touch a series that has one, or the series would appear to have lost
 // data colouring altogether.
 #[test]
-fn a_scatter_still_offers_its_colour_and_size_from_data() {
+fn a_series_with_colour_data_offers_a_colormapped_line_and_markers() {
+    let mut checked = 0;
     for figure in representative_figures() {
         for (node, kind) in nodes(&figure) {
-            if kind != NodeKind::Scatter {
+            let Some((_, Artist::Series(series))) = figure.artist(node) else {
+                continue;
+            };
+            assert_eq!(kind, NodeKind::Series);
+            if series.color_data.is_none() || series.color_scale.is_none() {
                 continue;
             }
-            for path in ["color", "size"] {
-                let offered = property_choices(&figure, node, &path.parse().unwrap());
-                assert_eq!(
-                    labels(&offered),
-                    match path {
-                        "color" => ["Single colour", "From data"],
-                        _ => ["Single size", "From data"],
-                    }
-                );
+            for at in ["line.color", "marker.face", "marker.edge"] {
+                let offered = property_choices(&figure, node, &at.parse().unwrap());
+                let colormapped = offered
+                    .iter()
+                    .find(|choice| choice.label == "Colormapped")
+                    .unwrap_or_else(|| panic!("{at} lists the colormapped colour"));
                 assert!(
-                    offered.iter().all(Choice::available),
-                    "a scatter's {path} lost a choice it can take: {offered:?}"
+                    colormapped.available(),
+                    "a series coloured by data lost the colormapped colour at {at}: {:?}",
+                    colormapped.unavailable
                 );
+                checked += 1;
             }
         }
     }
+    assert!(
+        checked > 0,
+        "the representative figures hold a series coloured by data"
+    );
 }
 
 // Why: the property editor asks for the choices of whatever it is showing, which a

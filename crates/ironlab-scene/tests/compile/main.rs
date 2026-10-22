@@ -25,6 +25,7 @@ mod markers;
 mod panel_legend;
 mod robustness;
 mod scales;
+mod series;
 mod surfaces_2d;
 mod three_d;
 mod ticks;

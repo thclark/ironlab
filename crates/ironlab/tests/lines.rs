@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{axes, data, has_error_at, is_3d, line, parent};
+use common::{axes, data, has_error_at, is_3d, parent, series};
 use ironlab::ir::{
     ColorSpec, DashStyle, Interpreter, IssueKind, LineStyle, MarkerShape, MarkerStyle, NdArray,
     Scale,
@@ -19,7 +19,7 @@ fn plot_stores_copies_of_the_input_arrays() {
     let mut fig = Figure::new();
     let id = fig.axes(0, 0).plot(&x, &y).id();
 
-    let l = line(&fig, id);
+    let l = series(&fig, id);
     assert_eq!(data(&fig, l.x), &NdArray::vector(x));
     assert_eq!(data(&fig, l.y), &NdArray::vector(y));
     assert_eq!(l.z, None);
@@ -32,7 +32,7 @@ fn plot_stores_copies_of_the_input_arrays() {
 fn plot_uses_ir_default_styles_with_automatic_colour() {
     let mut fig = Figure::new();
     let id = fig.axes(0, 0).plot([1.0, 2.0], [3.0, 4.0]).id();
-    let l = line(&fig, id);
+    let l = series(&fig, id);
     assert_eq!(l.line, LineStyle::default());
     assert_eq!(l.line.color, ColorSpec::Auto);
     assert_eq!(l.marker, MarkerStyle::default());
@@ -77,7 +77,7 @@ fn line_setters_map_to_ir_fields() {
         .marker_edge(blue)
         .id();
 
-    let l = line(&fig, id);
+    let l = series(&fig, id);
     assert_eq!(l.label, Some(Text::new("measured")));
     assert_eq!(l.line.color, ColorSpec::Rgba { color: red });
     assert_eq!(l.line.width_pt, 1.75);
@@ -105,7 +105,7 @@ fn line_color_leaves_marker_edge_automatic() {
         .marker(Marker::Circle)
         .color(Color::BLACK)
         .id();
-    assert_eq!(line(&fig, id).marker.edge, ColorSpec::Auto);
+    assert_eq!(series(&fig, id).marker.edge, ColorSpec::Auto);
 }
 
 // WHY: legend entries like "$\sin x$" must be typeset as mathematics, so a plain string
@@ -119,7 +119,7 @@ fn label_interpreter_follows_text_conversion() {
     let owned = ax.plot([0.0], [0.0]).label(String::from("$x^2$")).id();
     let literal = ax.plot([0.0], [0.0]).label(Text::plain("costs $5")).id();
 
-    let name = |id| line(&fig, id).label.clone().unwrap();
+    let name = |id| series(&fig, id).label.clone().unwrap();
     assert_eq!(name(math).content, "$\\sin x$");
     assert_eq!(name(math).interpreter, Interpreter::Latex);
     assert_eq!(name(owned).interpreter, Interpreter::Latex);
@@ -139,8 +139,8 @@ fn line_color_accepts_none_and_color_spec() {
         .color(Color::BLACK)
         .color(ColorSpec::Auto)
         .id();
-    assert_eq!(line(&fig, hidden).line.color, ColorSpec::None);
-    assert_eq!(line(&fig, reset).line.color, ColorSpec::Auto);
+    assert_eq!(series(&fig, hidden).line.color, ColorSpec::None);
+    assert_eq!(series(&fig, reset).line.color, ColorSpec::Auto);
 }
 
 // WHY: each log-plot function is defined by which axis scales it sets; a mix-up (for
@@ -199,7 +199,7 @@ fn semilogx_after_loglog_makes_y_linear() {
 fn log_plots_create_ordinary_lines() {
     let mut fig = Figure::new();
     let id = fig.axes(0, 0).loglog([1.0, 10.0], [2.0, 20.0]).id();
-    let l = line(&fig, id);
+    let l = series(&fig, id);
     assert_eq!(data(&fig, l.x), &NdArray::vector(vec![1.0, 10.0]));
     assert_eq!(data(&fig, l.y), &NdArray::vector(vec![2.0, 20.0]));
     assert_eq!(l.line.color, ColorSpec::Auto);
@@ -214,7 +214,7 @@ fn plot3_stores_z_and_promotes_the_axes_to_3d() {
         .axes(0, 0)
         .plot3([0.0, 1.0], [0.0, 1.0], [5.0, 6.0])
         .id();
-    let l = line(&fig, id);
+    let l = series(&fig, id);
     let z = l.z.expect("plot3 stores z");
     assert_eq!(data(&fig, z), &NdArray::vector(vec![5.0, 6.0]));
     assert!(is_3d(parent(&fig, id)));

@@ -13,7 +13,7 @@ use std::f64::consts::TAU;
 
 use ironlab_ir::{
     Artist, Aspect, AspectAdjust, Axes, Color, ColorScaleKind, Coords, Dimension, Figure, Image,
-    ImagePlacement, Limits, Line, NdArray, NodeId, OutOfRange, PixelRange, ScalarImage, Scale,
+    ImagePlacement, Limits, NdArray, NodeId, OutOfRange, PixelRange, ScalarImage, Scale, Series,
     Text, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
@@ -675,9 +675,9 @@ fn double_click_restores_the_view_of_a_3d_axes() {
 #[test]
 fn reset_view_restores_limits_and_views_but_keeps_visibility() {
     let mut axes = axes_2d(2);
-    axes.artists.push(Artist::Line(Line {
+    axes.artists.push(Artist::Series(Series {
         id: NodeId(10),
-        ..Line::default()
+        ..Series::default()
     }));
     let mut state = FigureState::new(figure_with(vec![axes, axes_3d(3)], vec![]));
     let source = state.source().clone();
@@ -721,10 +721,10 @@ fn reset_view_restores_limits_and_views_but_keeps_visibility() {
 
 fn figure_with_legend() -> (FigureState, HitMap) {
     let mut axes = axes_2d(2);
-    axes.artists.push(Artist::Line(Line {
+    axes.artists.push(Artist::Series(Series {
         id: NodeId(10),
         label: Some(Text::new("series")),
-        ..Line::default()
+        ..Series::default()
     }));
     let state = FigureState::new(figure_with(vec![axes], vec![]));
     let hit = HitMap {
@@ -766,16 +766,16 @@ fn clicking_a_legend_entry_toggles_its_artist_and_other_clicks_do_nothing() {
 /// Two axes, each with a line named "shared", and a hit map in which one entry of a legend panel stands for both.
 fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
     let mut left = axes_2d(2);
-    left.artists.push(Artist::Line(Line {
+    left.artists.push(Artist::Series(Series {
         id: NodeId(10),
         label: Some(Text::new("shared")),
-        ..Line::default()
+        ..Series::default()
     }));
     let mut right = axes_2d(3);
-    right.artists.push(Artist::Line(Line {
+    right.artists.push(Artist::Series(Series {
         id: NodeId(11),
         label: Some(Text::new("shared")),
-        ..Line::default()
+        ..Series::default()
     }));
     let state = FigureState::new(figure_with(vec![left, right], vec![]));
     let hit = HitMap {
@@ -859,12 +859,12 @@ fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
         LegendSample, Panel, PanelContent, PanelLegend, PanelLocation, TileLayout,
     };
     let line = |id: u64| {
-        Artist::Line(Line {
+        Artist::Series(Series {
             id: NodeId(id),
             label: Some(Text::plain("base")),
             x: array_id(0),
             y: array_id(0),
-            ..Line::default()
+            ..Series::default()
         })
     };
     let mut top = axes_2d(2);
@@ -1212,12 +1212,12 @@ fn dense_line(n: usize) -> (FigureState, Vec<f64>, Vec<f64>) {
         ]),
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 label: Some(Text::plain("Measured")),
                 x: xi,
                 y: yi,
-                ..Line::default()
+                ..Series::default()
             })],
             ..Axes::default()
         }],
@@ -1877,11 +1877,11 @@ fn tip_at_prefers_a_drawn_point_within_reach_over_the_pixel_beneath_it() {
         vec![numbered(4, 4), diagonal.clone(), diagonal],
         vec![
             scalar_image(3, 0, ImagePlacement::default()),
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(4),
                 x: array_id(1),
                 y: array_id(2),
-                ..Line::default()
+                ..Series::default()
             }),
         ],
     ));
@@ -2060,7 +2060,7 @@ fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
                 },
                 ..ironlab_ir::Axis::default()
             },
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 x: alpha,
                 y: top,
@@ -2074,7 +2074,7 @@ fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
                     shape: ironlab_ir::MarkerShape::VLine,
                     ..ironlab_ir::MarkerStyle::default()
                 },
-                ..Line::default()
+                ..Series::default()
             })],
             ..Axes::default()
         }],
@@ -2094,14 +2094,14 @@ fn a_datatip_on_a_blended_artist_reports_its_data_coordinate_only() {
 }
 
 /// A figure of one 2D axes holding the line `line`, whose x and y data are `x` and `y`.
-fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Line) -> Figure {
+fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Series) -> Figure {
     let (xi, yi) = (array_id(0), array_id(1));
     Figure {
         id: NodeId(1),
         data: data_arrays([(xi, NdArray::vector(x)), (yi, NdArray::vector(y))]),
         axes: vec![Axes {
             id: NodeId(2),
-            artists: vec![Artist::Line(Line {
+            artists: vec![Artist::Series(Series {
                 id: NodeId(3),
                 x: xi,
                 y: yi,
@@ -2113,6 +2113,73 @@ fn figure_with_line(x: Vec<f64>, y: Vec<f64>, line: Line) -> Figure {
     }
 }
 
+// Why: a series coloured by data shows a third quantity in its colours, which the reader cannot read back from the
+// picture, so the datatip of a point reports the colour value the user supplied for it, at its own index, beside its
+// coordinates; with one value per segment, the value of the segment that leaves the point; and a series without
+// colour data reports none.
+#[test]
+fn a_datatip_on_a_series_coloured_by_data_reports_the_colour_value_of_its_point() {
+    let coloured = |colours: Vec<f64>| {
+        let mut figure = figure_with_line(
+            vec![0.0, 1.0, 2.0],
+            vec![0.0, 1.0, 0.0],
+            Series {
+                color_data: Some(array_id(2)),
+                color_scale: Some(NodeId(90)),
+                line: ironlab_ir::LineStyle {
+                    color: ironlab_ir::ColorSpec::Colormapped,
+                    ..ironlab_ir::LineStyle::default()
+                },
+                ..Series::default()
+            },
+        );
+        figure.data.push(ironlab_ir::DataArray {
+            id: array_id(2),
+            name: None,
+            array: NdArray::vector(colours),
+        });
+        figure.color_scales.push(ironlab_ir::ColorScale {
+            id: NodeId(90),
+            ..ironlab_ir::ColorScale::default()
+        });
+        figure
+    };
+    let tip_at = |figure: Figure, index: usize| {
+        let (state, hit) = compiled(figure);
+        let sample = hit.artists[0]
+            .samples
+            .iter()
+            .find(|sample| sample.source_index == index)
+            .copied()
+            .expect("every point is drawn");
+        state
+            .datatip(&hit, sample.position)
+            .expect("a drawn point lies under its own position")
+    };
+
+    let tip = tip_at(coloured(vec![10.0, 20.5, 30.0]), 1);
+    assert_eq!(tip.index, 1);
+    assert_eq!(tip.color, Some(20.5), "the value of the point itself");
+    let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
+    assert!(text.contains("c = 20.5"), "{text}");
+
+    let per_segment = coloured(vec![-1.0, 4.0]);
+    assert_eq!(tip_at(per_segment.clone(), 1).color, Some(4.0));
+    assert_eq!(
+        tip_at(per_segment, 2).color,
+        None,
+        "no segment leaves the last point"
+    );
+
+    let plain = figure_with_line(vec![0.0, 1.0], vec![0.0, 1.0], Series::default());
+    let tip = tip_at(plain, 0);
+    assert_eq!(tip.color, None);
+    assert!(
+        !ironlab_canvas::figure_canvas::datatip_text(&tip).contains("c ="),
+        "a series without colour data reports no colour value"
+    );
+}
+
 // Why: a horizontal reference line is placed at a data y across fractions of the plot width, so its datatip reports
 // the y it stands for and no x, and its callout says so.
 #[test]
@@ -2120,9 +2187,9 @@ fn a_datatip_on_a_horizontal_reference_line_reports_its_y_only() {
     let figure = figure_with_line(
         vec![0.0, 1.0],
         vec![2.5, 2.5],
-        Line {
+        Series {
             x_coords: Coords::AxesFraction,
-            ..Line::default()
+            ..Series::default()
         },
     );
     let (state, hit) = compiled(figure);
@@ -2143,14 +2210,14 @@ fn a_datatip_finds_an_unclipped_mark_drawn_beyond_the_plot_area() {
     let figure = figure_with_line(
         vec![0.25, 0.75],
         vec![1.05, 1.05],
-        Line {
+        Series {
             y_coords: Coords::AxesFraction,
             clip: false,
             marker: ironlab_ir::MarkerStyle {
                 shape: ironlab_ir::MarkerShape::VLine,
                 ..ironlab_ir::MarkerStyle::default()
             },
-            ..Line::default()
+            ..Series::default()
         },
     );
     let (state, hit) = compiled(figure);
@@ -2182,12 +2249,12 @@ fn reversed_figure(reverse_x: bool, log: bool) -> Figure {
             NdArray::vector(vec![2.0, 5.0, 8.0]),
             NdArray::vector(vec![-1.5, 0.5, -0.5]),
         ],
-        vec![Artist::Line(Line {
+        vec![Artist::Series(Series {
             id: NodeId(3),
             x: array_id(0),
             y: array_id(1),
             label: Some(Text::plain("Cp")),
-            ..Line::default()
+            ..Series::default()
         })],
     );
     let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
@@ -2400,11 +2467,11 @@ fn section_figure(adjust: AspectAdjust) -> Figure {
     let y: Vec<f64> = t.iter().map(|t| 0.06 * t.sin()).collect();
     let mut figure = figure_of(
         vec![NdArray::vector(x), NdArray::vector(y)],
-        vec![Artist::Line(Line {
+        vec![Artist::Series(Series {
             id: NodeId(3),
             x: array_id(0),
             y: array_id(1),
-            ..Line::default()
+            ..Series::default()
         })],
     );
     let axes = figure.axes_mut(NodeId(2)).expect("the axes exists");
@@ -2625,7 +2692,7 @@ fn linked_sections(adjust: AspectAdjust) -> Figure {
             axes.id = NodeId(10 + u64::from(col));
             axes.cell.col = col;
             for (k, artist) in axes.artists.iter_mut().enumerate() {
-                if let Artist::Line(line) = artist {
+                if let Artist::Series(line) = artist {
                     line.id = NodeId(100 + 10 * u64::from(col) + k as u64);
                 }
             }
@@ -2718,19 +2785,19 @@ fn circle_3d(adjust: AspectAdjust) -> Figure {
             NdArray::vector(vec![0.5, 2.5]),
         ],
         vec![
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(3),
                 x: array_id(0),
                 y: array_id(1),
                 z: Some(array_id(2)),
-                ..Line::default()
+                ..Series::default()
             }),
-            Artist::Line(Line {
+            Artist::Series(Series {
                 id: NodeId(4),
                 x: array_id(3),
                 y: array_id(3),
                 z: Some(array_id(4)),
-                ..Line::default()
+                ..Series::default()
             }),
         ],
     );
@@ -2749,8 +2816,11 @@ fn drawn_box(state: &FigureState, id: u64) -> Rect {
     let scene = ironlab_scene::compile(state.figure(), &TEXT);
     let mut points = Vec::new();
     scene.display_list.visit_leaves(|item, transform, _| {
+        // The strokes of the line alone: a line in a 3D axes also fills a disc at each corner, which reaches half
+        // the line width beyond the points it joins.
         if item.source == Some(NodeId(id))
             && let ironlab_scene::display::ItemKind::Path(path) = &item.kind
+            && path.fill.is_none()
         {
             for segment in &path.segments {
                 if let ironlab_scene::display::PathSegment::MoveTo(p)

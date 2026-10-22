@@ -115,7 +115,7 @@ pub fn figure() -> Figure {
                 ax.scatter([at], [y])
                     .marker(shape)
                     .color(colour)
-                    .size(POINT_SIZE)
+                    .marker_size(POINT_SIZE)
                     .filled();
             }
         }

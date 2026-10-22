@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::artist::{
     Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels,
-    Line, PixelRange, Quiver, ScalarImage, Scatter, ScatterColor, ScatterSize, Surface,
+    PixelRange, Quiver, ScalarImage, Series, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::color_scale::{
@@ -21,6 +21,7 @@ use crate::legend::{
 use crate::link::Dimension;
 use crate::nodes::{NodeKind, visit};
 use crate::panel::{Panel, PanelContent};
+use crate::style::ColorSpec;
 
 /// The outcome of validating a figure.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -68,11 +69,11 @@ pub enum IssueKind {
     UnknownColorScale,
     /// An artist maps numbers to colours but names no colour scale: a scalar image, a
     /// contour whose bands are filled or whose isolines are colormapped or automatic, a
-    /// surface whose faces or edges are colormapped or automatic, or a scatter coloured by
-    /// data. The axes hold no
-    /// colormap to fall back on, so the artist cannot be coloured. It is reported against
-    /// the artist. A colormapped line, quiver or single scatter colour maps no number and
-    /// needs no scale.
+    /// surface whose faces or edges are colormapped or automatic, or a series with colour
+    /// data, whatever its colours. The axes hold no colormap to fall back on, so the
+    /// artist cannot be coloured. It is reported against the artist. A colormapped quiver,
+    /// or a colormapped colour of a series without colour data, maps no number and needs
+    /// no scale.
     MissingColorScale,
     /// A colour scale cannot map any value: an indexed scale with no entries, or a
     /// categorical scale with no categories. It is reported against the scale, whether or
@@ -89,7 +90,11 @@ pub enum IssueKind {
     /// unused costs space in every saved file. An artist that is hidden still refers to
     /// its data.
     UnusedData,
-    /// The arrays referenced by an artist have inconsistent lengths or shapes.
+    /// The arrays referenced by an artist have inconsistent lengths or shapes. The colour
+    /// data of a series is such a mismatch unless it holds one value per point, or one
+    /// value per segment (one fewer than the points) for a series that draws a line and
+    /// has no colormapped marker face or edge, since a marker colour needs a value at its
+    /// point.
     ShapeMismatch,
     /// An artist refers to an array whose element type it cannot use: every artist
     /// other than an image requires 64-bit floating-point values, so such an artist
@@ -101,11 +106,11 @@ pub enum IssueKind {
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
     /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
-    /// A line or scatter places a dimension in axes-fraction coordinates in a
+    /// A series places a dimension in axes-fraction coordinates in a
     /// three-dimensional axes, which has no plot area along its dimensions to take a
     /// fraction of.
     AxesFractionInThreeDAxes,
-    /// A line or scatter releases its clip (`clip` is false) although it places no
+    /// A series releases its clip (`clip` is false) although it places no
     /// dimension in axes-fraction coordinates, or lies in a three-dimensional axes, so
     /// that the release has no effect: clipping is released only along a dimension
     /// placed as fractions of the plot area of a two-dimensional axes. This is a
@@ -184,7 +189,7 @@ pub enum IssueKind {
     /// equal to zero, which are not drawn.
     NonPositiveOnLogAxis,
     /// An artist whose data gives it nothing to draw, so that it is left out of the
-    /// drawing: a line, scatter or quiver of no points; an image of any kind with no rows
+    /// drawing: a series or quiver of no points; an image of any kind with no rows
     /// or no columns; or a contour or surface whose field has no rows or no columns, or a
     /// single row or a single column (values, but no cell between nodes to draw them in).
     /// The message states which case applies and the shape of the array. This is a
@@ -216,7 +221,7 @@ pub enum IssueKind {
     /// scale, outside the entries of an indexed or categorical scale (a fractional index
     /// included), or not finite. It is reported against the artist. Only the numbers of
     /// the artist's data are checked (the values of a scalar image, the field of a
-    /// contour, the colour data of a surface or scatter), never numbers derived from them
+    /// contour, the colour data of a surface or series), never numbers derived from them
     /// such as the mean of a surface face's corners or the automatic levels of a contour.
     /// No value lies beyond automatic limits, which are the range of the data, except a
     /// value that is not positive under a logarithmic norm, which lies below.
@@ -250,7 +255,7 @@ impl Figure {
     /// values of a scalar image that are not two-dimensional; for a surface, colour data
     /// or alpha whose shape differs from the field's; for a scalar image, alpha whose shape
     /// differs from the values'), an opacity that is not a finite number from 0 to 1, 3D
-    /// artists in 2D axes (an image on the xz or yz plane among them), lines and scatters
+    /// artists in 2D axes (an image on the xz or yz plane among them), series
     /// in 3D axes with a dimension in axes-fraction coordinates, links to identifiers that
     /// are not axes, duplicate node identifiers (data arrays and colour scales included),
     /// cells of axes and panels outside the tile layout, layout sizes that are too many or
@@ -274,10 +279,10 @@ impl Figure {
     /// category of the scale whose policy is strict (a value lies below or above a range
     /// with automatic limits only when it is not positive under a logarithmic norm,
     /// because automatic limits are the range of the data). Warnings report finite
-    /// non-positive data plotted along logarithmic axes, a line or scatter whose released
+    /// non-positive data plotted along logarithmic axes, a series whose released
     /// clip has no effect because it places no dimension in axes-fraction coordinates of
     /// a 2D axes, and an artist whose data gives it nothing to draw, which is left out (a
-    /// line, scatter or quiver of no points, an image with no rows or no columns, and a
+    /// series or quiver of no points, an image with no rows or no columns, and a
     /// contour or surface whose field has no rows or no columns or a single row or
     /// column, which has no cell between its nodes), a panel holding a legend with no
     /// entries to list, which no axes names or whose axes have no artist with a label, or
@@ -293,8 +298,8 @@ impl Figure {
     /// names is neither an error nor a warning, because a colourbar may show it alone.
     ///
     /// The z limits, z scale and z ticks of a 2D axes are ignored, as they are when
-    /// drawing, and so is the offset of an image in the xy plane of a 2D axes. A line,
-    /// scatter or quiver without z data in a 3D axes is not an error: it is drawn in the
+    /// drawing, and so is the offset of an image in the xy plane of a 2D axes. A
+    /// series or quiver without z data in a 3D axes is not an error: it is drawn in the
     /// plane z = 0. Shape checks are skipped for an artist that refers to unknown or
     /// invalid arrays, or (other than an image) to 8-bit arrays, so that one problem is
     /// not reported repeatedly; the coincidence of an image's pixel centres is checked
@@ -1001,7 +1006,16 @@ impl<'a> Validator<'a> {
     fn check_shapes(&mut self, node: NodeId, shape: &Shape<'_>) -> bool {
         let data = self.arrays;
         match shape {
-            Shape::Points { what, arrays, .. } => self.check_equal_counts(node, what, arrays),
+            Shape::Points {
+                what,
+                arrays,
+                x,
+                colors,
+                ..
+            } => {
+                self.check_equal_counts(node, what, arrays)
+                    && colors.is_none_or(|colors| self.check_series_colors(node, *x, colors))
+            }
             Shape::Grid {
                 grid,
                 field,
@@ -1064,7 +1078,7 @@ impl<'a> Validator<'a> {
     }
 
     /// Warns of an artist other than an image whose arrays, which exist and agree in
-    /// shape, give it nothing to draw: a line, scatter or quiver of no points, or a
+    /// shape, give it nothing to draw: a series or quiver of no points, or a
     /// contour or surface whose field has no rows or no columns or a single row or a
     /// single column, between whose nodes there is no cell.
     fn check_something_to_draw(&mut self, node: NodeId, shape: &Shape<'_>) {
@@ -1449,6 +1463,38 @@ impl<'a> Validator<'a> {
         }
     }
 
+    /// Checks the length of the colour data of a series of as many points as `x` has
+    /// values, and returns whether it is valid: one value per point, or one value per
+    /// segment (one fewer than the points) when the series draws a line and has no
+    /// colormapped marker face or edge, which would need a value per point.
+    fn check_series_colors(&mut self, node: NodeId, x: NodeId, colors: SeriesColors) -> bool {
+        let points = self.arrays[&x].len();
+        let values = self.arrays[&colors.data].len();
+        let per_segment = values + 1 == points;
+        if values == points || (per_segment && colors.draws_line && !colors.mapped_markers) {
+            return true;
+        }
+        let message = if per_segment && !colors.draws_line {
+            format!(
+                "the colour data holds {values} values, one per segment of {points} points, but \
+                 the series draws no line, so it has no segments to colour"
+            )
+        } else if per_segment {
+            format!(
+                "the colour data holds {values} values, one per segment of {points} points, but \
+                 a colormapped marker face or edge needs one value per point"
+            )
+        } else {
+            format!(
+                "the colour data holds {values} values, but a series of {points} points needs \
+                 {points} values, one per point, or {} values, one per segment",
+                points.saturating_sub(1)
+            )
+        };
+        self.error(Some(node), IssueKind::ShapeMismatch, message);
+        false
+    }
+
     /// Reports a shape mismatch when the present arrays differ in element count, and
     /// returns whether they agree.
     fn check_equal_counts(&mut self, node: NodeId, what: &str, arrays: &[Option<NodeId>]) -> bool {
@@ -1629,10 +1675,10 @@ pub(crate) struct ArtistUsage<'a> {
     three_d: bool,
     /// Whether the artist can use arrays of 8-bit values, as the image kinds can.
     accepts_bytes: bool,
-    /// Whether the x and y values of a line or scatter are fractions of the plot area
+    /// Whether the x and y values of a series are fractions of the plot area
     /// rather than data.
     fraction: [bool; 2],
-    /// Whether the artist releases its clip, as only a line or a scatter can.
+    /// Whether the artist releases its clip, as only a series can.
     clip_released: bool,
     /// Each opacity of the artist, with its name for messages.
     opacities: Vec<(&'static str, f64)>,
@@ -1644,6 +1690,18 @@ pub(crate) struct ArtistUsage<'a> {
     color: Option<ColorMapping>,
     /// How the arrays of the artist must agree in shape.
     shape: Shape<'a>,
+}
+
+/// The colour data of a series, with what decides which lengths of it are valid.
+#[derive(Clone, Copy)]
+struct SeriesColors {
+    /// The colour data.
+    data: NodeId,
+    /// Whether the series draws a line, without which there are no segments to colour.
+    draws_line: bool,
+    /// Whether the series draws markers with a colormapped face or edge, which need one
+    /// value per point.
+    mapped_markers: bool,
 }
 
 /// How the arrays of an artist must agree in shape, and what gives it something to draw.
@@ -1659,6 +1717,9 @@ enum Shape<'a> {
         points: &'static str,
         /// The array of x positions.
         x: NodeId,
+        /// The colour data of a series, whose length is checked against the number of
+        /// points by its own rule.
+        colors: Option<SeriesColors>,
     },
     /// A field on a grid, which must be two-dimensional and match its grid; the artist
     /// has nothing to draw when the grid has no cell between its nodes.
@@ -1741,7 +1802,7 @@ fn grid_positions(grid: Grid) -> Vec<(Dimension, NodeId)> {
     }
 }
 
-/// Returns the arrays of x, y and, when present, z positions of a line, scatter or quiver.
+/// Returns the arrays of x, y and, when present, z positions of a series or quiver.
 fn point_positions(x: NodeId, y: NodeId, z: Option<NodeId>) -> Vec<(Dimension, NodeId)> {
     let mut positions = vec![(Dimension::X, x), (Dimension::Y, y)];
     positions.extend(z.map(|z| (Dimension::Z, z)));
@@ -1753,42 +1814,24 @@ fn ids(positions: &[(Dimension, NodeId)]) -> Vec<NodeId> {
     positions.iter().map(|&(_, id)| id).collect()
 }
 
-impl Usage for Line {
+impl Usage for Series {
     fn usage(&self) -> ArtistUsage<'_> {
         let positions = point_positions(self.x, self.y, self.z);
-        let shape = Shape::Points {
-            what: "the coordinate arrays",
-            arrays: vec![Some(self.x), Some(self.y), self.z],
-            points: "the coordinate arrays",
-            x: self.x,
-        };
-        ArtistUsage {
-            fraction: fractions(self.x_coords, self.y_coords),
-            clip_released: !self.clip,
-            ..ArtistUsage::new(ids(&positions), positions, self.z.is_some(), shape)
-        }
-    }
-}
-
-impl Usage for Scatter {
-    fn usage(&self) -> ArtistUsage<'_> {
-        let positions = point_positions(self.x, self.y, self.z);
-        let size = match self.size {
-            ScatterSize::Data { data } => Some(data),
-            ScatterSize::Scalar { .. } => None,
-        };
-        let color = match self.color {
-            ScatterColor::Data { data } => Some(data),
-            ScatterColor::Spec { .. } => None,
-        };
         let mut references = ids(&positions);
-        references.extend(size);
-        references.extend(color);
+        references.extend(self.size_data);
+        references.extend(self.color_data);
+        let colors = self.color_data.map(|data| SeriesColors {
+            data,
+            draws_line: self.draws_line(),
+            mapped_markers: self.draws_markers()
+                && [self.marker.face, self.marker.edge].contains(&ColorSpec::Colormapped),
+        });
         let shape = Shape::Points {
-            what: "the coordinate, size and colour arrays",
-            arrays: vec![Some(self.x), Some(self.y), self.z, size, color],
+            what: "the coordinate and size arrays",
+            arrays: vec![Some(self.x), Some(self.y), self.z, self.size_data],
             points: "the coordinate arrays",
             x: self.x,
+            colors,
         };
         ArtistUsage {
             fraction: fractions(self.x_coords, self.y_coords),
@@ -1816,6 +1859,7 @@ impl Usage for Quiver {
             ],
             points: "the position arrays",
             x: self.x,
+            colors: None,
         };
         let three_d = self.z.is_some() || self.w.is_some();
         ArtistUsage::new(references, positions, three_d, shape)
@@ -1903,7 +1947,7 @@ impl Usage for ScalarImage {
     }
 }
 
-/// Returns whether the x and y values of a line or scatter are fractions of the plot area.
+/// Returns whether the x and y values of a series are fractions of the plot area.
 fn fractions(x: Coords, y: Coords) -> [bool; 2] {
     [x == Coords::AxesFraction, y == Coords::AxesFraction]
 }

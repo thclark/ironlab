@@ -464,7 +464,7 @@
       },
       "artists": [
         {
-          "type": "line",
+          "type": "series",
           "id": 4,
           "label": {
             "content": "$e^{-t/4} \\cos t$",
@@ -491,12 +491,15 @@
               "type": "auto"
             }
           },
+          "size_data": null,
+          "color_data": null,
+          "color_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true
         },
         {
-          "type": "line",
+          "type": "series",
           "id": 7,
           "label": {
             "content": "$e^{-t/4} \\sin t$",
@@ -523,12 +526,15 @@
               "type": "auto"
             }
           },
+          "size_data": null,
+          "color_data": null,
+          "color_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true
         },
         {
-          "type": "line",
+          "type": "series",
           "id": 10,
           "label": {
             "content": "$e^{-t/4}$",
@@ -556,6 +562,9 @@
               "type": "auto"
             }
           },
+          "size_data": null,
+          "color_data": null,
+          "color_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true
