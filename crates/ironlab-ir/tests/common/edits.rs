@@ -63,19 +63,16 @@ pub fn artist_kind(artist: &Artist) -> NodeKind {
     }
 }
 
-/// Every node of a figure with its kind, in tree order, found without the API under
-/// test.
+/// Every node of a figure with its kind, in tree order (the figure, its data arrays, its
+/// axes each followed by its artists, and its panels), found without the API under test.
 pub fn nodes(fig: &Figure) -> Vec<(NodeId, NodeKind)> {
     let mut nodes = vec![(fig.id, NodeKind::Figure)];
+    nodes.extend(fig.data.iter().map(|data| (data.id, NodeKind::DataArray)));
     for axes in &fig.axes {
         nodes.push((axes.id, NodeKind::Axes));
         nodes.extend(axes.artists.iter().map(|a| (a.id(), artist_kind(a))));
     }
-    nodes.extend(
-        fig.panel_legends
-            .iter()
-            .map(|panel| (panel.id, NodeKind::PanelLegend)),
-    );
+    nodes.extend(fig.panels.iter().map(|panel| (panel.id, NodeKind::Panel)));
     nodes
 }
 
@@ -94,12 +91,21 @@ pub fn artist_ids(fig: &Figure, axes: NodeId) -> Vec<NodeId> {
 }
 
 /// A line artist on the given data.
-pub fn line(id: NodeId, x: DataId, y: DataId) -> Artist {
+pub fn line(id: NodeId, x: NodeId, y: NodeId) -> Artist {
     Artist::Line(Line {
         id,
         x,
         y,
         ..Line::default()
+    })
+}
+
+/// A data array node with the given identifier and no name.
+pub fn data_node(id: NodeId, array: NdArray) -> Node {
+    Node::DataArray(DataArray {
+        id,
+        name: None,
+        array,
     })
 }
 
@@ -114,7 +120,7 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 
 /// The figures on which every settable property of every kind of node is reachable
 /// somewhere: the kitchen-sink figure, and a copy of it in which every optional title,
-/// label, legend and display name is present, every automatic axis limit is manual (and
+/// axis label, legend, artist label and data array name is present, every automatic axis limit is manual (and
 /// positive, for logarithmic axes), every colour specification of an artist is a fixed
 /// colour, so that the colour components below it are reachable, every out-of-range
 /// policy of an image is a fixed colour for the same reason, both pixel ranges and the
@@ -154,6 +160,9 @@ pub fn representative_figures() -> Vec<Figure> {
 
     let base = kitchen_sink_figure();
     let mut full = base.clone();
+    for (k, data) in full.data.iter_mut().enumerate() {
+        data.name.get_or_insert_with(|| format!("array {k}"));
+    }
     let fixed = ColorSpec::Rgba {
         color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
     };
@@ -202,13 +211,13 @@ pub fn representative_figures() -> Vec<Figure> {
         for artist in &mut axes.artists {
             match artist {
                 Artist::Line(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("line"));
+                    a.label.get_or_insert_with(|| Text::new("line"));
                     a.line.color = fixed;
                     a.marker.face = fixed;
                     a.marker.edge = fixed;
                 }
                 Artist::Scatter(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("scatter"));
+                    a.label.get_or_insert_with(|| Text::new("scatter"));
                     a.marker.face = fixed;
                     a.marker.edge = fixed;
                     if let ScatterColor::Spec { spec } = &mut a.color {
@@ -216,33 +225,31 @@ pub fn representative_figures() -> Vec<Figure> {
                     }
                 }
                 Artist::Contour(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("contour"));
+                    a.label.get_or_insert_with(|| Text::new("contour"));
                     a.line.color = fixed;
                 }
                 Artist::Quiver(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("quiver"));
+                    a.label.get_or_insert_with(|| Text::new("quiver"));
                     a.line.color = fixed;
                 }
                 Artist::Surface(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("surface"));
+                    a.label.get_or_insert_with(|| Text::new("surface"));
                     a.face = fixed;
                     a.edge = fixed;
                 }
                 Artist::Image(a) => {
-                    a.display_name.get_or_insert_with(|| Text::new("image"));
+                    a.label.get_or_insert_with(|| Text::new("image"));
                     fill_placement(&mut a.placement);
                 }
                 Artist::IndexedImage(a) => {
-                    a.display_name
-                        .get_or_insert_with(|| Text::new("indexed image"));
+                    a.label.get_or_insert_with(|| Text::new("indexed image"));
                     fill_placement(&mut a.placement);
                     a.below = painted;
                     a.above = painted;
                     a.non_finite = painted;
                 }
                 Artist::MappedImage(a) => {
-                    a.display_name
-                        .get_or_insert_with(|| Text::new("mapped image"));
+                    a.label.get_or_insert_with(|| Text::new("mapped image"));
                     fill_placement(&mut a.placement);
                     a.below = painted;
                     a.above = painted;
@@ -261,16 +268,16 @@ pub struct Streaming {
     pub fig: Figure,
     pub axes: NodeId,
     pub line: NodeId,
-    pub x: DataId,
-    pub y: DataId,
+    pub x: NodeId,
+    pub y: NodeId,
     pub contour: NodeId,
-    pub gx: DataId,
-    pub gy: DataId,
-    pub z: DataId,
+    pub gx: NodeId,
+    pub gy: NodeId,
+    pub z: NodeId,
     pub other_axes: NodeId,
     pub other_line: NodeId,
-    pub other_x: DataId,
-    pub other_y: DataId,
+    pub other_x: NodeId,
+    pub other_y: NodeId,
 }
 
 /// Builds the [`Streaming`] figure. The x data of the first line contains zero, so a
@@ -349,7 +356,6 @@ pub fn perturb(value: &Value) -> Value {
         Value::Double(_) => Value::Double(1.0),
         Value::Float(x) => Value::Float(if *x > 0.5 { x - 0.25 } else { x + 0.25 }),
         Value::String(s) => Value::String(format!("{s} (edited)")),
-        Value::DataId(id) => Value::DataId(DataId(id.0 + 1)),
         Value::Doubles(values) if values.is_empty() => Value::Doubles(vec![1.0]),
         Value::TrackSizes(sizes) if sizes.is_empty() => Value::TrackSizes(vec![TrackSize::Fit]),
         Value::TrackSizes(sizes) => Value::TrackSizes(
@@ -475,6 +481,20 @@ pub fn perturb(value: &Value) -> Value {
             Value::LegendLocation(LegendLocation::NorthEast)
         }
         Value::LegendLocation(_) => Value::LegendLocation(LegendLocation::Best),
+        Value::PanelLocation(PanelLocation::Center) => {
+            Value::PanelLocation(PanelLocation::NorthEast)
+        }
+        Value::PanelLocation(_) => Value::PanelLocation(PanelLocation::Center),
+        Value::PanelLegend(legend) => Value::PanelLegend(PanelLegend {
+            boxed: !legend.boxed,
+            ..legend.clone()
+        }),
+        Value::PanelContent(PanelContent::Legend(legend)) => {
+            Value::PanelContent(PanelContent::Legend(PanelLegend {
+                boxed: !legend.boxed,
+                ..legend.clone()
+            }))
+        }
         Value::ColorSpec(spec) => Value::ColorSpec(color_spec(spec)),
         Value::LineStyle(style) => Value::LineStyle(LineStyle {
             width_pt: style.width_pt + 0.5,
@@ -549,7 +569,10 @@ pub fn perturb(value: &Value) -> Value {
 }
 
 /// The number of variants of [`Value`].
-pub const VALUE_VARIANTS: usize = 54;
+///
+/// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
+/// any other reference to a node.
+pub const VALUE_VARIANTS: usize = 56;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -564,7 +587,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::Double(_) => 3,
         Value::Float(_) => 4,
         Value::String(_) => 5,
-        Value::DataId(_) => 6,
+        Value::PanelContent(_) => 6,
         Value::Doubles(_) => 7,
         Value::Text(_) => 8,
         Value::Interpreter(_) => 9,
@@ -612,6 +635,8 @@ pub fn value_variant(value: &Value) -> usize {
         Value::Aspect(_) => 51,
         Value::AspectAdjust(_) => 52,
         Value::TitleAlign(_) => 53,
+        Value::PanelLocation(_) => 54,
+        Value::PanelLegend(_) => 55,
     }
 }
 
@@ -627,7 +652,26 @@ pub fn sample_values() -> Vec<Value> {
         Value::Double(-2.5e-300),
         Value::Float(0.5),
         Value::String("k–ω $\\alpha$".to_owned()),
-        Value::DataId(DataId((1 << 53) + 1)),
+        Value::PanelContent(PanelContent::Legend(PanelLegend {
+            boxed: false,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Count(2),
+                order: LegendEntryOrder::RowMajor,
+            },
+            entries: LegendEntries::Explicit(vec![LegendItem::artist(NodeId((1 << 53) + 7))]),
+        })),
+        Value::PanelLocation(PanelLocation::SouthWest),
+        Value::PanelLegend(PanelLegend {
+            boxed: true,
+            layout: LegendEntryLayout {
+                columns: LegendEntryColumns::Auto,
+                order: LegendEntryOrder::ColumnMajor,
+            },
+            entries: LegendEntries::Explicit(vec![LegendItem::custom(
+                LegendSample::swatch(blue),
+                Text::plain("Lower $s$"),
+            )]),
+        }),
         Value::Doubles(vec![-1.0, 0.0, 2.5]),
         Value::TrackSizes(vec![TrackSize::Fit, TrackSize::Weight(2.5)]),
         Value::Strings(vec!["surface".to_owned(), "k–ω".to_owned()]),
@@ -735,11 +779,11 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::MarkerShape(MarkerShape::Cross),
         Value::Coords(Coords::AxesFraction),
-        Value::ScatterSize(ScatterSize::Data { data: DataId(7) }),
-        Value::ScatterColor(ScatterColor::Data { data: DataId(8) }),
+        Value::ScatterSize(ScatterSize::Data { data: NodeId(7) }),
+        Value::ScatterColor(ScatterColor::Data { data: NodeId(8) }),
         Value::Grid(Grid::Curvilinear {
-            x: DataId(1),
-            y: DataId(2),
+            x: NodeId(1),
+            y: NodeId(2),
         }),
         Value::Levels(Levels::Explicit {
             values: vec![0.5, 1.5],
@@ -765,9 +809,9 @@ pub fn sample_values() -> Vec<Value> {
     ]
 }
 
-/// A transaction that holds every kind of edit and a set of every sample value, with
-/// NaN in a data array, arrays of 8-bit values in a put and in an append, and
-/// identifiers above 2^53.
+/// A transaction that holds every kind of edit, every kind of inserted node and a set of
+/// every sample value, with NaN in a data array, arrays of 8-bit values in a replacement
+/// and in an append, and identifiers above 2^53.
 ///
 /// It exercises the encodings only and is not meant to be applied: its sets name paths
 /// and nodes that do not match their values.
@@ -805,33 +849,44 @@ pub fn every_kind_transaction() -> Transaction {
             parent: big,
             index: None,
         },
-        Edit::PutData {
-            id: DataId(u64::MAX),
+        Edit::Insert {
+            parent: NodeId(1),
+            index: Some(0),
+            node: Node::DataArray(DataArray {
+                id: NodeId((1 << 53) + 9),
+                name: Some("pressure, $p$ (Pa)".to_owned()),
+                array: NdArray::vector(vec![f64::NAN, -0.0, 2.5]),
+            }),
+        },
+        Edit::Insert {
+            parent: NodeId(1),
+            index: None,
+            node: Node::Panel(kitchen_sink.panels[1].clone()),
+        },
+        Edit::ReplaceData {
+            node: NodeId(u64::MAX),
             array: NdArray::vector(vec![1.0, f64::NAN, -3.5]),
         },
-        Edit::PutData {
-            id: DataId(3),
+        Edit::ReplaceData {
+            node: NodeId(3),
             array: NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255])
                 .expect("the shape matches the values"),
         },
         Edit::AppendData {
-            id: DataId(0),
+            node: NodeId(0),
             array: rows(2, 3, 0.5),
             retain: Some(10),
         },
         Edit::AppendData {
-            id: DataId(1),
+            node: NodeId(1),
             array: NdArray::vector(vec![]),
             retain: None,
         },
         Edit::AppendData {
-            id: DataId(3),
+            node: NodeId(3),
             array: NdArray::from_shape_u8(vec![1, 2], vec![7, 8])
                 .expect("the shape matches the values"),
             retain: Some(3),
-        },
-        Edit::RemoveData {
-            id: DataId((1 << 53) + 1),
         },
     ]);
     tx(edits)

@@ -3,7 +3,7 @@
 
 use ironlab_ir::{
     Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendLocation, Line, NodeId, Projection, TrackSize, View3d,
+    LegendEntryOrder, Line, NodeId, PanelLocation, Projection, TrackSize, View3d,
 };
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{LegendHit, LegendOwner};
@@ -123,7 +123,7 @@ fn panel_of(n: usize, top: f64, layout: LegendEntryLayout) -> (Fx, NodeId, Vec<N
         .map(|k| fx.named_line(ax, &format!("S{k}"), |_| {}))
         .collect();
     let panel = fx.panel(cell(1, 0, 1, 1));
-    fx.panel_mut(panel).layout = layout;
+    fx.legend_mut(panel).layout = layout;
     fx.legend_in(ax, panel);
     (fx, ax, lines, panel)
 }
@@ -333,7 +333,7 @@ fn a_panel_with_nothing_to_list_draws_only_its_border() {
     for boxed in [true, false] {
         // No axes points at the panel.
         let (mut fx, [left, _], unused) = two_axes_and_a_panel();
-        fx.panel_mut(unused).boxed = boxed;
+        fx.legend_mut(unused).boxed = boxed;
         fx.named_line(left, "Named", |_| {});
         let scene = compile_figure(&fx.build());
         assert!(panel_entries(&scene, unused).is_empty());
@@ -341,7 +341,7 @@ fn a_panel_with_nothing_to_list_draws_only_its_border() {
 
         // An axes points at the panel, but none of its artists has a display name.
         let (mut fx, [left, _], panel) = two_axes_and_a_panel();
-        fx.panel_mut(panel).boxed = boxed;
+        fx.legend_mut(panel).boxed = boxed;
         fx.line(left, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
         fx.legend_in(left, panel);
         let scene = compile_figure(&fx.build());
@@ -390,7 +390,7 @@ fn a_three_dimensional_axes_lists_its_entries_in_a_panel() {
     let panel = fx.panel(cell(1, 0, 1, 2));
     let flat = fx.named_line(left, "Profile", coloured(RED));
     let raised = fx.line(solid, &[0.0, 1.0], &[0.0, 1.0], Some(&[0.0, 1.0]), |l| {
-        l.display_name = Some(ironlab_ir::Text::new("Profile"));
+        l.label = Some(ironlab_ir::Text::new("Profile"));
         l.line.color = ColorSpec::Rgba { color: RED };
     });
     fx.legend_in(left, panel);
@@ -652,7 +652,7 @@ fn an_inside_legend_with_automatic_columns_fits_the_height_of_a_short_plot() {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// Compiles a wide panel of three entries with the given alignment, returning the block of entries and the panel.
-fn aligned(align: LegendLocation) -> (Rect, Rect, Vec<LegendHit>) {
+fn aligned(align: PanelLocation) -> (Rect, Rect, Vec<LegendHit>) {
     let (mut fx, _, _, panel) = panel_of(3, 1.0, fixed(1, LegendEntryOrder::ColumnMajor));
     fx.panel_mut(panel).align = align;
     let scene = compile_figure(&fx.build());
@@ -669,8 +669,8 @@ fn a_north_west_panel_puts_its_entries_at_the_top_left() {
     let font = 9.0;
     for (boxed, reach) in [(false, font), (true, 1.2 * font)] {
         let (mut fx, _, _, panel) = panel_of(3, 1.0, fixed(1, LegendEntryOrder::ColumnMajor));
-        fx.panel_mut(panel).align = LegendLocation::NorthWest;
-        fx.panel_mut(panel).boxed = boxed;
+        fx.panel_mut(panel).align = PanelLocation::NorthWest;
+        fx.legend_mut(panel).boxed = boxed;
         let scene = compile_figure(&fx.build());
         let (block, area) = (
             block(&panel_entries(&scene, panel)),
@@ -691,19 +691,10 @@ fn a_north_west_panel_puts_its_entries_at_the_top_left() {
 // the centre of the block must be the centre of the panel.
 #[test]
 fn a_centred_panel_centres_its_entries() {
-    let (block, area, _) = aligned(LegendLocation::Center);
+    let (block, area, _) = aligned(PanelLocation::Center);
     let (b, a) = (centre(block), centre(area));
     assert_close(b.x, a.x, 1.0);
     assert_close(b.y, a.y, 1.0);
-}
-
-// Why: `best` avoids data inside a plot area, but a panel holds no data, so it has no corner to prefer and must
-// behave exactly as the centre rather than picking a corner arbitrarily.
-#[test]
-fn best_in_a_panel_is_the_centre() {
-    let (_, _, best) = aligned(LegendLocation::Best);
-    let (_, _, center) = aligned(LegendLocation::Center);
-    assert_eq!(best, center);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -818,7 +809,7 @@ fn an_unboxed_panel_draws_no_border() {
     let (mut fx, [left, _], panel) = two_axes_and_a_panel();
     fx.named_line(left, "Named", |_| {});
     fx.legend_in(left, panel);
-    fx.panel_mut(panel).boxed = false;
+    fx.legend_mut(panel).boxed = false;
     let scene = compile_figure(&fx.build());
     assert_eq!(panel_entries(&scene, panel).len(), 1);
     assert!(border(&scene, panel).is_none());
@@ -831,16 +822,15 @@ fn an_unboxed_panel_draws_no_border() {
 fn entries_keep_a_gap_from_the_border_at_every_alignment() {
     const GAP: f64 = 2.0;
     for align in [
-        LegendLocation::NorthWest,
-        LegendLocation::North,
-        LegendLocation::NorthEast,
-        LegendLocation::West,
-        LegendLocation::Center,
-        LegendLocation::East,
-        LegendLocation::SouthWest,
-        LegendLocation::South,
-        LegendLocation::SouthEast,
-        LegendLocation::Best,
+        PanelLocation::NorthWest,
+        PanelLocation::North,
+        PanelLocation::NorthEast,
+        PanelLocation::West,
+        PanelLocation::Center,
+        PanelLocation::East,
+        PanelLocation::SouthWest,
+        PanelLocation::South,
+        PanelLocation::SouthEast,
     ] {
         let (mut fx, _, _, panel) = panel_of(3, 1.0, fixed(1, LegendEntryOrder::ColumnMajor));
         fx.panel_mut(panel).align = align;

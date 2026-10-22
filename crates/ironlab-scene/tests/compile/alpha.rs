@@ -496,13 +496,13 @@ fn the_legend_patch_of_a_surface_or_image_takes_its_opacity() {
         &Y,
         |x, y| x + y,
         |s| {
-            s.display_name = text("surface");
+            s.label = text("surface");
             s.face = ColorSpec::Rgba { color: RED };
             s.face_opacity = 0.4;
         },
     );
     let image = fx.mapped_image(ax, vec![1, 2], vec![1.0, 2.0], xy(None, None), |m| {
-        m.display_name = text("image");
+        m.label = text("image");
         m.opacity = 0.25;
     });
     fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
@@ -544,7 +544,7 @@ fn the_legend_sample_of_a_contour_takes_its_opacities() {
         &Y,
         |x, y| x + y,
         |c| {
-            c.display_name = text("filled");
+            c.label = text("filled");
             c.fill = true;
             c.line.color = ColorSpec::Rgba { color: HALF_BLUE };
             c.line_opacity = 0.8;
@@ -557,7 +557,7 @@ fn the_legend_sample_of_a_contour_takes_its_opacities() {
         &Y,
         |x, y| x + y,
         |c| {
-            c.display_name = text("lines");
+            c.label = text("lines");
             c.fill = false;
             c.line_opacity = 0.25;
             c.fill_opacity = 0.4;

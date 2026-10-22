@@ -28,8 +28,8 @@ fn panel(figure: &Figure, row: u32) -> &Axes {
         .unwrap_or_else(|| panic!("{SLUG} has an axes in tile row {row}"))
 }
 
-/// Returns the x and y data identifiers of the single line of an axes.
-fn line_data(axes: &Axes) -> (ironlab::ir::DataId, ironlab::ir::DataId) {
+/// Returns the identifiers of the x and y data arrays of the single line of an axes.
+fn line_data(axes: &Axes) -> (NodeId, NodeId) {
     match axes.artists.as_slice() {
         [Artist::Line(line)] => (line.x, line.y),
         artists => panic!(
@@ -40,11 +40,11 @@ fn line_data(axes: &Axes) -> (ironlab::ir::DataId, ironlab::ir::DataId) {
 }
 
 /// Returns the values of a data array of the figure, which holds floats.
-fn values(figure: &Figure, id: ironlab::ir::DataId) -> &[f64] {
+fn values(figure: &Figure, id: NodeId) -> &[f64] {
     figure
-        .data
-        .get(&id)
+        .data_array(id)
         .expect("the array is in the figure")
+        .array
         .as_f64()
         .expect("the array holds f64 values")
 }

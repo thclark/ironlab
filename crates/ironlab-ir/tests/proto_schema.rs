@@ -51,8 +51,9 @@ use prost_reflect::{
 };
 
 /// The modules of the IR whose types appear on the wire, each of which has one file.
-const MODULES: [&str; 10] = [
-    "artist", "axes", "data", "edit", "figure", "layout", "legend", "link", "style", "text",
+const MODULES: [&str; 11] = [
+    "artist", "axes", "data", "edit", "figure", "layout", "legend", "link", "panel", "style",
+    "text",
 ];
 
 /// Resolves imports from the generated files held in memory.
@@ -603,7 +604,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
         "Image",
         &[
             (1, "id", "uint64"),
-            (2, "display_name", "Text"),
+            (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "pixels", "uint64"),
             (5, "placement", "ImagePlacement"),
@@ -614,7 +615,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
         "IndexedImage",
         &[
             (1, "id", "uint64"),
-            (2, "display_name", "Text"),
+            (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "indices", "uint64"),
             (5, "placement", "ImagePlacement"),
@@ -629,7 +630,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
         "MappedImage",
         &[
             (1, "id", "uint64"),
-            (2, "display_name", "Text"),
+            (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "values", "uint64"),
             (5, "placement", "ImagePlacement"),
@@ -743,7 +744,7 @@ fn the_surface_message_declares_its_alpha_and_opacities_after_its_existing_field
         declared_fields(&pool, "Surface"),
         [
             (1, "id", "uint64"),
-            (2, "display_name", "Text"),
+            (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "grid", "Grid"),
             (5, "z", "uint64"),
@@ -791,7 +792,7 @@ fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
         declared_fields(&pool, "Contour"),
         [
             (1, "id", "uint64"),
-            (2, "display_name", "Text"),
+            (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "grid", "Grid"),
             (5, "z", "uint64"),
@@ -926,7 +927,7 @@ fn check_explicit(
 // Why: readers in other languages do not know the IR's context-dependent defaults, so
 // IronLAB must write every value explicitly: every enum specified, every oneof set, and
 // every field with presence set unless the IR value is itself absent (an optional title,
-// label, legend, display name or coordinate array).
+// axis label, legend, artist label, data array name or coordinate array).
 #[test]
 fn the_encoder_writes_every_value_explicitly() {
     let pool = compile();

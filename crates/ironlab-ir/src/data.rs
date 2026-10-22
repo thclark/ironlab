@@ -1,4 +1,4 @@
-//! Numeric arrays.
+//! Data arrays: the numeric arrays of a figure, which are nodes of the figure.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -7,6 +7,28 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::IrError;
+use crate::ids::NodeId;
+
+/// A numeric array of the figure, which artists refer to by its node identifier.
+///
+/// A data array is a node of the figure, beside its axes and panels, in the identifier
+/// space that every node shares. Artists refer to their data by identifier rather than
+/// containing it, so that artists of any axes share one array and the array is stored
+/// once. The values of an array change only through the data edits
+/// ([`Edit::ReplaceData`](crate::Edit::ReplaceData) and
+/// [`Edit::AppendData`](crate::Edit::AppendData)), and its name is its only settable
+/// property.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DataArray {
+    /// The node identifier of the array, unique within the figure.
+    pub id: NodeId,
+    /// The name that identifies the array to tools such as the inspector, or `None` when
+    /// it has none. The name is never drawn and constrains nothing: two arrays may share
+    /// a name, and a name may be empty.
+    pub name: Option<String>,
+    /// The values of the array.
+    pub array: NdArray,
+}
 
 /// A dense, row-major, n-dimensional array of numeric values.
 ///

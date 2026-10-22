@@ -1,14 +1,13 @@
 //! Wire types of `ironlab/ir/v0/legend.proto`.
 
 proto_file! {
-    /// The legend of an axes, which lists the artists of the axes that have a display
-    /// name.
+    /// The legend of an axes, which lists the artists of the axes that have a label.
     message Legend {
         /// Where the entries are listed; unset means the default of the context.
         oneof kind: LegendKind {
             /// The entries are listed in a legend inside the plot area of the axes.
             Inside(LegendInside) inside = 1;
-            /// The entries are listed in a legend panel of the figure.
+            /// The entries are listed in a panel of the figure that holds a legend.
             Panel(LegendPanel) panel = 2;
         }
     }
@@ -19,9 +18,9 @@ proto_file! {
         message InsideLegend inside = 1;
     }
 
-    /// The entries are listed in a legend panel of the figure.
+    /// The entries are listed in a panel of the figure that holds a legend.
     message LegendPanel {
-        /// The node identifier of the legend panel; it must be present.
+        /// The node identifier of the panel; it must be present.
         optional uint64 panel = 1;
     }
 
@@ -37,36 +36,30 @@ proto_file! {
         message LegendEntries entries = 4;
     }
 
-    /// A legend of the figure that occupies cells of the tile layout and lists the
-    /// entries of every axes whose legend names it.
+    /// The legend content of a panel, which lists the entries of every axes whose legend
+    /// names the panel.
     message PanelLegend {
-        /// The node identifier of the panel, unique within the figure.
-        optional uint64 id = 1;
-        /// The cells of the figure's tile layout that the panel occupies.
-        message Cell cell = 2;
-        /// Where the block of entries is placed within the panel.
-        enum LegendLocation align = 3;
         /// Whether the area of the panel is outlined by a border drawn as the box of an
         /// axes is drawn.
-        optional bool boxed = 4;
+        optional bool boxed = 1;
         /// How the entries are arranged in columns.
-        message LegendEntryLayout layout = 5;
+        message LegendEntryLayout layout = 2;
         /// Which entries the panel lists, and in what order; absent means automatic.
-        message LegendEntries entries = 6;
+        message LegendEntries entries = 3;
     }
 
     /// Which entries a legend lists, and in what order.
     message LegendEntries {
         /// The kind of list; unset means automatic.
         oneof kind: LegendEntriesKind {
-            /// Every artist with a display name, in the order of the legend.
+            /// Every artist with a label, in the order of the legend.
             Auto(LegendEntriesAuto) automatic = 1;
             /// Exactly the given items, in the given order.
             Explicit(LegendEntriesExplicit) explicit_items = 2;
         }
     }
 
-    /// Every artist with a display name, in the order of the legend.
+    /// Every artist with a label, in the order of the legend.
     message LegendEntriesAuto {}
 
     /// Exactly the given items, in the given order.
@@ -94,7 +87,7 @@ proto_file! {
         }
     }
 
-    /// An artist of the figure, labelled by its display name.
+    /// An artist of the figure, labelled by its label.
     message LegendItemContentArtist {
         /// The node identifier of the artist; it must be present.
         optional uint64 artist = 1;
@@ -169,8 +162,7 @@ proto_file! {
         RowMajor = 2;
     }
 
-    /// The placement of a legend inside the plot area of its axes, or of the block of
-    /// entries inside a legend panel.
+    /// The placement of a legend inside the plot area of its axes.
     enum LegendLocation {
         /// The top-right corner.
         NorthEast = 1;

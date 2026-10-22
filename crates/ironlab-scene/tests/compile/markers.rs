@@ -624,11 +624,11 @@ fn the_legend_sample_of_a_marked_line_and_of_a_scatter_is_one_instance_in_the_ar
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 0.2], None, |l| {
-        l.display_name = text("Line");
+        l.label = text("Line");
         l.marker.shape = MarkerShape::Diamond;
     });
     let scatter = fx.scatter(ax, &[0.2, 0.8], &[0.5, 0.5], None, |s, _| {
-        s.display_name = text("Scatter");
+        s.label = text("Scatter");
     });
     fx.ax(ax).legend = Some(Legend::default());
     let scene = compile_figure(&fx.build());

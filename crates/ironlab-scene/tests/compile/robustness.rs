@@ -229,7 +229,7 @@ fn text_warnings_name_the_figure_or_artist_that_owns_the_text() {
     fx.fig.title = text("Summary $\\frobnicate{x}$");
     let ax = fx.axes2d(0, 0);
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
-        l.display_name = text("Series $\\frobnicate{y}$")
+        l.label = text("Series $\\frobnicate{y}$")
     });
     fx.ax(ax).legend = Some(Legend::default());
     let figure_id = fx.fig.id;
@@ -266,8 +266,8 @@ fn compilation_is_deterministic() {
     fx.fig.title = text("Determinism");
     let left = fx.axes2d(0, 0);
     let x = linspace(0.0, 1.0, 20);
-    fx.line(left, &x, &x, None, |l| l.display_name = text("$y = x$"));
-    fx.scatter(left, &x, &x, None, |s, _| s.display_name = text("Points"));
+    fx.line(left, &x, &x, None, |l| l.label = text("$y = x$"));
+    fx.scatter(left, &x, &x, None, |s, _| s.label = text("Points"));
     fx.ax(left).legend = Some(Legend::default());
     let right = fx.axes2d(0, 1);
     let g = linspace(-1.0, 1.0, 12);
@@ -300,7 +300,7 @@ fn compilation_is_deterministic() {
         vec![1, 2, 3],
         vec![255u8, 0, 0, 0, 0, 255],
         xy(None, None),
-        |i| i.display_name = text("Pixels"),
+        |i| i.label = text("Pixels"),
     );
     let figure = fx.build();
     assert_eq!(compile_figure(&figure), compile_figure(&figure));

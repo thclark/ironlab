@@ -8,10 +8,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use ironlab_ir::{Artist, Axes, DataId, Figure, Line, NdArray, NodeId, Parameter, TileLayout};
+use ironlab_ir::{Artist, Axes, Figure, Line, NdArray, NodeId, Parameter, TileLayout};
 use ironlab_viewer::browse::{
     Browse, Comparison, Constraint, Facet, FacetKey, FacetKind, FacetValue, FigureCard, Filter,
-    NO_LABELS, NOT_SET, Query, Results, Sort, SortKey, Term, browsable_labels, describe_facets,
+    NO_TAGS, NOT_SET, Query, Results, Sort, SortKey, Term, browsable_tags, describe_facets,
     has_nothing_to_browse_by, parameter_names,
 };
 
@@ -21,10 +21,10 @@ use ironlab_viewer::browse::{
 
 /// A card built directly, because the browser reads a figure once and then works only from the
 /// card; the tests of everything but the deriving therefore state their cards explicitly.
-fn card(title: &str, labels: &[&str], parameters: &[(&str, Parameter)]) -> FigureCard {
+fn card(title: &str, tags: &[&str], parameters: &[(&str, Parameter)]) -> FigureCard {
     FigureCard {
         title: title.to_owned(),
-        labels: labels.iter().map(|label| (*label).to_owned()).collect(),
+        tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
         parameters: parameters
             .iter()
             .map(|(name, value)| ((*name).to_owned(), value.clone()))
@@ -37,13 +37,13 @@ fn string(value: &str) -> Parameter {
     Parameter::String(value.to_owned())
 }
 
-/// A text facet value, which is also how a label is held.
+/// A text facet value, which is also how a tag is held.
 fn text(value: &str) -> FacetValue {
     FacetValue::Text(value.to_owned())
 }
 
 /// Four figures of one campaign: two from a solver and two from a tunnel, one of which carries
-/// neither an angle nor a label.
+/// neither an angle nor a tag.
 ///
 /// It is deliberately sparse, because a parameter that some figures of a collection carry and
 /// others do not is the normal case as soon as two experiments are compared.
@@ -141,7 +141,11 @@ fn figure(axes: Vec<Axes>, data: &[(u64, NdArray)]) -> Figure {
         axes,
         data: data
             .iter()
-            .map(|(id, array)| (DataId(*id), array.clone()))
+            .map(|(id, array)| ironlab_ir::DataArray {
+                id: NodeId(*id),
+                name: None,
+                array: array.clone(),
+            })
             .collect(),
         ..Figure::new()
     }
@@ -270,7 +274,7 @@ fn the_text_of_a_value_is_what_the_interface_writes() {
 }
 
 // Why: a range narrows a facet by comparing numbers, and a query such as `angle>=8` does the same.
-// Both ask a value for its number, and both must be told plainly that a label or a flag has none
+// Both ask a value for its number, and both must be told plainly that a tag or a flag has none
 // rather than being given a number that stands for one.
 #[test]
 fn only_the_numeric_forms_have_a_number() {
@@ -286,11 +290,11 @@ fn only_the_numeric_forms_have_a_number() {
 
 // Why: a free-text term is matched against one string, and what is in that string decides what
 // typing a word can find. Parameter names belong in it so that someone who half remembers a
-// parameter can type its name and see which figures have one; the values and the labels belong in
+// parameter can type its name and see which figures have one; the values and the tags belong in
 // it so that a word from any of them finds the figure. Folding to lower case is what lets the
 // reader type as they would speak.
 #[test]
-fn the_free_text_of_a_card_holds_its_title_labels_and_parameter_names_and_values() {
+fn the_free_text_of_a_card_holds_its_title_tags_and_parameter_names_and_values() {
     let card = card(
         "Wake survey",
         &["PIV"],
@@ -316,28 +320,28 @@ fn the_free_text_of_a_card_holds_its_title_labels_and_parameter_names_and_values
 // Which facets are worth offering
 // ---------------------------------------------------------------------------------
 
-// Why: the labels are the facet the user wrote in order to browse by, so no arithmetic over the
+// Why: the tags are the facet the user wrote in order to browse by, so no arithmetic over the
 // collection may push them below a parameter that happens to divide it more evenly. Putting them
-// first is what makes the sidebar match the reason the labels exist.
+// first is what makes the sidebar match the reason the tags exist.
 #[test]
-fn the_labels_are_the_first_facet_offered() {
+fn the_tags_are_the_first_facet_offered() {
     let facets = describe_facets(&collection());
     assert_eq!(
         facets.first().map(|facet| facet.key.clone()),
-        Some(FacetKey::Labels)
+        Some(FacetKey::Tags)
     );
-    let labels = facet(&facets, "labels");
-    assert_eq!(labels.kind, FacetKind::Labels);
+    let tags = facet(&facets, "tags");
+    assert_eq!(tags.kind, FacetKind::Tags);
     assert_eq!(
-        labels.present, 3,
-        "three of the four figures carry a label at all"
+        tags.present, 3,
+        "three of the four figures carry a tag at all"
     );
     assert_eq!(
-        labels.values,
+        tags.values,
         [text("piv"), text("stalled"), text("tunnel")],
-        "every label of the collection is offered, once, in ascending order"
+        "every tag of the collection is offered, once, in ascending order"
     );
-    assert_eq!(labels.range, None, "labels are not narrowed by a range");
+    assert_eq!(tags.range, None, "tags are not narrowed by a range");
 }
 
 // Why: a facet every figure agrees on divides nothing: ticking its one value leaves the collection
@@ -375,26 +379,26 @@ fn a_facet_with_one_value_scores_zero_because_it_divides_nothing() {
     );
 }
 
-// Why: the labels lead the sidebar because they are what the user wrote in order to browse by,
-// but a single label shared by every figure divides the collection no more than a parameter of one
-// value does. Exempting the labels from that rule would put a row at the top of the sidebar whose
+// Why: the tags lead the sidebar because they are what the user wrote in order to browse by,
+// but a single tag shared by every figure divides the collection no more than a parameter of one
+// value does. Exempting the tags from that rule would put a row at the top of the sidebar whose
 // only value keeps everything, which is precisely what the score exists to keep out.
 #[test]
-fn a_single_label_shared_by_every_figure_scores_zero_like_any_other_facet() {
+fn a_single_tag_shared_by_every_figure_scores_zero_like_any_other_facet() {
     let cards = [
         card("A", &["2d"], &[("rig", string("CFD"))]),
         card("B", &["2d"], &[("rig", string("Tunnel"))]),
     ];
     let facets = describe_facets(&cards);
-    let labels = facet(&facets, "labels");
+    let tags = facet(&facets, "tags");
     assert_eq!(
-        labels.values,
+        tags.values,
         [text("2d")],
-        "there is one label in the collection"
+        "there is one tag in the collection"
     );
     assert_eq!(
-        labels.score, 0.0,
-        "the one label divides nothing, and leading the sidebar is not a reason to offer it"
+        tags.score, 0.0,
+        "the one tag divides nothing, and leading the sidebar is not a reason to offer it"
     );
     assert_eq!(
         facets.first().map(|facet| facet.key.name()),
@@ -564,7 +568,7 @@ fn a_facet_takes_the_form_its_values_share() {
         ),
     ];
     let facets = describe_facets(&cards);
-    assert_eq!(facet(&facets, "labels").kind, FacetKind::Labels);
+    assert_eq!(facet(&facets, "tags").kind, FacetKind::Tags);
     assert_eq!(facet(&facets, "stalled").kind, FacetKind::Bool);
     assert_eq!(facet(&facets, "cells").kind, FacetKind::Integer);
     assert_eq!(facet(&facets, "angle").kind, FacetKind::Number);
@@ -641,10 +645,7 @@ fn known(names: &[&str]) -> BTreeSet<String> {
 #[test]
 fn every_documented_form_of_a_term_parses_as_the_table_says() {
     let names = known(&["rig", "angle"]);
-    let query = Query::parse(
-        "surface -stalled rig:CFD rig=CFD angle>=8 label:piv",
-        &names,
-    );
+    let query = Query::parse("surface -stalled rig:CFD rig=CFD angle>=8 tag:piv", &names);
     assert_eq!(
         query.terms,
         [
@@ -653,7 +654,7 @@ fn every_documented_form_of_a_term_parses_as_the_table_says() {
             named("rig", Comparison::Contains, "CFD", false),
             named("rig", Comparison::Equals, "CFD", false),
             named("angle", Comparison::AtLeast, "8", false),
-            named("label", Comparison::Contains, "piv", false),
+            named("tag", Comparison::Contains, "piv", false),
         ]
     );
     assert_eq!(
@@ -785,22 +786,22 @@ fn a_word_with_a_colon_that_names_no_parameter_is_free_text() {
     );
 }
 
-// Why: the labels are not a parameter and can never appear among a collection's parameter names,
+// Why: the tags are not a parameter and can never appear among a collection's parameter names,
 // so a rule that only the collection's names make a named term would put them out of reach of the
 // query language altogether. They are the one name that always asks what it looks like it asks.
 #[test]
-fn labels_are_asked_about_by_name_although_they_are_not_a_parameter() {
+fn tags_are_asked_about_by_name_although_they_are_not_a_parameter() {
     let cards = [card("Run 1", &["piv"], &[("rig", string("CFD"))])];
     let names = parameter_names(&cards);
     assert!(
-        !names.contains("label") && !names.contains("labels"),
+        !names.contains("tag") && !names.contains("tags"),
         "no figure carries a parameter of either name"
     );
     assert_eq!(
-        Query::parse("label:piv", &names).terms,
-        [named("label", Comparison::Contains, "piv", false)]
+        Query::parse("tag:piv", &names).terms,
+        [named("tag", Comparison::Contains, "piv", false)]
     );
-    assert!(Query::parse("labels=PIV", &names).matches(&cards[0]));
+    assert!(Query::parse("tags=PIV", &names).matches(&cards[0]));
 }
 
 // Why: a number in a figure's parameters was written by the code that produced it, and a reader
@@ -841,9 +842,9 @@ fn a_comparison_against_text_ignores_case() {
         "a containing comparison finds part of the value"
     );
     assert!(
-        Query::parse("label:piv", &names).matches(card)
-            && Query::parse("labels:PIV", &names).matches(card),
-        "labels are asked about by either name, in either case"
+        Query::parse("tag:piv", &names).matches(card)
+            && Query::parse("tags:PIV", &names).matches(card),
+        "tags are asked about by either name, in either case"
     );
     assert!(
         Query::parse("SST", &names).matches(card),
@@ -880,8 +881,8 @@ fn a_named_term_does_not_match_a_figure_that_lacks_the_parameter() {
         "the figure that is not what was asked for is what the negation asks for"
     );
     assert!(
-        !Query::parse("label:piv", &names).matches(measured),
-        "a figure with no labels is not found by a question about them"
+        !Query::parse("tag:piv", &names).matches(measured),
+        "a figure with no tags is not found by a question about them"
     );
 }
 
@@ -896,7 +897,7 @@ fn every_term_of_a_query_must_hold() {
         &[("rig", string("CFD")), ("angle", Parameter::Number(8.0))],
     )];
     let (names, card) = (parameter_names(&cards), &cards[0]);
-    assert!(Query::parse("rig:CFD angle>=8 label:piv run", &names).matches(card));
+    assert!(Query::parse("rig:CFD angle>=8 tag:piv run", &names).matches(card));
     assert!(
         !Query::parse("rig:CFD angle>=12", &names).matches(card),
         "one term that does not hold rules the figure out"
@@ -928,45 +929,42 @@ fn a_figure_that_lacks_the_facet_never_passes_a_filter() {
             high: 20.0,
         },
     };
-    let labelled = Filter {
-        key: FacetKey::Labels,
+    let tagged = Filter {
+        key: FacetKey::Tags,
         constraint: Constraint::AnyOf(vec![text("piv")]),
     };
     assert!(!chosen.matches(&measured));
     assert!(!ranged.matches(&measured));
     assert!(
-        !labelled.matches(&measured),
-        "a figure with no labels is outside every refinement of the labels"
+        !tagged.matches(&measured),
+        "a figure with no tags is outside every refinement of the tags"
     );
 }
 
-// Why: a figure carries several labels, so a refinement of the labels asks whether any of them is
-// one of the chosen ones, and a range over a set of labels is not a question that can be asked at
+// Why: a figure carries several tags, so a refinement of the tags asks whether any of them is
+// one of the chosen ones, and a range over a set of tags is not a question that can be asked at
 // all. Answering it with anything but "no figure" would invent an order for text that has none.
 #[test]
-fn a_label_filter_keeps_a_figure_that_carries_any_chosen_label() {
+fn a_tag_filter_keeps_a_figure_that_carries_any_chosen_tag() {
     let card = card("Run 2", &["piv", "stalled"], &[]);
     let either = Filter {
-        key: FacetKey::Labels,
+        key: FacetKey::Tags,
         constraint: Constraint::AnyOf(vec![text("tunnel"), text("stalled")]),
     };
     let neither = Filter {
-        key: FacetKey::Labels,
+        key: FacetKey::Tags,
         constraint: Constraint::AnyOf(vec![text("tunnel")]),
     };
     let ranged = Filter {
-        key: FacetKey::Labels,
+        key: FacetKey::Tags,
         constraint: Constraint::Between {
             low: 0.0,
             high: 1.0,
         },
     };
-    assert!(either.matches(&card), "one of the two labels is chosen");
+    assert!(either.matches(&card), "one of the two tags is chosen");
     assert!(!neither.matches(&card));
-    assert!(
-        !ranged.matches(&card),
-        "labels cannot be narrowed by a range"
-    );
+    assert!(!ranged.matches(&card), "tags cannot be narrowed by a range");
 }
 
 // Why: a range is inclusive at both ends, because the reader who drags a slider to 8 means to keep
@@ -1211,19 +1209,19 @@ fn a_value_that_nothing_would_leave_is_counted_as_zero_rather_than_dropped() {
     );
 }
 
-// Why: a figure carries several labels and belongs to each of their counts, because the count
-// beside a label is how many figures ticking it would show. Counting a figure once for the whole
-// facet would understate every label it carries.
+// Why: a figure carries several tags and belongs to each of their counts, because the count
+// beside a tag is how many figures ticking it would show. Counting a figure once for the whole
+// facet would understate every tag it carries.
 #[test]
-fn a_figure_is_counted_under_each_of_its_labels() {
+fn a_figure_is_counted_under_each_of_its_tags() {
     let cards = collection();
     let facets = describe_facets(&cards);
-    let labels = facet(&facets, "labels");
+    let tags = facet(&facets, "tags");
     let browse = Browse::default();
     assert_eq!(
-        browse.counts(&cards, labels),
+        browse.counts(&cards, tags),
         BTreeMap::from([(text("piv"), 2), (text("stalled"), 1), (text("tunnel"), 1)]),
-        "the figure carrying two labels is counted under both"
+        "the figure carrying two tags is counted under both"
     );
 }
 
@@ -1336,16 +1334,16 @@ fn a_text_parameter_sorts_by_its_text_and_a_numeric_one_by_its_number() {
     assert_eq!(titles(&textual.results(&named), &named), ["B", "A"]);
 }
 
-// Why: grouping by labels is how a reader browses a collection they did not label themselves, and
-// a figure with two labels belongs under both: it is in the collection twice as far as the reader
-// is concerned. The figures with no labels at all are what the grouping does not apply to, and
+// Why: grouping by tags is how a reader browses a collection they did not tag themselves, and
+// a figure with two tags belongs under both: it is in the collection twice as far as the reader
+// is concerned. The figures with no tags at all are what the grouping does not apply to, and
 // they come last because they are the least likely to be what the reader chose the grouping to
 // find.
 #[test]
-fn a_figure_is_grouped_under_each_of_its_labels_and_the_unlabelled_come_last() {
+fn a_figure_is_grouped_under_each_of_its_tags_and_the_untagged_come_last() {
     let cards = collection();
     let browse = Browse {
-        group: Some(FacetKey::Labels),
+        group: Some(FacetKey::Tags),
         ..Browse::default()
     };
     let results = browse.results(&cards);
@@ -1358,7 +1356,7 @@ fn a_figure_is_grouped_under_each_of_its_labels_and_the_unlabelled_come_last() {
             ),
             ("stalled".to_owned(), vec!["Run 2".to_owned()]),
             ("tunnel".to_owned(), vec!["Run 9".to_owned()]),
-            (NO_LABELS.to_owned(), vec!["Run 10".to_owned()]),
+            (NO_TAGS.to_owned(), vec!["Run 10".to_owned()]),
         ]
     );
     assert_eq!(
@@ -1510,12 +1508,12 @@ fn an_ungrouped_result_is_one_group_with_no_name() {
 fn what_was_typed_and_what_was_ticked_both_narrow_the_result() {
     let cards = collection();
     let mut browse = Browse::default();
-    browse.toggle(&FacetKey::Labels, &text("piv"));
+    browse.toggle(&FacetKey::Tags, &text("piv"));
     browse.query = "angle>=8".to_owned();
     assert_eq!(
         titles(&browse.results(&cards), &cards),
         ["Run 2"],
-        "only the figure that is labelled piv and has an angle of at least eight"
+        "only the figure that is tagged piv and has an angle of at least eight"
     );
 
     browse.clear();
@@ -1527,18 +1525,18 @@ fn what_was_typed_and_what_was_ticked_both_narrow_the_result() {
 }
 
 // ---------------------------------------------------------------------------------
-// The labels a figure is browsed by
+// The tags a figure is browsed by
 // ---------------------------------------------------------------------------------
 
-// Why: neither an empty label nor a repeated one can reach a figure through IronLAB — both are validation errors,
+// Why: neither an empty tag nor a repeated one can reach a figure through IronLAB — both are validation errors,
 // and the JSON Schema refuses them outright. A figure written by another program can still carry them, because the
 // Protocol Buffers schema cannot express either rule, and a blank entry in a menu or the same word offered twice
 // is a fault in the interface whatever the file says. The figure itself is left alone, so that opening a file and
 // saving it again does not quietly change it.
 #[test]
-fn an_empty_or_repeated_label_is_cleaned_up_for_browsing_without_altering_the_figure() {
+fn an_empty_or_repeated_tag_is_cleaned_up_for_browsing_without_altering_the_figure() {
     let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
-    source.labels = vec![
+    source.tags = vec![
         "wake".to_owned(),
         String::new(),
         "wake".to_owned(),
@@ -1546,12 +1544,12 @@ fn an_empty_or_repeated_label_is_cleaned_up_for_browsing_without_altering_the_fi
     ];
 
     assert_eq!(
-        browsable_labels(&source),
+        browsable_tags(&source),
         ["wake", "piv"],
-        "the empty label is dropped and the repeat is kept once"
+        "the empty tag is dropped and the repeat is kept once"
     );
     assert_eq!(
-        source.labels.len(),
+        source.tags.len(),
         4,
         "and the figure still holds exactly what it was given"
     );
@@ -1565,14 +1563,14 @@ fn an_empty_or_repeated_label_is_cleaned_up_for_browsing_without_altering_the_fi
 // besides. A viewer that added facets of its own would be deciding what a collection can be narrowed by, which is
 // the author's decision to make: they are the only one who knows which of a figure's properties matter.
 #[test]
-fn a_card_carries_the_figures_own_labels_and_nothing_else() {
+fn a_card_carries_the_figures_own_tags_and_nothing_else() {
     let mut source = figure(vec![axes(2, vec![Artist::Line(Line::default())])], &[]);
-    source.labels = vec!["basics".to_owned()];
+    source.tags = vec!["basics".to_owned()];
     let card = FigureCard::of("Lines", &source);
     assert_eq!(
-        card.labels,
+        card.tags,
         ["basics"],
-        "the card carries the figure's labels and nothing the viewer invented"
+        "the card carries the figure's tags and nothing the viewer invented"
     );
     assert!(
         card.haystack().contains("basics"),
@@ -1593,10 +1591,10 @@ fn a_collection_is_without_anything_to_browse_by_only_when_nothing_is_described(
         "an empty collection has nothing to browse by either, vacuously"
     );
 
-    let labelled = [card("One", &["wake"], &[]), card("Two", &[], &[])];
+    let tagged = [card("One", &["wake"], &[]), card("Two", &[], &[])];
     assert!(
-        !has_nothing_to_browse_by(&labelled),
-        "one label on one figure is something to browse by"
+        !has_nothing_to_browse_by(&tagged),
+        "one tag on one figure is something to browse by"
     );
 
     let measured = [

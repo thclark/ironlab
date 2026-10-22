@@ -20,9 +20,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use common::{
-    TEXT, Workspace, assert_same_picture, depth_group, figure_with_mapped_image,
-    figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required, image_sample, rasterise,
-    rendered_or_skip, rgb_of, scale_then_translate, tools_available,
+    TEXT, Workspace, array_id, assert_same_picture, data_array, depth_group,
+    figure_with_mapped_image, figure_with_surface, find_image, glyph_h, gpu_or_skip, gpu_required,
+    image_sample, rasterise, rendered_or_skip, rgb_of, scale_then_translate, tools_available,
 };
 use image::RgbImage;
 use ironlab_canvas::offscreen::{
@@ -33,7 +33,7 @@ use ironlab_canvas::{
     RenderedImage, ScreenTransform, TileKey, Uploads, Vertex, Viewport,
     render_display_list_offscreen, render_offscreen,
 };
-use ironlab_ir::{Artist, Axes, Axis, DataId, Figure, FigureSize, Limits, Line, NdArray, NodeId};
+use ironlab_ir::{Artist, Axes, Axis, Figure, FigureSize, Limits, Line, NdArray, NodeId};
 use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
@@ -363,12 +363,14 @@ fn a_compiled_figure_renders_at_its_physical_size_with_ink_inside_the_axes() {
         },
         ..Figure::new()
     };
-    figure
-        .data
-        .insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
-    figure
-        .data
-        .insert(DataId(1), NdArray::vector(vec![0.0, 2.0, 1.0]));
+    figure.data.push(data_array(
+        array_id(0),
+        NdArray::vector(vec![0.0, 1.0, 2.0]),
+    ));
+    figure.data.push(data_array(
+        array_id(1),
+        NdArray::vector(vec![0.0, 2.0, 1.0]),
+    ));
     figure.axes.push(Axes {
         id: NodeId(2),
         x: Axis {
@@ -377,8 +379,8 @@ fn a_compiled_figure_renders_at_its_physical_size_with_ink_inside_the_axes() {
         },
         artists: vec![Artist::Line(Line {
             id: NodeId(3),
-            x: DataId(0),
-            y: DataId(1),
+            x: array_id(0),
+            y: array_id(1),
             ..Line::default()
         })],
         ..Axes::default()
@@ -4875,10 +4877,10 @@ fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
     };
     figure
         .data
-        .insert(DataId(0), NdArray::vector(vec![0.0, 1.0]));
+        .push(data_array(array_id(0), NdArray::vector(vec![0.0, 1.0])));
     figure
         .data
-        .insert(DataId(1), NdArray::vector(vec![0.5, 0.5]));
+        .push(data_array(array_id(1), NdArray::vector(vec![0.5, 0.5])));
     figure.axes.push(Axes {
         id: NodeId(2),
         x: Axis {
@@ -4891,8 +4893,8 @@ fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
         },
         artists: vec![Artist::Line(Line {
             id: NodeId(3),
-            x: DataId(0),
-            y: DataId(1),
+            x: array_id(0),
+            y: array_id(1),
             line: ironlab_ir::LineStyle {
                 color: ironlab_ir::ColorSpec::Rgba {
                     color: ironlab_ir::Color::BLACK,

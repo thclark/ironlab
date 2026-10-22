@@ -16,11 +16,11 @@ fn legend_axes() -> (Fx, NodeId, [NodeId; 3]) {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let first = fx.line(ax, &[0.0, 1.0], &[0.0, 0.2], None, |l| {
-        l.display_name = text("Alpha")
+        l.label = text("Alpha")
     });
     let unnamed = fx.line(ax, &[0.0, 1.0], &[0.1, 0.3], None, |_| {});
     let third = fx.line(ax, &[0.0, 1.0], &[0.2, 0.4], None, |l| {
-        l.display_name = text("$\\beta^2$")
+        l.label = text("$\\beta^2$")
     });
     let axes = fx.ax(ax);
     axes.y.limits = Limits::Manual { min: 0.0, max: 2.0 };
@@ -101,7 +101,7 @@ fn the_sample_of_a_line_is_stroked_with_its_dash_pattern() {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
         let line = fx.line(ax, &[0.0, 1.0], &[0.0, 0.2], None, |l| {
-            l.display_name = text("design point");
+            l.label = text("design point");
             l.line.dash = style;
         });
         fx.ax(ax).legend = Some(Legend::Inside(InsideLegend::default()));
@@ -201,7 +201,7 @@ fn legend_is_painted_after_every_artist() {
 // Why: display names are LaTeX-interpreted text, so math in a legend label must be typeset in the
 // math font inside its entry.
 #[test]
-fn latex_display_name_is_typeset_as_math_in_its_entry() {
+fn latex_label_is_typeset_as_math_in_its_entry() {
     let (fx, ax, [_, _, third]) = legend_axes();
     let scene = compile_figure(&fx.build());
     let entry = entries(&scene, ax)
@@ -267,44 +267,32 @@ fn legend_lists_named_artists_of_every_kind_in_artist_order() {
     let g = linspace(0.0, 1.0, 4);
     let mut ids = vec![
         fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
-            l.display_name = text("Line")
+            l.label = text("Line")
         }),
         fx.scatter(ax, &[0.2, 0.8], &[0.5, 0.5], None, |s, _| {
-            s.display_name = text("Scatter")
+            s.label = text("Scatter")
         }),
-        fx.contour(
-            ax,
-            &g,
-            &g,
-            |x, y| x + y,
-            |c| c.display_name = text("Contour"),
-        ),
+        fx.contour(ax, &g, &g, |x, y| x + y, |c| c.label = text("Contour")),
     ];
     let quiver = fx.quiver(ax, &[0.5], &[0.5], None, &[0.1], &[0.1], None);
     if let Some(Artist::Quiver(q)) = fx.ax(ax).artists.last_mut() {
-        q.display_name = text("Quiver");
+        q.label = text("Quiver");
     }
     ids.push(quiver);
     ids.extend([
-        fx.surface(
-            ax,
-            &g,
-            &g,
-            |x, y| x - y,
-            |s| s.display_name = text("Surface"),
-        ),
+        fx.surface(ax, &g, &g, |x, y| x - y, |s| s.label = text("Surface")),
         fx.image(
             ax,
             vec![1, 2, 3],
             vec![255u8, 0, 0, 0, 0, 255],
             xy(None, None),
-            |i| i.display_name = text("Image"),
+            |i| i.label = text("Image"),
         ),
         fx.indexed_image(ax, vec![1, 2], vec![0u8, 255], xy(None, None), |i| {
-            i.display_name = text("Indexed")
+            i.label = text("Indexed")
         }),
         fx.mapped_image(ax, vec![1, 2], vec![0.0, 1.0], xy(None, None), |m| {
-            m.display_name = text("Mapped")
+            m.label = text("Mapped")
         }),
     ]);
     fx.ax(ax).legend = Some(Legend::default());

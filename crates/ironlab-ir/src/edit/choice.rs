@@ -30,11 +30,15 @@ use crate::axes::{
     TitleAlign, View3d,
 };
 use crate::edit::path::PropertyPath;
-use crate::edit::registry::{NodeKind, properties};
+use crate::edit::registry::properties;
 use crate::edit::value::{Value, ValueType};
 use crate::figure::{Figure, FontSetId};
-use crate::ids::{DataId, NodeId};
-use crate::legend::{InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation};
+use crate::ids::NodeId;
+use crate::legend::{
+    InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation, PanelLegend,
+};
+use crate::nodes::NodeKind;
+use crate::panel::{PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
 use crate::text::{Interpreter, Text};
 
@@ -93,7 +97,7 @@ const FALLBACK_LEVEL: f64 = 0.0;
 /// The array that a choice refers to when it needs data and the value it replaces names
 /// none. The figure need not have it, in which case applying the choice is refused and
 /// the user picks an array of the right shape instead.
-const FALLBACK_DATA: DataId = DataId(0);
+const FALLBACK_DATA: NodeId = NodeId(0);
 
 /// The marker size that a single scatter size starts from, which is the size of a
 /// scatter built from [`ScatterSize::default`].
@@ -115,8 +119,8 @@ const FALLBACK_QUIVER_FACTOR: f64 = 1.0;
 /// number of columns of an inside legend by default.
 const FALLBACK_LEGEND_COLUMNS: u32 = 1;
 
-/// The legend panel that a legend listing its entries in a panel refers to when the value
-/// it replaces names none. The figure need not have it, in which case the choice is
+/// The panel that a legend listing its entries in a panel refers to when the value it
+/// replaces names none. The figure need not have it, in which case the choice is
 /// unavailable at the property and applying it is refused.
 const FALLBACK_PANEL: NodeId = NodeId(0);
 
@@ -131,7 +135,7 @@ const FALLBACK_PANEL: NodeId = NodeId(0);
 /// colour, a grid keeps its coordinate arrays, and explicit levels keep their values.
 /// What a choice cannot take it falls back on: manual limits run from 0 to 1, explicit
 /// levels hold the single level 0, and a choice that needs a data array refers to
-/// [`DataId(0)`](DataId), which the figure need not have. Passing `None` uses every
+/// the node [`NodeId(0)`](NodeId), which the figure need not have. Passing `None` uses every
 /// fallback.
 ///
 /// A type that is neither a tagged value nor an enumeration has no choices and returns
@@ -163,10 +167,12 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::ImagePlane => image_plane_choices(replacing),
         ValueType::OutOfRange => out_of_range_choices(replacing),
         ValueType::Legend => legend_choices(replacing),
+        ValueType::PanelContent => panel_content_choices(replacing),
         ValueType::LegendEntryColumns => legend_entry_columns_choices(replacing),
         ValueType::Scale => scale_choices(),
         ValueType::ColormapName => colormap_name_choices(),
         ValueType::LegendLocation => legend_location_choices(),
+        ValueType::PanelLocation => panel_location_choices(),
         ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
@@ -178,7 +184,6 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Double
         | ValueType::Float
         | ValueType::String
-        | ValueType::DataId
         | ValueType::NodeId
         | ValueType::Doubles
         | ValueType::TrackSizes
@@ -195,6 +200,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
+        | ValueType::PanelLegend
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
@@ -222,8 +228,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// colour of the colormap, is unavailable at the `non_finite` category of a
 /// colour-indexed or colour-mapped image, because a non-finite value has no nearest end;
 /// it stays available at the `below` and `above` categories. A legend that lists the
-/// entries of its axes in a legend panel is unavailable when the figure has no legend
-/// panel of the identifier it names, because the figure would then list the entries
+/// entries of its axes in a panel is unavailable when the figure has no panel of the
+/// identifier it names, because the figure would then list the entries
 /// nowhere.
 ///
 /// Returns an empty list when the node is not in the figure, when the path is not a
@@ -343,18 +349,19 @@ fn colormapped_without_a_value_to_index_by(
         NodeKind::Line => COLORMAPPED_ON_A_LINE,
         NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
         NodeKind::Scatter => COLORMAPPED_ON_A_SINGLE_SCATTER_COLOUR,
-        // Every colour of a contour and of a surface indexes the colormap, and a figure,
-        // an axes and an image hold no colour specification at all (the fixed colour of
+        // Every colour of a contour and of a surface indexes the colormap, and a figure, a
+        // data array, an axes, a panel and an image hold no colour specification at all (the fixed colour of
         // an image's out-of-range policy is a colour, not a specification), so these
         // kinds reach this reason only if they gain a colour that indexes nothing.
         NodeKind::Contour
         | NodeKind::Surface
         | NodeKind::Figure
+        | NodeKind::DataArray
         | NodeKind::Axes
         | NodeKind::Image
         | NodeKind::IndexedImage
         | NodeKind::MappedImage
-        | NodeKind::PanelLegend => COLORMAPPED_ELSEWHERE,
+        | NodeKind::Panel => COLORMAPPED_ELSEWHERE,
     })
 }
 
@@ -377,14 +384,14 @@ fn clamp_without_a_nearest_end_of_the_colormap(
     (clamp && image && path.segments() == ["non_finite"]).then_some(CLAMP_AT_NON_FINITE)
 }
 
-/// Why listing the entries of an axes in a legend panel is unavailable when the figure
-/// has no legend panel of the identifier the choice names.
-const NO_SUCH_LEGEND_PANEL: &str = "The figure has no legend panel of this identifier in \
-     which to list the entries. A legend panel is added by the program that builds the \
+/// Why listing the entries of an axes in a panel is unavailable when the figure has no
+/// panel of the identifier the choice names.
+const NO_SUCH_LEGEND_PANEL: &str = "The figure has no panel of this identifier in which to \
+     list the entries. A panel holding a legend is added by the program that builds the \
      figure, and the entries of an axes can then be listed in it.";
 
-/// Marks a legend that lists its entries in a legend panel unavailable when the figure has
-/// no legend panel of the identifier it names, and leaves every other choice alone.
+/// Marks a legend that lists its entries in a panel unavailable when the figure has no
+/// panel of the identifier it names, and leaves every other choice alone.
 fn legend_panel_that_the_figure_lacks(
     figure: &Figure,
     _kind: NodeKind,
@@ -393,7 +400,7 @@ fn legend_panel_that_the_figure_lacks(
     value: &Value,
 ) -> Option<&'static str> {
     match value {
-        Value::Legend(Legend::Panel(panel)) if figure.panel_legend(*panel).is_none() => {
+        Value::Legend(Legend::Panel(panel)) if figure.panel(*panel).is_none() => {
             Some(NO_SUCH_LEGEND_PANEL)
         }
         _ => None,
@@ -456,6 +463,7 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         // colours, and the two mapped kinds index the colormap by their data rather
         // than by a colour property.
         NodeKind::Figure
+        | NodeKind::DataArray
         | NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter
@@ -463,7 +471,7 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         | NodeKind::Image
         | NodeKind::IndexedImage
         | NodeKind::MappedImage
-        | NodeKind::PanelLegend => false,
+        | NodeKind::Panel => false,
     }
 }
 
@@ -491,10 +499,12 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::ImagePlane(v) => image_plane_label(v),
         Value::OutOfRange(v) => out_of_range_label(v),
         Value::Legend(v) => legend_label(v),
+        Value::PanelContent(v) => panel_content_label(v),
         Value::LegendEntryColumns(v) => legend_entry_columns_label(v),
         Value::Scale(v) => scale_label(v),
         Value::ColormapName(v) => colormap_name_label(v),
         Value::LegendLocation(v) => legend_location_label(v),
+        Value::PanelLocation(v) => panel_location_label(v),
         Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
@@ -507,7 +517,6 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Double(_)
         | Value::Float(_)
         | Value::String(_)
-        | Value::DataId(_)
         | Value::NodeId(_)
         | Value::Doubles(_)
         | Value::TrackSizes(_)
@@ -524,6 +533,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Axis(_)
         | Value::InsideLegend(_)
         | Value::LegendEntryLayout(_)
+        | Value::PanelLegend(_)
         | Value::LineStyle(_)
         | Value::MarkerStyle(_)
         | Value::ImagePlacement(_)
@@ -771,6 +781,13 @@ tagged_choices! {
         });
     }
 
+    PanelContent as PanelContent (panel_content_choices, panel_content_label) replacing replacing {
+        PanelContent::Legend(_) => "Legend" = PanelContent::Legend(match replacing {
+            Some(Value::PanelContent(PanelContent::Legend(legend))) => legend.clone(),
+            _ => PanelLegend::default(),
+        });
+    }
+
     LegendEntryColumns as LegendEntryColumns (legend_entry_columns_choices, legend_entry_columns_label) replacing replacing {
         LegendEntryColumns::Auto => "Automatic" = LegendEntryColumns::Auto;
         LegendEntryColumns::Count(_) => "Fixed number" = LegendEntryColumns::Count(match replacing {
@@ -807,6 +824,18 @@ plain_choices! {
         LegendLocation::West => "West";
         LegendLocation::Center => "Centre";
         LegendLocation::Best => "Best";
+    }
+
+    PanelLocation as PanelLocation (panel_location_choices, panel_location_label) {
+        PanelLocation::Center => "Centre";
+        PanelLocation::North => "North";
+        PanelLocation::South => "South";
+        PanelLocation::East => "East";
+        PanelLocation::West => "West";
+        PanelLocation::NorthEast => "North east";
+        PanelLocation::NorthWest => "North west";
+        PanelLocation::SouthEast => "South east";
+        PanelLocation::SouthWest => "South west";
     }
 
     LegendEntryOrder as LegendEntryOrder (legend_entry_order_choices, legend_entry_order_label) {
@@ -880,7 +909,7 @@ fn replaced_color(replacing: Option<&Value>) -> Color {
 
 /// The coordinate arrays that a grid takes from the grid it replaces, which both kinds
 /// of grid have, or the fallback array for both.
-fn replaced_grid(replacing: Option<&Value>) -> (DataId, DataId) {
+fn replaced_grid(replacing: Option<&Value>) -> (NodeId, NodeId) {
     match replacing {
         Some(Value::Grid(Grid::Rectilinear { x, y } | Grid::Curvilinear { x, y })) => (*x, *y),
         _ => (FALLBACK_DATA, FALLBACK_DATA),

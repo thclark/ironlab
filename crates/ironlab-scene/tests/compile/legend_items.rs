@@ -4,7 +4,7 @@
 use ironlab_ir::{
     Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntries, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, LegendItem, LegendSample, LineStyle, MarkerShape,
-    MarkerStyle, NodeId, TrackSize, View3d,
+    MarkerStyle, NodeId, PanelContent, TrackSize, View3d,
 };
 use ironlab_scene::display::Rect;
 use ironlab_scene::hit::{LegendHit, LegendOwner};
@@ -35,14 +35,14 @@ fn axes_over_panel(names: &[&str]) -> (Fx, NodeId, Vec<NodeId>, NodeId) {
         .map(|name| fx.named_line(ax, name, |_| {}))
         .collect();
     let panel = fx.panel(cell(1, 0, 1, 1));
-    fx.panel_mut(panel).layout = fixed(1, LegendEntryOrder::ColumnMajor);
+    fx.legend_mut(panel).layout = fixed(1, LegendEntryOrder::ColumnMajor);
     fx.legend_in(ax, panel);
     (fx, ax, lines, panel)
 }
 
 /// Sets the entries of a panel to an explicit list of items.
 fn explicit(fx: &mut Fx, panel: NodeId, items: Vec<LegendItem>) {
-    fx.panel_mut(panel).entries = LegendEntries::Explicit(items);
+    fx.legend_mut(panel).entries = LegendEntries::Explicit(items);
 }
 
 /// An item that lists an artist on a row of its own.
@@ -384,7 +384,7 @@ fn marker_key() -> (Fx, NodeId, NodeId, NodeId) {
     let ax = fx.axes2d(0, 0);
     let curve = fx.named_line(ax, "Curve", |_| {});
     let panel = fx.panel(cell(1, 0, 1, 1));
-    fx.panel_mut(panel).layout = fixed(1, LegendEntryOrder::ColumnMajor);
+    fx.legend_mut(panel).layout = fixed(1, LegendEntryOrder::ColumnMajor);
     explicit(
         &mut fx,
         panel,
@@ -598,7 +598,7 @@ fn a_full_row_item_sits_alone_above_the_columns_and_sets_no_column_width() {
         "M6",
     ];
     let (mut fx, _, lines, panel) = axes_over_panel(&names);
-    fx.panel_mut(panel).layout = fixed(3, LegendEntryOrder::ColumnMajor);
+    fx.legend_mut(panel).layout = fixed(3, LegendEntryOrder::ColumnMajor);
     let mut items = vec![full_row(lines[0])];
     items.extend(lines[1..].iter().map(|&l| LegendItem::artist(l)));
     explicit(&mut fx, panel, items);
@@ -650,7 +650,7 @@ fn a_full_row_item_sits_alone_above_the_columns_and_sets_no_column_width() {
 fn a_full_row_item_in_the_middle_divides_the_columns_at_its_position() {
     let long = "D, a member with a long label";
     let (mut fx, _, lines, panel) = axes_over_panel(&["A", "B", "C", "Second family", long, "E"]);
-    fx.panel_mut(panel).layout = fixed(2, LegendEntryOrder::ColumnMajor);
+    fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::ColumnMajor);
     let items = lines
         .iter()
         .enumerate()
@@ -694,7 +694,7 @@ fn a_full_row_item_in_the_middle_divides_the_columns_at_its_position() {
 #[test]
 fn full_row_items_first_and_last_enclose_the_columns() {
     let (mut fx, _, lines, panel) = axes_over_panel(&["Heading", "A", "B", "C", "D", "Footnote"]);
-    fx.panel_mut(panel).layout = fixed(2, LegendEntryOrder::ColumnMajor);
+    fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::ColumnMajor);
     let last = lines.len() - 1;
     let items = lines
         .iter()
@@ -728,7 +728,7 @@ fn full_row_items_first_and_last_enclose_the_columns() {
 #[test]
 fn row_major_groups_restart_at_the_first_column_after_a_full_row_item() {
     let (mut fx, _, lines, panel) = axes_over_panel(&["A", "B", "C", "Heading", "D", "E"]);
-    fx.panel_mut(panel).layout = fixed(2, LegendEntryOrder::RowMajor);
+    fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::RowMajor);
     let items = lines
         .iter()
         .enumerate()
@@ -764,14 +764,15 @@ fn automatic_columns_count_full_rows_when_fitting_the_height() {
     // The number of entries one column holds is the largest number that does not overflow it.
     let fits = |n: usize| {
         let mut fx = fx.fig.clone();
-        fx.panel_legends[0].entries =
+        let PanelContent::Legend(legend) = &mut fx.panels[0].content;
+        legend.entries =
             LegendEntries::Explicit(lines[..n].iter().map(|&l| LegendItem::artist(l)).collect());
         !overflows(&compile_figure(&fx), LegendOwner::Panel(panel))
     };
     let capacity = (1..60).take_while(|&n| fits(n)).last().unwrap_or(0);
     assert!((3..30).contains(&capacity), "{capacity} entries fit");
 
-    fx.panel_mut(panel).layout.columns = LegendEntryColumns::Auto;
+    fx.legend_mut(panel).layout.columns = LegendEntryColumns::Auto;
     let mut items = vec![full_row(lines[0])];
     items.extend(
         lines[1..=2 * capacity]

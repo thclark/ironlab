@@ -6,12 +6,12 @@ mod common;
 use std::sync::LazyLock;
 
 use common::edits::{
-    Streaming, applied, artist_ids, axes_ids, axes_node, line, manual, nodes, path, perturb, rows,
-    set, streaming_figure, tx,
+    Streaming, applied, artist_ids, axes_ids, axes_node, data_node, line, manual, nodes, path,
+    perturb, rows, set, streaming_figure, tx,
 };
 use common::{
-    FigureBuilder, SPECIAL_F64, find_axes, float_bits, floats, kitchen_sink_figure, limits_of,
-    row_of_axes, single_line_figure,
+    FigureBuilder, SPECIAL_F64, array, find_axes, float_bits, floats, kitchen_sink_figure,
+    legend_panel, limits_of, panel_legend_mut, row_of_axes, single_line_figure,
 };
 use ironlab_ir::*;
 use proptest::prelude::*;
@@ -127,8 +127,9 @@ fn an_inserted_artist_is_placed_in_drawing_order_within_its_axes() {
     }
 }
 
-// Why: an axes belongs in the figure and an artist in an axes; any other parent would
-// build a tree that the IR cannot represent, so it must be refused naming both nodes.
+// Why: an axes, a panel and a data array belong in the figure and an artist in an axes;
+// any other parent would build a tree that the IR cannot represent, so it must be refused
+// naming both nodes.
 #[test]
 fn inserting_under_a_parent_that_cannot_hold_the_node_fails() {
     let (fig, axes, lines, _) = three_lines_figure();
@@ -137,11 +138,17 @@ fn inserting_under_a_parent_that_cannot_hold_the_node_fails() {
         Artist::Line(l) => Artist::Line(Line { id, ..l }),
         _ => unreachable!(),
     };
+    let data = || data_node(NodeId(100), NdArray::vector(vec![1.0]));
+    let panel = || Node::Panel(legend_panel(NodeId(100), Cell::default()));
     let cases = [
         (axes, axes_node(NodeId(100), vec![])),
         (lines[0], axes_node(NodeId(100), vec![])),
         (fig.id, Node::Artist(with_id(NodeId(100)))),
         (lines[0], Node::Artist(with_id(NodeId(100)))),
+        // A data array and a panel belong to the figure alone.
+        (axes, data()),
+        (lines[0], data()),
+        (axes, panel()),
     ];
     for (parent, node) in cases {
         let mut edited = fig.clone();
@@ -203,8 +210,9 @@ fn inserting_beyond_the_end_of_the_list_fails() {
 }
 
 // Why: identifiers are chosen by the creator of a node, so a transaction that reuses an
-// identifier (of the figure, of another node, or twice within the inserted subtree) must
-// be refused, or links, overlays and selections would address two nodes at once.
+// identifier (of the figure, of another node of any kind, data arrays included, or twice
+// within the inserted subtree) must be refused, or links, overlays, selections and data
+// references would address two nodes at once.
 #[test]
 fn inserting_a_node_whose_identifier_is_in_use_fails() {
     let (fig, axes, lines, _) = three_lines_figure();
@@ -235,6 +243,16 @@ fn inserting_a_node_whose_identifier_is_in_use_fails() {
         ),
         (axes, Node::Artist(line(axes, x, y)), axes),
         (axes, Node::Artist(line(lines[2], x, y)), lines[2]),
+        // Data arrays share the identifier space of every other node, so an axes may not
+        // take the identifier of an array, nor an array that of an artist or an array.
+        (fig.id, axes_node(x, vec![]), x),
+        (
+            fig.id,
+            data_node(lines[0], NdArray::vector(vec![1.0])),
+            lines[0],
+        ),
+        (fig.id, data_node(y, NdArray::vector(vec![1.0])), y),
+        (axes, Node::Artist(line(x, x, y)), x),
     ];
     for (parent, node, duplicate) in cases {
         let mut edited = fig.clone();
@@ -530,39 +548,83 @@ fn a_move_to_an_invalid_parent_or_index_fails() {
 // Data
 // ---------------------------------------------------------------------------------
 
-// Why: a session sends a whole new array to create data for a new plot or to replace a
-// frame of data.
+// Why: a session creates the data of a new plot by inserting a data array under the
+// figure, as it inserts any other node, and replaces a frame of data by naming the array
+// it replaces; the array keeps its identifier and its name, so every artist that refers to
+// it sees the new values.
 #[test]
-fn put_data_creates_or_replaces_an_array() {
+fn a_data_array_is_inserted_under_the_figure_and_replaced_by_identifier() {
     let s = streaming_figure();
     let new = NdArray::vector(vec![7.0, 8.0]);
     let replacement = NdArray::vector(vec![20.0, 21.0, 22.0, 23.0, 24.0]);
     let (edited, _) = applied(
         &s.fig,
         &tx([
-            Edit::PutData {
-                id: DataId(100),
-                array: new.clone(),
+            Edit::Insert {
+                parent: s.fig.id,
+                index: None,
+                node: data_node(NodeId(100), new.clone()),
             },
-            Edit::PutData {
-                id: s.y,
+            Edit::ReplaceData {
+                node: s.y,
                 array: replacement.clone(),
             },
         ]),
     )
     .unwrap();
-    assert_eq!(edited.data[&DataId(100)], new);
-    assert_eq!(edited.data[&s.y], replacement);
+    assert_eq!(array(&edited, NodeId(100)), &new);
+    assert_eq!(array(&edited, s.y), &replacement);
+    assert_eq!(edited.data.len(), s.fig.data.len() + 1);
+    assert_eq!(edited.data.last().map(|d| d.id), Some(NodeId(100)));
+}
+
+// Why: `ReplaceData` replaces an array that exists; it does not create one, because
+// creation is an insertion that names its parent and position. An identifier that names
+// no data array must be refused rather than silently creating an array or overwriting an
+// axes: an identifier of no node is unknown data, and the identifier of a node of another
+// kind is a reference to the wrong kind of node, which the user fixes differently.
+#[test]
+fn replacing_data_that_is_not_a_data_array_fails() {
+    let s = streaming_figure();
+    let mut edited = s.fig.clone();
+    let result = edited.apply(&tx([Edit::ReplaceData {
+        node: NodeId(999),
+        array: NdArray::vector(vec![1.0]),
+    }]));
+    assert!(
+        matches!(
+            result,
+            Err(EditError::UnknownData {
+                edit: Some(0),
+                node: NodeId(999)
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(edited, s.fig);
+    for node in [s.axes, s.line, s.fig.id] {
+        let mut edited = s.fig.clone();
+        let result = edited.apply(&tx([Edit::ReplaceData {
+            node,
+            array: NdArray::vector(vec![1.0]),
+        }]));
+        assert!(
+            matches!(result, Err(EditError::WrongNodeKind { edit: Some(0), node: n }) if n == node),
+            "{node}: {result:?}"
+        );
+        assert_eq!(edited, s.fig);
+    }
 }
 
 // Why: removing an array that an artist still refers to would leave the artist without
-// data; validation reports it and the removal must be refused, while removing an unused
-// array succeeds and removing an unknown one is an error.
+// data; validation reports the dangling reference and the removal must be refused, while
+// removing an unused array succeeds and removing an unknown node is an error. A data array
+// is removed with the same `Remove` as any other node, because it is a node.
 #[test]
 fn removing_data_that_an_artist_refers_to_is_refused() {
     let s = streaming_figure();
     let mut edited = s.fig.clone();
-    let result = edited.apply(&tx([Edit::RemoveData { id: s.y }]));
+    let result = edited.apply(&tx([Edit::Remove { node: s.y }]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::UnknownData)),
         "{result:?}"
@@ -572,22 +634,23 @@ fn removing_data_that_an_artist_refers_to_is_refused() {
     let (edited, _) = applied(
         &s.fig,
         &tx([
-            Edit::PutData {
-                id: DataId(100),
-                array: NdArray::vector(vec![1.0]),
+            Edit::Insert {
+                parent: s.fig.id,
+                index: None,
+                node: data_node(NodeId(100), NdArray::vector(vec![1.0])),
             },
-            Edit::RemoveData { id: DataId(100) },
+            Edit::Remove { node: NodeId(100) },
         ]),
     )
     .unwrap();
     assert_eq!(edited, s.fig);
 
-    let result = applied(&s.fig, &tx([Edit::RemoveData { id: DataId(999) }]));
+    let result = applied(&s.fig, &tx([Edit::Remove { node: NodeId(999) }]));
     assert!(matches!(
         result,
-        Err(EditError::UnknownData {
+        Err(EditError::UnknownNode {
             edit: Some(0),
-            id: DataId(999)
+            node: NodeId(999)
         })
     ));
 }
@@ -596,12 +659,12 @@ fn removing_data_that_an_artist_refers_to_is_refused() {
 fn append_to_line(s: &Streaming, xs: &[f64], ys: &[f64], retain: Option<u64>) -> Transaction {
     tx([
         Edit::AppendData {
-            id: s.x,
+            node: s.x,
             array: NdArray::vector(xs.to_vec()),
             retain,
         },
         Edit::AppendData {
-            id: s.y,
+            node: s.y,
             array: NdArray::vector(ys.to_vec()),
             retain,
         },
@@ -619,10 +682,10 @@ fn appending_extends_a_vector() {
     )
     .unwrap();
     assert_eq!(
-        edited.data[&s.x],
-        NdArray::vector(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        array(&edited, s.x),
+        &NdArray::vector(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     );
-    assert_eq!(edited.data[&s.y].shape, vec![7]);
+    assert_eq!(array(&edited, s.y).shape, vec![7]);
 }
 
 // Why: a waterfall or spectrogram streams whole rows of a field of shape `[ny, nx]`, so
@@ -634,26 +697,28 @@ fn appending_rows_extends_a_two_dimensional_array() {
         &s.fig,
         &tx([
             Edit::AppendData {
-                id: s.z,
+                node: s.z,
                 array: rows(1, 3, 100.0),
                 retain: None,
             },
             Edit::AppendData {
-                id: s.gy,
+                node: s.gy,
                 array: NdArray::vector(vec![4.0]),
                 retain: None,
             },
         ]),
     )
     .unwrap();
-    let z = &edited.data[&s.z];
+    let z = array(&edited, s.z);
     assert_eq!(z.shape, vec![5, 3]);
-    assert_eq!(&floats(z)[..12], floats(&s.fig.data[&s.z]));
+    assert_eq!(&floats(z)[..12], floats(array(&s.fig, s.z)));
     assert_eq!(&floats(z)[12..], &[100.0, 101.0, 102.0]);
 }
 
 // Why: entries whose shape after the first dimension differs cannot be rows of the array;
-// accepting them would corrupt every row after the first.
+// accepting them would corrupt every row after the first. An append names an array by its
+// node identifier, so an identifier of no node is refused as unknown data, and that of a
+// node of another kind as a reference to the wrong kind of node.
 #[test]
 fn appending_entries_of_another_trailing_shape_fails() {
     let s = streaming_figure();
@@ -674,35 +739,46 @@ fn appending_entries_of_another_trailing_shape_fails() {
         let appended = array.shape.clone();
         let mut edited = s.fig.clone();
         let result = edited.apply(&tx([Edit::AppendData {
-            id,
+            node: id,
             array,
             retain: None,
         }]));
         assert!(
             matches!(
                 &result,
-                Err(EditError::ShapeMismatch { edit: Some(0), id: i, existing: e, appended: a })
+                Err(EditError::ShapeMismatch { edit: Some(0), node: i, existing: e, appended: a })
                     if *i == id && *e == existing && *a == appended
             ),
             "{result:?}"
         );
         assert_eq!(edited, s.fig);
     }
-    let result = applied(
-        &s.fig,
-        &tx([Edit::AppendData {
-            id: DataId(999),
-            array: NdArray::vector(vec![1.0]),
-            retain: None,
-        }]),
+    let append_to = |node| {
+        applied(
+            &s.fig,
+            &tx([Edit::AppendData {
+                node,
+                array: NdArray::vector(vec![1.0]),
+                retain: None,
+            }]),
+        )
+    };
+    let result = append_to(NodeId(999));
+    assert!(
+        matches!(
+            result,
+            Err(EditError::UnknownData {
+                edit: Some(0),
+                node: NodeId(999)
+            })
+        ),
+        "{result:?}"
     );
-    assert!(matches!(
-        result,
-        Err(EditError::UnknownData {
-            edit: Some(0),
-            id: DataId(999)
-        })
-    ));
+    let result = append_to(s.line);
+    assert!(
+        matches!(result, Err(EditError::WrongNodeKind { edit: Some(0), node: n }) if n == s.line),
+        "{result:?}"
+    );
 }
 
 // Why: `retain` gives streamed data a rolling window: only the last entries along the
@@ -716,36 +792,39 @@ fn retain_keeps_the_last_entries_along_the_first_dimension() {
         &append_to_line(&s, &[5.0, 6.0], &[15.0, 16.0], Some(4)),
     )
     .unwrap();
-    assert_eq!(edited.data[&s.x], NdArray::vector(vec![3.0, 4.0, 5.0, 6.0]));
     assert_eq!(
-        edited.data[&s.y],
-        NdArray::vector(vec![13.0, 14.0, 15.0, 16.0])
+        array(&edited, s.x),
+        &NdArray::vector(vec![3.0, 4.0, 5.0, 6.0])
+    );
+    assert_eq!(
+        array(&edited, s.y),
+        &NdArray::vector(vec![13.0, 14.0, 15.0, 16.0])
     );
 
     let (edited, _) = applied(&s.fig, &append_to_line(&s, &[5.0], &[15.0], Some(100))).unwrap();
-    assert_eq!(edited.data[&s.x].shape, vec![6]);
+    assert_eq!(array(&edited, s.x).shape, vec![6]);
 
     let (edited, _) = applied(
         &s.fig,
         &tx([
             Edit::AppendData {
-                id: s.z,
+                node: s.z,
                 array: rows(1, 3, 100.0),
                 retain: Some(3),
             },
             Edit::AppendData {
-                id: s.gy,
+                node: s.gy,
                 array: NdArray::vector(vec![4.0]),
                 retain: Some(3),
             },
         ]),
     )
     .unwrap();
-    let z = &edited.data[&s.z];
+    let z = array(&edited, s.z);
     assert_eq!(z.shape, vec![3, 3]);
-    assert_eq!(&floats(z)[..6], &floats(&s.fig.data[&s.z])[6..]);
+    assert_eq!(&floats(z)[..6], &floats(array(&s.fig, s.z))[6..]);
     assert_eq!(&floats(z)[6..], &[100.0, 101.0, 102.0]);
-    assert_eq!(edited.data[&s.gy], NdArray::vector(vec![2.0, 3.0, 4.0]));
+    assert_eq!(array(&edited, s.gy), &NdArray::vector(vec![2.0, 3.0, 4.0]));
 }
 
 // Why: a stream may deliver a frame with no new samples; appending no entries must leave
@@ -758,12 +837,12 @@ fn appending_no_entries_changes_nothing_but_retain_still_applies() {
         &s.fig,
         &tx([
             Edit::AppendData {
-                id: s.x,
+                node: s.x,
                 array: NdArray::vector(vec![]),
                 retain: None,
             },
             Edit::AppendData {
-                id: s.z,
+                node: s.z,
                 array: rows(0, 3, 0.0),
                 retain: None,
             },
@@ -773,8 +852,8 @@ fn appending_no_entries_changes_nothing_but_retain_still_applies() {
     assert_eq!(edited, s.fig);
 
     let (edited, _) = applied(&s.fig, &append_to_line(&s, &[], &[], Some(2))).unwrap();
-    assert_eq!(edited.data[&s.x], NdArray::vector(vec![3.0, 4.0]));
-    assert_eq!(edited.data[&s.y], NdArray::vector(vec![13.0, 14.0]));
+    assert_eq!(array(&edited, s.x), &NdArray::vector(vec![3.0, 4.0]));
+    assert_eq!(array(&edited, s.y), &NdArray::vector(vec![13.0, 14.0]));
 }
 
 // Why: `retain: Some(0)` is a window of no entries, which clears the data (keeping the
@@ -785,20 +864,20 @@ fn retain_zero_keeps_no_entries_and_its_inverse_restores_them() {
     let s = streaming_figure();
     let transaction = tx([
         Edit::AppendData {
-            id: s.z,
+            node: s.z,
             array: rows(1, 3, 100.0),
             retain: Some(0),
         },
         Edit::AppendData {
-            id: s.gy,
+            node: s.gy,
             array: NdArray::vector(vec![4.0]),
             retain: Some(0),
         },
     ]);
     let (edited, inverse) = applied(&s.fig, &transaction).unwrap();
-    assert_eq!(edited.data[&s.z].shape, vec![0, 3]);
-    assert!(edited.data[&s.z].is_empty());
-    assert_eq!(edited.data[&s.gy], NdArray::vector(vec![]));
+    assert_eq!(array(&edited, s.z).shape, vec![0, 3]);
+    assert!(array(&edited, s.z).is_empty());
+    assert_eq!(array(&edited, s.gy), &NdArray::vector(vec![]));
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, s.fig);
 }
@@ -811,7 +890,7 @@ fn appending_to_one_coordinate_of_a_line_alone_is_refused() {
     let s = streaming_figure();
     let mut edited = s.fig.clone();
     let result = edited.apply(&tx([Edit::AppendData {
-        id: s.x,
+        node: s.x,
         array: NdArray::vector(vec![5.0]),
         retain: None,
     }]));
@@ -822,40 +901,41 @@ fn appending_to_one_coordinate_of_a_line_alone_is_refused() {
     assert_eq!(edited, s.fig);
 }
 
-// Why: a session sends an image's pixels as an array of bytes; `PutData` must store it
-// with its element type, and its inverse must be the removal of a new array or the
-// restoration of the array it replaced, exactly as for floats, so that undo brings
-// back bytes and floats alike.
+// Why: a session sends an image's pixels as an array of bytes; inserting it must store it
+// with its element type, and replacing it must too. The inverse of the insertion is the
+// removal of the array and the inverse of a replacement restores the array it replaced,
+// exactly as for floats, so that undo brings back bytes and floats alike.
 #[test]
-fn put_data_stores_an_array_of_bytes_and_its_inverse_restores_what_was_there() {
+fn a_data_array_of_bytes_is_stored_and_its_inverse_restores_what_was_there() {
     let s = streaming_figure();
-    let id = DataId(100);
+    let id = NodeId(100);
     let pixels = bytes(vec![2, 2], vec![0, 1, 254, 255]);
     let (with_bytes, inverse) = applied(
         &s.fig,
-        &tx([Edit::PutData {
-            id,
-            array: pixels.clone(),
+        &tx([Edit::Insert {
+            parent: s.fig.id,
+            index: None,
+            node: data_node(id, pixels.clone()),
         }]),
     )
     .unwrap();
-    assert_eq!(with_bytes.data[&id], pixels);
-    assert_eq!(inverse.edits, [Edit::RemoveData { id }]);
+    assert_eq!(array(&with_bytes, id), &pixels);
+    assert_eq!(inverse.edits, [Edit::Remove { node: id }]);
 
     let float_array = NdArray::vector(vec![1.0, 2.0]);
     let (with_floats, inverse) = applied(
         &with_bytes,
-        &tx([Edit::PutData {
-            id,
+        &tx([Edit::ReplaceData {
+            node: id,
             array: float_array.clone(),
         }]),
     )
     .unwrap();
-    assert_eq!(with_floats.data[&id], float_array);
+    assert_eq!(array(&with_floats, id), &float_array);
     assert_eq!(
         inverse.edits,
-        [Edit::PutData {
-            id,
+        [Edit::ReplaceData {
+            node: id,
             array: pixels.clone()
         }]
     );
@@ -870,8 +950,8 @@ fn put_data_stores_an_array_of_bytes_and_its_inverse_restores_what_was_there() {
 fn replacing_the_array_of_an_artist_with_bytes_is_refused() {
     let s = streaming_figure();
     let mut edited = s.fig.clone();
-    let result = edited.apply(&tx([Edit::PutData {
-        id: s.y,
+    let result = edited.apply(&tx([Edit::ReplaceData {
+        node: s.y,
         array: bytes(vec![5], vec![10, 11, 12, 13, 14]),
     }]));
     assert!(
@@ -887,12 +967,13 @@ fn replacing_the_array_of_an_artist_with_bytes_is_refused() {
 #[test]
 fn appending_bytes_to_an_array_of_bytes_extends_it() {
     let s = streaming_figure();
-    let id = DataId(100);
+    let id = NodeId(100);
     let (fig, _) = applied(
         &s.fig,
-        &tx([Edit::PutData {
-            id,
-            array: bytes(vec![2, 3], vec![0, 1, 2, 3, 4, 5]),
+        &tx([Edit::Insert {
+            parent: s.fig.id,
+            index: None,
+            node: data_node(id, bytes(vec![2, 3], vec![0, 1, 2, 3, 4, 5])),
         }]),
     )
     .unwrap();
@@ -900,28 +981,28 @@ fn appending_bytes_to_an_array_of_bytes_extends_it() {
     let (edited, inverse) = applied(
         &fig,
         &tx([Edit::AppendData {
-            id,
+            node: id,
             array: bytes(vec![1, 3], vec![6, 7, 8]),
             retain: None,
         }]),
     )
     .unwrap();
-    assert_eq!(edited.data[&id], bytes(vec![3, 3], (0..9).collect()));
+    assert_eq!(array(&edited, id), &bytes(vec![3, 3], (0..9).collect()));
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, fig);
 
     let (windowed, inverse) = applied(
         &fig,
         &tx([Edit::AppendData {
-            id,
+            node: id,
             array: bytes(vec![1, 3], vec![6, 7, 8]),
             retain: Some(2),
         }]),
     )
     .unwrap();
     assert_eq!(
-        windowed.data[&id],
-        bytes(vec![2, 3], vec![3, 4, 5, 6, 7, 8])
+        array(&windowed, id),
+        &bytes(vec![2, 3], vec![3, 4, 5, 6, 7, 8])
     );
     let (restored, _) = applied(&windowed, &inverse).unwrap();
     assert_eq!(restored, fig);
@@ -935,12 +1016,13 @@ fn appending_bytes_to_an_array_of_bytes_extends_it() {
 #[test]
 fn appending_entries_of_another_element_type_fails() {
     let s = streaming_figure();
-    let id = DataId(100);
+    let id = NodeId(100);
     let (fig, _) = applied(
         &s.fig,
-        &tx([Edit::PutData {
-            id,
-            array: bytes(vec![2], vec![1, 2]),
+        &tx([Edit::Insert {
+            parent: s.fig.id,
+            index: None,
+            node: data_node(id, bytes(vec![2], vec![1, 2])),
         }]),
     )
     .unwrap();
@@ -961,12 +1043,13 @@ fn appending_entries_of_another_element_type_fails() {
     for (target, array, existing, appended) in cases {
         let mut edited = fig.clone();
         let result = edited.apply(&tx([
-            Edit::PutData {
-                id: DataId(101),
-                array: NdArray::vector(vec![1.0]),
+            Edit::Insert {
+                parent: fig.id,
+                index: None,
+                node: data_node(NodeId(101), NdArray::vector(vec![1.0])),
             },
             Edit::AppendData {
-                id: target,
+                node: target,
                 array,
                 retain: None,
             },
@@ -974,7 +1057,7 @@ fn appending_entries_of_another_element_type_fails() {
         assert!(
             matches!(
                 &result,
-                Err(EditError::ElementMismatch { edit: Some(1), id: i, existing: e, appended: a })
+                Err(EditError::ElementMismatch { edit: Some(1), node: i, existing: e, appended: a })
                     if *i == target && *e == existing && *a == appended
             ),
             "{result:?}"
@@ -999,9 +1082,14 @@ fn a_failing_edit_leaves_the_figure_unchanged_and_is_identified_by_index() {
             index: Some(0),
             node: axes_node(NodeId(100), vec![]),
         },
-        Edit::PutData {
-            id: DataId(100),
-            array: NdArray::vector(vec![1.0]),
+        Edit::Insert {
+            parent: s.fig.id,
+            index: None,
+            node: data_node(NodeId(101), NdArray::vector(vec![1.0])),
+        },
+        Edit::ReplaceData {
+            node: s.other_y,
+            array: NdArray::vector(vec![1.0, 8.0, 27.0]),
         },
         Edit::Remove { node: s.other_line },
         Edit::Move {
@@ -1183,13 +1271,13 @@ fn a_stream_may_grow_an_array_from_nothing_through_nothing_to_draw_warnings() {
         named.sort();
         named
     }
-    let append = |id, array| Edit::AppendData {
-        id,
+    let append = |node, array| Edit::AppendData {
+        node,
         array,
         retain: None,
     };
-    let clear = |id, array| Edit::AppendData {
-        id,
+    let clear = |node, array| Edit::AppendData {
+        node,
         array,
         retain: Some(0),
     };
@@ -1240,7 +1328,7 @@ fn a_stream_may_grow_an_array_from_nothing_through_nothing_to_draw_warnings() {
     )
     .unwrap();
     assert_eq!(nothing_to_draw(&second), vec![], "{:?}", second.validate());
-    assert_eq!(second.data[&s.z].shape, vec![2, 3]);
+    assert_eq!(array(&second, s.z).shape, vec![2, 3]);
 }
 
 // Why: an empty transaction (a gesture that changed nothing) must be harmless.
@@ -1256,11 +1344,12 @@ fn an_empty_transaction_changes_nothing_and_has_an_empty_inverse() {
 // Inverses
 // ---------------------------------------------------------------------------------
 
-/// Returns single edits of every kind on every node and array of a figure: a changed value
-/// for every readable property, `Unset` for every present optional property, the removal,
-/// reordering and duplication of every node, and the replacement, extension, truncation
-/// and removal of every array (of floats or of bytes, each with entries of its own
-/// element type). Some of them are invalid for the figure.
+/// Returns single edits of every kind on every node of a figure: a changed value for every
+/// readable property, `Unset` for every present optional property, the removal, reordering
+/// and duplication of every axes, artist, panel and data array, the insertion of an unused
+/// data array, and the replacement, extension and truncation of every array (of floats or
+/// of bytes, each with entries of its own element type). Some of them are invalid for the
+/// figure.
 fn candidate_edits(fig: &Figure) -> Vec<Edit> {
     let mut edits = Vec::new();
     let mut fresh = nodes(fig).iter().map(|(id, _)| id.0).max().unwrap() + 1000;
@@ -1329,12 +1418,33 @@ fn candidate_edits(fig: &Figure) -> Vec<Edit> {
             });
         }
     }
-    let unused = DataId(fig.data.keys().map(|id| id.0).max().unwrap() + 1);
-    edits.push(Edit::PutData {
-        id: unused,
-        array: NdArray::vector(vec![1.0, f64::NAN]),
+    for panel in &fig.panels {
+        edits.push(Edit::Remove { node: panel.id });
+        edits.push(Edit::Move {
+            node: panel.id,
+            parent: fig.id,
+            index: Some(0),
+        });
+        edits.push(Edit::Insert {
+            parent: fig.id,
+            index: None,
+            node: Node::Panel(Panel {
+                id: fresh_id(),
+                ..panel.clone()
+            }),
+        });
+    }
+    edits.push(Edit::Insert {
+        parent: fig.id,
+        index: Some(0),
+        node: Node::DataArray(DataArray {
+            id: fresh_id(),
+            name: Some("unused".to_owned()),
+            array: NdArray::vector(vec![1.0, f64::NAN]),
+        }),
     });
-    for (&id, array) in &fig.data {
+    for data in &fig.data {
+        let (id, array) = (data.id, &data.array);
         let shifted = match &array.values {
             Values::F64(values) => NdArray::from_shape(
                 array.shape.clone(),
@@ -1346,7 +1456,10 @@ fn candidate_edits(fig: &Figure) -> Vec<Edit> {
             ),
         }
         .expect("the shape is unchanged");
-        edits.push(Edit::PutData { id, array: shifted });
+        edits.push(Edit::ReplaceData {
+            node: id,
+            array: shifted,
+        });
         let entry_shape: Vec<usize> = [1]
             .into_iter()
             .chain(array.shape[1..].iter().copied())
@@ -1358,16 +1471,29 @@ fn candidate_edits(fig: &Figure) -> Vec<Edit> {
         }
         .expect("the entry has the trailing shape of the array");
         edits.push(Edit::AppendData {
-            id,
+            node: id,
             array: entry.clone(),
             retain: None,
         });
         edits.push(Edit::AppendData {
-            id,
+            node: id,
             array: entry,
             retain: Some(1),
         });
-        edits.push(Edit::RemoveData { id });
+        edits.push(Edit::Remove { node: id });
+        edits.push(Edit::Move {
+            node: id,
+            parent: fig.id,
+            index: Some(0),
+        });
+        edits.push(Edit::Insert {
+            parent: fig.id,
+            index: None,
+            node: Node::DataArray(DataArray {
+                id: fresh_id(),
+                ..data.clone()
+            }),
+        });
     }
     edits
 }
@@ -1503,21 +1629,35 @@ fn inverses_of_interacting_edits_on_the_same_node_or_array_restore_the_figure() 
             Edit::Remove { node: axes },
         ]),
         tx([
-            Edit::PutData {
-                id: DataId(100),
-                array: NdArray::vector(vec![1.0, f64::NAN]),
+            Edit::Insert {
+                parent: fig.id,
+                index: Some(0),
+                node: data_node(NodeId(100), NdArray::vector(vec![1.0, f64::NAN])),
             },
             Edit::AppendData {
-                id: DataId(100),
+                node: NodeId(100),
                 array: NdArray::vector(vec![-0.0, 2.0]),
                 retain: None,
             },
             Edit::AppendData {
-                id: DataId(100),
+                node: NodeId(100),
                 array: NdArray::vector(vec![3.0]),
                 retain: Some(2),
             },
-            Edit::RemoveData { id: DataId(100) },
+            Edit::Remove { node: NodeId(100) },
+        ]),
+        // A shared array replaced and then moved to the end of the figure's data, undone
+        // to its old values at its old position.
+        tx([
+            Edit::ReplaceData {
+                node: fig.data[0].id,
+                array: NdArray::vector(vec![5.0, -0.0]),
+            },
+            Edit::Move {
+                node: fig.data[0].id,
+                parent: fig.id,
+                index: None,
+            },
         ]),
     ];
     for transaction in &transactions {
@@ -1561,7 +1701,7 @@ proptest! {
 /// A 3D figure whose view angles, line width, placement height and data hold special
 /// floating-point values that validation does not reject. Returns the figure, the axes,
 /// the line and its x data.
-fn special_floats_figure() -> (Figure, NodeId, NodeId, DataId) {
+fn special_floats_figure() -> (Figure, NodeId, NodeId, NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes3d(0, 0);
     b.axes(axes).projection = Projection::ThreeD {
@@ -1607,8 +1747,8 @@ fn negative_zero_and_nan_survive_set_get_and_inverse_bit_for_bit() {
             set(axes, "projection.view3d.elevation_deg", Value::Double(2.0)),
             set(axes, "projection.view3d.zoom", Value::Double(3.0)),
             set(line_id, "line.width_pt", Value::Double(4.0)),
-            Edit::PutData {
-                id: x,
+            Edit::ReplaceData {
+                node: x,
                 array: NdArray::vector(vec![0.0; SPECIAL_F64.len()]),
             },
         ]))
@@ -1651,44 +1791,43 @@ fn the_inverse_of_an_append_with_retain_restores_the_discarded_entries() {
         &append_to_line(&s, &[5.0, 6.0], &[15.0, 16.0], Some(3)),
     )
     .unwrap();
-    assert_eq!(edited.data[&s.x].shape, vec![3]);
+    assert_eq!(array(&edited, s.x).shape, vec![3]);
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, s.fig);
 }
 
 // ---------------------------------------------------------------------------------
-// Legend panels
+// Panels
 // ---------------------------------------------------------------------------------
 
-// Why: a legend panel is a node of the figure like an axes, so a client mirroring a
-// figure must be able to insert, move and remove one, each restored exactly by its
-// inverse; otherwise a program that adds a panel while a viewer watches could not send
-// the change, and undoing it would leave the panel behind.
+// Why: a panel is a node of the figure like an axes, so a client mirroring a figure must
+// be able to insert, move and remove one, each restored exactly by its inverse; otherwise
+// a program that adds a panel while a viewer watches could not send the change, and
+// undoing it would leave the panel behind.
 #[test]
-fn a_legend_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() {
+fn a_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inverses() {
     let fig = kitchen_sink_figure();
-    let [first, second] = [fig.panel_legends[0].id, fig.panel_legends[1].id];
-    let spare = PanelLegend {
-        id: NodeId(1_000),
-        cell: Cell {
+    let [first, second] = [fig.panels[0].id, fig.panels[1].id];
+    let spare = legend_panel(
+        NodeId(5_000),
+        Cell {
             row: 0,
             col: 0,
             row_span: 1,
             col_span: 1,
         },
-        ..PanelLegend::default()
-    };
+    );
     let panel_ids =
-        |fig: &Figure| -> Vec<NodeId> { fig.panel_legends.iter().map(|panel| panel.id).collect() };
+        |fig: &Figure| -> Vec<NodeId> { fig.panels.iter().map(|panel| panel.id).collect() };
 
     let insert = Edit::Insert {
         parent: fig.id,
         index: Some(1),
-        node: Node::PanelLegend(spare.clone()),
+        node: Node::Panel(spare.clone()),
     };
     let (inserted, inverse) = applied(&fig, &tx([insert])).unwrap();
     assert_eq!(panel_ids(&inserted), [first, spare.id, second]);
-    assert_eq!(inserted.node_kind(spare.id), Some(NodeKind::PanelLegend));
+    assert_eq!(inserted.node_kind(spare.id), Some(NodeKind::Panel));
     assert_eq!(applied(&inserted, &inverse).unwrap().0, fig);
 
     let reorder = Edit::Move {
@@ -1706,25 +1845,22 @@ fn a_legend_panel_is_inserted_moved_and_removed_under_the_figure_with_exact_inve
     assert_eq!(applied(&removed, &inverse).unwrap().0, inserted);
 }
 
-// Why: a legend panel belongs to the figure, so an axes cannot hold one and a panel
-// cannot be moved into an axes; and removing a panel that a legend still names would
-// leave that legend listing its entries nowhere, which validation refuses.
+// Why: a panel belongs to the figure, so an axes cannot hold one and a panel cannot be
+// moved into an axes; and removing a panel that a legend still names would leave that
+// legend listing its entries nowhere, which validation refuses.
 #[test]
-fn a_legend_panel_has_only_the_figure_as_parent_and_cannot_be_removed_while_named() {
+fn a_panel_has_only_the_figure_as_parent_and_cannot_be_removed_while_named() {
     let fig = kitchen_sink_figure();
-    let named = fig.panel_legends[0].id;
+    let named = fig.panels[0].id;
     let axes = fig.axes[0].id;
-    let spare = PanelLegend {
-        id: NodeId(1_000),
-        ..PanelLegend::default()
-    };
+    let spare = legend_panel(NodeId(5_000), Cell::default());
 
     let result = applied(
         &fig,
         &tx([Edit::Insert {
             parent: axes,
             index: None,
-            node: Node::PanelLegend(spare.clone()),
+            node: Node::Panel(spare.clone()),
         }]),
     );
     assert!(
@@ -1752,27 +1888,28 @@ fn a_legend_panel_has_only_the_figure_as_parent_and_cannot_be_removed_while_name
     );
 }
 
-// Why: the property editor reaches a legend panel's properties by its identifier, so a
-// set addressed to a panel must change that panel and no other node.
+// Why: the property editor reaches a panel's properties by its identifier, the placement
+// of its content directly and the properties of its legend through the content, so a set
+// addressed to a panel must change that panel and no other node.
 #[test]
-fn a_set_addressed_to_a_legend_panel_changes_that_panel() {
+fn a_set_addressed_to_a_panel_changes_that_panel() {
     let fig = kitchen_sink_figure();
-    let panel = fig.panel_legends[1].id;
+    let panel = fig.panels[1].id;
     let (edited, _) = applied(
         &fig,
         &tx([
-            set(panel, "align", Value::LegendLocation(LegendLocation::North)),
+            set(panel, "align", Value::PanelLocation(PanelLocation::North)),
             set(
                 panel,
-                "layout.columns",
+                "content.legend.layout.columns",
                 Value::LegendEntryColumns(LegendEntryColumns::Count(4)),
             ),
         ]),
     )
     .unwrap();
     let mut expected = fig.clone();
-    expected.panel_legends[1].align = LegendLocation::North;
-    expected.panel_legends[1].layout.columns = LegendEntryColumns::Count(4);
+    expected.panels[1].align = PanelLocation::North;
+    panel_legend_mut(&mut expected.panels[1]).layout.columns = LegendEntryColumns::Count(4);
     assert_eq!(edited, expected);
 }
 
@@ -1784,7 +1921,7 @@ fn a_set_addressed_to_a_legend_panel_changes_that_panel() {
 /// image, a colour-mapped image and a filled contour, each opaque and without alpha, and
 /// a 3 × 4 array of floats that none of them refers to. Returns the figure, the five
 /// artists in that order and the unused array.
-fn translucency_figure() -> (Figure, [NodeId; 5], DataId) {
+fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     let gx = b.vector(&[0.0, 1.0, 2.0, 3.0]);
@@ -1890,10 +2027,10 @@ fn an_alpha_reference_is_set_and_unset_like_any_optional_data_reference() {
         (mapped, "alpha"),
     ] {
         assert_eq!(fig.get(node, &path(property)).unwrap(), Value::Unset);
-        let (edited, _) = applied(&fig, &tx([set(node, property, Value::DataId(spare))])).unwrap();
+        let (edited, _) = applied(&fig, &tx([set(node, property, Value::NodeId(spare))])).unwrap();
         assert_eq!(
             edited.get(node, &path(property)).unwrap(),
-            Value::DataId(spare),
+            Value::NodeId(spare),
             "{property} of {node}"
         );
         let (cleared, _) = applied(&edited, &tx([set(node, property, Value::Unset)])).unwrap();
@@ -1907,7 +2044,7 @@ fn an_alpha_reference_is_set_and_unset_like_any_optional_data_reference() {
         }) => *x,
         other => panic!("expected a surface, found {other:?}"),
     };
-    let result = wrong.apply(&tx([set(surface, "face_alpha", Value::DataId(x))]));
+    let result = wrong.apply(&tx([set(surface, "face_alpha", Value::NodeId(x))]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues)) if has_issue(issues, IssueKind::ShapeMismatch)),
         "{result:?}"
@@ -1949,7 +2086,7 @@ fn the_registry_describes_opacities_as_numbers_and_alpha_as_optional_data() {
         }
         for name in alphas {
             let property = find(name);
-            assert_eq!(property.value_type, ValueType::DataId, "{kind:?}.{name}");
+            assert_eq!(property.value_type, ValueType::NodeId, "{kind:?}.{name}");
             assert!(property.optional, "{kind:?}.{name}");
             assert!(property.docs.contains("alpha"), "{kind:?}.{name}");
         }

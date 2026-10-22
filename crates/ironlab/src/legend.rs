@@ -1,30 +1,112 @@
-//! The legend panel handle.
+//! The handles to a panel and to the legend it holds.
 
 use ironlab_ir::{
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation,
-    LegendSample, NodeId, PanelLegend, Text,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendSample, NodeId,
+    Panel, PanelContent, PanelLegend, PanelLocation, Text,
 };
 
-/// A handle to one legend panel of a figure, through which its properties are set.
+/// A handle to one panel of a figure, returned by [`Figure::panel`](crate::Figure::panel)
+/// and [`Figure::panel_span`](crate::Figure::panel_span), through which its placement and
+/// its content are set.
 ///
-/// A legend panel occupies cells of the figure's tile layout, as an axes does, and lists
-/// the entries of every axes whose legend names it (see
-/// [`AxesMut::legend_in`](crate::AxesMut::legend_in)). Entries of different axes with the
-/// same display name and the same look are listed once.
+/// A panel occupies cells of the figure's tile layout, as an axes does, and holds one key.
+/// In this version the key is always a legend, so a panel created without a call to
+/// [`legend`](PanelMut::legend) holds a legend with the default settings.
 ///
 /// Like [`AxesMut`](crate::AxesMut), the handle borrows the figure mutably, so it is
-/// short-lived: keep its [`id`](PanelLegendMut::id) to point axes at the panel later.
-/// Property setters return the handle so that they can be chained.
+/// short-lived: keep its [`id`](PanelMut::id) to point axes at the panel later.
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let mut fig = Figure::new().tiles(1, 2);
+/// let key = fig
+///     .panel(0, 1)
+///     .align(PanelLocation::NorthWest)
+///     .legend()
+///     .boxed(false)
+///     .id();
+/// assert_eq!(fig.panel(0, 1).id(), key);
+/// ```
+#[derive(Debug)]
+pub struct PanelMut<'f> {
+    pub(crate) fig: &'f mut ironlab_ir::Figure,
+    pub(crate) id: NodeId,
+}
+
+impl<'f> PanelMut<'f> {
+    /// Creates a handle to the panel with the given identifier, which must be a panel of
+    /// the figure.
+    pub(crate) fn new(fig: &'f mut ironlab_ir::Figure, id: NodeId) -> Self {
+        Self { fig, id }
+    }
+}
+
+impl PanelMut<'_> {
+    /// Returns the node identifier of the panel, which axes name to list their entries
+    /// in it.
+    #[must_use]
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Sets where the content is placed within the panel. The default is the centre.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(1, 2);
+    /// fig.panel(0, 1).align(PanelLocation::NorthWest);
+    /// ```
+    pub fn align(&mut self, location: PanelLocation) -> &mut Self {
+        self.panel().align = location;
+        self
+    }
+
+    /// Makes the content of the panel a legend, keeping the legend the panel already
+    /// holds, and returns the handle through which the legend is set.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new().tiles(2, 1);
+    /// fig.panel(1, 0).legend().columns(LegendEntryColumns::Count(4));
+    /// ```
+    pub fn legend(&mut self) -> PanelLegendMut<'_> {
+        // A legend is the only content a panel has in this version, so the panel already
+        // holds one; content of another kind would be replaced here.
+        PanelLegendMut::new(self.fig, self.id)
+    }
+
+    /// Returns the panel, which exists because the handle is only created for a panel of
+    /// the figure.
+    fn panel(&mut self) -> &mut Panel {
+        self.fig
+            .panel_mut(self.id)
+            .expect("a panel handle names a panel of the figure")
+    }
+}
+
+/// A handle to the legend held by one panel of a figure, returned by
+/// [`PanelMut::legend`], through which its properties are set.
+///
+/// The legend lists the entries of every axes whose legend names the panel (see
+/// [`AxesMut::legend_in`](crate::AxesMut::legend_in)). Entries of different axes with the
+/// same label and the same look are listed once.
+///
+/// The handle borrows the figure mutably, so it is short-lived: keep its
+/// [`id`](PanelLegendMut::id), which is the identifier of the panel, to point axes at the
+/// panel later. Property setters return the handle so that they can be chained.
 ///
 /// ```
 /// use ironlab::prelude::*;
 ///
 /// let x = linspace(0.0, 1.0, 11);
 /// let mut fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
-/// let key = fig.panel_legend_span(1, 0, 1, 2).id();
+/// let key = fig.panel_span(1, 0, 1, 2).legend().id();
 /// for col in 0..2 {
 ///     let mut ax = fig.axes(0, col);
-///     ax.plot(&x, &x).display_name("Linear");
+///     ax.plot(&x, &x).label("Linear");
 ///     ax.legend_in(key);
 /// }
 /// ```
@@ -35,8 +117,8 @@ pub struct PanelLegendMut<'f> {
 }
 
 impl<'f> PanelLegendMut<'f> {
-    /// Creates a handle to the legend panel with the given identifier, which must be a
-    /// legend panel of the figure.
+    /// Creates a handle to the legend of the panel with the given identifier, which must
+    /// be a panel of the figure that holds a legend.
     pub(crate) fn new(fig: &'f mut ironlab_ir::Figure, id: NodeId) -> Self {
         Self { fig, id }
     }
@@ -50,20 +132,6 @@ impl PanelLegendMut<'_> {
         self.id
     }
 
-    /// Sets where the block of entries is placed within the panel. `Best` places it at
-    /// the centre, because a panel holds no data for the entries to avoid.
-    ///
-    /// ```
-    /// use ironlab::prelude::*;
-    ///
-    /// let mut fig = Figure::new().tiles(1, 2);
-    /// fig.panel_legend(0, 1).align(LegendLocation::NorthWest);
-    /// ```
-    pub fn align(&mut self, location: LegendLocation) -> &mut Self {
-        self.panel().align = location;
-        self
-    }
-
     /// Sets whether the area of the panel is outlined by a border, which is the default.
     /// The border is drawn as the box of an axes is drawn, and continues the edges of the
     /// boxes of the axes in the panel's rows and columns, because the area of the panel is
@@ -73,7 +141,7 @@ impl PanelLegendMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// fig.panel_legend(0, 1).boxed(false);
+    /// fig.panel(0, 1).legend().boxed(false);
     /// ```
     pub fn boxed(&mut self, on: bool) -> &mut Self {
         self.panel().boxed = on;
@@ -86,7 +154,7 @@ impl PanelLegendMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(2, 1);
-    /// fig.panel_legend(1, 0).columns(LegendEntryColumns::Count(4));
+    /// fig.panel(1, 0).legend().columns(LegendEntryColumns::Count(4));
     /// ```
     pub fn columns(&mut self, columns: LegendEntryColumns) -> &mut Self {
         self.panel().layout.columns = columns;
@@ -99,7 +167,8 @@ impl PanelLegendMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(2, 1);
-    /// fig.panel_legend(1, 0)
+    /// fig.panel(1, 0)
+    ///     .legend()
     ///     .columns(LegendEntryColumns::Count(3))
     ///     .order(LegendEntryOrder::RowMajor);
     /// ```
@@ -110,8 +179,8 @@ impl PanelLegendMut<'_> {
 
     /// Sets which entries the panel lists, and in what order.
     ///
-    /// `LegendEntries::Auto`, the default, lists every artist with a display name of the
-    /// axes that name the panel, merged by name and look, in the reading order of the
+    /// `LegendEntries::Auto`, the default, lists every artist with a label of the
+    /// axes that name the panel, merged by label and look, in the reading order of the
     /// layout. An explicit list names exactly the items to list, in their order. The
     /// item setters [`item`](PanelLegendMut::item),
     /// [`full_row`](PanelLegendMut::full_row) and
@@ -121,7 +190,7 @@ impl PanelLegendMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(2, 1);
-    /// fig.panel_legend(1, 0).entries(LegendEntries::Explicit(vec![LegendItem::custom(
+    /// fig.panel(1, 0).legend().entries(LegendEntries::Explicit(vec![LegendItem::custom(
     ///     LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)),
     ///     "Upper surface",
     /// )]));
@@ -135,9 +204,9 @@ impl PanelLegendMut<'_> {
     /// list if the entries are automatic.
     ///
     /// The item is either a [`LegendItem`] or the identifier of an artist, which lists
-    /// that artist, labelled by its display name, beside the sample drawn for it. The
+    /// that artist, labelled by its label beside the sample drawn for it. The
     /// artist may belong to any axes of the figure. The item also stands for every artist
-    /// of the axes that name the panel whose display name and look match it, so that
+    /// of the axes that name the panel whose label and look match it, so that
     /// clicking it in the viewer hides or shows a series drawn in several axes at once.
     ///
     /// Items are listed in the order they are appended, whatever the order in which their
@@ -150,9 +219,9 @@ impl PanelLegendMut<'_> {
     /// let x = linspace(0.0, 1.0, 11);
     /// let mut fig = Figure::new().tiles(2, 1);
     /// let mut ax = fig.axes(0, 0);
-    /// let member = ax.plot(&x, &x).display_name("Member").id();
-    /// let reference = ax.plot(&x, &x).display_name("Reference").id();
-    /// fig.panel_legend(1, 0).item(reference).item(member);
+    /// let member = ax.plot(&x, &x).label("Member").id();
+    /// let reference = ax.plot(&x, &x).label("Reference").id();
+    /// fig.panel(1, 0).legend().item(reference).item(member);
     /// assert!(fig.validate().is_valid());
     /// ```
     pub fn item(&mut self, item: impl Into<LegendItem>) -> &mut Self {
@@ -175,10 +244,11 @@ impl PanelLegendMut<'_> {
     /// let x = linspace(0.0, 1.0, 11);
     /// let mut fig = Figure::new().tiles(2, 1);
     /// let mut ax = fig.axes(0, 0);
-    /// let small = ax.plot(&x, &x).display_name("Small").id();
-    /// let large = ax.plot(&x, &x).display_name("Large").id();
-    /// let base = ax.plot(&x, &x).display_name("Base case, drawn on top").id();
-    /// fig.panel_legend(1, 0)
+    /// let small = ax.plot(&x, &x).label("Small").id();
+    /// let large = ax.plot(&x, &x).label("Large").id();
+    /// let base = ax.plot(&x, &x).label("Base case, drawn on top").id();
+    /// fig.panel(1, 0)
+    ///     .legend()
     ///     .full_row(base)
     ///     .item(small)
     ///     .item(large)
@@ -203,7 +273,8 @@ impl PanelLegendMut<'_> {
     ///
     /// let grey = Color::rgb(0.45, 0.45, 0.45);
     /// let mut fig = Figure::new().tiles(2, 1);
-    /// fig.panel_legend(1, 0)
+    /// fig.panel(1, 0)
+    ///     .legend()
     ///     .custom_item(LegendSample::marker(Marker::Square, grey), "Transition")
     ///     .custom_item(LegendSample::marker(Marker::TriangleUp, grey), "Separation")
     ///     .custom_item(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "Upper surface");
@@ -223,9 +294,9 @@ impl PanelLegendMut<'_> {
     /// let x = linspace(0.0, 1.0, 11);
     /// let mut fig = Figure::new().tiles(1, 3);
     /// for col in 0..2 {
-    ///     fig.axes(0, col).plot(&x, &x).display_name("Linear");
+    ///     fig.axes(0, col).plot(&x, &x).label("Linear");
     /// }
-    /// fig.panel_legend(0, 2).collect_all();
+    /// fig.panel(0, 2).legend().collect_all();
     /// assert!(fig.validate().warnings.is_empty());
     /// ```
     pub fn collect_all(&mut self) -> &mut Self {
@@ -235,11 +306,15 @@ impl PanelLegendMut<'_> {
         self
     }
 
-    /// Returns the panel, which exists because the handle is only created for a panel of
-    /// the figure.
+    /// Returns the legend of the panel, which exists because the handle is only created
+    /// for a panel of the figure that holds a legend.
     fn panel(&mut self) -> &mut PanelLegend {
-        self.fig
-            .panel_legend_mut(self.id)
-            .expect("a legend panel handle names a panel of the figure")
+        let panel = self
+            .fig
+            .panel_mut(self.id)
+            .expect("a panel legend handle names a panel of the figure");
+        match &mut panel.content {
+            PanelContent::Legend(legend) => legend,
+        }
     }
 }

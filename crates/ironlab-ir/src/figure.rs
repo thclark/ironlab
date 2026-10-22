@@ -7,12 +7,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::artist::Artist;
 use crate::axes::Axes;
-use crate::data::NdArray;
+use crate::data::{DataArray, NdArray};
 use crate::error::IrError;
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
 use crate::layout::TileLayout;
-use crate::legend::PanelLegend;
 use crate::link::AxisLink;
+use crate::panel::Panel;
 use crate::style::Color;
 use crate::text::Text;
 
@@ -22,7 +22,11 @@ use crate::text::Text;
 /// the patch component may differ.
 pub const SCHEMA_VERSION: &str = "0.6.0";
 
-/// A figure: the root of the retained IR, holding axes, data and axis links.
+/// A figure: the root of the retained IR, holding data arrays, axes, panels and axis
+/// links.
+///
+/// The figure, its data arrays, its axes, their artists and its panels are the nodes of
+/// the figure, and share one space of node identifiers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Figure {
     /// The version of the figure schema that the file conforms to.
@@ -39,18 +43,18 @@ pub struct Figure {
     pub font_size_pt: f64,
     /// The colour of the figure background.
     pub background: Color,
-    /// The grid of cells in which axes and legend panels are placed.
+    /// The grid of cells in which axes and panels are placed.
     pub layout: TileLayout,
-    /// The numeric arrays referenced by artists, keyed by data identifier.
-    pub data: BTreeMap<DataId, NdArray>,
+    /// The data arrays of the figure, which artists refer to by node identifier.
+    pub data: Vec<DataArray>,
     /// The axes of the figure, in drawing order.
     pub axes: Vec<Axes>,
-    /// The legend panels of the figure, which occupy cells of the tile layout and are
-    /// drawn after every axes.
+    /// The panels of the figure, which occupy cells of the tile layout and are drawn
+    /// after every axes.
     ///
-    /// The property is omitted from JSON when there are no legend panels.
+    /// The property is omitted from JSON when there are no panels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub panel_legends: Vec<PanelLegend>,
+    pub panels: Vec<Panel>,
     /// The groups of axes whose limits are linked along a dimension.
     pub links: Vec<AxisLink>,
     /// A record of the software that produced the figure.
@@ -62,20 +66,20 @@ pub struct Figure {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parameters: BTreeMap<String, Parameter>,
     /// Free words that describe the figure, used to filter and group collections of
-    /// figures, in the order they were given.
+    /// figures, in the order they were given. Tags are never drawn.
     ///
-    /// A label is what a parameter cannot be: a figure carries any number of them, and
-    /// none of them is a name with a value under it. "surface" and "3d" are labels; the
+    /// A tag is what a parameter cannot be: a figure carries any number of them, and
+    /// none of them is a name with a value under it. "surface" and "3d" are tags; the
     /// Reynolds number is a parameter.
     ///
-    /// A label must not be empty, and no label may occur twice in one figure, both of
-    /// which [`crate::ValidationReport`] reports as errors. Labels are compared exactly, so
-    /// labels differing only in case are distinct.
+    /// A tag must not be empty, and no tag may occur twice in one figure, both of which
+    /// [`crate::ValidationReport`] reports as errors. Tags are compared exactly, so tags
+    /// differing only in case are distinct.
     ///
-    /// The property is omitted from JSON when there are no labels.
+    /// The property is omitted from JSON when there are no tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(inner(length(min = 1)), extend("uniqueItems" = true))]
-    pub labels: Vec<String>,
+    pub tags: Vec<String>,
     /// The state used to allocate node identifiers; not part of the figure's value.
     #[serde(skip)]
     #[schemars(skip)]
@@ -93,13 +97,13 @@ impl Default for Figure {
             font_size_pt: 9.0,
             background: Color::WHITE,
             layout: TileLayout::default(),
-            data: BTreeMap::new(),
+            data: Vec::new(),
             axes: Vec::new(),
-            panel_legends: Vec::new(),
+            panels: Vec::new(),
             links: Vec::new(),
             provenance: Provenance::default(),
             parameters: BTreeMap::new(),
-            labels: Vec::new(),
+            tags: Vec::new(),
             id_allocator: NodeIdAllocator::default(),
         }
     }
@@ -236,9 +240,9 @@ impl Figure {
         Self::default()
     }
 
-    /// Allocates a node identifier that differs from the figure's identifier, every
-    /// axes, artist and legend panel identifier in the figure, and every identifier previously
-    /// allocated from this figure value.
+    /// Allocates a node identifier that differs from the identifier of every node in the
+    /// figure (the figure, its data arrays, axes, artists and panels) and from every
+    /// identifier previously allocated from this figure value.
     ///
     /// Identifiers are allocated above the largest identifier present, so allocation
     /// remains correct after a figure is loaded from JSON.
@@ -250,7 +254,12 @@ impl Figure {
     /// figure contains an identifier close to `u64::MAX`.
     pub fn alloc_node_id(&mut self) -> NodeId {
         const EXHAUSTED: &str = "the node identifier space is exhausted";
-        let largest = self.node_ids().map(|id| id.0).max().unwrap_or(self.id.0);
+        let largest = self
+            .node_ids()
+            .into_iter()
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(self.id.0);
         let id = largest
             .checked_add(1)
             .expect(EXHAUSTED)
@@ -259,54 +268,21 @@ impl Figure {
         NodeId(id)
     }
 
-    /// Returns the identifiers of every node: the figure, its axes, their artists and its
-    /// legend panels.
-    pub(crate) fn node_ids(&self) -> impl Iterator<Item = NodeId> + '_ {
-        std::iter::once(self.id)
-            .chain(self.axes.iter().flat_map(|axes| {
-                std::iter::once(axes.id).chain(axes.artists.iter().map(Artist::id))
-            }))
-            .chain(self.panel_legends.iter().map(|panel| panel.id))
-    }
-
-    /// Inserts an array into the data table under a new identifier, which differs
-    /// from every identifier already in the table, and returns that identifier.
-    pub fn add_data(&mut self, array: NdArray) -> DataId {
-        let id = match self.data.last_key_value() {
-            None => DataId(0),
-            Some((last, _)) => match last.0.checked_add(1) {
-                Some(next) => DataId(next),
-                // The largest identifier is taken, so reuse the first gap instead.
-                None => (0..)
-                    .map(DataId)
-                    .zip(self.data.keys())
-                    .find(|(candidate, used)| candidate != *used)
-                    .map(|(candidate, _)| candidate)
-                    .expect("the data identifier space is exhausted"),
-            },
-        };
-        self.data.insert(id, array);
+    /// Adds an unnamed data array under a newly allocated node identifier, after the
+    /// figure's other data arrays, and returns that identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the node identifier space is exhausted, as [`Figure::alloc_node_id`]
+    /// does.
+    pub fn add_data(&mut self, array: NdArray) -> NodeId {
+        let id = self.alloc_node_id();
+        self.data.push(DataArray {
+            id,
+            name: None,
+            array,
+        });
         id
-    }
-
-    /// Returns the axes with the given identifier.
-    pub fn axes(&self, id: NodeId) -> Option<&Axes> {
-        self.axes.iter().find(|axes| axes.id == id)
-    }
-
-    /// Returns the axes with the given identifier, mutably.
-    pub fn axes_mut(&mut self, id: NodeId) -> Option<&mut Axes> {
-        self.axes.iter_mut().find(|axes| axes.id == id)
-    }
-
-    /// Returns the legend panel with the given identifier.
-    pub fn panel_legend(&self, id: NodeId) -> Option<&PanelLegend> {
-        self.panel_legends.iter().find(|panel| panel.id == id)
-    }
-
-    /// Returns the legend panel with the given identifier, mutably.
-    pub fn panel_legend_mut(&mut self, id: NodeId) -> Option<&mut PanelLegend> {
-        self.panel_legends.iter_mut().find(|panel| panel.id == id)
     }
 
     /// Returns the artist with the given identifier together with the axes that

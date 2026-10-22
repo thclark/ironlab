@@ -211,7 +211,7 @@ impl Shares {
 /// The shares, in points, that the fitted rows and columns of the tile layout take of the space the margins leave,
 /// from the top and from the left; a weighted row or column has none.
 ///
-/// The share of a fitted track holds the area of the legend panels in it, and the page padding on a side of the track
+/// The share of a fitted track holds the area of the panels in it, and the page padding on a side of the track
 /// at which no axes starts or ends, because a panel is inset by the padding there; the aligned margins of the axes
 /// are taken out of the page before the shares, as for every track.
 #[derive(Clone, Debug, PartialEq)]
@@ -222,7 +222,7 @@ pub(super) struct Fits {
 
 impl Fits {
     /// Returns a share of zero for every fitted row and column of the layout, which is the share of a fitted track
-    /// that holds no legend panel.
+    /// that holds no panel.
     pub(super) fn new(layout: &TileLayout) -> Self {
         let fitted = |sizes: &[TrackSize], count: u32| -> Vec<Option<f64>> {
             (0..count.max(1) as usize)
@@ -253,7 +253,7 @@ impl Fits {
     }
 }
 
-/// The dimension of a legend panel's content that a fitted track takes.
+/// The dimension of a panel's content that a fitted track takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Along {
     /// The height, which a fitted row takes.
@@ -262,10 +262,10 @@ pub(super) enum Along {
     Cols,
 }
 
-/// Computes the share of every fitted row and column from the content of the legend panels that lie in it alone.
+/// Computes the share of every fitted row and column from the content of the panels that lie in it alone.
 ///
 /// `content(p, along, cross)` returns the height (for [`Along::Rows`]) or width (for [`Along::Cols`]) of the area
-/// that legend panel `p`, in the order the figure lists them, needs for its entries when the other dimension of its
+/// that panel `p`, in the order the figure lists them, needs for its entries when the other dimension of its
 /// area is `cross`, which is infinite when that dimension is fitted too. A fitted track's share is the largest such
 /// area of its panels, with the page padding added on a side at which no axes starts or ends, and zero when no panel
 /// lies in it alone. `margins` are the margins of the axes, or `None` before they are known. The cross dimension of a
@@ -290,7 +290,7 @@ pub(super) fn fit_tracks(
     let fit_cols = |fits: &mut Fits| {
         let mut shares = Fits::new(layout).cols;
         let rows = aligned.rows(layout, fits, grid_area);
-        for (p, panel) in figure.panel_legends.iter().enumerate() {
+        for (p, panel) in figure.panels.iter().enumerate() {
             let (r, c, re, ce) = span_indices(layout, panel.cell);
             if c != ce || shares[c].is_none() {
                 continue;
@@ -309,7 +309,7 @@ pub(super) fn fit_tracks(
         let mut shares = Fits::new(layout).rows;
         // The width is known even when the columns are fitted too, because they are fitted first.
         let columns = aligned.columns(layout, fits, grid_area);
-        for (p, panel) in figure.panel_legends.iter().enumerate() {
+        for (p, panel) in figure.panels.iter().enumerate() {
             let (r, c, re, ce) = span_indices(layout, panel.cell);
             if r != re || shares[r].is_none() {
                 continue;
@@ -326,7 +326,7 @@ pub(super) fn fit_tracks(
     fits
 }
 
-/// Returns whether a legend panel lies in fitted rows alone, so that its height follows its entries rather than the
+/// Returns whether a panel lies in fitted rows alone, so that its height follows its entries rather than the
 /// other way round.
 pub(super) fn in_fitted_rows(fits: &Fits, layout: &TileLayout, cell: Cell) -> bool {
     let (r, _, re, _) = span_indices(layout, cell);
@@ -470,17 +470,17 @@ impl Tracks {
     }
 }
 
-/// Where every axes and legend panel of a figure is placed, once the margins of the axes are known.
+/// Where every axes and panel of a figure is placed, once the margins of the axes are known.
 pub(super) struct Placement {
     /// The rectangle of the cells of each axes, in the order the figure lists them.
     pub outer: Vec<Rect>,
     /// The plot rectangle of each axes, in the order the figure lists them.
     pub plots: Vec<Rect>,
-    /// The area of each legend panel, in the order the figure lists them.
+    /// The area of each panel, in the order the figure lists them.
     pub panels: Vec<Rect>,
 }
 
-/// Places every axes and legend panel of the figure in the grid area.
+/// Places every axes and panel of the figure in the grid area.
 ///
 /// Margins are aligned across the layout: every axes that starts in a column uses the largest left margin of the
 /// axes starting there, and likewise for right margins by end column and for top and bottom margins by row, so the
@@ -492,7 +492,7 @@ pub(super) struct Placement {
 /// The fitted rows and columns take the shares in `fits` first, and the plot areas of the weighted ones share what is
 /// left, so that plot areas of equal weight stay of equal size beside a fitted track.
 ///
-/// A legend panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
+/// A panel is placed in its cells as an axes is, then inset by the aligned margins of the rows and columns it
 /// occupies, so that its edges line up with the plot areas of the axes beside, above or below it. A side whose row or
 /// column holds no axes is inset by the page padding instead. A panel contributes no margins of its own.
 pub(super) fn place(ctx: &Ctx, fits: &Fits, grid_area: Rect, margins: &[Margins]) -> Placement {
@@ -518,7 +518,7 @@ pub(super) fn place(ctx: &Ctx, fits: &Fits, grid_area: Rect, margins: &[Margins]
             .map(|a| rect(a.cell, Some(0.0)))
             .collect(),
         panels: figure
-            .panel_legends
+            .panels
             .iter()
             .map(|p| rect(p.cell, Some(pad)))
             .collect(),

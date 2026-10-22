@@ -5,14 +5,15 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Axes, Cell, Dimension, NodeId, PanelLegend, Parameter, Projection, Text, TrackSize,
-    ValidationReport,
+    Axes, Cell, Dimension, NodeId, Panel, PanelContent, PanelLegend, PanelLocation, Parameter,
+    Projection, Text, TrackSize, ValidationReport,
 };
 use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
+use crate::data::{DataArrayMut, DataSource};
 use crate::error::Error;
-use crate::legend::PanelLegendMut;
+use crate::legend::PanelMut;
 use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions, SceneWarning};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
@@ -212,35 +213,79 @@ impl Figure {
         &self.ir.parameters
     }
 
-    /// Adds a label describing the figure, keeping the labels it already has.
+    /// Adds a tag describing the figure, keeping the tags it already has.
     ///
-    /// A label is what a parameter cannot be: a figure carries any number of them, and
-    /// none of them is a name with a value under it. "surface" and "3d" are labels; the
-    /// Reynolds number is a parameter. Like parameters, labels do not affect drawing;
-    /// they are saved with the figure so that collections of figures can be filtered and
-    /// grouped by them.
+    /// A tag is what a parameter cannot be: a figure carries any number of them, and none
+    /// of them is a name with a value under it. "surface" and "3d" are tags; the Reynolds
+    /// number is a parameter. Like parameters, tags are never drawn; they are saved with
+    /// the figure so that collections of figures can be filtered and grouped by them in
+    /// the figure browser.
     ///
-    /// Labels are compared exactly, so labels differing only in case are distinct. A
-    /// label that is empty, or one added twice, is reported by
+    /// Tags are compared exactly, so tags differing only in case are distinct. A tag that
+    /// is empty, or one added twice, is kept and reported by
     /// [`validate`](Figure::validate).
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
-    /// let fig = Figure::new().label("surface").label("3d");
-    /// assert_eq!(fig.labels(), ["surface", "3d"]);
+    /// let fig = Figure::new().tag("surface").tag("3d");
+    /// assert_eq!(fig.tags(), ["surface", "3d"]);
     /// assert!(fig.validate().is_valid());
     /// ```
     #[must_use]
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.ir.labels.push(label.into());
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.ir.tags.push(tag.into());
         self
     }
 
-    /// Returns the labels of the figure, in the order they were given.
+    /// Returns the tags of the figure, in the order they were given.
     #[must_use]
-    pub fn labels(&self) -> &[String] {
-        &self.ir.labels
+    pub fn tags(&self) -> &[String] {
+        &self.ir.tags
+    }
+
+    /// Adds a named data array to the figure and returns a handle to it, whose
+    /// [`id`](DataArrayMut::id) plotting calls and setters accept in place of values.
+    ///
+    /// Every artist given the identifier shares the array, so a long record plotted in
+    /// several axes, or by several artists, is stored once, and an edit of the array
+    /// changes every artist that refers to it. The values are copied, so the caller's
+    /// values may be dropped or changed afterwards. The name identifies the array to tools
+    /// such as the inspector of the viewer and is never drawn.
+    ///
+    /// An array created here is never deleted by the builder, even when a setter replaces
+    /// it and no artist refers to it any more, because the caller holds its identifier and
+    /// may plot it again. An array that no artist refers to is reported by
+    /// [`validate`](Figure::validate) with the warning `UnusedData`, which never prevents
+    /// an export.
+    ///
+    /// Given the identifier of a data array the figure already holds, the call names that
+    /// array and copies nothing; an identifier that names no data array is returned as it
+    /// is, and validation reports it wherever it is used.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let t = linspace(0.0, 10.0, 1001);
+    /// let p: Vec<f64> = t.iter().map(|t| t.sin()).collect();
+    /// let q: Vec<f64> = t.iter().map(|t| t.cos()).collect();
+    ///
+    /// let mut fig = Figure::new().tiles(2, 1);
+    /// let time = fig.data("time (s)", &t).id();
+    /// fig.axes(0, 0).plot(time, &p).label("p");
+    /// fig.axes(1, 0).plot(time, &q).label("q");
+    /// assert_eq!(fig.ir().data.len(), 3, "the time base is stored once");
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn data(
+        &mut self,
+        name: impl Into<String>,
+        values: impl Into<DataSource>,
+    ) -> DataArrayMut<'_> {
+        let id = values.into().store(&mut self.ir);
+        let mut handle = DataArrayMut::new(&mut self.ir, id);
+        handle.name(name);
+        handle
     }
 
     /// Returns the axes that occupies the tile at a zero-based row and column,
@@ -323,12 +368,13 @@ impl Figure {
         AxesMut::new(&mut self.ir, id)
     }
 
-    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
-    /// creating one in that single tile if there is none.
+    /// Returns the panel whose top-left tile is at a zero-based row and column, creating
+    /// one in that single tile if there is none.
     ///
-    /// A new panel centres its entries, has no box, and arranges its entries in as few
-    /// columns as fit its height. Axes list their entries in it once their legend names
-    /// it, with [`AxesMut::legend_in`] or [`PanelLegendMut::collect_all`].
+    /// A new panel centres its content and holds a legend, which is outlined by a border
+    /// and arranges its entries in as few columns as fit the panel. Axes list their
+    /// entries in it once their legend names it, with [`AxesMut::legend_in`] or
+    /// [`PanelLegendMut::collect_all`](crate::PanelLegendMut::collect_all).
     ///
     /// The panel is placed in the tile whether or not an axes already covers it. A panel
     /// over an axes is drawn on top of the plot, and [`Figure::validate`] reports the pair
@@ -338,59 +384,53 @@ impl Figure {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// let key = fig.panel_legend(0, 1).boxed(false).id();
-    /// assert_eq!(fig.panel_legend(0, 1).id(), key);
+    /// let key = fig.panel(0, 1).legend().boxed(false).id();
+    /// assert_eq!(fig.panel(0, 1).id(), key);
     /// ```
-    pub fn panel_legend(&mut self, row: u32, col: u32) -> PanelLegendMut<'_> {
-        let id = match self.panel_legend_at(row, col) {
-            Some(index) => self.ir.panel_legends[index].id,
-            None => self.add_panel_legend(Cell {
+    pub fn panel(&mut self, row: u32, col: u32) -> PanelMut<'_> {
+        let id = match self.panel_at(row, col) {
+            Some(index) => self.ir.panels[index].id,
+            None => self.add_panel(Cell {
                 row,
                 col,
                 ..Cell::default()
             }),
         };
-        PanelLegendMut::new(&mut self.ir, id)
+        PanelMut::new(&mut self.ir, id)
     }
 
-    /// Returns the legend panel whose top-left tile is at a zero-based row and column,
-    /// and makes it span the given numbers of rows and columns.
+    /// Returns the panel whose top-left tile is at a zero-based row and column, and makes
+    /// it span the given numbers of rows and columns.
     ///
-    /// A panel is created, with the defaults of [`panel_legend`](Figure::panel_legend),
-    /// when no panel has that top-left tile. As with `panel_legend`, a panel whose cells
-    /// cover a tile of an axes is placed there all the same and reported by
-    /// [`Figure::validate`] with the warning `OverlappingCells`.
+    /// A panel is created, with the defaults of [`panel`](Figure::panel), when no panel
+    /// has that top-left tile. As with `panel`, a panel whose cells cover a tile of an
+    /// axes is placed there all the same and reported by [`Figure::validate`] with the
+    /// warning `OverlappingCells`.
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
     /// // A legend panel across the full width of the bottom row.
     /// let mut fig = Figure::new().tiles(2, 2).row_weights([3.0, 1.0]);
-    /// let key = fig.panel_legend_span(1, 0, 1, 2).id();
-    /// assert_eq!(fig.panel_legend(1, 0).id(), key);
+    /// let key = fig.panel_span(1, 0, 1, 2).legend().id();
+    /// assert_eq!(fig.panel(1, 0).id(), key);
     /// ```
-    pub fn panel_legend_span(
-        &mut self,
-        row: u32,
-        col: u32,
-        row_span: u32,
-        col_span: u32,
-    ) -> PanelLegendMut<'_> {
+    pub fn panel_span(&mut self, row: u32, col: u32, row_span: u32, col_span: u32) -> PanelMut<'_> {
         let cell = Cell {
             row,
             col,
             row_span,
             col_span,
         };
-        let id = match self.panel_legend_at(row, col) {
+        let id = match self.panel_at(row, col) {
             Some(index) => {
-                let panel = &mut self.ir.panel_legends[index];
+                let panel = &mut self.ir.panels[index];
                 panel.cell = cell;
                 panel.id
             }
-            None => self.add_panel_legend(cell),
+            None => self.add_panel(cell),
         };
-        PanelLegendMut::new(&mut self.ir, id)
+        PanelMut::new(&mut self.ir, id)
     }
 
     /// Links the limits of the given axes along a dimension, so that zooming or
@@ -610,10 +650,10 @@ impl Figure {
     ///
     /// let x = linspace(0.0, 1.0, 11);
     /// let mut fig = Figure::new().size_mm(80.0, 60.0).tiles(2, 1).row_weights([6.0, 1.0]);
-    /// let key = fig.panel_legend(1, 0).columns(LegendEntryColumns::Count(1)).id();
+    /// let key = fig.panel(1, 0).legend().columns(LegendEntryColumns::Count(1)).id();
     /// let mut ax = fig.axes(0, 0);
     /// for k in 0..8 {
-    ///     ax.plot(&x, &x).display_name(format!("Case {k}"));
+    ///     ax.plot(&x, &x).label(format!("Case {k}"));
     /// }
     /// ax.legend_in(key);
     ///
@@ -836,22 +876,23 @@ impl Figure {
         id
     }
 
-    /// Returns the index of the legend panel whose top-left tile is at a row and column.
-    fn panel_legend_at(&self, row: u32, col: u32) -> Option<usize> {
+    /// Returns the index of the panel whose top-left tile is at a row and column.
+    fn panel_at(&self, row: u32, col: u32) -> Option<usize> {
         self.ir
-            .panel_legends
+            .panels
             .iter()
             .position(|panel| (panel.cell.row, panel.cell.col) == (row, col))
     }
 
-    /// Adds a legend panel with the default properties at a cell and returns its
-    /// identifier.
-    fn add_panel_legend(&mut self, cell: Cell) -> NodeId {
+    /// Adds a panel at a cell that centres a legend with the default properties, and
+    /// returns its identifier.
+    fn add_panel(&mut self, cell: Cell) -> NodeId {
         let id = self.ir.alloc_node_id();
-        self.ir.panel_legends.push(PanelLegend {
+        self.ir.panels.push(Panel {
             id,
             cell,
-            ..PanelLegend::default()
+            align: PanelLocation::default(),
+            content: PanelContent::Legend(PanelLegend::default()),
         });
         id
     }

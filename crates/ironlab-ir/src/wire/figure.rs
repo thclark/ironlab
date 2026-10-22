@@ -1,7 +1,8 @@
 //! Wire types of `ironlab/ir/v0/figure.proto`.
 
 proto_file! {
-    /// A figure: the root of the retained IR, holding axes, data and axis links.
+    /// A figure: the root of the retained IR, holding data arrays, axes, panels and axis
+    /// links.
     message Figure {
         /// The version of the figure schema that the message conforms to, as
         /// `major.minor.patch`. This is field 1 in every version of the schema, so
@@ -19,10 +20,10 @@ proto_file! {
         optional double font_size_pt = 6;
         /// The colour of the figure background.
         message Color background = 7;
-        /// The grid of cells in which axes and legend panels are placed.
+        /// The grid of cells in which axes and panels are placed.
         message TileLayout layout = 8;
-        /// The numeric arrays referenced by artists, keyed by data identifier.
-        map<uint64, message NdArray> data = 9;
+        /// The data arrays of the figure, which artists refer to by node identifier.
+        repeated message DataArray data = 9;
         /// The axes of the figure, in drawing order.
         repeated message Axes axes = 10;
         /// The groups of axes whose limits are linked along a dimension.
@@ -34,12 +35,12 @@ proto_file! {
         /// UTF-8 bytes of the name.
         map<string, message Parameter> parameters = 13;
         /// Free words that describe the figure, used to filter and group collections of
-        /// figures, written in the order they were given. A label is never empty, and no
-        /// label occurs twice in one figure.
-        repeated string labels = 14;
-        /// The legend panels of the figure, which occupy cells of the tile layout and
-        /// are drawn after every axes.
-        repeated message PanelLegend panel_legends = 15;
+        /// figures, written in the order they were given. A tag is never empty, and no
+        /// tag occurs twice in one figure.
+        repeated string tags = 14;
+        /// The panels of the figure, which occupy cells of the tile layout and are drawn
+        /// after every axes.
+        repeated message Panel panels = 15;
     }
 
     /// The physical size of a figure.

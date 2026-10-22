@@ -28,16 +28,16 @@ pub fn figure() -> Figure {
         .tiles(4, 1)
         .fit_row(3)
         .title("Input sensitivity of an aerofoil polar")
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("markers")
-        .label("simulations")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("markers")
+        .tag("simulations")
         .parameter("dimensionality", "2D")
         .parameter("artists", 21)
         .parameter("data_points", 1722)
         .parameter("has_legend", true);
-    let key = fig.panel_legend(3, 0).id();
+    let key = fig.panel(3, 0).id();
 
     // The levels are drawn first, from the smallest perturbation in pale violet to the largest in red, and the base
     // case last, in black with filled markers, so that it lies on top of the family.
@@ -62,7 +62,7 @@ pub fn figure() -> Figure {
         for (k, level) in LEVELS.into_iter().enumerate() {
             let id = ax
                 .plot(&alpha, curve(1.0 + level / 100.0))
-                .display_name(format!("Perturbed by {level} %"))
+                .label(format!("Perturbed by {level} %"))
                 .color(ramp(k))
                 .id();
             if row == 0 {
@@ -71,7 +71,7 @@ pub fn figure() -> Figure {
         }
         let id = ax
             .plot(&alpha, curve(1.0))
-            .display_name("Base case (unperturbed inputs)")
+            .label("Base case (unperturbed inputs)")
             .color(Color::rgb(0.0, 0.0, 0.0))
             .line_width(1.5)
             .marker(Marker::Circle)
@@ -91,10 +91,11 @@ pub fn figure() -> Figure {
 
     // The key names the artists of the top plot; each item also stands for the artists of the same name and look in
     // the other plots, so clicking it in the viewer hides or shows that case in all three.
-    let mut panel = fig.panel_legend(3, 0);
-    panel.full_row(base.expect("the figure has a base case"));
+    let mut panel = fig.panel(3, 0);
+    let mut key = panel.legend();
+    key.full_row(base.expect("the figure has a base case"));
     for id in levels {
-        panel.item(id);
+        key.item(id);
     }
     fig
 }

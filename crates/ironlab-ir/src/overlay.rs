@@ -16,9 +16,10 @@
 //!
 //! Undo and redo act on the overlay only, in steps: a gesture of many sets is one step.
 
-use crate::edit::{Edit, EditError, NodeTree, PropertyPath, Transaction, Value};
+use crate::edit::{Edit, EditError, PropertyPath, Transaction, Value};
 use crate::figure::Figure;
 use crate::ids::NodeId;
+use crate::nodes::NodeTree;
 
 /// The user's changes to a figure, as an ordered list of property sets, with the undo
 /// history of those changes and the conflicts with the source that await resolution.

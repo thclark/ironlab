@@ -11,7 +11,7 @@
 //!
 //! The pieces are:
 //!
-//! - A [`FigureCard`] is one figure as the browser sees it: its title, its labels, and its parameters, and nothing
+//! - A [`FigureCard`] is one figure as the browser sees it: its title, its tags, and its parameters, and nothing
 //!   besides. The viewer works out none of them: what a collection can be narrowed by is what the program that
 //!   built the figures said it could be narrowed by, because that program is the only thing that knows which of a
 //!   figure's properties matter. A figure's structure is rarely one of them, and an author who thinks otherwise can
@@ -42,7 +42,7 @@ use std::hash::{Hash, Hasher};
 
 use ironlab_ir::{Figure, Parameter};
 
-/// Whether nothing in the collection can be narrowed by: no figure carries a label or a parameter.
+/// Whether nothing in the collection can be narrowed by: no figure carries a tag or a parameter.
 ///
 /// A collection like this is not a fault, and nor is it empty — the figures are all there, listed and searchable by
 /// title. It is a collection whose author has not yet said what it can be browsed by, and since the viewer works
@@ -52,18 +52,18 @@ use ironlab_ir::{Figure, Parameter};
 pub fn has_nothing_to_browse_by(cards: &[FigureCard]) -> bool {
     cards
         .iter()
-        .all(|card| card.labels.is_empty() && card.parameters.is_empty())
+        .all(|card| card.tags.is_empty() && card.parameters.is_empty())
 }
 
 /// The label given to a group of figures that the grouping parameter does not apply to.
 pub const NOT_SET: &str = "not set";
 
-/// The label given to a group of figures that carry no labels at all.
-pub const NO_LABELS: &str = "no labels";
+/// The label given to a group of figures that carry no tags at all.
+pub const NO_TAGS: &str = "no tags";
 
 /// One value a [`Facet`] takes.
 ///
-/// The four forms are the four forms of a [`Parameter`], with labels taking the text form. Values are ordered and
+/// The four forms are the four forms of a [`Parameter`], with tags taking the text form. Values are ordered and
 /// hashed so that they can be counted and listed in a stable order: numbers are ordered by [`f64::total_cmp`], which
 /// is a total order over every double including the non-finite ones a figure should not contain but might, and
 /// hashed by their bits, so that equal values always hash alike.
@@ -75,7 +75,7 @@ pub enum FacetValue {
     Integer(i64),
     /// A double-precision floating-point number.
     Number(f64),
-    /// A string of Unicode text, which is also how a label is held.
+    /// A string of Unicode text, which is also how a tag is held.
     Text(String),
 }
 
@@ -191,8 +191,8 @@ pub fn number_text(value: f64) -> String {
 /// What a facet draws its values from.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FacetKey {
-    /// The labels of a figure, which are a set of values rather than one value.
-    Labels,
+    /// The tags of a figure, which are a set of values rather than one value.
+    Tags,
     /// A named parameter of the figure.
     Parameter(String),
 }
@@ -208,7 +208,7 @@ impl FacetKey {
     #[must_use]
     pub fn name(&self) -> &str {
         match self {
-            FacetKey::Labels => "labels",
+            FacetKey::Tags => "tags",
             FacetKey::Parameter(name) => name,
         }
     }
@@ -217,8 +217,8 @@ impl FacetKey {
 /// How a facet offers its values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FacetKind {
-    /// A set of labels, of which a figure may carry several.
-    Labels,
+    /// A set of tags, of which a figure may carry several.
+    Tags,
     /// Yes or no.
     Bool,
     /// Whole numbers, offered as a range.
@@ -271,8 +271,8 @@ impl Facet {
 pub struct FigureCard {
     /// The title the figure is listed under, which is the title of its tab.
     pub title: String,
-    /// The labels the figure carries, in the order they were given.
-    pub labels: Vec<String>,
+    /// The tags the figure carries, in the order they were given.
+    pub tags: Vec<String>,
     /// The parameters the figure can be narrowed by, in ascending order of name.
     pub parameters: BTreeMap<String, Parameter>,
 }
@@ -286,7 +286,7 @@ impl FigureCard {
     pub fn of(title: impl Into<String>, figure: &Figure) -> Self {
         Self {
             title: title.into(),
-            labels: browsable_labels(figure),
+            tags: browsable_tags(figure),
             parameters: figure.parameters.clone(),
         }
     }
@@ -297,7 +297,7 @@ impl FigureCard {
         self.parameters.get(name)
     }
 
-    /// The text a free-text search term is matched against: the title, the labels, and the names and values of every
+    /// The text a free-text search term is matched against: the title, the tags, and the names and values of every
     /// parameter, folded to lower case.
     ///
     /// Parameter names are included so that typing the name of a parameter finds the figures that have one, which is
@@ -305,9 +305,9 @@ impl FigureCard {
     #[must_use]
     pub fn haystack(&self) -> String {
         let mut text = self.title.to_lowercase();
-        for label in &self.labels {
+        for tag in &self.tags {
             text.push(' ');
-            text.push_str(&label.to_lowercase());
+            text.push_str(&tag.to_lowercase());
         }
         for (name, value) in &self.parameters {
             text.push(' ');
@@ -319,9 +319,9 @@ impl FigureCard {
     }
 }
 
-/// The labels a figure is browsed by: the ones it carries, once each and without the empty ones.
+/// The tags a figure is browsed by: the ones it carries, once each and without the empty ones.
 ///
-/// A figure should hold neither an empty label nor the same label twice — both are errors that
+/// A figure should hold neither an empty tag nor the same tag twice — both are errors that
 /// [`ironlab_ir::Figure::validate`] reports, and the viewer shows them in its problems list — but a figure built by
 /// another program can conform to the Protocol Buffers schema and still hold them, because that format cannot
 /// express either rule. The figure is left as it was read rather than quietly corrected, so that opening a file and
@@ -329,14 +329,14 @@ impl FigureCard {
 /// cleaned up, because a blank entry in a menu, or the same word offered twice, is a fault in the interface
 /// whatever the file says.
 #[must_use]
-pub fn browsable_labels(figure: &Figure) -> Vec<String> {
-    let mut labels: Vec<String> = Vec::new();
-    for label in &figure.labels {
-        if !label.is_empty() && !labels.contains(label) {
-            labels.push(label.clone());
+pub fn browsable_tags(figure: &Figure) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    for tag in &figure.tags {
+        if !tag.is_empty() && !tags.contains(tag) {
+            tags.push(tag.clone());
         }
     }
-    labels
+    tags
 }
 
 /// Describes every facet the collection offers, the most useful first.
@@ -353,9 +353,9 @@ pub fn browsable_labels(figure: &Figure) -> Vec<String> {
 ///   it: choosing its only value would leave the list exactly as it is.
 /// - A facet with a value for almost every figure — a run number, a note — is a search term rather than a facet,
 ///   and its score is cut hard.
-/// - The labels always come first, because they are the facet the user wrote in order to browse by. The penalty
-///   above is deliberately not applied to them, however many distinct labels a collection holds: a label carried by
-///   one figure is not a label wasted, because the browser lists every label with the count behind it, and that
+/// - The tags always come first, because they are the facet the user wrote in order to browse by. The penalty
+///   above is deliberately not applied to them, however many distinct tags a collection holds: a tag carried by
+///   one figure is not a tag wasted, because the browser lists every tag with the count behind it, and that
 ///   list is how a reader learns what the collection can be narrowed by at all.
 ///
 /// Facets with equal scores are ordered by name, so the list does not shuffle between frames.
@@ -364,25 +364,23 @@ pub fn describe_facets(cards: &[FigureCard]) -> Vec<Facet> {
     let total = cards.len().max(1);
     let mut facets = Vec::new();
 
-    let mut label_counts: BTreeMap<FacetValue, usize> = BTreeMap::new();
+    let mut tag_counts: BTreeMap<FacetValue, usize> = BTreeMap::new();
     for card in cards {
-        for label in &card.labels {
-            *label_counts
-                .entry(FacetValue::Text(label.clone()))
-                .or_default() += 1;
+        for tag in &card.tags {
+            *tag_counts.entry(FacetValue::Text(tag.clone())).or_default() += 1;
         }
     }
-    if !label_counts.is_empty() {
-        let present = cards.iter().filter(|card| !card.labels.is_empty()).count();
+    if !tag_counts.is_empty() {
+        let present = cards.iter().filter(|card| !card.tags.is_empty()).count();
         facets.push(Facet {
-            key: FacetKey::Labels,
-            kind: FacetKind::Labels,
+            key: FacetKey::Tags,
+            kind: FacetKind::Tags,
             present,
-            values: label_counts.keys().cloned().collect(),
+            values: tag_counts.keys().cloned().collect(),
             range: None,
-            // Labels lead whatever the arithmetic says, because they exist to be browsed by — but a single label
+            // Tags lead whatever the arithmetic says, because they exist to be browsed by — but a single tag
             // shared by every figure divides no more than a parameter would, and is not offered either.
-            score: if label_counts.len() > 1 {
+            score: if tag_counts.len() > 1 {
                 f64::INFINITY
             } else {
                 0.0
@@ -513,14 +511,14 @@ pub enum Comparison {
 /// One term of a [`Query`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {
-    /// Text that must occur somewhere in the figure: its title, a label, or the name or value of a parameter.
+    /// Text that must occur somewhere in the figure: its title, a tag, or the name or value of a parameter.
     Anywhere {
         /// The text, folded to lower case.
         text: String,
         /// Whether the figure must instead not contain it.
         negated: bool,
     },
-    /// A comparison against one named parameter, or against the labels when the name is `label` or `labels`.
+    /// A comparison against one named parameter, or against the tags when the name is `tag` or `tags`.
     Named {
         /// The name of the parameter.
         key: String,
@@ -546,14 +544,14 @@ pub enum Term {
 /// | `rig:CFD` | its `rig` parameter contains "CFD", ignoring case |
 /// | `rig=CFD` | its `rig` parameter is exactly "CFD", ignoring case |
 /// | `angle>=8` | its `angle` parameter is 8 or more |
-/// | `label:piv` | one of its labels contains "piv" |
+/// | `tag:piv` | one of its tags contains "piv" |
 ///
 /// Terms are cumulative: every one of them must hold. A term whose name is not a parameter of a figure does not
 /// match that figure, so `solver:LES` finds the computed runs and leaves the measured ones out, which is what
 /// asking about a solver means.
 ///
-/// A word only asks about a parameter when the collection has one of that name; `label` and `labels` always ask
-/// about the labels. Anything else is free text, including a word with a colon in it that names no parameter, so
+/// A word only asks about a parameter when the collection has one of that name; `tag` and `tags` always ask
+/// about the tags. Anything else is free text, including a word with a colon in it that names no parameter, so
 /// that a web address, a file path or a colon in a title narrows the list to the figures that mention it instead of
 /// silently emptying it. A query therefore never fails to parse, and typing is never interrupted by an error.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -608,7 +606,7 @@ fn parse_term(word: &str, names: &BTreeSet<String>) -> Option<Term> {
     }
     if let Some((key, comparison, value)) = split_comparison(body)
         && !value.is_empty()
-        && (names.contains(key) || is_labels_key(key))
+        && (names.contains(key) || is_tags_key(key))
     {
         return Some(Term::Named {
             key: key.to_owned(),
@@ -623,9 +621,9 @@ fn parse_term(word: &str, names: &BTreeSet<String>) -> Option<Term> {
     })
 }
 
-/// Whether a name in a query asks about the labels rather than about a parameter.
-fn is_labels_key(key: &str) -> bool {
-    key.eq_ignore_ascii_case("label") || key.eq_ignore_ascii_case("labels")
+/// Whether a name in a query asks about the tags rather than about a parameter.
+fn is_tags_key(key: &str) -> bool {
+    key.eq_ignore_ascii_case("tag") || key.eq_ignore_ascii_case("tags")
 }
 
 /// The name of every parameter carried by any figure of the collection.
@@ -681,10 +679,10 @@ fn matches_term(term: &Term, card: &FigureCard, haystack: &str) -> bool {
             value,
             ..
         } => {
-            if is_labels_key(key) {
-                card.labels
+            if is_tags_key(key) {
+                card.tags
                     .iter()
-                    .any(|label| compare_text(label, *comparison, value))
+                    .any(|tag| compare_text(tag, *comparison, value))
             } else {
                 match card.parameter(key) {
                     Some(parameter) => compare(&FacetValue::from(parameter), *comparison, value),
@@ -764,12 +762,12 @@ impl Filter {
     #[must_use]
     pub fn matches(&self, card: &FigureCard) -> bool {
         match (&self.key, &self.constraint) {
-            (FacetKey::Labels, Constraint::AnyOf(wanted)) => card.labels.iter().any(|label| {
+            (FacetKey::Tags, Constraint::AnyOf(wanted)) => card.tags.iter().any(|tag| {
                 wanted
                     .iter()
-                    .any(|value| matches!(value, FacetValue::Text(text) if text == label))
+                    .any(|value| matches!(value, FacetValue::Text(text) if text == tag))
             }),
-            (FacetKey::Labels, Constraint::Between { .. }) => false,
+            (FacetKey::Tags, Constraint::Between { .. }) => false,
             (FacetKey::Parameter(name), constraint) => match card.parameter(name) {
                 None => false,
                 Some(parameter) => {
@@ -816,7 +814,7 @@ impl Default for Sort {
 /// One run of figures in the result, under the value they share.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Group {
-    /// The value the figures of the group share, or [`NOT_SET`] or [`NO_LABELS`] for the figures the grouping does
+    /// The value the figures of the group share, or [`NOT_SET`] or [`NO_TAGS`] for the figures the grouping does
     /// not apply to. It is `None` when the result is not grouped.
     pub name: Option<String>,
     /// The figures of the group, as indices into the collection, in the sorted order.
@@ -841,7 +839,7 @@ pub struct Results {
 impl Results {
     /// Every matching figure in the order shown, as indices into the collection.
     ///
-    /// A figure grouped by labels is listed under each of its labels, so this may be longer than
+    /// A figure grouped by tags is listed under each of its tags, so this may be longer than
     /// [`Results::matched`].
     pub fn members(&self) -> impl Iterator<Item = usize> + '_ {
         self.groups
@@ -1003,7 +1001,7 @@ impl Browse {
                     groups.push(Group {
                         name: Some(
                             match key {
-                                FacetKey::Labels => NO_LABELS,
+                                FacetKey::Tags => NO_TAGS,
                                 FacetKey::Parameter(_) => NOT_SET,
                             }
                             .to_owned(),
@@ -1041,9 +1039,9 @@ impl Browse {
                 continue;
             }
             match &facet.key {
-                FacetKey::Labels => {
-                    for label in &card.labels {
-                        if let Some(count) = counts.get_mut(&FacetValue::Text(label.clone())) {
+                FacetKey::Tags => {
+                    for tag in &card.tags {
+                        if let Some(count) = counts.get_mut(&FacetValue::Text(tag.clone())) {
                             *count += 1;
                         }
                     }
@@ -1103,11 +1101,11 @@ impl Browse {
 
 /// The names of the groups `card` belongs to under `key`, or `None` when the grouping does not apply to it.
 ///
-/// A figure belongs to one group under a parameter and to one group per label under the labels, because a figure
-/// has several labels and browsing by them means finding it under each.
+/// A figure belongs to one group under a parameter and to one group per tag under the tags, because a figure
+/// has several tags and browsing by them means finding it under each.
 fn group_names(card: &FigureCard, key: &FacetKey) -> Option<Vec<String>> {
     match key {
-        FacetKey::Labels => (!card.labels.is_empty()).then(|| card.labels.clone()),
+        FacetKey::Tags => (!card.tags.is_empty()).then(|| card.tags.clone()),
         FacetKey::Parameter(name) => card
             .parameter(name)
             .map(|parameter| vec![FacetValue::from(parameter).text()]),

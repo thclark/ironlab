@@ -41,7 +41,7 @@ Each of these returns an `AxesMut` handle. The handle borrows the figure mutably
 
 ## Plotting functions
 
-Plotting functions are methods of `AxesMut`. They follow MATLAB's names and argument order, copy their data into the figure, and return a handle whose setters change the new plot's properties and can be chained. The [equivalent functions](../reference/equivalent-functions.md) page maps the function names of MATLAB, matplotlib and Plotly to IronLAB's. Vectors are passed as anything that can be viewed as a slice of `f64`, such as `Vec<f64>`, `&[f64]` or an array.
+Plotting functions are methods of `AxesMut`. They follow MATLAB's names and argument order, store their data in the figure, and return a handle whose setters change the new plot's properties and can be chained. The [equivalent functions](../reference/equivalent-functions.md) page maps the function names of MATLAB, matplotlib and Plotly to IronLAB's. Vectors are passed as anything that can be viewed as a slice of `f64`, such as `Vec<f64>`, `&[f64]` or an array, and are copied into the figure; the identifier of an array that the figure already holds can be passed instead, so that several plots share one array, as [sharing data between plots](#sharing-data-between-plots) describes.
 
 The helper functions `linspace(start, end, n)`, `logspace(start_exp, end_exp, n)` and `meshgrid(&x, &y)` create coordinates as in MATLAB. Gridded data is passed as a `Matrix`, which has one row per y coordinate and one column per x coordinate, so that the value in row `j` and column `i` belongs to the point `(x[i], y[j])`.
 
@@ -58,7 +58,7 @@ let z = Matrix::from_fn(y.len(), x.len(), |row, col| x[col].powi(2) - y[row].pow
 ```rust
 let mut ax = fig.axes(0, 0);
 ax.plot(&x, &y)
-    .display_name("$x^2$")
+    .label("$x^2$")
     .color(Color::rgb(0.0, 0.45, 0.7))
     .line_width(1.5)
     .dash(Dash::DashDot)       // Solid, Dashed, Dotted, DashDot, DashDotDot, LongDash, or None to draw only markers
@@ -225,7 +225,7 @@ ax.mapped_image(&field)
     .pixel_rows(-1.0, 1.0)     // the centres of the first and last rows
     .above(OutOfRange::Clamp)  // a value above the colour limits takes the last colour
     .non_finite(Color::BLACK)  // a NaN is drawn in black instead of being left transparent
-    .display_name(r"$\sin xy$");
+    .label(r"$\sin xy$");
 ax.colormap(Colormap::Magma).clim(-1.0, 1.0);
 fig.axes(0, 1).indexed_image(&classes).pixel_columns(-2.0, 2.0).pixel_rows(-1.0, 1.0);
 fig.axes(0, 2).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0); // rows count down from the top
@@ -318,6 +318,37 @@ ax.surf(&x, &y, &speed)
 
 In a three-dimensional axes a translucent face or image never hides what lies behind it, wherever it comes in the order in which the axes sorts its artists; [three-dimensional axes in PDF](#three-dimensional-axes-in-pdf) explains when such an axes is written to a PDF as an image. The legend sample of a translucent artist takes its opacity. The [Measured speed faded by its confidence](../gallery/piv_confidence.md) gallery entry draws both examples above, and the [figure schema](../reference/figure-schema.md#alpha-and-opacity) states exactly how the two combine.
 
+## Sharing data between plots
+
+A figure holds the values that its plots draw as **data arrays**, and each plot refers to its arrays by identifier rather than containing them. Values passed to a plotting function, such as a `Vec<f64>`, a slice or a `Matrix`, are copied into a new data array that has no name. Each plot therefore owns its own copy, and the program may change or drop its values after the call without affecting the figure. A record whose channels are all sampled at the same times would, however, store its time base once for every channel it plots.
+
+`fig.data(name, values)` adds a data array with a name to the figure and returns a `DataArrayMut` handle, whose `id()` method returns the identifier of the array and whose `name(..)` method renames it. Every data argument of a plotting function accepts that identifier in place of values. A plot given an identifier refers to the existing array instead of copying it, so the array is stored once however many plots draw it, in any axes and in any role:
+
+```rust
+let t = linspace(0.0, 10.0, 10_001);
+let mut fig = Figure::new().tiles(2, 1);
+let time = fig.data("time (s)", &t).id();
+fig.axes(0, 0).plot(time, &pressure);    // the time base is shared, and the pressure copied
+fig.axes(1, 0).plot(time, &temperature);
+```
+
+Identifiers and values can be mixed argument by argument, as in this example, where the time base is shared and each channel is copied. The handle of a line or a scatter also returns the identifiers of the arrays it refers to, through `x_data()` and `y_data()`, so that the arrays of one plot can be given to another without first being made with `fig.data`:
+
+```rust
+let mut ax = fig.axes(0, 0);
+let x = ax.plot(&t, &pressure).x_data();
+ax.plot(x, &pressure_filtered); // shares the x values that the first line copied
+```
+
+The name of a data array identifies it to tools and is never drawn: the viewer's [property editor](viewer.md#selecting-an-object) lists the data arrays of a figure in a group of their own, each named by its name, as "Data array (time (s))", or by its shape when it has no name. An identifier that names no data array is accepted by the plotting function and reported by [`validate`](#validating-a-figure), as the error `UnknownData` when it names no node of the figure and as `WrongNodeKind` when it names a node of another kind, such as an axes.
+
+Two rules follow from sharing, and both are worth knowing before a program relies on it.
+
+- **Editing a shared array changes every plot that refers to it.** A data array has one set of values, so replacing or appending to them, for example with the `replace_data` and `append_data` [edits](../reference/figure-schema.md#edits) that stream new values into a figure, changes every plot that draws the array. Plots whose data must change independently need arrays of their own, which is what passing values gives them.
+- **A setter deletes the array it replaces only when that array is no longer used and has no name.** The setters that give an existing plot a new array, namely `sizes` and `colors` of a scatter, `color_data`, `face_alpha` and `edge_alpha` of a surface, and `alpha` of an image, accept an identifier or values in the same way as plotting functions. The array that the setter replaces is removed from the figure only when no other plot refers to it and it has no name. An array copied from values has no name, so it is removed as soon as nothing draws it. An array made with `fig.data` always has a name, so it is kept even when no plot refers to it any more, and `validate` then reports it with the warning `UnusedData`, because it is saved with the figure and enlarges every file.
+
+The [decimated time series](../gallery/decimated_timeseries.md) of the gallery shares its record between its plots in this way. The reasons for keeping data arrays as nodes of the figure, and for this deletion rule, are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md), and the [figure schema](../reference/figure-schema.md#data-arrays) describes how data arrays are stored.
+
 ## Titles, labels and LaTeX
 
 Axes titles and labels are set on the axes handle, and each setter returns the handle so that they can be chained.
@@ -382,7 +413,7 @@ An axis normally runs from its lower limit at the left or the bottom to its uppe
 
 ```rust
 let mut ax = fig.axes(0, 0);
-ax.plot(&x, &cp).display_name("upper surface");
+ax.plot(&x, &cp).label("upper surface");
 ax.ylabel("$C_p$").ylim(-2.0, 1.0).yreverse(true);
 ```
 
@@ -406,11 +437,11 @@ ax.ylim(-0.5, cases.len() as f64 - 0.5)
 
 ## Legends
 
-A legend lists every plot of an axes that has a display name, in the order the plots were added. It is shown inside the plot area with `legend` and hidden with `legend_off`.
+A legend lists every plot of an axes that has a label, in the order the plots were added. The label of a plot is the text drawn beside its sample in the legend, and is set with `label`. It is shown inside the plot area with `legend` and hidden with `legend_off`.
 
 ```rust
-ax.plot(&t, &a).display_name("$S_1(x)$");
-ax.plot(&t, &b).display_name("$S_2(x)$");
+ax.plot(&t, &a).label("$S_1(x)$");
+ax.plot(&t, &b).label("$S_2(x)$");
 ax.legend(LegendLocation::SouthEast);
 ```
 
@@ -474,27 +505,29 @@ assert_eq!(fig.parameters()["mesh_cells"], Parameter::Integer(2_400_000));
 
 Setting a parameter again with the same name replaces its value. `fig.parameters()` returns every parameter in ascending order of name. Each value keeps its kind when the figure is saved in either format, so the number `3900.0` never reloads as an integer; how parameters are stored is described in the [figure schema reference](../reference/figure-schema.md#parameters).
 
-Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by; when to reach for a parameter rather than a label is covered in [describing figures](describing-figures.md). It also reads a few parameters and a set of labels off each figure itself, so a collection is worth browsing before any figure has been given a parameter of its own.
+Parameters are what the viewer's [figure browser](viewer.md#the-figure-browser) filters, orders and groups a collection of figures by; when to reach for a parameter rather than a tag is covered in [describing figures](describing-figures.md).
 
-## Labels
+## Tags
 
-A label is a free word describing a figure, such as `surface` or `piv`. Labels are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. The Reynolds number is a parameter; `wake` is a label.
+A tag is a free word describing a figure, such as `surface` or `piv`. Tags are what parameters cannot be: a figure carries any number of them, and none of them is a name with a value under it. The Reynolds number is a parameter; `wake` is a tag. Like parameters, tags are never drawn.
 
 ```rust
 let fig = Figure::new()
     .title("Wake behind a cylinder")
-    .label("wake")
-    .label("piv")
+    .tag("wake")
+    .tag("piv")
     .parameter("reynolds_number", 3900.0);
 
-assert_eq!(fig.labels(), ["wake", "piv"]);
+assert_eq!(fig.tags(), ["wake", "piv"]);
 ```
 
-Labels are kept in the order they were given. A label must not be empty, and adding the same label twice is an error, which [`validate`](#validating-a-figure) reports; labels are compared exactly, so `Surface` and `surface` are distinct labels.
+Tags are kept in the order they were given. A tag must not be empty, and adding the same tag twice is an error, which [`validate`](#validating-a-figure) reports as `InvalidTag`; tags are compared exactly, so `Surface` and `surface` are distinct tags.
 
-Labels, with parameters, are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and between them they are the whole of what it has to work with (see [describing figures](describing-figures.md)): the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Label a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `surface`, if those are words anyone would search by. Which of them belong in a label and which in a parameter is covered in [describing figures](describing-figures.md).
+Tags, with parameters, are what the [figure browser](viewer.md#the-figure-browser) filters and groups by, and between them they are the whole of what it has to work with (see [describing figures](describing-figures.md)): the viewer reads no properties off a figure of its own accord, so a figure is found by the words its author gave it and by its title. Tag a figure with whatever someone might later look for — what it shows, what it demonstrates, which study it belongs to — including things the figure's own structure would suggest, such as `surface`, if those are words anyone would search by. Which of them belong in a tag and which in a parameter is covered in [describing figures](describing-figures.md).
 
-A label need not be shared with another figure to be worth adding. The browser lists every label it finds, with the number of figures behind each, so a label carried by a single figure is how that figure is found rather than a label wasted: the list of labels is itself what tells a reader what the collection can be narrowed by.
+A tag need not be shared with another figure to be worth adding. The browser lists every tag it finds, with the number of figures behind each, so a tag carried by a single figure is how that figure is found rather than a tag wasted: the list of tags is itself what tells a reader what the collection can be narrowed by.
+
+Tags were called labels before the word label was kept for text that is drawn beside what it identifies, such as an axis label or the label of a plot; the vocabulary is recorded in [ADR 0023](../adrs/0023-titles-labels-names-and-tags.md).
 
 ## Equal aspect
 
@@ -549,7 +582,7 @@ for issue in &report.warnings {
 }
 ```
 
-The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. A further warning, `OverlappingCells`, reports two axes or legend panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the sizes of the rows and columns of the tile layout are described in the [legends guide](legends.md).
+The reasons for reporting an artist with nothing to draw as a warning rather than an error are recorded in [ADR 0012](../adrs/0012-empty-and-singleton-data.md). The same warning is reported for a legend panel that has nothing to list. The warning `UnusedData` reports a data array that no plot refers to, as described in [sharing data between plots](#sharing-data-between-plots). A further warning, `OverlappingCells`, reports two axes or panels whose cells share a tile of the layout, so that one is drawn over the other. The errors and warnings that concern legends and the sizes of the rows and columns of the tile layout are described in the [legends guide](legends.md).
 
 ## Saving and loading
 

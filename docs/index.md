@@ -19,7 +19,7 @@ IronLAB features:
 
 <figure>
   <img src="assets/ironlab-desktop.png" alt="The IronLAB desktop viewer, with a list of example figures on the left, a figure of a damped oscillator in the centre, and the figure's object tree and properties on the right.">
-  <figcaption>The IronLAB desktop viewer. The figure browser on the left lists a collection of figures with their labels; the selected figure is drawn in the centre, with its labels and parameters beneath it; and the property editor on the right shows the figure's objects and the properties of the selected one.</figcaption>
+  <figcaption>The IronLAB desktop viewer. The figure browser on the left lists a collection of figures with their tags; the selected figure is drawn in the centre, with its tags and parameters beneath it; and the property editor on the right shows the figure's objects and the properties of the selected one.</figcaption>
 </figure>
 
 
@@ -51,8 +51,8 @@ fn main() -> Result<(), ironlab::Error> {
 
     let mut fig = Figure::new().size_mm(120.0, 80.0).title("Trigonometric functions");
     let mut ax = fig.axes(0, 0);
-    ax.plot(&x, &sin).display_name("$\\sin x$");
-    ax.plot(&x, &cos).display_name("$\\cos x$").dash(Dash::Dashed);
+    ax.plot(&x, &sin).label("$\\sin x$");
+    ax.plot(&x, &cos).label("$\\cos x$").dash(Dash::Dashed);
     ax.xlabel("$x$").ylabel("$f(x)$").legend(LegendLocation::NorthEast);
 
     fig.export_pdf("trigonometric.pdf")?;
@@ -65,14 +65,14 @@ The [getting started guide](guides/getting-started.md) explains each step and ev
 ## Map of the documentation
 
 - **Guides** explain how to use IronLAB.
-    - [Getting started](guides/getting-started.md) covers building figures with the Rust API, saving and loading them, exporting PDF for LaTeX documents and PNG for slides and web pages, and opening the viewer.
+    - [Getting started](guides/getting-started.md) covers building figures with the Rust API, sharing data between plots, saving and loading them, exporting PDF for LaTeX documents and PNG for slides and web pages, and opening the viewer.
     - [Legends](guides/legends.md) explains legends inside an axes, legend panels shared by several axes, explicit lists of entries, keys whose items stand for no plot, and sizing the rows and columns of the tile layout with weights or by fitting them to their legends.
     - [Using the viewer](guides/viewer.md) describes the viewer's tools, gestures and keyboard shortcuts, and how to edit a figure live in its property editor.
     - [Embedding figures in a web page](guides/embedding.md) explains how a publication or a site carries a live figure, with the bundle, the element, its API and its theming.
 - **[Gallery](gallery/index.md)** shows every example figure live in the page, with the exact source code that produced it.
 - **Reference** describes the system precisely.
     - [Equivalent functions](reference/equivalent-functions.md) maps the plotting functions of MATLAB, matplotlib and Plotly to IronLAB's.
-    - [Figure schema](reference/figure-schema.md) explains every entity of the figure model, its Protocol Buffers and JSON encodings, and the rules for versioning it.
+    - [Figure schema](reference/figure-schema.md) explains every entity of the figure model, the edits that change a figure, its Protocol Buffers and JSON encodings, and the rules for versioning it.
     - [Architecture](reference/architecture.md) describes the crates, how a figure becomes pixels or a PDF page, and how text is resolved.
 - **[Architecture decisions](adrs/index.md)** records the significant design decisions and the reasons for them.
 - **[Background](background/index.md)** contains the discussion from which the design emerged.

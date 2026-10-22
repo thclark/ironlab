@@ -17,25 +17,28 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
-    ScatterColor, ScatterSize, Surface,
+    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
+    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
+    ScatterSize, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
 };
+use crate::data::DataArray;
 use crate::edit::path::PropertyPath;
-use crate::edit::registry::{NodeKind, Property};
+use crate::edit::registry::Property;
 use crate::edit::value::{Value, ValueType};
 use crate::figure::{Figure, FigureSize, FontSetId, Parameter};
-use crate::ids::{DataId, NodeId};
+use crate::ids::NodeId;
 use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendLocation,
     PanelLegend,
 };
 use crate::link::AxisLink;
+use crate::nodes::{NodeKind, describe};
+use crate::panel::{Panel, PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -378,7 +381,6 @@ ir_leaf! {
     f64 => Double;
     f32 => Float;
     String => String;
-    DataId => DataId;
     NodeId => NodeId;
     Vec<f64> => Doubles;
     Vec<TrackSize> => TrackSizes;
@@ -391,6 +393,7 @@ ir_leaf! {
     Scale => Scale;
     ColormapName => ColormapName;
     LegendLocation => LegendLocation;
+    PanelLocation => PanelLocation;
     LegendEntryOrder => LegendEntryOrder;
     AspectAdjust => AspectAdjust;
     TitleAlign => TitleAlign;
@@ -410,17 +413,24 @@ ir_node! {
             "The base font size in points; titles and tick labels are scaled from it.";
         plain "background" => background: Color = "The colour of the figure background.";
         plain "layout" => layout: TileLayout =
-            "The grid of cells in which axes and legend panels are placed.";
+            "The grid of cells in which axes and panels are placed.";
         hidden "data" => data: () = "";
         hidden "axes" => axes: () = "";
-        hidden "panel_legends" => panel_legends: () = "";
+        hidden "panels" => panels: () = "";
         plain "links" => links: Vec<AxisLink> =
             "The groups of axes whose limits are linked along a dimension.";
         hidden "provenance" => provenance: () = "";
         plain "parameters" => parameters: BTreeMap<String, Parameter> =
             "Named values that describe the figure, used to sort, filter and search collections of figures.";
-        plain "labels" => labels: Vec<String> =
-            "Free words that describe the figure, used to filter and group collections of figures.";
+        plain "tags" => tags: Vec<String> =
+            "Free words that describe the figure, used to filter and group collections of figures; never drawn.";
+    }
+
+    DataArray {
+        hidden "id" => id: () = "";
+        optional "name" => name: String =
+            "The name that identifies the array to tools such as the inspector; never drawn.";
+        hidden "array" => array: () = "";
     }
 
     Axes {
@@ -452,26 +462,20 @@ ir_node! {
         hidden "artists" => artists: () = "";
     }
 
-    PanelLegend {
+    Panel {
         hidden "id" => id: () = "";
-        plain "cell" => cell: Cell =
-            "The cells of the figure's tile layout that the legend panel occupies.";
-        plain "align" => align: LegendLocation =
-            "Where the block of entries is placed within the panel.";
-        plain "boxed" => boxed: bool =
-            "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
-        plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
-        hidden "entries" => entries: () = "";
+        plain "cell" => cell: Cell = "The cells of the figure's tile layout that the panel occupies.";
+        plain "align" => align: PanelLocation = "Where the content is placed within the panel.";
+        plain "content" => content: PanelContent = "What the panel holds.";
     }
 
     Line {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "x" => x: DataId = "The x coordinates of the points.";
-        plain "y" => y: DataId = "The y coordinates of the points.";
-        optional "z" => z: DataId =
+        plain "x" => x: NodeId = "The x coordinates of the points.";
+        plain "y" => y: NodeId = "The y coordinates of the points.";
+        optional "z" => z: NodeId =
             "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
         plain "line" => line: LineStyle = "The style of the line through the points.";
         plain "marker" => marker: MarkerStyle = "The style of the markers at the points.";
@@ -485,12 +489,11 @@ ir_node! {
 
     Scatter {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "x" => x: DataId = "The x coordinates of the points.";
-        plain "y" => y: DataId = "The y coordinates of the points.";
-        optional "z" => z: DataId =
+        plain "x" => x: NodeId = "The x coordinates of the points.";
+        plain "y" => y: NodeId = "The y coordinates of the points.";
+        optional "z" => z: NodeId =
             "The z coordinates of the points, allowed only in three-dimensional axes; when absent in three-dimensional axes the points lie in the plane z = 0.";
         plain "size" => size: ScatterSize =
             "The size of the markers, which overrides the size of the marker style.";
@@ -508,11 +511,10 @@ ir_node! {
 
     Contour {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
         plain "grid" => grid: Grid = "The grid on which the field is sampled.";
-        plain "z" => z: DataId =
+        plain "z" => z: NodeId =
             "The field values, a two-dimensional array of shape [ny, nx].";
         plain "levels" => levels: Levels =
             "The field values at which isolines are drawn or between which bands are filled.";
@@ -530,16 +532,15 @@ ir_node! {
 
     Quiver {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "x" => x: DataId = "The x coordinates of the arrow tails.";
-        plain "y" => y: DataId = "The y coordinates of the arrow tails.";
-        optional "z" => z: DataId =
+        plain "x" => x: NodeId = "The x coordinates of the arrow tails.";
+        plain "y" => y: NodeId = "The y coordinates of the arrow tails.";
+        optional "z" => z: NodeId =
             "The z coordinates of the arrow tails, allowed only in three-dimensional axes; when absent in three-dimensional axes the tails lie in the plane z = 0.";
-        plain "u" => u: DataId = "The x components of the vectors.";
-        plain "v" => v: DataId = "The y components of the vectors.";
-        optional "w" => w: DataId =
+        plain "u" => u: NodeId = "The x components of the vectors.";
+        plain "v" => v: NodeId = "The y components of the vectors.";
+        optional "w" => w: NodeId =
             "The z components of the vectors, allowed only in three-dimensional axes; when absent in three-dimensional axes the vectors lie in horizontal planes.";
         plain "scale" => scale: QuiverScale =
             "How vector lengths are scaled into arrow lengths.";
@@ -550,20 +551,19 @@ ir_node! {
 
     Surface {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
         plain "grid" => grid: Grid = "The grid on which the surface is sampled.";
-        plain "z" => z: DataId =
+        plain "z" => z: NodeId =
             "The field, a two-dimensional array of shape [ny, nx]: the height of every node in a three-dimensional axes, and the colour data of every node unless c is given.";
-        optional "c" => c: DataId =
+        optional "c" => c: NodeId =
             "The colour data of every node, with the same shape as the field; when absent the surface is coloured by its field.";
         plain "face" => face: ColorSpec = "The colour of the faces.";
         plain "edge" => edge: ColorSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";
-        optional "face_alpha" => face_alpha: DataId =
+        optional "face_alpha" => face_alpha: NodeId =
             "The alpha of the faces at every node, with the same shape as the field; a face takes the mean of its corners' alpha, which is clamped to [0, 1], and a non-finite alpha makes the face transparent. When absent the faces are uniformly opaque before their opacity applies.";
-        optional "edge_alpha" => edge_alpha: DataId =
+        optional "edge_alpha" => edge_alpha: NodeId =
             "The alpha of the face edges at every node, with the same shape as the field; the edges of a face take the mean of its corners' edge alpha. When absent the edges are uniformly opaque before their opacity applies.";
         plain "face_opacity" => face_opacity: f64 =
             "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the face colour's alpha and the face alpha.";
@@ -573,10 +573,9 @@ ir_node! {
 
     Image {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "pixels" => pixels: DataId =
+        plain "pixels" => pixels: NodeId =
             "The pixels, a three-dimensional array of shape [ny, nx, 3] or [ny, nx, 4] holding the red, green, blue and optionally alpha components of every pixel: floating-point components from 0 to 1, or 8-bit components from 0 to 255.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
         plain "opacity" => opacity: f64 =
@@ -585,10 +584,9 @@ ir_node! {
 
     IndexedImage {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "indices" => indices: DataId =
+        plain "indices" => indices: NodeId =
             "The indices into the axes colormap, a two-dimensional array of shape [ny, nx]: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the colormap.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
         plain "below" => below: OutOfRange =
@@ -597,7 +595,7 @@ ir_node! {
             "What is drawn for a pixel whose truncated index is greater than 255.";
         plain "non_finite" => non_finite: OutOfRange =
             "What is drawn for a pixel whose index is not finite.";
-        optional "alpha" => alpha: DataId =
+        optional "alpha" => alpha: NodeId =
             "The alpha of every pixel, with the same shape as the indices: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
         plain "opacity" => opacity: f64 =
             "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
@@ -605,10 +603,9 @@ ir_node! {
 
     MappedImage {
         hidden "id" => id: () = "";
-        optional "display_name" => display_name: Text =
-            "The name shown for the artist in the legend.";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "values" => values: DataId =
+        plain "values" => values: NodeId =
             "The values, a two-dimensional array of shape [ny, nx], mapped through the axes colormap and colour limits.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
         plain "below" => below: OutOfRange =
@@ -617,7 +614,7 @@ ir_node! {
             "What is drawn for a pixel whose value is greater than the upper colour limit.";
         plain "non_finite" => non_finite: OutOfRange =
             "What is drawn for a pixel whose value is not finite.";
-        optional "alpha" => alpha: DataId =
+        optional "alpha" => alpha: NodeId =
             "The alpha of every pixel, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
         plain "opacity" => opacity: f64 =
             "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
@@ -640,9 +637,9 @@ ir_value! {
         plain "rows" => rows: u32 = "The number of rows; at least one.";
         plain "cols" => cols: u32 = "The number of columns; at least one.";
         plain "row_weights" => row_weights: Vec<TrackSize> =
-            "The sizes of the rows, from the top: a relative weight, or fitted to the legend panels in the row; a row without a size has a weight of one.";
+            "The sizes of the rows, from the top: a relative weight, or fitted to the panels in the row; a row without a size has a weight of one.";
         plain "col_weights" => col_weights: Vec<TrackSize> =
-            "The sizes of the columns, from the left: a relative weight, or fitted to the legend panels in the column; a column without a size has a weight of one.";
+            "The sizes of the columns, from the left: a relative weight, or fitted to the panels in the column; a column without a size has a weight of one.";
     }
 
     Color as Color {
@@ -691,6 +688,13 @@ ir_value! {
             "Where the legend is placed inside the plot area.";
         plain "boxed" => boxed: bool =
             "Whether the legend is drawn with a background and outline.";
+        plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
+        hidden "entries" => entries: () = "";
+    }
+
+    PanelLegend as PanelLegend {
+        plain "boxed" => boxed: bool =
+            "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
         plain "layout" => layout: LegendEntryLayout = "How the entries are arranged in columns.";
         hidden "entries" => entries: () = "";
     }
@@ -746,7 +750,14 @@ ir_tagged! {
         }
         Panel {
             plain "panel" => 0: NodeId =
-                "The legend panel of the figure in which the entries are listed.";
+                "The panel of the figure, holding a legend, in which the entries are listed.";
+        }
+    }
+
+    PanelContent as PanelContent {
+        Legend {
+            plain "legend" => 0: PanelLegend =
+                "A legend, which lists the entries of every axes whose legend names the panel.";
         }
     }
 
@@ -810,12 +821,12 @@ ir_tagged! {
 
     Grid as Grid {
         Rectilinear {
-            plain "x" => x: DataId = "The x coordinates of the grid.";
-            plain "y" => y: DataId = "The y coordinates of the grid.";
+            plain "x" => x: NodeId = "The x coordinates of the grid.";
+            plain "y" => y: NodeId = "The y coordinates of the grid.";
         }
         Curvilinear {
-            plain "x" => x: DataId = "The x coordinates of the grid.";
-            plain "y" => y: DataId = "The y coordinates of the grid.";
+            plain "x" => x: NodeId = "The x coordinates of the grid.";
+            plain "y" => y: NodeId = "The y coordinates of the grid.";
         }
     }
 
@@ -842,7 +853,7 @@ ir_tagged! {
                 "The marker size in points, measured as the width of the marker.";
         }
         Data {
-            plain "data" => data: DataId =
+            plain "data" => data: NodeId =
                 "An array of marker sizes in points, one per point.";
         }
     }
@@ -852,7 +863,7 @@ ir_tagged! {
             plain "spec" => spec: ColorSpec = "The colour of every marker.";
         }
         Data {
-            plain "data" => data: DataId =
+            plain "data" => data: NodeId =
                 "An array of values, one per point, mapped through the axes colormap and colour limits.";
         }
     }
@@ -891,112 +902,15 @@ ir_tagged! {
 }
 
 // ---------------------------------------------------------------------------------
-// Dispatch over the nodes of a figure
+// The registry of a kind of node
 // ---------------------------------------------------------------------------------
 
 /// Returns every settable property of a kind of node, in declaration order, without the
 /// paths that several variants of a tagged value share more than once.
 pub(crate) fn node_properties(kind: NodeKind) -> Vec<Property> {
     let mut properties = Vec::new();
-    match kind {
-        NodeKind::Figure => Figure::node_describe(&mut properties),
-        NodeKind::Axes => Axes::node_describe(&mut properties),
-        NodeKind::Line => Line::node_describe(&mut properties),
-        NodeKind::Scatter => Scatter::node_describe(&mut properties),
-        NodeKind::Contour => Contour::node_describe(&mut properties),
-        NodeKind::Quiver => Quiver::node_describe(&mut properties),
-        NodeKind::Surface => Surface::node_describe(&mut properties),
-        NodeKind::Image => Image::node_describe(&mut properties),
-        NodeKind::IndexedImage => IndexedImage::node_describe(&mut properties),
-        NodeKind::MappedImage => MappedImage::node_describe(&mut properties),
-        NodeKind::PanelLegend => PanelLegend::node_describe(&mut properties),
-    }
+    describe(kind, &mut properties);
     let mut seen = std::collections::BTreeSet::new();
     properties.retain(|property| seen.insert(property.path.clone()));
     properties
-}
-
-/// Returns the kind of a node of a figure, or `None` when the identifier is not a node
-/// of the figure.
-pub(crate) fn kind_of(figure: &Figure, node: NodeId) -> Option<NodeKind> {
-    if figure.id == node {
-        return Some(NodeKind::Figure);
-    }
-    if figure.axes(node).is_some() {
-        return Some(NodeKind::Axes);
-    }
-    if figure.panel_legend(node).is_some() {
-        return Some(NodeKind::PanelLegend);
-    }
-    figure.artist(node).map(|(_, artist)| match artist {
-        Artist::Line(_) => NodeKind::Line,
-        Artist::Scatter(_) => NodeKind::Scatter,
-        Artist::Contour(_) => NodeKind::Contour,
-        Artist::Quiver(_) => NodeKind::Quiver,
-        Artist::Surface(_) => NodeKind::Surface,
-        Artist::Image(_) => NodeKind::Image,
-        Artist::IndexedImage(_) => NodeKind::IndexedImage,
-        Artist::MappedImage(_) => NodeKind::MappedImage,
-    })
-}
-
-/// Reads the property at a path within a node, or `None` when the identifier is not a
-/// node of the figure.
-pub(crate) fn get_in(
-    figure: &Figure,
-    node: NodeId,
-    path: &[String],
-) -> Option<Result<Value, Step>> {
-    if figure.id == node {
-        return Some(figure.node_get(path));
-    }
-    if let Some(axes) = figure.axes(node) {
-        return Some(axes.node_get(path));
-    }
-    if let Some(panel) = figure.panel_legend(node) {
-        return Some(panel.node_get(path));
-    }
-    Some(match figure.artist(node)?.1 {
-        Artist::Line(a) => a.node_get(path),
-        Artist::Scatter(a) => a.node_get(path),
-        Artist::Contour(a) => a.node_get(path),
-        Artist::Quiver(a) => a.node_get(path),
-        Artist::Surface(a) => a.node_get(path),
-        Artist::Image(a) => a.node_get(path),
-        Artist::IndexedImage(a) => a.node_get(path),
-        Artist::MappedImage(a) => a.node_get(path),
-    })
-}
-
-/// Writes the property at a path within a node, or returns `None` when the identifier is
-/// not a node of the figure.
-pub(crate) fn set_in(
-    figure: &mut Figure,
-    node: NodeId,
-    path: &[String],
-    value: Value,
-) -> Option<Result<(), Step>> {
-    if figure.id == node {
-        return Some(figure.node_set(path, value));
-    }
-    if figure.axes(node).is_some() {
-        let axes = figure.axes_mut(node).expect("the axes was just found");
-        return Some(axes.node_set(path, value));
-    }
-    if figure.panel_legend(node).is_some() {
-        let panel = figure
-            .panel_legend_mut(node)
-            .expect("the legend panel was just found");
-        return Some(panel.node_set(path, value));
-    }
-    Some(match figure.artist_mut(node)? {
-        Artist::Line(a) => a.node_set(path, value),
-        Artist::Scatter(a) => a.node_set(path, value),
-        Artist::Contour(a) => a.node_set(path, value),
-        Artist::Quiver(a) => a.node_set(path, value),
-        Artist::Surface(a) => a.node_set(path, value),
-        Artist::Image(a) => a.node_set(path, value),
-        Artist::IndexedImage(a) => a.node_set(path, value),
-        Artist::MappedImage(a) => a.node_set(path, value),
-    })
 }

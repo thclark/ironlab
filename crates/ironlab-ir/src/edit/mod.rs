@@ -14,16 +14,16 @@
 //! names that starts at the fields of the node: the figure (`title`, `size.width_mm`,
 //! `layout.rows`, `links`, `parameters`, ...), an axes (`x.limits`, `colormap`,
 //! `projection.view3d.azimuth_deg`, `legend.inside.location`, ...), the variant struct
-//! of an artist (`line.width_pt`, `visible`, `levels`, ...) or a legend panel (`align`,
-//! `layout.columns`, ...). A path descends into a tagged value by
-//! naming a field of the variant that is currently set, and into an optional value only
-//! while it is present. The settable paths of each kind of node are listed by
-//! [`properties`].
+//! of an artist (`line.width_pt`, `visible`, `levels`, ...), a panel (`align`,
+//! `content.legend.layout.columns`, ...) or a data array (`name`). A path descends into a
+//! tagged value by naming a field of the variant that is currently set, and into an
+//! optional value only while it is present. The settable paths of each kind of node are
+//! listed by [`properties`].
 //!
 //! Identifiers (`id`), the schema version (`schema_version`), the provenance
-//! (`provenance`), the node lists (`axes`, `artists`, `panel_legends`) and the data
-//! table (`data`) are
-//! read-only: nodes and data change only through the structural and data edits.
+//! (`provenance`), the node lists (`data`, `axes`, `artists` and `panels`) and the values
+//! of a data array (`array`) are read-only: nodes change only through the structural
+//! edits, and the values of a data array only through the data edits.
 //!
 //! # Transactions
 //!
@@ -40,11 +40,12 @@ mod choice;
 mod path;
 mod registry;
 mod value;
-mod walk;
+pub(crate) mod walk;
 
+pub use crate::nodes::{Node, NodeKind};
 pub use choice::{Choice, choices, property_choices};
 pub use path::{PathError, PropertyPath};
-pub use registry::{NodeKind, Property, properties};
+pub use registry::{Property, properties};
 pub use value::{Value, ValueType};
 
 use schemars::JsonSchema;
@@ -52,13 +53,11 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::{BTreeSet, HashMap};
 
-use crate::artist::Artist;
-use crate::axes::Axes;
-use crate::data::{NdArray, NdArrayElement, Values};
+use crate::data::{DataArray, NdArray, NdArrayElement, Values};
 use crate::error::IrError;
 use crate::figure::Figure;
-use crate::ids::{DataId, NodeId};
-use crate::legend::PanelLegend;
+use crate::ids::NodeId;
+use crate::nodes::{TreeNode, address, at, at_mut, subtree_ids};
 use crate::validate::{IssueKind, ValidationIssue, ValidationReport};
 use crate::wire;
 use walk::Step;
@@ -91,14 +90,14 @@ pub enum Edit {
         /// [`Value::Unset`] to clear an optional property.
         value: Value,
     },
-    /// Inserts an axes or a legend panel into the figure, or an artist into an axes,
-    /// with its subtree.
+    /// Inserts a node with its subtree: a data array, an axes or a panel into the figure,
+    /// or an artist into an axes.
     Insert {
-        /// The parent: the figure for an axes or a legend panel, or an axes for an
+        /// The parent: the figure for a data array, an axes or a panel, or an axes for an
         /// artist.
         parent: NodeId,
-        /// The position in the parent's list at which the node is inserted, from zero
-        /// to the length of the list, or `None` to append it.
+        /// The position in the parent's list of the node's kind at which the node is
+        /// inserted, from zero to the length of the list, or `None` to append it.
         index: Option<u32>,
         /// The node, whose identifier and whose descendants' identifiers must not be in
         /// use in the figure.
@@ -106,32 +105,33 @@ pub enum Edit {
     },
     /// Removes a node and its subtree.
     Remove {
-        /// The axes, artist or legend panel to remove.
+        /// The data array, axes, artist or panel to remove.
         node: NodeId,
     },
-    /// Moves an axes or a legend panel within the figure's list of its kind, or an
+    /// Moves a data array, an axes or a panel within the figure's list of its kind, or an
     /// artist within its axes or to another axes.
     Move {
-        /// The axes, artist or legend panel to move.
+        /// The data array, axes, artist or panel to move.
         node: NodeId,
-        /// The new parent: the figure for an axes or a legend panel, or an axes for an
-        /// artist.
+        /// The new parent: the figure for a data array, an axes or a panel, or an axes for
+        /// an artist.
         parent: NodeId,
         /// The position in the new parent's list after the node has been removed from
         /// its old position, from zero to the length of that list, or `None` to append.
         index: Option<u32>,
     },
-    /// Creates a data array or replaces an existing one.
-    PutData {
-        /// The identifier of the array.
-        id: DataId,
-        /// The new array.
+    /// Replaces the values of an existing data array, which keeps its identifier and its
+    /// name, so that every artist that refers to it draws the new values.
+    ReplaceData {
+        /// The data array.
+        node: NodeId,
+        /// The new values.
         array: NdArray,
     },
-    /// Appends entries to an existing array along its first dimension.
+    /// Appends entries to an existing data array along its first dimension.
     AppendData {
-        /// The identifier of the existing array.
-        id: DataId,
+        /// The data array.
+        node: NodeId,
         /// The entries to append, whose shape after the first dimension and whose
         /// element type must equal those of the existing array.
         array: NdArray,
@@ -139,45 +139,6 @@ pub enum Edit {
         /// after appending, which gives a rolling window for streamed data.
         retain: Option<u64>,
     },
-    /// Removes a data array.
-    RemoveData {
-        /// The identifier of the array.
-        id: DataId,
-    },
-}
-
-/// A node that can be inserted into a figure, with its subtree.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Node {
-    /// An axes with its artists, boxed because an axes is much larger than an artist.
-    Axes(Box<Axes>),
-    /// An artist.
-    Artist(Artist),
-    /// A legend panel.
-    PanelLegend(PanelLegend),
-}
-
-impl Node {
-    /// Returns the identifier of the node.
-    pub fn id(&self) -> NodeId {
-        match self {
-            Node::Axes(axes) => axes.id,
-            Node::Artist(artist) => artist.id(),
-            Node::PanelLegend(panel) => panel.id,
-        }
-    }
-
-    /// Returns the identifiers of the node and of its descendants, the node first.
-    fn subtree_ids(&self) -> Vec<NodeId> {
-        match self {
-            Node::Axes(axes) => std::iter::once(axes.id)
-                .chain(axes.artists.iter().map(Artist::id))
-                .collect(),
-            Node::Artist(artist) => vec![artist.id()],
-            Node::PanelLegend(panel) => vec![panel.id],
-        }
-    }
 }
 
 /// An error raised when an edit cannot be applied or a property cannot be read.
@@ -196,13 +157,23 @@ pub enum EditError {
         node: NodeId,
     },
 
-    /// The data identifier does not refer to an array of the figure.
-    #[error("edit {edit:?}: {id} is not in the data table")]
+    /// The identifier of a data edit does not refer to a node of the figure.
+    #[error("edit {edit:?}: {node} is not in the figure")]
     UnknownData {
         /// The index of the edit.
         edit: Option<usize>,
         /// The identifier that was not found.
-        id: DataId,
+        node: NodeId,
+    },
+
+    /// The identifier of a data edit refers to a node of the figure that is not a data
+    /// array, such as an axes.
+    #[error("edit {edit:?}: {node} is not a data array")]
+    WrongNodeKind {
+        /// The index of the edit.
+        edit: Option<usize>,
+        /// The identifier of the node of the wrong kind.
+        node: NodeId,
     },
 
     /// The path names a field that the node, or a value on the path, does not have.
@@ -257,8 +228,8 @@ pub enum EditError {
     },
 
     /// The path names a property that edits cannot set: an identifier, the schema
-    /// version, the provenance, a node list or the data table, or a path below one of
-    /// them.
+    /// version, the provenance, a node list or the values of a data array, or a path
+    /// below one of them.
     #[error("edit {edit:?}: {path} of {node} is read-only")]
     ReadOnly {
         /// The index of the edit.
@@ -279,8 +250,8 @@ pub enum EditError {
         node: NodeId,
     },
 
-    /// The parent of an inserted or moved node cannot hold it: an axes must be placed in
-    /// the figure and an artist in an axes.
+    /// The parent of an inserted or moved node cannot hold it: a data array, an axes and
+    /// a panel must be placed in the figure, and an artist in an axes.
     #[error("edit {edit:?}: {parent} cannot hold {node}")]
     InvalidParent {
         /// The index of the edit.
@@ -318,13 +289,13 @@ pub enum EditError {
     /// Appended entries have a shape after the first dimension that differs from that
     /// of the existing array, or either array has no dimensions.
     #[error(
-        "edit {edit:?}: entries of shape {appended:?} cannot be appended to {id} of shape {existing:?}"
+        "edit {edit:?}: entries of shape {appended:?} cannot be appended to {node} of shape {existing:?}"
     )]
     ShapeMismatch {
         /// The index of the edit.
         edit: Option<usize>,
-        /// The array appended to.
-        id: DataId,
+        /// The data array appended to.
+        node: NodeId,
         /// The shape of the existing array.
         existing: Vec<usize>,
         /// The shape of the appended entries.
@@ -334,13 +305,13 @@ pub enum EditError {
     /// Appended entries hold values of another element type than the existing array,
     /// and could only be stored by converting them.
     #[error(
-        "edit {edit:?}: entries of {appended} values cannot be appended to {id}, which holds {existing} values"
+        "edit {edit:?}: entries of {appended} values cannot be appended to {node}, which holds {existing} values"
     )]
     ElementMismatch {
         /// The index of the edit.
         edit: Option<usize>,
-        /// The array appended to.
-        id: DataId,
+        /// The data array appended to.
+        node: NodeId,
         /// The element type of the existing array.
         existing: NdArrayElement,
         /// The element type of the appended entries.
@@ -367,6 +338,7 @@ impl EditError {
         let edit = match &mut self {
             EditError::UnknownNode { edit, .. }
             | EditError::UnknownData { edit, .. }
+            | EditError::WrongNodeKind { edit, .. }
             | EditError::UnknownPath { edit, .. }
             | EditError::TypeMismatch { edit, .. }
             | EditError::InactiveVariant { edit, .. }
@@ -448,15 +420,16 @@ impl Figure {
     /// set, so that a misspelled path is reported as such in every state of the node.
     /// The same holds for [`Edit::Set`].
     pub fn get(&self, node: NodeId, path: &PropertyPath) -> Result<Value, EditError> {
-        walk::get_in(self, node, path.segments())
+        self.tree_node(node)
             .ok_or(EditError::UnknownNode { edit: None, node })?
+            .get(path.segments())
             .map_err(|step| self.edit_error(None, node, path, step))
     }
 
     /// Returns the kind of the node with the given identifier, or `None` when the
     /// identifier is not a node of the figure.
     pub fn node_kind(&self, node: NodeId) -> Option<NodeKind> {
-        walk::kind_of(self, node)
+        self.tree_node(node).map(TreeNode::kind)
     }
 
     /// Returns the error of a failed step of a path walk.
@@ -528,17 +501,19 @@ impl Figure {
                 parent,
                 index: at,
             } => self.apply_move(*node, *parent, *at, index),
-            Edit::PutData { id, array } => Ok(self.apply_put_data(*id, array.clone())),
-            Edit::AppendData { id, array, retain } => {
-                self.apply_append_data(*id, array, *retain, index)
+            Edit::ReplaceData { node, array } => {
+                let data = self.data_array_for_edit(*node, index)?;
+                let old = std::mem::replace(&mut data.array, array.clone());
+                Ok(Edit::ReplaceData {
+                    node: *node,
+                    array: old,
+                })
             }
-            Edit::RemoveData { id } => match self.data.remove(id) {
-                Some(array) => Ok(Edit::PutData { id: *id, array }),
-                None => Err(EditError::UnknownData {
-                    edit: index,
-                    id: *id,
-                }),
-            },
+            Edit::AppendData {
+                node,
+                array,
+                retain,
+            } => self.apply_append_data(*node, array, *retain, index),
         }
     }
 
@@ -557,11 +532,11 @@ impl Figure {
         value: Value,
         index: Option<usize>,
     ) -> Result<Edit, EditError> {
-        let missing = || EditError::UnknownNode { edit: index, node };
-        let old = walk::get_in(self, node, path.segments())
-            .ok_or_else(missing)?
-            .map_err(|step| self.edit_error(index, node, path, step))?;
-        let written = walk::set_in(self, node, path.segments(), value).ok_or_else(missing)?;
+        let old = self.get(node, path).map_err(|error| error.at_edit(index))?;
+        let written = self
+            .tree_node_mut(node)
+            .expect("the node was just read")
+            .set(path.segments(), value);
         written.map_err(|step| self.edit_error(index, node, path, step))?;
         Ok(Edit::Set {
             node,
@@ -573,28 +548,28 @@ impl Figure {
     fn apply_insert(
         &mut self,
         parent: NodeId,
-        at: Option<u32>,
+        at_index: Option<u32>,
         node: Node,
         index: Option<usize>,
     ) -> Result<Edit, EditError> {
         let id = node.id();
-        let parent_kind = self.node_kind(parent).ok_or(EditError::UnknownNode {
+        let parent_at = address(self, parent).ok_or(EditError::UnknownNode {
             edit: index,
             node: parent,
         })?;
-        let fits = match node {
-            Node::Axes(_) | Node::PanelLegend(_) => parent_kind == NodeKind::Figure,
-            Node::Artist(_) => parent_kind == NodeKind::Axes,
-        };
-        if !fits {
+        let kind = node.kind();
+        let lists = at(self, &parent_at).lists();
+        let Some(list) = lists.iter().position(|list| list.holds(kind)) else {
             return Err(EditError::InvalidParent {
                 edit: index,
                 node: id,
                 parent,
             });
-        }
-        let mut used: BTreeSet<NodeId> = self.node_ids().collect();
-        for new in node.subtree_ids() {
+        };
+        let len = lists[list].count();
+        let mut used: BTreeSet<NodeId> = self.node_ids().into_iter().collect();
+        let ids = subtree_ids(node.tree());
+        for &new in &ids {
             if !used.insert(new) {
                 return Err(EditError::DuplicateId {
                     edit: index,
@@ -602,34 +577,8 @@ impl Figure {
                 });
             }
         }
-        let len = match &node {
-            Node::Axes(_) => self.axes.len(),
-            Node::PanelLegend(_) => self.panel_legends.len(),
-            Node::Artist(_) => self
-                .axes(parent)
-                .expect("the parent was found to be an axes")
-                .artists
-                .len(),
-        };
-        let at = at.unwrap_or_else(|| as_index(len));
-        if at as usize > len {
-            return Err(EditError::IndexOutOfRange {
-                edit: index,
-                parent,
-                index: at,
-                len,
-            });
-        }
-        let ids = node.subtree_ids();
-        match node {
-            Node::Axes(axes) => self.axes.insert(at as usize, *axes),
-            Node::PanelLegend(panel) => self.panel_legends.insert(at as usize, panel),
-            Node::Artist(artist) => self
-                .axes_mut(parent)
-                .expect("the parent was found to be an axes")
-                .artists
-                .insert(at as usize, artist),
-        }
+        let position = checked_position(at_index, len, parent, index)?;
+        at_mut(self, &parent_at).lists_mut()[list].insert(position, node);
         for new in ids {
             self.id_allocator.next = self.id_allocator.next.max(new.0.saturating_add(1));
         }
@@ -637,171 +586,94 @@ impl Figure {
     }
 
     fn apply_remove(&mut self, node: NodeId, index: Option<usize>) -> Result<Edit, EditError> {
-        let figure = self.id;
-        if node == figure {
+        if node == self.id {
             return Err(EditError::RootNode { edit: index, node });
         }
-        if let Some(position) = self.axes.iter().position(|axes| axes.id == node) {
-            let axes = self.axes.remove(position);
-            return Ok(Edit::Insert {
-                parent: figure,
-                index: Some(as_index(position)),
-                node: Node::Axes(Box::new(axes)),
-            });
-        }
-        if let Some(position) = self.panel_legends.iter().position(|panel| panel.id == node) {
-            let panel = self.panel_legends.remove(position);
-            return Ok(Edit::Insert {
-                parent: figure,
-                index: Some(as_index(position)),
-                node: Node::PanelLegend(panel),
-            });
-        }
-        for axes in &mut self.axes {
-            if let Some(position) = axes.artists.iter().position(|artist| artist.id() == node) {
-                let artist = axes.artists.remove(position);
-                return Ok(Edit::Insert {
-                    parent: axes.id,
-                    index: Some(as_index(position)),
-                    node: Node::Artist(artist),
-                });
-            }
-        }
-        Err(EditError::UnknownNode { edit: index, node })
+        let mut node_at =
+            address(self, node).ok_or(EditError::UnknownNode { edit: index, node })?;
+        let (list, position) = node_at.pop().expect("only the root has an empty address");
+        let parent = at(self, &node_at).id();
+        let removed = at_mut(self, &node_at).lists_mut()[list].remove(position);
+        Ok(Edit::Insert {
+            parent,
+            index: Some(as_index(position)),
+            node: removed,
+        })
     }
 
     fn apply_move(
         &mut self,
         node: NodeId,
         parent: NodeId,
-        at: Option<u32>,
+        at_index: Option<u32>,
         index: Option<usize>,
     ) -> Result<Edit, EditError> {
         if node == self.id {
             return Err(EditError::RootNode { edit: index, node });
         }
-        let kind = self
-            .node_kind(node)
-            .ok_or(EditError::UnknownNode { edit: index, node })?;
-        let parent_kind = self.node_kind(parent).ok_or(EditError::UnknownNode {
+        let mut node_at =
+            address(self, node).ok_or(EditError::UnknownNode { edit: index, node })?;
+        let parent_at = address(self, parent).ok_or(EditError::UnknownNode {
             edit: index,
             node: parent,
         })?;
-        let wanted = if matches!(kind, NodeKind::Axes | NodeKind::PanelLegend) {
-            NodeKind::Figure
-        } else {
-            NodeKind::Axes
-        };
-        if parent_kind != wanted {
+        let kind = at(self, &node_at).kind();
+        let lists = at(self, &parent_at).lists();
+        let Some(list) = lists.iter().position(|list| list.holds(kind)) else {
             return Err(EditError::InvalidParent {
                 edit: index,
                 node,
                 parent,
             });
-        }
-        if kind == NodeKind::PanelLegend {
-            let from = self
-                .panel_legends
-                .iter()
-                .position(|panel| panel.id == node)
-                .expect("the node was found to be a legend panel");
-            let len = self.panel_legends.len() - 1;
-            let to = at.unwrap_or_else(|| as_index(len));
-            if to as usize > len {
-                return Err(EditError::IndexOutOfRange {
-                    edit: index,
-                    parent,
-                    index: to,
-                    len,
-                });
-            }
-            let panel = self.panel_legends.remove(from);
-            self.panel_legends.insert(to as usize, panel);
-            return Ok(Edit::Move {
-                node,
-                parent,
-                index: Some(as_index(from)),
-            });
-        }
-        if kind == NodeKind::Axes {
-            let from = self
-                .axes
-                .iter()
-                .position(|axes| axes.id == node)
-                .expect("the node was found to be an axes");
-            let len = self.axes.len() - 1;
-            let to = at.unwrap_or_else(|| as_index(len));
-            if to as usize > len {
-                return Err(EditError::IndexOutOfRange {
-                    edit: index,
-                    parent,
-                    index: to,
-                    len,
-                });
-            }
-            let axes = self.axes.remove(from);
-            self.axes.insert(to as usize, axes);
-            return Ok(Edit::Move {
-                node,
-                parent,
-                index: Some(as_index(from)),
-            });
-        }
-        let (source, from) = self
-            .axes
-            .iter()
-            .enumerate()
-            .find_map(|(a, axes)| {
-                let position = axes.artists.iter().position(|artist| artist.id() == node)?;
-                Some((a, position))
-            })
-            .expect("the node was found to be an artist");
-        let target = self
-            .axes
-            .iter()
-            .position(|axes| axes.id == parent)
-            .expect("the parent was found to be an axes");
-        let len = self.axes[target].artists.len() - usize::from(target == source);
-        let to = at.unwrap_or_else(|| as_index(len));
-        if to as usize > len {
-            return Err(EditError::IndexOutOfRange {
-                edit: index,
-                parent,
-                index: to,
-                len,
-            });
-        }
-        let artist = self.axes[source].artists.remove(from);
-        self.axes[target].artists.insert(to as usize, artist);
+        };
+        let (from_list, from) = node_at.pop().expect("only the root has an empty address");
+        let from_parent = at(self, &node_at).id();
+        let same_list = from_parent == parent && from_list == list;
+        let len = lists[list].count() - usize::from(same_list);
+        let to = checked_position(at_index, len, parent, index)?;
+        let moved = at_mut(self, &node_at).lists_mut()[from_list].remove(from);
+        // The removal shifts no ancestor of the new parent, because only the figure holds
+        // more than one level of nodes, but the parent is found again so that this holds
+        // whatever the shape of the tree.
+        let parent_at = address(self, parent).expect("the parent is still in the figure");
+        at_mut(self, &parent_at).lists_mut()[list].insert(to, moved);
         Ok(Edit::Move {
             node,
-            parent: self.axes[source].id,
+            parent: from_parent,
             index: Some(as_index(from)),
         })
     }
 
-    fn apply_put_data(&mut self, id: DataId, array: NdArray) -> Edit {
-        match self.data.insert(id, array) {
-            Some(old) => Edit::PutData { id, array: old },
-            None => Edit::RemoveData { id },
+    /// Returns the data array that a data edit names, or the error of an identifier that
+    /// names no node or a node of another kind.
+    fn data_array_for_edit(
+        &mut self,
+        node: NodeId,
+        index: Option<usize>,
+    ) -> Result<&mut DataArray, EditError> {
+        if self.data_array(node).is_none() {
+            return Err(match self.node_kind(node) {
+                Some(_) => EditError::WrongNodeKind { edit: index, node },
+                None => EditError::UnknownData { edit: index, node },
+            });
         }
+        Ok(self
+            .data_array_mut(node)
+            .expect("the data array was just found"))
     }
 
     fn apply_append_data(
         &mut self,
-        id: DataId,
+        node: NodeId,
         array: &NdArray,
         retain: Option<u64>,
         index: Option<usize>,
     ) -> Result<Edit, EditError> {
-        let existing = self
-            .data
-            .get_mut(&id)
-            .ok_or(EditError::UnknownData { edit: index, id })?;
+        let existing = &mut self.data_array_for_edit(node, index)?.array;
         if existing.element() != array.element() {
             return Err(EditError::ElementMismatch {
                 edit: index,
-                id,
+                node,
                 existing: existing.element(),
                 appended: array.element(),
             });
@@ -812,7 +684,7 @@ impl Figure {
         if mismatched {
             return Err(EditError::ShapeMismatch {
                 edit: index,
-                id,
+                node,
                 existing: existing.shape.clone(),
                 appended: array.shape.clone(),
             });
@@ -842,8 +714,28 @@ impl Figure {
                 existing.shape[0] = kept;
             }
         }
-        Ok(Edit::PutData { id, array: old })
+        Ok(Edit::ReplaceData { node, array: old })
     }
+}
+
+/// Returns the position at which a node is inserted into a list of `len` nodes: the
+/// position that an edit gives, or the end of the list when it gives none.
+fn checked_position(
+    at_index: Option<u32>,
+    len: usize,
+    parent: NodeId,
+    index: Option<usize>,
+) -> Result<usize, EditError> {
+    let position = at_index.unwrap_or_else(|| as_index(len));
+    if position as usize > len {
+        return Err(EditError::IndexOutOfRange {
+            edit: index,
+            parent,
+            index: position,
+            len,
+        });
+    }
+    Ok(position as usize)
 }
 
 /// Returns an index within a list as it is written in an edit.
@@ -924,92 +816,5 @@ impl Transaction {
     /// transaction, including when a property path is not valid.
     pub fn from_json(json: &str) -> Result<Transaction, IrError> {
         Ok(serde_json::from_str(json)?)
-    }
-}
-
-/// The tree of a figure's nodes, as the structural edits of a transaction leave it.
-///
-/// The overlay and selections need to know which nodes a removal takes with it at the
-/// moment of the removal, so that an artist moved out of an axes earlier in the same
-/// transaction is not counted among its descendants. Only the shape of the tree is
-/// tracked, so following a transaction costs nothing like a copy of the figure.
-pub(crate) struct NodeTree {
-    /// The artists of each axes, in tree order.
-    axes: Vec<(NodeId, Vec<NodeId>)>,
-    /// The legend panels, which have no descendants.
-    panels: Vec<NodeId>,
-}
-
-impl NodeTree {
-    /// Returns the tree of a figure.
-    pub(crate) fn of(figure: &Figure) -> Self {
-        NodeTree {
-            axes: figure
-                .axes
-                .iter()
-                .map(|axes| (axes.id, axes.artists.iter().map(Artist::id).collect()))
-                .collect(),
-            panels: figure.panel_legends.iter().map(|panel| panel.id).collect(),
-        }
-    }
-
-    /// Returns the node and its descendants, or nothing when the tree does not hold the
-    /// node.
-    pub(crate) fn subtree(&self, node: NodeId) -> Vec<NodeId> {
-        if self.panels.contains(&node) {
-            return vec![node];
-        }
-        for (axes, artists) in &self.axes {
-            if *axes == node {
-                return std::iter::once(node)
-                    .chain(artists.iter().copied())
-                    .collect();
-            }
-            if artists.contains(&node) {
-                return vec![node];
-            }
-        }
-        Vec::new()
-    }
-
-    /// Applies the structural effect of an edit; every other edit leaves the tree
-    /// unchanged. Positions within a list are not tracked, because only membership and
-    /// descent matter.
-    pub(crate) fn apply(&mut self, edit: &Edit) {
-        match edit {
-            Edit::Insert { parent, node, .. } => match node {
-                Node::Axes(axes) => self
-                    .axes
-                    .push((axes.id, axes.artists.iter().map(Artist::id).collect())),
-                Node::Artist(artist) => self.push_artist(*parent, artist.id()),
-                Node::PanelLegend(panel) => self.panels.push(panel.id),
-            },
-            Edit::Remove { node } => self.remove(*node),
-            // Moving an axes or a legend panel only reorders the figure's list.
-            Edit::Move { node, parent, .. }
-                if !self.axes.iter().any(|(id, _)| id == node) && !self.panels.contains(node) =>
-            {
-                self.remove(*node);
-                self.push_artist(*parent, *node);
-            }
-            _ => {}
-        }
-    }
-
-    fn push_artist(&mut self, parent: NodeId, artist: NodeId) {
-        if let Some((_, artists)) = self.axes.iter_mut().find(|(id, _)| *id == parent) {
-            artists.push(artist);
-        }
-    }
-
-    fn remove(&mut self, node: NodeId) {
-        self.panels.retain(|id| *id != node);
-        if let Some(position) = self.axes.iter().position(|(id, _)| *id == node) {
-            self.axes.remove(position);
-            return;
-        }
-        for (_, artists) in &mut self.axes {
-            artists.retain(|id| *id != node);
-        }
     }
 }

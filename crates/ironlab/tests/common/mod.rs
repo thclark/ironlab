@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use ironlab::ir::{self, Artist, Axes, DataId, IssueKind, NdArray, NodeId, ValidationReport};
+use ironlab::ir::{self, Artist, Axes, IssueKind, NdArray, NodeId, ValidationReport};
 use ironlab::{ByteMatrix, Color, Figure, ImagePlane, Matrix, OutOfRange, Pixels};
 
 /// Returns the axes with the given identifier, panicking if it does not exist.
@@ -85,12 +85,13 @@ pub fn mapped_image(fig: &Figure, id: NodeId) -> &ir::MappedImage {
     }
 }
 
-/// Returns the array with the given data identifier, panicking if it does not exist.
-pub fn data(fig: &Figure, id: DataId) -> &NdArray {
-    fig.ir()
-        .data
-        .get(&id)
-        .unwrap_or_else(|| panic!("{id} is not in the data table"))
+/// Returns the array of the data array with the given identifier, panicking if it does
+/// not exist.
+pub fn data(fig: &Figure, id: NodeId) -> &NdArray {
+    &fig.ir()
+        .data_array(id)
+        .unwrap_or_else(|| panic!("{id} is not a data array"))
+        .array
 }
 
 /// Returns true when the axes is three-dimensional.
@@ -146,7 +147,7 @@ pub fn image_figure() -> Figure {
         .image(&pixels)
         .pixel_columns(-1.0, 1.0)
         .pixel_rows(1.0, -1.0)
-        .display_name("photo");
+        .label("photo");
     fig.axes(0, 1)
         .indexed_image(&indices)
         .pixel_columns(0.5, 2.5)

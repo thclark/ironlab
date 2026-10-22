@@ -7,7 +7,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::edits::{applied, nodes, path, perturb, representative_figures, set, tx};
-use common::{OPTIONAL_IN_IR, find_axes, kitchen_sink_figure, single_line_figure};
+use common::{OPTIONAL_IN_IR, find_axes, kitchen_sink_figure, panel_legend, single_line_figure};
 use ironlab_ir::*;
 use prost_reflect::{
     DescriptorPool, DynamicMessage, FieldDescriptor, Kind, MessageDescriptor, ReflectMessage,
@@ -241,11 +241,17 @@ fn collect_paths(
 // the wire naming, fails here. Because the paths are exactly the wire field names, a
 // renamed or removed path is also reported by `buf breaking` against main, which is how
 // ADR 0008 asks for such changes to be reported.
+//
+// The figure node model changed these paths on purpose, while the schema has no users, and
+// `buf breaking` reports each change: the artists' `display_name` is now `label`; the
+// figure's `labels` are now `tags`; `panel_legends` is now `panels`, whose legend
+// properties lie below `content.legend`; and the data table is a list of `DataArray` nodes
+// whose `name` is their only settable property.
 #[test]
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
     let read_only: &[&str] = &["id"];
-    let cases: [(NodeKind, &str, &[&str]); 11] = [
+    let cases: [(NodeKind, &str, &[&str]); 12] = [
         (
             NodeKind::Figure,
             "Figure",
@@ -255,9 +261,12 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
                 "data",
                 "axes",
                 "provenance",
-                "panel_legends",
+                "panels",
             ],
         ),
+        // The values of a data array change only through the data edits, so its array is
+        // read-only, and its name is all that a property editor may set.
+        (NodeKind::DataArray, "DataArray", &["id", "array"]),
         // The entries of a legend are structure that code writes, read but not set
         // through the registry, as the artists of an axes are.
         (
@@ -273,7 +282,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Image, "Image", read_only),
         (NodeKind::IndexedImage, "IndexedImage", read_only),
         (NodeKind::MappedImage, "MappedImage", read_only),
-        (NodeKind::PanelLegend, "PanelLegend", &["id", "entries"]),
+        (NodeKind::Panel, "Panel", &["id", "content.legend.entries"]),
     ];
     for (kind, message, skip) in cases {
         let descriptor = pool
@@ -387,8 +396,20 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
         .expect("the generated schema decodes a figure");
     let mut all = Vec::new();
     let mut leaves = Leaves::new();
-    flatten_wire(&figure, "", &["axes", "panel_legends"], &mut leaves);
+    flatten_wire(&figure, "", &["data", "axes", "panels"], &mut leaves);
     all.push(leaves);
+    let data_field = figure.get_field_by_name("data").expect("Figure.data");
+    let WireValue::List(data_list) = &*data_field else {
+        panic!("Figure.data is a list");
+    };
+    for data in data_list {
+        let WireValue::Message(data) = data else {
+            panic!("a data array is a message");
+        };
+        let mut leaves = Leaves::new();
+        flatten_wire(data, "", &[], &mut leaves);
+        all.push(leaves);
+    }
     let axes_field = figure.get_field_by_name("axes").expect("Figure.axes");
     let WireValue::List(axes_list) = &*axes_field else {
         panic!("Figure.axes is a list");
@@ -420,15 +441,13 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
             all.push(leaves);
         }
     }
-    let panels_field = figure
-        .get_field_by_name("panel_legends")
-        .expect("Figure.panel_legends");
+    let panels_field = figure.get_field_by_name("panels").expect("Figure.panels");
     let WireValue::List(panels) = &*panels_field else {
-        panic!("Figure.panel_legends is a list");
+        panic!("Figure.panels is a list");
     };
     for panel in panels {
         let WireValue::Message(panel) = panel else {
-            panic!("a legend panel is a message");
+            panic!("a panel is a message");
         };
         let mut leaves = Leaves::new();
         flatten_wire(panel, "", &[], &mut leaves);
@@ -620,16 +639,12 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
 fn a_path_through_an_absent_optional_value_is_an_absent_value() {
     let fig = kitchen_sink_figure();
     let untitled = fig.axes[9].id; // no title and no legend
-    let unnamed = fig.axes[1].artists[0].id(); // no display name
+    let unnamed = fig.axes[1].artists[0].id(); // no label
     let image = fig.axes[6].artists[0].id(); // no pixel ranges
     for (node, at, value) in [
         (untitled, "title.content", Value::String("t".to_owned())),
         (untitled, "legend.inside.boxed", Value::Bool(true)),
-        (
-            unnamed,
-            "display_name.content",
-            Value::String("n".to_owned()),
-        ),
+        (unnamed, "label.content", Value::String("n".to_owned())),
         (image, "placement.columns.first", Value::Double(0.0)),
         (image, "placement.rows.last", Value::Double(0.0)),
     ] {
@@ -649,8 +664,9 @@ fn a_path_through_an_absent_optional_value_is_an_absent_value() {
 }
 
 // Why: nodes and data change only through structural and data edits; a set of an
-// identifier, a node list or the data table must be refused with an error that says the
-// property is read-only, so that a client does not conclude that the path is misspelled.
+// identifier, a node list, the data table or the array of a data array must be refused
+// with an error that says the property is read-only, so that a client does not conclude
+// that the path is misspelled.
 // The explicit entries of a legend are structure that code writes, as the artists of an
 // axes are, so they are read-only in a panel and inside a plot area alike, and are not
 // offered as properties.
@@ -666,12 +682,13 @@ fn identifiers_node_lists_data_version_and_provenance_are_read_only() {
         .expect("the kitchen-sink figure has an inside legend")
         .id;
     let explicit_panel = fig
-        .panel_legends
+        .panels
         .iter()
-        .find(|panel| !panel.entries.is_auto())
+        .find(|panel| !panel_legend(panel).entries.is_auto())
         .expect("the kitchen-sink figure has a panel of explicit entries")
         .id;
-    for kind in [NodeKind::PanelLegend, NodeKind::Axes] {
+    let data = fig.data[0].id;
+    for kind in [NodeKind::Panel, NodeKind::Axes] {
         assert!(
             properties(kind)
                 .iter()
@@ -680,7 +697,8 @@ fn identifiers_node_lists_data_version_and_provenance_are_read_only() {
         );
     }
     for (node, at) in [
-        (explicit_panel, "entries"),
+        (explicit_panel, "content.legend.entries"),
+        (explicit_panel, "id"),
         (inside, "legend.inside.entries"),
         (fig.id, "id"),
         (fig.id, "schema_version"),
@@ -688,6 +706,10 @@ fn identifiers_node_lists_data_version_and_provenance_are_read_only() {
         (fig.id, "provenance.fonts"),
         (fig.id, "axes"),
         (fig.id, "data"),
+        (fig.id, "panels"),
+        (data, "id"),
+        (data, "array"),
+        (data, "array.shape"),
         (axes, "id"),
         (axes, "artists"),
         (artist, "id"),
@@ -722,6 +744,12 @@ fn a_field_that_the_node_does_not_have_is_an_unknown_path() {
         (axes, "x.limits.min.more"),
         (line, "levels"),
         (line, "line.line"),
+        // A data array has a name, which is never drawn, and no label.
+        (fig.data[0].id, "label"),
+        (fig.data[0].id, "title"),
+        // A panel holds its legend's properties below its content.
+        (fig.panels[0].id, "boxed"),
+        (fig.panels[0].id, "layout.columns"),
     ] {
         let expected_path = path(at);
         assert!(
@@ -1063,4 +1091,110 @@ fn a_later_edit_sees_the_variant_set_by_an_earlier_edit() {
         "{result:?}"
     );
     assert_eq!(reversed, fig);
+}
+
+// Why: the figure node model renamed three paths on purpose, while the schema has no
+// users, so that `label` means only text drawn beside what it identifies: an artist's
+// `display_name` is now its `label`, the figure's `labels` are now its `tags`, and the
+// figure's `panel_legends` are now its `panels`. The old paths must be unknown rather
+// than kept as aliases, so that no client goes on writing them, and the new ones must
+// read and set the properties that the old ones did.
+#[test]
+fn the_renamed_paths_are_known_only_by_their_new_names() {
+    let fig = kitchen_sink_figure();
+    let named = fig.axes[0].artists[0].id(); // a line with a label
+    for (node, at) in [
+        (named, "display_name"),
+        (named, "display_name.content"),
+        (fig.id, "labels"),
+        (fig.id, "panel_legends"),
+    ] {
+        assert!(
+            matches!(
+                fig.get(node, &path(at)),
+                Err(EditError::UnknownPath { edit: None, .. })
+            ),
+            "get {at}"
+        );
+    }
+    for kind in NodeKind::ALL {
+        for property in properties(kind) {
+            let at = property.path.to_string();
+            assert!(
+                !at.contains("display_name") && at != "labels" && at != "panel_legends",
+                "{kind:?} still lists {at}"
+            );
+        }
+    }
+
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([
+            set(named, "label", Value::Text(Text::new("$u_\\infty$"))),
+            set(
+                named,
+                "label.interpreter",
+                Value::Interpreter(Interpreter::None),
+            ),
+            set(fig.id, "tags", Value::Strings(vec!["renamed".to_owned()])),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        edited.artist(named).unwrap().1.label(),
+        Some(&Text::plain("$u_\\infty$"))
+    );
+    assert_eq!(edited.tags, ["renamed"]);
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
+}
+
+// Why: the name of a data array identifies it to tools such as the inspector and is never
+// drawn, so it is the one property of a data array that an editor may set; it is optional,
+// so it is created by a set and removed by `Unset`, and the inverse restores it.
+#[test]
+fn the_name_of_a_data_array_is_set_and_unset_by_path() {
+    let fig = kitchen_sink_figure();
+    let named = fig.data.iter().find(|d| d.name.is_some()).unwrap();
+    let unnamed = fig.data.iter().find(|d| d.name.is_none()).unwrap();
+    assert_eq!(
+        fig.get(named.id, &path("name")).unwrap(),
+        Value::String(named.name.clone().unwrap())
+    );
+    assert_eq!(fig.get(unnamed.id, &path("name")).unwrap(), Value::Unset);
+
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([
+            set(
+                unnamed.id,
+                "name",
+                Value::String("pressure (Pa)".to_owned()),
+            ),
+            set(named.id, "name", Value::Unset),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        edited.data_array(unnamed.id).unwrap().name.as_deref(),
+        Some("pressure (Pa)")
+    );
+    assert_eq!(edited.data_array(named.id).unwrap().name, None);
+    let mut expected = fig.clone();
+    expected.data_array_mut(unnamed.id).unwrap().name = Some("pressure (Pa)".to_owned());
+    expected.data_array_mut(named.id).unwrap().name = None;
+    assert_eq!(edited, expected, "a set of a name changed something else");
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
+
+    let registry = properties(NodeKind::DataArray);
+    assert_eq!(
+        registry
+            .iter()
+            .map(|p| p.path.to_string())
+            .collect::<Vec<_>>(),
+        ["name"]
+    );
+    assert_eq!(registry[0].value_type, ValueType::String);
+    assert!(registry[0].optional);
 }

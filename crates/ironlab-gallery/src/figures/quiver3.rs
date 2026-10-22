@@ -16,10 +16,10 @@ pub fn figure() -> Figure {
     let mut fig = Figure::new()
         .size_mm(160.0, 100.0)
         .title(r"Normals of the surface of $\ln(1 + |z_3|)$")
-        .label("quiver")
-        .label("surface")
-        .label("gradient")
-        .label("overlay")
+        .tag("quiver")
+        .tag("surface")
+        .tag("gradient")
+        .tag("overlay")
         .parameter("dimensionality", "3D")
         .parameter("artists", 2)
         .parameter("data_points", 1605)
@@ -36,7 +36,7 @@ pub fn figure() -> Figure {
     )
     .color(Color::BLACK)
     .line_width(0.5)
-    .display_name(r"$\hat{n}$");
+    .label(r"$\hat{n}$");
     ax.xlabel("$x$")
         .ylabel("$y$")
         .zlabel(r"$\ln(1 + |z_3|)$")

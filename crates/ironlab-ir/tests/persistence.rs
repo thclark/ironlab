@@ -5,7 +5,10 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{image_variants_figure, kitchen_sink_figure, single_line_figure};
+use common::{
+    image_variants_figure, kitchen_sink_figure, legend_panel, panel_legend, panel_legend_mut,
+    single_line_figure,
+};
 use ironlab_ir::*;
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -14,9 +17,18 @@ const DECAY_FIXTURE: &str = include_str!("fixtures/decay.fig.json");
 
 /// The figure that `fixtures/decay.fig.json` describes, built independently of serde.
 fn decay_figure() -> Figure {
-    let mut data = BTreeMap::new();
-    data.insert(DataId(0), NdArray::vector(vec![0.0, 1.0, 2.0]));
-    data.insert(DataId(7), NdArray::vector(vec![1.0, f64::NAN, 0.135]));
+    let data = vec![
+        DataArray {
+            id: NodeId(0),
+            name: Some("t (s)".to_owned()),
+            array: NdArray::vector(vec![0.0, 1.0, 2.0]),
+        },
+        DataArray {
+            id: NodeId(7),
+            name: None,
+            array: NdArray::vector(vec![1.0, f64::NAN, 0.135]),
+        },
+    ];
     Figure {
         schema_version: "0.6.0".to_owned(),
         id: NodeId(1),
@@ -83,10 +95,10 @@ fn decay_figure() -> Figure {
             })),
             artists: vec![Artist::Line(Line {
                 id: NodeId(3),
-                display_name: Some(Text::plain("decay, $5")),
+                label: Some(Text::plain("decay, $5")),
                 visible: true,
-                x: DataId(0),
-                y: DataId(7),
+                x: NodeId(0),
+                y: NodeId(7),
                 z: None,
                 line: LineStyle {
                     color: ColorSpec::Rgba {
@@ -106,7 +118,7 @@ fn decay_figure() -> Figure {
                 clip: true,
             })],
         }],
-        panel_legends: vec![],
+        panels: vec![],
         links: vec![],
         provenance: Provenance {
             ironlab_version: "0.1.0".to_owned(),
@@ -115,7 +127,7 @@ fn decay_figure() -> Figure {
             fonts: vec!["STIX Two Text".to_owned(), "STIX Two Math".to_owned()],
         },
         parameters: BTreeMap::new(),
-        labels: Vec::new(),
+        tags: Vec::new(),
         id_allocator: NodeIdAllocator::default(),
     }
 }
@@ -270,8 +282,9 @@ fn hand_written_document_loads_as_the_described_figure() {
 }
 
 // Why: our own output must follow the documented wire format exactly (tag names, the
-// `box` key, string data keys, integer ids, hex colours and null for NaN), not merely
-// be readable by ourselves.
+// `box` key, data arrays as a list of nodes with an identifier, a name and an array, the
+// `label` of an artist, integer ids, hex colours and null for NaN), not merely be readable
+// by ourselves.
 #[test]
 fn serialised_figure_matches_the_hand_written_wire_format() {
     let written: Value = serde_json::from_str(&decay_figure().to_json()).unwrap();
@@ -287,21 +300,29 @@ fn serialised_figure_matches_the_hand_written_wire_format() {
 fn a_figure_with_an_array_of_bytes_survives_a_json_round_trip_in_the_documented_form() {
     let (mut fig, _, _) = single_line_figure();
     let bytes = NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap();
-    fig.data.insert(DataId(9), bytes.clone());
+    fig.data.push(DataArray {
+        id: NodeId(9),
+        name: None,
+        array: bytes.clone(),
+    });
 
     let text = fig.to_json();
     let value: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
-        value["data"]["9"],
-        json!({ "shape": [2, 2], "element": "u8", "values": [0, 1, 254, 255] })
+        value["data"][2],
+        json!({
+            "id": 9,
+            "name": null,
+            "array": { "shape": [2, 2], "element": "u8", "values": [0, 1, 254, 255] }
+        })
     );
     assert_eq!(
-        value["data"]["0"],
+        value["data"][0]["array"],
         json!({ "shape": [3], "values": [1.0, 2.0, 3.0] })
     );
 
     let reopened = Figure::from_json(&text).expect("own output parses");
-    assert_eq!(reopened.data[&DataId(9)], bytes);
+    assert_eq!(reopened.data[2].array, bytes);
     assert_eq!(reopened, fig);
     assert_eq!(reopened.to_json(), text);
 }
@@ -321,8 +342,8 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
     fig.axes[0].artists.push(Artist::Contour(Contour {
         id: NodeId(90),
         grid: Grid::Curvilinear {
-            x: DataId(0),
-            y: DataId(1),
+            x: NodeId(0),
+            y: NodeId(1),
         },
         levels: Levels::Explicit { values: vec![0.5] },
         placement: ContourPlacement::AtLevel,
@@ -372,9 +393,9 @@ fn image_artists_are_written_in_the_documented_json_form() {
     fig.axes[0].artists.extend([
         Artist::Image(Image {
             id: NodeId(5),
-            display_name: Some(Text::plain("photo")),
+            label: Some(Text::plain("photo")),
             visible: false,
-            pixels: DataId(10),
+            pixels: NodeId(10),
             placement: ImagePlacement {
                 plane: ImagePlane::Xz { y: Some(-2.0) },
                 columns: None,
@@ -387,9 +408,9 @@ fn image_artists_are_written_in_the_documented_json_form() {
         }),
         Artist::IndexedImage(IndexedImage {
             id: NodeId(6),
-            display_name: None,
+            label: None,
             visible: true,
-            indices: DataId(11),
+            indices: NodeId(11),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: None },
                 columns: None,
@@ -398,14 +419,14 @@ fn image_artists_are_written_in_the_documented_json_form() {
             below: OutOfRange::Strict,
             above: OutOfRange::Strict,
             non_finite: OutOfRange::Transparent,
-            alpha: Some(DataId(13)),
+            alpha: Some(NodeId(13)),
             opacity: 1.0,
         }),
         Artist::MappedImage(MappedImage {
             id: NodeId(7),
-            display_name: None,
+            label: None,
             visible: true,
-            values: DataId(12),
+            values: NodeId(12),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: None },
                 columns: Some(PixelRange {
@@ -431,7 +452,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
         json!({
             "type": "image",
             "id": 5,
-            "display_name": {"content": "photo", "interpreter": "none"},
+            "label": {"content": "photo", "interpreter": "none"},
             "visible": false,
             "pixels": 10,
             "placement": {
@@ -447,7 +468,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
         json!({
             "type": "indexed_image",
             "id": 6,
-            "display_name": null,
+            "label": null,
             "visible": true,
             "indices": 11,
             "placement": {
@@ -466,7 +487,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
         json!({
             "type": "mapped_image",
             "id": 7,
-            "display_name": null,
+            "label": null,
             "visible": true,
             "values": 12,
             "placement": {
@@ -496,17 +517,17 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
     fig.axes[0].artists.extend([
         Artist::Image(Image {
             id: NodeId(5),
-            pixels: DataId(10),
+            pixels: NodeId(10),
             ..Default::default()
         }),
         Artist::IndexedImage(IndexedImage {
             id: NodeId(6),
-            indices: DataId(11),
+            indices: NodeId(11),
             ..Default::default()
         }),
         Artist::MappedImage(MappedImage {
             id: NodeId(7),
-            values: DataId(12),
+            values: NodeId(12),
             ..Default::default()
         }),
     ]);
@@ -523,7 +544,7 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
         json!({
             "type": "image",
             "id": 5,
-            "display_name": null,
+            "label": null,
             "visible": true,
             "pixels": 10,
             "placement": placement
@@ -534,7 +555,7 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
         json!({
             "type": "indexed_image",
             "id": 6,
-            "display_name": null,
+            "label": null,
             "visible": true,
             "indices": 11,
             "placement": placement,
@@ -548,7 +569,7 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
         json!({
             "type": "mapped_image",
             "id": 7,
-            "display_name": null,
+            "label": null,
             "visible": true,
             "values": 12,
             "placement": placement,
@@ -690,17 +711,18 @@ fn malformed_json_is_a_json_error() {
     ));
 }
 
-// Why: the forms of a legend, a legend panel and the sizes of the rows and columns of the
-// tile layout are a public contract that web clients and hand-written files produce from
-// the schema reference rather than from serde's output, so the tag and `value` of each
-// legend form and of each kind of size, the names of the panel's fields, and the omission
-// of empty sizes, of automatic entries and of an empty list of panels must stay as
-// documented; and the documented form must read back as the same figure.
+// Why: the forms of a legend, a panel and the sizes of the rows and columns of the tile
+// layout are a public contract that web clients and hand-written files produce from the
+// schema reference rather than from serde's output, so the tag and `value` of each legend
+// form, of a panel's content and of each kind of size, the names of the panel's fields,
+// and the omission of empty sizes, of automatic entries and of an empty list of panels
+// must stay as documented; and the documented form must read back as the same figure.
 #[test]
-fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_form() {
+fn legends_panels_and_layout_weights_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
     let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(value["layout"], json!({ "rows": 1, "cols": 1 }));
+    assert!(value.get("panels").is_none());
     assert!(value.get("panel_legends").is_none());
 
     fig.layout = TileLayout {
@@ -709,14 +731,13 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
         ..TileLayout::new(2, 1)
     };
     fig.axes[0].legend = Some(Legend::Panel(NodeId(9)));
-    fig.panel_legends.push(PanelLegend {
-        id: NodeId(9),
-        cell: Cell {
+    fig.panels.push(legend_panel(
+        NodeId(9),
+        Cell {
             row: 1,
             ..Cell::default()
         },
-        ..PanelLegend::default()
-    });
+    ));
     let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(
         value["layout"],
@@ -731,13 +752,18 @@ fn legends_legend_panels_and_layout_weights_are_written_in_the_documented_json_f
         json!({ "type": "panel", "value": 9 })
     );
     assert_eq!(
-        value["panel_legends"],
+        value["panels"],
         json!([{
             "id": 9,
             "cell": { "row": 1, "col": 0, "row_span": 1, "col_span": 1 },
             "align": "center",
-            "boxed": true,
-            "layout": { "columns": { "type": "auto" }, "order": "column_major" }
+            "content": {
+                "type": "legend",
+                "value": {
+                    "boxed": true,
+                    "layout": { "columns": { "type": "auto" }, "order": "column_major" }
+                }
+            }
         }])
     );
     assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
@@ -848,18 +874,21 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
     assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
 
     fig.layout = TileLayout::new(1, 2);
-    fig.panel_legends.push(PanelLegend {
+    fig.panels.push(Panel {
         id: NodeId(90),
         cell: Cell {
             col: 1,
             ..Cell::default()
         },
-        entries: LegendEntries::Explicit(items),
-        ..PanelLegend::default()
+        align: PanelLocation::Center,
+        content: PanelContent::Legend(PanelLegend {
+            entries: LegendEntries::Explicit(items),
+            ..PanelLegend::default()
+        }),
     });
     let value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(
-        value["panel_legends"][0]["entries"],
+        value["panels"][0]["content"]["value"]["entries"],
         json!({ "type": "explicit", "value": items_json })
     );
     assert_eq!(Figure::from_json(&value.to_string()).unwrap(), fig);
@@ -867,15 +896,15 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
     // An explicit list of no items is written, because it differs from automatic entries,
     // which are omitted (as the test of the other legend forms checks) and read back as
     // automatic when written out as `{"type": "auto"}`.
-    fig.panel_legends[0].entries = LegendEntries::Explicit(vec![]);
+    panel_legend_mut(&mut fig.panels[0]).entries = LegendEntries::Explicit(vec![]);
     let mut value: Value = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(
-        value["panel_legends"][0]["entries"],
+        value["panels"][0]["content"]["value"]["entries"],
         json!({ "type": "explicit", "value": [] })
     );
-    value["panel_legends"][0]["entries"] = json!({ "type": "auto" });
+    value["panels"][0]["content"]["value"]["entries"] = json!({ "type": "auto" });
     let read = Figure::from_json(&value.to_string()).unwrap();
-    assert_eq!(read.panel_legends[0].entries, LegendEntries::Auto);
+    assert_eq!(panel_legend(&read.panels[0]).entries, LegendEntries::Auto);
 }
 
 // Why: files written before surfaces, images and contours had alpha and opacity, and files
@@ -970,8 +999,8 @@ fn surface_alpha_and_opacities_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
     fig.axes[0].artists.push(Artist::Surface(Surface {
         id: NodeId(5),
-        face_alpha: Some(DataId(9)),
-        edge_alpha: Some(DataId(9)),
+        face_alpha: Some(NodeId(9)),
+        edge_alpha: Some(NodeId(9)),
         face_opacity: 0.0,
         edge_opacity: 0.25,
         ..Surface::default()

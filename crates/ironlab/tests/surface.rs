@@ -86,7 +86,7 @@ fn surface_setters_map_to_ir_fields() {
         .face_color(Color::rgb(0.5, 0.5, 0.5))
         .edge_width(1.25)
         .color_data(&c)
-        .display_name("field")
+        .label("field")
         .id();
     let s = surface(&fig, id);
     assert_eq!(s.edge, ColorSpec::None);
@@ -102,7 +102,7 @@ fn surface_setters_map_to_ir_fields() {
         stored,
         &NdArray::from_shape(vec![3, 4], c.into_values()).unwrap()
     );
-    assert_eq!(s.display_name, Some(Text::new("field")));
+    assert_eq!(s.label, Some(Text::new("field")));
 }
 
 // WHY: a height matrix that does not match the grid vectors must be reported, not

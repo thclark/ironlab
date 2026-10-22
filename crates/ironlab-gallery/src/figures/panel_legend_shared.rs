@@ -35,17 +35,17 @@ pub fn figure() -> Figure {
         .size_mm(160.0, 150.0)
         .tiles(3, 2)
         .title("Temperatures at five weather stations")
-        .label("line")
-        .label("subplots")
-        .label("legend")
-        .label("dashes")
-        .label("measurements")
+        .tag("line")
+        .tag("subplots")
+        .tag("legend")
+        .tag("dashes")
+        .tag("measurements")
         .parameter("dimensionality", "2D")
         .parameter("artists", 13)
         .parameter("data_points", 1898)
         .parameter("has_legend", true);
     // The sixth tile holds the legend panel that every axes lists its entries in.
-    let key = fig.panel_legend(2, 1).id();
+    let key = fig.panel(2, 1).id();
 
     for (k, (name, mean, range, sea)) in STATIONS.into_iter().enumerate() {
         // The air is warmest at 15:00 and coolest at 03:00, when it cools to just above the dew point.
@@ -62,15 +62,15 @@ pub fn figure() -> Figure {
         let mut ax = fig.axes(k as u32 / 2, k as u32 % 2);
         // The same display name and the same look in every axes make one entry in the panel.
         ax.plot(&hours, &air)
-            .display_name("Air temperature")
+            .label("Air temperature")
             .color(AIR);
         ax.plot(&hours, &dew_point)
-            .display_name("Dew point")
+            .label("Dew point")
             .color(DEW_POINT)
             .dash(Dash::Dashed);
         if let Some(sea) = sea {
             ax.plot(&hours, vec![sea; hours.len()])
-                .display_name("Sea surface temperature")
+                .label("Sea surface temperature")
                 .color(SEA)
                 .dash(Dash::Dotted);
         }

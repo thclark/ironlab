@@ -55,7 +55,7 @@ fn matrix_coordinates_make_a_curvilinear_grid() {
     assert!(fig.validate().is_valid());
 }
 
-// WHY: mixing a vector with a matrix is resolved (as documented on GridCoords) by
+// WHY: mixing a vector with a matrix is resolved (as documented on `contour`) by
 // repeating the vector to the field's shape, so the result is a valid curvilinear grid
 // rather than an error.
 #[test]
@@ -205,7 +205,7 @@ fn contour_setters_map_to_ir_fields() {
         .contour(&x, &y, &z)
         .line_width(0.3)
         .color(Color::BLACK)
-        .display_name("$\\psi$")
+        .label("$\\psi$")
         .id();
     let c = contour(&fig, id);
     assert_eq!(c.line.width_pt, 0.3);
@@ -215,5 +215,5 @@ fn contour_setters_map_to_ir_fields() {
             color: Color::BLACK
         }
     );
-    assert_eq!(c.display_name, Some(Text::new("$\\psi$")));
+    assert_eq!(c.label, Some(Text::new("$\\psi$")));
 }

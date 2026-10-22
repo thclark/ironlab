@@ -3,7 +3,7 @@
 //! One figure is shown at a time, chosen in the figure browser of [`crate::sidebar`] when more than one is open.
 //! The figure has a toolbar ([`toolbar`]) above a canvas that draws it at its physical aspect ratio, scaled to fit
 //! and centred in the area below the toolbar on a neutral surround, and below the canvas a strip of details: the
-//! labels and parameters the figure carries, which are what the browser narrows the collection by.
+//! tags and parameters the figure carries, which are what the browser narrows the collection by.
 //!
 //! The canvas is the egui host of a [`FigureCanvas`], which owns everything about showing the figure that does not
 //! depend on egui: the compilation of the figure, its fit into the area, the draw list kept for that fit, and the
@@ -389,7 +389,7 @@ impl FigurePane {
         self.canvas(ui, text, gpu);
     }
 
-    /// Draws the strip below the canvas that says what the figure carries: its labels as tags, then its parameters
+    /// Draws the strip below the canvas that says what the figure carries: its tags, then its parameters
     /// as a table, in ascending order of name.
     ///
     /// It is the same information the property editor edits, shown where it can be read at a glance beside the
@@ -398,10 +398,10 @@ impl FigurePane {
     /// so a figure that carries nothing keeps the whole height for its canvas.
     fn details(&mut self, ui: &mut egui::Ui) {
         let figure = self.canvas.state().figure();
-        if figure.labels.is_empty() && figure.parameters.is_empty() {
+        if figure.tags.is_empty() && figure.parameters.is_empty() {
             return;
         }
-        let labels = figure.labels.clone();
+        let tags = figure.tags.clone();
         let parameters: Vec<(String, String)> = figure
             .parameters
             .iter()
@@ -418,10 +418,10 @@ impl FigurePane {
                     .max_height(DETAILS_MAX_HEIGHT)
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        if !labels.is_empty() {
+                        if !tags.is_empty() {
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing = egui::Vec2::splat(Spacing::GAP);
-                                for tag in &labels {
+                                for tag in &tags {
                                     Control::tag(tag).show(ui);
                                 }
                             });
