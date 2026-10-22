@@ -87,6 +87,8 @@ A colourbar in IronLAB shows a scale rather than a plot, and everything it draws
 | Place the ticks | `c.Ticks = v` | `cbar.set_ticks(v)` | `colorbar=dict(tickvals=v)` | `.ticks(v)` or `.tick_step(step)` on the scale |
 | Label the ticks | `c.TickLabels = labels` | `cbar.set_ticks(v, labels=labels)` | `colorbar=dict(tickvals=v, ticktext=labels)` | `.tick_labels([(value, label), ..])` on the scale |
 | Show the colour of values beyond the limits | no option | `extend="min"`, `"max"` or `"both"`, drawn as pointed ends | no option | `.show_key(ColorScaleKey::Above)` and the other keys on the scale, drawn as separate squares |
+| List the categories of a classification in a legend | dummy patches, one per class, passed to `legend` | `legend(handles=[Patch(color=c, label=l), ..])` | one dummy trace per class | `.item(scale)` on a legend with the identifier of a categorical scale |
+| Put a colour bar among legend entries | no option | no option | no option | `.item(scale)` on a legend with the identifier of a continuous, discrete or indexed scale, [drawn as a bar](../guides/colour.md#bars-are-items) |
 
 ### Levels of filled contours
 

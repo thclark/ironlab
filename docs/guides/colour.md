@@ -2,7 +2,7 @@
 
 A plot that maps its data to colours, such as a filled contour, a surface, a scalar image or a series coloured by data, does so through a **colour scale**. A colour scale is a node of the figure that turns a number into a colour, and every plot that maps numbers to colours names its scale. Several plots, in one axes or in several, may name the same scale, and then share its colormap, its limits and therefore its colours. A scale belongs to the figure rather than to an axes, so the colours of a plot never depend on where the plot lies.
 
-This guide shows how a program creates scales, gives them to plots, chooses what a scale draws for values it cannot place, and shows a scale with a colourbar. It assumes the plotting functions of [getting started](getting-started.md#plotting-functions). The examples use the prelude and the following data:
+This guide shows how a program creates scales, gives them to plots, chooses what a scale draws for values it cannot place, and shows a scale with a colourbar or in a legend. It assumes the plotting functions of [getting started](getting-started.md#plotting-functions). The examples use the prelude and the following data:
 
 ```rust
 use ironlab::prelude::*;
@@ -351,14 +351,79 @@ The keys lie beyond the end of the bar whose values they stand for, and the key 
 
 Along a horizontal bar the labels lie side by side beneath the squares, so the margin between the pieces widens until no two labels meet.
 
+## Colour keys in legends
+
+A colour scale can also be shown as an item of a [legend](legends.md), so that the key of a classification, or the bar of a scale, sits among the entries that explain the rest of the figure. The item names the scale, as a colourbar does, and holds nothing else, so it agrees with every colourbar and every plot of the scale.
+
+### Listing a scale
+
+`item` on the legend of a panel recognises the identifier of a scale when it is called, and lists the scale; any other identifier lists the plot it names. `full_row` does the same on a row of its own. A legend inside an axes takes the item `LegendItem::color_scale(id)` in its explicit entries:
+
+```rust
+let mut fig = Figure::new().tiles(2, 1).fit_row(1);
+let status = fig
+    .categorical_scale([
+        (Color::rgb(0.0, 0.45, 0.7), "converged"),
+        (Color::rgb(0.9, 0.6, 0.0), "diverged"),
+    ])
+    .key_label(ColorScaleKey::NonFinite, "not run")
+    .id();
+let speed = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
+let mut ax = fig.axes(0, 0);
+let path = ax.plot(&x, &y).label("Path").id();
+ax.legend(LegendLocation::NorthEast)
+    .legend_entries(LegendEntries::Explicit(vec![
+        LegendItem::artist(path),
+        LegendItem::color_scale(speed),
+    ]));
+fig.panel(1, 0).legend().item(status);
+```
+
+A legend may list any scale of the figure, whichever axes the plots that use it belong to, and a scale that no plot uses is valid, so a key can explain a classification on its own. A scale enters a legend only as an explicit item: the automatic entries of a legend list plots alone, so adding a colour-mapped plot never adds a key that the author did not ask for.
+
+### Categories are entries
+
+A categorical scale is listed as one entry per category, in the order of the categories, each labelled with the category's label beside a swatch of its colour. The [keys](#keys-for-values-out-of-range) that the scale shows follow as further entries, the outside key and then the non-finite key, each a swatch filled with what is painted for its values, or empty for values drawn as nothing, labelled with its label or its default label. These are ordinary entries: they take their place among the other items of the list, and are arranged in columns and wrapped like any other entry. On a row of its own, each entry of the scale is on a row of its own.
+
+In a legend panel, the entry of a category is merged with any other entry of the panel that has the same label and the same look, whether that entry lists a plot, stands for no plot or is another category, and the merged entry keeps the place of the first of them. A hand-written swatch of the same label and colour as a category is therefore one entry, and so is a surface of that colour with thin black edges listed under the category's label, whose entry then hides or shows the surface when it is clicked. Entries that share a label but not a look are both listed. Two items that repeat each other, of which neither is a category, are both listed, as the [legends guide](legends.md#choosing-the-entries) describes. A legend inside a plot area merges nothing, the entries of categories included: it lists every item as it is given.
+
+### Bars are items
+
+A continuous, discrete or indexed scale is drawn as a vertical bar five entry rows long, in one column of the legend. It is drawn as a vertical colourbar of the scale is drawn, with the same thickness, colours, ticks, tick labels and keys: the bar starts at the left edge of the column of samples, and its tick labels lie to its right, on the side of the labels of the other entries. The title of the scale heads the bar. The title and the keys add to the extent of the item rather than shortening the bar, so the bar keeps the length of its five rows. When the entries are divided among columns, the bar counts as five entries and is never split between columns, and its width, ticks and tick labels included, sets the width of its column as a label does.
+
+On a row of its own, the bar lies horizontally across the width of the legend, with its title above it and its labels below it, as a horizontal colourbar is drawn.
+
+Neither a bar nor the entry of a category is a toggle in the viewer, because a scale is not a plot: clicking it does nothing, unless the entry of a category is merged with the entry of a plot in a legend panel.
+
+### Samples of colour-mapped plots
+
+The sample of a plot that maps its data to colours is a **sweep** of its scale, so that the key shows what its colours mean rather than one colour of them. A sweep runs from the low end of the scale at the left to its high end at the right, as a horizontal colourbar does, whatever the data of the plot:
+
+| Scale | Sweep |
+| --- | --- |
+| Continuous | A gradient through the colormap. A reversed colormap reverses the colours, never the direction of the values. |
+| Discrete | One band per band of the scale, side by side, each of equal width and in its single colour. |
+| Indexed or categorical | The entry colours side by side, in entry order, each of equal width. |
+
+A filled contour, a scalar image and a surface with colour-mapped faces draw the sweep as a filled band, outlined in a fixed edge colour if the plot has one. Colour-mapped isolines, and a series whose line is coloured by data, draw the sweep along the line of the sample. A marker that follows the colour data of a series point by point takes the colour of the sweep where it sits: at the centre of the line, or, for a series that draws only markers, in a row of markers across the sample. The sweep takes the opacity of the plot, but not its alpha, which varies over the plot and has no single value to show. A legend panel merges two plots of the same label that sweep the same colours, as it merges two lines of the same colour.
+
+A surface whose faces are one colour draws a swatch of that colour, outlined in its edge colour. Every swatch is drawn alike: a square of its colour, outlined in thin black, smaller than its row so that the swatches of neighbouring rows never touch. A `LegendSample::swatch` item, the entry of a category, and the key of a colourbar all draw it.
+
+### Validation of scale items
+
+A legend item that names no node of the figure as its scale is the validation error `UnknownColorScale`, and one that names a node other than a colour scale is `WrongNodeKind`; both are reported against the owner of the legend, the panel of a legend panel or the axes of an inside legend, and the scene compiler leaves the item out. A scale listed twice is the warning `DuplicateLegendItem`. A scale item is never `UnnamedLegendItem`, because the scale draws its own labels, so an untitled bar is a normal key. Removing a scale that a legend lists is refused, as removing a scale that a plot or a colourbar names is, unless the legend is removed in the same transaction.
+
 ## Colour scales in a figure file
 
 A figure file holds its colour scales in the `color_scales` list of the figure, and each colour-mapped plot holds the identifier of its scale in its `color_scale` property. A colour-mapped plot that names no scale is the validation error `MissingColorScale`, because the axes holds no colormap to fall back on. The [figure schema reference](../reference/figure-schema.md#colour-scales) describes every property, the [mapping rules](../reference/figure-schema.md#mapping-rules) and the [automatic limits](../reference/figure-schema.md#automatic-limits).
 
-A colourbar is stored where it is shown: a panel that holds one has the content `{"type": "colorbar", "value": {"scale": …, "orientation": …}}`, and an axes that shows one inside its plot area holds it in its `colorbar` property. Both are described under [panel content](../reference/figure-schema.md#panel-content) and [inside colourbars](../reference/figure-schema.md#inside-colourbar) in the reference.
+A legend item that shows a scale is `{"content": {"type": "color_scale", "value": …}, "full_row": …}` in the explicit entries of the legend, as the reference describes under [legend entries](../reference/figure-schema.md#legend-entries). A colourbar is stored where it is shown: a panel that holds one has the content `{"type": "colorbar", "value": {"scale": …, "orientation": …}}`, and an axes that shows one inside its plot area holds it in its `colorbar` property. Both are described under [panel content](../reference/figure-schema.md#panel-content) and [inside colourbars](../reference/figure-schema.md#inside-colourbar) in the reference.
 
 ## Examples in the gallery
 
+- [Branch map](../gallery/branch_map.md) colours a parameter sweep by the branch a nonlinear solver converged to, through a categorical scale, and keys it with a legend panel under the plot that lists the scale, the cases never run keyed by the non-finite key "not run".
+- [Case matrix](../gallery/case_matrix.md) bands a test matrix through a discrete scale shown by a horizontal colourbar, with a "not entered" key for the cases the model never entered, and lists a marker overlay in a legend inside the plot.
+- [Markers over a surface](../gallery/markers_over_surface.md) lists two kinds of marker and a bar of the surface's scale in one legend panel.
 - [Colourbar shared by a row](../gallery/row_shared_colorbar.md) shows one scale for three plots with one horizontal bar in a fitted row, and a key for the temperatures above the scale.
 - [Inside colourbar](../gallery/inside_colorbar.md) draws the bar of a bathymetry map inside the plot area, over open water, with a key naming the land above the range of the scale.
 - [Indexed palette](../gallery/indexed_palette.md) draws an 8-bit elevation raster through its 256-entry palette, whose bar labels three entries by name.

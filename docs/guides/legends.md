@@ -2,7 +2,7 @@
 
 A legend lists the plots of a figure that have a label, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** is a [panel](../reference/figure-schema.md#panels) of the figure that holds a legend: it occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
 
-The sample of a plot that maps its data to colours, such as a filled contour, a surface or a series coloured by data, is drawn in the middle colour of its [colour scale](colour.md), and a colour scale itself is not yet shown as an item of a legend. A scale is shown by a [colourbar](colour.md#showing-a-scale-with-a-colourbar) instead, in a panel or inside an axes, as the [colour guide](colour.md) describes. This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
+The sample of a plot that maps its data to colours, such as a filled contour, a surface or a series coloured by data, is a sweep of its [colour scale](colour.md) from the low end at the left to the high end at the right. A colour scale itself can be [listed as an item](#colour-scales-as-items) of a legend, as the categories of a categorical scale or as a bar, as well as shown by a [colourbar](colour.md#showing-a-scale-with-a-colourbar). This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
 
 ```rust
 use ironlab::prelude::*;
@@ -149,7 +149,7 @@ right.legend_in(key);
 
 The entries of a panel are listed in the reading order of the page. The axes are taken by the top-left tile of their cells, row by row from the top and, within a row, column by column from the left, and the plots of each axes follow in the order they were added. Two axes whose cells start at the same tile are taken in the order they were created. The order in which the code creates the axes therefore does not matter: a figure that builds its right-hand plot first still lists the entries of the left-hand plot first. A merged entry takes the position at which its first plot appears in this order.
 
-A legend inside an axes lists every labelled plot of that axes and merges nothing.
+A legend inside an axes lists every labelled plot of that axes and merges nothing. This holds for the entries of the categories of a [colour scale it lists](#colour-scales-as-items) too, which only a legend panel merges.
 
 ## Several panels
 
@@ -191,8 +191,8 @@ The key lies in a row [fitted to its legend](#fitting-rows-and-columns-to-their-
 
 | Method | Effect |
 | --- | --- |
-| `item(artist)` | Appends an item that lists the plot with this identifier, with its label beside its sample. It also accepts a `LegendItem`. |
-| `full_row(artist)` | Appends an item that lists the plot on a row of its own, spanning every column, as [described below](#items-on-a-row-of-their-own). |
+| `item(id)` | Appends an item that lists the plot with this identifier, with its label beside its sample, or, when the identifier is that of a colour scale, an item that [shows the scale](#colour-scales-as-items). It also accepts a `LegendItem`, which it appends as it is. |
+| `full_row(id)` | Appends an item that lists the plot or shows the scale on a row of its own, spanning every column, as [described below](#items-on-a-row-of-their-own). |
 | `custom_item(sample, label)` | Appends an item that shows a sample and a label and stands for no plot, as [described below](#items-that-stand-for-no-plot). |
 | `entries(entries)` | Replaces the entries of the panel: `LegendEntries::Auto` restores the automatic entries, and `LegendEntries::Explicit(items)` sets a whole list of `LegendItem` values at once. |
 
@@ -205,7 +205,7 @@ ax.legend(LegendLocation::NorthWest).legend_entries(LegendEntries::Explicit(vec!
 ]));
 ```
 
-[`validate`](getting-started.md#validating-a-figure) reports an item that names no plot of the figure, or, in a legend inside an axes, a plot of another axes, as the error `DanglingLegendItem`, and the scene compiler leaves such an item out. It reports an item that repeats an earlier item with the warning `DuplicateLegendItem`, because the legend then lists it twice, and an item naming a plot without a label with the warning `UnnamedLegendItem`, because the item then shows its sample alone. An explicit list of no items lists nothing, and validation reports such a panel with the warning `NothingToDraw`.
+[`validate`](getting-started.md#validating-a-figure) reports an item that names no plot of the figure, or, in a legend inside an axes, a plot of another axes, as the error `DanglingLegendItem`, and the scene compiler leaves such an item out. It reports an item that repeats an earlier item with the warning `DuplicateLegendItem`, because the legend then lists it twice, and an item naming a plot without a label with the warning `UnnamedLegendItem`, because the item then shows its sample alone. An explicit list of no items lists nothing, and validation reports such a panel with the warning `NothingToDraw`. The validation of an item that shows a colour scale is described in the [colour guide](colour.md#validation-of-scale-items).
 
 ### Items that stand for no plot
 
@@ -215,7 +215,7 @@ Some keys explain an encoding rather than name a series: the shape of a marker m
 | --- | --- |
 | `LegendSample::marker(shape, color)` | A single filled marker of the shape and colour, without a line. |
 | `LegendSample::line(color)` | A solid line of the colour, without a marker. |
-| `LegendSample::swatch(color)` | A filled rectangle of the colour. |
+| `LegendSample::swatch(color)` | A square of the colour with a thin black outline, as a category of a [categorical scale](#colour-scales-as-items) is drawn. |
 | `LegendSample::Line { line, marker }` | A line and a marker of any `LineStyle` and `MarkerStyle`, drawn as the sample of a plot is drawn. A dash of `Dash::None` draws the marker alone. An automatic line colour is the ink of the labels, and an automatic marker colour takes the line colour. |
 
 A panel that no axes sends its entries to may list such items alone, as a second key beside the first:
@@ -250,7 +250,23 @@ for &level in &levels {
 key.columns(LegendEntryColumns::Count(3));
 ```
 
-`LegendItem { full_row: true, ..LegendItem::custom(sample, label) }` puts an item that stands for no plot on a row of its own in the same way. When automatic columns are chosen, each item on a row of its own counts as one row whatever the number of columns, so such items may be used with automatic columns.
+`LegendItem { full_row: true, ..LegendItem::custom(sample, label) }` puts an item that stands for no plot on a row of its own in the same way. A [colour scale](#colour-scales-as-items) on a row of its own puts each of its categories on a row of its own, or lies as a horizontal bar across the width of the legend. When automatic columns are chosen, each item on a row of its own counts as one row whatever the number of columns, so such items may be used with automatic columns.
+
+### Colour scales as items
+
+An item may show a [colour scale](colour.md) instead of a plot, so that the key of a classification, or the bar of a scale, sits among the entries that explain the rest of the figure. `item` recognises the identifier of a scale when it is called, and `LegendItem::color_scale(id)` makes the same item for an explicit list or a legend inside an axes:
+
+```rust
+let mut fig = Figure::new().tiles(2, 1).fit_row(1);
+let status = fig
+    .categorical_scale([(Color::rgb(0.0, 0.45, 0.7), "converged"), (Color::rgb(0.9, 0.6, 0.0), "diverged")])
+    .id();
+let mut ax = fig.axes(0, 0);
+let measured = ax.scatter(&t, &a).label("Measured").id();
+fig.panel(1, 0).legend().item(status).item(measured);
+```
+
+A categorical scale is listed as one ordinary entry per category, labelled with the category's label beside a swatch of its colour, and a continuous, discrete or indexed scale as a bar five entry rows long. A scale may be any scale of the figure, whether or not a plot uses it, so a key of a classification can stand on its own. The [colour guide](colour.md#colour-keys-in-legends) describes how each is drawn and how the entries of categories merge with the other entries of a legend panel.
 
 ## Sizing rows and columns with weights
 
@@ -352,7 +368,7 @@ for warning in &report.scene {
 
 ## Legends in the viewer
 
-In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history. An item of an explicit list that names a plot behaves in the same way, and acts on every plot it stands for; an item that stands for no plot is not a toggle, and clicking it does nothing.
+In the [viewer](viewer.md#legend), clicking a legend entry hides or shows its plot. Clicking a merged entry acts on every plot the entry stands for, so a series shared by several subplots is hidden in all of them at once, and the first of those plots is selected. The click hides all of the plots unless every one of them is already hidden, in which case it shows them all. A merged entry is greyed only when all of its plots are hidden, and one click is one step of the undo history. An item of an explicit list that names a plot behaves in the same way, and acts on every plot it stands for; an item that stands for no plot is not a toggle, and clicking it does nothing. Nor is an item that shows a colour scale: clicking its bar or the entry of one of its categories does nothing, because a scale is not a plot, unless the entry of a category is merged with the entry of a plot, which it then hides or shows.
 
 The property editor lists the panels of a figure after the axes, in a group named "Panels", each named by its content and the tiles it occupies, as "Legend panel (row 2, col 0)" or "Legend panel (rows 0–1, col 2)". The alignment of a panel, the border, columns and order of its legend, the location, box, columns and order of a legend inside an axes, and the sizes of the rows and columns of the tile layout can be changed there; the sizes are typed as a list of weights in which the word `fit` stands for a fitted size. The tiles a panel occupies, the kind of content it holds, the panel that an axes sends its entries to and the explicit list of entries of a legend cannot, because they are part of the arrangement and the description of the figure, which are built in code. A legend with an explicit list is drawn and clicked in the viewer exactly as in an export.
 
@@ -385,7 +401,7 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
 }
 ```
 
-The entries of a legend are omitted while they are automatic. An explicit list is stored in the `entries` of the legend; a reference on a row of its own, followed by a plot and an item that stands for no plot, is stored as follows:
+The entries of a legend are omitted while they are automatic. An explicit list is stored in the `entries` of the legend; a reference on a row of its own, followed by a plot, a colour scale and an item that stands for no plot, is stored as follows:
 
 ```json
 "entries": {
@@ -393,6 +409,7 @@ The entries of a legend are omitted while they are automatic. An explicit list i
   "value": [
     {"content": {"type": "artist", "value": 12}, "full_row": true},
     {"content": {"type": "artist", "value": 9}, "full_row": false},
+    {"content": {"type": "color_scale", "value": 4}, "full_row": false},
     {
       "content": {
         "type": "custom",
@@ -415,4 +432,6 @@ Every property is described in the [figure schema reference](../reference/figure
 - [Shared legend panel](../gallery/panel_legend_shared.md) shows temperatures at five weather stations in a grid of five axes that draw the same series, with one panel in the sixth tile listing each series once.
 - [Wide legend panel](../gallery/panel_legend_wide.md) shows the step and magnitude responses of a second-order system at twelve damping ratios, with a panel across the full width beneath the two plots, in a row made shorter by row weights, whose entries are arranged in automatic columns. Its panel is drawn without a border, for comparison with the bordered panel of the previous figure.
 - [Reference and variants](../gallery/reference_and_variants.md) shows a stack of three plots that share the angle of attack, with a key in a fitted row beneath them that lists the base case first, on a row of its own, although it is drawn last, followed by six perturbation levels in columns.
+- [Branch map](../gallery/branch_map.md) shows the key of a categorical colour scale as a legend panel under the plot, whose entries are the categories of the scale.
+- [Markers over a surface](../gallery/markers_over_surface.md) shows a legend panel that lists two kinds of marker and the bar of the surface's colour scale.
 - [Two keys](../gallery/two_keys.md) shows a curve key beside a marker key whose items stand for no plot: a grey shape for each kind of point, and a colour swatch for each surface, both in one fitted row.
