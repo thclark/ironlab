@@ -1,17 +1,20 @@
 //! The handles to a panel and to the legend it holds.
 
 use ironlab_ir::{
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendSample, NodeId,
-    Panel, PanelContent, PanelLegend, PanelLocation, Text,
+    ColorbarOrientation, Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem,
+    LegendSample, NodeId, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text,
 };
+
+use crate::colorbar::PanelColorbarMut;
 
 /// A handle to one panel of a figure, returned by [`Figure::panel`](crate::Figure::panel)
 /// and [`Figure::panel_span`](crate::Figure::panel_span), through which its placement and
 /// its content are set.
 ///
-/// A panel occupies cells of the figure's tile layout, as an axes does, and holds one key.
-/// In this version the key is always a legend, so a panel created without a call to
-/// [`legend`](PanelMut::legend) holds a legend with the default settings.
+/// A panel occupies cells of the figure's tile layout, as an axes does, and holds one key:
+/// a legend, set with [`legend`](PanelMut::legend), or a colourbar, set with
+/// [`colorbar`](PanelMut::colorbar). A panel created without a call to either holds a
+/// legend with the default settings.
 ///
 /// Like [`AxesMut`](crate::AxesMut), the handle borrows the figure mutably, so it is
 /// short-lived: keep its [`id`](PanelMut::id) to point axes at the panel later.
@@ -64,7 +67,8 @@ impl PanelMut<'_> {
     }
 
     /// Makes the content of the panel a legend, keeping the legend the panel already
-    /// holds, and returns the handle through which the legend is set.
+    /// holds, and returns the handle through which the legend is set. A colourbar the panel
+    /// holds is replaced by a legend with the default settings.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -73,9 +77,45 @@ impl PanelMut<'_> {
     /// fig.panel(1, 0).legend().columns(LegendEntryColumns::Count(4));
     /// ```
     pub fn legend(&mut self) -> PanelLegendMut<'_> {
-        // A legend is the only content a panel has in this version, so the panel already
-        // holds one; content of another kind would be replaced here.
+        let panel = self.panel();
+        if !matches!(panel.content, PanelContent::Legend(_)) {
+            panel.content = PanelContent::Legend(PanelLegend::default());
+        }
         PanelLegendMut::new(self.fig, self.id)
+    }
+
+    /// Makes the content of the panel a colourbar that shows the colour scale with the
+    /// given identifier (MATLAB's and matplotlib's `colorbar`), and returns the handle
+    /// through which the colourbar is set.
+    ///
+    /// A colourbar the panel already holds keeps its orientation and takes the new scale; a
+    /// legend the panel holds is replaced by a vertical colourbar. The bar stretches along
+    /// the cells of the panel, so a panel spanning a row of axes, in a row whose size fits
+    /// its content, shows one scale for the whole row. An identifier that names no colour
+    /// scale is reported by [`Figure::validate`](crate::Figure::validate).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let field = Matrix::from_fn(8, 8, |row, col| (row * col) as f64);
+    /// let mut fig = Figure::new().tiles(1, 2).fit_col(1);
+    /// fig.axes(0, 0).scalar_image(&field);
+    /// let s = fig.axes(0, 0).color_scale().title("Intensity").id();
+    /// fig.panel(0, 1).colorbar(s);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn colorbar(&mut self, scale: NodeId) -> PanelColorbarMut<'_> {
+        let panel = self.panel();
+        match &mut panel.content {
+            PanelContent::Colorbar(colorbar) => colorbar.scale = scale,
+            PanelContent::Legend(_) => {
+                panel.content = PanelContent::Colorbar(PanelColorbar {
+                    scale,
+                    orientation: ColorbarOrientation::default(),
+                });
+            }
+        }
+        PanelColorbarMut::new(self.fig, self.id)
     }
 
     /// Returns the panel, which exists because the handle is only created for a panel of
@@ -315,6 +355,9 @@ impl PanelLegendMut<'_> {
             .expect("a panel legend handle names a panel of the figure");
         match &mut panel.content {
             PanelContent::Legend(legend) => legend,
+            PanelContent::Colorbar(_) => {
+                unreachable!("a panel legend handle names a panel that holds a legend")
+            }
         }
     }
 }

@@ -860,6 +860,7 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
         panels: vec![],
         artists: vec![],
         images: vec![],
+        colorbars: vec![],
     }
 }
 
@@ -901,6 +902,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
         panels: vec![],
         artists: vec![],
         images: vec![],
+        colorbars: vec![],
     };
 
     assert!(
@@ -930,6 +932,7 @@ fn the_selection_survives_a_gesture() {
         panels: vec![],
         artists: vec![],
         images: vec![],
+        colorbars: vec![],
     };
 
     state.drag_start(&hit, Point::new(100.0, 50.0));
@@ -2081,6 +2084,7 @@ fn the_inspector_is_ordered_by_the_names_it_shows() {
             "aspect_adjust",
             "box",
             "cell",
+            "colorbar",
             "legend",
             "projection",
             "title",

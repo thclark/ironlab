@@ -2,7 +2,7 @@
 
 proto_file! {
     /// A node of the figure that occupies cells of the tile layout and holds one key,
-    /// such as a legend.
+    /// such as a legend or a colourbar.
     message Panel {
         /// The node identifier of the panel, unique within the figure; it must be
         /// present.
@@ -43,7 +43,31 @@ proto_file! {
         oneof kind: PanelContentKind {
             /// A legend.
             Legend(PanelContentLegend) legend = 1;
+            /// A colourbar.
+            Colorbar(PanelContentColorbar) colorbar = 2;
         }
+    }
+
+    /// A colourbar held by a panel, which shows a colour scale along the panel's cells.
+    message PanelColorbar {
+        /// The node identifier of the colour scale that the bar shows; it must be present.
+        optional uint64 scale = 1;
+        /// The direction in which the bar runs.
+        enum ColorbarOrientation orientation = 2;
+    }
+
+    /// The direction in which a panel colourbar runs.
+    enum ColorbarOrientation {
+        /// Upright, with low values at the bottom.
+        Vertical = 1;
+        /// Flat, with low values at the left.
+        Horizontal = 2;
+    }
+
+    /// A colourbar, which shows a colour scale along the cells of the panel.
+    message PanelContentColorbar {
+        /// The colourbar; it must be present.
+        message PanelColorbar colorbar = 1;
     }
 
     /// A legend, which lists the entries of every axes whose legend names the panel.

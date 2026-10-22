@@ -60,6 +60,7 @@ mod artists;
 mod axes;
 mod color;
 mod color_scale;
+mod colorbar;
 mod data;
 mod error;
 mod figure;
@@ -73,6 +74,7 @@ pub use artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, Su
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
+pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
@@ -100,17 +102,21 @@ pub use ironlab_ir::ColorScaleNorm;
 /// The plane of an axes in which an image lies, with its offset along the third axis.
 pub use ironlab_ir::ImagePlane;
 
+/// The out-of-range categories of a colour scale whose keys a colourbar may show. See
+/// [`ColorScaleMut::show_key`].
+pub use ironlab_ir::ColorScaleKey;
+
 /// What a colour scale draws for a value it cannot place: one below or above its range,
 /// one that names none of its entries, or one that is not finite. See
 /// [`ColorScaleMut::below`].
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Aspect, AspectAdjust, Color, ColorSpec, Coords, InsideLegend, Interpreter, IssueKind, Legend,
-    LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
-    LegendItemContent, LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, PanelLegend,
-    PanelLocation, Parameter, Scale, Text, TickLabels, Ticks, TitleAlign, TrackSize,
-    ValidationIssue, ValidationReport,
+    Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, Coords, InsideColorbarSide,
+    InsideLegend, Interpreter, IssueKind, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation,
+    LegendSample, LineStyle, MarkerStyle, NodeId, PanelLegend, PanelLocation, Parameter, Scale,
+    Text, TickLabels, Ticks, TitleAlign, TrackSize, ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
@@ -176,11 +182,12 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Aspect, AspectAdjust, ByteMatrix, Color, ColorScaleMut, ColorScaleNorm, ColorSpec,
-        Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error,
-        Figure, ImageMut, ImagePlane, ImageValues, IntoColorSpec, LegendEntries,
-        LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Marker,
-        Matrix, NodeId, OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels,
+        Aspect, AspectAdjust, ByteMatrix, Color, ColorScaleKey, ColorScaleMut, ColorScaleNorm,
+        ColorSpec, ColorbarOrientation, Colormap, ColormapSample, ContourMut, Coords, Dash,
+        DataArrayMut, DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues,
+        InsideColorbarMut, InsideColorbarSide, IntoColorSpec, LegendEntries, LegendEntryColumns,
+        LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Marker, Matrix, NodeId,
+        OutOfRange, PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels,
         QuiverMut, RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, SurfaceMut, Text,
         TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };

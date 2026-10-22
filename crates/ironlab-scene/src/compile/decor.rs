@@ -14,8 +14,9 @@ pub(super) const TICK_SCALE: f64 = 0.9;
 /// The largest number of ticks a regular step may place on one axis; a finer step falls back to automatic ticks.
 const MAX_STEPPED_TICKS: usize = 500;
 /// The fewest labelled ticks that automatic ticks give the x axis of a 2D axes whose limits hold them at a round step.
-/// Two are the fewest from which a value can be read, and the labels of an x axis must also fit along it.
-const MIN_X_TICKS: usize = 2;
+/// Two are the fewest from which a value can be read, and the labels of an x axis must also fit along it. A colourbar
+/// takes as few, for the same reason.
+pub(super) const MIN_X_TICKS: usize = 2;
 /// The fewest labelled ticks that automatic ticks give any other axis whose limits hold them at a round step.
 const MIN_TICKS: usize = 3;
 /// How many more intervals than its target an axis may be given to reach its fewest ticks.
@@ -81,7 +82,8 @@ pub(super) fn measure(
             } else {
                 MIN_TICKS
             };
-            axis_ticks(ctx, axes.id, axis, dim, ranges[dim], targets[dim], fewest)
+            let name = ["x", "y", "z"][dim];
+            axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest)
         } else {
             AxisTicks {
                 major: Vec::new(),
@@ -127,7 +129,7 @@ pub(super) fn fit_x_target(
     if is_3d(axes) || range.log || target <= 2 || !automatic {
         return target;
     }
-    let ticks = axis_ticks(ctx, axes.id, &axes.x, 0, range, target, MIN_X_TICKS);
+    let ticks = axis_ticks(ctx, axes.id, &axes.x, "x", range, target, MIN_X_TICKS);
     let [a, b, ..] = ticks.major[..] else {
         return target;
     };
@@ -152,16 +154,17 @@ pub(super) fn fit_x_target(
 /// explicit values, each kept only where it lies within the limits. Automatic ticks on a linear axis are given more
 /// intervals than `target` when that is what it takes for at least `fewest` of them to lie within the limits, which
 /// matters only for manual limits narrower than the round step the target gives. A regular step that would place more
-/// than [`MAX_STEPPED_TICKS`] ticks falls back to automatic ticks with a warning naming `owner`.
+/// than [`MAX_STEPPED_TICKS`] ticks falls back to automatic ticks with a warning naming `owner`, which calls the axis
+/// `name`. A colourbar draws its ticks through an axis built from its scale, so that its ticks and an axis's agree.
 ///
 /// The labels are what the axis asks for: none when they are hidden, the explicit texts beside the values they name,
 /// or the formatted values. Explicit texts that do not name explicit values one by one, which validation reports, are
 /// replaced by the formatted values, so that the figure is still drawn.
-fn axis_ticks(
+pub(super) fn axis_ticks(
     ctx: &mut Ctx,
     owner: NodeId,
     axis: &Axis,
-    dim: usize,
+    name: &str,
     range: Range,
     target: usize,
     fewest: usize,
@@ -180,9 +183,8 @@ fn axis_ticks(
                     ctx.warn(
                         Some(owner),
                         format!(
-                            "The {} tick step {step} from {origin} is too fine for the limits [{}, {}] or cannot \
-                             be placed, so automatic ticks are used.",
-                            ["x", "y", "z"][dim],
+                            "The {name} tick step {step} from {origin} is too fine for the limits [{}, {}] or \
+                             cannot be placed, so automatic ticks are used.",
                             range.min,
                             range.max
                         ),

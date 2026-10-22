@@ -447,6 +447,7 @@
         "type": "auto"
       },
       "aspect_adjust": "box",
+      "colorbar": null,
       "box": true,
       "legend": {
         "type": "inside",

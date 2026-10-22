@@ -4,10 +4,11 @@ use crate::fields::*;
 
 pub const TITLE: &str = "Discrete colour scale";
 pub const DESCRIPTION: &str = "The pressure coefficient of the potential flow past a circular cylinder, filled \
-     through a discrete colour scale of eight bands, half a unit of the coefficient wide, from −3 at the shoulders of \
-     the cylinder to 1 at its stagnation points. Neither the filled contour nor the black isolines over it has levels \
-     of its own: both take the band edges of the scale they name, so the bands and the isolines cannot disagree, and \
-     a value exactly on an edge belongs to the band above it.";
+     through a discrete colour scale of eight bands, half a unit of the coefficient wide, from −3 at the shoulders \
+     of the cylinder to 1 at its stagnation points. Neither the filled contour nor the black isolines over it has \
+     levels of its own: both take the band edges of the scale they name, so the bands and the isolines cannot \
+     disagree, and a value exactly on an edge belongs to the band above it. The colourbar in the fitted column \
+     beside the axes shows the same scale as eight blocks, one per band, with a tick at every edge.";
 
 /// The number of rings of the mesh, from the surface of the cylinder to the outer radius.
 const RINGS: usize = 41;
@@ -27,13 +28,16 @@ pub fn figure() -> Figure {
     let circle = linspace(0.0, std::f64::consts::TAU, 145);
 
     let mut fig = Figure::new()
-        .size_mm(120.0, 110.0)
+        .size_mm(135.0, 110.0)
+        .tiles(1, 2)
+        .fit_col(1)
         .title(r"Pressure coefficient $C_p$ of the potential flow past a cylinder")
         .tag("contour")
         .tag("line")
         .tag("colormap")
         .tag("levels")
         .tag("aspect")
+        .tag("colorbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 3)
         .parameter("data_points", 18_125)
@@ -46,6 +50,7 @@ pub fn figure() -> Figure {
         .color_scale()
         .colormap(Colormap::Cividis)
         .discrete(&edges)
+        .ticks(&edges)
         .title("$C_p$")
         .id();
 
@@ -62,5 +67,6 @@ pub fn figure() -> Figure {
     ax.aspect(Aspect::Equal)
         .xlabel("$x / a$")
         .ylabel("$y / a$");
+    fig.panel(0, 1).colorbar(bands);
     fig
 }

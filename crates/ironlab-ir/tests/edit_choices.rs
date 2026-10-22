@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 31] = [
+const WITH_CHOICES: [ValueType; 33] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -29,6 +29,8 @@ const WITH_CHOICES: [ValueType; 31] = [
     ValueType::LegendEntryOrder,
     ValueType::PanelLocation,
     ValueType::PanelContent,
+    ValueType::ColorbarOrientation,
+    ValueType::InsideColorbarSide,
     ValueType::ColorSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
@@ -551,11 +553,32 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::PanelLocation(PanelLocation::SouthWest),
         ],
     );
+    // A panel holds a legend or a colourbar.
     covered(
         ValueType::PanelContent,
-        vec![Value::PanelContent(PanelContent::Legend(
-            PanelLegend::default(),
-        ))],
+        vec![
+            Value::PanelContent(PanelContent::Legend(PanelLegend::default())),
+            Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
+                scale: NodeId(7),
+                orientation: ColorbarOrientation::Horizontal,
+            })),
+        ],
+    );
+    covered(
+        ValueType::ColorbarOrientation,
+        vec![
+            Value::ColorbarOrientation(ColorbarOrientation::Vertical),
+            Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+        ],
+    );
+    covered(
+        ValueType::InsideColorbarSide,
+        vec![
+            Value::InsideColorbarSide(InsideColorbarSide::South),
+            Value::InsideColorbarSide(InsideColorbarSide::North),
+            Value::InsideColorbarSide(InsideColorbarSide::East),
+            Value::InsideColorbarSide(InsideColorbarSide::West),
+        ],
     );
     covered(
         ValueType::Legend,

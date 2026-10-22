@@ -35,6 +35,9 @@ pub struct Axes {
     /// How a fixed aspect is kept: by shaping the plot area or the box, or by widening
     /// limits. Ignored when the aspect is `Auto`.
     pub aspect_adjust: AspectAdjust,
+    /// The colourbar drawn inside the plot area along one of its edges, or `null` when the
+    /// axes shows none.
+    pub colorbar: Option<InsideColorbar>,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels.
     #[serde(rename = "box")]
@@ -58,11 +61,53 @@ impl Default for Axes {
             z: Axis::default(),
             aspect: Aspect::Auto,
             aspect_adjust: AspectAdjust::Box,
+            colorbar: None,
             box_: true,
             legend: None,
             artists: Vec::new(),
         }
     }
+}
+
+/// A colourbar drawn inside the plot area of an axes, along one of its edges, over the
+/// artists. It takes no margin: the plot area keeps its size whether or not the bar is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct InsideColorbar {
+    /// The colour scale that the bar shows.
+    pub scale: NodeId,
+    /// The edge of the plot area along which the bar lies, which also sets its orientation:
+    /// horizontal along the south and north edges, vertical along the east and west edges.
+    pub side: InsideColorbarSide,
+    /// The length of the bar, together with any keys it shows, as a fraction of the edge it
+    /// lies along, centred on it: a finite number greater than 0 and at most 1.
+    pub length: f64,
+}
+
+impl Default for InsideColorbar {
+    /// A bar along the south edge, four fifths of its length, naming the identifier 0.
+    fn default() -> Self {
+        Self {
+            scale: NodeId::default(),
+            side: InsideColorbarSide::South,
+            length: 0.8,
+        }
+    }
+}
+
+/// The edge of the plot area along which an inside colourbar lies. Its tick labels face the
+/// interior of the plot area.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InsideColorbarSide {
+    /// Along the bottom edge, horizontal.
+    #[default]
+    South,
+    /// Along the top edge, horizontal.
+    North,
+    /// Along the right edge, vertical.
+    East,
+    /// Along the left edge, vertical.
+    West,
 }
 
 /// The ratios of the drawn length of one data unit of y, and of z, to that of one data unit

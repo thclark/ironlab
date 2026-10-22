@@ -544,6 +544,27 @@ pub fn perturb(value: &Value) -> Value {
                 ..legend.clone()
             }))
         }
+        Value::PanelContent(PanelContent::Colorbar(colorbar)) => {
+            Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
+                orientation: other_orientation(colorbar.orientation),
+                ..*colorbar
+            }))
+        }
+        Value::PanelColorbar(colorbar) => Value::PanelColorbar(PanelColorbar {
+            orientation: other_orientation(colorbar.orientation),
+            ..*colorbar
+        }),
+        Value::ColorbarOrientation(orientation) => {
+            Value::ColorbarOrientation(other_orientation(*orientation))
+        }
+        Value::InsideColorbar(colorbar) => Value::InsideColorbar(InsideColorbar {
+            length: if colorbar.length == 0.5 { 0.8 } else { 0.5 },
+            ..*colorbar
+        }),
+        Value::InsideColorbarSide(InsideColorbarSide::South) => {
+            Value::InsideColorbarSide(InsideColorbarSide::North)
+        }
+        Value::InsideColorbarSide(_) => Value::InsideColorbarSide(InsideColorbarSide::South),
         Value::ColorSpec(spec) => Value::ColorSpec(color_spec(spec)),
         Value::LineStyle(style) => Value::LineStyle(LineStyle {
             width_pt: style.width_pt + 0.5,
@@ -694,11 +715,19 @@ pub fn perturb(value: &Value) -> Value {
     }
 }
 
+/// Returns the other orientation of a colourbar.
+fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
+    match orientation {
+        ColorbarOrientation::Vertical => ColorbarOrientation::Horizontal,
+        ColorbarOrientation::Horizontal => ColorbarOrientation::Vertical,
+    }
+}
+
 /// The number of variants of [`Value`].
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 63;
+pub const VALUE_VARIANTS: usize = 67;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -770,6 +799,10 @@ pub fn value_variant(value: &Value) -> usize {
         Value::IndexedColorScale(_) => 60,
         Value::CategoricalColorScale(_) => 61,
         Value::Colormap(_) => 62,
+        Value::PanelColorbar(_) => 63,
+        Value::ColorbarOrientation(_) => 64,
+        Value::InsideColorbar(_) => 65,
+        Value::InsideColorbarSide(_) => 66,
     }
 }
 
@@ -1008,6 +1041,17 @@ pub fn sample_values() -> Vec<Value> {
         Value::ColorScaleLevels(ColorScaleLevels::Explicit {
             values: vec![-2.0, 0.0, 2.5],
         }),
+        Value::PanelColorbar(PanelColorbar {
+            scale: NodeId((1 << 53) + 11),
+            orientation: ColorbarOrientation::Horizontal,
+        }),
+        Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+        Value::InsideColorbar(InsideColorbar {
+            scale: NodeId(12),
+            side: InsideColorbarSide::West,
+            length: 0.625,
+        }),
+        Value::InsideColorbarSide(InsideColorbarSide::East),
     ]
 }
 

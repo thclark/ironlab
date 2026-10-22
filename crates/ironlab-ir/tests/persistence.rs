@@ -82,6 +82,7 @@ fn decay_figure() -> Figure {
             z: Axis::default(),
             aspect: Aspect::Ratio { y: 0.5, z: 2.0 },
             aspect_adjust: AspectAdjust::Limits,
+            colorbar: None,
             box_: true,
             legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,

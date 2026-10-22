@@ -924,7 +924,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::CategoricalColorScale => Some(Value::CategoricalColorScale(
             CategoricalColorScale::default(),
         )),
-        ValueType::NodeId => None,
+        // A colourbar names a colour scale, which is a reference to a node.
+        ValueType::NodeId | ValueType::PanelColorbar | ValueType::InsideColorbar => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
         | ValueType::Limits
@@ -946,6 +947,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
+        | ValueType::ColorbarOrientation
+        | ValueType::InsideColorbarSide
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape

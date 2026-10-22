@@ -60,32 +60,49 @@ pub(super) fn x_length_estimate(outer: Rect) -> f64 {
 /// target is then thinned by [`super::decor::fit_x_target`] until the x tick labels fit. A 3D axis allows one interval per six font sizes of the shorter tile side.
 pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
     let fs = ctx.font_size;
-    let count = |len: f64, spacing: f64, max: usize| -> usize {
-        let n = (len / spacing).floor();
-        if n.is_finite() && n > 0.0 {
-            (n as usize).clamp(3, max)
-        } else {
-            3
-        }
-    };
     if is_3d(axes) {
-        let n = count(outer.width.min(outer.height), 6.0 * fs, 6);
+        let n = count(outer.width.min(outer.height), 6.0 * fs, 3, 6);
         [n; 3]
     } else {
         [
             count(
                 x_length_estimate(outer),
                 X_TICK_SPACING * fs,
+                3,
                 MAX_INTERVALS_2D,
             ),
             count(
                 Y_LENGTH_FRACTION * outer.height,
                 Y_TICK_SPACING * fs,
+                3,
                 MAX_INTERVALS_2D,
             ),
             5,
         ]
     }
+}
+
+/// Returns the number of intervals of length `spacing` that `len` holds, from `min` to `max`, and `min` when the
+/// length holds no finite number of them.
+fn count(len: f64, spacing: f64, min: usize, max: usize) -> usize {
+    let n = (len / spacing).floor();
+    if n.is_finite() && n > 0.0 {
+        (n as usize).clamp(min, max)
+    } else {
+        min
+    }
+}
+
+/// Returns the largest number of major tick intervals of a colourbar `length` points long, with the density of the
+/// ticks of a 2D x axis when the bar lies flat and of a 2D y axis when it stands, so that a bar is ticked as densely
+/// as the axes beside it. A short bar may take a single interval, so that its labels do not crowd it.
+pub(super) fn bar_tick_target(ctx: &Ctx, length: f64, horizontal: bool) -> usize {
+    let spacing = if horizontal {
+        X_TICK_SPACING
+    } else {
+        Y_TICK_SPACING
+    };
+    count(length, spacing * ctx.font_size, 1, MAX_INTERVALS_2D)
 }
 
 /// The finite extents of the values that artists place along one axis.

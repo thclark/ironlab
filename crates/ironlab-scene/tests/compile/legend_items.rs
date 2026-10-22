@@ -764,7 +764,9 @@ fn automatic_columns_count_full_rows_when_fitting_the_height() {
     // The number of entries one column holds is the largest number that does not overflow it.
     let fits = |n: usize| {
         let mut fx = fx.fig.clone();
-        let PanelContent::Legend(legend) = &mut fx.panels[0].content;
+        let PanelContent::Legend(legend) = &mut fx.panels[0].content else {
+            panic!("the panel holds a legend");
+        };
         legend.entries =
             LegendEntries::Explicit(lines[..n].iter().map(|&l| LegendItem::artist(l)).collect());
         !overflows(&compile_figure(&fx), LegendOwner::Panel(panel))

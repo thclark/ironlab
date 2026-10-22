@@ -9,8 +9,8 @@ use crate::artist::{
     ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, PixelRange, QuiverScale,
 };
 use crate::axes::{
-    Aspect, AspectAdjust, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
+    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
@@ -24,7 +24,7 @@ use crate::legend::{
     PanelLegend,
 };
 use crate::link::AxisLink;
-use crate::panel::{PanelContent, PanelLocation};
+use crate::panel::{ColorbarOrientation, PanelColorbar, PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -175,6 +175,14 @@ pub enum Value {
     ColorScaleNorm(ColorScaleNorm),
     /// The band edges of a discrete colour scale.
     ColorScaleLevels(ColorScaleLevels),
+    /// The colourbar content of a panel.
+    PanelColorbar(PanelColorbar),
+    /// The direction in which a panel colourbar runs.
+    ColorbarOrientation(ColorbarOrientation),
+    /// The colourbar inside an axes.
+    InsideColorbar(InsideColorbar),
+    /// The edge along which an inside colourbar lies.
+    InsideColorbarSide(InsideColorbarSide),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -305,6 +313,14 @@ pub enum ValueType {
     ColorScaleNorm,
     /// See [`Value::ColorScaleLevels`].
     ColorScaleLevels,
+    /// See [`Value::PanelColorbar`].
+    PanelColorbar,
+    /// See [`Value::ColorbarOrientation`].
+    ColorbarOrientation,
+    /// See [`Value::InsideColorbar`].
+    InsideColorbar,
+    /// See [`Value::InsideColorbarSide`].
+    InsideColorbarSide,
 }
 
 impl Value {
@@ -377,6 +393,10 @@ impl Value {
             Value::Colormap(_) => ValueType::Colormap,
             Value::ColorScaleNorm(_) => ValueType::ColorScaleNorm,
             Value::ColorScaleLevels(_) => ValueType::ColorScaleLevels,
+            Value::PanelColorbar(_) => ValueType::PanelColorbar,
+            Value::ColorbarOrientation(_) => ValueType::ColorbarOrientation,
+            Value::InsideColorbar(_) => ValueType::InsideColorbar,
+            Value::InsideColorbarSide(_) => ValueType::InsideColorbarSide,
         })
     }
 }

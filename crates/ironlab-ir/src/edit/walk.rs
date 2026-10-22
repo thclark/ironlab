@@ -21,8 +21,8 @@ use crate::artist::{
     Quiver, QuiverScale, ScalarImage, Series, Surface,
 };
 use crate::axes::{
-    Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
+    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -42,7 +42,7 @@ use crate::legend::{
 };
 use crate::link::AxisLink;
 use crate::nodes::{NodeKind, describe};
-use crate::panel::{Panel, PanelContent, PanelLocation};
+use crate::panel::{ColorbarOrientation, Panel, PanelColorbar, PanelContent, PanelLocation};
 use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
@@ -399,6 +399,8 @@ ir_leaf! {
     ColorScaleNorm => ColorScaleNorm;
     LegendLocation => LegendLocation;
     PanelLocation => PanelLocation;
+    ColorbarOrientation => ColorbarOrientation;
+    InsideColorbarSide => InsideColorbarSide;
     LegendEntryOrder => LegendEntryOrder;
     AspectAdjust => AspectAdjust;
     TitleAlign => TitleAlign;
@@ -467,6 +469,8 @@ ir_node! {
             "The ratios of the length of one data unit of y, and of z, to the length of one data unit of x; on a logarithmic axis the unit is one decade.";
         plain "aspect_adjust" => aspect_adjust: AspectAdjust =
             "How a fixed aspect is kept: by shaping the plot area or the box of a three-dimensional axes to the limits, or by widening the limits.";
+        optional "colorbar" => colorbar: InsideColorbar =
+            "The colourbar drawn inside the plot area along one of its edges, over the artists, or absent when the axes shows none.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
         optional "legend" => legend: Legend =
@@ -671,6 +675,20 @@ ir_value! {
         hidden "entries" => entries: () = "";
     }
 
+    PanelColorbar as PanelColorbar {
+        plain "scale" => scale: NodeId = "The colour scale that the colourbar shows.";
+        plain "orientation" => orientation: ColorbarOrientation =
+            "Whether the bar stands upright, with low values at the bottom, or lies flat, with low values at the left.";
+    }
+
+    InsideColorbar as InsideColorbar {
+        plain "scale" => scale: NodeId = "The colour scale that the colourbar shows.";
+        plain "side" => side: InsideColorbarSide =
+            "The edge of the plot area along which the bar lies, which also sets whether it lies flat or stands upright.";
+        plain "length" => length: f64 =
+            "The length of the bar, with any keys it shows, as a fraction of the edge it lies along, centred on it; greater than 0 and at most 1.";
+    }
+
     PanelLegend as PanelLegend {
         plain "boxed" => boxed: bool =
             "Whether the area of the panel is outlined by a border drawn as the box of an axes is drawn.";
@@ -793,6 +811,10 @@ ir_tagged! {
         Legend {
             plain "legend" => 0: PanelLegend =
                 "A legend, which lists the entries of every axes whose legend names the panel.";
+        }
+        Colorbar {
+            plain "colorbar" => 0: PanelColorbar =
+                "A colourbar, which shows a colour scale along the cells of the panel.";
         }
     }
 

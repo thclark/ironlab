@@ -2,9 +2,9 @@
 //! axes, and the sampling of a colormap into a palette.
 
 use ironlab_ir::{
-    Artist, CategoricalColorScale, Color, ColorCategory, ColorScale, ColorScaleKind,
+    Artist, CategoricalColorScale, Color, ColorCategory, ColorScale, ColorScaleKey, ColorScaleKind,
     ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColormapName, ContinuousColorScale,
-    DiscreteColorScale, IndexedColorScale, Limits, NodeId, OutOfRange, Text,
+    DiscreteColorScale, IndexedColorScale, Limits, NodeId, OutOfRange, Text, TickLabels, Ticks,
 };
 use ironlab_scene::maths::colormap::{self, Lut};
 
@@ -78,8 +78,8 @@ impl ColorScaleMut<'_> {
         self.id
     }
 
-    /// Sets the title of the scale, which a colourbar that shows the scale draws beside
-    /// it.
+    /// Sets the title of the scale, which every colourbar that shows the scale draws
+    /// above the bar.
     pub fn title(&mut self, title: impl Into<Text>) -> &mut Self {
         self.scale().title = Some(title.into());
         self
@@ -243,6 +243,130 @@ impl ColorScaleMut<'_> {
     pub fn non_finite(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
         self.scale().non_finite.policy = policy.into();
         self
+    }
+
+    /// Places the ticks of every colourbar that shows the scale at the given values
+    /// (MATLAB's `colorbar('Ticks', …)`), on a continuous, discrete or indexed scale. The
+    /// ticks of an indexed scale are entry indices, and each is drawn at the centre of its
+    /// entry.
+    ///
+    /// The ticks are labelled with their values unless
+    /// [`tick_labels`](Self::tick_labels) names them or
+    /// [`tick_labels_hidden`](Self::tick_labels_hidden) hides them. A categorical scale,
+    /// which labels each category itself, is left as it is.
+    pub fn ticks(&mut self, values: impl AsRef<[f64]>) -> &mut Self {
+        let values = values.as_ref().to_vec();
+        self.with_ticks(|ticks, _| *ticks = Ticks::Values(values))
+    }
+
+    /// Places a tick of every colourbar that shows the scale at every multiple of `step`
+    /// within the range of the scale, as an axis's
+    /// [`xtick_step`](crate::AxesMut::xtick_step) does. A categorical scale is left as it
+    /// is.
+    pub fn tick_step(&mut self, step: f64) -> &mut Self {
+        self.with_ticks(|ticks, _| *ticks = Ticks::Step { step, origin: 0.0 })
+    }
+
+    /// Places the ticks of every colourbar that shows the scale at the given values and
+    /// labels each with its text, in one call, because a label means nothing apart from its
+    /// value (MATLAB's `Ticks` and `TickLabels` together).
+    ///
+    /// A plain string is interpreted as LaTeX, as for every other text of the figure. A
+    /// categorical scale is left as it is.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.indexed_scale(Colormap::Gray.sample(256))
+    ///     .tick_labels([(0, "water"), (128, "land"), (255, "ice")]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn tick_labels<V: Into<f64>, T: Into<Text>>(
+        &mut self,
+        labels: impl IntoIterator<Item = (V, T)>,
+    ) -> &mut Self {
+        let (values, labels): (Vec<f64>, Vec<Text>) = labels
+            .into_iter()
+            .map(|(value, label)| (value.into(), label.into()))
+            .unzip();
+        self.with_ticks(|ticks, tick_labels| {
+            *ticks = Ticks::Values(values);
+            *tick_labels = TickLabels::Text(labels);
+        })
+    }
+
+    /// Hides the tick labels of every colourbar that shows the scale, keeping its ticks. A
+    /// categorical scale is left as it is.
+    pub fn tick_labels_hidden(&mut self) -> &mut Self {
+        self.with_ticks(|_, tick_labels| *tick_labels = TickLabels::Hidden)
+    }
+
+    /// Shows the key of one out-of-range category, with its default label, on every
+    /// colourbar that shows the scale: a square of the colour drawn for such values,
+    /// separate from the bar. Keys are off by default.
+    ///
+    /// The default labels are `> upper` for values above the range and `< lower` for
+    /// values below it, with the limits formatted as the ticks are, `NaN / Inf` for values
+    /// that are not finite, and `Out of range` for values that name no entry. The policy of
+    /// the category, which [`below`](Self::below), [`above`](Self::above),
+    /// [`outside`](Self::outside) and [`non_finite`](Self::non_finite) set, is kept. A key
+    /// that the kind of the scale does not have (below or above on an indexed or
+    /// categorical scale, outside on a continuous or discrete one) leaves the scale as it
+    /// is.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.color_scale()
+    ///     .limits(0.0, 40.0)
+    ///     .above(Color::rgb(1.0, 0.0, 1.0))
+    ///     .show_key(ColorScaleKey::Above);
+    /// ```
+    pub fn show_key(&mut self, key: ColorScaleKey) -> &mut Self {
+        if let Some(category) = self.key(key) {
+            category.show_key = true;
+        }
+        self
+    }
+
+    /// Shows the key of one out-of-range category with the given label, as
+    /// [`show_key`](Self::show_key) does with the default label.
+    pub fn key_label(&mut self, key: ColorScaleKey, label: impl Into<Text>) -> &mut Self {
+        if let Some(category) = self.key(key) {
+            category.show_key = true;
+            category.label = Some(label.into());
+        }
+        self
+    }
+
+    /// Applies `change` to the ticks and tick labels of a continuous, discrete or indexed
+    /// scale, leaving a categorical scale as it is.
+    fn with_ticks(&mut self, change: impl FnOnce(&mut Ticks, &mut TickLabels)) -> &mut Self {
+        match &mut self.scale().kind {
+            ColorScaleKind::Continuous(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColorScaleKind::Discrete(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColorScaleKind::Indexed(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColorScaleKind::Categorical(_) => {}
+        }
+        self
+    }
+
+    /// Returns the out-of-range category behind a key, or `None` when the kind of the scale
+    /// does not have the key, as [`ColorScale::key`] does.
+    fn key(&mut self, key: ColorScaleKey) -> Option<&mut ColorScaleOutOfRange> {
+        let scale = self.scale();
+        match (&mut scale.kind, key) {
+            (_, ColorScaleKey::NonFinite) => Some(&mut scale.non_finite),
+            (ColorScaleKind::Continuous(s), ColorScaleKey::Below) => Some(&mut s.below),
+            (ColorScaleKind::Continuous(s), ColorScaleKey::Above) => Some(&mut s.above),
+            (ColorScaleKind::Discrete(s), ColorScaleKey::Below) => Some(&mut s.below),
+            (ColorScaleKind::Discrete(s), ColorScaleKey::Above) => Some(&mut s.above),
+            (ColorScaleKind::Indexed(s), ColorScaleKey::Outside) => Some(&mut s.outside),
+            (ColorScaleKind::Categorical(s), ColorScaleKey::Outside) => Some(&mut s.outside),
+            _ => None,
+        }
     }
 
     /// Returns the scale in the figure IR.
