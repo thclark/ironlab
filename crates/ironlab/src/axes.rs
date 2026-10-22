@@ -1,17 +1,16 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, ColormapName, Contour,
-    ContourPlacement, Coords, Dimension, Image, IndexedImage, InsideLegend, IrError, Legend,
-    LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, Line, MappedImage,
-    NodeId, Projection, Quiver, Scale, Scatter, Surface, Text, TickLabels, Ticks, TitleAlign,
-    View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, Contour, ContourPlacement, Coords,
+    Dimension, Image, InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryOrder, LegendLocation, Limits, Line, NodeId, Projection, Quiver, ScalarImage, Scale,
+    Scatter, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
 };
 
 use crate::artists::{
-    ContourMut, ImageMut, IndexedImageMut, LineMut, MappedImageMut, QuiverMut, ScatterMut,
-    SurfaceMut,
+    ContourMut, ImageMut, LineMut, QuiverMut, ScalarImageMut, ScatterMut, SurfaceMut,
 };
+use crate::color_scale::{self, ColorScaleMut};
 use crate::data::{DataSource, store_grid};
 
 /// The colour of a reference line drawn by [`hline`](AxesMut::hline) or
@@ -180,8 +179,10 @@ impl AxesMut<'_> {
     /// Draws isolines of the field `z` sampled on a grid (MATLAB's `contour`).
     ///
     /// The field has one row per y coordinate and one column per x coordinate; see
-    /// [`DataSource`] for the accepted forms of `x`, `y` and `z`. Ten levels are chosen
-    /// automatically and each isoline is coloured from the colormap by its level.
+    /// [`DataSource`] for the accepted forms of `x`, `y` and `z`. The levels are those of
+    /// the colour scale (the band edges of a discrete scale, and ten automatic levels
+    /// otherwise), and each isoline is coloured by its level through the default colour
+    /// scale of the axes (see [`color_scale`](AxesMut::color_scale)).
     ///
     /// The coordinates `x` and `y` describe the grid, here and in every other gridded
     /// plot ([`contourf`](AxesMut::contourf), [`contour3`](AxesMut::contour3),
@@ -317,8 +318,8 @@ impl AxesMut<'_> {
     /// Draws the surface of heights `z` over a grid (MATLAB's `surf`), converting the
     /// axes to three dimensions.
     ///
-    /// Faces are coloured from the colormap by height and outlined by thin black
-    /// edges. [`surface`](AxesMut::surface) adds the same surface without converting the
+    /// Faces are coloured by height through the default colour scale of the axes (see
+    /// [`color_scale`](AxesMut::color_scale)) and outlined by thin black edges. [`surface`](AxesMut::surface) adds the same surface without converting the
     /// axes.
     pub fn surf(
         &mut self,
@@ -335,7 +336,8 @@ impl AxesMut<'_> {
     /// converting the axes to three dimensions.
     ///
     /// Faces are filled with the figure background colour, so that they hide the edges
-    /// behind them, and edges are coloured from the colormap by height.
+    /// behind them, and edges are coloured by height through the default colour scale of
+    /// the axes.
     pub fn mesh(
         &mut self,
         x: impl Into<DataSource>,
@@ -371,8 +373,8 @@ impl AxesMut<'_> {
     /// The grid is given as for `surf`: two vectors make a rectilinear grid, and two
     /// matrices of the shape of `z` make a curvilinear grid, on which every vertex has
     /// its own position. Because a surface is made of vertices, it can be drawn on
-    /// logarithmic axes, which an image cannot. Faces are coloured from the colormap
-    /// and outlined by thin black edges, as for `surf`; `edge_color(None)` removes the
+    /// logarithmic axes, which an image cannot. Faces are coloured through the colour
+    /// scale and outlined by thin black edges, as for `surf`; `edge_color(None)` removes the
     /// edges, which suits a fine grid (MATLAB's `shading flat`).
     ///
     /// ```
@@ -439,49 +441,22 @@ impl AxesMut<'_> {
         ImageMut::new(self.fig, id)
     }
 
-    /// Draws a colour-indexed image: a raster of pixels whose values name entries of the
-    /// axes colormap directly (MATLAB's `image` with an indexed array).
+    /// Draws a scalar image: a raster of numbers, each mapped to a colour through a colour
+    /// scale (MATLAB's `imagesc`, and `image` with an indexed array).
     ///
-    /// An index from 0 to 255 takes that entry of the colormap; a floating-point index
-    /// is truncated toward zero first. The indices neither use nor change the colour
-    /// limits of the axes. A pixel whose index lies outside the colormap, or is not
-    /// finite, is transparent unless the handle's [`below`](IndexedImageMut::below),
-    /// [`above`](IndexedImageMut::above) and [`non_finite`](IndexedImageMut::non_finite)
-    /// policies say otherwise. The indices are taken from a [`ByteMatrix`](crate::ByteMatrix), stored as
-    /// bytes, or a [`Matrix`], stored as floating-point values, by value or by
+    /// The image names the default colour scale of the axes, which is created if the
+    /// axes has none (see [`color_scale`](AxesMut::color_scale)), so it shares that scale
+    /// with the other colour-mapped artists of the axes, as `imagesc` shares the axes'
+    /// colormap and colour limits; [`ScalarImageMut::color_scale`] gives it another. A
+    /// continuous scale maps the values between its limits, as `imagesc` does, and an
+    /// indexed scale makes each whole number `i` take entry `i` of its palette, as
+    /// `image` with an indexed array does. What a value outside the scale draws is the
+    /// scale's policy: see [`ColorScaleMut::below`], [`ColorScaleMut::outside`] and
+    /// [`ColorScaleMut::non_finite`].
+    ///
+    /// The values are taken from a [`Matrix`](crate::Matrix), stored as floating-point
+    /// values, or a [`ByteMatrix`](crate::ByteMatrix), stored as bytes, by value or by
     /// reference, and the image is placed as by [`image`](AxesMut::image).
-    ///
-    /// ```
-    /// use ironlab::prelude::*;
-    ///
-    /// let classes = ByteMatrix::from_fn(8, 8, |row, col| ((row + col) % 4 * 85) as u8);
-    ///
-    /// let mut fig = Figure::new();
-    /// fig.axes(0, 0).indexed_image(&classes).above(OutOfRange::Clamp);
-    /// ```
-    pub fn indexed_image(&mut self, indices: impl Into<DataSource>) -> IndexedImageMut<'_> {
-        let indices = indices.into().store(self.fig);
-        let id = self.push_artist(|id| {
-            Artist::IndexedImage(IndexedImage {
-                id,
-                indices,
-                ..IndexedImage::default()
-            })
-        });
-        IndexedImageMut::new(self.fig, id)
-    }
-
-    /// Draws a colour-mapped image: a raster of data values, each scaled through the
-    /// colour limits of the axes into its colormap (MATLAB's `imagesc`).
-    ///
-    /// The values are coloured as the colour data of a surface is, and contribute to
-    /// automatic colour limits in the same way; [`clim`](AxesMut::clim) fixes the
-    /// limits. A pixel whose value lies outside the colour limits, or is not finite, is
-    /// transparent unless the handle's [`below`](MappedImageMut::below),
-    /// [`above`](MappedImageMut::above) and [`non_finite`](MappedImageMut::non_finite)
-    /// policies say otherwise. The values are taken from a [`Matrix`] or a
-    /// [`ByteMatrix`](crate::ByteMatrix) as by [`indexed_image`](AxesMut::indexed_image), and the image is
-    /// placed as by [`image`](AxesMut::image).
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -491,23 +466,80 @@ impl AxesMut<'_> {
     /// let field = Matrix::from_fn(y.len(), x.len(), |row, col| (x[col] * y[row]).sin());
     ///
     /// let mut fig = Figure::new();
-    /// fig.axes(0, 0)
-    ///     .mapped_image(&field)
-    ///     .pixel_columns(-2.0, 2.0)
-    ///     .pixel_rows(-1.0, 1.0)
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.scalar_image(&field).pixel_columns(-2.0, 2.0).pixel_rows(-1.0, 1.0);
+    /// ax.color_scale()
+    ///     .colormap(Colormap::Magma)
+    ///     .limits(-1.0, 1.0)
     ///     .non_finite(Color::BLACK);
-    /// fig.axes(0, 0).colormap(Colormap::Magma).clim(-1.0, 1.0);
+    /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn mapped_image(&mut self, values: impl Into<DataSource>) -> MappedImageMut<'_> {
+    ///
+    /// An indexed image whose bytes name the entries of a 256-colour palette:
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let classes = ByteMatrix::from_fn(8, 8, |row, col| ((row + col) % 4 * 85) as u8);
+    ///
+    /// let mut fig = Figure::new();
+    /// let palette = fig.indexed_scale(Colormap::Viridis.sample(256)).id();
+    /// fig.axes(0, 0).scalar_image(&classes).color_scale(palette);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn scalar_image(&mut self, values: impl Into<DataSource>) -> ScalarImageMut<'_> {
         let values = values.into().store(self.fig);
+        let (scale, created) = self.default_scale();
         let id = self.push_artist(|id| {
-            Artist::MappedImage(MappedImage {
+            Artist::ScalarImage(ScalarImage {
                 id,
                 values,
-                ..MappedImage::default()
+                color_scale: Some(scale),
+                ..ScalarImage::default()
             })
         });
-        MappedImageMut::new(self.fig, id)
+        ScalarImageMut::new(self.fig, id, created.then_some(scale))
+    }
+
+    // Colour scales.
+
+    /// Returns the default colour scale of the axes: the scale that its colour-mapped
+    /// artists share unless they are given another.
+    ///
+    /// The default scale is the scale of the first artist of the axes, in the order the
+    /// artists were added, that names one. Every plotting call that maps numbers to
+    /// colours ([`contour`](AxesMut::contour), [`contourf`](AxesMut::contourf),
+    /// [`contour3`](AxesMut::contour3), [`surf`](AxesMut::surf), [`mesh`](AxesMut::mesh),
+    /// [`surface`](AxesMut::surface), [`scalar_image`](AxesMut::scalar_image) and
+    /// [`ScatterMut::colors`](crate::ScatterMut::colors)) names it, creating a
+    /// continuous scale with automatic limits when the axes has none. This reproduces
+    /// MATLAB's axes colormap and colour limits, which every colour-mapped plot of an axes
+    /// shares.
+    ///
+    /// The rule reads only the figure, so a figure loaded from a file or wrapped with
+    /// [`Figure::from_ir`](crate::Figure::from_ir) keeps adding artists to the same
+    /// scale. It follows that a scale returned here before any colour-mapped artist has
+    /// been plotted is new and is not remembered: configure the default scale after the
+    /// first colour-mapped plot, or create a scale with
+    /// [`Figure::color_scale`](crate::Figure::color_scale) and give it to the first plot
+    /// with its `color_scale` setter, after which it is the default.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(-1.0, 1.0, 21);
+    /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col].hypot(x[row]));
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.contourf(&x, &x, &z);
+    /// ax.contour(&x, &x, &z).color(Color::BLACK);
+    /// ax.color_scale().colormap(Colormap::Cividis).limits(0.0, 1.5);
+    /// assert_eq!(fig.ir().color_scales.len(), 1);
+    /// ```
+    pub fn color_scale(&mut self) -> ColorScaleMut<'_> {
+        let (scale, _) = self.default_scale();
+        ColorScaleMut::new(self.fig, scale)
     }
 
     // Axes properties.
@@ -991,22 +1023,6 @@ impl AxesMut<'_> {
         self
     }
 
-    /// Sets the colormap used by colormapped artists in this axes.
-    pub fn colormap(&mut self, colormap: ColormapName) -> &mut Self {
-        self.axes().colormap = colormap;
-        self
-    }
-
-    /// Fixes the data values mapped to the first and last colours of the colormap
-    /// (MATLAB's `clim`).
-    ///
-    /// Limits that are not finite or not increasing are reported by
-    /// [`Figure::validate`](crate::Figure::validate).
-    pub fn clim(&mut self, min: f64, max: f64) -> &mut Self {
-        self.axes().clim = Limits::Manual { min, max };
-        self
-    }
-
     /// Sets whether the full outline of the plot box is drawn (MATLAB's `box on` and
     /// `box off`).
     pub fn box_on(&mut self, on: bool) -> &mut Self {
@@ -1057,6 +1073,12 @@ impl AxesMut<'_> {
         self
     }
 
+    /// Returns the default colour scale of the axes, creating it when the axes has none,
+    /// and whether it was created.
+    fn default_scale(&mut self) -> (NodeId, bool) {
+        color_scale::default_or_new(self.fig, self.id)
+    }
+
     /// Appends the artist built from a newly allocated identifier to the axes and
     /// returns that identifier.
     fn push_artist(&mut self, build: impl FnOnce(NodeId) -> Artist) -> NodeId {
@@ -1101,7 +1123,7 @@ impl AxesMut<'_> {
                 ..Scatter::default()
             })
         });
-        ScatterMut::new(self.fig, id)
+        ScatterMut::new(self.fig, id, None)
     }
 
     /// Adds contours of a gridded field.
@@ -1114,6 +1136,7 @@ impl AxesMut<'_> {
         placement: ContourPlacement,
     ) -> ContourMut<'_> {
         let (grid, z) = store_grid(self.fig, x, y, z);
+        let (scale, created) = self.default_scale();
         let id = self.push_artist(|id| {
             Artist::Contour(Contour {
                 id,
@@ -1121,10 +1144,11 @@ impl AxesMut<'_> {
                 z,
                 fill,
                 placement,
+                color_scale: Some(scale),
                 ..Contour::default()
             })
         });
-        ContourMut::new(self.fig, id)
+        ContourMut::new(self.fig, id, created.then_some(scale))
     }
 
     /// Adds a surface over a gridded field, leaving the projection of the axes as it is.
@@ -1137,6 +1161,7 @@ impl AxesMut<'_> {
         edge: ColorSpec,
     ) -> SurfaceMut<'_> {
         let (grid, z) = store_grid(self.fig, x, y, z);
+        let (scale, created) = self.default_scale();
         let id = self.push_artist(|id| {
             Artist::Surface(Surface {
                 id,
@@ -1144,10 +1169,11 @@ impl AxesMut<'_> {
                 z,
                 face,
                 edge,
+                color_scale: Some(scale),
                 ..Surface::default()
             })
         });
-        SurfaceMut::new(self.fig, id)
+        SurfaceMut::new(self.fig, id, created.then_some(scale))
     }
 }
 

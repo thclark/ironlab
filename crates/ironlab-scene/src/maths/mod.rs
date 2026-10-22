@@ -6,8 +6,7 @@
 //! - [`aspect`] widens limits and fits plot areas to a fixed ratio of the lengths of data units.
 //! - [`ticks`] chooses tick positions, axis limits and tick label strings.
 //! - [`colormap`] holds the 256-entry colour lookup tables and maps values into them.
-//! - [`image`] resolves the pixels of images: it classifies mapped values and indices against the colormap and
-//!   quantises true-colour components.
+//! - [`image`] quantises the colours of the pixels of images into eight bits.
 //! - [`contour`] extracts isolines and filled isobands from gridded scalar fields.
 //! - [`quiver`] scales vector fields and builds arrow geometry.
 //! - [`camera`] projects the normalised 3D data box onto the screen and orders geometry by depth.

@@ -7,8 +7,8 @@
 //! from the public camera for a 3D axes.
 
 use ironlab_ir::{
-    Color, ColormapName, Dimension, ImagePlane, InsideLegend, Legend, LegendLocation, Limits,
-    NodeId, OutOfRange, Scale, ScatterColor, View3d,
+    Color, ColorScaleKind, ColormapName, Dimension, ImagePlane, InsideLegend, Legend,
+    LegendLocation, Limits, NodeId, OutOfRange, Scale, ScatterColor, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
@@ -16,7 +16,9 @@ use ironlab_scene::hit::{ImageHit, LegendOwner};
 use ironlab_scene::maths::camera::{Camera, Plane, back_planes, fit_to_rect, normalise_box};
 use ironlab_scene::maths::colormap::{Lut, MAGMA, VIRIDIS, normalise, sample};
 
-use crate::common::{Fx, compile_figure, linspace, placement, range, rgb8, text, xy};
+use crate::common::{
+    Fx, compile_figure, linspace, out_of_range, palette_colors, placement, range, rgb8, text, xy,
+};
 use crate::probe::{
     Leaf, assert_close, axes_hit, axis_maps, disjoint, entry_artist, from_source, inside, leaves,
     pixel, points_close, x_tick_labels,
@@ -51,6 +53,29 @@ fn opaque(rgb: [u8; 3]) -> [u8; 4] {
 /// The opaque colour a finite value takes when mapped through the colour limits `cmin` to `cmax`.
 fn mapped(lut: &Lut, value: f64, cmin: f64, cmax: f64) -> [u8; 4] {
     opaque(sample(lut, normalise(value, cmin, cmax)).expect("a finite value has a colour"))
+}
+
+/// Gives the continuous colour scale of an axes the limits 0 to 10 and the given policies below and above them and
+/// for non-finite values.
+fn set_policies(
+    fx: &mut Fx,
+    ax: NodeId,
+    below: OutOfRange,
+    above: OutOfRange,
+    non_finite: OutOfRange,
+) {
+    let id = fx.axes_scale(ax);
+    let scale = fx.scale_mut(id);
+    scale.non_finite = out_of_range(non_finite);
+    let ColorScaleKind::Continuous(continuous) = &mut scale.kind else {
+        panic!("the axes scale is continuous");
+    };
+    continuous.limits = Limits::Manual {
+        min: 0.0,
+        max: 10.0,
+    };
+    continuous.below = out_of_range(below);
+    continuous.above = out_of_range(above);
 }
 
 /// Returns the one leaf an image artist drew, which must be an image item.
@@ -322,7 +347,7 @@ fn assert_faces_straddle(camera: Camera, z: f64, depth: f64) {
 fn image_and_surface(view: View3d, plane: ImagePlane, z: f64) -> (Scene, NodeId, NodeId) {
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, view);
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
@@ -495,7 +520,7 @@ fn a_hidden_image_draws_nothing_but_its_edges_still_set_the_limits() {
     // Six columns centred from 0.45 to 2.95 (pitch 0.5, edges 0.2 and 3.2) and three rows centred from 0.5 to 1.5
     // (edges 0.25 and 1.75), all reaching beyond the line; no tick rounding of the line's [1, 2] × [1, 1.5], nor of
     // the edges themselves, gives these values, so only the tight edges of the hidden image can.
-    let hidden = fx.mapped_image(
+    let hidden = fx.imagesc(
         ax,
         vec![3, 6],
         ramp(18),
@@ -540,7 +565,7 @@ fn an_image_with_no_rows_or_no_columns_is_left_out_with_a_warning_naming_it() {
         let empty = if with_empty_images {
             vec![
                 fx.image(ax, vec![0, 3, 3], Vec::<f64>::new(), xy(None, None), |_| {}),
-                fx.mapped_image(
+                fx.imagesc(
                     ax,
                     vec![2, 0],
                     Vec::<u8>::new(),
@@ -594,7 +619,7 @@ fn default_placement_centres_pixels_on_the_integers_and_fills_the_axes() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let (ny, nx) = (3, 4);
-    let image = fx.mapped_image(ax, vec![ny, nx], ramp(ny * nx), xy(None, None), |_| {});
+    let image = fx.imagesc(ax, vec![ny, nx], ramp(ny * nx), xy(None, None), |_| {});
     let scene = compile_figure(&fx.build());
     let (x, y) = axis_maps(&scene, ax);
     assert_eq!((x.min, x.max), (-0.5, 3.5));
@@ -729,7 +754,7 @@ fn a_single_column_or_row_is_one_data_unit_wide_whatever_its_range() {
     fx.fig.layout.cols = 2;
     let tall = fx.axes2d(0, 0);
     // One column centred on 2 (its `last` of 7 is ignored) and three rows centred on 4, 5 and 6.
-    let column = fx.mapped_image(
+    let column = fx.imagesc(
         tall,
         vec![3, 1],
         ramp(3),
@@ -738,7 +763,7 @@ fn a_single_column_or_row_is_one_data_unit_wide_whatever_its_range() {
     );
     let wide = fx.axes2d(0, 1);
     // Two columns centred on 0 and 3 and one row centred on 4, whose first and last centres coincide.
-    let row = fx.mapped_image(
+    let row = fx.imagesc(
         wide,
         vec![1, 2],
         ramp(2),
@@ -785,7 +810,7 @@ fn an_xy_offset_is_ignored_by_a_two_dimensional_axes() {
     let build = |z: Option<f64>| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let image = fx.mapped_image(
+        let image = fx.imagesc(
             ax,
             vec![2, 3],
             ramp(6),
@@ -838,7 +863,7 @@ fn in_three_dimensions_an_image_lies_on_its_plane_with_columns_along_its_first_a
         let ax = fx.axes3d(0, 0, View3d::default());
         let (ny, nx) = (2, 4);
         // Pixel edges at −1 and 1 along both axes of the plane: four columns of pitch 0.5, two rows of pitch 1.
-        let image = fx.mapped_image(
+        let image = fx.imagesc(
             ax,
             vec![ny, nx],
             ramp(ny * nx),
@@ -897,7 +922,7 @@ fn an_image_at_an_interior_offset_is_one_primitive_sorted_by_the_mean_depth_of_i
     // The whole xy plane at mid-height, strictly inside the z limits of [−1, 1]: at the default view its corners
     // lie at depths from about −0.61 to 0.61 in the normalised box, with a mean of 0.
     let plane = ImagePlane::Xy { z: Some(0.0) };
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![2, 2],
         ramp(4),
@@ -1081,14 +1106,14 @@ fn images_on_the_same_face_of_the_box_keep_artist_order() {
     let floor = ImagePlane::Xy { z: None };
     let wall = ImagePlane::Yz { x: None };
     // The whole floor, then the far half of it, whose mean depth is smaller.
-    let first_floor = fx.mapped_image(
+    let first_floor = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
         placement(floor, range(-0.75, 0.75), range(-0.5, 0.5)),
         |_| {},
     );
-    let second_floor = fx.mapped_image(
+    let second_floor = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
@@ -1098,14 +1123,14 @@ fn images_on_the_same_face_of_the_box_keep_artist_order() {
     let grid = straddling_grid();
     let surface = fx.surface(ax, &grid, &grid, |_, _| 0.0, |_| {});
     // The whole x = min wall, then its lower far quarter, whose mean depth is smaller.
-    let first_wall = fx.mapped_image(
+    let first_wall = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
         placement(wall, range(-0.75, 0.75), range(-0.5, 0.5)),
         |_| {},
     );
-    let second_wall = fx.mapped_image(
+    let second_wall = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
@@ -1168,7 +1193,7 @@ fn a_wall_image_in_a_two_dimensional_axes_is_not_drawn_with_a_warning_naming_it(
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
-    let xz = fx.mapped_image(
+    let xz = fx.imagesc(
         ax,
         vec![2, 2],
         ramp(4),
@@ -1204,7 +1229,7 @@ fn an_axes_holding_only_an_image_takes_the_pixel_edges_as_its_limits() {
     let ax = fx.axes2d(0, 0);
     // Four columns of pitch 0.8 (edges −0.05 and 3.15) and three rows of pitch 0.3 (edges 0.95 and 1.85), none of
     // which is a tick value.
-    fx.mapped_image(
+    fx.imagesc(
         ax,
         vec![3, 4],
         ramp(12),
@@ -1227,7 +1252,7 @@ fn other_data_beyond_an_image_rounds_that_end_outward_to_a_tick() {
     let ax = fx.axes2d(0, 0);
     // Six columns of pitch 0.5 with edges 0.2 and 3.2 along x, which no tick rounding of the data gives, and rows
     // with edges 0.25 and 1.75 along y.
-    fx.mapped_image(
+    fx.imagesc(
         ax,
         vec![3, 6],
         ramp(18),
@@ -1263,7 +1288,7 @@ fn other_data_beyond_an_image_rounds_that_end_outward_to_a_tick() {
 fn wall_image(limits: Option<[(f64, f64); 3]>) -> (Leaf, Vec<Point>) {
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![4, 4],
         ramp(16),
@@ -1323,7 +1348,7 @@ fn lifted_image(manual: bool) -> (Scene, NodeId, NodeId) {
     let ax = fx.axes3d(0, 0, View3d::default());
     let g = linspace(-1.0, 1.0, 3);
     let surface = fx.surface(ax, &g, &g, |x, y| (x + 1.0) * (y + 1.0) / 4.0, |_| {});
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![2, 4],
         ramp(8),
@@ -1383,11 +1408,11 @@ fn an_explicit_plane_offset_extends_the_limits_of_the_third_axis() {
 // Colour of a mapped image
 // ---------------------------------------------------------------------------------------------------------------
 
-// WHY: `imagesc` scales every value through the colour limits of the axes: a value at the lower limit takes the
-// first colormap entry and one at the upper limit the last, exactly as `colormap::sample` of `colormap::normalise`
-// gives, so that an image agrees with a surface or scatter coloured beside it; values outside the limits and
-// non-finite values are transparent by default, so a raster with gaps or outliers still reaches the page without
-// colours invented for them.
+// WHY: `imagesc` scales every value through the limits of its continuous colour scale: a value at the lower limit
+// takes the first colormap entry and one at the upper limit the last, exactly as `colormap::sample` of
+// `colormap::normalise` gives, so that an image agrees with a surface or scatter coloured beside it; under transparent
+// `below` and `above` policies values outside the limits are transparent, and non-finite values are transparent by
+// default, so a raster with gaps or outliers still reaches the page without colours invented for them.
 #[test]
 fn a_mapped_image_colours_finite_values_through_the_colour_limits_and_leaves_the_rest_transparent()
 {
@@ -1404,11 +1429,14 @@ fn a_mapped_image_colours_finite_values_through_the_colour_limits_and_leaves_the
         f64::NEG_INFINITY,
         8.05,
     ];
-    let image = fx.mapped_image(ax, vec![3, 3], values, xy(None, None), |_| {});
-    fx.ax(ax).clim = Limits::Manual {
+    let image = fx.imagesc(ax, vec![3, 3], values, xy(None, None), |_| {});
+    let scale = fx.axes_scale_mut(ax);
+    scale.limits = Limits::Manual {
         min: 0.0,
         max: 10.0,
     };
+    scale.below = out_of_range(OutOfRange::Transparent);
+    scale.above = out_of_range(OutOfRange::Transparent);
     let scene = compile_figure(&fx.build());
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     let item = image_item(&scene, image);
@@ -1457,7 +1485,7 @@ fn automatic_colour_limits_of_a_mapped_image_are_the_union_with_the_other_colour
     let build = |with_scatter: bool| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let image = fx.mapped_image(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
+        let image = fx.imagesc(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
         if with_scatter {
             fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
                 s.color = ScatterColor::Data {
@@ -1491,31 +1519,29 @@ fn clamp_and_fixed_colour_policies_paint_the_out_of_range_pixels_of_a_mapped_ima
     let mut fx = Fx::new();
     fx.fig.layout.cols = 2;
     let left = fx.axes2d(0, 0);
-    let clamped = fx.mapped_image(left, vec![1, 4], values.clone(), xy(None, None), |m| {
-        m.below = OutOfRange::Clamp;
-        m.above = OutOfRange::Clamp;
-        m.non_finite = OutOfRange::Clamp;
-    });
-    fx.ax(left).clim = Limits::Manual {
-        min: 0.0,
-        max: 10.0,
-    };
+    let clamped = fx.imagesc(left, vec![1, 4], values.clone(), xy(None, None), |_| {});
+    set_policies(
+        &mut fx,
+        left,
+        OutOfRange::Clamp,
+        OutOfRange::Clamp,
+        OutOfRange::Clamp,
+    );
     let right = fx.axes2d(0, 1);
-    let painted = fx.mapped_image(right, vec![1, 4], values, xy(None, None), |m| {
-        m.below = OutOfRange::Rgba {
+    let painted = fx.imagesc(right, vec![1, 4], values, xy(None, None), |_| {});
+    set_policies(
+        &mut fx,
+        right,
+        OutOfRange::Rgba {
             color: Color::rgba(1.0, 0.2, 0.6, 0.4),
-        };
-        m.above = OutOfRange::Rgba {
+        },
+        OutOfRange::Rgba {
             color: Color::rgb(0.0, 0.0, 1.0),
-        };
-        m.non_finite = OutOfRange::Rgba {
+        },
+        OutOfRange::Rgba {
             color: Color::rgba(0.0, 1.0, 0.0, 0.8),
-        };
-    });
-    fx.ax(right).clim = Limits::Manual {
-        min: 0.0,
-        max: 10.0,
-    };
+        },
+    );
     let scene = compile_figure(&fx.build());
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
 
@@ -1613,14 +1639,8 @@ fn sample_channels_follow_the_opacity_of_the_pixels() {
     let mut images = Vec::new();
     for (k, (what, values, below, non_finite, channels)) in cases.into_iter().enumerate() {
         let ax = fx.axes2d((k / 3) as u32, (k % 3) as u32);
-        let image = fx.mapped_image(ax, vec![1, 2], values, xy(None, None), |m| {
-            m.below = below;
-            m.non_finite = non_finite;
-        });
-        fx.ax(ax).clim = Limits::Manual {
-            min: 0.0,
-            max: 10.0,
-        };
+        let image = fx.imagesc(ax, vec![1, 2], values, xy(None, None), |_| {});
+        set_policies(&mut fx, ax, below, OutOfRange::Transparent, non_finite);
         images.push((what, image, channels));
     }
     let scene = compile_figure(&fx.build());
@@ -1646,21 +1666,27 @@ fn a_strict_category_with_an_offending_pixel_skips_the_image_with_a_warning_nami
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
         let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
-        let image = fx.mapped_image(
+        let image = fx.imagesc(
             ax,
             vec![1, 3],
             vec![2.0, offending, 8.0],
             xy(None, None),
-            |m| match category {
-                "below" => m.below = OutOfRange::Strict,
-                "above" => m.above = OutOfRange::Strict,
-                _ => m.non_finite = OutOfRange::Strict,
-            },
+            |_| {},
         );
-        fx.ax(ax).clim = Limits::Manual {
-            min: 0.0,
-            max: 10.0,
+        let strict = |name: &str| {
+            if name == category {
+                OutOfRange::Strict
+            } else {
+                OutOfRange::Transparent
+            }
         };
+        set_policies(
+            &mut fx,
+            ax,
+            strict("below"),
+            strict("above"),
+            strict("non-finite"),
+        );
         let scene = compile_figure(&fx.build());
         let warning = assert_skipped_with_one_warning(
             &scene,
@@ -1681,29 +1707,32 @@ fn a_strict_category_with_an_offending_pixel_skips_the_image_with_a_warning_nami
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     // Strict on every category with nothing to offend: the image is drawn as if the policies were lenient.
-    let clean = fx.mapped_image(ax, vec![1, 3], vec![0.0, 5.0, 10.0], xy(None, None), |m| {
-        m.below = OutOfRange::Strict;
-        m.above = OutOfRange::Strict;
-        m.non_finite = OutOfRange::Strict;
-    });
-    fx.ax(ax).clim = Limits::Manual {
-        min: 0.0,
-        max: 10.0,
-    };
-    // An indexed image gives the policies the same meaning: an index of −1 under a strict `below` skips it.
+    let clean = fx.imagesc(ax, vec![1, 3], vec![0.0, 5.0, 10.0], xy(None, None), |_| {});
+    set_policies(
+        &mut fx,
+        ax,
+        OutOfRange::Strict,
+        OutOfRange::Strict,
+        OutOfRange::Strict,
+    );
+    // An indexed image gives the policies the same meaning: an index of −1 under a strict `outside` skips it.
     let indexed = fx.indexed_image(
         ax,
         vec![1, 2],
         vec![-1.0, 3.0],
         xy(range(4.0, 5.0), None),
-        |m| m.below = OutOfRange::Strict,
+        |_| {},
     );
+    fx.palette_mut(ax).outside = out_of_range(OutOfRange::Strict);
     let scene = compile_figure(&fx.build());
     assert_drawn_without_warning(&scene, clean, "strict image with no offending pixel");
     assert_eq!(image_item(&scene, clean).channels, 3);
-    let warning =
-        assert_skipped_with_one_warning(&scene, indexed, "indexed image with a strict below pixel");
-    assert!(warning.contains("below"), "{warning}");
+    let warning = assert_skipped_with_one_warning(
+        &scene,
+        indexed,
+        "indexed image with a strict outside pixel",
+    );
+    assert!(warning.contains("outside"), "{warning}");
 }
 
 // WHY: an array of bytes is a compact way to hold a mapped image, and its bytes are numbers like any other, so a
@@ -1715,19 +1744,19 @@ fn eight_bit_values_of_a_mapped_image_are_mapped_as_the_numbers_they_denote() {
     let mut fx = Fx::new();
     fx.fig.layout.cols = 2;
     let fixed = fx.axes2d(0, 0);
-    let under_manual_limits = fx.mapped_image(
+    let under_manual_limits = fx.imagesc(
         fixed,
         vec![1, 3],
         vec![0u8, 128, 255],
         xy(None, None),
         |_| {},
     );
-    fx.ax(fixed).clim = Limits::Manual {
+    fx.axes_scale_mut(fixed).limits = Limits::Manual {
         min: 0.0,
         max: 255.0,
     };
     let automatic = fx.axes2d(0, 1);
-    let under_automatic_limits = fx.mapped_image(
+    let under_automatic_limits = fx.imagesc(
         automatic,
         vec![1, 3],
         vec![0u8, 100, 200],
@@ -1773,8 +1802,8 @@ fn an_indexed_image_takes_its_entries_directly_whatever_the_colour_limits() {
     let build = |clim: Limits| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        fx.ax(ax).colormap = ColormapName::Magma;
-        fx.ax(ax).clim = clim;
+        fx.palette_mut(ax).colors = palette_colors(&MAGMA);
+        fx.axes_scale_mut(ax).limits = clim;
         let image = fx.indexed_image(
             ax,
             vec![2, 2],
@@ -1813,7 +1842,7 @@ fn an_indexed_image_takes_its_entries_directly_whatever_the_colour_limits() {
 fn indexed_and_true_colour_images_contribute_nothing_to_automatic_colour_limits() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let mapped_image = fx.mapped_image(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
+    let mapped_image = fx.imagesc(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
     fx.indexed_image(
         ax,
         vec![16, 16],
@@ -1835,12 +1864,12 @@ fn indexed_and_true_colour_images_contribute_nothing_to_automatic_colour_limits(
     assert_eq!(pixel(&item, 0, 2), opaque(VIRIDIS[255]));
 }
 
-// WHY: a floating-point index is truncated toward zero, as MATLAB rounds indexed arrays down, so 2.9 is entry 2,
-// 255.9 entry 255 and −0.5 entry 0 rather than out of range; an index below 0 or above 255 and a non-finite index
-// fall in their categories, and the policies mean the same as for a mapped image: transparent, the nearest end of
-// the colormap, or a fixed colour.
+// WHY: a floating-point index names an entry only when it is a whole number, so 2 is entry 2, while a fractional
+// index (2.9, −0.5, 255.9), an index below 0 or above 255 and a non-finite index cannot be placed and follow the
+// policies of the indexed scale: transparent; a clamp, which truncates toward zero and then clamps to the ends, as
+// MATLAB rounds indexed arrays down, and draws nothing for a non-finite index; or a fixed colour.
 #[test]
-fn floating_point_indices_are_truncated_toward_zero_and_out_of_range_indices_take_their_policy() {
+fn floating_point_indices_name_entries_when_whole_and_take_their_policy_otherwise() {
     let indices = vec![
         2.9,
         -0.5,
@@ -1850,68 +1879,85 @@ fn floating_point_indices_are_truncated_toward_zero_and_out_of_range_indices_tak
         f64::NAN,
         f64::INFINITY,
         f64::NEG_INFINITY,
+        2.0,
+        0.0,
     ];
     let mut fx = Fx::new();
     fx.fig.layout.cols = 3;
+    let policies = |fx: &mut Fx, ax: NodeId, outside: OutOfRange, non_finite: OutOfRange| {
+        fx.palette_mut(ax).outside = out_of_range(outside);
+        let id = fx.palette(ax);
+        fx.scale_mut(id).non_finite = out_of_range(non_finite);
+    };
     let lenient = fx.axes2d(0, 0);
     let transparent =
-        fx.indexed_image(lenient, vec![2, 4], indices.clone(), xy(None, None), |_| {});
+        fx.indexed_image(lenient, vec![2, 5], indices.clone(), xy(None, None), |_| {});
     let nearest = fx.axes2d(0, 1);
-    let clamped = fx.indexed_image(nearest, vec![2, 4], indices.clone(), xy(None, None), |m| {
-        m.below = OutOfRange::Clamp;
-        m.above = OutOfRange::Clamp;
-        m.non_finite = OutOfRange::Clamp;
-    });
+    let clamped = fx.indexed_image(nearest, vec![2, 5], indices.clone(), xy(None, None), |_| {});
+    policies(&mut fx, nearest, OutOfRange::Clamp, OutOfRange::Clamp);
     let fixed = fx.axes2d(0, 2);
-    let painted = fx.indexed_image(fixed, vec![2, 4], indices, xy(None, None), |m| {
-        m.below = OutOfRange::Rgba {
+    let painted = fx.indexed_image(fixed, vec![2, 5], indices, xy(None, None), |_| {});
+    policies(
+        &mut fx,
+        fixed,
+        OutOfRange::Rgba {
             color: Color::rgb(1.0, 0.0, 0.0),
-        };
-        m.above = OutOfRange::Rgba {
-            color: Color::rgb(0.0, 1.0, 0.0),
-        };
-        m.non_finite = OutOfRange::Rgba {
+        },
+        OutOfRange::Rgba {
             color: Color::rgba(0.0, 0.0, 1.0, 0.4),
-        };
-    });
+        },
+    );
     let scene = compile_figure(&fx.build());
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
 
     for id in [transparent, clamped, painted] {
         let item = image_item(&scene, id);
         assert_eq!(item.channels, 4);
-        assert_eq!(pixel(&item, 0, 0), opaque(VIRIDIS[2]), "2.9 is entry 2");
-        assert_eq!(pixel(&item, 0, 1), opaque(VIRIDIS[0]), "−0.5 is entry 0");
-        assert_eq!(
-            pixel(&item, 0, 2),
-            opaque(VIRIDIS[255]),
-            "255.9 is entry 255"
-        );
+        assert_eq!(pixel(&item, 1, 3), opaque(VIRIDIS[2]), "2 is entry 2");
+        assert_eq!(pixel(&item, 1, 4), opaque(VIRIDIS[0]), "0 is entry 0");
     }
 
     let item = image_item(&scene, transparent);
     for (j, i, what) in [
+        (0, 0, "2.9"),
+        (0, 1, "−0.5"),
+        (0, 2, "255.9"),
         (0, 3, "−1"),
-        (1, 0, "256"),
-        (1, 1, "NaN"),
-        (1, 2, "+∞"),
-        (1, 3, "−∞"),
+        (0, 4, "256"),
+        (1, 0, "NaN"),
+        (1, 1, "+∞"),
+        (1, 2, "−∞"),
     ] {
         assert_eq!(pixel(&item, j, i)[3], 0, "the index {what} is transparent");
     }
 
     let item = image_item(&scene, clamped);
     assert_eq!(
+        pixel(&item, 0, 0),
+        opaque(VIRIDIS[2]),
+        "2.9 truncates to entry 2"
+    );
+    assert_eq!(
+        pixel(&item, 0, 1),
+        opaque(VIRIDIS[0]),
+        "−0.5 truncates to entry 0"
+    );
+    assert_eq!(
+        pixel(&item, 0, 2),
+        opaque(VIRIDIS[255]),
+        "255.9 truncates to entry 255"
+    );
+    assert_eq!(
         pixel(&item, 0, 3),
         opaque(VIRIDIS[0]),
         "−1 clamps to the first entry"
     );
     assert_eq!(
-        pixel(&item, 1, 0),
+        pixel(&item, 0, 4),
         opaque(VIRIDIS[255]),
         "256 clamps to the last entry"
     );
-    for i in 1..4 {
+    for i in 0..3 {
         assert_eq!(
             pixel(&item, 1, i)[3],
             0,
@@ -1920,9 +1966,14 @@ fn floating_point_indices_are_truncated_toward_zero_and_out_of_range_indices_tak
     }
 
     let item = image_item(&scene, painted);
-    assert_eq!(pixel(&item, 0, 3), [255, 0, 0, 255]);
-    assert_eq!(pixel(&item, 1, 0), [0, 255, 0, 255]);
-    for i in 1..4 {
+    for i in 0..5 {
+        assert_eq!(
+            pixel(&item, 0, i),
+            [255, 0, 0, 255],
+            "an index that names no entry takes the fixed colour"
+        );
+    }
+    for i in 0..3 {
         assert_eq!(pixel(&item, 1, i), [0, 0, 255, 102]);
     }
 }
@@ -2074,7 +2125,7 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
         let flat = fx.axes2d(0, 0);
         let line = fx.line(flat, &[1.0, 100.0], &[1.0, 2.0], None, |_| {});
         let image = with_image.then(|| {
-            fx.mapped_image(
+            fx.imagesc(
                 flat,
                 vec![2, 2],
                 ramp(4),
@@ -2093,14 +2144,14 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
 
     let log_z = fx.axes3d(0, 1, View3d::default());
     fx.line(log_z, &[0.0, 1.0], &[0.0, 1.0], Some(&[1.0, 100.0]), |_| {});
-    let wall_on_log_z = fx.mapped_image(
+    let wall_on_log_z = fx.imagesc(
         log_z,
         vec![2, 2],
         ramp(4),
         placement(ImagePlane::Xz { y: None }, None, range(2.0, 4.0)),
         |_| {},
     );
-    let floor_under_log_z = fx.mapped_image(
+    let floor_under_log_z = fx.imagesc(
         log_z,
         vec![2, 2],
         ramp(4),
@@ -2111,7 +2162,7 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
 
     let log_y = fx.axes3d(0, 2, View3d::default());
     fx.line(log_y, &[0.0, 1.0], &[1.0, 100.0], Some(&[0.0, 1.0]), |_| {});
-    let wall_beside_log_y = fx.mapped_image(
+    let wall_beside_log_y = fx.imagesc(
         log_y,
         vec![2, 2],
         ramp(4),
@@ -2245,8 +2296,8 @@ fn the_last_painted_image_wins_where_images_overlap_and_a_mirrored_image_resolve
     fx.fig.layout.cols = 2;
     let ax = fx.axes2d(0, 0);
     // Both 4 by 4 with a pitch of 1: the first covers −0.5 to 3.5 and the second 1.5 to 5.5, along both axes.
-    let first = fx.mapped_image(ax, vec![4, 4], ramp(16), xy(None, None), |_| {});
-    let second = fx.mapped_image(
+    let first = fx.imagesc(ax, vec![4, 4], ramp(16), xy(None, None), |_| {});
+    let second = fx.imagesc(
         ax,
         vec![4, 4],
         ramp(16),
@@ -2255,7 +2306,7 @@ fn the_last_painted_image_wins_where_images_overlap_and_a_mirrored_image_resolve
     );
     let mirrored_axes = fx.axes2d(0, 1);
     // Rows centred on 3, 2, 1 and 0: row 0 of the array lies at y = 3.
-    let mirrored = fx.mapped_image(
+    let mirrored = fx.imagesc(
         mirrored_axes,
         vec![4, 2],
         ramp(8),
@@ -2312,29 +2363,31 @@ fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
     let mut fx = Fx::new();
     fx.fig.layout.cols = 3;
     let flat = fx.axes2d(0, 0);
-    fx.mapped_image(flat, vec![2, 2], ramp(4), xy(None, None), |m| {
+    fx.imagesc(flat, vec![2, 2], ramp(4), xy(None, None), |m| {
         m.visible = false
     });
-    fx.mapped_image(
+    fx.imagesc(
         flat,
         vec![2, 2],
         ramp(4),
         placement(ImagePlane::Xz { y: None }, None, None),
         |_| {},
     );
-    let strict = fx.mapped_image(
+    let strict = fx.imagesc(
         flat,
         vec![2, 2],
         vec![0.0, f64::NAN, 2.0, 3.0],
         xy(None, None),
-        |m| m.non_finite = OutOfRange::Strict,
+        |_| {},
     );
+    let flat_scale = fx.axes_scale(flat);
+    fx.scale_mut(flat_scale).non_finite = out_of_range(OutOfRange::Strict);
     let log = fx.axes2d(0, 1);
     fx.line(log, &[1.0, 100.0], &[0.0, 1.0], None, |_| {});
-    let on_log = fx.mapped_image(log, vec![2, 2], ramp(4), xy(range(2.0, 4.0), None), |_| {});
+    let on_log = fx.imagesc(log, vec![2, 2], ramp(4), xy(range(2.0, 4.0), None), |_| {});
     fx.ax(log).x.scale = Scale::Log;
     let solid = fx.axes3d(0, 2, View3d::default());
-    let floor = fx.mapped_image(solid, vec![2, 2], ramp(4), xy(None, None), |_| {});
+    let floor = fx.imagesc(solid, vec![2, 2], ramp(4), xy(None, None), |_| {});
     let scene = compile_figure(&fx.build());
     let leaves = leaves(&scene);
     assert_eq!(
@@ -2364,8 +2417,9 @@ fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
 fn a_named_image_has_a_legend_entry_whose_sample_is_a_filled_patch() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    fx.ax(ax).colormap = ColormapName::Magma;
-    let mapped_image = fx.mapped_image(ax, vec![2, 2], ramp(4), xy(None, None), |m| {
+    fx.axes_scale_mut(ax).colormap = ColormapName::Magma.into();
+    fx.palette_mut(ax).colors = palette_colors(&MAGMA);
+    let mapped_image = fx.imagesc(ax, vec![2, 2], ramp(4), xy(None, None), |m| {
         m.label = text("Mapped")
     });
     let indexed = fx.indexed_image(
@@ -2459,7 +2513,7 @@ fn the_best_legend_location_keeps_clear_of_an_image() {
         let ax = fx.axes2d(0, 0);
         let mut images = Vec::new();
         for &(first, last) in columns {
-            images.push(fx.mapped_image(
+            images.push(fx.imagesc(
                 ax,
                 vec![2, 2],
                 ramp(4),
@@ -2565,11 +2619,11 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         ),
         (
             "mapped image whose values are one-dimensional",
-            fx.mapped_image(ax, vec![6], vec![0.0; 6], xy(None, None), |_| {}),
+            fx.imagesc(ax, vec![6], vec![0.0; 6], xy(None, None), |_| {}),
         ),
         (
             "image with a NaN column centre",
-            fx.mapped_image(
+            fx.imagesc(
                 ax,
                 vec![2, 3],
                 ramp(6),
@@ -2579,7 +2633,7 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         ),
         (
             "image with an infinite row centre",
-            fx.mapped_image(
+            fx.imagesc(
                 ax,
                 vec![2, 3],
                 ramp(6),
@@ -2589,7 +2643,7 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         ),
         (
             "image with a NaN plane offset",
-            fx.mapped_image(
+            fx.imagesc(
                 ax,
                 vec![2, 3],
                 ramp(6),
@@ -2599,7 +2653,7 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         ),
         (
             "image whose three column centres coincide",
-            fx.mapped_image(ax, vec![2, 3], ramp(6), xy(range(2.0, 2.0), None), |_| {}),
+            fx.imagesc(ax, vec![2, 3], ramp(6), xy(range(2.0, 2.0), None), |_| {}),
         ),
         (
             "indexed image whose two row centres coincide",
@@ -2613,7 +2667,7 @@ fn an_image_with_unusable_data_or_placement_is_skipped_with_one_warning_naming_i
         ),
     ];
     let solid = fx.axes3d(0, 1, View3d::default());
-    let wall_with_nan_offset = fx.mapped_image(
+    let wall_with_nan_offset = fx.imagesc(
         solid,
         vec![2, 2],
         ramp(4),

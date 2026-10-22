@@ -129,8 +129,10 @@ impl JsonSchema for Color {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ColorSpec {
     /// The renderer chooses the colour: for series this is the next colour of the
-    /// axes colour order (Okabe–Ito), and inside a scatter marker it is the scatter
-    /// colour.
+    /// axes colour order (Okabe–Ito), inside a scatter marker it is the scatter colour,
+    /// and on the isolines of a contour and the faces and edges of a surface, which
+    /// have no colour of their own, it is the colour mapped through the artist's colour
+    /// scale, as for `colormapped`.
     #[default]
     Auto,
     /// A fixed colour.
@@ -140,8 +142,8 @@ pub enum ColorSpec {
     },
     /// Nothing is drawn.
     None,
-    /// The colour is taken from the axes colormap, indexed by the data value
-    /// scaled into the axes colour limits.
+    /// The colour is mapped from the data value through the colour scale that the
+    /// artist names.
     Colormapped,
 }
 

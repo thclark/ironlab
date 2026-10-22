@@ -2,12 +2,14 @@
 //!
 //! The types in this crate are the single source of truth for the IronLAB figure
 //! format. A [`Figure`] is a serialisable tree of nodes (the figure, its data arrays, its
-//! axes and their artists, and its panels), each identified by a stable [`NodeId`] from
-//! one identifier space. A data array ([`DataArray`]) holds a numeric array
-//! ([`NdArray`]) that artists refer to by the identifier of the data array. An array holds either 64-bit
-//! floating-point values or 8-bit unsigned integers, which is its element type
-//! ([`NdArrayElement`]); the three image artists accept either, and every other artist
-//! requires floating-point values.
+//! colour scales, its axes and their artists, and its panels), each identified by a
+//! stable [`NodeId`] from one identifier space. A data array ([`DataArray`]) holds a
+//! numeric array ([`NdArray`]) that artists refer to by the identifier of the data array.
+//! An array holds either 64-bit floating-point values or 8-bit unsigned integers, which is
+//! its element type ([`NdArrayElement`]); the two image artists accept either, and every
+//! other artist requires floating-point values. A colour scale ([`ColorScale`]) turns
+//! numbers into colours, and every artist that maps numbers to colours names its scale
+//! by the identifier of the scale.
 //!
 //! # Formats
 //!
@@ -32,23 +34,27 @@
 //!
 //! - A figure is 160 mm wide and 100 mm high, uses the STIX Two font set at a base
 //!   size of 9 pt on a white background, and has a single-cell tile layout.
-//! - An axes is two-dimensional with a full box, the viridis colormap, automatic
-//!   colour limits, an automatic aspect (kept, when it is fixed, by shrinking the plot
-//!   area), a title centred over the plot area and no legend. Each of its axes is linear, has automatic limits,
-//!   automatic ticks and automatic tick labels, runs in the usual direction (left to
-//!   right, bottom to top) and has no grid lines.
+//! - An axes is two-dimensional with a full box, an automatic aspect (kept, when it is
+//!   fixed, by shrinking the plot area), a title centred over the plot area and no
+//!   legend. Each of its axes is linear, has automatic limits, automatic ticks and
+//!   automatic tick labels, runs in the usual direction (left to right, bottom to top)
+//!   and has no grid lines.
 //! - A three-dimensional view has an azimuth of −37.5°, an elevation of 30°, a zoom
 //!   of 1 and no pan.
 //! - A line style is a solid 0.75 pt line in the automatic colour, and a marker style
 //!   has no shape, a size of 4 pt, no face colour and the automatic edge colour.
-//! - A scatter uses circles of 4 pt in the automatic colour; a contour draws ten
-//!   automatic levels as colormapped, unfilled isolines in the bottom plane; a quiver
+//! - A scatter uses circles of 4 pt in the automatic colour; a contour takes the
+//!   levels of its colour scale and draws them as colormapped, unfilled isolines in the
+//!   bottom plane; a quiver
 //!   scales arrows automatically with heads of 0.3 of the arrow length; a surface has
 //!   colormapped faces and black edges 0.5 pt wide.
-//! - An image of any kind lies in the xy plane (the floor of a three-dimensional axes,
-//!   at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each axis
-//!   of the plane; a colour-indexed or colour-mapped image draws nothing for a pixel it
-//!   cannot colour, whether the pixel lies below or above its range or is not finite.
+//! - An image of either kind lies in the xy plane (the floor of a three-dimensional
+//!   axes, at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each
+//!   axis of the plane. A colour-mapped artist names no colour scale.
+//! - A colour scale is continuous, interpolating viridis in linear space between
+//!   automatic limits and clamping values beyond them. Every kind of scale draws nothing
+//!   for a value that is not finite. An indexed or categorical scale refuses a value
+//!   that names none of its entries, and a discrete scale has ten automatic bands.
 //! - Artists are visible and have no label, and data arrays have no name.
 //! - A legend inside a plot area sits in the top-right corner, is boxed and lists its
 //!   entries in one column. The content of a panel is centred in it, and a legend in a
@@ -61,6 +67,7 @@
 
 mod artist;
 mod axes;
+mod color_scale;
 pub mod command;
 mod data;
 mod edit;
@@ -80,13 +87,19 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane,
-    IndexedImage, Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
-    ScatterColor, ScatterSize, Surface,
+    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels,
+    Line, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize,
+    Surface,
 };
 pub use axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
+};
+pub use color_scale::{
+    CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,
+    ColorScaleDomain, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
+    ColorScaleSlot, Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale,
+    LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
 };
 pub use data::{DataArray, NdArray, NdArrayElement, Values};
 pub use edit::{

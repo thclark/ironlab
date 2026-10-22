@@ -291,7 +291,7 @@ fn legend_lists_named_artists_of_every_kind_in_artist_order() {
         fx.indexed_image(ax, vec![1, 2], vec![0u8, 255], xy(None, None), |i| {
             i.label = text("Indexed")
         }),
-        fx.mapped_image(ax, vec![1, 2], vec![0.0, 1.0], xy(None, None), |m| {
+        fx.imagesc(ax, vec![1, 2], vec![0.0, 1.0], xy(None, None), |m| {
             m.label = text("Mapped")
         }),
     ]);

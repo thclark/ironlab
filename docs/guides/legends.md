@@ -2,7 +2,7 @@
 
 A legend lists the plots of a figure that have a label, each beside a sample of how the plot is drawn, or the items that its author lists explicitly. IronLAB offers two kinds of legend. A legend **inside an axes** is drawn in a corner or at an edge of that axes' plot area and lists only the plots of that axes. A **legend panel** is a [panel](../reference/figure-schema.md#panels) of the figure that holds a legend: it occupies tiles of the figure's layout, as an axes does, and lists the plots of every axes that sends its entries to it, so that a grid of subplots showing the same series can share one legend instead of repeating it in every plot.
 
-This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
+The sample of a plot that maps its data to colours, such as a filled contour or a surface, is drawn in the middle colour of its [colour scale](colour.md), and a colour scale itself is not yet shown as a key; the [colour guide](colour.md) describes scales. This guide assumes the figure, tile and axes concepts of [getting started](getting-started.md#figures-tiles-and-axes). The examples use the prelude and the following data:
 
 ```rust
 use ironlab::prelude::*;

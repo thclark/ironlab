@@ -21,8 +21,8 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let mut ax = fig.axes3(0, 0);
     ax.contour3(&x, &y, &z).levels(20).line_width(1.0);
-    ax.colormap(Colormap::Cividis)
-        .xlabel("$x$")
+    ax.color_scale().colormap(Colormap::Cividis);
+    ax.xlabel("$x$")
         .ylabel("$y$")
         .zlabel(r"$\ln(1 + |z_3|)$")
         .grid(true);

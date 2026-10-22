@@ -17,13 +17,17 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, IndexedImage,
-    Levels, Line, MappedImage, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter, ScatterColor,
-    ScatterSize, Surface,
+    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, Line,
+    PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, Limits, Projection, Scale, TickLabels, Ticks,
     TitleAlign, View3d,
+};
+use crate::color_scale::{
+    CategoricalColorScale, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    ColorScaleOutOfRange, Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale,
+    OutOfRange,
 };
 use crate::data::DataArray;
 use crate::edit::path::PropertyPath;
@@ -392,6 +396,7 @@ ir_leaf! {
     FontSetId => FontSetId;
     Scale => Scale;
     ColormapName => ColormapName;
+    ColorScaleNorm => ColorScaleNorm;
     LegendLocation => LegendLocation;
     PanelLocation => PanelLocation;
     LegendEntryOrder => LegendEntryOrder;
@@ -415,6 +420,7 @@ ir_node! {
         plain "layout" => layout: TileLayout =
             "The grid of cells in which axes and panels are placed.";
         hidden "data" => data: () = "";
+        hidden "color_scales" => color_scales: () = "";
         hidden "axes" => axes: () = "";
         hidden "panels" => panels: () = "";
         plain "links" => links: Vec<AxisLink> =
@@ -431,6 +437,16 @@ ir_node! {
         optional "name" => name: String =
             "The name that identifies the array to tools such as the inspector; never drawn.";
         hidden "array" => array: () = "";
+    }
+
+    ColorScale {
+        hidden "id" => id: () = "";
+        optional "title" => title: Text =
+            "The title drawn with the scale: above a colourbar that shows it, and as the label of a bar item that shows it in a legend.";
+        plain "kind" => kind: ColorScaleKind =
+            "How values become colours and how the scale is drawn: continuous, discrete, indexed or categorical.";
+        plain "non_finite" => non_finite: ColorScaleOutOfRange =
+            "What is drawn for a value that is NaN or infinite, on every kind of scale.";
     }
 
     Axes {
@@ -453,10 +469,6 @@ ir_node! {
             "How a fixed aspect is kept: by shaping the plot area or the box of a three-dimensional axes to the limits, or by widening the limits.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
-        plain "colormap" => colormap: ColormapName =
-            "The colormap used by colormapped artists in this axes.";
-        plain "clim" => clim: Limits =
-            "The data values mapped to the first and last colours of the colormap.";
         optional "legend" => legend: Legend =
             "Where the legend entries of the axes are listed, or absent when they are not listed.";
         hidden "artists" => artists: () = "";
@@ -499,6 +511,8 @@ ir_node! {
             "The size of the markers, which overrides the size of the marker style.";
         plain "color" => color: ScatterColor =
             "The colour of the markers, applied wherever the marker face or edge is automatic.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which colour data is mapped; a scatter coloured by data must name one.";
         plain "marker" => marker: MarkerStyle =
             "The marker shape and the use of the scatter colour for face and edge.";
         plain "x_coords" => x_coords: Coords =
@@ -516,14 +530,16 @@ ir_node! {
         plain "grid" => grid: Grid = "The grid on which the field is sampled.";
         plain "z" => z: NodeId =
             "The field values, a two-dimensional array of shape [ny, nx].";
-        plain "levels" => levels: Levels =
-            "The field values at which isolines are drawn or between which bands are filled.";
+        optional "levels" => levels: Levels =
+            "The field values at which isolines are drawn or between which bands are filled, or absent for the levels of the colour scale: the band edges of a discrete scale, and ten automatic levels otherwise.";
         plain "fill" => fill: bool =
             "Whether the bands between levels are filled rather than only the isolines drawn.";
         plain "placement" => placement: ContourPlacement =
             "Where the contours are placed in three-dimensional axes.";
         plain "line" => line: LineStyle =
-            "The style of the isolines; a colormapped colour takes each isoline's level.";
+            "The style of the isolines; a colormapped colour takes the colour of each isoline's level through the colour scale.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which levels and bands are coloured; a contour whose bands are filled or whose isolines are colormapped must name one.";
         plain "line_opacity" => line_opacity: f64 =
             "The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
         plain "fill_opacity" => fill_opacity: f64 =
@@ -561,6 +577,8 @@ ir_node! {
         plain "face" => face: ColorSpec = "The colour of the faces.";
         plain "edge" => edge: ColorSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the colour data is mapped; a surface whose faces or edges are colormapped must name one.";
         optional "face_alpha" => face_alpha: NodeId =
             "The alpha of the faces at every node, with the same shape as the field; a face takes the mean of its corners' alpha, which is clamped to [0, 1], and a non-finite alpha makes the face transparent. When absent the faces are uniformly opaque before their opacity applies.";
         optional "edge_alpha" => edge_alpha: NodeId =
@@ -582,38 +600,15 @@ ir_node! {
             "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
     }
 
-    IndexedImage {
-        hidden "id" => id: () = "";
-        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
-        plain "visible" => visible: bool = "Whether the artist is drawn.";
-        plain "indices" => indices: NodeId =
-            "The indices into the axes colormap, a two-dimensional array of shape [ny, nx]: a floating-point index is truncated toward zero, and an index from 0 to 255 takes that entry of the colormap.";
-        plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
-        plain "below" => below: OutOfRange =
-            "What is drawn for a pixel whose truncated index is less than 0.";
-        plain "above" => above: OutOfRange =
-            "What is drawn for a pixel whose truncated index is greater than 255.";
-        plain "non_finite" => non_finite: OutOfRange =
-            "What is drawn for a pixel whose index is not finite.";
-        optional "alpha" => alpha: NodeId =
-            "The alpha of every pixel, with the same shape as the indices: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
-        plain "opacity" => opacity: f64 =
-            "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
-    }
-
-    MappedImage {
+    ScalarImage {
         hidden "id" => id: () = "";
         optional "label" => label: Text = "The label drawn beside the artist in a legend.";
         plain "visible" => visible: bool = "Whether the artist is drawn.";
         plain "values" => values: NodeId =
-            "The values, a two-dimensional array of shape [ny, nx], mapped through the axes colormap and colour limits.";
+            "The numbers, a two-dimensional array of shape [ny, nx] of floating-point or 8-bit values, each mapped to a colour through the colour scale.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the numbers are mapped; a scalar image must name one.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
-        plain "below" => below: OutOfRange =
-            "What is drawn for a pixel whose value is less than the lower colour limit.";
-        plain "above" => above: OutOfRange =
-            "What is drawn for a pixel whose value is greater than the upper colour limit.";
-        plain "non_finite" => non_finite: OutOfRange =
-            "What is drawn for a pixel whose value is not finite.";
         optional "alpha" => alpha: NodeId =
             "The alpha of every pixel, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255, clamped to that range, a non-finite alpha making the pixel transparent. When absent the pixels are uniformly opaque before the opacity applies.";
         plain "opacity" => opacity: f64 =
@@ -726,6 +721,62 @@ ir_value! {
             "The coordinates of the centres of the first and last columns along the first axis of the plane, or absent for centres at 0 to nx − 1.";
         optional "rows" => rows: PixelRange =
             "The coordinates of the centres of the first and last rows along the second axis of the plane, or absent for centres at 0 to ny − 1.";
+    }
+
+    ColorScaleOutOfRange as ColorScaleOutOfRange {
+        plain "policy" => policy: OutOfRange = "What is drawn for a value of the category.";
+        plain "show_key" => show_key: bool =
+            "Whether a colourbar that shows the scale draws a key square for the category, separate from the bar.";
+        optional "label" => label: Text =
+            "The label of the key square, or absent for the default label.";
+    }
+
+    ContinuousColorScale as ContinuousColorScale {
+        plain "colormap" => colormap: Colormap = "The palette that the scale interpolates.";
+        plain "limits" => limits: Limits =
+            "The values mapped to the first and last colours of the colormap; automatic limits are the range of the values that every artist maps through the scale.";
+        plain "norm" => norm: ColorScaleNorm =
+            "Whether values are interpolated in linear or logarithmic space.";
+        plain "below" => below: ColorScaleOutOfRange =
+            "What is drawn for a value below the lower limit, or not positive under a logarithmic norm.";
+        plain "above" => above: ColorScaleOutOfRange =
+            "What is drawn for a value above the upper limit.";
+        plain "ticks" => ticks: Ticks =
+            "Where the ticks of a colourbar that shows the scale are placed.";
+        plain "tick_labels" => tick_labels: TickLabels =
+            "What is written at the ticks of a colourbar that shows the scale.";
+    }
+
+    DiscreteColorScale as DiscreteColorScale {
+        plain "colormap" => colormap: Colormap =
+            "The palette from which the bands take their colours.";
+        plain "levels" => levels: ColorScaleLevels = "The edges of the bands.";
+        plain "norm" => norm: ColorScaleNorm =
+            "Whether band edges are chosen, and the colormap sampled, in linear or logarithmic space.";
+        plain "below" => below: ColorScaleOutOfRange =
+            "What is drawn for a value below the first edge, or not positive under a logarithmic norm.";
+        plain "above" => above: ColorScaleOutOfRange =
+            "What is drawn for a value above the last edge.";
+        plain "ticks" => ticks: Ticks =
+            "Where the ticks of a colourbar that shows the scale are placed; automatic ticks are one per band edge.";
+        plain "tick_labels" => tick_labels: TickLabels =
+            "What is written at the ticks of a colourbar that shows the scale.";
+    }
+
+    IndexedColorScale as IndexedColorScale {
+        hidden "colors" => colors: () = "";
+        plain "outside" => outside: ColorScaleOutOfRange =
+            "What is drawn for a value that names no entry.";
+        plain "ticks" => ticks: Ticks =
+            "Where the ticks of a colourbar that shows the scale are placed, at the centres of the entries.";
+        plain "tick_labels" => tick_labels: TickLabels =
+            "What is written at the ticks of a colourbar that shows the scale.";
+    }
+
+    CategoricalColorScale as CategoricalColorScale {
+        hidden "categories" => categories: () = "";
+        plain "outside" => outside: ColorScaleOutOfRange =
+            "What is drawn for a value that names no category.";
     }
 
     PixelRange as PixelRange {
@@ -864,7 +915,7 @@ ir_tagged! {
         }
         Data {
             plain "data" => data: NodeId =
-                "An array of values, one per point, mapped through the axes colormap and colour limits.";
+                "An array of values, one per point, mapped through the colour scale of the scatter.";
         }
     }
 
@@ -896,7 +947,49 @@ ir_tagged! {
         Transparent {}
         Clamp {}
         Rgba {
-            plain "color" => color: Color = "The colour the pixels are drawn in.";
+            plain "color" => color: Color = "The colour in which the values are drawn.";
+        }
+    }
+
+    ColorScaleKind as ColorScaleKind {
+        Continuous {
+            plain "continuous" => 0: ContinuousColorScale =
+                "A colormap interpolated between limits, drawn as a smooth bar.";
+        }
+        Discrete {
+            plain "discrete" => 0: DiscreteColorScale =
+                "Bands between edges, each in one colour of a colormap, drawn as a bar of bands.";
+        }
+        Indexed {
+            plain "indexed" => 0: IndexedColorScale =
+                "A palette of which a whole number i takes entry i, drawn as a bar of adjoining blocks.";
+        }
+        Categorical {
+            plain "categorical" => 0: CategoricalColorScale =
+                "Labelled categories of which a whole number i takes category i, drawn as separate outlined squares.";
+        }
+    }
+
+    Colormap as Colormap {
+        Named {
+            plain "name" => name: ColormapName = "The name of the bundled colormap.";
+            plain "reverse" => reverse: bool =
+                "Whether the colormap runs from its last colour to its first.";
+        }
+        Listed {
+            hidden "colors" => colors: () = "";
+        }
+    }
+
+    ColorScaleLevels as ColorScaleLevels {
+        Auto {
+            plain "count" => count: u32 = "The approximate number of bands; at least one.";
+            plain "limits" => limits: Limits =
+                "The range that the edges span, from the first edge to the last.";
+        }
+        Explicit {
+            plain "values" => values: Vec<f64> =
+                "The edges: at least two, finite, strictly increasing, and positive under a logarithmic norm.";
         }
     }
 }

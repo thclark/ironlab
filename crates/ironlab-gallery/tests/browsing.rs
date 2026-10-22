@@ -94,7 +94,7 @@ fn drawing(wanted: fn(&Artist) -> bool) -> Vec<String> {
 ///
 /// Whether the figure is flat or solid is not among them: that is one value, so it is the `dimensionality`
 /// parameter and not a tag. The viewer works none of this out, so these are the entry's own words; reading them
-/// back off the figure here is what keeps those words true. The three kinds of raster all count as an image,
+/// back off the figure here is what keeps those words true. Both kinds of raster count as an image,
 /// because how a pixel gets its colour is a distinction inside the IR rather than one anyone browses by.
 fn structural(figure: &Figure) -> BTreeSet<String> {
     let mut tags = BTreeSet::new();
@@ -107,7 +107,7 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
                     Artist::Contour(_) => "contour",
                     Artist::Quiver(_) => "quiver",
                     Artist::Surface(_) => "surface",
-                    Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_) => "image",
+                    Artist::Image(_) | Artist::ScalarImage(_) => "image",
                 }
                 .to_owned(),
             );
@@ -150,22 +150,17 @@ fn asking_for_the_surface_figures_finds_exactly_the_figures_that_draw_one() {
     );
 }
 
-// Why: the three kinds of raster differ only in how a pixel gets its colour, which is a distinction inside the IR
+// Why: the two kinds of raster differ only in how a pixel gets its colour, which is a distinction inside the IR
 // rather than one anyone browses by. A reader looking for the pictures should find all of them with one word, so
-// every entry that draws any of the three writes the same word.
+// every entry that draws either kind writes the same word.
 #[test]
-fn the_three_kinds_of_raster_are_all_found_by_asking_for_images() {
+fn both_kinds_of_raster_are_found_by_asking_for_images() {
     let mut found = found("tag:image");
     found.sort();
-    let expected = drawing(|artist| {
-        matches!(
-            artist,
-            Artist::Image(_) | Artist::IndexedImage(_) | Artist::MappedImage(_)
-        )
-    });
+    let expected = drawing(|artist| matches!(artist, Artist::Image(_) | Artist::ScalarImage(_)));
     assert_eq!(
         found, expected,
-        "one word finds the true-colour, the indexed and the mapped rasters alike"
+        "one word finds the true-colour and the scalar rasters alike"
     );
 }
 

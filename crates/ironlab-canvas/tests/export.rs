@@ -19,9 +19,9 @@ use std::path::Path;
 use std::process::Command;
 
 use common::{
-    BLOCK_PT, BLOCK_TOLERANCE, TEXT, Workspace, array_id, assert_same_picture, data_arrays,
-    difference, figure_with_mapped_image, find_image, gpu_required, rasterise, rendered_or_skip,
-    rgb_of, run, tools_available,
+    BLOCK_PT, BLOCK_TOLERANCE, TEXT, Workspace, array_id, assert_same_picture, continuous_scale,
+    data_arrays, difference, figure_with_scalar_image, find_image, gpu_required, rasterise,
+    rendered_or_skip, rgb_of, run, tools_available,
 };
 use image::RgbImage;
 use ironlab_canvas::{
@@ -195,10 +195,12 @@ fn surface_figure_of(
                 grid: Grid::Rectilinear { x: gx, y: gy },
                 z,
                 edge,
+                color_scale: Some(NodeId(20)),
                 ..Surface::default()
             })],
             ..Axes::default()
         }],
+        color_scales: vec![continuous_scale(20)],
         ..Figure::new()
     }
 }
@@ -380,7 +382,7 @@ fn a_mapped_image_is_embedded_at_its_data_resolution_and_prints_as_the_viewer_dr
     }
     let ws = Workspace::new("mapped-image");
     let (ny, nx) = (4usize, 6usize);
-    let figure = figure_with_mapped_image(ny, nx);
+    let figure = figure_with_scalar_image(ny, nx);
     let scene = ironlab_scene::compile(&figure, &TEXT);
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     let item = find_image(&scene.display_list.items)
@@ -493,6 +495,7 @@ fn crossing_planes_figure() -> Figure {
                     grid: Grid::Rectilinear { x: gx, y: gy },
                     z: z1,
                     edge: ColorSpec::None,
+                    color_scale: Some(NodeId(20)),
                     ..Surface::default()
                 }),
                 Artist::Surface(Surface {
@@ -515,6 +518,7 @@ fn crossing_planes_figure() -> Figure {
             ],
             ..Axes::default()
         }],
+        color_scales: vec![continuous_scale(20)],
         ..Figure::new()
     }
 }
@@ -781,13 +785,15 @@ fn verified_and_embedded_figure() -> Figure {
         (ly, NdArray::vector(vec![0.0, 1.0])),
         (lz, NdArray::vector(vec![0.1, 0.9])),
     ]);
-    let surface = |id, x, y, z, face| {
+    // Each axes maps its surfaces through a colour scale of its own, 20 for the first and 21 for the second.
+    let surface = |id, x, y, z, face, scale| {
         Artist::Surface(Surface {
             id: NodeId(id),
             grid: Grid::Rectilinear { x, y },
             z,
             face,
             edge: ColorSpec::None,
+            color_scale: Some(NodeId(scale)),
             ..Surface::default()
         })
     };
@@ -815,13 +821,13 @@ fn verified_and_embedded_figure() -> Figure {
             axes(
                 2,
                 0,
-                vec![surface(3, sx, sy, z_smooth, ColorSpec::default())],
+                vec![surface(3, sx, sy, z_smooth, ColorSpec::default(), 20)],
             ),
             axes(
                 4,
                 1,
                 vec![
-                    surface(5, px, py, z_rising, ColorSpec::default()),
+                    surface(5, px, py, z_rising, ColorSpec::default(), 21),
                     surface(
                         6,
                         px,
@@ -830,6 +836,7 @@ fn verified_and_embedded_figure() -> Figure {
                         ColorSpec::Rgba {
                             color: Color::rgb(0.8, 0.8, 0.8),
                         },
+                        21,
                     ),
                     Artist::Line(Line {
                         id: NodeId(7),
@@ -841,6 +848,7 @@ fn verified_and_embedded_figure() -> Figure {
                 ],
             ),
         ],
+        color_scales: vec![continuous_scale(20), continuous_scale(21)],
         ..Figure::new()
     }
 }

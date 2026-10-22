@@ -17,12 +17,12 @@ proto_file! {
             Surface(Surface) surface = 5;
             /// A raster of true-colour pixels.
             Image(Image) image = 6;
-            /// A raster of pixels that name entries of the axes colormap.
-            IndexedImage(IndexedImage) indexed_image = 7;
-            /// A raster of data values mapped through the axes colormap and colour
-            /// limits.
-            MappedImage(MappedImage) mapped_image = 8;
+            /// A raster of numbers, each mapped to a colour through a colour scale.
+            ScalarImage(ScalarImage) scalar_image = 9;
         }
+        /// The numbers and names of the colour-indexed and colour-mapped images, which a
+        /// scalar image replaced.
+        reserved 7, 8, indexed_image, mapped_image;
     }
 
     /// A polyline through data points, with optional markers at the points.
@@ -80,6 +80,9 @@ proto_file! {
         enum Coords y_coords = 11;
         /// Whether the artist is clipped to the plot area.
         optional bool clip = 12;
+        /// The node identifier of the colour scale through which colour data is mapped;
+        /// absent when the scatter names none.
+        optional uint64 color_scale = 13;
     }
 
     /// How the values of one dimension of a line or scatter are placed in a 2D axes.
@@ -120,7 +123,8 @@ proto_file! {
         oneof kind: ScatterColorKind {
             /// Every marker has the same colour.
             Spec(ScatterColorSpec) spec = 1;
-            /// Each marker is coloured by a data value through the axes colormap.
+            /// Each marker is coloured by a data value through the colour scale of the
+            /// scatter.
             Data(ScatterColorData) data = 2;
         }
     }
@@ -131,10 +135,10 @@ proto_file! {
         message ColorSpec spec = 1;
     }
 
-    /// Each marker is coloured by a data value through the axes colormap.
+    /// Each marker is coloured by a data value through the colour scale of the scatter.
     message ScatterColorData {
-        /// The data identifier of the values, one per point, mapped through the axes
-        /// colormap and colour limits.
+        /// The data identifier of the values, one per point, mapped through the colour
+        /// scale of the scatter.
         optional uint64 data = 1;
     }
 
@@ -151,7 +155,7 @@ proto_file! {
         /// The data identifier of the field values, of shape `[ny, nx]`.
         optional uint64 z = 5;
         /// The field values at which isolines are drawn or between which bands are
-        /// filled.
+        /// filled; absent for the levels of the colour scale.
         message Levels levels = 6;
         /// Whether the bands between levels are filled rather than only the isolines
         /// drawn.
@@ -164,6 +168,9 @@ proto_file! {
         optional double line_opacity = 10;
         /// The opacity of the filled bands, from 0 to 1; absent means 1.
         optional double fill_opacity = 11;
+        /// The node identifier of the colour scale through which levels and bands are
+        /// coloured; absent when the contour names none.
+        optional uint64 color_scale = 12;
     }
 
     /// The grid on which a field of shape `[ny, nx]` is sampled.
@@ -324,6 +331,9 @@ proto_file! {
         optional double face_opacity = 12;
         /// The opacity of the face edges, from 0 to 1; absent means 1.
         optional double edge_opacity = 13;
+        /// The node identifier of the colour scale through which the colour data is
+        /// mapped; absent when the surface names none.
+        optional uint64 color_scale = 14;
     }
 
     /// A true-colour image: a raster of pixels, each with its own colour.
@@ -345,64 +355,30 @@ proto_file! {
         optional double opacity = 6;
     }
 
-    /// A colour-indexed image: a raster of pixels whose values name entries of the axes
-    /// colormap directly, an index being truncated toward zero and taking the entry
-    /// from 0 to 255 of that number.
-    message IndexedImage {
+    /// A scalar image: a raster of pixels, each holding one number that its colour scale
+    /// maps to a colour.
+    message ScalarImage {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
         /// The label drawn beside the artist in a legend; absent when there is none.
         message Text label = 2;
         /// Whether the artist is drawn.
         optional bool visible = 3;
-        /// The data identifier of the indices, of shape `[ny, nx]`, holding
-        /// floating-point or 8-bit values.
-        optional uint64 indices = 4;
-        /// Where the pixels lie in the axes.
-        message ImagePlacement placement = 5;
-        /// What is drawn for a pixel whose truncated index is less than 0.
-        message OutOfRange below = 6;
-        /// What is drawn for a pixel whose truncated index is greater than 255.
-        message OutOfRange above = 7;
-        /// What is drawn for a pixel whose index is not finite.
-        message OutOfRange non_finite = 8;
-        /// The data identifier of the alpha of every pixel, of shape `[ny, nx]`,
-        /// holding floating-point values from 0 to 1 or 8-bit values from 0 to 255;
-        /// absent when the pixels are uniformly opaque before the opacity.
-        optional uint64 alpha = 9;
-        /// The opacity of the image, from 0 to 1, which multiplies the alpha of every
-        /// pixel; absent means 1.
-        optional double opacity = 10;
-    }
-
-    /// A colour-mapped image: a raster of data values, each scaled through the colour
-    /// limits of the axes into its colormap.
-    message MappedImage {
-        /// The node identifier of the artist, unique within the figure.
-        optional uint64 id = 1;
-        /// The label drawn beside the artist in a legend; absent when there is none.
-        message Text label = 2;
-        /// Whether the artist is drawn.
-        optional bool visible = 3;
-        /// The data identifier of the values, of shape `[ny, nx]`, holding
+        /// The data identifier of the numbers, of shape `[ny, nx]`, holding
         /// floating-point or 8-bit values.
         optional uint64 values = 4;
+        /// The node identifier of the colour scale through which the numbers are
+        /// mapped; absent when the image names none.
+        optional uint64 color_scale = 5;
         /// Where the pixels lie in the axes.
-        message ImagePlacement placement = 5;
-        /// What is drawn for a pixel whose value is less than the lower colour limit.
-        message OutOfRange below = 6;
-        /// What is drawn for a pixel whose value is greater than the upper colour
-        /// limit.
-        message OutOfRange above = 7;
-        /// What is drawn for a pixel whose value is not finite.
-        message OutOfRange non_finite = 8;
+        message ImagePlacement placement = 6;
         /// The data identifier of the alpha of every pixel, of shape `[ny, nx]`,
         /// holding floating-point values from 0 to 1 or 8-bit values from 0 to 255;
         /// absent when the pixels are uniformly opaque before the opacity.
-        optional uint64 alpha = 9;
+        optional uint64 alpha = 7;
         /// The opacity of the image, from 0 to 1, which multiplies the alpha of every
         /// pixel; absent means 1.
-        optional double opacity = 10;
+        optional double opacity = 8;
     }
 
     /// Where the pixels of an image lie in its axes: the plane of the image and the
@@ -459,39 +435,5 @@ proto_file! {
     message ImagePlaneYz {
         /// The x coordinate of the plane; absent for the low end of the x axis.
         optional double x = 1;
-    }
-
-    /// What is drawn for a pixel of a colour-indexed or colour-mapped image that the
-    /// artist cannot colour.
-    message OutOfRange {
-        /// The policy; unset means the default of the context, which is transparent.
-        oneof kind: OutOfRangeKind {
-            /// Such a pixel makes the figure invalid.
-            Strict(OutOfRangeStrict) strict = 1;
-            /// Nothing is drawn for the pixel.
-            Transparent(OutOfRangeTransparent) transparent = 2;
-            /// The pixel takes the nearest end colour of the colormap.
-            Clamp(OutOfRangeClamp) clamp = 3;
-            /// The pixel is drawn in a fixed colour.
-            Rgba(OutOfRangeRgba) rgba = 4;
-        }
-    }
-
-    /// Such a pixel makes the figure invalid, so it is refused until the data is
-    /// corrected.
-    message OutOfRangeStrict {}
-
-    /// Nothing is drawn for the pixel.
-    message OutOfRangeTransparent {}
-
-    /// The pixel takes the nearest end colour of the colormap: its first entry below the
-    /// range and its last entry above it; a non-finite value has no nearest end, so
-    /// nothing is drawn for it.
-    message OutOfRangeClamp {}
-
-    /// The pixel is drawn in a fixed colour.
-    message OutOfRangeRgba {
-        /// The colour of the pixel; absent means black.
-        message Color color = 1;
     }
 }

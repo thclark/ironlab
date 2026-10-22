@@ -12,6 +12,7 @@ nav = [
   { "Guides" = [
     { "Getting started" = "guides/getting-started.md" },
     { "Legends" = "guides/legends.md" },
+    { "Colour" = "guides/colour.md" },
     { "Describing figures" = "guides/describing-figures.md" },
     { "Using the viewer" = "guides/viewer.md" },
     { "Embedding figures in a web page" = "guides/embedding.md" },
@@ -47,6 +48,7 @@ nav = [
     { "0021 Images refused on logarithmic axes, and alpha data and opacity" = "adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md" },
     { "0022 Figure nodes in one identifier space, and panels that hold content" = "adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md" },
     { "0023 Titles, labels, names and tags" = "adrs/0023-titles-labels-names-and-tags.md" },
+    { "0024 Colour scales as figure nodes, colourbars and colour keys" = "adrs/0024-colour-scales-colourbars-and-colour-keys.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

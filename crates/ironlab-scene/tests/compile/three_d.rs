@@ -414,9 +414,9 @@ fn contour3_at_level_differs_from_planar_contour() {
         let g = linspace(-1.0, 1.0, 9);
         let id = fx.contour(ax, &g, &g, height, |c| {
             c.placement = placement;
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: vec![-0.3, 0.3],
-            };
+            });
         });
         manual_unit_limits(&mut fx, ax);
         (compile_figure(&fx.build()), id)

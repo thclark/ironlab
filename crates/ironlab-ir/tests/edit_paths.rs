@@ -246,7 +246,10 @@ fn collect_paths(
 // `buf breaking` reports each change: the artists' `display_name` is now `label`; the
 // figure's `labels` are now `tags`; `panel_legends` is now `panels`, whose legend
 // properties lie below `content.legend`; and the data table is a list of `DataArray` nodes
-// whose `name` is their only settable property.
+// whose `name` is their only settable property. Colour scales then removed the axes'
+// `colormap` and `clim`, replaced the colour-indexed and colour-mapped images by the
+// scalar image, whose policies moved to its scale, and made the levels of a contour
+// optional.
 #[test]
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
@@ -259,6 +262,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
                 "schema_version",
                 "id",
                 "data",
+                "color_scales",
                 "axes",
                 "provenance",
                 "panels",
@@ -280,8 +284,21 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Quiver, "Quiver", read_only),
         (NodeKind::Surface, "Surface", read_only),
         (NodeKind::Image, "Image", read_only),
-        (NodeKind::IndexedImage, "IndexedImage", read_only),
-        (NodeKind::MappedImage, "MappedImage", read_only),
+        (NodeKind::ScalarImage, "ScalarImage", read_only),
+        // The entries of an indexed or categorical scale, and the colours of a listed
+        // colormap, are structure that code writes, read but not set through the
+        // registry, as the entries of a legend are.
+        (
+            NodeKind::ColorScale,
+            "ColorScale",
+            &[
+                "id",
+                "kind.continuous.colormap.colors",
+                "kind.discrete.colormap.colors",
+                "kind.indexed.colors",
+                "kind.categorical.categories",
+            ],
+        ),
         (NodeKind::Panel, "Panel", &["id", "content.legend.entries"]),
     ];
     for (kind, message, skip) in cases {
@@ -396,7 +413,12 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
         .expect("the generated schema decodes a figure");
     let mut all = Vec::new();
     let mut leaves = Leaves::new();
-    flatten_wire(&figure, "", &["data", "axes", "panels"], &mut leaves);
+    flatten_wire(
+        &figure,
+        "",
+        &["data", "color_scales", "axes", "panels"],
+        &mut leaves,
+    );
     all.push(leaves);
     let data_field = figure.get_field_by_name("data").expect("Figure.data");
     let WireValue::List(data_list) = &*data_field else {
@@ -408,6 +430,20 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
         };
         let mut leaves = Leaves::new();
         flatten_wire(data, "", &[], &mut leaves);
+        all.push(leaves);
+    }
+    let scales_field = figure
+        .get_field_by_name("color_scales")
+        .expect("Figure.color_scales");
+    let WireValue::List(scales) = &*scales_field else {
+        panic!("Figure.color_scales is a list");
+    };
+    for scale in scales {
+        let WireValue::Message(scale) = scale else {
+            panic!("a colour scale is a message");
+        };
+        let mut leaves = Leaves::new();
+        flatten_wire(scale, "", &[], &mut leaves);
         all.push(leaves);
     }
     let axes_field = figure.get_field_by_name("axes").expect("Figure.axes");
@@ -600,7 +636,7 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
     let contour = fig.axes[2].artists[0].id(); // automatic levels
     let quiver = fig.axes[3].artists[0].id(); // automatic scale
     let image = fig.axes[6].artists[0].id(); // on the xy plane
-    let mapped = fig.axes[7].artists[0].id(); // transparent below
+    let scale = fig.color_scales[7].id; // continuous, transparent below
     for (node, at, value) in [
         (two_d, "projection.view3d.zoom", Value::Double(2.0)),
         (two_d, "projection.view3d", Value::View3d(View3d::default())),
@@ -609,8 +645,17 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
         (quiver, "scale.value", Value::Double(2.0)),
         (image, "placement.plane.y", Value::Double(1.0)),
         (image, "placement.plane.x", Value::Unset),
-        (mapped, "below.color", Value::Color(Color::BLACK)),
-        (mapped, "below.color.a", Value::Float(0.5)),
+        (
+            scale,
+            "kind.continuous.below.policy.color",
+            Value::Color(Color::BLACK),
+        ),
+        (
+            scale,
+            "kind.continuous.below.policy.color.a",
+            Value::Float(0.5),
+        ),
+        (scale, "kind.discrete.levels", Value::Unset),
     ] {
         let expected_path = path(at);
         assert!(
@@ -869,7 +914,7 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
     let axes = fig.axes[0].id;
     let line = fig.axes[0].artists[0].id();
     let image = fig.axes[6].artists[0].id();
-    let mapped = fig.axes[7].artists[0].id();
+    let scale = fig.color_scales[7].id;
     for (node, at, value, expected, found) in [
         (
             axes,
@@ -881,8 +926,8 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
         // A policy is not a colour specification, and a plane is not a contour placement,
         // although each pair looks alike.
         (
-            mapped,
-            "non_finite",
+            scale,
+            "non_finite.policy",
             Value::ColorSpec(ColorSpec::None),
             ValueType::OutOfRange,
             Some(ValueType::ColorSpec),
@@ -976,17 +1021,19 @@ fn unset_clears_an_optional_property_and_a_whole_value_creates_it() {
 
 // Why: the placement of an image is edited a field at a time from the property editor
 // (a wall chosen, a pixel centre dragged, a range given or taken away, a colour picked
-// for the pixels a policy paints), and each part follows a different rule of the walk:
-// the plane is a tagged value whose offset exists only under the plane that has it and
-// may be absent, the ranges are optional values created and cleared whole, and the
-// colour of a policy exists only under a fixed colour. Each must be pathed as the value
-// it mirrors (a contour plane, an optional title, a fixed colour specification) or the
-// editor's rows for images would be dead, and the inverse must undo the lot.
+// for the values that the policy of its scale paints), and each part follows a different
+// rule of the walk: the plane is a tagged value whose offset exists only under the plane
+// that has it and may be absent, the ranges are optional values created and cleared
+// whole, and the colour of a policy exists only under a fixed colour. Each must be pathed
+// as the value it mirrors (a contour plane, an optional title, a fixed colour
+// specification) or the editor's rows for images would be dead, and the inverse must undo
+// the lot.
 #[test]
 fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() {
     let fig = kitchen_sink_figure();
     let image = fig.axes[5].artists[2].id(); // on the xz wall, with columns and no rows
-    let mapped = fig.axes[7].artists[0].id(); // on the floor, transparent below
+    let mapped = fig.axes[7].artists[0].id(); // on the floor
+    let scale = fig.color_scales[7].id; // the scale of `mapped`, transparent below
     let (edited, inverse) = applied(
         &fig,
         &tx([
@@ -1007,13 +1054,17 @@ fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() 
             set(image, "placement.rows.last", Value::Double(0.0)),
             set(image, "placement.columns", Value::Unset),
             set(
-                mapped,
-                "below",
+                scale,
+                "kind.continuous.below.policy",
                 Value::OutOfRange(OutOfRange::Rgba {
                     color: Color::BLACK,
                 }),
             ),
-            set(mapped, "below.color.a", Value::Float(0.5)),
+            set(
+                scale,
+                "kind.continuous.below.policy.color.a",
+                Value::Float(0.5),
+            ),
             set(mapped, "placement.plane.z", Value::Double(4.0)),
         ]),
     )
@@ -1038,7 +1089,9 @@ fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() 
         Value::Unset
     );
     assert_eq!(
-        edited.get(mapped, &path("below")).unwrap(),
+        edited
+            .get(scale, &path("kind.continuous.below.policy"))
+            .unwrap(),
         Value::OutOfRange(OutOfRange::Rgba {
             color: Color::rgba(0.0, 0.0, 0.0, 0.5),
         })

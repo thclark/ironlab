@@ -4,8 +4,11 @@
 //! with functions named after their MATLAB equivalents: [`plot`](AxesMut::plot),
 //! [`scatter`](AxesMut::scatter), [`contour`](AxesMut::contour),
 //! [`quiver`](AxesMut::quiver), [`surf`](AxesMut::surf), [`image`](AxesMut::image)
-//! and their relatives (MATLAB's `imagesc` is [`mapped_image`](AxesMut::mapped_image),
+//! and their relatives (MATLAB's `imagesc` is [`scalar_image`](AxesMut::scalar_image),
 //! and MATLAB's `pcolor` is [`surface`](AxesMut::surface) in a two-dimensional axes).
+//! Colour-mapped plots map their numbers to colours through colour scales, which are
+//! nodes of the figure that plots name: see [`Figure::color_scale`] and
+//! [`AxesMut::color_scale`].
 //! Each plotting function returns a handle whose chained setters change the properties
 //! of the new plot, in the way that MATLAB name–value arguments do. The figure can then
 //! be shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported
@@ -56,6 +59,7 @@
 mod artists;
 mod axes;
 mod color;
+mod color_scale;
 mod data;
 mod error;
 mod figure;
@@ -66,11 +70,11 @@ mod pixels;
 pub use ironlab_ir as ir;
 
 pub use artists::{
-    ContourMut, ImageMut, IndexedImageMut, LineMut, MappedImageMut, QuiverMut, ScatterMut,
-    SurfaceMut,
+    ContourMut, ImageMut, LineMut, QuiverMut, ScalarImageMut, ScatterMut, SurfaceMut,
 };
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
+pub use color_scale::{ColorScaleMut, ColormapSample};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
@@ -87,13 +91,20 @@ pub use ironlab_ir::MarkerShape as Marker;
 /// The dash pattern of a line.
 pub use ironlab_ir::DashStyle as Dash;
 
-/// The name of a colormap.
+/// The name of a bundled colormap, which a colour scale interpolates; it converts into
+/// an [`ir::Colormap`] that is not reversed.
 pub use ironlab_ir::ColormapName as Colormap;
+
+/// Whether a continuous or discrete colour scale places values in linear or logarithmic
+/// space. See [`ColorScaleMut::norm`].
+pub use ironlab_ir::ColorScaleNorm;
 
 /// The plane of an axes in which an image lies, with its offset along the third axis.
 pub use ironlab_ir::ImagePlane;
 
-/// What a colour-indexed or colour-mapped image draws for a pixel it cannot colour.
+/// What a colour scale draws for a value it cannot place: one below or above its range,
+/// one that names none of its entries, or one that is not finite. See
+/// [`ColorScaleMut::below`].
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
@@ -167,12 +178,12 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Aspect, AspectAdjust, ByteMatrix, Color, ColorSpec, Colormap, ContourMut, Coords, Dash,
-        DataArrayMut, DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues,
-        IndexedImageMut, IntoColorSpec, LegendEntries, LegendEntryColumns, LegendEntryOrder,
-        LegendItem, LegendLocation, LegendSample, LineMut, MappedImageMut, Marker, Matrix, NodeId,
-        OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut,
-        RasterOptions, RasterPolicy, Scale, ScatterMut, SurfaceMut, Text, TitleAlign, TrackSize,
-        linspace, logspace, meshgrid,
+        Aspect, AspectAdjust, ByteMatrix, Color, ColorScaleMut, ColorScaleNorm, ColorSpec,
+        Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error,
+        Figure, ImageMut, ImagePlane, ImageValues, IntoColorSpec, LegendEntries,
+        LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation, LegendSample, LineMut,
+        Marker, Matrix, NodeId, OutOfRange, PanelLegendMut, PanelLocation, PanelMut, Parameter,
+        Pixels, QuiverMut, RasterOptions, RasterPolicy, ScalarImageMut, Scale, ScatterMut,
+        SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
 }

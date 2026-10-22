@@ -73,9 +73,10 @@ pub fn figure() -> Figure {
     // the logarithmic frequency axis places one by one, so the faces between them are as tall as the spacing of the
     // analysis frequencies makes them.
     ax.surface(&time_s, &frequency_hz, &power).edge_color(None);
-    ax.yscale(Scale::Log)
+    ax.color_scale()
         .colormap(Colormap::Magma)
-        .clim(NOISE_FLOOR_DB, 0.0)
+        .limits(NOISE_FLOOR_DB, 0.0);
+    ax.yscale(Scale::Log)
         .xlabel("Time $t$ (s)")
         .ylabel("Frequency $f$ (Hz)");
     fig

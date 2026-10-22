@@ -448,10 +448,6 @@
       },
       "aspect_adjust": "box",
       "box": true,
-      "colormap": "viridis",
-      "clim": {
-        "type": "auto"
-      },
       "legend": {
         "type": "inside",
         "value": {

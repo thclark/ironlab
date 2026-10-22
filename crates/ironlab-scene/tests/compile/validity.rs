@@ -44,7 +44,7 @@ fn gallery_like() -> ironlab_ir::Figure {
     let filled = fx.axes2d(0, 1);
     fx.contour(filled, &g, &g, field, |c| {
         c.fill = true;
-        c.levels = Levels::Auto { count: 8 };
+        c.levels = Some(Levels::Auto { count: 8 });
     });
     fx.contour(filled, &g, &g, field, |_| {});
     // A mapped image with a missing value left transparent, an indexed image of bytes, and a
@@ -52,7 +52,7 @@ fn gallery_like() -> ironlab_ir::Figure {
     let values: Vec<f64> = (0..12)
         .map(|v| if v == 5 { f64::NAN } else { v as f64 })
         .collect();
-    fx.mapped_image(
+    fx.imagesc(
         filled,
         vec![3, 4],
         values,
@@ -111,7 +111,7 @@ fn gallery_like() -> ironlab_ir::Figure {
 
     let surf = fx.axes3d(1, 1, View3d::default());
     fx.surface(surf, &g, &g, field, |_| {});
-    fx.mapped_image(
+    fx.imagesc(
         surf,
         vec![3, 3],
         (0..9).map(|v| v as f64).collect::<Vec<_>>(),

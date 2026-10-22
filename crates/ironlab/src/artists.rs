@@ -5,25 +5,20 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, IndexedImage, Levels, Line,
-    MappedImage, MarkerShape, NodeId, OutOfRange, PixelRange, Quiver, QuiverScale, Scatter,
-    ScatterColor, ScatterSize, Surface, Text,
+    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, Line, MarkerShape,
+    NodeId, PixelRange, Quiver, QuiverScale, ScalarImage, Scatter, ScatterColor, ScatterSize,
+    Surface, Text,
 };
 
 use crate::axes::AxesMut;
 use crate::color::IntoColorSpec;
+use crate::color_scale;
 use crate::data::DataSource;
 
-/// Defines the constructor of an artist handle and the accessor of its artist.
-macro_rules! artist_handle {
+/// Defines the accessors of an artist handle's artist.
+macro_rules! artist_access {
     ($handle:ident, $variant:ident) => {
-        impl<'a> $handle<'a> {
-            /// Creates a handle to the artist with the given identifier, which must be
-            /// an artist of this kind in the figure.
-            pub(crate) fn new(fig: &'a mut Figure, id: NodeId) -> Self {
-                Self { fig, id }
-            }
-
+        impl $handle<'_> {
             /// Returns the artist in the figure IR.
             #[allow(dead_code)]
             fn get(&self) -> &$variant {
@@ -52,19 +47,87 @@ macro_rules! artist_handle {
     };
 }
 
-artist_handle!(LineMut, Line);
-artist_handle!(ScatterMut, Scatter);
-artist_handle!(ContourMut, Contour);
-artist_handle!(QuiverMut, Quiver);
-artist_handle!(SurfaceMut, Surface);
-
-/// Defines the constructor and accessor of an image handle, and the setters that every
-/// kind of image has: its label, the placement of its pixel centres and its
-/// plane.
-macro_rules! image_handle {
+/// Defines the constructor of an artist handle and the accessors of its artist; with
+/// `scaled`, also the colour scale setter of an artist that maps numbers to colours, and a
+/// constructor that records the default scale the plotting call created, if any.
+macro_rules! artist_handle {
     ($handle:ident, $variant:ident) => {
-        artist_handle!($handle, $variant);
+        artist_access!($handle, $variant);
 
+        impl<'a> $handle<'a> {
+            /// Creates a handle to the artist with the given identifier, which must be
+            /// an artist of this kind in the figure.
+            pub(crate) fn new(fig: &'a mut Figure, id: NodeId) -> Self {
+                Self { fig, id }
+            }
+        }
+    };
+    ($handle:ident, $variant:ident, scaled) => {
+        artist_access!($handle, $variant);
+
+        impl<'a> $handle<'a> {
+            /// Creates a handle to the artist with the given identifier, which must be
+            /// an artist of this kind in the figure, recording the colour scale that its
+            /// plotting call created, if any.
+            pub(crate) fn new(
+                fig: &'a mut Figure,
+                id: NodeId,
+                created_scale: Option<NodeId>,
+            ) -> Self {
+                Self {
+                    fig,
+                    id,
+                    created_scale,
+                }
+            }
+        }
+
+        impl $handle<'_> {
+            /// Maps the numbers of the artist to colours through the colour scale with
+            /// the given identifier, in place of the default scale of its axes.
+            ///
+            /// The identifier is that of a scale created with
+            /// [`Figure::color_scale`](crate::Figure::color_scale),
+            /// [`Figure::indexed_scale`](crate::Figure::indexed_scale),
+            /// [`Figure::categorical_scale`](crate::Figure::categorical_scale) or
+            /// [`AxesMut::color_scale`](crate::AxesMut::color_scale); a scale of any kind
+            /// is accepted. Artists in several axes that name one scale share its limits
+            /// and colours. When the plotting call that returned this handle created the
+            /// default scale of the axes, and nothing else names that scale any more, it
+            /// is deleted, so the figure keeps no scale the author did not ask for; a
+            /// scale the author created is never deleted. An identifier that names no
+            /// colour scale is reported by [`Figure::validate`](crate::Figure::validate).
+            ///
+            /// ```
+            /// use ironlab::prelude::*;
+            ///
+            /// let x = linspace(0.0, 1.0, 11);
+            /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col] * x[row]);
+            ///
+            /// let mut fig = Figure::new();
+            /// let heat = fig.color_scale().colormap(Colormap::Inferno).id();
+            /// fig.axes(0, 0).surface(&x, &x, &z).color_scale(heat);
+            /// assert_eq!(fig.ir().color_scales.len(), 1);
+            /// ```
+            pub fn color_scale(&mut self, scale: NodeId) -> &mut Self {
+                self.created_scale =
+                    color_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
+                self
+            }
+        }
+    };
+}
+
+artist_handle!(LineMut, Line);
+artist_handle!(ScatterMut, Scatter, scaled);
+artist_handle!(ContourMut, Contour, scaled);
+artist_handle!(QuiverMut, Quiver);
+artist_handle!(SurfaceMut, Surface, scaled);
+
+/// Defines the setters that every kind of image has: its label, the placement of its
+/// pixel centres, its plane and its opacity.
+macro_rules! image_handle {
+    ($handle:ident) => {
         impl $handle<'_> {
             /// Returns the node identifier of the image.
             #[must_use]
@@ -125,33 +188,6 @@ macro_rules! image_handle {
             /// [`Figure::validate`](crate::Figure::validate).
             pub fn opacity(&mut self, opacity: f64) -> &mut Self {
                 self.artist().opacity = opacity;
-                self
-            }
-        }
-    };
-}
-
-/// Defines the setter of the alpha array of a colour-indexed or colour-mapped image.
-macro_rules! image_alpha {
-    ($handle:ident, $what:literal) => {
-        impl $handle<'_> {
-            #[doc = concat!(
-                "Gives every pixel its own alpha (MATLAB's `AlphaData`), from 0 (transparent) to 1 ",
-                "(opaque), as a matrix of the shape of the ", $what, ".
-
-",
-                "The alpha may be a [`Matrix`](crate::Matrix) of values from 0 to 1, which are clamped to that range ",
-                "and of which a NaN makes its pixel transparent, or a ",
-                "[`ByteMatrix`](crate::ByteMatrix) of values from 0 to 255. It multiplies the alpha of ",
-                "the colour of each pixel, including a colour given by an out-of-range policy, and is ",
-                "multiplied in turn by the [`opacity`](Self::opacity). A matrix of another shape is ",
-                "reported by [`Figure::validate`](crate::Figure::validate)."
-            )]
-            pub fn alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
-                let data = alpha.into().store(self.fig);
-                if let Some(previous) = self.artist().alpha.replace(data) {
-                    release_data(self.fig, previous);
-                }
                 self
             }
         }
@@ -313,6 +349,8 @@ impl LineMut<'_> {
 pub struct ScatterMut<'a> {
     pub(crate) fig: &'a mut Figure,
     pub(crate) id: NodeId,
+    /// The default colour scale of the axes that the plotting call created, if any.
+    created_scale: Option<NodeId>,
 }
 
 impl ScatterMut<'_> {
@@ -381,13 +419,28 @@ impl ScatterMut<'_> {
         self
     }
 
-    /// Colours each marker by a data value, one per point, mapped through the axes
-    /// colormap and colour limits.
+    /// Colours each marker by a data value, one per point, mapped through a colour scale.
+    ///
+    /// A scatter that names no colour scale yet takes the default scale of its axes (see
+    /// [`AxesMut::color_scale`]), which is created if the axes has none;
+    /// [`color_scale`](Self::color_scale) gives it another.
     pub fn colors(&mut self, values: impl Into<DataSource>) -> &mut Self {
         let data = values.into().store(self.fig);
         let previous = std::mem::replace(&mut self.artist().color, ScatterColor::Data { data });
         if let ScatterColor::Data { data } = previous {
             release_data(self.fig, data);
+        }
+        if self.get().color_scale.is_none() {
+            let axes = self
+                .fig
+                .artist(self.id)
+                .map(|(axes, _)| axes.id)
+                .expect("a scatter handle always refers to an artist of its figure");
+            let (scale, created) = color_scale::default_or_new(self.fig, axes);
+            self.artist().color_scale = Some(scale);
+            if created {
+                self.created_scale = Some(scale);
+            }
         }
         self
     }
@@ -446,6 +499,8 @@ impl ScatterMut<'_> {
 pub struct ContourMut<'a> {
     pub(crate) fig: &'a mut Figure,
     pub(crate) id: NodeId,
+    /// The default colour scale of the axes that the plotting call created, if any.
+    created_scale: Option<NodeId>,
 }
 
 impl ContourMut<'_> {
@@ -469,19 +524,24 @@ impl ContourMut<'_> {
     }
 
     /// Chooses approximately `count` levels at nice values spanning the data range.
+    ///
+    /// Without levels of its own, a contour takes the band edges of a discrete colour
+    /// scale, and ten automatic levels through a scale of any other kind.
     pub fn levels(&mut self, count: u32) -> &mut Self {
-        self.artist().levels = Levels::Auto { count };
+        self.artist().levels = Some(Levels::Auto { count });
         self
     }
 
     /// Draws contours at the given levels, which must be finite and increasing.
     ///
     /// Levels that are not are reported by
-    /// [`Figure::validate`](crate::Figure::validate).
+    /// [`Figure::validate`](crate::Figure::validate). A filled contour whose levels
+    /// should match the bands of its colour scale takes them from a discrete scale
+    /// instead (see [`ColorScaleMut::discrete`](crate::ColorScaleMut::discrete)).
     pub fn level_values(&mut self, levels: impl AsRef<[f64]>) -> &mut Self {
-        self.artist().levels = Levels::Explicit {
+        self.artist().levels = Some(Levels::Explicit {
             values: levels.as_ref().to_vec(),
-        };
+        });
         self
     }
 
@@ -491,8 +551,8 @@ impl ContourMut<'_> {
         self
     }
 
-    /// Sets the colour of the isolines, which are coloured from the colormap by level
-    /// by default.
+    /// Sets the colour of the isolines, which are coloured through the colour scale by
+    /// level by default.
     pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
         self.artist().line.color = color.into_color_spec();
         self
@@ -594,6 +654,8 @@ impl QuiverMut<'_> {
 pub struct SurfaceMut<'a> {
     pub(crate) fig: &'a mut Figure,
     pub(crate) id: NodeId,
+    /// The default colour scale of the axes that the plotting call created, if any.
+    created_scale: Option<NodeId>,
 }
 
 impl SurfaceMut<'_> {
@@ -712,115 +774,64 @@ pub struct ImageMut<'a> {
     pub(crate) id: NodeId,
 }
 
-image_handle!(ImageMut, Image);
+artist_handle!(ImageMut, Image);
+image_handle!(ImageMut);
 
-/// A handle to a colour-indexed image created by
-/// [`indexed_image`](crate::AxesMut::indexed_image).
-///
-/// ```
-/// use ironlab::prelude::*;
-///
-/// let classes = ByteMatrix::from_fn(8, 8, |row, col| ((row + col) % 4 * 85) as u8);
-/// let mut fig = Figure::new();
-/// fig.axes(0, 0)
-///     .indexed_image(&classes)
-///     .pixel_columns(0.5, 7.5)
-///     .above(OutOfRange::Clamp)
-///     .label("classes");
-/// ```
-#[derive(Debug)]
-pub struct IndexedImageMut<'a> {
-    pub(crate) fig: &'a mut Figure,
-    pub(crate) id: NodeId,
-}
-
-image_handle!(IndexedImageMut, IndexedImage);
-image_alpha!(IndexedImageMut, "indices");
-
-impl IndexedImageMut<'_> {
-    /// Sets what is drawn for a pixel whose truncated index is less than 0.
-    ///
-    /// A [`Color`](crate::Color) gives the fixed-colour policy [`OutOfRange::Rgba`].
-    /// [`OutOfRange::Strict`] makes such a pixel a validation error,
-    /// [`OutOfRange::Transparent`], the default, draws nothing, and
-    /// [`OutOfRange::Clamp`] draws the first entry of the colormap.
-    pub fn below(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().below = policy.into();
-        self
-    }
-
-    /// Sets what is drawn for a pixel whose truncated index is greater than 255.
-    ///
-    /// The policies are as for [`below`](Self::below), except that a clamp draws the
-    /// last entry of the colormap.
-    pub fn above(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().above = policy.into();
-        self
-    }
-
-    /// Sets what is drawn for a pixel whose index is NaN or infinite, which only
-    /// floating-point indices can hold.
-    ///
-    /// The policies are as for [`below`](Self::below), except that a clamp draws
-    /// nothing, because a non-finite index has no nearest end of the colormap.
-    pub fn non_finite(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().non_finite = policy.into();
-        self
-    }
-}
-
-/// A handle to a colour-mapped image created by
-/// [`mapped_image`](crate::AxesMut::mapped_image).
+/// A handle to a scalar image created by [`scalar_image`](crate::AxesMut::scalar_image).
 ///
 /// ```
 /// use ironlab::prelude::*;
 ///
 /// let field = Matrix::from_fn(20, 30, |row, col| (row as f64 - 10.0) * (col as f64 - 15.0));
 /// let mut fig = Figure::new();
-/// fig.axes(0, 0)
-///     .mapped_image(&field)
-///     .plane(ImagePlane::Xz { y: Some(0.0) })
+/// let signed = fig
+///     .color_scale()
+///     .colormap(Colormap::Coolwarm)
+///     .limits(-100.0, 100.0)
 ///     .below(Color::BLACK)
 ///     .above(Color::WHITE)
-///     .non_finite(OutOfRange::Strict);
+///     .id();
+/// fig.axes(0, 0)
+///     .scalar_image(&field)
+///     .color_scale(signed)
+///     .plane(ImagePlane::Xz { y: Some(0.0) })
+///     .label("product");
+/// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
-pub struct MappedImageMut<'a> {
+pub struct ScalarImageMut<'a> {
     pub(crate) fig: &'a mut Figure,
     pub(crate) id: NodeId,
+    /// The default colour scale of the axes that the plotting call created, if any.
+    created_scale: Option<NodeId>,
 }
 
-image_handle!(MappedImageMut, MappedImage);
-image_alpha!(MappedImageMut, "values");
+artist_handle!(ScalarImageMut, ScalarImage, scaled);
+image_handle!(ScalarImageMut);
 
-impl MappedImageMut<'_> {
-    /// Sets what is drawn for a pixel whose value is less than the lower colour limit.
-    ///
-    /// A [`Color`](crate::Color) gives the fixed-colour policy [`OutOfRange::Rgba`].
-    /// [`OutOfRange::Strict`] makes such a pixel a validation error,
-    /// [`OutOfRange::Transparent`], the default, draws nothing, and
-    /// [`OutOfRange::Clamp`] draws the first entry of the colormap.
-    pub fn below(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().below = policy.into();
-        self
+impl ScalarImageMut<'_> {
+    /// Returns the identifier of the data array of the values, which another plotting
+    /// call accepts to share it.
+    #[must_use]
+    pub fn values_data(&self) -> NodeId {
+        self.get().values
     }
 
-    /// Sets what is drawn for a pixel whose value is greater than the upper colour
-    /// limit.
+    /// Gives every pixel its own alpha (MATLAB's `AlphaData`), from 0 (transparent) to 1
+    /// (opaque), as a matrix of the shape of the values.
     ///
-    /// The policies are as for [`below`](Self::below), except that a clamp draws the
-    /// last entry of the colormap.
-    pub fn above(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().above = policy.into();
-        self
-    }
-
-    /// Sets what is drawn for a pixel whose value is NaN or infinite.
-    ///
-    /// The policies are as for [`below`](Self::below), except that a clamp draws
-    /// nothing, because a non-finite value has no nearest end of the colormap.
-    pub fn non_finite(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
-        self.artist().non_finite = policy.into();
+    /// The alpha may be a [`Matrix`](crate::Matrix) of values from 0 to 1, which are
+    /// clamped to that range and of which a NaN makes its pixel transparent, or a
+    /// [`ByteMatrix`](crate::ByteMatrix) of values from 0 to 255. It multiplies the alpha
+    /// of the colour of each pixel, including a colour given by an out-of-range policy of
+    /// the colour scale, and is multiplied in turn by the [`opacity`](Self::opacity). A
+    /// matrix of another shape is reported by
+    /// [`Figure::validate`](crate::Figure::validate).
+    pub fn alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
+        let data = alpha.into().store(self.fig);
+        if let Some(previous) = self.artist().alpha.replace(data) {
+            release_data(self.fig, previous);
+        }
         self
     }
 }
@@ -910,10 +921,7 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
             .chain(*edge_alpha)
             .collect(),
         Artist::Image(Image { pixels, .. }) => vec![*pixels],
-        Artist::IndexedImage(IndexedImage { indices, alpha, .. }) => {
-            [*indices].into_iter().chain(*alpha).collect()
-        }
-        Artist::MappedImage(MappedImage { values, alpha, .. }) => {
+        Artist::ScalarImage(ScalarImage { values, alpha, .. }) => {
             [*values].into_iter().chain(*alpha).collect()
         }
     }

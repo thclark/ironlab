@@ -42,6 +42,7 @@ fn decay_figure() -> Figure {
         background: Color::WHITE,
         layout: TileLayout::new(1, 1),
         data,
+        color_scales: Vec::new(),
         axes: vec![Axes {
             id: NodeId(2),
             cell: Cell {
@@ -82,8 +83,6 @@ fn decay_figure() -> Figure {
             aspect: Aspect::Ratio { y: 0.5, z: 2.0 },
             aspect_adjust: AspectAdjust::Limits,
             box_: true,
-            colormap: ColormapName::Viridis,
-            clim: Limits::Auto,
             legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,
                 boxed: true,
@@ -345,7 +344,7 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
             x: NodeId(0),
             y: NodeId(1),
         },
-        levels: Levels::Explicit { values: vec![0.5] },
+        levels: Some(Levels::Explicit { values: vec![0.5] }),
         placement: ContourPlacement::AtLevel,
         ..Contour::default()
     }));
@@ -380,16 +379,62 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
     assert_eq!(value["font_set"], "stix_two");
 }
 
-// Why: the three image kinds and their placement and policy values are new in the
-// schema, and web clients and hand-written files produce them from the documented form
-// rather than from serde's output, so the form of each (its tag, the names and nesting
-// of its fields, `null` for an absent name, range or offset, the colour of a fixed colour
-// as a hex string, and an opacity or an alpha written only when it is not the default)
-// is a contract that a renamed field or a changed tagging would break; and the written
-// form must read back as the same figure.
+// Why: the two image kinds, their placement, and the out-of-range policies of the colour
+// scales that a scalar image names are part of the schema, and web clients and
+// hand-written files produce them from the documented form rather than from serde's
+// output, so the form of each (its tag, the names and nesting of its fields, `null` for
+// an absent name, range, offset or label, the colour of a fixed colour as a hex string,
+// and an opacity or an alpha written only when it is not the default) is a contract that
+// a renamed field or a changed tagging would break; and the written form must read back
+// as the same figure.
 #[test]
 fn image_artists_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
+    fig.color_scales.extend([
+        ColorScale {
+            id: NodeId(20),
+            title: None,
+            kind: ColorScaleKind::Indexed(IndexedColorScale {
+                colors: vec![Color::BLACK, Color::WHITE],
+                outside: ColorScaleOutOfRange {
+                    policy: OutOfRange::Strict,
+                    show_key: false,
+                    label: None,
+                },
+                ticks: Ticks::Auto,
+                tick_labels: TickLabels::Auto,
+            }),
+            non_finite: ColorScaleOutOfRange {
+                policy: OutOfRange::Transparent,
+                show_key: false,
+                label: None,
+            },
+        },
+        ColorScale {
+            id: NodeId(21),
+            title: None,
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                below: ColorScaleOutOfRange {
+                    policy: OutOfRange::Transparent,
+                    show_key: false,
+                    label: None,
+                },
+                above: ColorScaleOutOfRange {
+                    policy: OutOfRange::Clamp,
+                    show_key: true,
+                    label: Some(Text::plain("hot")),
+                },
+                ..ContinuousColorScale::default()
+            }),
+            non_finite: ColorScaleOutOfRange {
+                policy: OutOfRange::Rgba {
+                    color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+                },
+                show_key: false,
+                label: None,
+            },
+        },
+    ]);
     fig.axes[0].artists.extend([
         Artist::Image(Image {
             id: NodeId(5),
@@ -406,27 +451,26 @@ fn image_artists_are_written_in_the_documented_json_form() {
             },
             opacity: 0.5,
         }),
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(6),
             label: None,
             visible: true,
-            indices: NodeId(11),
+            values: NodeId(11),
+            color_scale: Some(NodeId(20)),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: None },
                 columns: None,
                 rows: None,
             },
-            below: OutOfRange::Strict,
-            above: OutOfRange::Strict,
-            non_finite: OutOfRange::Transparent,
             alpha: Some(NodeId(13)),
             opacity: 1.0,
         }),
-        Artist::MappedImage(MappedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(7),
             label: None,
             visible: true,
             values: NodeId(12),
+            color_scale: Some(NodeId(21)),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: None },
                 columns: Some(PixelRange {
@@ -434,11 +478,6 @@ fn image_artists_are_written_in_the_documented_json_form() {
                     last: 1.5,
                 }),
                 rows: None,
-            },
-            below: OutOfRange::Transparent,
-            above: OutOfRange::Clamp,
-            non_finite: OutOfRange::Rgba {
-                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
             },
             alpha: None,
             opacity: 0.0,
@@ -466,68 +505,94 @@ fn image_artists_are_written_in_the_documented_json_form() {
     assert_eq!(
         artists[2],
         json!({
-            "type": "indexed_image",
+            "type": "scalar_image",
             "id": 6,
             "label": null,
             "visible": true,
-            "indices": 11,
+            "values": 11,
+            "color_scale": 20,
             "placement": {
                 "plane": {"type": "yz", "x": null},
                 "columns": null,
                 "rows": null
             },
-            "below": {"type": "strict"},
-            "above": {"type": "strict"},
-            "non_finite": {"type": "transparent"},
             "alpha": 13
         })
     );
     assert_eq!(
         artists[3],
         json!({
-            "type": "mapped_image",
+            "type": "scalar_image",
             "id": 7,
             "label": null,
             "visible": true,
             "values": 12,
+            "color_scale": 21,
             "placement": {
                 "plane": {"type": "xy", "z": null},
                 "columns": {"first": -1.5, "last": 1.5},
                 "rows": null
             },
-            "below": {"type": "transparent"},
-            "above": {"type": "clamp"},
-            "non_finite": {"type": "rgba", "color": "#ff000080"},
             "opacity": 0.0
         })
+    );
+    let scales = &value["color_scales"];
+    let category = |policy: Value, show_key: bool, label: Value| json!({"policy": policy, "show_key": show_key, "label": label});
+    assert_eq!(
+        scales[0]["kind"]["value"]["outside"],
+        category(json!({"type": "strict"}), false, Value::Null)
+    );
+    assert_eq!(
+        scales[0]["non_finite"],
+        category(json!({"type": "transparent"}), false, Value::Null)
+    );
+    assert_eq!(
+        scales[1]["kind"]["value"]["below"],
+        category(json!({"type": "transparent"}), false, Value::Null)
+    );
+    assert_eq!(
+        scales[1]["kind"]["value"]["above"],
+        category(
+            json!({"type": "clamp"}),
+            true,
+            json!({"content": "hot", "interpreter": "none"})
+        )
+    );
+    assert_eq!(
+        scales[1]["non_finite"],
+        category(
+            json!({"type": "rgba", "color": "#ff000080"}),
+            false,
+            Value::Null
+        )
     );
     assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
 }
 
 // Why: the defaults of the image kinds are what a figure holds when a program sets only
-// the pixels, so they are as much a contract of the format as the field names are: an
-// image is visible and unnamed, it lies on the floor with no offset and its pixel centres
-// at 0 to n − 1 (no ranges), it has no alpha and an opacity of 1, which are left out of
-// the JSON, and a mapped kind paints every pixel it cannot colour transparent. A default
-// that drifted (a strict policy, a wall, a hidden or translucent image) would change
-// every figure written without those fields.
+// the pixels or values, so they are as much a contract of the format as the field names
+// are: an image is visible and unnamed, it lies on the floor with no offset and its pixel
+// centres at 0 to n − 1 (no ranges), it has no alpha and an opacity of 1, which are left
+// out of the JSON, and a scalar image names no colour scale. A scale built with defaults
+// clamps values below and above its range and paints every non-finite value transparent,
+// without keys. A default that drifted (a strict policy, a wall, a hidden or translucent
+// image) would change every figure written without those fields.
 #[test]
 fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_policies() {
     let (mut fig, _, _) = single_line_figure();
+    fig.color_scales.push(ColorScale {
+        id: NodeId(20),
+        ..ColorScale::default()
+    });
     fig.axes[0].artists.extend([
         Artist::Image(Image {
             id: NodeId(5),
             pixels: NodeId(10),
             ..Default::default()
         }),
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(6),
-            indices: NodeId(11),
-            ..Default::default()
-        }),
-        Artist::MappedImage(MappedImage {
-            id: NodeId(7),
-            values: NodeId(12),
+            values: NodeId(11),
             ..Default::default()
         }),
     ]);
@@ -538,7 +603,6 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
         "columns": null,
         "rows": null
     });
-    let transparent = json!({"type": "transparent"});
     assert_eq!(
         artists[1],
         json!({
@@ -553,31 +617,22 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
     assert_eq!(
         artists[2],
         json!({
-            "type": "indexed_image",
+            "type": "scalar_image",
             "id": 6,
             "label": null,
             "visible": true,
-            "indices": 11,
-            "placement": placement,
-            "below": transparent,
-            "above": transparent,
-            "non_finite": transparent
+            "values": 11,
+            "color_scale": null,
+            "placement": placement
         })
     );
-    assert_eq!(
-        artists[3],
-        json!({
-            "type": "mapped_image",
-            "id": 7,
-            "label": null,
-            "visible": true,
-            "values": 12,
-            "placement": placement,
-            "below": transparent,
-            "above": transparent,
-            "non_finite": transparent
-        })
-    );
+    let category =
+        |policy: &str| json!({"policy": {"type": policy}, "show_key": false, "label": null});
+    let scale = &value["color_scales"][0];
+    assert_eq!(scale["non_finite"], category("transparent"));
+    assert_eq!(scale["kind"]["type"], "continuous");
+    assert_eq!(scale["kind"]["value"]["below"], category("clamp"));
+    assert_eq!(scale["kind"]["value"]["above"], category("clamp"));
 }
 
 // Why: the kitchen-sink figure places each image kind on some planes with some
@@ -924,13 +979,9 @@ fn surfaces_images_and_contours_without_alpha_or_opacity_load_as_opaque_and_save
             id: NodeId(6),
             ..Image::default()
         }),
-        Artist::IndexedImage(IndexedImage {
+        Artist::ScalarImage(ScalarImage {
             id: NodeId(7),
-            ..IndexedImage::default()
-        }),
-        Artist::MappedImage(MappedImage {
-            id: NodeId(8),
-            ..MappedImage::default()
+            ..ScalarImage::default()
         }),
         Artist::Contour(Contour {
             id: NodeId(9),
@@ -975,16 +1026,12 @@ fn surfaces_images_and_contours_without_alpha_or_opacity_load_as_opaque_and_save
         panic!("expected an image, found {:?}", artists[2]);
     };
     assert_eq!(image.opacity, 1.0);
-    let Artist::IndexedImage(indexed) = &artists[3] else {
-        panic!("expected an indexed image, found {:?}", artists[3]);
+    let Artist::ScalarImage(scalar) = &artists[3] else {
+        panic!("expected a scalar image, found {:?}", artists[3]);
     };
-    assert_eq!((indexed.alpha, indexed.opacity), (None, 1.0));
-    let Artist::MappedImage(mapped) = &artists[4] else {
-        panic!("expected a mapped image, found {:?}", artists[4]);
-    };
-    assert_eq!((mapped.alpha, mapped.opacity), (None, 1.0));
-    let Artist::Contour(contour) = &artists[5] else {
-        panic!("expected a contour, found {:?}", artists[5]);
+    assert_eq!((scalar.alpha, scalar.opacity), (None, 1.0));
+    let Artist::Contour(contour) = &artists[4] else {
+        panic!("expected a contour, found {:?}", artists[4]);
     };
     assert_eq!((contour.line_opacity, contour.fill_opacity), (1.0, 1.0));
     assert_eq!(restored, fig);

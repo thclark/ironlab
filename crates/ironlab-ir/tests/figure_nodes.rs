@@ -675,13 +675,19 @@ fn an_unreferenced_data_array_is_a_warning_until_an_artist_refers_to_it() {
     );
 
     // A scatter coloured by the array uses it, although it plots nothing along an axis.
+    // The colour data is mapped through a scale, as colour data must be.
     let mut used = fig.clone();
     let line = line_of(&fig, fig.axes[0].artists[0].id()).clone();
+    used.color_scales.push(ColorScale {
+        id: NodeId(702),
+        ..ColorScale::default()
+    });
     used.axes[0].artists.push(Artist::Scatter(Scatter {
         id: NodeId(701),
         x: line.x,
         y: line.y,
         color: ScatterColor::Data { data: spare },
+        color_scale: Some(NodeId(702)),
         ..Scatter::default()
     }));
     let report = used.validate();
@@ -909,8 +915,7 @@ fn every_kind_of_artist_lists_its_label_and_no_display_name() {
         NodeKind::Quiver,
         NodeKind::Surface,
         NodeKind::Image,
-        NodeKind::IndexedImage,
-        NodeKind::MappedImage,
+        NodeKind::ScalarImage,
     ] {
         let paths: Vec<String> = properties(kind)
             .iter()

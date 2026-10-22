@@ -38,8 +38,7 @@ fn every_artist_handle_sets_its_label() {
         ax.contour(&x, &y, &z).label("contour").id(),
         ax.quiver(&x, &x, &x, &x).label("quiver").id(),
         ax.image(&pixels).label("image").id(),
-        ax.indexed_image(&z).label("indexed image").id(),
-        ax.mapped_image(&z).label("mapped image").id(),
+        ax.scalar_image(&z).label("scalar image").id(),
     ];
     let surface = fig.axes3(0, 1).surf(&x, &y, &z).label("surface").id();
     for (id, text) in ids
@@ -50,8 +49,7 @@ fn every_artist_handle_sets_its_label() {
             "contour",
             "quiver",
             "image",
-            "indexed image",
-            "mapped image",
+            "scalar image",
         ])
         .chain([(surface, "surface")])
     {

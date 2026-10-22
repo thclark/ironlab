@@ -29,8 +29,8 @@ pub fn figure() -> Figure {
         .sizes(&marker_size)
         .marker(Marker::Circle)
         .filled();
-    ax.colormap(Colormap::Plasma)
-        .xlabel("$x$")
+    ax.color_scale().colormap(Colormap::Plasma);
+    ax.xlabel("$x$")
         .ylabel("$y$")
         .xlim(-1.6, 1.6)
         .ylim(-1.6, 1.6);

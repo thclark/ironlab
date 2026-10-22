@@ -869,6 +869,38 @@ fn a_pixel_datatip_text_names_the_artist_the_pixel_its_centre_and_its_value_by_k
     );
 }
 
+// Why: a categorical colour scale turns whole numbers into named classes, and the name is what the reader hovers to
+// learn, so a pixel through such a scale reads as its category, with the stored index beside it so that the reader
+// can still find it in their array; an index that names no category has no name to show and reads as the index
+// alone, never as an empty or invented name.
+#[test]
+fn a_pixel_datatip_text_names_the_category_of_a_categorical_pixel() {
+    let text = pixel_datatip_text(&pixel_tip(
+        None,
+        PixelValue::Category {
+            index: 2.0,
+            label: Some("Forest".to_owned()),
+        },
+    ));
+    assert!(
+        lines(&text).contains(&"category = Forest (index 2)"),
+        "the category is named, with its index: {text:?}"
+    );
+
+    let text = pixel_datatip_text(&pixel_tip(
+        None,
+        PixelValue::Category {
+            index: 2.5,
+            label: None,
+        },
+    ));
+    assert!(
+        lines(&text).contains(&"index = 2.5"),
+        "an index that names no category reads as the index alone: {text:?}"
+    );
+    assert!(!text.contains("category"), "{text:?}");
+}
+
 // Why: a pixel's value is formatted by the same rule as a point's coordinates, and the rule has two branches the
 // reader would notice: a value that is not finite is written as such, and one far from unity is written in
 // exponent form rather than as a string of digits; both must reach the pixel text.

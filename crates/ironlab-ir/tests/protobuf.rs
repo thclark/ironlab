@@ -692,9 +692,180 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
     const B: u64 = 10;
     const C: u64 = 12;
     const D: u64 = 15;
-    // An array of bytes, which only the indexed image refers to, so that the byte payload
-    // is pinned to the domain's 8-bit values and the float payload to its floats.
+    // An array of bytes, which only the scalar image of indices refers to, so that the
+    // byte payload is pinned to the domain's 8-bit values and the float payload to its
+    // floats.
     const E: u64 = 18;
+    // Colour scales of every kind, with every variant of their colormaps, band edges,
+    // norms and policies, and different values in every pair of fields of the same type.
+    const CONTINUOUS: u64 = 50;
+    const DISCRETE: u64 = 51;
+    const INDEXED: u64 = 52;
+    const CATEGORICAL: u64 = 53;
+    const BANDS: u64 = 54;
+    let wire_category =
+        |policy: Option<wire::OutOfRange>, show_key: bool, label: Option<wire::Text>| {
+            Some(wire::ColorScaleOutOfRange {
+                policy,
+                show_key: Some(show_key),
+                label,
+            })
+        };
+    let wire_scale = |id: u64,
+                      title: Option<wire::Text>,
+                      kind: wire::ColorScaleKindKind,
+                      non_finite: Option<wire::ColorScaleOutOfRange>| {
+        wire::ColorScale {
+            id: Some(id),
+            title,
+            kind: Some(wire::ColorScaleKind { kind: Some(kind) }),
+            non_finite,
+        }
+    };
+    let wire_ticks = |kind: wire::TicksKind| Some(wire::Ticks { kind: Some(kind) });
+    let wire_labels = |kind: wire::TickLabelsKind| Some(wire::TickLabels { kind: Some(kind) });
+    let wire_named = |name: wire::ColormapName, reverse: bool| {
+        Some(wire::Colormap {
+            kind: Some(wire::ColormapKind::Named(wire::ColormapNamed {
+                name: name as i32,
+                reverse: Some(reverse),
+            })),
+        })
+    };
+    // Listed out of the order of their identifiers, so that a decoder that sorts them is
+    // caught.
+    let color_scales = vec![
+        wire_scale(
+            CATEGORICAL,
+            None,
+            wire::ColorScaleKindKind::Categorical(wire::ColorScaleKindCategorical {
+                categorical: Some(wire::CategoricalColorScale {
+                    categories: vec![
+                        wire::ColorCategory {
+                            color: Some(wire_color(0.0625, 0.125, 0.1875, 0.25)),
+                            label: wire_text("first", wire::Interpreter::None),
+                        },
+                        wire::ColorCategory {
+                            color: Some(wire_color(0.3125, 0.375, 0.4375, 0.5)),
+                            label: wire_text("$second$", wire::Interpreter::Latex),
+                        },
+                    ],
+                    outside: wire_category(wire_strict(), false, None),
+                }),
+            }),
+            wire_category(wire_transparent(), true, None),
+        ),
+        wire_scale(
+            CONTINUOUS,
+            wire_text("scale title", wire::Interpreter::Latex),
+            wire::ColorScaleKindKind::Continuous(wire::ColorScaleKindContinuous {
+                continuous: Some(wire::ContinuousColorScale {
+                    colormap: wire_named(wire::ColormapName::Plasma, true),
+                    limits: wire_manual(5.0, 6.0),
+                    norm: wire::ColorScaleNorm::Log as i32,
+                    below: wire_category(
+                        wire_strict(),
+                        true,
+                        wire_text("low", wire::Interpreter::None),
+                    ),
+                    above: wire_category(wire_clamp(), false, None),
+                    ticks: wire_ticks(wire::TicksKind::Step(wire::TicksStep {
+                        step: Some(0.5),
+                        origin: Some(5.25),
+                    })),
+                    tick_labels: wire_labels(wire::TickLabelsKind::Hidden(
+                        wire::TickLabelsHidden {},
+                    )),
+                }),
+            }),
+            wire_category(
+                wire_painted(0.5, 0.375, 0.25, 0.125),
+                true,
+                wire_text("$nan$", wire::Interpreter::Latex),
+            ),
+        ),
+        wire_scale(
+            BANDS,
+            None,
+            wire::ColorScaleKindKind::Discrete(wire::ColorScaleKindDiscrete {
+                discrete: Some(wire::DiscreteColorScale {
+                    colormap: wire_named(wire::ColormapName::Magma, false),
+                    levels: Some(wire::ColorScaleLevels {
+                        kind: Some(wire::ColorScaleLevelsKind::Auto(
+                            wire::ColorScaleLevelsAuto {
+                                count: Some(7),
+                                limits: wire_manual(7.0, 8.0),
+                            },
+                        )),
+                    }),
+                    norm: wire::ColorScaleNorm::Log as i32,
+                    below: wire_category(wire_clamp(), true, None),
+                    above: wire_category(wire_strict(), false, None),
+                    ticks: wire_ticks(wire::TicksKind::Auto(wire::TicksAuto {})),
+                    tick_labels: wire_labels(wire::TickLabelsKind::Auto(wire::TickLabelsAuto {})),
+                }),
+            }),
+            wire_category(wire_strict(), false, None),
+        ),
+        wire_scale(
+            DISCRETE,
+            None,
+            wire::ColorScaleKindKind::Discrete(wire::ColorScaleKindDiscrete {
+                discrete: Some(wire::DiscreteColorScale {
+                    colormap: Some(wire::Colormap {
+                        kind: Some(wire::ColormapKind::Listed(wire::ColormapListed {
+                            colors: vec![
+                                wire_color(0.5625, 0.625, 0.6875, 0.75),
+                                wire_color(0.8125, 0.875, 0.9375, 1.0),
+                            ],
+                        })),
+                    }),
+                    levels: Some(wire::ColorScaleLevels {
+                        kind: Some(wire::ColorScaleLevelsKind::Explicit(
+                            wire::ColorScaleLevelsExplicit {
+                                values: vec![1.0, 2.0, 4.0],
+                            },
+                        )),
+                    }),
+                    norm: wire::ColorScaleNorm::Linear as i32,
+                    below: wire_category(wire_transparent(), false, None),
+                    above: wire_category(wire_painted(0.125, 0.25, 0.375, 0.5), true, None),
+                    ticks: wire_ticks(wire::TicksKind::Values(wire::TicksValues {
+                        values: vec![1.0, 4.0],
+                    })),
+                    tick_labels: wire_labels(wire::TickLabelsKind::Text(wire::TickLabelsText {
+                        labels: vec![
+                            wire_text("one", wire::Interpreter::None).unwrap(),
+                            wire_text("$4$", wire::Interpreter::Latex).unwrap(),
+                        ],
+                    })),
+                }),
+            }),
+            wire_category(wire_transparent(), false, None),
+        ),
+        wire_scale(
+            INDEXED,
+            wire_text("indexed title", wire::Interpreter::None),
+            wire::ColorScaleKindKind::Indexed(wire::ColorScaleKindIndexed {
+                indexed: Some(wire::IndexedColorScale {
+                    colors: vec![
+                        wire_color(0.0, 0.25, 0.5, 0.75),
+                        wire_color(1.0, 0.75, 0.5, 0.25),
+                    ],
+                    outside: wire_category(
+                        wire_clamp(),
+                        true,
+                        wire_text("out", wire::Interpreter::None),
+                    ),
+                    ticks: wire_ticks(wire::TicksKind::Values(wire::TicksValues {
+                        values: vec![0.0, 1.0],
+                    })),
+                    tick_labels: wire_labels(wire::TickLabelsKind::Auto(wire::TickLabelsAuto {})),
+                }),
+            }),
+            wire_category(wire_clamp(), false, None),
+        ),
+    ];
 
     let mut wire_figure = wire::Figure {
         schema_version: SCHEMA_VERSION.to_owned(),
@@ -715,6 +886,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             row_weights: vec![wire_weight(3.0), wire_fit()],
             col_weights: vec![wire_fit(), wire_weight(0.25)],
         }),
+        color_scales,
         data: vec![
             wire_data(
                 C,
@@ -799,8 +971,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 }),
                 z: wire_axis(None, wire::Scale::Log, wire_auto_limits(), true),
                 r#box: Some(false),
-                colormap: wire::ColormapName::Magma as i32,
-                clim: wire_manual(5.0, 6.0),
                 legend: wire_inside(
                     wire::LegendLocation::SouthWest,
                     Some(false),
@@ -855,6 +1025,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::Data as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(true),
+                        color_scale: Some(INDEXED),
                     })),
                     wire_artist(wire::ArtistKind::Scatter(wire::Scatter {
                         id: Some(32),
@@ -882,6 +1053,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(false),
+                        color_scale: None,
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -903,6 +1075,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         line: wire_line_style(wire_auto_color(), 1.5, wire::DashStyle::Dotted),
                         line_opacity: Some(0.0),
                         fill_opacity: Some(0.5),
+                        color_scale: Some(DISCRETE),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(34),
@@ -922,6 +1095,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         line: wire_line_style(wire_no_color(), 1.75, wire::DashStyle::Dashed),
                         line_opacity: Some(0.875),
                         fill_opacity: Some(0.0),
+                        color_scale: Some(BANDS),
                     })),
                     wire_artist(wire::ArtistKind::Quiver(wire::Quiver {
                         id: Some(35),
@@ -985,6 +1159,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         edge_alpha: Some(A),
                         face_opacity: Some(0.125),
                         edge_opacity: Some(0.375),
+                        color_scale: Some(CATEGORICAL),
                     })),
                     wire_artist(wire::ArtistKind::Surface(wire::Surface {
                         id: Some(39),
@@ -1000,6 +1175,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         edge_alpha: None,
                         face_opacity: Some(0.625),
                         edge_opacity: Some(0.25),
+                        color_scale: Some(CONTINUOUS),
                     })),
                     wire_artist(wire::ArtistKind::Image(wire::Image {
                         id: Some(40),
@@ -1013,35 +1189,31 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         ),
                         opacity: Some(0.75),
                     })),
-                    wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                    wire_artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                         id: Some(41),
                         label: None,
                         visible: Some(true),
-                        indices: Some(E),
+                        values: Some(E),
+                        color_scale: Some(INDEXED),
                         placement: wire_placement(
                             wire_yz(Some(26.0)),
                             None,
                             wire_range(28.0, 27.0),
                         ),
-                        below: wire_strict(),
-                        above: wire_clamp(),
-                        non_finite: wire_painted(0.5, 0.375, 0.25, 0.125),
                         alpha: Some(C),
                         opacity: Some(0.875),
                     })),
-                    wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+                    wire_artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                         id: Some(42),
                         label: wire_text("mapped", wire::Interpreter::None),
                         visible: Some(false),
                         values: Some(B),
+                        color_scale: Some(CONTINUOUS),
                         placement: wire_placement(
                             wire_xy(Some(29.0)),
                             wire_range(30.0, 31.0),
                             None,
                         ),
-                        below: wire_painted(0.125, 0.25, 0.375, 0.5),
-                        above: wire_transparent(),
-                        non_finite: wire_clamp(),
                         alpha: Some(A),
                         opacity: Some(0.0625),
                     })),
@@ -1071,8 +1243,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 y: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 z: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 r#box: Some(true),
-                colormap: wire::ColormapName::Cividis as i32,
-                clim: wire_auto_limits(),
                 legend: None,
                 artists: vec![],
             },
@@ -1199,6 +1369,118 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         tick_labels: TickLabels::Auto,
         grid: false,
     };
+    let category = |policy: OutOfRange, show_key: bool, label: Option<Text>| ColorScaleOutOfRange {
+        policy,
+        show_key,
+        label,
+    };
+    let expected_scales = vec![
+        ColorScale {
+            id: NodeId(CATEGORICAL),
+            title: None,
+            kind: ColorScaleKind::Categorical(CategoricalColorScale {
+                categories: vec![
+                    ColorCategory {
+                        color: Color::rgba(0.0625, 0.125, 0.1875, 0.25),
+                        label: Text::plain("first"),
+                    },
+                    ColorCategory {
+                        color: Color::rgba(0.3125, 0.375, 0.4375, 0.5),
+                        label: Text::new("$second$"),
+                    },
+                ],
+                outside: category(OutOfRange::Strict, false, None),
+            }),
+            non_finite: category(OutOfRange::Transparent, true, None),
+        },
+        ColorScale {
+            id: NodeId(CONTINUOUS),
+            title: text("scale title", Interpreter::Latex),
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: Colormap::Named {
+                    name: ColormapName::Plasma,
+                    reverse: true,
+                },
+                limits: Limits::Manual { min: 5.0, max: 6.0 },
+                norm: ColorScaleNorm::Log,
+                below: category(OutOfRange::Strict, true, text("low", Interpreter::None)),
+                above: category(OutOfRange::Clamp, false, None),
+                ticks: Ticks::Step {
+                    step: 0.5,
+                    origin: 5.25,
+                },
+                tick_labels: TickLabels::Hidden,
+            }),
+            non_finite: category(
+                OutOfRange::Rgba {
+                    color: Color::rgba(0.5, 0.375, 0.25, 0.125),
+                },
+                true,
+                text("$nan$", Interpreter::Latex),
+            ),
+        },
+        ColorScale {
+            id: NodeId(BANDS),
+            title: None,
+            kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                colormap: Colormap::Named {
+                    name: ColormapName::Magma,
+                    reverse: false,
+                },
+                levels: ColorScaleLevels::Auto {
+                    count: 7,
+                    limits: Limits::Manual { min: 7.0, max: 8.0 },
+                },
+                norm: ColorScaleNorm::Log,
+                below: category(OutOfRange::Clamp, true, None),
+                above: category(OutOfRange::Strict, false, None),
+                ticks: Ticks::Auto,
+                tick_labels: TickLabels::Auto,
+            }),
+            non_finite: category(OutOfRange::Strict, false, None),
+        },
+        ColorScale {
+            id: NodeId(DISCRETE),
+            title: None,
+            kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                colormap: Colormap::Listed {
+                    colors: vec![
+                        Color::rgba(0.5625, 0.625, 0.6875, 0.75),
+                        Color::rgba(0.8125, 0.875, 0.9375, 1.0),
+                    ],
+                },
+                levels: ColorScaleLevels::Explicit {
+                    values: vec![1.0, 2.0, 4.0],
+                },
+                norm: ColorScaleNorm::Linear,
+                below: category(OutOfRange::Transparent, false, None),
+                above: category(
+                    OutOfRange::Rgba {
+                        color: Color::rgba(0.125, 0.25, 0.375, 0.5),
+                    },
+                    true,
+                    None,
+                ),
+                ticks: Ticks::Values(vec![1.0, 4.0]),
+                tick_labels: TickLabels::Text(vec![Text::plain("one"), Text::new("$4$")]),
+            }),
+            non_finite: category(OutOfRange::Transparent, false, None),
+        },
+        ColorScale {
+            id: NodeId(INDEXED),
+            title: text("indexed title", Interpreter::None),
+            kind: ColorScaleKind::Indexed(IndexedColorScale {
+                colors: vec![
+                    Color::rgba(0.0, 0.25, 0.5, 0.75),
+                    Color::rgba(1.0, 0.75, 0.5, 0.25),
+                ],
+                outside: category(OutOfRange::Clamp, true, text("out", Interpreter::None)),
+                ticks: Ticks::Values(vec![0.0, 1.0]),
+                tick_labels: TickLabels::Auto,
+            }),
+            non_finite: category(OutOfRange::Clamp, false, None),
+        },
+    ];
     let expected = Figure {
         schema_version: SCHEMA_VERSION.to_owned(),
         id: NodeId(1),
@@ -1216,6 +1498,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
             row_weights: vec![TrackSize::Weight(3.0), TrackSize::Fit],
             col_weights: vec![TrackSize::Fit, TrackSize::Weight(0.25)],
         },
+        color_scales: expected_scales,
         data: vec![
             DataArray {
                 id: NodeId(C),
@@ -1308,8 +1591,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: true,
                 },
                 box_: false,
-                colormap: ColormapName::Magma,
-                clim: Limits::Manual { min: 5.0, max: 6.0 },
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::SouthWest,
                     boxed: false,
@@ -1371,6 +1652,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::Data,
                         y_coords: Coords::AxesFraction,
                         clip: true,
+                        color_scale: Some(NodeId(INDEXED)),
                     }),
                     Artist::Scatter(Scatter {
                         id: NodeId(32),
@@ -1394,6 +1676,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::AxesFraction,
                         clip: false,
+                        color_scale: None,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -1404,9 +1687,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             y: NodeId(C),
                         },
                         z: NodeId(D),
-                        levels: Levels::Explicit {
+                        levels: Some(Levels::Explicit {
                             values: vec![1.0, 2.0, 3.0],
-                        },
+                        }),
                         fill: true,
                         placement: ContourPlacement::Plane { z: Some(-2.0) },
                         line: LineStyle {
@@ -1416,6 +1699,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         line_opacity: 0.0,
                         fill_opacity: 0.5,
+                        color_scale: Some(NodeId(DISCRETE)),
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(34),
@@ -1426,7 +1710,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             y: NodeId(B),
                         },
                         z: NodeId(A),
-                        levels: Levels::Auto { count: 5 },
+                        levels: Some(Levels::Auto { count: 5 }),
                         fill: false,
                         placement: ContourPlacement::AtLevel,
                         line: LineStyle {
@@ -1436,6 +1720,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         line_opacity: 0.875,
                         fill_opacity: 0.0,
+                        color_scale: Some(NodeId(BANDS)),
                     }),
                     Artist::Quiver(Quiver {
                         id: NodeId(35),
@@ -1510,6 +1795,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         edge_alpha: Some(NodeId(A)),
                         face_opacity: 0.125,
                         edge_opacity: 0.375,
+                        color_scale: Some(NodeId(CATEGORICAL)),
                     }),
                     Artist::Surface(Surface {
                         id: NodeId(39),
@@ -1528,6 +1814,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         edge_alpha: None,
                         face_opacity: 0.625,
                         edge_opacity: 0.25,
+                        color_scale: Some(NodeId(CONTINUOUS)),
                     }),
                     Artist::Image(Image {
                         id: NodeId(40),
@@ -1547,11 +1834,12 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         },
                         opacity: 0.75,
                     }),
-                    Artist::IndexedImage(IndexedImage {
+                    Artist::ScalarImage(ScalarImage {
                         id: NodeId(41),
                         label: None,
                         visible: true,
-                        indices: NodeId(E),
+                        values: NodeId(E),
+                        color_scale: Some(NodeId(INDEXED)),
                         placement: ImagePlacement {
                             plane: ImagePlane::Yz { x: Some(26.0) },
                             columns: None,
@@ -1560,19 +1848,15 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                                 last: 27.0,
                             }),
                         },
-                        below: OutOfRange::Strict,
-                        above: OutOfRange::Clamp,
-                        non_finite: OutOfRange::Rgba {
-                            color: Color::rgba(0.5, 0.375, 0.25, 0.125),
-                        },
                         alpha: Some(NodeId(C)),
                         opacity: 0.875,
                     }),
-                    Artist::MappedImage(MappedImage {
+                    Artist::ScalarImage(ScalarImage {
                         id: NodeId(42),
                         label: text("mapped", Interpreter::None),
                         visible: false,
                         values: NodeId(B),
+                        color_scale: Some(NodeId(CONTINUOUS)),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xy { z: Some(29.0) },
                             columns: Some(PixelRange {
@@ -1581,11 +1865,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                             }),
                             rows: None,
                         },
-                        below: OutOfRange::Rgba {
-                            color: Color::rgba(0.125, 0.25, 0.375, 0.5),
-                        },
-                        above: OutOfRange::Transparent,
-                        non_finite: OutOfRange::Clamp,
                         alpha: Some(NodeId(A)),
                         opacity: 0.0625,
                     }),
@@ -1608,8 +1887,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 y: auto_axis.clone(),
                 z: auto_axis,
                 box_: true,
-                colormap: ColormapName::Cividis,
-                clim: Limits::Auto,
                 legend: None,
                 artists: vec![],
             },
@@ -1744,11 +2021,32 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
     }
 
     /// A wire figure with a place for every enum: a title, a link, an array without
-    /// values (so that either element decodes), an axes with an x axis, a legend and a
-    /// line with a line style and a marker style, and a panel holding a legend.
+    /// values (so that either element decodes), a continuous colour scale with a named
+    /// colormap, an axes with an x axis, a legend and a line with a line style and a
+    /// marker style, and a panel holding a legend.
     fn carrier() -> wire::Figure {
         wire::Figure {
             font_set: wire::FontSetId::StixTwo as i32,
+            color_scales: vec![wire::ColorScale {
+                id: Some(5),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Continuous(
+                        wire::ColorScaleKindContinuous {
+                            continuous: Some(wire::ContinuousColorScale {
+                                colormap: Some(wire::Colormap {
+                                    kind: Some(wire::ColormapKind::Named(wire::ColormapNamed {
+                                        name: wire::ColormapName::Viridis as i32,
+                                        reverse: Some(false),
+                                    })),
+                                }),
+                                norm: wire::ColorScaleNorm::Linear as i32,
+                                ..wire::ContinuousColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                ..wire::ColorScale::default()
+            }],
             title: wire_text("title", wire::Interpreter::Latex),
             data: vec![wire_data(0, None, wire_floats(vec![0], vec![]))],
             panels: vec![wire::Panel {
@@ -1760,7 +2058,6 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             axes: vec![wire::Axes {
                 id: Some(2),
                 x: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
-                colormap: wire::ColormapName::Viridis as i32,
                 legend: wire_inside(
                     wire::LegendLocation::NorthEast,
                     Some(true),
@@ -1796,6 +2093,27 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         }
     }
 
+    fn wire_continuous(fig: &mut wire::Figure) -> &mut wire::ContinuousColorScale {
+        match fig.color_scales[0]
+            .kind
+            .as_mut()
+            .and_then(|kind| kind.kind.as_mut())
+        {
+            Some(wire::ColorScaleKindKind::Continuous(kind)) => kind
+                .continuous
+                .as_mut()
+                .expect("the carrier's scale is present"),
+            _ => unreachable!("the carrier holds a continuous scale"),
+        }
+    }
+
+    fn continuous(fig: &Figure) -> &ContinuousColorScale {
+        match &fig.color_scales[0].kind {
+            ColorScaleKind::Continuous(scale) => scale,
+            other => panic!("the carrier's scale decoded as {other:?}"),
+        }
+    }
+
     fn line(fig: &Figure) -> &Line {
         match &fig.axes[0].artists[0] {
             Artist::Line(line) => line,
@@ -1814,8 +2132,22 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             |f| format!("{:?}", f.axes[0].x.scale),
         ),
         check::<wire::ColormapName>(
-            |w, v| w.axes[0].colormap = v,
-            |f| format!("{:?}", f.axes[0].colormap),
+            |w, v| {
+                if let Some(wire::Colormap {
+                    kind: Some(wire::ColormapKind::Named(named)),
+                }) = wire_continuous(w).colormap.as_mut()
+                {
+                    named.name = v;
+                }
+            },
+            |f| match &continuous(f).colormap {
+                Colormap::Named { name, .. } => format!("{name:?}"),
+                other => panic!("the carrier's colormap decoded as {other:?}"),
+            },
+        ),
+        check::<wire::ColorScaleNorm>(
+            |w, v| wire_continuous(w).norm = v,
+            |f| format!("{:?}", continuous(f).norm),
         ),
         check::<wire::LegendLocation>(
             |w, v| inside_mut(&mut w.axes[0].legend).location = v,
@@ -2027,13 +2359,14 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     opacity: Some(0.0),
                     ..wire::Image::default()
                 })),
-                wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                wire_artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                     id: Some(9),
-                    indices: Some(0),
+                    values: Some(0),
+                    color_scale: Some(0),
                     placement: wire_placement(wire_xz(Some(0.0)), None, None),
                     alpha: Some(0),
                     opacity: Some(0.0),
-                    ..wire::IndexedImage::default()
+                    ..wire::ScalarImage::default()
                 })),
             ],
             ..wire::Axes::default()
@@ -2058,6 +2391,75 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 entries: wire_explicit(vec![wire_artist_item(0, Some(false))]),
             }),
         }],
+        // Colour scales whose categories hold policies present on the wire that are the
+        // defaults of other categories (transparent below a continuous scale, which clamps
+        // by default; transparent outside an indexed scale, which is strict by default;
+        // clamped for non-finite values, which are transparent by default), whose keys
+        // are present and false, and whose band count is zero.
+        color_scales: vec![
+            wire::ColorScale {
+                id: Some(0),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Continuous(
+                        wire::ColorScaleKindContinuous {
+                            continuous: Some(wire::ContinuousColorScale {
+                                below: Some(wire::ColorScaleOutOfRange {
+                                    policy: wire_transparent(),
+                                    show_key: Some(false),
+                                    label: None,
+                                }),
+                                ..wire::ContinuousColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                non_finite: Some(wire::ColorScaleOutOfRange {
+                    policy: wire_clamp(),
+                    show_key: Some(false),
+                    label: None,
+                }),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(11),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Indexed(
+                        wire::ColorScaleKindIndexed {
+                            indexed: Some(wire::IndexedColorScale {
+                                outside: Some(wire::ColorScaleOutOfRange {
+                                    policy: wire_transparent(),
+                                    show_key: Some(false),
+                                    label: None,
+                                }),
+                                ..wire::IndexedColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(12),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Discrete(
+                        wire::ColorScaleKindDiscrete {
+                            discrete: Some(wire::DiscreteColorScale {
+                                levels: Some(wire::ColorScaleLevels {
+                                    kind: Some(wire::ColorScaleLevelsKind::Auto(
+                                        wire::ColorScaleLevelsAuto {
+                                            count: Some(0),
+                                            limits: None,
+                                        },
+                                    )),
+                                }),
+                                ..wire::DiscreteColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                ..wire::ColorScale::default()
+            },
+        ],
         // A data array of identifier zero whose name is present and empty, which is a
         // name and not an absence.
         data: vec![wire_data(0, Some(""), wire_floats(vec![0], vec![]))],
@@ -2128,7 +2530,7 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                 }),
                 Artist::Contour(Contour {
                     id: NodeId(5),
-                    levels: Levels::Auto { count: 0 },
+                    levels: Some(Levels::Auto { count: 0 }),
                     placement: ContourPlacement::Plane { z: Some(0.0) },
                     line: zero_line,
                     line_opacity: 0.0,
@@ -2166,16 +2568,17 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
                     opacity: 0.0,
                     ..Image::default()
                 }),
-                // Data identifier 0 is a reference like any other, not an absent alpha.
-                Artist::IndexedImage(IndexedImage {
+                // Identifier 0 is a reference like any other, not an absent alpha or scale.
+                Artist::ScalarImage(ScalarImage {
                     id: NodeId(9),
+                    color_scale: Some(NodeId(0)),
                     placement: ImagePlacement {
                         plane: ImagePlane::Xz { y: Some(0.0) },
                         ..ImagePlacement::default()
                     },
                     alpha: Some(NodeId(0)),
                     opacity: 0.0,
-                    ..IndexedImage::default()
+                    ..ScalarImage::default()
                 }),
             ],
             ..Axes::default()
@@ -2200,6 +2603,48 @@ fn present_values_are_kept_when_they_equal_zero_or_the_default_of_another_contex
             name: Some(String::new()),
             array: NdArray::vector(vec![]),
         }],
+        color_scales: vec![
+            ColorScale {
+                id: NodeId(0),
+                kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                    below: ColorScaleOutOfRange {
+                        policy: OutOfRange::Transparent,
+                        show_key: false,
+                        label: None,
+                    },
+                    ..ContinuousColorScale::default()
+                }),
+                non_finite: ColorScaleOutOfRange {
+                    policy: OutOfRange::Clamp,
+                    show_key: false,
+                    label: None,
+                },
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(11),
+                kind: ColorScaleKind::Indexed(IndexedColorScale {
+                    outside: ColorScaleOutOfRange {
+                        policy: OutOfRange::Transparent,
+                        show_key: false,
+                        label: None,
+                    },
+                    ..IndexedColorScale::default()
+                }),
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(12),
+                kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                    levels: ColorScaleLevels::Auto {
+                        count: 0,
+                        limits: Limits::Auto,
+                    },
+                    ..DiscreteColorScale::default()
+                }),
+                ..ColorScale::default()
+            },
+        ],
         provenance: empty_provenance(),
         ..Figure::default()
     };
@@ -2245,9 +2690,40 @@ fn empty_strings_and_lists_reload_as_empty_rather_than_as_defaults() {
     let contour = Artist::Contour(Contour {
         id: NodeId(50),
         label: Some(Text::plain("")),
-        levels: Levels::Explicit { values: vec![] },
+        levels: Some(Levels::Explicit { values: vec![] }),
         ..Contour::default()
     });
+    // A listed colormap of no colours, which must not reload as the default named
+    // colormap, explicit band edges of none, and an empty category label.
+    fig.color_scales.extend([
+        ColorScale {
+            id: NodeId(60),
+            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                colormap: Colormap::Listed { colors: vec![] },
+                ..ContinuousColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: NodeId(61),
+            kind: ColorScaleKind::Discrete(DiscreteColorScale {
+                levels: ColorScaleLevels::Explicit { values: vec![] },
+                ..DiscreteColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+        ColorScale {
+            id: NodeId(62),
+            kind: ColorScaleKind::Categorical(CategoricalColorScale {
+                categories: vec![ColorCategory {
+                    color: Color::WHITE,
+                    label: Text::plain(""),
+                }],
+                ..CategoricalColorScale::default()
+            }),
+            ..ColorScale::default()
+        },
+    ]);
     fig.axes
         .iter_mut()
         .find(|a| a.id == axes)
@@ -2298,7 +2774,6 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                 limits: Some(wire::Limits { kind: None }),
                 ..wire::Axis::default()
             }),
-            colormap: wire::ColormapName::Unspecified as i32,
             legend: wire_inside(
                 wire::LegendLocation::Unspecified,
                 None,
@@ -2343,34 +2818,29 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     edge: Some(wire::ColorSpec { kind: None }),
                     ..wire::Surface::default()
                 })),
-                // An absent placement, an unset plane, an unset policy, an absent policy,
-                // a fixed colour without a colour and a wall without an offset.
+                // An absent placement, an unset plane, an absent colour scale and a wall
+                // without an offset.
                 artist(wire::ArtistKind::Image(wire::Image {
                     id: Some(10),
                     pixels: Some(0),
                     placement: None,
                     ..wire::Image::default()
                 })),
-                artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+                artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                     id: Some(11),
-                    indices: Some(0),
+                    values: Some(0),
                     placement: Some(wire::ImagePlacement {
                         plane: Some(wire::ImagePlane { kind: None }),
                         columns: None,
                         rows: None,
                     }),
-                    below: Some(wire::OutOfRange { kind: None }),
-                    above: None,
-                    non_finite: wire_policy(wire::OutOfRangeKind::Rgba(wire::OutOfRangeRgba {
-                        color: None,
-                    })),
-                    ..wire::IndexedImage::default()
+                    ..wire::ScalarImage::default()
                 })),
-                artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+                artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                     id: Some(12),
                     values: Some(0),
                     placement: wire_placement(wire_xz(None), None, None),
-                    ..wire::MappedImage::default()
+                    ..wire::ScalarImage::default()
                 })),
             ],
             ..wire::Axes::default()
@@ -2419,6 +2889,88 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     })),
                 }),
                 ..wire::Panel::default()
+            },
+        ],
+        // Colour scales: one with nothing but its identifier, which is the default
+        // continuous scale; a continuous scale whose colormap names an unspecified
+        // colormap, whose norm is unspecified, whose below category holds an unset policy
+        // and whose above category is absent, both of which take the clamp that is the
+        // default of those categories rather than the transparent default of the policy
+        // type, and whose non-finite category paints in a fixed colour without a colour;
+        // a discrete scale whose band edges have an unset kind and an indexed scale whose
+        // outside category is absent, which is strict; and a categorical scale with an
+        // absent kind of scale message, which is its default.
+        color_scales: vec![
+            wire::ColorScale {
+                id: Some(20),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(21),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Continuous(
+                        wire::ColorScaleKindContinuous {
+                            continuous: Some(wire::ContinuousColorScale {
+                                colormap: Some(wire::Colormap {
+                                    kind: Some(wire::ColormapKind::Named(wire::ColormapNamed {
+                                        name: wire::ColormapName::Unspecified as i32,
+                                        reverse: None,
+                                    })),
+                                }),
+                                norm: wire::ColorScaleNorm::Unspecified as i32,
+                                below: Some(wire::ColorScaleOutOfRange {
+                                    policy: Some(wire::OutOfRange { kind: None }),
+                                    show_key: None,
+                                    label: None,
+                                }),
+                                above: None,
+                                ..wire::ContinuousColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                non_finite: Some(wire::ColorScaleOutOfRange {
+                    policy: wire_policy(wire::OutOfRangeKind::Rgba(wire::OutOfRangeRgba {
+                        color: None,
+                    })),
+                    show_key: None,
+                    label: None,
+                }),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(22),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Discrete(
+                        wire::ColorScaleKindDiscrete {
+                            discrete: Some(wire::DiscreteColorScale {
+                                levels: Some(wire::ColorScaleLevels { kind: None }),
+                                ..wire::DiscreteColorScale::default()
+                            }),
+                        },
+                    )),
+                }),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(23),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Indexed(
+                        wire::ColorScaleKindIndexed {
+                            indexed: Some(wire::IndexedColorScale::default()),
+                        },
+                    )),
+                }),
+                ..wire::ColorScale::default()
+            },
+            wire::ColorScale {
+                id: Some(24),
+                kind: Some(wire::ColorScaleKind {
+                    kind: Some(wire::ColorScaleKindKind::Categorical(
+                        wire::ColorScaleKindCategorical { categorical: None },
+                    )),
+                }),
+                ..wire::ColorScale::default()
             },
         ],
         // A data array whose name is absent, which is no name.
@@ -2498,8 +3050,11 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     id: NodeId(7),
                     ..Scatter::default()
                 }),
+                // Levels that are present with an absent count are automatic levels of the
+                // default count, not the absent levels that take the scale's.
                 Artist::Contour(Contour {
                     id: NodeId(8),
+                    levels: Some(Levels::default()),
                     ..Contour::default()
                 }),
                 Artist::Surface(Surface {
@@ -2510,22 +3065,17 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
                     id: NodeId(10),
                     ..Image::default()
                 }),
-                Artist::IndexedImage(IndexedImage {
+                Artist::ScalarImage(ScalarImage {
                     id: NodeId(11),
-                    // A fixed colour that is absent is black, as it is for a fixed colour
-                    // specification.
-                    non_finite: OutOfRange::Rgba {
-                        color: Color::BLACK,
-                    },
-                    ..IndexedImage::default()
+                    ..ScalarImage::default()
                 }),
-                Artist::MappedImage(MappedImage {
+                Artist::ScalarImage(ScalarImage {
                     id: NodeId(12),
                     placement: ImagePlacement {
                         plane: ImagePlane::Xz { y: None },
                         ..ImagePlacement::default()
                     },
-                    ..MappedImage::default()
+                    ..ScalarImage::default()
                 }),
             ],
             ..Axes::default()
@@ -2538,6 +3088,36 @@ fn unspecified_enums_and_absent_fields_decode_to_the_defaults_of_their_context()
             name: None,
             array: NdArray::vector(vec![0.5]),
         }],
+        color_scales: vec![
+            ColorScale {
+                id: NodeId(20),
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(21),
+                // A fixed colour that is absent is black, as it is for a fixed colour
+                // specification.
+                non_finite: ColorScaleOutOfRange::new(OutOfRange::Rgba {
+                    color: Color::BLACK,
+                }),
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(22),
+                kind: ColorScaleKind::Discrete(DiscreteColorScale::default()),
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(23),
+                kind: ColorScaleKind::Indexed(IndexedColorScale::default()),
+                ..ColorScale::default()
+            },
+            ColorScale {
+                id: NodeId(24),
+                kind: ColorScaleKind::Categorical(CategoricalColorScale::default()),
+                ..ColorScale::default()
+            },
+        ],
         provenance: empty_provenance(),
         ..Figure::default()
     };
@@ -2608,22 +3188,58 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                 placement: wire_placement(wire_xy(None), wire_range(0.0, 1.0), None),
                 ..wire::Image::default()
             })),
-            wire_artist(wire::ArtistKind::IndexedImage(wire::IndexedImage {
+            wire_artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                 id: Some(9),
-                indices: Some(2),
-                ..wire::IndexedImage::default()
+                values: Some(2),
+                color_scale: Some(13),
+                ..wire::ScalarImage::default()
             })),
-            wire_artist(wire::ArtistKind::MappedImage(wire::MappedImage {
+            wire_artist(wire::ArtistKind::ScalarImage(wire::ScalarImage {
                 id: Some(10),
                 values: Some(2),
+                color_scale: Some(12),
                 placement: wire_placement(wire_yz(None), None, wire_range(0.0, 1.0)),
-                ..wire::MappedImage::default()
+                ..wire::ScalarImage::default()
             })),
         ];
         wire::Figure {
+            // A continuous scale with manual limits, whose bounds have no default, and a
+            // categorical scale, whose category's label has none.
+            color_scales: vec![
+                wire::ColorScale {
+                    id: Some(12),
+                    kind: Some(wire::ColorScaleKind {
+                        kind: Some(wire::ColorScaleKindKind::Continuous(
+                            wire::ColorScaleKindContinuous {
+                                continuous: Some(wire::ContinuousColorScale {
+                                    limits: wire_manual(0.0, 1.0),
+                                    ..wire::ContinuousColorScale::default()
+                                }),
+                            },
+                        )),
+                    }),
+                    ..wire::ColorScale::default()
+                },
+                wire::ColorScale {
+                    id: Some(13),
+                    kind: Some(wire::ColorScaleKind {
+                        kind: Some(wire::ColorScaleKindKind::Categorical(
+                            wire::ColorScaleKindCategorical {
+                                categorical: Some(wire::CategoricalColorScale {
+                                    categories: vec![wire::ColorCategory {
+                                        color: None,
+                                        label: wire_text("only", wire::Interpreter::None),
+                                    }],
+                                    outside: None,
+                                }),
+                            },
+                        )),
+                    }),
+                    ..wire::ColorScale::default()
+                },
+            ],
             axes: vec![wire::Axes {
                 id: Some(2),
-                clim: wire_manual(0.0, 1.0),
                 legend: wire_in_panel(11),
                 artists,
                 ..wire::Axes::default()
@@ -2712,6 +3328,39 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
             .expect("every artist of the complete figure has a kind")
     }
 
+    /// Returns the continuous scale of the complete figure.
+    fn continuous(fig: &mut wire::Figure) -> &mut wire::ContinuousColorScale {
+        match fig.color_scales[0]
+            .kind
+            .as_mut()
+            .and_then(|kind| kind.kind.as_mut())
+        {
+            Some(wire::ColorScaleKindKind::Continuous(kind)) => kind
+                .continuous
+                .as_mut()
+                .expect("the complete figure's first scale is present"),
+            _ => unreachable!("the complete figure's first scale is continuous"),
+        }
+    }
+
+    /// Returns the only category of the categorical scale of the complete figure.
+    fn category(fig: &mut wire::Figure) -> &mut wire::ColorCategory {
+        match fig.color_scales[1]
+            .kind
+            .as_mut()
+            .and_then(|kind| kind.kind.as_mut())
+        {
+            Some(wire::ColorScaleKindKind::Categorical(kind)) => {
+                &mut kind
+                    .categorical
+                    .as_mut()
+                    .expect("the complete figure's second scale is present")
+                    .categories[0]
+            }
+            _ => unreachable!("the complete figure's second scale is categorical"),
+        }
+    }
+
     macro_rules! artist {
         ($fig:ident, $index:literal, $variant:ident) => {
             match kind($fig, $index) {
@@ -2725,7 +3374,7 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
         .expect("the complete figure decodes, so each case fails only for its removal");
 
     type Removal = fn(&mut wire::Figure);
-    let cases: [(&str, Removal); 44] = [
+    let cases: [(&str, Removal); 46] = [
         ("id", |f| f.id = None),
         // A data array is a node, whose identifier has no default, and an array without
         // values is an empty array only when it says so: an absent array is a faulty
@@ -2826,14 +3475,14 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                 None,
             );
         }),
-        ("axes[0].artists[6].indexed_image.indices", |f| {
-            artist!(f, 6, IndexedImage).indices = None
+        ("axes[0].artists[6].scalar_image.values", |f| {
+            artist!(f, 6, ScalarImage).values = None
         }),
-        ("axes[0].artists[7].mapped_image.values", |f| {
-            artist!(f, 7, MappedImage).values = None
+        ("axes[0].artists[7].scalar_image.values", |f| {
+            artist!(f, 7, ScalarImage).values = None
         }),
-        ("axes[0].artists[7].mapped_image.placement.rows.last", |f| {
-            artist!(f, 7, MappedImage).placement = wire_placement(
+        ("axes[0].artists[7].scalar_image.placement.rows.last", |f| {
+            artist!(f, 7, ScalarImage).placement = wire_placement(
                 wire_yz(None),
                 None,
                 Some(wire::PixelRange {
@@ -2842,22 +3491,39 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
                 }),
             );
         }),
-        ("axes[0].clim.manual.min", |f| {
-            f.axes[0].clim = Some(wire::Limits {
-                kind: Some(wire::LimitsKind::Manual(wire::LimitsManual {
-                    min: None,
-                    max: Some(1.0),
-                })),
-            });
-        }),
-        ("axes[0].clim.manual.max", |f| {
-            f.axes[0].clim = Some(wire::Limits {
-                kind: Some(wire::LimitsKind::Manual(wire::LimitsManual {
-                    min: Some(0.0),
-                    max: None,
-                })),
-            });
-        }),
+        // A colour scale is a node, whose identifier has no default; the bounds of its
+        // manual limits have none, as those of an axis have none; and a category's label,
+        // which every key that shows the scale draws, has none.
+        ("color_scales[1].id", |f| f.color_scales[1].id = None),
+        (
+            "color_scales[0].kind.continuous.continuous.limits.manual.min",
+            |f| {
+                continuous(f).limits = wire_manual(0.0, 1.0).map(|limits| match limits.kind {
+                    Some(wire::LimitsKind::Manual(manual)) => wire::Limits {
+                        kind: Some(wire::LimitsKind::Manual(wire::LimitsManual {
+                            min: None,
+                            ..manual
+                        })),
+                    },
+                    _ => unreachable!("manual limits are manual"),
+                })
+            },
+        ),
+        (
+            "color_scales[0].kind.continuous.continuous.limits.manual.max",
+            |f| {
+                continuous(f).limits = Some(wire::Limits {
+                    kind: Some(wire::LimitsKind::Manual(wire::LimitsManual {
+                        min: Some(0.0),
+                        max: None,
+                    })),
+                });
+            },
+        ),
+        (
+            "color_scales[1].kind.categorical.categorical.categories[0].label",
+            |f| category(f).label = None,
+        ),
         ("axes[0].x.ticks.step.step", |f| {
             f.axes[0].x = Some(wire::Axis {
                 ticks: Some(wire::Ticks {
@@ -2977,8 +3643,9 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
 
 // Why: the references and values that the IR itself makes optional (the z data of a
 // line, scatter or quiver, the w data of a quiver, the colour data and the face and edge
-// alpha of a surface, the height of a contour plane, the alpha of a colour-indexed or
-// colour-mapped image, and the pixel ranges and plane offset of an image) must not
+// alpha of a surface, the height of a contour plane, the levels of a contour, the colour
+// scale of a colour-mapped artist, the alpha of a scalar image, the title of a colour
+// scale and the label of its key, and the pixel ranges and plane offset of an image) must not
 // become errors or defaults when absent, because a figure without them is complete; and
 // the encoder must write them as absent rather than as a zero, which would move the
 // image.
@@ -3016,36 +3683,50 @@ fn absent_optional_references_decode_as_absent() {
         id: NodeId(64),
         ..Image::default()
     }));
-    artists.push(Artist::IndexedImage(IndexedImage {
+    artists.push(Artist::ScalarImage(ScalarImage {
         id: NodeId(65),
         placement: ImagePlacement {
             plane: ImagePlane::Xz { y: None },
             ..ImagePlacement::default()
         },
-        ..IndexedImage::default()
+        ..ScalarImage::default()
     }));
-    artists.push(Artist::MappedImage(MappedImage {
+    artists.push(Artist::ScalarImage(ScalarImage {
         id: NodeId(66),
         placement: ImagePlacement {
             plane: ImagePlane::Yz { x: None },
             ..ImagePlacement::default()
         },
-        ..MappedImage::default()
+        ..ScalarImage::default()
     }));
+    // A colour scale without a title, whose categories have no labels.
+    fig.color_scales.push(ColorScale {
+        id: NodeId(67),
+        ..ColorScale::default()
+    });
 
     let wire_figure = wire::Figure::from(&fig);
     for artist in &wire_figure.axes[0].artists {
         let absent = match artist.kind.as_ref().expect("the encoder writes every kind") {
             wire::ArtistKind::Line(line) => line.z.is_none(),
-            wire::ArtistKind::Scatter(scatter) => scatter.z.is_none(),
+            wire::ArtistKind::Scatter(scatter) => {
+                scatter.z.is_none() && scatter.color_scale.is_none()
+            }
             wire::ArtistKind::Quiver(quiver) => quiver.z.is_none() && quiver.w.is_none(),
             wire::ArtistKind::Surface(surface) => {
-                surface.c.is_none() && surface.face_alpha.is_none() && surface.edge_alpha.is_none()
+                surface.c.is_none()
+                    && surface.face_alpha.is_none()
+                    && surface.edge_alpha.is_none()
+                    && surface.color_scale.is_none()
             }
-            wire::ArtistKind::Contour(contour) => matches!(
-                contour.placement.as_ref().and_then(|p| p.kind.as_ref()),
-                Some(wire::ContourPlacementKind::Plane(plane)) if plane.z.is_none()
-            ),
+            wire::ArtistKind::Contour(contour) => {
+                contour.levels.is_none()
+                    && contour.color_scale.is_none()
+                    && matches!(
+                        contour.placement.as_ref().and_then(|p| p.kind.as_ref()),
+                        Some(wire::ContourPlacementKind::Plane(plane)) if plane.z.is_none()
+                    )
+            }
             wire::ArtistKind::Image(image) => {
                 let placement = image.placement.as_ref();
                 placement.is_some_and(|p| p.columns.is_none() && p.rows.is_none())
@@ -3054,16 +3735,13 @@ fn absent_optional_references_decode_as_absent() {
                         Some(wire::ImagePlaneKind::Xy(xy)) if xy.z.is_none()
                     )
             }
-            wire::ArtistKind::IndexedImage(image) => {
+            wire::ArtistKind::ScalarImage(image) => {
                 image.alpha.is_none()
+                    && image.color_scale.is_none()
                     && matches!(
                         plane_kind(image.placement.as_ref()),
                         Some(wire::ImagePlaneKind::Xz(xz)) if xz.y.is_none()
-                    )
-            }
-            wire::ArtistKind::MappedImage(image) => {
-                image.alpha.is_none()
-                    && matches!(
+                    ) | matches!(
                         plane_kind(image.placement.as_ref()),
                         Some(wire::ImagePlaneKind::Yz(yz)) if yz.x.is_none()
                     )
@@ -3071,6 +3749,15 @@ fn absent_optional_references_decode_as_absent() {
         };
         assert!(absent, "the encoder wrote an absent reference: {artist:?}");
     }
+    let scale = &wire_figure.color_scales[0];
+    assert!(
+        scale.title.is_none()
+            && scale
+                .non_finite
+                .as_ref()
+                .is_some_and(|category| category.label.is_none()),
+        "the encoder wrote an absent title or label: {scale:?}"
+    );
     assert_eq!(
         Figure::from_protobuf(&encode_wire(&wire_figure)).unwrap(),
         fig
@@ -3175,9 +3862,11 @@ fn an_array_whose_payloads_disagree_with_its_element_is_rejected() {
 /// A figure encoded by hand, field by field, from the field numbers of the schema: a 3D
 /// axes with a view, labelled axes with automatic and manual limits, a legend, a line
 /// with an RGBA colour and a marker, explicit legend entries of every kind of item and
-/// sample in a legend panel, row and column sizes of every kind, an image of each kind (on each plane, with and
-/// without an offset, with a pixel range or none, with every out-of-range policy at some
-/// category, and with an opacity and an alpha array or none), a surface with alpha arrays
+/// sample in a legend panel, row and column sizes of every kind, images of both kinds (on
+/// each plane, with and without an offset, with a pixel range or none, and with an
+/// opacity and an alpha array or none), an indexed and a continuous colour scale that the
+/// scalar images name (with every out-of-range policy at some category, a key shown and
+/// labelled, a named colormap reversed, manual limits and a logarithmic norm), a surface with alpha arrays
 /// and opacities for its faces and its edges, three data arrays (floats with a name and
 /// without an element as every writer wrote them before the element type existed, floats
 /// holding NaN with the element written, and bytes), a link, provenance, a parameter of
@@ -3313,43 +4002,116 @@ fn hand_encoded_bytes() -> Vec<u8> {
         double_field(6, 0.5),
     ]
     .concat();
-    // A colour-indexed image (Artist variant 7): hidden, indices from data 8, on the xz
-    // wall without an offset with row centres (field 3) mirrored from 3 to 0, strict
-    // below (field 6), clamped above (field 7), a half-transparent red for non-finite
-    // indices (field 8), the bytes of data 8 as its alpha (field 9) and an opacity of
-    // 0.25 (field 10).
+    // A scalar image (Artist variant 9): hidden, values from data 8, through colour scale
+    // 30 (field 5), on the xz wall without an offset (placement field 6) with row
+    // centres (field 3) mirrored from 3 to 0, the bytes of data 8 as its alpha (field 7)
+    // and an opacity of 0.25 (field 8).
     let indexed_image = [
         varint_field(1, 5),
         varint_field(3, 0),
         varint_field(4, 8),
+        varint_field(5, 30),
         length_delimited(
-            5,
+            6,
             &[
                 length_delimited(1, &plane(2, None)),
                 length_delimited(3, &pixel_range(3.0, 0.0)),
             ]
             .concat(),
         ),
-        length_delimited(6, &policy(1, None)),
-        length_delimited(7, &policy(3, None)),
-        length_delimited(8, &policy(4, Some(colour(1.0, 0.0, 0.0, 0.5)))),
-        varint_field(9, 8),
-        double_field(10, 0.25),
+        varint_field(7, 8),
+        double_field(8, 0.25),
     ]
     .concat();
-    // A colour-mapped image (Artist variant 8) of the values of data 7, on the yz wall
-    // at x = -2 with no pixel ranges, transparent below, opaque blue above, strict for
-    // non-finite values, and the values of data 7 as its alpha (field 9) without an
-    // opacity, which is therefore 1.
+    // A scalar image (Artist variant 9) of the values of data 7, through colour scale 31,
+    // on the yz wall at x = -2 with no pixel ranges, and the values of data 7 as its alpha
+    // without an opacity, which is therefore 1.
     let mapped_image = [
         varint_field(1, 6),
         varint_field(3, 1),
         varint_field(4, 7),
-        length_delimited(5, &length_delimited(1, &plane(3, Some(-2.0)))),
-        length_delimited(6, &policy(2, None)),
-        length_delimited(7, &policy(4, Some(colour(0.0, 0.0, 1.0, 1.0)))),
-        length_delimited(8, &policy(1, None)),
-        varint_field(9, 7),
+        varint_field(5, 31),
+        length_delimited(6, &length_delimited(1, &plane(3, Some(-2.0)))),
+        varint_field(7, 7),
+    ]
+    .concat();
+    // An out-of-range category of a colour scale: its policy (field 1), whether its key
+    // is shown (field 2) and the label of the key (field 3).
+    let category = |policy_bytes: Vec<u8>, show_key: Option<bool>, label: Option<Vec<u8>>| {
+        [
+            length_delimited(1, &policy_bytes),
+            show_key.map_or(vec![], |k| varint_field(2, u64::from(k))),
+            label.map_or(vec![], |l| length_delimited(3, &l)),
+        ]
+        .concat()
+    };
+    // An indexed colour scale (Figure field 16) of identifier 30: its kind (field 3) is
+    // the indexed variant (ColorScaleKind field 3), whose ColorScaleKindIndexed holds the
+    // IndexedColorScale in field 1: two colours (field 1) and a clamp outside the entries
+    // (field 2) with its key shown. Non-finite values (field 4) are a half-transparent red.
+    let indexed_scale = [
+        varint_field(1, 30),
+        length_delimited(
+            3,
+            &length_delimited(
+                3,
+                &length_delimited(
+                    1,
+                    &[
+                        length_delimited(1, &colour(0.0, 0.0, 0.0, 1.0)),
+                        length_delimited(1, &colour(1.0, 1.0, 1.0, 1.0)),
+                        length_delimited(2, &category(policy(3, None), Some(true), None)),
+                    ]
+                    .concat(),
+                ),
+            ),
+        ),
+        length_delimited(
+            4,
+            &category(policy(4, Some(colour(1.0, 0.0, 0.0, 0.5))), None, None),
+        ),
+    ]
+    .concat();
+    // A continuous colour scale of identifier 31 with a title (field 2): its kind is the
+    // continuous variant (ColorScaleKind field 1), holding a ContinuousColorScale whose
+    // colormap (field 1) is the named variant (Colormap field 1) coolwarm (ColormapName
+    // value 6) reversed, whose limits (field 2) are manual from -3 to 4, whose norm (field
+    // 3) is logarithmic (value 2), transparent below (field 4) and opaque blue above
+    // (field 5) with a labelled key. Non-finite values are strict.
+    let continuous_scale = [
+        varint_field(1, 31),
+        length_delimited(2, &text("$T$", 1)),
+        length_delimited(
+            3,
+            &length_delimited(
+                1,
+                &length_delimited(
+                    1,
+                    &[
+                        length_delimited(
+                            1,
+                            &length_delimited(
+                                1,
+                                &[varint_field(1, 6), varint_field(2, 1)].concat(),
+                            ),
+                        ),
+                        length_delimited(2, &limits_manual(-3.0, 4.0)),
+                        varint_field(3, 2),
+                        length_delimited(4, &category(policy(2, None), None, None)),
+                        length_delimited(
+                            5,
+                            &category(
+                                policy(4, Some(colour(0.0, 0.0, 1.0, 1.0))),
+                                Some(true),
+                                Some(text("hot", 2)),
+                            ),
+                        ),
+                    ]
+                    .concat(),
+                ),
+            ),
+        ),
+        length_delimited(4, &category(policy(1, None), None, None)),
     ]
     .concat();
     // A surface (Artist variant 5) on a rectilinear grid (field 4, variant 1) of data 0
@@ -3409,8 +4171,6 @@ fn hand_encoded_bytes() -> Vec<u8> {
             &axis(Some(text("z", 2)), 1, limits_manual(-1.0, 2.0), false),
         ),
         varint_field(8, 0),
-        varint_field(9, 6),
-        length_delimited(10, &limits_manual(-3.0, 4.0)),
         // Legend: inside (oneof field 1), an InsideLegend (field 1) of location best,
         // unboxed, with a layout (field 3) of three columns (LegendEntryColumns field 2,
         // LegendEntryColumnsCount field 1) filled row by row (order field 2, value 2), and
@@ -3454,8 +4214,8 @@ fn hand_encoded_bytes() -> Vec<u8> {
         ),
         length_delimited(12, &length_delimited(1, &line)),
         length_delimited(12, &length_delimited(6, &image)),
-        length_delimited(12, &length_delimited(7, &indexed_image)),
-        length_delimited(12, &length_delimited(8, &mapped_image)),
+        length_delimited(12, &length_delimited(9, &indexed_image)),
+        length_delimited(12, &length_delimited(9, &mapped_image)),
         length_delimited(12, &length_delimited(5, &surface)),
         // Title aligned right (field 13, value 3), an automatic aspect (field 14, oneof
         // variant 1) and an aspect kept by the limits (field 15, value 2).
@@ -3592,6 +4352,8 @@ fn hand_encoded_bytes() -> Vec<u8> {
             None,
         ),
         data_entry(8, byte_array(&[2, 2], &[0, 1, 254, 255]), None),
+        length_delimited(16, &indexed_scale),
+        length_delimited(16, &continuous_scale),
         length_delimited(10, &axes),
         // A second axes whose legend (field 11) lists its entries in a panel (oneof field
         // 2, LegendPanel field 1).
@@ -3696,6 +4458,49 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 array: NdArray::from_shape_u8(vec![2, 2], vec![0, 1, 254, 255]).unwrap(),
             },
         ],
+        color_scales: vec![
+            ColorScale {
+                id: NodeId(30),
+                title: None,
+                kind: ColorScaleKind::Indexed(IndexedColorScale {
+                    colors: vec![Color::BLACK, Color::WHITE],
+                    outside: ColorScaleOutOfRange {
+                        policy: OutOfRange::Clamp,
+                        show_key: true,
+                        label: None,
+                    },
+                    ..IndexedColorScale::default()
+                }),
+                non_finite: ColorScaleOutOfRange::new(OutOfRange::Rgba {
+                    color: Color::rgba(1.0, 0.0, 0.0, 0.5),
+                }),
+            },
+            ColorScale {
+                id: NodeId(31),
+                title: Some(Text::new("$T$")),
+                kind: ColorScaleKind::Continuous(ContinuousColorScale {
+                    colormap: Colormap::Named {
+                        name: ColormapName::Coolwarm,
+                        reverse: true,
+                    },
+                    limits: Limits::Manual {
+                        min: -3.0,
+                        max: 4.0,
+                    },
+                    norm: ColorScaleNorm::Log,
+                    below: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+                    above: ColorScaleOutOfRange {
+                        policy: OutOfRange::Rgba {
+                            color: Color::rgba(0.0, 0.0, 1.0, 1.0),
+                        },
+                        show_key: true,
+                        label: Some(Text::plain("hot")),
+                    },
+                    ..ContinuousColorScale::default()
+                }),
+                non_finite: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            },
+        ],
         axes: vec![
             Axes {
                 id: NodeId(2),
@@ -3743,11 +4548,6 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                     ..Axis::default()
                 },
                 box_: false,
-                colormap: ColormapName::Coolwarm,
-                clim: Limits::Manual {
-                    min: -3.0,
-                    max: 4.0,
-                },
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::Best,
                     boxed: false,
@@ -3803,11 +4603,12 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         },
                         opacity: 0.5,
                     }),
-                    Artist::IndexedImage(IndexedImage {
+                    Artist::ScalarImage(ScalarImage {
                         id: NodeId(5),
                         label: None,
                         visible: false,
-                        indices: NodeId(8),
+                        values: NodeId(8),
+                        color_scale: Some(NodeId(30)),
                         placement: ImagePlacement {
                             plane: ImagePlane::Xz { y: None },
                             columns: None,
@@ -3816,29 +4617,20 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                                 last: 0.0,
                             }),
                         },
-                        below: OutOfRange::Strict,
-                        above: OutOfRange::Clamp,
-                        non_finite: OutOfRange::Rgba {
-                            color: Color::rgba(1.0, 0.0, 0.0, 0.5),
-                        },
                         alpha: Some(NodeId(8)),
                         opacity: 0.25,
                     }),
-                    Artist::MappedImage(MappedImage {
+                    Artist::ScalarImage(ScalarImage {
                         id: NodeId(6),
                         label: None,
                         visible: true,
                         values: NodeId(7),
+                        color_scale: Some(NodeId(31)),
                         placement: ImagePlacement {
                             plane: ImagePlane::Yz { x: Some(-2.0) },
                             columns: None,
                             rows: None,
                         },
-                        below: OutOfRange::Transparent,
-                        above: OutOfRange::Rgba {
-                            color: Color::rgba(0.0, 0.0, 1.0, 1.0),
-                        },
-                        non_finite: OutOfRange::Strict,
                         alpha: Some(NodeId(7)),
                         opacity: 1.0,
                     }),

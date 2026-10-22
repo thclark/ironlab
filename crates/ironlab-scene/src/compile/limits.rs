@@ -1,13 +1,12 @@
-//! Axis limits, tick targets and colour limits.
+//! Axis limits and tick targets.
 
-use ironlab_ir::{Artist, Axes, Axis, ColorSpec, Limits, Projection, Scale, ScatterColor, Values};
+use ironlab_ir::{Axes, Axis, Limits, Projection, Scale};
 
 use crate::display::Rect;
 use crate::maths::ticks;
 
 use super::Ctx;
-use super::data::{ArtistData, ImageKind, Prepared, values_along};
-use super::style::{ColourScale, lut};
+use super::data::{ArtistData, Prepared, values_along};
 
 /// The limits of one data axis, with its direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -290,69 +289,5 @@ fn auto_range(
         }
     } else {
         fallback
-    }
-}
-
-/// Visits the values through which an artist is coloured by the colormap, which contribute to automatic colour
-/// limits: the colour data of a scatter, the field of a colormapped contour or surface (its colour array when it
-/// has one), and every value of a colour-mapped image, widened from 8 bits where its array holds bytes. The indices
-/// of a colour-indexed image and the components of a true-colour image are not colour data and are not visited.
-fn colour_values(artist: &Artist, data: &ArtistData, visit: &mut dyn FnMut(f64)) {
-    let mapped = |spec: ColorSpec| matches!(spec, ColorSpec::Auto | ColorSpec::Colormapped);
-    let values: &[f64] = match (artist, data) {
-        (Artist::Scatter(s), ArtistData::Scatter { colours, .. }) => match (s.color, colours) {
-            (ScatterColor::Data { .. }, Some(colours)) => colours,
-            _ => return,
-        },
-        (Artist::Contour(c), ArtistData::Contour(grid)) if c.fill || mapped(c.line.color) => grid.z,
-        (Artist::Surface(s), ArtistData::Surface { grid, colours, .. })
-            if mapped(s.face) || mapped(s.edge) =>
-        {
-            colours.unwrap_or(grid.z)
-        }
-        (_, ArtistData::Image(image)) if matches!(image.kind, ImageKind::Mapped(_)) => {
-            match &image.array.values {
-                Values::F64(values) => values,
-                Values::U8(values) => {
-                    values.iter().for_each(|&v| visit(f64::from(v)));
-                    return;
-                }
-            }
-        }
-        _ => return,
-    };
-    values.iter().for_each(|&v| visit(v));
-}
-
-/// Computes the colour scale of an axes: its colormap and its manual or automatic colour limits.
-pub(super) fn colour_scale(ctx: &mut Ctx, axes: &Axes, prepared: &[Prepared]) -> ColourScale {
-    let lut = lut(axes.colormap);
-    if let Limits::Manual { min, max } = axes.clim {
-        if min.is_finite() && max.is_finite() && min < max {
-            return ColourScale { lut, min, max };
-        }
-        ctx.warn(
-            Some(axes.id),
-            format!("The manual colour limits [{min}, {max}] are not usable, so automatic limits are used."),
-        );
-    }
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
-    for p in prepared {
-        let Some(data) = &p.data else { continue };
-        colour_values(p.artist, data, &mut |v| {
-            if v.is_finite() {
-                lo = lo.min(v);
-                hi = hi.max(v);
-            }
-        });
-    }
-    if lo > hi {
-        (lo, hi) = (0.0, 1.0);
-    }
-    ColourScale {
-        lut,
-        min: lo,
-        max: hi,
     }
 }

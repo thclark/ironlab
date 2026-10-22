@@ -4,8 +4,8 @@
 //! panel draws can be unit tested. It answers three questions:
 //!
 //! - **What is in the figure?** [`tree_rows`] turns the displayed figure into the rows of
-//!   the object tree: the figure, its data arrays, its axes and their artists, and its
-//!   panels, each labelled as a user would name it.
+//!   the object tree: the figure, its data arrays, its colour scales, its axes and their
+//!   artists, and its panels, each labelled as a user would name it.
 //! - **What can be changed about one node?** [`property_groups`] reads the property
 //!   registry of [`ironlab_ir::properties`], keeps the properties that the node can
 //!   actually show, gathers them under the value they belong to, orders them by the name
@@ -38,12 +38,15 @@
 //!   editable.
 //! - The name of a data array is shown as it is, because a data array, like the data a
 //!   plot draws, comes from the program that builds the figure.
+//! - The colour scale an artist maps its numbers through is shown as the identifier of
+//!   the scale, because which artists share a scale is part of how the figure is arranged;
+//!   the properties of the scale itself stay editable on the scale.
 //! - The groups of axes whose limits are linked are shown as a count.
 //! - A property that another property of the same node overrides, of which the marker
 //!   size of a scatter is the only one: a scatter sizes its markers by its own `size`.
 //!
-//! [`read_only_reason`] states the reason for each of the last six, and the panel draws
-//! all seven through one function, so that a read-only row is never a dead control with
+//! [`read_only_reason`] states the reason for each of the last seven, and the panel draws
+//! all eight through one function, so that a read-only row is never a dead control with
 //! nothing to say for itself and never grows an ornament of its own.
 //!
 //! A value that is only a container of the values below it is not a read-only row but a
@@ -51,15 +54,19 @@
 //! because the values it holds are the rows beneath it.
 //!
 //! A property that the figure ignores altogether is hidden instead of shown read-only,
-//! because there is nothing about it worth reading. [`is_shown`] decides that.
+//! because there is nothing about it worth reading. [`is_shown`] decides that. The list of
+//! the entries of an indexed colour scale, of the categories of a categorical one and of
+//! the colours of a listed colormap have no row at all, because the property registry of
+//! the IR gives them no path: like the data a plot draws, they come from the program that
+//! builds the figure.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Cell, Choice, DataArray, Dimension, Edit, Figure, Limits, NodeId, NodeKind, Panel,
-    PanelContent, Parameter, Projection, Property, PropertyPath, Transaction, Value, ValueType,
-    command, properties, property_choices,
+    Artist, Cell, Choice, ColorScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
+    NodeKind, Panel, PanelContent, Parameter, Projection, Property, PropertyPath, Transaction,
+    Value, ValueType, command, properties, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -76,10 +83,11 @@ pub struct TreeRow {
     /// group gathers.
     pub kind: NodeKind,
     /// The name shown: the kind of the node, followed in brackets by the title of the
-    /// figure or of an axes, the label of an artist, the name of a data array, or the cell
-    /// of an axes that has no title or of a panel. A figure with no title and an artist with
-    /// no label are shown as their kind alone, and a data array with no name is shown with
-    /// its shape. A group is shown as the plural of the kind it gathers.
+    /// figure, of an axes or of a colour scale, the label of an artist, the name of a data
+    /// array, or the cell of an axes that has no title or of a panel. A figure with no title
+    /// and an artist with no label are shown as their kind alone, a data array with no name
+    /// is shown with its shape, and a colour scale with no title with its kind. A group is
+    /// shown as the plural of the kind it gathers.
     pub label: String,
     /// The depth in the tree: 0 for the figure, 1 for an axes or a group, and 2 for an
     /// artist or a member of a group.
@@ -89,9 +97,10 @@ pub struct TreeRow {
 }
 
 /// Returns the rows of the object tree of a figure, in the order of the figure's tree: the
-/// figure; the group "Data arrays" with each data array; each axes in drawing order, each
-/// followed by its artists in drawing order; and the group "Panels" with each panel. A
-/// group is listed only when the figure has a node of its kind.
+/// figure; the group "Data arrays" with each data array; the group "Colour scales" with
+/// each colour scale; each axes in drawing order, each followed by its artists in drawing
+/// order; and the group "Panels" with each panel. A group is listed only when the figure
+/// has a node of its kind.
 ///
 /// Every row begins with the kind of the object, and the name the object carries follows
 /// it in brackets: `Figure (A damped oscillator)`, `Axes (Speed)`, `Line ($\sin \omega
@@ -102,7 +111,8 @@ pub struct TreeRow {
 /// An axes with no title is named by the cell it occupies, as `Axes (row 0, col 1)`,
 /// because that is what tells two untitled axes apart on screen, and a panel is always
 /// named by its content and its cell, as `Legend panel (rows 0–1, col 2)`. A data array
-/// with no name is named by its shape, as `Data array (1000 × 3)`. A figure with no title
+/// with no name is named by its shape, as `Data array (1000 × 3)`, and a colour scale with
+/// no title by its kind, as `Colour scale (continuous)`. A figure with no title
 /// and an artist with no label are named by their kind alone, with no empty brackets. A
 /// hidden artist is marked [`dimmed`](TreeRow::dimmed).
 #[must_use]
@@ -133,6 +143,22 @@ pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
     for data in &figure.data {
         let name = row_label(NodeKind::DataArray, Some(data_array_name(data)));
         rows.push(row(data.id, NodeKind::DataArray, name, 2));
+    }
+    if !figure.color_scales.is_empty() {
+        rows.push(group(NodeKind::ColorScale, "Colour scales"));
+    }
+    for scale in &figure.color_scales {
+        let name = text_label(scale.title.as_ref()).unwrap_or_else(|| {
+            match scale.kind {
+                ColorScaleKind::Continuous(_) => "continuous",
+                ColorScaleKind::Discrete(_) => "discrete",
+                ColorScaleKind::Indexed(_) => "indexed",
+                ColorScaleKind::Categorical(_) => "categorical",
+            }
+            .to_owned()
+        });
+        let name = row_label(NodeKind::ColorScale, Some(name));
+        rows.push(row(scale.id, NodeKind::ColorScale, name, 2));
     }
     for axes in &figure.axes {
         let name = text_label(axes.title.as_ref()).unwrap_or_else(|| cell_label(axes.cell));
@@ -185,9 +211,9 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
         NodeKind::Quiver => "Quiver",
         NodeKind::Surface => "Surface",
         NodeKind::Image => "Image",
-        NodeKind::IndexedImage => "Indexed image",
-        NodeKind::MappedImage => "Mapped image",
+        NodeKind::ScalarImage => "Scalar image",
         NodeKind::DataArray => "Data array",
+        NodeKind::ColorScale => "Colour scale",
         NodeKind::Panel => "Panel",
     }
 }
@@ -242,8 +268,7 @@ fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Quiver(_) => NodeKind::Quiver,
         Artist::Surface(_) => NodeKind::Surface,
         Artist::Image(_) => NodeKind::Image,
-        Artist::IndexedImage(_) => NodeKind::IndexedImage,
-        Artist::MappedImage(_) => NodeKind::MappedImage,
+        Artist::ScalarImage(_) => NodeKind::ScalarImage,
     }
 }
 
@@ -516,6 +541,11 @@ const DATA_ARRAY_REASON: &str = "A data array, its name included, comes from the
      that builds the figure, which is where it is changed. The editor changes how the \
      figure looks, not what it draws.";
 
+/// The reason the colour scale an artist maps its numbers through is not changed here.
+const COLOR_SCALE_REFERENCE_REASON: &str = "The colour scale an artist maps its numbers \
+     through is set by the program that builds the figure, as part of how its artists \
+     share their scales. The scale itself is edited in its own row under Colour scales.";
+
 /// The reason the explicit labels of the ticks of an axis are not changed here.
 const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one by one, and \
      both are set together by the program that builds the figure, which is where they are \
@@ -588,8 +618,17 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // the key it holds, which lie below `content`, stay editable.
         NodeKind::Panel if segments == ["content"] => Some(PANEL_CONTENT_REASON),
         NodeKind::DataArray => Some(DATA_ARRAY_REASON),
-        // The pixels, indices or values of an image are a data reference, which is read-only
-        // by its type, so an image has no read-only property of its own.
+        // Which colour scale an artist names relates the artist to another node of the
+        // figure, which is structure as the panel of a legend is.
+        NodeKind::Scatter | NodeKind::Contour | NodeKind::Surface | NodeKind::ScalarImage
+            if segments == ["color_scale"] =>
+        {
+            Some(COLOR_SCALE_REFERENCE_REASON)
+        }
+        // The pixels or values of an image are a data reference, which is read-only by its
+        // type, so an image has no read-only property of its own. Every property of a colour
+        // scale that has a row is editable: the lists of its entries, categories and listed
+        // colours have none.
         NodeKind::Axes
         | NodeKind::Line
         | NodeKind::Scatter
@@ -597,8 +636,8 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::Quiver
         | NodeKind::Surface
         | NodeKind::Image
-        | NodeKind::IndexedImage
-        | NodeKind::MappedImage
+        | NodeKind::ScalarImage
+        | NodeKind::ColorScale
         | NodeKind::Panel => None,
     }
 }
@@ -628,7 +667,12 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
-        | ValueType::PixelRange => true,
+        | ValueType::PixelRange
+        | ValueType::ColorScaleOutOfRange
+        | ValueType::ContinuousColorScale
+        | ValueType::DiscreteColorScale
+        | ValueType::IndexedColorScale
+        | ValueType::CategoricalColorScale => true,
         ValueType::Bool
         | ValueType::UInt32
         | ValueType::Double
@@ -671,7 +715,11 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ContourPlacement
         | ValueType::QuiverScale
         | ValueType::ImagePlane
-        | ValueType::OutOfRange => false,
+        | ValueType::OutOfRange
+        | ValueType::ColorScaleKind
+        | ValueType::Colormap
+        | ValueType::ColorScaleNorm
+        | ValueType::ColorScaleLevels => false,
     }
 }
 
@@ -715,9 +763,10 @@ fn editor_for(
         ValueType::Links => Editor::ReadOnly {
             reason: LINKS_REASON,
         },
-        // The panel of the legend of an axes is the one reference to a node that is not a
-        // data reference, and [`read_only_reason`] answered for it above, so every
-        // reference that reaches this arm refers to a data array.
+        // The panel of the legend of an axes and the colour scale of an artist are the
+        // references to a node that are not data references, and [`read_only_reason`]
+        // answered for them above, so every reference that reaches this arm refers to a
+        // data array.
         ValueType::NodeId => Editor::Data {
             shape: data_id(value)
                 .and_then(|id| figure.data_array(id))
@@ -739,6 +788,10 @@ fn editor_for(
         | ValueType::QuiverScale
         | ValueType::ImagePlane
         | ValueType::OutOfRange
+        | ValueType::ColorScaleKind
+        | ValueType::Colormap
+        | ValueType::ColorScaleNorm
+        | ValueType::ColorScaleLevels
         | ValueType::Scale
         | ValueType::ColormapName
         | ValueType::Legend
@@ -768,7 +821,12 @@ fn editor_for(
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
-        | ValueType::PixelRange => Editor::Group,
+        | ValueType::PixelRange
+        | ValueType::ColorScaleOutOfRange
+        | ValueType::ContinuousColorScale
+        | ValueType::DiscreteColorScale
+        | ValueType::IndexedColorScale
+        | ValueType::CategoricalColorScale => Editor::Group,
     }
 }
 

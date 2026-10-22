@@ -273,7 +273,7 @@ fn an_image_is_never_marked_dense_even_beside_a_surface() {
         |x, y| x + y,
         |_| {},
     );
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![3, 3],
         (0..9).map(|v| v as f64).collect::<Vec<_>>(),

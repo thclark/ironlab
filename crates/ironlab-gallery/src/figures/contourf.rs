@@ -22,6 +22,7 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contourf(&x, &y, &z).level_values(&levels);
-    ax.colormap(Colormap::Magma).xlabel("$x$").ylabel("$y$");
+    ax.color_scale().colormap(Colormap::Magma);
+    ax.xlabel("$x$").ylabel("$y$");
     fig
 }

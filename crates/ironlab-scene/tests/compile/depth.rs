@@ -293,9 +293,9 @@ fn axes_with_every_artist(three_d: bool) -> (Scene, NodeId, Vec<NodeId>) {
         |x, y| x + y,
         |c| {
             c.fill = true;
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: vec![-0.5, 0.5],
-            };
+            });
             c.placement = ContourPlacement::Plane { z: Some(0.25) };
         },
     );
@@ -305,9 +305,9 @@ fn axes_with_every_artist(three_d: bool) -> (Scene, NodeId, Vec<NodeId>) {
         &g,
         |x, y| x - y,
         |c| {
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: vec![-0.5, 0.5],
-            };
+            });
             c.placement = if three_d {
                 ContourPlacement::AtLevel
             } else {
@@ -324,7 +324,7 @@ fn axes_with_every_artist(three_d: bool) -> (Scene, NodeId, Vec<NodeId>) {
         &[0.05, 0.1],
         z(&[0.15, -0.1]),
     );
-    let interior = fx.mapped_image(
+    let interior = fx.imagesc(
         ax,
         vec![2, 4],
         (0..8).map(|v| v as f64).collect::<Vec<_>>(),
@@ -335,7 +335,7 @@ fn axes_with_every_artist(three_d: bool) -> (Scene, NodeId, Vec<NodeId>) {
         ),
         |_| {},
     );
-    let floor = fx.mapped_image(
+    let floor = fx.imagesc(
         ax,
         vec![2, 4],
         (0..8).map(|v| v as f64).collect::<Vec<_>>(),
@@ -995,7 +995,7 @@ fn image_plane(plane: ImagePlane, z: f64) -> (DepthPlane, Vec<(Point, [f64; 3])>
     let (columns, rows) = ((-0.6, 0.6), (-0.5, 0.0));
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
-    let image = fx.mapped_image(
+    let image = fx.imagesc(
         ax,
         vec![2, 4],
         (0..8).map(|v| v as f64).collect::<Vec<_>>(),
@@ -1148,9 +1148,9 @@ fn a_filled_contour_band_carries_the_plane_of_the_height_it_lies_at() {
         |x, y| x + y,
         |c| {
             c.fill = true;
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: vec![-0.5, 0.5],
-            };
+            });
             c.placement = ContourPlacement::Plane { z: Some(0.25) };
         },
     );
@@ -1192,9 +1192,9 @@ fn a_contour3_isoline_run_carries_one_depth_per_point_at_the_height_of_its_level
         &g,
         |x, y| x + y,
         |c| {
-            c.levels = Levels::Explicit {
+            c.levels = Some(Levels::Explicit {
                 values: levels.to_vec(),
-            };
+            });
             c.placement = ContourPlacement::AtLevel;
         },
     );
@@ -1471,7 +1471,7 @@ fn a_closed_contour3_isoline_carries_one_depth_per_point_and_none_for_its_close(
         &g,
         |x, y| x * x + y * y,
         |c| {
-            c.levels = Levels::Explicit { values: vec![0.5] };
+            c.levels = Some(Levels::Explicit { values: vec![0.5] });
             c.placement = ContourPlacement::AtLevel;
         },
     );

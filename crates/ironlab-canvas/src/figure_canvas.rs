@@ -100,9 +100,11 @@ pub fn datatip_text(tip: &Datatip) -> String {
 /// and what the array holds there, every number formatted as the point datatip formats its coordinates, so that
 /// the two callouts read as one.
 ///
-/// The last line takes the words of the image's kind: `value = …` for a colour-mapped image, `index = …` for a
-/// colour-indexed one, and for a true-colour image `rgb = …` or `rgba = …` listing the components in that order,
-/// separated by commas.
+/// The last line takes the words of the image's kind: for a scalar image, `value = …` through a continuous or
+/// discrete colour scale, `index = …` through an indexed one, and through a categorical one `category = …` naming
+/// the label of the category, followed by its index in brackets, or `index = …` alone when the index names no
+/// category; and for a true-colour image `rgb = …` or `rgba = …` listing the components in that order, separated by
+/// commas.
 #[must_use]
 pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
     let mut lines = Vec::new();
@@ -114,7 +116,13 @@ pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
     lines.push(format!("y = {}", datatip_value(tip.y)));
     lines.push(match &tip.value {
         PixelValue::Value(value) => format!("value = {}", datatip_value(*value)),
-        PixelValue::Index(index) => format!("index = {}", datatip_value(*index)),
+        PixelValue::Index(index) | PixelValue::Category { index, label: None } => {
+            format!("index = {}", datatip_value(*index))
+        }
+        PixelValue::Category {
+            index,
+            label: Some(label),
+        } => format!("category = {label} (index {})", datatip_value(*index)),
         PixelValue::Components(components) => {
             let label = match components.len() {
                 3 => "rgb",

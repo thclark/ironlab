@@ -3,7 +3,7 @@ use ironlab::prelude::*;
 use crate::fields::*;
 
 pub const TITLE: &str = "Mapped image and surface";
-pub const DESCRIPTION: &str = "The Julia field as a colour-mapped image on the floor of a three-dimensional axes, \
+pub const DESCRIPTION: &str = "The Julia field as a scalar image on the floor of a three-dimensional axes, \
      beneath a surface of the same field. An image on a face of the axes box is painted behind everything that lies \
      in front of that face, so the surface covers the image wherever the surface stands above it.";
 
@@ -28,7 +28,7 @@ pub fn figure() -> Figure {
     // A plane without an offset lies at the low end of its third axis, so the image lies on the floor of the box, at
     // the bottom of the z axis. The floor is at the back of the default view, so the image is painted before the
     // surface and shows only where no part of the surface stands above it.
-    ax.mapped_image(&z)
+    ax.scalar_image(&z)
         .pixel_columns(first_x, last_x)
         .pixel_rows(first_y, last_y);
     ax.surf(&x, &y, &z).edge_color(None);
