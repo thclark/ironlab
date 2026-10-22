@@ -8,7 +8,7 @@ IronLAB is a Cargo workspace. `cargo test --workspace` runs the whole suite, and
 
 Install the hooks with `pre-commit install` before your first commit. They run `cargo fmt` and `cargo clippy` over the workspace, and check that the commit message and branch name follow the conventions and that the message attributes nothing to an AI assistant.
 
-How branches are named and based, how commit messages are written, how the version is calculated, and how pull requests are opened and titled are all described in the conventions section of the documentation: [branching](https://ironlab.org/conventions/git-branching/), [commits and versioning](https://ironlab.org/conventions/git-commits-and-versioning/) and [pull requests](https://ironlab.org/conventions/git-pull-requests/).
+How branches are named and based, how commit messages are written, how the version is calculated, and how pull requests are opened and titled, and how issues are labelled, are all described in the conventions section of the documentation: [branching](https://ironlab.org/conventions/git-branching/), [commits and versioning](https://ironlab.org/conventions/git-commits-and-versioning/), [pull requests](https://ironlab.org/conventions/git-pull-requests/) and [GitHub issues](https://ironlab.org/conventions/github-issues/).
 
 ## Licensing of contributions
 

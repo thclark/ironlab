@@ -23,3 +23,4 @@ Bring a branch up to date by merging the target branch in (rebase only on reques
 
 - [Pull requests](git-pull-requests.md) — opening, titling, and versioning the PR
 - [Commits and versioning](git-commits-and-versioning.md) — commit message form and semver
+- [GitHub issues](github-issues.md) — label classes and how issues are labelled
