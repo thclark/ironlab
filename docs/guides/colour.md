@@ -351,6 +351,10 @@ The keys lie beyond the end of the bar whose values they stand for, and the key 
 
 Along a horizontal bar the labels lie side by side beneath the squares, so the margin between the pieces widens until no two labels meet.
 
+### Colourbars in the viewer
+
+In the viewer a colourbar is the axis of its scale. Hovering a bar reads the value, the band, the entry, the category or the key under the pointer; the wheel over a continuous bar, or over a discrete bar of automatic levels, zooms the limits of the scale about the value under the pointer, and a drag along it pans them. A gesture sets the scale's limits once, so every bar of the scale and every plot drawn through it changes together, and a double-click on the bar restores the limits the figure was opened with. The colour of each entry of an indexed scale, the colour and label of each category, and each colour of a listed colormap can be changed in the property editor, while the number of entries cannot. [Colourbars](viewer.md#colourbars) in the viewer guide describes all of it.
+
 ## Colour keys in legends
 
 A colour scale can also be shown as an item of a [legend](legends.md), so that the key of a classification, or the bar of a scale, sits among the entries that explain the rest of the figure. The item names the scale, as a colourbar does, and holds nothing else, so it agrees with every colourbar and every plot of the scale.
@@ -393,7 +397,7 @@ A continuous, discrete or indexed scale is drawn as a vertical bar five entry ro
 
 On a row of its own, the bar lies horizontally across the width of the legend, with its title above it and its labels below it, as a horizontal colourbar is drawn.
 
-Neither a bar nor the entry of a category is a toggle in the viewer, because a scale is not a plot: clicking it does nothing, unless the entry of a category is merged with the entry of a plot in a legend panel.
+Neither a bar nor the entry of a category is a toggle in the viewer, because a scale is not a plot: clicking it hides nothing, unless the entry of a category is merged with the entry of a plot in a legend panel, and clicking a bar selects its scale in the property editor. A bar item is read by hovering as a colourbar is, but a gesture on it does not move the limits of its scale, because it belongs to its legend.
 
 ### Samples of colour-mapped plots
 

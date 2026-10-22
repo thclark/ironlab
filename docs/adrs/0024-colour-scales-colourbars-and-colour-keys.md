@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Related:** [ADR 0011](0011-image-artists.md), [ADR 0018](0018-legend-panels-with-entries-merged-by-name-and-look.md) and [ADR 0020](0020-explicit-legend-entries-and-fitted-tracks.md), each of which this record supersedes in part, [ADR 0019](0019-axis-direction-ticks-blended-coordinates-and-aspect.md), [ADR 0021](0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md) and [ADR 0022](0022-figure-nodes-in-one-identifier-space-and-panels.md)
+**Related:** [ADR 0008](0008-typed-edits-and-a-view-overlay.md), [ADR 0011](0011-image-artists.md), [ADR 0018](0018-legend-panels-with-entries-merged-by-name-and-look.md) and [ADR 0020](0020-explicit-legend-entries-and-fitted-tracks.md), each of which this record supersedes in part, [ADR 0019](0019-axis-direction-ticks-blended-coordinates-and-aspect.md), [ADR 0021](0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md) and [ADR 0022](0022-figure-nodes-in-one-identifier-space-and-panels.md)
 
 ## Context
 
@@ -64,6 +64,14 @@ A bar's ends are always flat. A key for an out-of-range category is drawn only w
 Every swatch in a legend, whether a custom `Swatch` sample, a category entry or an out-of-range key, is drawn as one look: a square of the colour with a thin black outline, which supersedes the filled rectangle of ADR 0020. The legend sample of a surface drawn in one fixed colour is the same square, outlined in the surface's edge colour.
 
 This supersedes ADR 0018's deferral of colourbars, ADR 0020's list of the two kinds of legend item content, and ADR 0011's stopgap of legend samples in the middle colour of the colormap: a colour-mapped artist's legend sample is a sweep of its whole scale from its low end at the left to its high end at the right, drawn as a gradient, as bands of equal width for a discrete scale, or as the entry colours side by side for an indexed or categorical scale. A sweep takes the artist's opacity but not its alpha, following [ADR 0021](0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md).
+
+### A bar is the place to change its scale in the viewer
+
+The viewer reads a bar from the hit map that the scene compiler publishes, which records each bar's value mapping, band edges and key labels as drawn, so the viewer derives nothing from the scale itself. Hovering a bar reports the value under the pointer on a continuous bar, the band on a discrete bar, the entry on an indexed bar, the category on a categorical scale and the label of a key. Dragging along a continuous bar, or a discrete bar with automatic levels, pans the scale's limits, and scrolling zooms them about the value under the pointer, in logarithmic space under a logarithmic norm. Each gesture is one `Set` of the scale's `limits` or `levels.limits`, made through the same view overlay as a gesture on an axes, so that every bar and artist that uses the scale changes together and a gesture can be undone. A bar of any other kind, a key and a bar item in a legend take no gesture, because their limits are not a range to move. Double-clicking a bar restores its scale's automatic limits, and resetting the view restores those of every scale.
+
+The colours of an indexed scale's entries, the colour and label of each category, and the colours of a listed colormap are edited one entry at a time, through paths that end in the entry's index written as a decimal number, such as `kind.indexed.colors.3`. The lists themselves cannot be edited, because the number of entries comes from the program that wrote the figure. Because the number of entries differs between scales, these paths are not part of the registry of a kind; `properties_of` lists them for one node, and a path naming an entry beyond the end is refused with `EntryOutOfRange`.
+
+This supersedes in part [ADR 0008](0008-typed-edits-and-a-view-overlay.md): a property path may end in a decimal index into a palette as well as in field names, the paths of palette entries come from the node rather than from the registry, and the limits of a colour scale are view entries beside the limits and three-dimensional view of an axes.
 
 ## Alternatives considered
 
