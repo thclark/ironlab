@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKey,
+    Artist, Axes, Bar, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKey,
     ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot, ColorSpec, Colormap,
     ColormapName, DashStyle, Figure, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, Limits, MarkerShape,
     MarkerStyle, NodeId, OutOfRange, Series,
@@ -514,13 +514,25 @@ fn takes_order_for_markers(figure: &Figure, series: &Series) -> bool {
         && [series.marker.face, series.marker.edge].contains(&ColorSpec::Auto)
 }
 
+/// Returns whether a bar series takes a colour of the colour order as the colour of its series: it does when its
+/// face or its edge is automatic, or is colormapped without colour data, which has no value to map and is drawn as an
+/// automatic one would be.
+fn takes_order_for_bars(bar: &Bar) -> bool {
+    [bar.face, bar.edge.color].iter().any(|&spec| {
+        spec == ColorSpec::Auto || (spec == ColorSpec::Colormapped && bar.color_data.is_none())
+    })
+}
+
 /// Resolves the primary colour of every artist of an axes, assigning automatic colours in artist order.
 ///
 /// The primary colour of a series is the colour of its line, which its automatic marker colours follow. A series
 /// whose line is colour-mapped takes no colour from the order, unless its colour data holds one value per segment
 /// and it draws automatic marker colours, which then take the next colour of the order as the series' own (see
-/// [`takes_order_for_markers`]). Contour, surface and image artists have no primary colour and receive
-/// `Paint::Colormapped`; none of them takes a colour from the colour order.
+/// [`takes_order_for_markers`]). The primary colour of a bar series is the colour of its series, which it takes
+/// from the order when its face or edge needs it (see [`takes_order_for_bars`]), and is otherwise the colour of its
+/// face; that of stairs is the colour of their outline, which an automatic fill also takes. Contour, surface and
+/// image artists have no primary colour and receive `Paint::Colormapped`; none of them takes a colour from the colour
+/// order.
 pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
     let mut next = 0usize;
     let mut auto = || {
@@ -540,13 +552,19 @@ pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
                 }
                 Artist::Series(series) => series.line.color,
                 Artist::Quiver(quiver) => quiver.line.color,
-                // Bars, stairs and cells are not drawn yet, so they take no colour from the order.
+                Artist::Bar(bar) if takes_order_for_bars(bar) => ColorSpec::Auto,
+                Artist::Bar(bar) => bar.face,
+                Artist::Stairs(stairs)
+                    if [stairs.line.color, stairs.fill].contains(&ColorSpec::Auto) =>
+                {
+                    ColorSpec::Auto
+                }
+                Artist::Stairs(stairs) => stairs.line.color,
+                // Cells are not drawn yet, so they take no colour from the order.
                 Artist::Contour(_)
                 | Artist::Surface(_)
                 | Artist::Image(_)
                 | Artist::ScalarImage(_)
-                | Artist::Bar(_)
-                | Artist::Stairs(_)
                 | Artist::Cells(_) => ColorSpec::Colormapped,
             };
             match spec {

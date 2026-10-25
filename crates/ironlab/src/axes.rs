@@ -1,14 +1,16 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, Color, ColorSpec, Contour, ContourPlacement, Coords,
-    DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide, InsideLegend, IrError, Legend,
-    LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits, MarkerShape,
-    NodeId, Projection, Quiver, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, Bar, Color, ColorSpec, Contour, ContourPlacement,
+    Coords, DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide, InsideLegend, IrError,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits,
+    MarkerShape, NodeId, Orientation, Projection, Quiver, ScalarImage, Scale, Series, Stairs,
+    StairsData, StepAt, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
 };
 
-use crate::artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, SurfaceMut};
+use crate::artists::{
+    BarMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut, SurfaceMut,
+};
 use crate::color_scale::{self, ColorScaleMut};
 use crate::colorbar::InsideColorbarMut;
 use crate::data::{DataSource, store_grid};
@@ -184,6 +186,87 @@ impl AxesMut<'_> {
         let mut series = self.add_series(x.into(), y.into(), Some(z.into()));
         series.dash(DashStyle::None).marker(MarkerShape::Circle);
         series
+    }
+
+    // Bars and stairs.
+
+    /// Draws a bar at each position, rising from 0 to its value (MATLAB's and
+    /// Matplotlib's `bar`).
+    ///
+    /// The bars stand upright in the next colour of the axes colour order, outlined by a
+    /// thin black line, each across four fifths of its slot, whose width is the smallest
+    /// distance between neighbouring positions. The returned [`BarMut`] sets the width,
+    /// the gap, the base, the colours, and the group through which several series are
+    /// compared side by side or stacked. Categorical bars are bars at 0, 1, …, N − 1,
+    /// named by [`xticks`](Self::xticks) and [`xtick_labels`](Self::xtick_labels).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.bar([0.0, 1.0, 2.0], [5.0, 3.0, 4.0]);
+    /// ax.xticks([0.0, 1.0, 2.0]).xtick_labels(["North", "South", "East"]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn bar(
+        &mut self,
+        positions: impl Into<DataSource>,
+        values: impl Into<DataSource>,
+    ) -> BarMut<'_> {
+        self.add_bar(positions.into(), values.into(), Orientation::Vertical)
+    }
+
+    /// Draws a bar lying flat at each position along y, extending from 0 to its value
+    /// along x (MATLAB's and Matplotlib's `barh`), which is how long category names are
+    /// made readable; it differs from [`bar`](Self::bar) only in its orientation.
+    pub fn barh(
+        &mut self,
+        positions: impl Into<DataSource>,
+        values: impl Into<DataSource>,
+    ) -> BarMut<'_> {
+        self.add_bar(positions.into(), values.into(), Orientation::Horizontal)
+    }
+
+    /// Draws a stepped outline holding each value between two neighbouring edges, of
+    /// which there is one more than values (Matplotlib's `stairs`), as the outline of a
+    /// histogram is drawn.
+    ///
+    /// The outline is open and unfilled, in the next colour of the axes colour order; the
+    /// returned [`StairsMut`] gives it a base, to which it drops at both ends, and a fill.
+    pub fn stairs(
+        &mut self,
+        edges: impl Into<DataSource>,
+        values: impl Into<DataSource>,
+    ) -> StairsMut<'_> {
+        let edges = edges.into().store(self.fig);
+        let values = values.into().store(self.fig);
+        self.add_stairs(StairsData::Edges { edges, values })
+    }
+
+    /// Draws a stepped outline through values held at samples (MATLAB's `stairs` and
+    /// Matplotlib's `step`), whose steps occur where `step` places them: after each sample
+    /// ([`StepAt::Post`], as MATLAB's `stairs` draws), before it ([`StepAt::Pre`]), or
+    /// midway between samples ([`StepAt::Mid`]).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let t = [0.0, 1.0, 2.0, 4.0];
+    /// let level = [1.0, 3.0, 2.0, 5.0];
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).stairs_at(t, level, StepAt::Post).label("Set point");
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn stairs_at(
+        &mut self,
+        x: impl Into<DataSource>,
+        values: impl Into<DataSource>,
+        step: StepAt,
+    ) -> StairsMut<'_> {
+        let x = x.into().store(self.fig);
+        let values = values.into().store(self.fig);
+        self.add_stairs(StairsData::Samples { x, values, step })
     }
 
     // Contour plots.
@@ -1251,6 +1334,39 @@ impl AxesMut<'_> {
             })
         });
         SeriesMut::new(self.fig, id, None)
+    }
+
+    /// Adds a bar series with the defaults of `bar`, in the given orientation.
+    fn add_bar(
+        &mut self,
+        positions: DataSource,
+        values: DataSource,
+        orientation: Orientation,
+    ) -> BarMut<'_> {
+        let positions = positions.store(self.fig);
+        let values = values.store(self.fig);
+        let id = self.push_artist(|id| {
+            Artist::Bar(Bar {
+                id,
+                orientation,
+                positions,
+                values,
+                ..Bar::default()
+            })
+        });
+        BarMut::new(self.fig, id, None)
+    }
+
+    /// Adds stairs with the defaults of `stairs`.
+    fn add_stairs(&mut self, data: StairsData) -> StairsMut<'_> {
+        let id = self.push_artist(|id| {
+            Artist::Stairs(Stairs {
+                id,
+                data,
+                ..Stairs::default()
+            })
+        });
+        StairsMut::new(self.fig, id)
     }
 
     /// Adds contours of a gridded field.

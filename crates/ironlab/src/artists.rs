@@ -5,8 +5,9 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId,
-    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Surface, Text,
+    Artist, Bar, BarBase, BarGroup, BarLayout, BarSlot, Color, ColorSpec, Contour, Coords,
+    DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId, Orientation, PixelRange,
+    Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
 };
 
 use crate::axes::AxesMut;
@@ -118,6 +119,8 @@ macro_rules! artist_handle {
 }
 
 artist_handle!(ContourMut, Contour, scaled);
+artist_handle!(BarMut, Bar, scaled);
+artist_handle!(StairsMut, Stairs);
 artist_handle!(QuiverMut, Quiver);
 artist_handle!(SurfaceMut, Surface, scaled);
 
@@ -703,6 +706,349 @@ impl SurfaceMut<'_> {
     /// edge, as [`face_opacity`](Self::face_opacity) does for the faces.
     pub fn edge_opacity(&mut self, opacity: f64) -> &mut Self {
         self.artist().edge_opacity = opacity;
+        self
+    }
+}
+
+/// A handle to a bar series created by [`bar`](crate::AxesMut::bar) or
+/// [`barh`](crate::AxesMut::barh).
+///
+/// A bar series draws one rectangle for each position, from a base to its value. Its
+/// setters choose the width of the slots, the gap between neighbouring bars, the base,
+/// the group the series belongs to, and the colours of the faces and the outlines,
+/// which can be given per bar with [`colors`](Self::colors) or by data with
+/// [`color_data`](Self::color_data).
+///
+/// Three series compared across four categories, as a grouped bar chart:
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let categories = [0.0, 1.0, 2.0, 3.0];
+/// let mut fig = Figure::new();
+/// let mut ax = fig.axes(0, 0);
+/// for (name, scores) in [
+///     ("Model A", [3.0, 4.5, 2.0, 5.0]),
+///     ("Model B", [2.5, 3.0, 4.0, 4.5]),
+///     ("Model C", [4.0, 2.0, 3.5, 3.0]),
+/// ] {
+///     ax.bar(categories, scores)
+///         .label(name)
+///         .group("models", BarLayout::Grouped);
+/// }
+/// ax.xticks(categories)
+///     .xtick_labels(["Lift", "Drag", "Mass", "Cost"]);
+/// assert!(fig.validate().is_valid());
+/// ```
+#[derive(Debug)]
+pub struct BarMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+    /// The colour scale that this handle created, if any.
+    created_scale: Option<NodeId>,
+}
+
+impl BarMut<'_> {
+    /// Returns the node identifier of the bar series.
+    #[must_use]
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Sets the label of the bar series, drawn beside its sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
+        self
+    }
+
+    /// Gives every bar a slot of the same width, in data units (MATLAB's `bar(x, y,
+    /// width)` gives the fraction instead), in place of the pitch between positions.
+    pub fn width(&mut self, width: f64) -> &mut Self {
+        self.set_slot(BarSlot::Width(width));
+        self
+    }
+
+    /// Gives each bar a slot of its own width, in data units, one value per bar: the
+    /// widths of the bins of a histogram of unequal bins, drawn with a [`gap`](Self::gap)
+    /// of 0. Data that this call replaces is released from the figure when nothing else
+    /// uses it and it has no name.
+    pub fn widths(&mut self, widths: impl Into<DataSource>) -> &mut Self {
+        let data = widths.into().store(self.fig);
+        self.set_slot(BarSlot::Data(data));
+        self
+    }
+
+    /// Sets the fraction of each slot left empty, shared equally by the two sides of the
+    /// bar: 0 for bars that touch, and 0.2 by default.
+    pub fn gap(&mut self, gap: f64) -> &mut Self {
+        self.artist().gap = gap;
+        self
+    }
+
+    /// Makes every bar start at the same value along the value axis (MATLAB's
+    /// `BaseValue`), which is 0 by default; a value below the base hangs down from it.
+    pub fn base(&mut self, base: f64) -> &mut Self {
+        self.set_base(BarBase::Constant(base));
+        self
+    }
+
+    /// Makes each bar start at its own value, one per bar, which draws floating bars,
+    /// such as ranges or the steps of a waterfall.
+    pub fn base_data(&mut self, bases: impl Into<DataSource>) -> &mut Self {
+        let data = bases.into().store(self.fig);
+        self.set_base(BarBase::Data(data));
+        self
+    }
+
+    /// Puts the series in the group of bars of its axes with the given name, whose
+    /// members stand side by side ([`BarLayout::Grouped`]) or build on one another
+    /// ([`BarLayout::Stacked`]) at each position. The orientation, slot, gap, base and
+    /// layout of a group are those of its first member.
+    pub fn group(&mut self, name: impl Into<String>, layout: BarLayout) -> &mut Self {
+        self.artist().group = Some(BarGroup {
+            name: name.into(),
+            layout,
+        });
+        self
+    }
+
+    /// Sets the colour of the bars; `None` leaves them unfilled, and an automatic colour
+    /// is the next colour of the colour order.
+    pub fn face_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().face = color.into_color_spec();
+        self
+    }
+
+    /// Sets the colour of the outlines of the bars, which are black by default; `None`
+    /// hides them, and an automatic colour is the colour of the series.
+    pub fn edge_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().edge.color = color.into_color_spec();
+        self
+    }
+
+    /// Sets the width of the outlines of the bars in points.
+    pub fn edge_width(&mut self, width_pt: f64) -> &mut Self {
+        self.artist().edge.width_pt = width_pt;
+        self
+    }
+
+    /// Sets the dash pattern of the outlines of the bars.
+    pub fn edge_dash(&mut self, dash: DashStyle) -> &mut Self {
+        self.artist().edge.dash = dash;
+        self
+    }
+
+    /// Sets the opacity of the faces, from 0 (transparent) to 1 (opaque, the default),
+    /// which multiplies the alpha of their colours.
+    pub fn face_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().face_opacity = opacity;
+        self
+    }
+
+    /// Sets the opacity of the outlines, from 0 (transparent) to 1 (opaque, the
+    /// default), which multiplies the alpha of their colours.
+    pub fn edge_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().edge_opacity = opacity;
+        self
+    }
+
+    /// Colours the bars by data mapped through a colour scale, one value per bar, as
+    /// [`SeriesMut::color_data`] colours markers.
+    ///
+    /// The face becomes `Colormapped`. Bars that name no colour scale yet take the
+    /// default scale of their axes (see
+    /// [`AxesMut::color_scale`](crate::AxesMut::color_scale)), which is created if the
+    /// axes has none; [`color_scale`](Self::color_scale) gives them another. Data that
+    /// this call replaces is released from the figure when nothing else uses it and it
+    /// has no name.
+    pub fn color_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
+        let data = values.into().store(self.fig);
+        self.replace_color_data(data);
+        if self.get().color_scale.is_none() {
+            let axes = self.axes_id();
+            let (scale, created) = color_scale::default_or_new(self.fig, axes);
+            self.artist().color_scale = Some(scale);
+            if created {
+                self.created_scale = Some(scale);
+            }
+        }
+        self
+    }
+
+    /// Gives each bar its own colour, one per bar, such as a colour that highlights one
+    /// bar among grey ones.
+    ///
+    /// The colours are stored as the model colours individual bars: an indexed colour
+    /// scale whose entries are the distinct colours, in the order they first appear, and,
+    /// as colour data, the index of each bar's colour in it. The face becomes
+    /// `Colormapped`. Colours given again replace the scale and the data this call
+    /// created, and a colour scale that the bars named before is replaced as
+    /// [`color_scale`](Self::color_scale) replaces it.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let grey = Color::rgb(0.6, 0.6, 0.6);
+    /// let red = Color::rgb(0.8, 0.1, 0.1);
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .bar([0.0, 1.0, 2.0, 3.0], [3.0, 1.0, 4.0, 2.0])
+    ///     .colors([grey, grey, red, grey]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn colors(&mut self, colors: impl IntoIterator<Item = Color>) -> &mut Self {
+        let mut palette: Vec<Color> = Vec::new();
+        let indices: Vec<f64> = colors
+            .into_iter()
+            .map(|colour| {
+                let index = palette
+                    .iter()
+                    .position(|c| *c == colour)
+                    .unwrap_or_else(|| {
+                        palette.push(colour);
+                        palette.len() - 1
+                    });
+                index as f64
+            })
+            .collect();
+        let data = DataSource::from(indices).store(self.fig);
+        self.replace_color_data(data);
+        let scale = color_scale::ColorScaleMut::add(self.fig, color_scale::indexed(palette)).id();
+        self.created_scale =
+            color_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
+        self.created_scale = Some(scale);
+        self
+    }
+
+    /// Returns the identifier of the axes of the bars.
+    fn axes_id(&self) -> NodeId {
+        self.fig
+            .artist(self.id)
+            .map(|(axes, _)| axes.id)
+            .expect("a bar handle always refers to an artist of its figure")
+    }
+
+    /// Stores colour data and makes the face colormapped, releasing the data it replaces.
+    fn replace_color_data(&mut self, data: NodeId) {
+        let bar = self.artist();
+        bar.face = ColorSpec::Colormapped;
+        if let Some(previous) = bar.color_data.replace(data) {
+            release_data(self.fig, previous);
+        }
+    }
+
+    /// Sets the slot, releasing the widths it replaces.
+    fn set_slot(&mut self, slot: BarSlot) {
+        if let BarSlot::Data(previous) = std::mem::replace(&mut self.artist().slot, slot) {
+            release_data(self.fig, previous);
+        }
+    }
+
+    /// Sets the base, releasing the bases it replaces.
+    fn set_base(&mut self, base: BarBase) {
+        if let BarBase::Data(previous) = std::mem::replace(&mut self.artist().base, base) {
+            release_data(self.fig, previous);
+        }
+    }
+}
+
+/// A handle to stairs created by [`stairs`](crate::AxesMut::stairs) or
+/// [`stairs_at`](crate::AxesMut::stairs_at).
+///
+/// Stairs draw a stepped outline, open by default. A [`base`](Self::base) drops the
+/// outline to it at both ends, and a [`fill`](Self::fill) then fills the area between the
+/// outline and the base, as a filled histogram is drawn.
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let edges = [0.0, 1.0, 2.0, 4.0, 5.0];
+/// let counts = [3.0, 7.0, 4.0, 1.0];
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .stairs(edges, counts)
+///     .label("Counts")
+///     .base(0.0)
+///     .fill(Color::rgb(0.6, 0.75, 0.9));
+/// assert!(fig.validate().is_valid());
+/// ```
+#[derive(Debug)]
+pub struct StairsMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+}
+
+impl StairsMut<'_> {
+    /// Returns the node identifier of the stairs.
+    #[must_use]
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Sets the label of the stairs, drawn beside their sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
+        self
+    }
+
+    /// Drops the outline to the given value along the value axis at both ends, which
+    /// closes it; a [`fill`](Self::fill) fills down to it.
+    pub fn base(&mut self, base: f64) -> &mut Self {
+        self.artist().base = Some(base);
+        self
+    }
+
+    /// Removes the base, so that the outline starts and ends at the first and last values,
+    /// as it does by default.
+    pub fn open(&mut self) -> &mut Self {
+        self.artist().base = None;
+        self
+    }
+
+    /// Sets the colour of the outline, which is the next colour of the colour order by
+    /// default.
+    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().line.color = color.into_color_spec();
+        self
+    }
+
+    /// Sets the width of the outline in points.
+    pub fn line_width(&mut self, width_pt: f64) -> &mut Self {
+        self.artist().line.width_pt = width_pt;
+        self
+    }
+
+    /// Sets the dash pattern of the outline; [`Dash::None`](crate::Dash::None) draws no
+    /// outline, leaving only the fill.
+    pub fn dash(&mut self, dash: DashStyle) -> &mut Self {
+        self.artist().line.dash = dash;
+        self
+    }
+
+    /// Fills the area between the outline and the base with the given colour; an
+    /// automatic colour is the colour of the outline. A fill needs a [`base`](Self::base),
+    /// without which [`Figure::validate`](crate::Figure::validate) reports an error.
+    pub fn fill(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().fill = color.into_color_spec();
+        self
+    }
+
+    /// Sets the opacity of the outline, from 0 (transparent) to 1 (opaque, the default).
+    pub fn line_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().line_opacity = opacity;
+        self
+    }
+
+    /// Sets the opacity of the fill, from 0 (transparent) to 1 (opaque, the default).
+    pub fn fill_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().fill_opacity = opacity;
+        self
+    }
+
+    /// Sets whether the edges or samples lie along x, with the values along y (the
+    /// default), or along y, with the values along x.
+    pub fn orientation(&mut self, orientation: Orientation) -> &mut Self {
+        self.artist().orientation = orientation;
         self
     }
 }

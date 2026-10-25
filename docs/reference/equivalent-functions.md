@@ -109,6 +109,21 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | Arrows in two dimensions | `quiver` | `quiver` | `ff.create_quiver` | `quiver` |
 | Arrows in three dimensions | `quiver3` | `Axes3D.quiver` | `Cone` | `quiver3` |
 
+## Bars and stairs
+
+| Plot | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Upright bars | `bar` | `bar` | `Bar` | `bar` |
+| Bars lying flat | `barh` | `barh` | `Bar` with `orientation="h"` | `barh` |
+| Several series side by side at each position | `bar` with a matrix of values, `'grouped'` | one `bar` per series, each offset by hand | `Bar` traces with `barmode="group"` | one `bar` per series, each with `group(name, BarLayout::Grouped)` |
+| Several series stacked at each position | `bar` with a matrix of values and `'stacked'` | one `bar` per series, each with `bottom=` the sum of those below | `Bar` traces with `barmode="relative"` | one `bar` per series, each with `group(name, BarLayout::Stacked)` |
+| Floating bars | `bar` with `BaseValue`, one base for all bars | `bar` with `bottom=` an array | `Bar` with `base=` an array | `bar` with `base_data` |
+| One colour per bar | `bar` with `FaceColor` set to `flat` and `CData` | `bar` with `color=` a list | `Bar` with `marker.color` set to a list | `bar` with `colors` |
+| Stepped outline between edges | `histogram` with `DisplayStyle` set to `stairs` | `stairs` | `Scatter` with `line_shape="hv"` through the edges | `stairs` |
+| Stepped line through samples | `stairs` | `step`, or `plot` with `drawstyle="steps-post"` | `Scatter` with `line_shape="hv"`, `"vh"` or `"hvh"` | `stairs_at` with `StepAt::Post`, `StepAt::Pre` or `StepAt::Mid` |
+
+Bars that compare series side by side or stack them are separate series in one named group, so that each series keeps its own label, colour and legend entry, as [bar charts](../guides/getting-started.md#bar-charts) describes. The positions are always numbers: categorical bars stand at 0, 1, …, N − 1 and are named by text tick labels.
+
 ## Axes
 
 These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks).
@@ -123,4 +138,4 @@ Every angle is in degrees anticlockwise from horizontal, as in MATLAB, so 45 giv
 
 ## Plots without an equivalent
 
-IronLAB does not yet draw bar charts, histograms, stem, stairs, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.
+IronLAB does not yet draw histograms from samples, two-dimensional histograms, heatmaps of cells, stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.

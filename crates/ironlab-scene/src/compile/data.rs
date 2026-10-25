@@ -6,14 +6,16 @@
 //! also checked here for a placement that can be drawn and a plane that its axes can show. An artist that maps
 //! numbers to colours is checked for a colour scale to map them through, and its numbers against the strict
 //! policies of that scale. An artist whose data cannot be used, an artist whose colours cannot be mapped, and an
-//! artist whose data gives it nothing to draw (a series or quiver of no points, an image with no rows or no
-//! columns, or a field with no cell between its nodes), is reported with one warning naming it and is then ignored
-//! by every later stage, so that the problems indicator of the viewer and the validation of the figure agree about
-//! which artists are absent.
+//! artist whose data gives it nothing to draw (a series or quiver of no points, bars or stairs of no values, an
+//! image with no rows or no columns, or a field with no cell between its nodes), is reported with one warning naming
+//! it and is then ignored by every later stage, so that the problems indicator of the viewer and the validation of
+//! the figure agree about which artists are absent. Bars and stairs are drawn only in a two-dimensional axes, and the
+//! bars of an axes are laid out with their groups once they are all resolved.
 
 use ironlab_ir::{
-    Artist, Axes, ColorSpec, ContourPlacement, Coords as ArtistCoords, Dimension, Figure, Grid,
-    ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale, Series, Values,
+    Artist, Axes, BarBase, BarSlot, ColorSpec, ContourPlacement, Coords as ArtistCoords, Dimension,
+    Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale,
+    Series, Stairs, StairsData, StepAt, Values,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -101,8 +103,68 @@ pub(crate) enum SeriesColours<'a> {
     PerSegment(&'a [f64]),
 }
 
-/// The resolved arrays of an artist.
+/// The resolved arrays of a bar series, each holding one value per bar.
 #[derive(Clone, Copy)]
+pub(crate) struct BarArrays<'a> {
+    pub positions: &'a [f64],
+    pub values: &'a [f64],
+    /// The base of each bar, for bars whose base is given per bar.
+    pub bases: Option<&'a [f64]>,
+    /// The width of the slot of each bar, for bars whose slots are given per bar.
+    pub widths: Option<&'a [f64]>,
+    /// The colour data of the bars.
+    pub colours: Option<&'a [f64]>,
+}
+
+/// One bar as its group lays it out, in data units: the slot it lies in, the share of the drawn part of that slot it
+/// takes, and the two ends of the bar along the value axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BarPiece {
+    /// The index of the bar in the arrays of its series.
+    pub index: usize,
+    /// The position of the bar along the category axis.
+    pub position: f64,
+    /// The low and high edges of the slot along the category axis.
+    pub slot: [f64; 2],
+    /// The fractions of the drawn part of the slot between which the bar lies: the whole of it for a bar of its
+    /// own or of a stack, and one member's share of it in a grouped group.
+    pub share: [f64; 2],
+    /// The base from which the bar, or the column of its stack, rises.
+    pub base: f64,
+    /// Where the bar starts and where it ends along the value axis.
+    pub ends: [f64; 2],
+    /// Whether the bar is a part of a stack.
+    pub stacked: bool,
+}
+
+/// The resolved data of a bar series and its layout.
+#[derive(Clone)]
+pub(crate) struct BarsData<'a> {
+    pub arrays: BarArrays<'a>,
+    /// The index of the dimension along which the positions lie: 0 for x and 1 for y. In a group it is the
+    /// orientation of the first member.
+    pub category: usize,
+    /// The fraction of each slot left empty; in a group it is the gap of the first member.
+    pub gap: f64,
+    /// The bars to draw, laid out with the rest of the group by [`super::bars::lay_out`]; a bar that is not drawn,
+    /// such as one without a finite value or a part of a hidden member of a stack, has none.
+    pub pieces: Vec<BarPiece>,
+}
+
+/// The resolved steps of stairs: the values and the edges of the step each one holds across, samples converted to
+/// edges by where the steps occur.
+#[derive(Clone)]
+pub(crate) struct StairsGeometry<'a> {
+    /// The edges, one more than the values; step `k` lies between edges `k` and `k + 1`, which coincide for the
+    /// first step of stairs stepping before their samples and the last of stairs stepping after them.
+    pub edges: Vec<f64>,
+    pub values: &'a [f64],
+    /// The index of the dimension along which the edges lie: 0 for x and 1 for y.
+    pub category: usize,
+}
+
+/// The resolved arrays of an artist.
+#[derive(Clone)]
 pub(crate) enum ArtistData<'a> {
     Series {
         points: Points<'a>,
@@ -127,6 +189,10 @@ pub(crate) enum ArtistData<'a> {
     },
     /// An image of any kind.
     Image(ImageData<'a>),
+    /// A bar series.
+    Bars(BarsData<'a>),
+    /// Stairs.
+    Stairs(StairsGeometry<'a>),
 }
 
 /// Resolves and checks the data of every artist of an axes, and the colour scale of every artist that maps numbers
@@ -137,7 +203,8 @@ pub(super) fn prepare_axes<'a>(
     scales: &ColourScales,
 ) -> Vec<Prepared<'a>> {
     let figure = ctx.figure;
-    axes.artists
+    let mut prepared: Vec<Prepared<'a>> = axes
+        .artists
         .iter()
         .map(|artist| {
             let data = resolve(figure, axes, artist).and_then(|data| {
@@ -159,7 +226,9 @@ pub(super) fn prepare_axes<'a>(
             };
             Prepared { artist, data }
         })
-        .collect()
+        .collect();
+    super::bars::lay_out(&mut prepared);
+    prepared
 }
 
 /// Looks up an array and checks that its values match its shape.
@@ -366,10 +435,124 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
             };
             image_data(figure, axes, i.values, ImageKind::Scalar, i.placement, look)?
         }
-        // The scene compiler does not draw these kinds yet, so each is left out with the reason as its warning.
-        Artist::Bar(_) => return Err("bar artists are not drawn yet".to_owned()),
-        Artist::Stairs(_) => return Err("stairs artists are not drawn yet".to_owned()),
+        Artist::Bar(bar) => {
+            only_2d(axes, "bars")?;
+            let positions = f64_values(figure, bar.positions, "positions")?;
+            let n = positions.len();
+            let per_bar = |id: NodeId, what: &str| -> Result<&'a [f64], String> {
+                let values = f64_values(figure, id, what)?;
+                if values.len() == n {
+                    Ok(values)
+                } else {
+                    Err(format!(
+                        "its {what} array {id} holds {} values but its positions array holds {n}",
+                        values.len()
+                    ))
+                }
+            };
+            let arrays = BarArrays {
+                positions,
+                values: per_bar(bar.values, "values")?,
+                bases: match bar.base {
+                    BarBase::Constant(_) => None,
+                    BarBase::Data(id) => Some(per_bar(id, "base")?),
+                },
+                widths: match bar.slot {
+                    BarSlot::Pitch | BarSlot::Width(_) => None,
+                    BarSlot::Data(id) => Some(per_bar(id, "width")?),
+                },
+                colours: bar.color_data.map(|id| per_bar(id, "colour")).transpose()?,
+            };
+            if n == 0 {
+                return Err(format!(
+                    "its positions array {} holds no values, so it has no bars",
+                    bar.positions
+                ));
+            }
+            ArtistData::Bars(BarsData {
+                arrays,
+                category: dimension_index(bar.orientation.category_dimension()),
+                gap: bar.gap,
+                pieces: Vec::new(),
+            })
+        }
+        Artist::Stairs(stairs) => {
+            only_2d(axes, "stairs")?;
+            ArtistData::Stairs(stairs_geometry(figure, stairs)?)
+        }
+        // The scene compiler does not draw cells yet, so they are left out with the reason as their warning.
         Artist::Cells(_) => return Err("cells artists are not drawn yet".to_owned()),
+    })
+}
+
+/// Checks that an artist that only a two-dimensional axes can show is not in a three-dimensional one.
+fn only_2d(axes: &Axes, what: &str) -> Result<(), String> {
+    if is_3d(axes) {
+        return Err(format!(
+            "{what} are drawn only in a two-dimensional axes, and the axes is three-dimensional"
+        ));
+    }
+    Ok(())
+}
+
+/// Resolves the steps of stairs, converting samples to the edges of the steps that `step` places: stepping after
+/// each sample (`post`), a value holds from its sample to the next, the last one up to its own sample; stepping
+/// before (`pre`), from the previous sample to its own, the first one from its own sample; and stepping midway, from
+/// halfway to the previous sample to halfway to the next, the first and last ones from and to their own samples.
+/// The edges or samples must be finite and strictly monotonic, and there must be at least one value.
+fn stairs_geometry<'a>(figure: &'a Figure, stairs: &Stairs) -> Result<StairsGeometry<'a>, String> {
+    let (edges, values, what) = match stairs.data {
+        StairsData::Edges { edges, values } => {
+            let edges_values = f64_values(figure, edges, "edges")?;
+            let values = f64_values(figure, values, "values")?;
+            if edges_values.len() != values.len() + 1 {
+                return Err(format!(
+                    "its edges array {edges} holds {} values, but {} values need one more edge than values",
+                    edges_values.len(),
+                    values.len()
+                ));
+            }
+            (edges_values.to_vec(), values, "edges")
+        }
+        StairsData::Samples { x, values, step } => {
+            let samples = f64_values(figure, x, "x")?;
+            let values = values_of_len(figure, values, samples.len(), "values")?;
+            let n = samples.len();
+            let edges = match (step, samples.first(), samples.last()) {
+                (_, None, _) | (_, _, None) => Vec::new(),
+                (StepAt::Post, _, Some(&last)) => samples
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(last))
+                    .collect(),
+                (StepAt::Pre, Some(&first), _) => std::iter::once(first)
+                    .chain(samples.iter().copied())
+                    .collect(),
+                (StepAt::Mid, Some(&first), Some(&last)) => std::iter::once(first)
+                    .chain((1..n).map(|k| 0.5 * (samples[k - 1] + samples[k])))
+                    .chain(std::iter::once(last))
+                    .collect(),
+            };
+            (edges, values, "samples")
+        }
+    };
+    if values.is_empty() {
+        return Err("it has no values, so it has no steps".to_owned());
+    }
+    let positions = match stairs.data {
+        StairsData::Edges { edges, .. } => f64_values(figure, edges, "edges")?,
+        StairsData::Samples { x, .. } => f64_values(figure, x, "x")?,
+    };
+    let finite = positions.iter().all(|v| v.is_finite());
+    let increasing = positions.windows(2).all(|pair| pair[0] < pair[1]);
+    let decreasing = positions.windows(2).all(|pair| pair[0] > pair[1]);
+    if !(finite && (increasing || decreasing)) {
+        return Err(format!("its {what} are not finite and strictly monotonic"));
+    }
+    Ok(StairsGeometry {
+        edges,
+        values,
+        category: dimension_index(stairs.orientation.category_dimension()),
     })
 }
 
@@ -716,6 +899,29 @@ pub(crate) fn values_along(
                 },
             }
         }
+        ArtistData::Bars(bars) if dim < 2 => {
+            for piece in &bars.pieces {
+                let along = if dim == bars.category {
+                    piece.slot
+                } else {
+                    piece.ends
+                };
+                along.into_iter().for_each(&mut *visit);
+            }
+        }
+        ArtistData::Stairs(stairs) if dim < 2 => {
+            if dim == stairs.category {
+                stairs.edges.iter().for_each(|v| visit(*v));
+            } else {
+                stairs.values.iter().for_each(|v| visit(*v));
+                if let Artist::Stairs(s) = artist
+                    && let Some(base) = s.base
+                {
+                    visit(base);
+                }
+            }
+        }
+        ArtistData::Bars(_) | ArtistData::Stairs(_) => {}
         ArtistData::Image(image) => {
             let [columns, rows] = image.plane_dims();
             let edges = if dim == columns {
@@ -747,6 +953,17 @@ fn warn_log_drops(ctx: &mut Ctx, axes: &Axes, artist: &Artist, data: &ArtistData
     let three_d = is_3d(axes);
     for (dim, axis) in [&axes.x, &axes.y, &axes.z].into_iter().enumerate() {
         if axis.scale != Scale::Log {
+            continue;
+        }
+        // A base of bars or stairs that is not positive, or a value of bars that is not, is drawn from the low edge
+        // of the plot area rather than dropped, and validation warns of the base; only what lies along the category
+        // axis of bars and stairs can be dropped.
+        let category = match data {
+            ArtistData::Bars(bars) => Some(bars.category),
+            ArtistData::Stairs(stairs) => Some(stairs.category),
+            _ => None,
+        };
+        if category.is_some_and(|category| category != dim) {
             continue;
         }
         let mut dropped = false;
