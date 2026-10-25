@@ -175,8 +175,58 @@ pub enum PixelValue {
     Value(f64),
 }
 
-/// What lies under the pointer: a colourbar, a drawn data point, or, where none is within reach, a pixel of an
-/// image.
+/// The bar under the pointer, as the viewer reports it.
+///
+/// `index` is the index of the bar in the arrays of its series, and the position, value and base are those its data
+/// holds, so that a datatip names the numbers the user plotted rather than anything read back from the page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BarDatatip {
+    /// The axes the bar was drawn in.
+    pub axes: NodeId,
+    /// The bar series the bar belongs to.
+    pub artist: NodeId,
+    /// The label of the bar series, when it has one.
+    pub label: Option<String>,
+    /// The index of the bar in the artist's own arrays.
+    pub index: usize,
+    /// Where a callout is anchored, in figure space: the centre of the drawn bar.
+    pub position: Point,
+    /// The rectangle of the bar as drawn, in figure space, which the canvas outlines.
+    pub rect: Rect,
+    /// The position of the bar along the category axis, as its data holds it.
+    pub at: f64,
+    /// The value of the bar, as its data holds it.
+    pub value: f64,
+    /// The base the bar rises from: the constant base, or the bar's own base.
+    pub base: f64,
+    /// For a part of a stack, the bottom and top of the segment the bar occupies along the value axis.
+    pub segment: Option<(f64, f64)>,
+    /// The text tick label of the category axis at the bar's position, when the axis is labelled with text and a
+    /// tick falls exactly there: the name of the bar's category.
+    pub tick_label: Option<String>,
+}
+
+/// The step of stairs under the pointer, as the viewer reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepDatatip {
+    /// The axes the stairs were drawn in.
+    pub axes: NodeId,
+    /// The stairs the step belongs to.
+    pub artist: NodeId,
+    /// The label of the stairs, when they have one.
+    pub label: Option<String>,
+    /// The index of the step's value in the artist's array of values.
+    pub index: usize,
+    /// Where a callout is anchored, in figure space: the point of the drawn step nearest the pointer.
+    pub position: Point,
+    /// The two edges of the step, in the order of the data.
+    pub edges: (f64, f64),
+    /// The value held across the step.
+    pub value: f64,
+}
+
+/// What lies under the pointer: a colourbar, a drawn data point, or, where none is within reach, a step of stairs, a
+/// bar or a pixel of an image.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tip {
     /// A point of a series.
@@ -185,6 +235,10 @@ pub enum Tip {
     Pixel(PixelDatatip),
     /// A colourbar: its bar, one of its squares or one of its keys.
     Colorbar(ColorbarTip),
+    /// A bar of a bar series.
+    Bar(BarDatatip),
+    /// A step of stairs.
+    Step(StepDatatip),
 }
 
 /// What a colourbar says under the pointer.
@@ -943,12 +997,16 @@ impl FigureState {
     }
 
     /// Returns what lies under the pointer: the drawn data point nearest it within [`DATATIP_RADIUS_POINTS`], as
-    /// [`FigureState::datatip`] finds it, or, when there is none, the pixel of the image under it, as
-    /// [`FigureState::pixel_datatip`] finds it.
+    /// [`FigureState::datatip`] finds it, or, when there is none, the step of stairs within the same reach, as
+    /// [`FigureState::step_datatip`] finds it, the bar under the pointer, as [`FigureState::bar_datatip`] finds it,
+    /// or the pixel of the image under it, as [`FigureState::pixel_datatip`] finds it, in that order.
     ///
-    /// A point wins over the pixel beneath it because it is small, so that the pixel is read everywhere the pointer
-    /// is not within reach of a point, and because a series drawn over an image is painted on top of it,
-    /// so that a pointer within reach of one of its points means the point rather than the pixel it covers.
+    /// A point wins over the bar or the pixel beneath it because it is small, so that the bar or the pixel is read
+    /// everywhere the pointer is not within reach of a point, and because a series drawn over bars or an image is
+    /// usually painted on top of them, so that a pointer within reach of one of its points means the point rather
+    /// than what it covers. A step is a thin line, read within reach as a point is, so it wins over a bar it is
+    /// drawn over, as the outline of a histogram over its bars is; a bar wins over an image, over which bars are
+    /// drawn.
     ///
     /// A colourbar is asked first, because a bar inside a plot area is drawn over the artists: over a bar, one of
     /// its squares or one of its keys the tip is what the bar reads, as [`FigureState::colorbar_tip`] finds it, and
@@ -960,7 +1018,64 @@ impl FigureState {
         }
         self.datatip(hit, at)
             .map(Tip::Point)
+            .or_else(|| self.step_datatip(hit, at).map(Tip::Step))
+            .or_else(|| self.bar_datatip(hit, at).map(Tip::Bar))
             .or_else(|| self.pixel_datatip(hit, at).map(Tip::Pixel))
+    }
+
+    /// Returns the bar drawn last under the pointer, or `None` where no bar lies.
+    ///
+    /// The bar comes from the hit map of the most recent compilation, which records each bar drawn with its index in
+    /// the arrays of its series, its position, value and base, and for a part of a stack the segment it occupies.
+    /// When the category axis of the bar (x for upright bars, y for bars lying flat) has explicit ticks labelled
+    /// with text and one of them falls exactly at the bar's position, the tip carries that label, the name of the
+    /// bar's category.
+    #[must_use]
+    pub fn bar_datatip(&self, hit: &HitMap, at: Point) -> Option<BarDatatip> {
+        let drawn = hit.bar_at(at)?;
+        let (axes, artist) = self.composed.artist(drawn.artist)?;
+        let Artist::Bar(bar) = artist else {
+            return None;
+        };
+        let tick_label = category_name(
+            axis(axes, bar.orientation.category_dimension()),
+            drawn.position,
+        );
+        let r = drawn.rect;
+        Some(BarDatatip {
+            axes: drawn.axes,
+            artist: drawn.artist,
+            label: artist.label().map(|text| text.content.clone()),
+            index: drawn.index,
+            position: Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0),
+            rect: r,
+            at: drawn.position,
+            value: drawn.value,
+            base: drawn.base,
+            segment: drawn.segment,
+            tick_label,
+        })
+    }
+
+    /// Returns the step of stairs whose drawn run lies nearest the pointer within [`DATATIP_RADIUS_POINTS`], or
+    /// `None` where none lies within reach.
+    ///
+    /// The step comes from the hit map of the most recent compilation, which records each step drawn with the index
+    /// of its value, the two edges it holds across and the value; for stairs through samples, the edges are those
+    /// that `step` places, so that the tip reports the interval across which the sample's value holds.
+    #[must_use]
+    pub fn step_datatip(&self, hit: &HitMap, at: Point) -> Option<StepDatatip> {
+        let drawn = hit.step_at(at, DATATIP_RADIUS_POINTS)?;
+        let (_, artist) = self.composed.artist(drawn.artist)?;
+        Some(StepDatatip {
+            axes: drawn.axes,
+            artist: drawn.artist,
+            label: artist.label().map(|text| text.content.clone()),
+            index: drawn.index,
+            position: drawn.nearest(at),
+            edges: drawn.edges,
+            value: drawn.value,
+        })
     }
 
     /// Returns what the colourbar under the pointer says, or `None` where no bar, square or key lies.
@@ -1553,6 +1668,16 @@ fn span_of(bar: &ColorbarHit, map: &AxisMap, low: f64, high: f64) -> Rect {
     } else {
         Rect::new(a.min(b), r.y, (a - b).abs(), r.height)
     }
+}
+
+/// Returns the text tick label of an axis at `position`, when the axis has explicit ticks labelled with text and one
+/// of them falls exactly there.
+fn category_name(axis: &Axis, position: f64) -> Option<String> {
+    let (Ticks::Values(values), TickLabels::Text(labels)) = (&axis.ticks, &axis.tick_labels) else {
+        return None;
+    };
+    let at = values.iter().position(|value| *value == position)?;
+    labels.get(at).map(|label| label.content.clone())
 }
 
 /// Returns the source text of the label of the tick an indexed scale places at entry `index`, when its ticks are

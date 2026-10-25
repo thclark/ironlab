@@ -7,11 +7,11 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Artist, Axes, Cell, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
+    Artist, Axes, Bar, Cell, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
     ContinuousColorScale, Contour, DashStyle, DataArray, Figure, Grid, Image, ImagePlacement,
     ImagePlane, IndexedColorScale, Legend, LineStyle, MarkerShape, MarkerStyle, NdArray, NodeId,
     OutOfRange, Panel, PanelContent, PanelLegend, PixelRange, Projection, Quiver, ScalarImage,
-    Series, Surface, Text, TitleAlign, View3d,
+    Series, Stairs, StairsData, StepAt, Surface, Text, TitleAlign, View3d,
 };
 use ironlab_scene::display::Rgba;
 use ironlab_scene::maths::colormap::{Lut, VIRIDIS};
@@ -395,6 +395,79 @@ impl Fx {
             ..Quiver::default()
         };
         self.push(axes, Artist::Quiver(quiver));
+        id
+    }
+
+    /// Adds a bar series at `positions` rising to `values`, with the defaults of `bar` (upright bars of the next
+    /// colour of the colour order from a base of 0, across four fifths of the pitch, outlined in thin black),
+    /// customised by `edit`.
+    pub fn bar(
+        &mut self,
+        axes: NodeId,
+        positions: &[f64],
+        values: &[f64],
+        edit: impl FnOnce(&mut Bar, &mut Self),
+    ) -> NodeId {
+        let id = self.node();
+        let mut bar = Bar {
+            id,
+            positions: self.vector(positions),
+            values: self.vector(values),
+            ..Bar::default()
+        };
+        edit(&mut bar, self);
+        self.push(axes, Artist::Bar(bar));
+        id
+    }
+
+    /// Adds stairs holding each of `values` between neighbouring `edges`, with the defaults of `stairs` (an open,
+    /// unfilled outline in the next colour of the colour order), customised by `edit`.
+    pub fn stairs(
+        &mut self,
+        axes: NodeId,
+        edges: &[f64],
+        values: &[f64],
+        edit: impl FnOnce(&mut Stairs),
+    ) -> NodeId {
+        let data = StairsData::Edges {
+            edges: self.vector(edges),
+            values: self.vector(values),
+        };
+        self.stairs_of(axes, data, edit)
+    }
+
+    /// Adds stairs holding each of `values` at its sample `x`, stepping where `step` places the steps, customised by
+    /// `edit`.
+    pub fn stairs_at(
+        &mut self,
+        axes: NodeId,
+        x: &[f64],
+        values: &[f64],
+        step: StepAt,
+        edit: impl FnOnce(&mut Stairs),
+    ) -> NodeId {
+        let data = StairsData::Samples {
+            x: self.vector(x),
+            values: self.vector(values),
+            step,
+        };
+        self.stairs_of(axes, data, edit)
+    }
+
+    fn stairs_of(
+        &mut self,
+        axes: NodeId,
+        data: StairsData,
+        edit: impl FnOnce(&mut Stairs),
+    ) -> NodeId {
+        let id = self.node();
+        let mut stairs = Stairs {
+            id,
+            data,
+            ..Stairs::default()
+        };
+        edit(&mut stairs);
+        self.push(axes, Artist::Stairs(stairs));
         id
     }
 

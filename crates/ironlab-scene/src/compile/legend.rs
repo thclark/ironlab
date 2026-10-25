@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use ironlab_ir::{
-    Artist, Color, ColorScaleKind, ColorSpec, Interpreter, Legend, LegendEntries,
+    Artist, Color, ColorScaleKind, ColorSpec, DashStyle, Interpreter, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
     LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Panel, PanelLegend,
     PanelLocation, ScalarImage, Series, Text, TitleAlign,
@@ -1525,8 +1525,59 @@ fn sample(
                 edge: None,
             },
         },
-        // These kinds are not drawn yet, so their samples are empty patches.
-        Artist::Bar(_) | Artist::Stairs(_) | Artist::Cells(_) => SampleLook::Patch {
+        // A swatch filled with the face and outlined by the edge, as a small bar; faces coloured by data sweep the
+        // scale they are coloured through, as the faces of a surface do. A colour that colour data varies has no one
+        // colour, so a colormapped outline with colour data outlines nothing.
+        Artist::Bar(b) => {
+            let fade = |colour: Option<Rgba>, opacity: f64| {
+                colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
+            };
+            let mapped = b.color_data.is_some();
+            let single = |spec: ColorSpec| match spec {
+                ColorSpec::Colormapped if mapped => None,
+                other => match style::resolve(other, Paint::Fixed(colour)) {
+                    Paint::Fixed(c) => c,
+                    Paint::Colormapped => colour,
+                },
+            };
+            let edge = fade(single(b.edge.color), b.edge_opacity)
+                .filter(|_| b.edge.dash != DashStyle::None);
+            match (b.face, scale) {
+                (ColorSpec::Colormapped, Some(scale)) if mapped => SampleLook::Sweep {
+                    sweep: Sweep::of(scale, b.face_opacity),
+                    edge,
+                },
+                _ => SampleLook::Swatch {
+                    fill: fade(single(b.face), b.face_opacity),
+                    outline: edge,
+                },
+            }
+        }
+        // Open stairs are a line; filled stairs are an area outlined by their line, as a filled histogram is.
+        Artist::Stairs(s) => {
+            let fade = |colour: Option<Rgba>, opacity: f64| {
+                colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
+            };
+            let resolved = |spec: ColorSpec| match style::resolve(spec, Paint::Fixed(colour)) {
+                Paint::Fixed(c) => c,
+                Paint::Colormapped => colour,
+            };
+            let line = fade(resolved(s.line.color), s.line_opacity);
+            let fill = fade(resolved(s.fill), s.fill_opacity).filter(|_| s.base.is_some());
+            match fill {
+                Some(fill) => SampleLook::Patch {
+                    fill: Some(fill),
+                    edge: line.filter(|_| s.line.dash != DashStyle::None),
+                },
+                None => SampleLook::Line {
+                    stroke: sample_stroke(&s.line, line),
+                    sweep: None,
+                    marker: None,
+                },
+            }
+        }
+        // Cells are not drawn yet, so their sample is an empty patch.
+        Artist::Cells(_) => SampleLook::Patch {
             fill: None,
             edge: None,
         },

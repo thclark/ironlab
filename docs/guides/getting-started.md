@@ -130,6 +130,82 @@ ax.plot(&missing, vec![0.985; missing.len()])
 
 Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a series in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
 
+### Bar charts
+
+`bar(positions, values)` draws one upright bar at each position, from 0 to its value, and `barh(positions, values)` draws the same bars lying flat, which is how long category names are made readable. Each bar is centred in a slot whose width is the smallest distance between neighbouring positions, and is drawn across four fifths of it, so that a fifth of each slot is left as a gap between neighbouring bars. The bars take the next colour of the axes colour order and are outlined by a black line 0.5 pt wide. Every bar function returns a `BarMut`.
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.bar([0.0, 1.0, 2.0, 3.0], [12.0, 7.5, 9.0, 4.0])
+    .label("Revenue")
+    .gap(0.3)                         // the fraction of each slot left empty; 0 for bars that touch
+    .face_color(Color::rgb(0.3, 0.5, 0.7))
+    .edge_color(None);                // no outline
+ax.xticks([0.0, 1.0, 2.0, 3.0])
+    .xtick_labels(["North", "South", "East", "West"]);
+```
+
+Categories are not a separate kind of axis: categorical bars stand at the positions 0, 1, …, N − 1 and are named by text tick labels, as above. A bar whose position or value is not finite is not drawn, and the bars beside it keep their places.
+
+`width(w)` gives every slot the same width in data units, and `widths(data)` gives each bar a width of its own, which is how a histogram of unequal bins is drawn with a gap of 0. `base(b)` makes every bar start at `b` rather than 0, so that a value below `b` hangs down from it, and `base_data(data)` gives each bar a base of its own, which draws floating bars such as ranges. On a logarithmic value axis a base that is not positive cannot be placed, so such bars are drawn from the low edge of the plot area, and validation warns about the base.
+
+Several series are compared at each position by putting them in one **group** of the same name. In a group laid out with `BarLayout::Grouped`, the members stand side by side within each slot, in the order they were plotted, and keep their own labels, colours and legend entries. Three series compared across four categories:
+
+```rust
+let categories = [0.0, 1.0, 2.0, 3.0];
+let mut ax = fig.axes(0, 0);
+for (name, scores) in [
+    ("Model A", [3.0, 4.5, 2.0, 5.0]),
+    ("Model B", [2.5, 3.0, 4.0, 4.5]),
+    ("Model C", [4.0, 2.0, 3.5, 3.0]),
+] {
+    ax.bar(categories, scores)
+        .label(name)
+        .group("models", BarLayout::Grouped);
+}
+ax.xticks(categories)
+    .xtick_labels(["Lift", "Drag", "Mass", "Cost"])
+    .legend(LegendLocation::NorthWest);
+```
+
+In a group laid out with `BarLayout::Stacked`, the members build on one another at each position, so that each column shows a total: positive values stack upwards from the base and negative values downwards from it, and each value is the length of its part. The width, gap, base and layout of a group are those of its first member. Hiding a member of a grouped group by its legend entry leaves its place empty, so that no other bar moves, while hiding a member of a stack closes the column up, so that the column shows the total of the parts that remain. The [figure schema](../reference/figure-schema.md#groups-of-bars) states the rules in full.
+
+`colors` gives each bar its own colour, such as one that highlights a bar among grey ones; it stores an indexed [colour scale](colour.md) of the distinct colours and, per bar, the index of its colour. `color_data` colours the bars by a quantity through the colour scale of the axes instead, as it colours the markers of a series.
+
+```rust
+let grey = Color::rgb(0.6, 0.6, 0.6);
+let red = Color::rgb(0.8, 0.1, 0.1);
+fig.axes(0, 0)
+    .bar([0.0, 1.0, 2.0, 3.0], [3.0, 1.0, 4.0, 2.0])
+    .colors([grey, grey, red, grey]);   // the third bar stands out
+```
+
+A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the name of its category when the axis names it with a text tick label, and, for a part of a stack, the segment it occupies.
+
+### Stairs
+
+`stairs(edges, values)` draws a stepped outline that holds each value between two neighbouring edges, of which there is one more than values, as the outline of a histogram is drawn (matplotlib's `stairs`). `stairs_at(x, values, step)` holds each value at a sample instead (MATLAB's `stairs` and matplotlib's `step`), and `step` says where each step occurs: `StepAt::Post` holds a value from its sample up to the next, `StepAt::Pre` from the previous sample up to its own, and `StepAt::Mid` changes value midway between the samples. Both return a `StairsMut`.
+
+The outline is open by default: it starts at the first value and ends at the last, in the next colour of the colour order. `base(b)` drops the outline to `b` at both ends, without drawing a line along the base, and `fill(color)` then fills the area between the outline and the base. A value that is not finite breaks the outline, and each unbroken piece of a based outline drops to the base at both of its ends.
+
+```rust
+let edges = [0.0, 1.0, 2.0, 4.0, 5.0];
+let counts = [3.0, 7.0, 4.0, 1.0];
+let mut ax = fig.axes(0, 0);
+ax.stairs(edges, counts)
+    .label("Counts")
+    .base(0.0)
+    .fill(Color::rgb(0.6, 0.75, 0.9))
+    .fill_opacity(0.6)
+    .color(Color::rgb(0.1, 0.3, 0.6))
+    .line_width(1.25);
+ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
+    .label("Set point")
+    .dash(Dash::Dashed);
+```
+
+`orientation(Orientation::Horizontal)` places the edges along y and the values along x, which draws a profile against height. A datatip on stairs names the two edges of the step under the pointer and the value it holds.
+
 ### Contours
 
 `contour(x, y, z)` draws isolines of the field `z`, `contourf(x, y, z)` fills the bands between levels, and `contour3(x, y, z)` draws each isoline at the height of its level in a three-dimensional axes. Each isoline and band is coloured by its level through the [colour scale](colour.md) of the axes. A contour without levels of its own takes them from its scale: ten levels at round values through a continuous scale, and the band edges of a discrete scale, as [discrete scales and filled contours](colour.md#discrete-scales-and-filled-contours) shows.

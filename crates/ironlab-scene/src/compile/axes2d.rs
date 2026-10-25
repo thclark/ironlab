@@ -270,6 +270,8 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let drawn = draw_artists(ctx, input, &primaries, &space);
     hits.artists.extend(drawn.hits);
     hits.images.extend(drawn.images);
+    hits.bars.extend(drawn.bars);
+    hits.steps.extend(drawn.steps);
     let data: Vec<Item> = drawn.prims.into_iter().map(|(_, item)| item).collect();
     // The vertices of the drawn data, the corners of images included, which the `best` legend location avoids.
     let mut data_points = Vec::new();

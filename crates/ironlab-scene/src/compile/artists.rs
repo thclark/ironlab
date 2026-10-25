@@ -15,7 +15,7 @@ use ironlab_ir::{
 use crate::display::{
     Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Stroke, Transform,
 };
-use crate::hit::{ArtistHit, AxisMap, ImageHit};
+use crate::hit::{ArtistHit, AxisMap, BarHit, ImageHit, StepHit};
 use crate::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
     fit_to_rect, normalise_box, wrap_azimuth,
@@ -206,6 +206,10 @@ pub(crate) struct Drawn {
     pub hits: Vec<ArtistHit>,
     /// The placement of each image drawn in a 2D axes, for finding the pixel under a pointer.
     pub images: Vec<ImageHit>,
+    /// Every bar drawn, for finding the bar under a pointer.
+    pub bars: Vec<BarHit>,
+    /// Every step of stairs drawn, for finding the step under a pointer.
+    pub steps: Vec<StepHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
     ///
     /// The count is of the cells the artist actually drew, not of the cells its data holds. A backend thresholds on
@@ -216,36 +220,40 @@ pub(crate) struct Drawn {
 }
 
 /// State shared while drawing the artists of one axes.
-struct Draw<'a, 'f> {
+pub(super) struct Draw<'a, 'f> {
     /// The compilation, to which an artist skipped while it is drawn is reported.
     ctx: &'a mut Ctx<'f>,
     /// The mapping of the artist being drawn: the axes' own, or a blend of it with the plot area for a series that
     /// places a dimension in axes-fraction coordinates.
-    space: Space<'a>,
+    pub(super) space: Space<'a>,
     /// The colour scales of the figure, through which artists map their numbers to colours.
-    scales: &'a ColourScales<'a>,
+    pub(super) scales: &'a ColourScales<'a>,
     /// The lower limit of each axis: planar contours without an explicit height are drawn at the lower z limit,
     /// and an image whose plane has no offset lies at the lower limit of the third axis of its plane.
     low: [f64; 3],
     /// The axes being drawn, named by the hit-map entry of each artist.
-    axes: ironlab_ir::NodeId,
+    pub(super) axes: ironlab_ir::NodeId,
     /// The number of points a series is decimated to for this plot rectangle.
     target: usize,
     /// The rectangle the geometry of the artist being drawn is clipped to, outside which nothing is drawn: the plot
     /// area of a 2D axes, the tile of a 3D axes, or the page for an artist that is not clipped.
-    clip: Rect,
+    pub(super) clip: Rect,
     out: Vec<Prim>,
     /// The points each artist drew, for picking and datatips.
     hits: Vec<ArtistHit>,
     /// The placement of each image drawn in a 2D axes, for finding the pixel under a pointer.
     images: Vec<ImageHit>,
+    /// Every bar drawn, for finding the bar under a pointer.
+    pub(super) bars: Vec<BarHit>,
+    /// Every step of stairs drawn, for finding the step under a pointer.
+    pub(super) steps: Vec<StepHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
-    dense: BTreeMap<NodeId, u64>,
+    pub(super) dense: BTreeMap<NodeId, u64>,
 }
 
 impl Draw<'_, '_> {
     /// Emits an item at a depth, and reports whether there was one to emit.
-    fn push(&mut self, depth: f64, item: Option<Item>) -> bool {
+    pub(super) fn push(&mut self, depth: f64, item: Option<Item>) -> bool {
         match item {
             Some(item) => {
                 self.out.push((depth, item));
@@ -308,10 +316,12 @@ pub(super) fn draw_artists(
         out: Vec::new(),
         hits: Vec::new(),
         images: Vec::new(),
+        bars: Vec::new(),
+        steps: Vec::new(),
         dense: BTreeMap::new(),
     };
     for (prepared, primary) in input.prepared.iter().zip(primaries) {
-        let Some(data) = prepared.data else { continue };
+        let Some(data) = &prepared.data else { continue };
         if !prepared.artist.visible() {
             continue;
         }
@@ -330,8 +340,8 @@ pub(super) fn draw_artists(
                     sizes,
                     colours,
                 },
-            ) => draw_series(&mut draw, series, points, sizes, colours, *primary),
-            (Artist::Contour(c), ArtistData::Contour(grid)) => draw_contour(&mut draw, c, &grid),
+            ) => draw_series(&mut draw, series, *points, *sizes, *colours, *primary),
+            (Artist::Contour(c), ArtistData::Contour(grid)) => draw_contour(&mut draw, c, grid),
             (
                 Artist::Quiver(q),
                 ArtistData::Quiver {
@@ -339,7 +349,7 @@ pub(super) fn draw_artists(
                     vectors,
                     scale,
                 },
-            ) => draw_quiver(&mut draw, q, points, vectors, scale, *primary),
+            ) => draw_quiver(&mut draw, q, *points, *vectors, *scale, *primary),
             (
                 Artist::Surface(s),
                 ArtistData::Surface {
@@ -350,14 +360,20 @@ pub(super) fn draw_artists(
                 },
             ) => {
                 let alpha = SurfaceAlpha {
-                    face: face_alpha,
-                    edge: edge_alpha,
+                    face: *face_alpha,
+                    edge: *edge_alpha,
                 };
-                draw_surface(&mut draw, s, &grid, colours, alpha)
+                draw_surface(&mut draw, s, grid, *colours, alpha)
             }
             (Artist::Image(_) | Artist::ScalarImage(_), ArtistData::Image(image)) => {
                 let scale = draw.scales.of(prepared.artist);
-                draw_image(&mut draw, prepared.artist.id(), &image, scale)
+                draw_image(&mut draw, prepared.artist.id(), image, scale)
+            }
+            (Artist::Bar(bar), ArtistData::Bars(bars)) => {
+                super::bars::draw_bars(&mut draw, bar, bars, *primary);
+            }
+            (Artist::Stairs(stairs), ArtistData::Stairs(geometry)) => {
+                super::bars::draw_stairs(&mut draw, stairs, geometry, *primary);
             }
             _ => {}
         }
@@ -366,6 +382,8 @@ pub(super) fn draw_artists(
         prims: draw.out,
         hits: draw.hits,
         images: draw.images,
+        bars: draw.bars,
+        steps: draw.steps,
         dense: draw.dense,
     }
 }

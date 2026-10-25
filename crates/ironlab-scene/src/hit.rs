@@ -185,6 +185,64 @@ pub struct ImageHit {
     pub rows: usize,
 }
 
+/// One bar drawn in a two-dimensional axes, from which the bar under a pointer is found.
+///
+/// The numbers are those of the artist's own data at `index`, so that a front end reports what the user's data holds:
+/// the position, the value and the base. A part of a stack also records the bottom and top of the segment it
+/// occupies along the value axis, which is what the reader sees, because its value is its length rather than where
+/// it ends. A bar that was not drawn, because its position or value is not finite, its series is hidden or it paints
+/// nothing, has no entry.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BarHit {
+    pub axes: NodeId,
+    pub artist: NodeId,
+    /// The index of the bar in the arrays of its series.
+    pub index: usize,
+    /// The rectangle of the bar as drawn, in figure space.
+    pub rect: Rect,
+    /// The position of the bar along the category axis.
+    pub position: f64,
+    /// The value of the bar.
+    pub value: f64,
+    /// The base from which the bar, or the column of its stack, rises.
+    pub base: f64,
+    /// For a part of a stack, the bottom and top of the segment it occupies along the value axis.
+    pub segment: Option<(f64, f64)>,
+}
+
+/// One step of stairs drawn in a two-dimensional axes: the run of the outline at the level of one value, from which
+/// the step under a pointer is found.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepHit {
+    pub axes: NodeId,
+    pub artist: NodeId,
+    /// The index of the value in the artist's array of values.
+    pub index: usize,
+    /// The two edges between which the value holds, in the order of the data: the edges themselves for stairs
+    /// between edges, and for stairs through samples the edges that `step` places.
+    pub edges: (f64, f64),
+    /// The value held across the step.
+    pub value: f64,
+    /// The two ends of the run of the outline at the level of the value, in figure space.
+    pub from: Point,
+    pub to: Point,
+}
+
+impl StepHit {
+    /// Returns the point of the step's run nearest `p`, in figure space.
+    #[must_use]
+    pub fn nearest(&self, p: Point) -> Point {
+        let (dx, dy) = (self.to.x - self.from.x, self.to.y - self.from.y);
+        let length = dx * dx + dy * dy;
+        let t = if length > 0.0 {
+            (((p.x - self.from.x) * dx + (p.y - self.from.y) * dy) / length).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        Point::new(self.from.x + t * dx, self.from.y + t * dy)
+    }
+}
+
 /// All interactive geometry of a compiled figure.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HitMap {
@@ -199,6 +257,10 @@ pub struct HitMap {
     /// Every colourbar drawn, in paint order: the inside colourbars and the bar items of the inside legends of the
     /// axes, then the colourbars and the bar items of the legends of the panels.
     pub colorbars: Vec<ColorbarHit>,
+    /// Every bar drawn in a two-dimensional axes, in paint order.
+    pub bars: Vec<BarHit>,
+    /// Every step of stairs drawn in a two-dimensional axes, in paint order.
+    pub steps: Vec<StepHit>,
 }
 
 impl HitMap {
@@ -233,6 +295,26 @@ impl HitMap {
             }
         }
         best.map(|(artist, sample, _)| (artist, sample))
+    }
+
+    /// Returns the bar drawn last whose rectangle contains `p`, which is the one the reader sees on top where bars
+    /// overlap.
+    pub fn bar_at(&self, p: Point) -> Option<&BarHit> {
+        self.bars.iter().rev().find(|bar| bar.rect.contains(p))
+    }
+
+    /// Returns the step of stairs whose run lies nearest to `p` within `radius` points, measured in figure space;
+    /// of steps at equal distance, the one painted later, which the reader sees on top.
+    pub fn step_at(&self, p: Point, radius: f64) -> Option<&StepHit> {
+        let mut best: Option<(&StepHit, f64)> = None;
+        for step in &self.steps {
+            let q = step.nearest(p);
+            let d = (q.x - p.x).powi(2) + (q.y - p.y).powi(2);
+            if d <= radius * radius && best.is_none_or(|(_, b)| d <= b) {
+                best = Some((step, d));
+            }
+        }
+        best.map(|(step, _)| step)
     }
 
     /// Returns the image drawn last under `p`, with the row and column of its pixel there.
