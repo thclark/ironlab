@@ -17,8 +17,9 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PixelRange,
-    Quiver, QuiverScale, ScalarImage, Series, Surface,
+    Bar, BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, Cells, Contour,
+    ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, Orientation,
+    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
@@ -559,6 +560,9 @@ ir_leaf! {
     DashStyle => DashStyle;
     MarkerShape => MarkerShape;
     Coords => Coords;
+    Orientation => Orientation;
+    BarLayout => BarLayout;
+    StepAt => StepAt;
 }
 
 ir_node! {
@@ -759,6 +763,82 @@ ir_node! {
         plain "opacity" => opacity: f64 =
             "The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every pixel.";
     }
+
+    Bar {
+        hidden "id" => id: () = "";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "orientation" => orientation: Orientation =
+            "Whether the bars stand upright, with positions along x and values along y, or lie flat, with positions along y and values along x.";
+        plain "positions" => positions: NodeId =
+            "The centre of the slot of each bar along the category axis, one value per bar.";
+        plain "values" => values: NodeId =
+            "The end of each bar along the value axis, one value per bar; a value that is not finite draws no bar.";
+        plain "base" => base: BarBase =
+            "Where each bar starts along the value axis: one value for every bar, or one value per bar for floating bars.";
+        plain "slot" => slot: BarSlot =
+            "The extent of the slot of each bar along the category axis: the pitch of the positions, one width for every bar, or one width per bar.";
+        plain "gap" => gap: f64 =
+            "The fraction of each slot left empty, measured on the page: from 0 for touching bars up to, but not including, 1.";
+        optional "group" => group: BarGroup =
+            "The group of bars of the axes to which the series belongs, or absent for a series drawn on its own.";
+        plain "face" => face: ColorSpec =
+            "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, none, or colormapped, which gives each bar the colour of its value of the colour data through the colour scale.";
+        optional "color_data" => color_data: NodeId =
+            "The values that colour the bars through their colour scale, one per bar; when absent the bars take fixed colours.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the colour data is mapped; bars with colour data must name one.";
+        plain "edge" => edge: LineStyle =
+            "The style of the outline of every bar: a colour of none draws no outline, an automatic colour is the colour of the series, and a colormapped colour gives each outline the colour of its bar's value through the colour scale.";
+        plain "face_opacity" => face_opacity: f64 =
+            "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
+        plain "edge_opacity" => edge_opacity: f64 =
+            "The opacity of the outlines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
+    }
+
+    Stairs {
+        hidden "id" => id: () = "";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "orientation" => orientation: Orientation =
+            "Whether the steps lie along x, with values along y, or along y, with values along x.";
+        plain "data" => data: StairsData =
+            "The steps: values between edges, or values at samples.";
+        optional "base" => base: f64 =
+            "The value along the value axis to which the outline drops at both ends, or absent for an open outline.";
+        plain "line" => line: LineStyle =
+            "The style of the outline, whose automatic colour is the next colour of the colour order.";
+        plain "fill" => fill: ColorSpec =
+            "The colour of the area between the outline and the base, or none; a fill needs a base.";
+        plain "line_opacity" => line_opacity: f64 =
+            "The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
+        plain "fill_opacity" => fill_opacity: f64 =
+            "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
+    }
+
+    Cells {
+        hidden "id" => id: () = "";
+        optional "label" => label: Text = "The label drawn beside the artist in a legend.";
+        plain "visible" => visible: bool = "Whether the artist is drawn.";
+        plain "values" => values: NodeId =
+            "The values, a two-dimensional array of shape [ny, nx] of floating-point or 8-bit values, one per cell, each mapped to a colour through the colour scale.";
+        plain "columns" => columns: CellEdges =
+            "The edges of the columns along x: unit edges, which centre column k at k, or nx + 1 edges given as data.";
+        plain "rows" => rows: CellEdges =
+            "The edges of the rows along y: unit edges, which centre row k at k, or ny + 1 edges given as data.";
+        plain "gap" => gap: CellGap =
+            "The fractions of the width and height of each cell left empty, measured on the page.";
+        plain "edge" => edge: LineStyle =
+            "The style of the outline of every cell; a colour of none draws no outline, and a colormapped colour gives each outline the colour of its cell.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the values are mapped; cells must name one.";
+        optional "alpha" => alpha: NodeId =
+            "The alpha of every cell, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255. When absent the cells are uniformly opaque before the face opacity applies.";
+        plain "face_opacity" => face_opacity: f64 =
+            "The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every cell.";
+        plain "edge_opacity" => edge_opacity: f64 =
+            "The opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
+    }
 }
 
 ir_value! {
@@ -821,6 +901,10 @@ ir_value! {
             "What is written at the major ticks of the axis.";
         plain "grid" => grid: bool =
             "Whether grid lines are drawn at the major ticks of this axis.";
+        plain "visible" => visible: bool =
+            "Whether the axis is drawn; a hidden axis draws no spine, ticks, tick labels or label and reserves no space for them, while its grid lines still follow the grid setting.";
+        plain "tick_label_angle" => tick_label_angle: f64 =
+            "The angle of every tick label in degrees anticlockwise from horizontal, about the end of the label nearest its tick; ignored by three-dimensional axes.";
     }
 
     InsideLegend as InsideLegend {
@@ -945,6 +1029,20 @@ ir_value! {
             "What is drawn for a value that names no category.";
     }
 
+    BarGroup as BarGroup {
+        plain "name" => name: String =
+            "The name of the group, which the members of one group share; never drawn.";
+        plain "layout" => layout: BarLayout =
+            "How the members share each position: side by side, or stacked on one another.";
+    }
+
+    CellGap as CellGap {
+        plain "x" => x: f64 =
+            "The fraction of the width of each cell left empty, from 0 up to, but not including, 1.";
+        plain "y" => y: f64 =
+            "The fraction of the height of each cell left empty, from 0 up to, but not including, 1.";
+    }
+
     PixelRange as PixelRange {
         plain "first" => first: f64 = "The coordinate of the centre of the first pixel.";
         plain "last" => last: f64 =
@@ -953,6 +1051,50 @@ ir_value! {
 }
 
 ir_tagged! {
+    BarBase as BarBase {
+        Constant {
+            plain "constant" => 0: f64 = "The value at which every bar starts.";
+        }
+        Data {
+            plain "data" => 0: NodeId = "The value at which each bar starts, one per bar.";
+        }
+    }
+
+    BarSlot as BarSlot {
+        Pitch {}
+        Width {
+            plain "width" => 0: f64 =
+                "The extent of the slot of every bar, in data units; finite and positive.";
+        }
+        Data {
+            plain "data" => 0: NodeId =
+                "The extent of the slot of each bar, in data units, one per bar; each finite and positive.";
+        }
+    }
+
+    StairsData as StairsData {
+        Edges {
+            plain "edges" => edges: NodeId =
+                "The edges of the steps along the category axis, one more than the values; finite and strictly monotonic.";
+            plain "values" => values: NodeId = "The value of each step.";
+        }
+        Samples {
+            plain "x" => x: NodeId =
+                "The positions of the samples along the category axis, one per value; finite and strictly monotonic.";
+            plain "values" => values: NodeId = "The value at each sample.";
+            plain "step" => step: StepAt =
+                "Where each step occurs: at the earlier sample, at the later sample, or midway between them.";
+        }
+    }
+
+    CellEdges as CellEdges {
+        Unit {}
+        Edges {
+            plain "edges" => 0: NodeId =
+                "The edges, one more than the cells; finite and strictly monotonic.";
+        }
+    }
+
     Projection as Projection {
         TwoD {}
         ThreeD {

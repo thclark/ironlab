@@ -181,6 +181,8 @@ fn wire_axis(
         tick_labels: Some(wire::TickLabels {
             kind: Some(wire::TickLabelsKind::Auto(wire::TickLabelsAuto {})),
         }),
+        visible: Some(true),
+        tick_label_angle: Some(0.0),
     })
 }
 
@@ -936,6 +938,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 )
                 .map(|axis| wire::Axis {
                     reverse: Some(true),
+                    visible: Some(false),
+                    tick_label_angle: Some(30.0),
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Step(wire::TicksStep {
                             step: Some(0.25),
@@ -954,6 +958,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     false,
                 )
                 .map(|axis| wire::Axis {
+                    tick_label_angle: Some(-60.0),
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Values(wire::TicksValues {
                             values: vec![3.0, 3.5],
@@ -1361,6 +1366,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         ticks: Ticks::Auto,
         tick_labels: TickLabels::Auto,
         grid: false,
+        visible: true,
+        tick_label_angle: 0.0,
     };
     let category = |policy: OutOfRange, show_key: bool, label: Option<Text>| ColorScaleOutOfRange {
         policy,
@@ -1564,6 +1571,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     },
                     tick_labels: TickLabels::Hidden,
                     grid: true,
+                    visible: false,
+                    tick_label_angle: 30.0,
                 },
                 y: Axis {
                     label: text("y label", Interpreter::Latex),
@@ -1573,6 +1582,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     ticks: Ticks::Values(vec![3.0, 3.5]),
                     tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::new("$h$")]),
                     grid: false,
+                    visible: true,
+                    tick_label_angle: -60.0,
                 },
                 z: Axis {
                     label: None,
@@ -1582,6 +1593,8 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     ticks: Ticks::Auto,
                     tick_labels: TickLabels::Auto,
                     grid: true,
+                    visible: true,
+                    tick_label_angle: 0.0,
                 },
                 colorbar: None,
                 box_: false,
@@ -2252,6 +2265,71 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         check::<wire::Dimension>(
             |w, v| w.links[0].dimension = v,
             |f| format!("{:?}", f.links[0].dimension),
+        ),
+        // Bars and stairs are added beside the carrier's line, so that their enums are
+        // placed without changing it.
+        check::<wire::Orientation>(
+            |w, v| {
+                w.axes[0]
+                    .artists
+                    .push(wire_artist(wire::ArtistKind::Bar(wire::Bar {
+                        id: Some(6),
+                        positions: Some(0),
+                        values: Some(0),
+                        orientation: v,
+                        ..wire::Bar::default()
+                    })));
+            },
+            |f| match &f.axes[0].artists[1] {
+                Artist::Bar(bar) => format!("{:?}", bar.orientation),
+                other => panic!("the carrier's bars decoded as {other:?}"),
+            },
+        ),
+        check::<wire::BarLayout>(
+            |w, v| {
+                w.axes[0]
+                    .artists
+                    .push(wire_artist(wire::ArtistKind::Bar(wire::Bar {
+                        id: Some(6),
+                        positions: Some(0),
+                        values: Some(0),
+                        group: Some(wire::BarGroup {
+                            name: "g".to_owned(),
+                            layout: v,
+                        }),
+                        ..wire::Bar::default()
+                    })));
+            },
+            |f| match &f.axes[0].artists[1] {
+                Artist::Bar(Bar {
+                    group: Some(group), ..
+                }) => format!("{:?}", group.layout),
+                other => panic!("the carrier's grouped bars decoded as {other:?}"),
+            },
+        ),
+        check::<wire::StepAt>(
+            |w, v| {
+                w.axes[0]
+                    .artists
+                    .push(wire_artist(wire::ArtistKind::Stairs(wire::Stairs {
+                        id: Some(6),
+                        data: Some(wire::StairsData {
+                            kind: Some(wire::StairsDataKind::Samples(wire::StairsDataSamples {
+                                x: Some(0),
+                                values: Some(0),
+                                step: v,
+                            })),
+                        }),
+                        ..wire::Stairs::default()
+                    })));
+            },
+            |f| match &f.axes[0].artists[1] {
+                Artist::Stairs(Stairs {
+                    data: StairsData::Samples { step, .. },
+                    ..
+                }) => format!("{step:?}"),
+                other => panic!("the carrier's stairs decoded as {other:?}"),
+            },
         ),
         check::<wire::NdArrayElement>(
             |w, v| {
@@ -3697,7 +3775,9 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
 // colour data and the face and edge
 // alpha of a surface, the height of a contour plane, the levels of a contour, the colour
 // scale of a colour-mapped artist, the alpha of a scalar image, the title of a colour
-// scale and the label of its key, and the pixel ranges and plane offset of an image) must not
+// scale and the label of its key, the pixel ranges and plane offset of an image, the group,
+// colour data and colour scale of a bar series, the base of stairs, and the colour scale
+// and alpha of cells) must not
 // become errors or defaults when absent, because a figure without them is complete; and
 // the encoder must write them as absent rather than as a zero, which would move the
 // image.
@@ -3760,6 +3840,26 @@ fn absent_optional_references_decode_as_absent() {
         id: NodeId(67),
         ..ColorScale::default()
     });
+    // A bar series without a group, colour data or a colour scale, open stairs without a
+    // base, and cells without a colour scale or alpha.
+    let artists = &mut fig
+        .axes
+        .iter_mut()
+        .find(|a| a.id == axes)
+        .expect("fixture axes exists")
+        .artists;
+    artists.push(Artist::Bar(Bar {
+        id: NodeId(68),
+        ..Bar::default()
+    }));
+    artists.push(Artist::Stairs(Stairs {
+        id: NodeId(69),
+        ..Stairs::default()
+    }));
+    artists.push(Artist::Cells(Cells {
+        id: NodeId(70),
+        ..Cells::default()
+    }));
 
     let wire_figure = wire::Figure::from(&fig);
     for artist in &wire_figure.axes[0].artists {
@@ -3793,6 +3893,11 @@ fn absent_optional_references_decode_as_absent() {
                         Some(wire::ImagePlaneKind::Xy(xy)) if xy.z.is_none()
                     )
             }
+            wire::ArtistKind::Bar(bar) => {
+                bar.group.is_none() && bar.color_data.is_none() && bar.color_scale.is_none()
+            }
+            wire::ArtistKind::Stairs(stairs) => stairs.base.is_none(),
+            wire::ArtistKind::Cells(cells) => cells.color_scale.is_none() && cells.alpha.is_none(),
             wire::ArtistKind::ScalarImage(image) => {
                 image.alpha.is_none()
                     && image.color_scale.is_none()

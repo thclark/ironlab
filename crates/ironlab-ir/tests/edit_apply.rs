@@ -1508,6 +1508,9 @@ fn set_artist_id(artist: &mut Artist, id: NodeId) {
         Artist::Surface(a) => a.id = id,
         Artist::Image(a) => a.id = id,
         Artist::ScalarImage(a) => a.id = id,
+        Artist::Bar(a) => a.id = id,
+        Artist::Stairs(a) => a.id = id,
+        Artist::Cells(a) => a.id = id,
     }
 }
 
@@ -2077,6 +2080,21 @@ fn the_registry_describes_opacities_as_numbers_and_alpha_as_optional_data() {
         ),
         (NodeKind::Image, &["opacity"][..], &[][..]),
         (NodeKind::ScalarImage, &["opacity"][..], &["alpha"][..]),
+        (
+            NodeKind::Bar,
+            &["face_opacity", "edge_opacity"][..],
+            &[][..],
+        ),
+        (
+            NodeKind::Stairs,
+            &["line_opacity", "fill_opacity"][..],
+            &[][..],
+        ),
+        (
+            NodeKind::Cells,
+            &["face_opacity", "edge_opacity"][..],
+            &["alpha"][..],
+        ),
         (
             NodeKind::Contour,
             &["line_opacity", "fill_opacity"][..],

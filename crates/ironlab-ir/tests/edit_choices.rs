@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 34] = [
+const WITH_CHOICES: [ValueType; 41] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -48,6 +48,13 @@ const WITH_CHOICES: [ValueType; 34] = [
     ValueType::ColorScaleLevels,
     ValueType::Interpreter,
     ValueType::FontSetId,
+    ValueType::Orientation,
+    ValueType::BarBase,
+    ValueType::BarSlot,
+    ValueType::BarLayout,
+    ValueType::StairsData,
+    ValueType::StepAt,
+    ValueType::CellEdges,
 ];
 
 /// Every value type, taken from the sample values rather than from the API under test.
@@ -658,14 +665,24 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
 /// [`property_choices`] against the behaviour of the compiler rather than against itself.
 ///
 /// Each isoline of a contour is coloured by its own level, each face of a surface by its
-/// colour data or by its height, and a series with colour data colours its line by it
-/// and, when the data holds one value per point, its markers too. Nowhere else does the
+/// colour data or by its height, a series with colour data colours its line by it
+/// and, when the data holds one value per point, its markers too, and bars with colour
+/// data colour each face and each outline by the value of its bar. Nowhere else does the
 /// IR hold a value to look a colour up by: the compiler paints a colormapped quiver, or a
-/// colormapped colour of a series without colour data, in the middle colour of viridis.
+/// colormapped colour of a series without colour data, in the middle colour of viridis,
+/// and stairs have no colour data at all.
 fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'static str> {
     match kind {
         NodeKind::Contour => vec!["line.color"],
         NodeKind::Surface => vec!["face", "edge"],
+        // The outline of each cell takes the colour of its cell.
+        NodeKind::Cells => vec!["edge.color"],
+        NodeKind::Bar => match figure.artist(node) {
+            Some((_, Artist::Bar(bar))) if bar.color_data.is_some() => {
+                vec!["face", "edge.color"]
+            }
+            _ => vec![],
+        },
         NodeKind::Series => {
             let Some((_, Artist::Series(series))) = figure.artist(node) else {
                 return vec![];
@@ -760,7 +777,9 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
             Artist::Surface(a) => a.color_scale = None,
             Artist::Series(a) => a.color_scale = None,
             Artist::ScalarImage(a) => a.color_scale = None,
-            Artist::Quiver(_) | Artist::Image(_) => {}
+            Artist::Cells(a) => a.color_scale = None,
+            Artist::Bar(a) => a.color_scale = None,
+            Artist::Quiver(_) | Artist::Image(_) | Artist::Stairs(_) => {}
         }
     }
     figures.push(unscaled);
@@ -772,6 +791,8 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
                     Artist::Contour(a) => a.color_scale,
                     Artist::Surface(a) => a.color_scale,
                     Artist::Series(a) => a.color_scale,
+                    Artist::Cells(a) => a.color_scale,
+                    Artist::Bar(a) => a.color_scale,
                     _ => None,
                 })
                 .is_some_and(|scale| figure.color_scales.iter().any(|s| s.id == scale));

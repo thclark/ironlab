@@ -14,13 +14,13 @@ use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
 /// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
-/// scale reference, contour levels, pixel range or plane offset), by full Protocol Buffers
-/// name.
+/// scale reference, contour levels, pixel range or plane offset, the group and colour data
+/// of a bar series, and the base of stairs), by full Protocol Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 36] = [
+pub const OPTIONAL_IN_IR: [&str; 45] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -50,6 +50,15 @@ pub const OPTIONAL_IN_IR: [&str; 36] = [
     "ironlab.ir.v0.ScalarImage.label",
     "ironlab.ir.v0.ScalarImage.color_scale",
     "ironlab.ir.v0.ScalarImage.alpha",
+    "ironlab.ir.v0.Bar.label",
+    "ironlab.ir.v0.Bar.group",
+    "ironlab.ir.v0.Bar.color_data",
+    "ironlab.ir.v0.Bar.color_scale",
+    "ironlab.ir.v0.Stairs.label",
+    "ironlab.ir.v0.Stairs.base",
+    "ironlab.ir.v0.Cells.label",
+    "ironlab.ir.v0.Cells.color_scale",
+    "ironlab.ir.v0.Cells.alpha",
     "ironlab.ir.v0.ColorScale.title",
     "ironlab.ir.v0.ColorScaleOutOfRange.label",
     "ironlab.ir.v0.ImagePlacement.columns",
@@ -633,6 +642,38 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
             .collect(),
         Artist::Image(a) => vec![a.pixels],
         Artist::ScalarImage(a) => [a.values].into_iter().chain(a.alpha).collect(),
+        Artist::Bar(a) => {
+            let base = match a.base {
+                BarBase::Constant(_) => None,
+                BarBase::Data(id) => Some(id),
+            };
+            let slot = match a.slot {
+                BarSlot::Pitch | BarSlot::Width(_) => None,
+                BarSlot::Data(id) => Some(id),
+            };
+            [a.positions, a.values]
+                .into_iter()
+                .chain(base)
+                .chain(slot)
+                .chain(a.color_data)
+                .collect()
+        }
+        Artist::Stairs(a) => match a.data {
+            StairsData::Edges { edges, values } => vec![edges, values],
+            StairsData::Samples { x, values, .. } => vec![x, values],
+        },
+        Artist::Cells(a) => {
+            let edges = |edges: &CellEdges| match *edges {
+                CellEdges::Unit => None,
+                CellEdges::Edges(id) => Some(id),
+            };
+            [a.values]
+                .into_iter()
+                .chain(edges(&a.columns))
+                .chain(edges(&a.rows))
+                .chain(a.alpha)
+                .collect()
+        }
     }
 }
 
@@ -671,6 +712,40 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
             .into_iter()
             .chain(a.alpha.as_mut())
             .collect(),
+        Artist::Bar(a) => {
+            let base = match &mut a.base {
+                BarBase::Constant(_) => None,
+                BarBase::Data(id) => Some(id),
+            };
+            let slot = match &mut a.slot {
+                BarSlot::Pitch | BarSlot::Width(_) => None,
+                BarSlot::Data(id) => Some(id),
+            };
+            [&mut a.positions, &mut a.values]
+                .into_iter()
+                .chain(base)
+                .chain(slot)
+                .chain(a.color_data.as_mut())
+                .collect()
+        }
+        Artist::Stairs(a) => match &mut a.data {
+            StairsData::Edges { edges, values } => vec![edges, values],
+            StairsData::Samples { x, values, .. } => vec![x, values],
+        },
+        Artist::Cells(a) => {
+            fn edges(edges: &mut CellEdges) -> Option<&mut NodeId> {
+                match edges {
+                    CellEdges::Unit => None,
+                    CellEdges::Edges(id) => Some(id),
+                }
+            }
+            [&mut a.values]
+                .into_iter()
+                .chain(edges(&mut a.columns))
+                .chain(edges(&mut a.rows))
+                .chain(a.alpha.as_mut())
+                .collect()
+        }
     }
 }
 
@@ -802,7 +877,9 @@ pub fn limits_of(fig: &Figure, axes: NodeId, dimension: Dimension) -> Limits {
 /// colour scales included.
 /// Two colourbar panels follow the legend panels, one of each orientation, each showing
 /// a scale that no artist names, one of them spanning two rows of the fitted column; and
-/// four axes hold an inside colourbar, one on each side.
+/// four axes hold an inside colourbar, one on each side. The axes without a title or
+/// legend holds bars, stairs and cells using every variant of their tagged values (see
+/// [`add_bars_stairs_and_cells`]), with a hidden x axis and rotated y tick labels.
 pub fn kitchen_sink_figure() -> Figure {
     let mut b = FigureBuilder::new();
     b.fig.title = Some(Text::new(r"Every artist, $\alpha^2$"));
@@ -1130,6 +1207,8 @@ pub fn kitchen_sink_figure() -> Figure {
                 Text::plain("ten"),
             ]),
             grid: true,
+            visible: true,
+            tick_label_angle: 30.0,
         };
         a.y.ticks = Ticks::Step {
             step: 0.25,
@@ -1335,6 +1414,10 @@ pub fn kitchen_sink_figure() -> Figure {
             ticks: Ticks::Values(vec![0.1, 1.0, 10.0]),
             tick_labels: TickLabels::Auto,
             grid: true,
+            // A three-dimensional axes ignores a tick label angle with a warning, so the
+            // only valid angle here is the default.
+            visible: true,
+            tick_label_angle: 0.0,
         };
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::North,
@@ -1606,6 +1689,7 @@ pub fn kitchen_sink_figure() -> Figure {
     // the fitted column.
     let plain = b.axes2d(2, 3);
     b.axes(plain).cell.col_span = 2;
+    add_bars_stairs_and_cells(&mut b, plain, bytes, palette_scale);
 
     // Axes 11 and 12 and two legend panels: two axes that each list a named line in a
     // panel, so that neither panel is empty; a boxed panel with a fixed number of columns
@@ -1831,6 +1915,219 @@ pub fn kitchen_sink_figure() -> Figure {
     b.build()
 }
 
+/// Adds to a 2D axes of linear scales bars, stairs and cells that between them use every
+/// variant of every enum and tagged value of those artists, and hides the x axis of the
+/// axes and rotates the labels of its y ticks.
+///
+/// The bars are three grouped series of four categories that agree in orientation, slot,
+/// gap and base, one of them with a NaN value and one whose faces and outlines are coloured
+/// by data through `palette`; two stacked
+/// horizontal series of a fixed width, one with negative values, translucent faces and
+/// translucent edges; and a hidden series of floating bars on a base and widths given as
+/// data. The stairs are an open outline on
+/// edges, and three filled or unfilled outlines on samples, one for each step position.
+/// The stairs on samples have translucent lines. The cells are a grid of floats on
+/// decreasing column edges and unit rows, with gaps, edges, alpha and face and edge
+/// opacities, mapped through a scale of their own (numbered 910, appended
+/// after the kitchen-sink scales so that their indices are unchanged), and a hidden grid of
+/// the 8-bit `bytes` on unit columns and explicit rows through `palette`. Every array is
+/// referred to, so the axes adds no unused-data warning, and every member of a group
+/// agrees with the first, so it adds no inconsistent-group warning.
+fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId, palette: NodeId) {
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
+    {
+        let a = b.axes(axes);
+        a.x.visible = false;
+        a.y.tick_label_angle = 45.0;
+    }
+    let categories = b.vector(&[1.0, 2.0, 3.0, 4.0]);
+    let first = b.vector(&[3.0, 5.0, 2.0, 4.0]);
+    let second = b.vector(&[4.0, 1.0, 3.0, 5.0]);
+    let gappy = b.vector(&[2.0, f64::NAN, 4.0, 1.0]);
+    let signed = b.vector(&[-1.0, 2.0, -3.0, 4.0]);
+    let floor = b.vector(&[0.5, 0.5, 1.0, 1.0]);
+    let widths = b.vector(&[0.5, 0.8, 0.5, 0.8]);
+    let edges = b.vector(&[0.0, 1.0, 2.0, 3.0, 4.0]);
+    let field = b.matrix(2, 3, |j, i| (j * 3 + i) as f64 - 1.5);
+    let alpha = b.matrix(2, 3, |j, i| (j * 3 + i) as f64 / 5.0);
+    let falling = b.vector(&[3.0, 2.0, 1.0, 0.0]);
+    let rows = b.vector(&[0.0, 10.0, 20.0]);
+    let codes = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+
+    let models = |layout| {
+        Some(BarGroup {
+            name: "models".to_owned(),
+            layout,
+        })
+    };
+    for (k, (values, face, color_data)) in [
+        (first, ColorSpec::Auto, None),
+        (second, ColorSpec::Colormapped, Some(codes)),
+        (gappy, ColorSpec::None, None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = b.node();
+        b.push(
+            axes,
+            Artist::Bar(Bar {
+                id,
+                label: Some(Text::new(format!("model ${k}$"))),
+                positions: categories,
+                values,
+                group: models(BarLayout::Grouped),
+                face,
+                color_data,
+                color_scale: color_data.map(|_| palette),
+                edge: LineStyle {
+                    color: match k {
+                        1 => ColorSpec::Colormapped,
+                        2 => ColorSpec::Auto,
+                        _ => ColorSpec::None,
+                    },
+                    ..Bar::default().edge
+                },
+                ..Bar::default()
+            }),
+        );
+    }
+    for values in [signed, first] {
+        let id = b.node();
+        b.push(
+            axes,
+            Artist::Bar(Bar {
+                id,
+                orientation: Orientation::Horizontal,
+                positions: categories,
+                values,
+                slot: BarSlot::Width(0.6),
+                gap: 0.1,
+                group: Some(BarGroup {
+                    name: "stack".to_owned(),
+                    layout: BarLayout::Stacked,
+                }),
+                edge: LineStyle {
+                    color: ColorSpec::Rgba { color: red },
+                    width_pt: 0.25,
+                    dash: DashStyle::Dashed,
+                },
+                face_opacity: 0.5,
+                edge_opacity: 0.75,
+                ..Bar::default()
+            }),
+        );
+    }
+    let id = b.node();
+    b.push(
+        axes,
+        Artist::Bar(Bar {
+            id,
+            visible: false,
+            positions: categories,
+            values: second,
+            base: BarBase::Data(floor),
+            slot: BarSlot::Data(widths),
+            gap: 0.0,
+            ..Bar::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        axes,
+        Artist::Stairs(Stairs {
+            id,
+            label: Some(Text::plain("histogram")),
+            data: StairsData::Edges {
+                edges,
+                values: first,
+            },
+            ..Stairs::default()
+        }),
+    );
+    for (values, step, base, fill) in [
+        (
+            second,
+            StepAt::Pre,
+            Some(0.0),
+            ColorSpec::Rgba { color: blue },
+        ),
+        (gappy, StepAt::Mid, Some(-1.0), ColorSpec::Auto),
+        (signed, StepAt::Post, None, ColorSpec::None),
+    ] {
+        let id = b.node();
+        b.push(
+            axes,
+            Artist::Stairs(Stairs {
+                id,
+                orientation: if step == StepAt::Pre {
+                    Orientation::Horizontal
+                } else {
+                    Orientation::Vertical
+                },
+                data: StairsData::Samples {
+                    x: categories,
+                    values,
+                    step,
+                },
+                base,
+                line: LineStyle {
+                    dash: DashStyle::Dotted,
+                    ..LineStyle::default()
+                },
+                fill,
+                line_opacity: 0.5,
+                fill_opacity: if base.is_some() { 0.25 } else { 1.0 },
+                ..Stairs::default()
+            }),
+        );
+    }
+    let scale = NodeId(910);
+    b.fig.color_scales.push(ColorScale {
+        id: scale,
+        title: Some(Text::plain("cells")),
+        ..ColorScale::default()
+    });
+    let id = b.node();
+    b.push(
+        axes,
+        Artist::Cells(Cells {
+            id,
+            label: Some(Text::plain("matrix")),
+            values: field,
+            columns: CellEdges::Edges(falling),
+            rows: CellEdges::Unit,
+            gap: CellGap { x: 0.1, y: 0.25 },
+            edge: LineStyle {
+                color: ColorSpec::Rgba {
+                    color: Color::WHITE,
+                },
+                width_pt: 1.0,
+                dash: DashStyle::Solid,
+            },
+            color_scale: Some(scale),
+            alpha: Some(alpha),
+            face_opacity: 0.8,
+            edge_opacity: 0.6,
+            ..Cells::default()
+        }),
+    );
+    let id = b.node();
+    b.push(
+        axes,
+        Artist::Cells(Cells {
+            id,
+            visible: false,
+            values: bytes,
+            columns: CellEdges::Unit,
+            rows: CellEdges::Edges(rows),
+            color_scale: Some(palette),
+            ..Cells::default()
+        }),
+    );
+}
+
 /// A valid figure that sets every variant of the placement of images and of the
 /// out-of-range policies of the scales they name, beyond what the kitchen-sink figure
 /// holds: in a 3D axes, on each plane, with and without an offset and with offsets of both
@@ -2023,9 +2320,10 @@ pub const SPECIAL_F64: [f64; 12] = [
 
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
 /// figure outside colours and ticks: sizes, numeric figure parameters, limits (of axes
-/// and of colour scales), views, style widths and sizes (of artists and of the custom line
-/// samples of legends), artist parameters, explicit levels and band edges, and every value
-/// of every `f64` data array. An array of 8-bit values
+/// and of colour scales), tick label angles, views, style widths and sizes (of artists and
+/// of the custom line samples of legends), artist parameters (the gaps, bases, widths and
+/// opacities of bars, stairs and cells among them), explicit levels and band edges, and
+/// every value of every `f64` data array. An array of 8-bit values
 /// holds no floats and is skipped.
 ///
 /// A single traversal serves both to set special values and to read them back, so
@@ -2078,6 +2376,9 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 visit(at(&format!("{name}.max")), max);
             }
         }
+        visit(at("x.tick_label_angle"), &mut axes.x.tick_label_angle);
+        visit(at("y.tick_label_angle"), &mut axes.y.tick_label_angle);
+        visit(at("z.tick_label_angle"), &mut axes.z.tick_label_angle);
         for (k, artist) in axes.artists.iter_mut().enumerate() {
             let at = |field: &str| format!("axes[{a}].artists[{k}].{field}");
             match artist {
@@ -2108,6 +2409,33 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 }
                 Artist::Image(image) => visit_placement(visit, &at, &mut image.placement),
                 Artist::ScalarImage(image) => visit_placement(visit, &at, &mut image.placement),
+                Artist::Bar(bar) => {
+                    if let BarBase::Constant(base) = &mut bar.base {
+                        visit(at("base.constant"), base);
+                    }
+                    if let BarSlot::Width(width) = &mut bar.slot {
+                        visit(at("slot.width"), width);
+                    }
+                    visit(at("gap"), &mut bar.gap);
+                    visit(at("edge.width_pt"), &mut bar.edge.width_pt);
+                    visit(at("face_opacity"), &mut bar.face_opacity);
+                    visit(at("edge_opacity"), &mut bar.edge_opacity);
+                }
+                Artist::Stairs(stairs) => {
+                    if let Some(base) = &mut stairs.base {
+                        visit(at("base"), base);
+                    }
+                    visit(at("line.width_pt"), &mut stairs.line.width_pt);
+                    visit(at("line_opacity"), &mut stairs.line_opacity);
+                    visit(at("fill_opacity"), &mut stairs.fill_opacity);
+                }
+                Artist::Cells(cells) => {
+                    visit(at("gap.x"), &mut cells.gap.x);
+                    visit(at("gap.y"), &mut cells.gap.y);
+                    visit(at("edge.width_pt"), &mut cells.edge.width_pt);
+                    visit(at("face_opacity"), &mut cells.face_opacity);
+                    visit(at("edge_opacity"), &mut cells.edge_opacity);
+                }
             }
         }
         if let Some(Legend::Inside(inside)) = &mut axes.legend {

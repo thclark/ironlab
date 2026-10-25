@@ -215,6 +215,9 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
         NodeKind::Surface => "Surface",
         NodeKind::Image => "Image",
         NodeKind::ScalarImage => "Scalar image",
+        NodeKind::Bar => "Bar",
+        NodeKind::Stairs => "Stairs",
+        NodeKind::Cells => "Cells",
         NodeKind::DataArray => "Data array",
         NodeKind::ColorScale => "Colour scale",
         NodeKind::Panel => "Panel",
@@ -276,6 +279,9 @@ fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Surface(_) => NodeKind::Surface,
         Artist::Image(_) => NodeKind::Image,
         Artist::ScalarImage(_) => NodeKind::ScalarImage,
+        Artist::Bar(_) => NodeKind::Bar,
+        Artist::Stairs(_) => NodeKind::Stairs,
+        Artist::Cells(_) => NodeKind::Cells,
     }
 }
 
@@ -651,7 +657,12 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         NodeKind::DataArray => Some(DATA_ARRAY_REASON),
         // Which colour scale an artist names relates the artist to another node of the
         // figure, which is structure as the panel of a legend is.
-        NodeKind::Series | NodeKind::Contour | NodeKind::Surface | NodeKind::ScalarImage
+        NodeKind::Series
+        | NodeKind::Contour
+        | NodeKind::Surface
+        | NodeKind::ScalarImage
+        | NodeKind::Cells
+        | NodeKind::Bar
             if segments == ["color_scale"] =>
         {
             Some(COLOR_SCALE_REFERENCE_REASON)
@@ -667,6 +678,9 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::Surface
         | NodeKind::Image
         | NodeKind::ScalarImage
+        | NodeKind::Bar
+        | NodeKind::Stairs
+        | NodeKind::Cells
         | NodeKind::ColorScale
         | NodeKind::Panel => None,
     }
@@ -704,7 +718,9 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ContinuousColorScale
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale => true,
+        | ValueType::CategoricalColorScale
+        | ValueType::BarGroup
+        | ValueType::CellGap => true,
         ValueType::Bool
         | ValueType::UInt32
         | ValueType::Double
@@ -752,7 +768,14 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ColorScaleKind
         | ValueType::Colormap
         | ValueType::ColorScaleNorm
-        | ValueType::ColorScaleLevels => false,
+        | ValueType::ColorScaleLevels
+        | ValueType::Orientation
+        | ValueType::BarBase
+        | ValueType::BarSlot
+        | ValueType::BarLayout
+        | ValueType::StairsData
+        | ValueType::StepAt
+        | ValueType::CellEdges => false,
     }
 }
 
@@ -838,7 +861,14 @@ fn editor_for(
         | ValueType::DashStyle
         | ValueType::Coords
         | ValueType::Interpreter
-        | ValueType::FontSetId => Editor::Choice {
+        | ValueType::FontSetId
+        | ValueType::Orientation
+        | ValueType::BarBase
+        | ValueType::BarSlot
+        | ValueType::BarLayout
+        | ValueType::StairsData
+        | ValueType::StepAt
+        | ValueType::CellEdges => Editor::Choice {
             offered: property_choices(figure, node, &property.path),
         },
         // The container types, which [`is_composite`] answered for above. They are listed
@@ -862,7 +892,9 @@ fn editor_for(
         | ValueType::ContinuousColorScale
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale => Editor::Group,
+        | ValueType::CategoricalColorScale
+        | ValueType::BarGroup
+        | ValueType::CellGap => Editor::Group,
     }
 }
 
