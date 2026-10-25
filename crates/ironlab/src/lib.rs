@@ -58,6 +58,7 @@
 
 mod artists;
 mod axes;
+pub mod binning;
 mod color;
 mod color_scale;
 mod colorbar;
@@ -75,6 +76,7 @@ pub use artists::{
     StairsMut, SurfaceMut,
 };
 pub use axes::{AxesMut, CategoryRows};
+pub use binning::{BinRule, Bins, HistNorm, HistStyle, HistogramSummary};
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
 pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
@@ -196,4 +198,5 @@ pub mod prelude {
         RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt,
         SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
+    pub use crate::{BinRule, Bins, HistNorm, HistStyle, HistogramSummary};
 }
