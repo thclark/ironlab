@@ -10,6 +10,7 @@ mod probe;
 mod alpha;
 mod artists;
 mod aspect;
+mod axis_display;
 mod blended;
 mod color_scales;
 mod colorbar_hits;

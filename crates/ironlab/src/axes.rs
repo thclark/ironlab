@@ -876,6 +876,100 @@ impl AxesMut<'_> {
         self
     }
 
+    /// Turns every tick label of the x axis by `degrees` anticlockwise from
+    /// horizontal (MATLAB's `xtickangle`, matplotlib's
+    /// `tick_params(axis="x", labelrotation=…)`).
+    ///
+    /// A positive angle gives labels that rise to the right, a negative one labels
+    /// that fall to the right, and 90 labels that stand vertically. Each label is
+    /// turned about its end nearest its tick, so that it still points at the tick it
+    /// names, and the layout reserves the space the turned labels take. The common
+    /// exponent of the axis stays level, and the angle has no effect on hidden
+    /// labels. Three-dimensional axes ignore the angle, which
+    /// [`Figure::validate`](crate::Figure::validate) warns of; an angle that is not
+    /// finite is reported as an error.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot([1.0, 2.0, 3.0], [12.0, 7.0, 9.0]);
+    /// ax.xticks([1.0, 2.0, 3.0])
+    ///     .xtick_labels(["boundary layer", "panel method", "transition"])
+    ///     .xtick_label_angle(45.0);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn xtick_label_angle(&mut self, degrees: f64) -> &mut Self {
+        self.axes().x.tick_label_angle = degrees;
+        self
+    }
+
+    /// Turns every tick label of the y axis by `degrees` anticlockwise from
+    /// horizontal (MATLAB's `ytickangle`); see
+    /// [`xtick_label_angle`](AxesMut::xtick_label_angle).
+    pub fn ytick_label_angle(&mut self, degrees: f64) -> &mut Self {
+        self.axes().y.tick_label_angle = degrees;
+        self
+    }
+
+    /// Sets the angle of the tick labels of the z axis (MATLAB's `ztickangle`),
+    /// which three-dimensional axes ignore, as
+    /// [`xtick_label_angle`](AxesMut::xtick_label_angle) describes; the angle is
+    /// stored so that it is kept in the figure.
+    pub fn ztick_label_angle(&mut self, degrees: f64) -> &mut Self {
+        self.axes().z.tick_label_angle = degrees;
+        self
+    }
+
+    /// Shows or hides the x axis (matplotlib's `ax.xaxis.set_visible`, MATLAB's
+    /// `ax.XAxis.Visible`).
+    ///
+    /// A hidden axis draws no spine (the bottom edge of the plot area, and the top
+    /// edge when the box is on), no tick marks, no tick labels and no axis label, and
+    /// no space is reserved for them, so the plot area grows into the space they
+    /// would have taken. Its grid lines still follow [`grid`](AxesMut::grid), and its
+    /// limits and scale still place the data. Hiding both axes removes the box. A
+    /// hidden axis of a three-dimensional axes draws no ticks, tick labels or label,
+    /// and the box is drawn as before.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x = linspace(0.0, 1.0, 21);
+    /// let squares: Vec<f64> = x.iter().map(|x| x * x).collect();
+    /// let roots: Vec<f64> = x.iter().map(|x| x.sqrt()).collect();
+    ///
+    /// let mut fig = Figure::new().tiles(2, 1);
+    /// let mut top = fig.axes(0, 0);
+    /// top.plot(&x, &squares);
+    /// top.xaxis_visible(false);
+    /// let mut bottom = fig.axes(1, 0);
+    /// bottom.plot(&x, &roots);
+    /// bottom.xlabel("$x/c$");
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn xaxis_visible(&mut self, visible: bool) -> &mut Self {
+        self.axes().x.visible = visible;
+        self
+    }
+
+    /// Shows or hides the y axis (matplotlib's `ax.yaxis.set_visible`, MATLAB's
+    /// `ax.YAxis.Visible`); see [`xaxis_visible`](AxesMut::xaxis_visible). A hidden y
+    /// axis draws no left edge (nor right edge with the box on), ticks, tick labels or
+    /// label, and the plot area grows to the left.
+    pub fn yaxis_visible(&mut self, visible: bool) -> &mut Self {
+        self.axes().y.visible = visible;
+        self
+    }
+
+    /// Shows or hides the z axis of a three-dimensional axes; a hidden z axis draws
+    /// no ticks, tick labels or label. See [`xaxis_visible`](AxesMut::xaxis_visible).
+    pub fn zaxis_visible(&mut self, visible: bool) -> &mut Self {
+        self.axes().z.visible = visible;
+        self
+    }
+
     /// Shows or hides grid lines along every axis (MATLAB's `grid on` and
     /// `grid off`).
     pub fn grid(&mut self, on: bool) -> &mut Self {

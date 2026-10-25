@@ -63,6 +63,25 @@ pub(crate) struct Decor {
     /// Labels of the x, y and z axes.
     pub labels: [Option<TextBlock>; 3],
     pub title: Option<TextBlock>,
+    /// The angle of the tick labels of the x and y axes of a 2D axes, in degrees anticlockwise from horizontal and
+    /// normalised by [`normalised_angle`]; 0 for level labels, and always 0 for a 3D axes, which ignores the angle.
+    pub angles: [f64; 2],
+}
+
+/// Returns an angle in degrees reduced to the interval (−180, 180], with −0 and any angle that is not finite (which
+/// validation reports) taken as 0, so that angles differing by whole turns turn labels alike and the sign of an angle
+/// can be tested safely.
+pub(super) fn normalised_angle(degrees: f64) -> f64 {
+    if !degrees.is_finite() {
+        return 0.0;
+    }
+    let turned = degrees.rem_euclid(360.0);
+    let angle = if turned > 180.0 {
+        turned - 360.0
+    } else {
+        turned
+    };
+    if angle == 0.0 { 0.0 } else { angle }
 }
 
 /// Computes the ticks of every axis of an axes and measures all of its decoration text.
@@ -83,7 +102,14 @@ pub(super) fn measure(
                 MIN_TICKS
             };
             let name = ["x", "y", "z"][dim];
-            axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest)
+            let mut ticks = axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest);
+            // A hidden axis keeps its ticks, which place its grid lines, but draws no tick labels or exponent, so
+            // that no space is reserved for them.
+            if !axis.visible {
+                ticks.labels.clear();
+                ticks.exponent = None;
+            }
+            ticks
         } else {
             AxisTicks {
                 major: Vec::new(),
@@ -94,8 +120,16 @@ pub(super) fn measure(
         }
     });
     let labels = std::array::from_fn(|dim| {
-        let label = axes_axis(axes, dim).label.as_ref()?;
+        let axis = axes_axis(axes, dim);
+        let label = axis.label.as_ref().filter(|_| axis.visible)?;
         (dim < dims).then(|| text::measure(ctx, label, fs, axes.id))
+    });
+    let angles = std::array::from_fn(|dim| {
+        if dims == 2 {
+            normalised_angle(axes_axis(axes, dim).tick_label_angle)
+        } else {
+            0.0
+        }
     });
     let title = axes
         .title
@@ -105,6 +139,7 @@ pub(super) fn measure(
         ticks,
         labels,
         title,
+        angles,
     }
 }
 
@@ -125,7 +160,8 @@ pub(super) fn fit_x_target(
     target: usize,
     outer: Rect,
 ) -> usize {
-    let automatic = axes.x.ticks == Ticks::Auto && axes.x.tick_labels != TickLabels::Hidden;
+    let automatic =
+        axes.x.ticks == Ticks::Auto && axes.x.tick_labels != TickLabels::Hidden && axes.x.visible;
     if is_3d(axes) || range.log || target <= 2 || !automatic {
         return target;
     }
@@ -135,7 +171,8 @@ pub(super) fn fit_x_target(
     };
     let length = x_length_estimate(outer);
     let spacing = length * (b - a) / (range.max - range.min);
-    let needed = ticks.max_width() + X_LABEL_GAP * ctx.font_size;
+    let needed = along_axis_need(&ticks, normalised_angle(axes.x.tick_label_angle))
+        + X_LABEL_GAP * ctx.font_size;
     if !(spacing.is_finite() && needed.is_finite()) || spacing >= needed {
         return target;
     }
@@ -146,6 +183,23 @@ pub(super) fn fit_x_target(
         2
     };
     fit.min(target - 1).max(2)
+}
+
+/// Returns the distance along an x axis that neighbouring tick labels turned `angle` degrees need between their ticks,
+/// before the clear gap is added.
+///
+/// Level labels need their width. Turned labels are parallel strips as thick as the text, which clear each other
+/// when their distance across the strips, the tick spacing times the sine of the angle, exceeds the thickness, or
+/// when their distance along the strips, the spacing times the cosine, exceeds the length; the smaller of the two
+/// spacings suffices.
+fn along_axis_need(ticks: &AxisTicks, angle: f64) -> f64 {
+    let width = ticks.max_width();
+    if angle == 0.0 {
+        return width;
+    }
+    let thickness = ticks.max_height() + ticks.max_depth();
+    let (s, c) = angle.to_radians().sin_cos();
+    (thickness / s.abs()).min(width / c.abs())
 }
 
 /// Computes the ticks of one axis and typesets their labels.
