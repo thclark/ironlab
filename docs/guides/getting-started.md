@@ -407,6 +407,8 @@ The remaining axes properties are also set on the axes handle.
 | `xtick_step(step)`, `xtick_step_from(step, origin)` and the same for y and z | Places a tick at every multiple of the step, or at every `origin + k × step`, within the limits. |
 | `xtick_labels(texts)`, `ytick_labels(texts)`, `ztick_labels(texts)` | Labels the ticks given by `xticks`, `yticks` or `zticks` with the texts, one per value. |
 | `xtick_labels_hidden()`, `ytick_labels_hidden()`, `ztick_labels_hidden()` | Draws the ticks of an axis without labels and reserves no space for them. |
+| `xtick_label_angle(degrees)`, `ytick_label_angle(degrees)`, `ztick_label_angle(degrees)` | Turns every tick label of an axis by the angle, anticlockwise from horizontal; see [turned tick labels and hidden axes](#turned-tick-labels-and-hidden-axes). |
+| `xaxis_visible(on)`, `yaxis_visible(on)`, `zaxis_visible(on)` | Shows or hides an axis with its spine, ticks, tick labels and label, and gives its space to the plot area. |
 | `aspect(aspect)` | Fixes the ratios of the drawn length of a unit of y, and of z, to that of a unit of x: `Aspect::Equal`, `Aspect::ratio(y)` or `Aspect::Ratio { y, z }`; see [equal aspect](#equal-aspect). |
 | `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
@@ -444,6 +446,26 @@ ax.ylim(-0.5, cases.len() as f64 - 0.5)
 ```
 
 `ytick_labels_hidden()` keeps the ticks of an axis but draws no labels and reserves no space for them, so that a panel beside one that names the rows, or the upper rows of a stack that shares one x axis, gives the space to its plot. Plot areas of equal [weight](legends.md#sizing-rows-and-columns-with-weights) are of equal size whatever their labels, so the two panels of a strip chart have plot areas of the same width although only one of them carries the names. Labels without explicit ticks, or of a different number, are reported by [`validate`](#validating-a-figure) as the error `InvalidTickLabels`, and a step that is not a finite positive number as the error `InvalidTicks`. The [categorical strip chart](../gallery/strip_chart.md) and the [pressure distribution](../gallery/pressure_distribution.md) of the gallery show both uses in full.
+
+### Turned tick labels and hidden axes
+
+Long category names collide when they are written level under a crowded axis. `xtick_label_angle(45.0)` turns every tick label of the x axis by 45 degrees anticlockwise from horizontal, so that the names rise to the right, and `xtick_label_angle(90.0)` stands them vertically. Each label is turned about its end nearest its tick, so a label still points at the tick it names: with a positive angle the end of each name lies just below its tick, and with a negative angle its start does. A label never comes closer to the plot than a level label does, and the layout reserves the space the turned labels take, so that they overlap neither the axis label nor a neighbouring axes, and none is clipped by the page. The angle applies to automatic, explicit and named labels alike; the common exponent `×10^k` of the axis stays level. Angles that differ by whole turns are the same angle, and 180 draws level labels upside down, centred on their ticks.
+
+`xaxis_visible(false)` hides the x axis entirely: its spine (the bottom edge of the plot area, and the top edge when the box is on), its ticks, its tick labels and its label. No space is reserved for them, so the plot area grows into the space they would have taken. The grid lines of a hidden axis still follow `grid`, and its limits and scale still place the data. Hiding both axes removes the box, which consists of their spines. The plot areas of a row of axes stay aligned, so an axes beside one with turned labels keeps the same height whether or not its own x axis is shown.
+
+```rust
+let names = ["xpanel", "xbl", "xsolve", "xoper"];
+let ticks = [0.0, 1.0, 2.0, 3.0];
+let mut fig = Figure::new().tiles(2, 1);
+let mut top = fig.axes(0, 0);
+top.plot(ticks, [0.42, 0.18, 0.77, 0.35]);
+top.xaxis_visible(false); // the panel below names the cases
+let mut bottom = fig.axes(1, 0);
+bottom.plot(ticks, [12.0, 31.0, 7.0, 19.0]);
+bottom.xticks(ticks).xtick_labels(names).xtick_label_angle(45.0);
+```
+
+A three-dimensional axes draws its tick labels along the projected edges of its box, where a turn in the page has no agreed meaning, so it ignores the angle and [`validate`](#validating-a-figure) warns of it with `TickLabelAngleIgnored`; an angle that is not finite is the error `InvalidTickLabelAngle`. A hidden axis of a three-dimensional axes draws no ticks, tick labels or label, and the box is drawn as before. The [equivalent functions](../reference/equivalent-functions.md#axes) map both settings to MATLAB, matplotlib and Plotly, and the [figure schema](../reference/figure-schema.md#axis) gives the exact rules.
 
 ## Legends
 
