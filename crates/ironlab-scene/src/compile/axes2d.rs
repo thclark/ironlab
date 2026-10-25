@@ -11,6 +11,7 @@ use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
+use super::text::TextBlock;
 use super::{colorbar, legend, limits::Range};
 
 /// The width of the axes box and tick marks, in points.
@@ -63,10 +64,134 @@ fn x_row_height(ticks: &AxisTicks) -> f64 {
     ticks.max_height() + ticks.max_depth()
 }
 
+/// The side of the plot area along which an axis of a 2D axes sets its tick labels.
+#[derive(Clone, Copy)]
+enum Side {
+    /// Below the plot area, where the x axis sets its labels.
+    Bottom,
+    /// Left of the plot area, where the y axis sets its labels.
+    Left,
+}
+
+impl Side {
+    /// The unit page direction across the axis, away from the plot area.
+    fn outward(self) -> Point {
+        match self {
+            Side::Bottom => Point::new(0.0, 1.0),
+            Side::Left => Point::new(-1.0, 0.0),
+        }
+    }
+
+    /// The unit page direction along the axis.
+    fn along(self) -> Point {
+        match self {
+            Side::Bottom => Point::new(1.0, 0.0),
+            Side::Left => Point::new(0.0, 1.0),
+        }
+    }
+}
+
+fn dot(a: Point, b: Point) -> f64 {
+    a.x * b.x + a.y * b.y
+}
+
+/// Where a tick label turned by an angle other than 0 lies, as offsets from its tick on the edge of the plot area.
+struct Turned {
+    /// The offset of the baseline origin of the label from its tick.
+    origin: Point,
+    /// The offset of the box that the turned label covers from its tick.
+    bounds: Rect,
+}
+
+/// Places a tick label turned `angle` degrees anticlockwise (normalised, and not 0) on `side`, `pad` away from the
+/// plot area.
+///
+/// The label is turned about a point of its own box, its anchor, which is placed on the line through the tick across
+/// the axis:
+///
+/// - For an angle of 180 the text is level but upside down, so neither end is nearer the tick and the anchor is the
+///   centre of the box: the label is centred on its tick, as a level label is.
+/// - For any other angle the anchor is the middle of the text's thickness at the end of the text that, once turned,
+///   lies nearer the plot area, so that the label points at its tick. On the bottom axis that is the end of the text
+///   for a positive angle and its start for a negative one; on the left axis it is the end of the text for angles
+///   from −90 to 90 and its start beyond them. Where both ends are equally near (±90 on the left axis), the end of
+///   the text is taken.
+///
+/// Across the axis the label is then moved away from the plot area just far enough that the nearest point of its
+/// turned box lies `pad` from the edge, so that a turned label never comes closer to the plot than a level one.
+fn turned_label(label: &TextBlock, angle: f64, side: Side, pad: f64) -> Turned {
+    let (n, t) = (side.outward(), side.along());
+    let turn = |p: Point| TextBlock::turned_point(angle, p);
+    let middle = (label.depth() - label.height()) / 2.0;
+    let anchor = if angle == 180.0 {
+        Point::new(label.width() / 2.0, middle)
+    } else {
+        let (start, end) = (Point::new(0.0, middle), Point::new(label.width(), middle));
+        if dot(n, turn(end)) <= dot(n, turn(start)) + 1e-9 {
+            end
+        } else {
+            start
+        }
+    };
+    let corners = label.corners().map(turn);
+    let nearest = corners
+        .iter()
+        .map(|c| dot(n, *c))
+        .fold(f64::INFINITY, f64::min);
+    let (shift_along, shift_out) = (-dot(t, turn(anchor)), pad - nearest);
+    let origin = Point::new(
+        shift_along * t.x + shift_out * n.x,
+        shift_along * t.y + shift_out * n.y,
+    );
+    let b = label.turned_bounds(angle);
+    Turned {
+        origin,
+        bounds: Rect::new(origin.x + b.x, origin.y + b.y, b.width, b.height),
+    }
+}
+
+/// How far the turned tick labels of an axis reach from their ticks, in points, each distance at least 0.
+struct Reach {
+    /// Away from the plot area, the gap from the plot included.
+    out: f64,
+    /// Along the axis towards the start of the page (left for the x axis, up for the y axis).
+    before: f64,
+    /// Along the axis towards the end of the page (right for the x axis, down for the y axis).
+    after: f64,
+}
+
+/// Returns how far the tick labels of `ticks` reach when turned `angle` degrees on `side`, or `None` when they are
+/// level (an angle of 0) or there are none. Any label may lie at either end of the axis, so each distance is the
+/// largest over the labels.
+fn turned_reach(ticks: &AxisTicks, angle: f64, side: Side, pad: f64) -> Option<Reach> {
+    if angle == 0.0 || ticks.labels.is_empty() {
+        return None;
+    }
+    let mut reach = Reach {
+        out: 0.0,
+        before: 0.0,
+        after: 0.0,
+    };
+    for label in &ticks.labels {
+        let b = turned_label(label, angle, side, pad).bounds;
+        let (out, before, after) = match side {
+            Side::Bottom => (b.bottom(), -b.x, b.right()),
+            Side::Left => (-b.x, -b.y, b.bottom()),
+        };
+        reach.out = reach.out.max(out);
+        reach.before = reach.before.max(before);
+        reach.after = reach.after.max(after);
+    }
+    Some(reach)
+}
+
 /// The height of the band above the plot that holds the y exponent label and the overhang of the top y tick label.
 fn top_band(decor: &Decor, s: &Spacing) -> f64 {
     let y = &decor.ticks[1];
-    let overhang = (y.max_height() + y.max_depth()) / 2.0;
+    let overhang = match turned_reach(y, decor.angles[1], Side::Left, s.tick_pad) {
+        Some(reach) => reach.before,
+        None => (y.max_height() + y.max_depth()) / 2.0,
+    };
     let exponent = y
         .exponent
         .as_ref()
@@ -75,11 +200,22 @@ fn top_band(decor: &Decor, s: &Spacing) -> f64 {
 }
 
 /// Computes the space a 2D axes needs around its plot rectangle.
+///
+/// Level tick labels take the space they always have. Turned tick labels take the extent of their turned boxes
+/// across the axis, and along it the overhang of any label beyond its tick, since any of them may lie at an end of
+/// the axis; turned y labels may also overhang below the plot area.
 pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
     let s = Spacing::new(ctx);
     let [x, y, _] = &decor.ticks;
-    let first_x_half = x.labels.first().map_or(0.0, |l| l.width() / 2.0);
-    let last_x_half = x.labels.last().map_or(0.0, |l| l.width() / 2.0);
+    let x_reach = turned_reach(x, decor.angles[0], Side::Bottom, s.tick_pad);
+    let y_reach = turned_reach(y, decor.angles[1], Side::Left, s.tick_pad);
+    let (first_x_half, last_x_half) = match &x_reach {
+        Some(r) => (r.before, r.after),
+        None => (
+            x.labels.first().map_or(0.0, |l| l.width() / 2.0),
+            x.labels.last().map_or(0.0, |l| l.width() / 2.0),
+        ),
+    };
     let ylabel = decor.labels[1]
         .as_ref()
         .map_or(0.0, |l| l.total_height() + s.label_gap);
@@ -94,25 +230,27 @@ pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
         .title
         .as_ref()
         .map_or(0.0, |t| t.total_height() + s.title_gap);
-    let y_labels = if y.labels.is_empty() {
-        0.0
-    } else {
-        s.tick_pad + y.max_width()
+    let y_labels = match &y_reach {
+        Some(r) => r.out,
+        None if y.labels.is_empty() => 0.0,
+        None => s.tick_pad + y.max_width(),
     };
-    let x_labels = if x.labels.is_empty() {
-        0.0
-    } else {
-        s.tick_pad + x_row_height(x)
+    let x_labels = match &x_reach {
+        Some(r) => r.out,
+        None if x.labels.is_empty() => 0.0,
+        None => s.tick_pad + x_row_height(x),
     };
     let right_exponent = x
         .exponent
         .as_ref()
         .map_or(0.0, |e| s.exponent_gap + e.width());
+    let below = x_labels + xlabel.max(exponent_row);
+    let below = y_reach.as_ref().map_or(below, |r| below.max(r.after));
     Margins {
         left: s.outer + (y_labels + ylabel).max(first_x_half),
         right: s.outer + last_x_half.max(right_exponent),
         top: s.outer + top_band(decor, &s) + title,
-        bottom: s.outer + x_labels + xlabel.max(exponent_row),
+        bottom: s.outer + below,
     }
 }
 
@@ -258,17 +396,40 @@ fn draw_grid(input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
 }
 
 /// Draws the axes box (or its left and bottom edges) and inward tick marks.
+///
+/// The box consists of the spines of the two axes: the bottom edge, and the top edge when the box is on, belong to the
+/// x axis, and the left edge, and the right edge when the box is on, to the y axis. A hidden axis draws neither its
+/// spines nor its tick marks, so hiding both axes removes the box. While both axes are shown the box is drawn as one
+/// rectangle (or one polyline without the box), exactly as before axes could be hidden.
 fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
     let (axes, plot) = (input.axes, input.plot);
     let (l, r, t, bt) = (plot.x, plot.right(), plot.y, plot.bottom());
-    if axes.box_ {
-        out.extend(frame(axes.id, plot));
+    let (x_shown, y_shown) = (axes.x.visible, axes.y.visible);
+    if x_shown && y_shown {
+        if axes.box_ {
+            out.extend(frame(axes.id, plot));
+        } else {
+            let mut b = PathBuilder::new();
+            b.polyline(
+                &[Point::new(l, t), Point::new(l, bt), Point::new(r, bt)],
+                false,
+            );
+            out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
+        }
     } else {
         let mut b = PathBuilder::new();
-        b.polyline(
-            &[Point::new(l, t), Point::new(l, bt), Point::new(r, bt)],
-            false,
-        );
+        if x_shown {
+            b.polyline(&[Point::new(l, bt), Point::new(r, bt)], false);
+            if axes.box_ {
+                b.polyline(&[Point::new(l, t), Point::new(r, t)], false);
+            }
+        }
+        if y_shown {
+            b.polyline(&[Point::new(l, t), Point::new(l, bt)], false);
+            if axes.box_ {
+                b.polyline(&[Point::new(r, t), Point::new(r, bt)], false);
+            }
+        }
         out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     }
 
@@ -286,8 +447,10 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
             b.polyline(&[Point::new(fx, t), Point::new(fx, t + len)], false);
         }
     };
-    xt.major.iter().for_each(|v| vertical(*v, length));
-    xt.minor.iter().for_each(|v| vertical(*v, 0.6 * length));
+    if x_shown {
+        xt.major.iter().for_each(|v| vertical(*v, length));
+        xt.minor.iter().for_each(|v| vertical(*v, 0.6 * length));
+    }
     let mut horizontal = |v: f64, len: f64| {
         let fy = y.to_figure(v);
         if !fy.is_finite() {
@@ -298,8 +461,10 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
             b.polyline(&[Point::new(r, fy), Point::new(r - len, fy)], false);
         }
     };
-    yt.major.iter().for_each(|v| horizontal(*v, length));
-    yt.minor.iter().for_each(|v| horizontal(*v, 0.6 * length));
+    if y_shown {
+        yt.major.iter().for_each(|v| horizontal(*v, length));
+        yt.minor.iter().for_each(|v| horizontal(*v, 0.6 * length));
+    }
     out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
 }
 
@@ -325,22 +490,33 @@ fn draw_labels(
     let (id, plot) = (input.axes.id, input.plot);
     let [xt, yt, _] = &decor.ticks;
 
-    // x tick labels share a baseline below the plot.
-    let x_baseline = plot.bottom() + s.tick_pad + xt.max_height();
-    for (v, label) in xt.major.iter().zip(&xt.labels) {
-        let fx = x.to_figure(*v);
-        label.draw_on_page(
-            ctx,
-            Point::new(fx - label.width() / 2.0, x_baseline),
-            INK,
-            id,
-            out,
-        );
-    }
-    let below_ticks = if xt.labels.is_empty() {
-        plot.bottom()
+    // Level x tick labels share a baseline below the plot; turned ones are each placed by `turned_label`.
+    let [x_angle, y_angle] = decor.angles;
+    let x_reach = turned_reach(xt, x_angle, Side::Bottom, s.tick_pad);
+    if x_reach.is_some() {
+        for (v, label) in xt.major.iter().zip(&xt.labels) {
+            let fx = x.to_figure(*v);
+            let o = turned_label(label, x_angle, Side::Bottom, s.tick_pad).origin;
+            let origin = Point::new(fx + o.x, plot.bottom() + o.y);
+            label.draw_turned_on_page(ctx, origin, x_angle, INK, id, out);
+        }
     } else {
-        plot.bottom() + s.tick_pad + x_row_height(xt)
+        let x_baseline = plot.bottom() + s.tick_pad + xt.max_height();
+        for (v, label) in xt.major.iter().zip(&xt.labels) {
+            let fx = x.to_figure(*v);
+            label.draw_on_page(
+                ctx,
+                Point::new(fx - label.width() / 2.0, x_baseline),
+                INK,
+                id,
+                out,
+            );
+        }
+    }
+    let below_ticks = match &x_reach {
+        Some(reach) => plot.bottom() + reach.out,
+        None if xt.labels.is_empty() => plot.bottom(),
+        None => plot.bottom() + s.tick_pad + x_row_height(xt),
     };
     if let Some(e) = &xt.exponent {
         let origin = Point::new(
@@ -350,12 +526,20 @@ fn draw_labels(
         e.draw_on_page(ctx, origin, INK, id, out);
     }
 
-    // y tick labels are right-aligned beside the plot and centred on their ticks.
+    // Level y tick labels are right-aligned beside the plot and centred on their ticks; turned ones are each placed
+    // by `turned_label`.
     let y_right = plot.x - s.tick_pad;
+    let y_reach = turned_reach(yt, y_angle, Side::Left, s.tick_pad);
     for (v, label) in yt.major.iter().zip(&yt.labels) {
         let fy = y.to_figure(*v);
-        let origin = label.origin_for_centre(Point::new(y_right - label.width() / 2.0, fy));
-        label.draw_on_page(ctx, origin, INK, id, out);
+        if y_reach.is_some() {
+            let o = turned_label(label, y_angle, Side::Left, s.tick_pad).origin;
+            let origin = Point::new(plot.x + o.x, fy + o.y);
+            label.draw_turned_on_page(ctx, origin, y_angle, INK, id, out);
+        } else {
+            let origin = label.origin_for_centre(Point::new(y_right - label.width() / 2.0, fy));
+            label.draw_on_page(ctx, origin, INK, id, out);
+        }
     }
     if let Some(e) = &yt.exponent {
         let origin = Point::new(plot.x, plot.y - s.exponent_gap - e.depth());
@@ -370,10 +554,10 @@ fn draw_labels(
         label.draw_on_page(ctx, origin, INK, id, out);
     }
     if let Some(label) = &decor.labels[1] {
-        let right = if yt.labels.is_empty() {
-            plot.x - s.label_gap
-        } else {
-            y_right - yt.max_width() - s.label_gap
+        let right = match &y_reach {
+            Some(reach) => plot.x - reach.out - s.label_gap,
+            None if yt.labels.is_empty() => plot.x - s.label_gap,
+            None => y_right - yt.max_width() - s.label_gap,
         };
         let origin = Point::new(
             right - label.depth(),

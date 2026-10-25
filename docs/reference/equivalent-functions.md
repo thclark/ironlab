@@ -109,6 +109,18 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | Arrows in two dimensions | `quiver` | `quiver` | `ff.create_quiver` | `quiver` |
 | Arrows in three dimensions | `quiver3` | `Axes3D.quiver` | `Cone` | `quiver3` |
 
+## Axes
+
+These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks).
+
+| Setting | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Turn the tick labels of an axis | `xtickangle(a)`, `ytickangle(a)` | `tick_params(axis="x", labelrotation=a)`, or `rotation=a` with `ha="right"` and `rotation_mode="anchor"` for labels that end at their ticks | `xaxis=dict(tickangle=-a)` | `xtick_label_angle(a)`, `ytick_label_angle(a)` |
+| Hide an axis with its spine, ticks, tick labels and label | `ax.XAxis.Visible = 'off'` | `ax.xaxis.set_visible(False)` together with `ax.spines["bottom"].set_visible(False)` | `xaxis=dict(visible=False)` | `xaxis_visible(false)`, `yaxis_visible(false)` |
+| Hide the tick labels and keep the ticks | `xticklabels({})` | `tick_params(labelbottom=False)` | `xaxis=dict(showticklabels=False)` | `xtick_labels_hidden()` |
+
+Every angle is in degrees anticlockwise from horizontal, as in MATLAB, so 45 gives labels that rise to the right; Plotly measures `tickangle` clockwise, so its angle has the opposite sign. IronLAB turns every label about its end nearest its tick, which matplotlib does only with the alignment options in the table, and reserves the space the turned labels take, so that no label is clipped by the page. A hidden axis also gives its space to the plot area, and its grid lines still follow `grid`.
+
 ## Plots without an equivalent
 
 IronLAB does not yet draw bar charts, histograms, stem, stairs, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.

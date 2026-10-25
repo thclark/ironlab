@@ -76,8 +76,11 @@ impl TextBlock {
         self.draw(origin, color, owner, out);
     }
 
-    /// Emits the text turned a quarter turn to read upwards, as [`TextBlock::draw_upwards`] does, recording a warning
-    /// about `owner` when it extends beyond the page.
+    /// Emits the text turned a quarter turn to read upwards, with its baseline origin at `origin` in page space,
+    /// recording a warning about `owner` when it extends beyond the page.
+    ///
+    /// The text occupies page x from `origin.x - height` to `origin.x + depth`, and page y from
+    /// `origin.y - width` to `origin.y`.
     pub fn draw_upwards_on_page(
         &self,
         ctx: &mut Ctx,
@@ -86,14 +89,63 @@ impl TextBlock {
         owner: NodeId,
         out: &mut Vec<Item>,
     ) {
-        let bounds = Rect::new(
-            origin.x - self.height(),
-            origin.y - self.width(),
-            self.total_height(),
-            self.width(),
-        );
+        self.draw_turned_on_page(ctx, origin, 90.0, color, owner, out);
+    }
+
+    /// Emits the text turned `degrees` anticlockwise, as [`TextBlock::draw_turned`] does, recording a warning about
+    /// `owner` when its turned box extends beyond the page.
+    pub fn draw_turned_on_page(
+        &self,
+        ctx: &mut Ctx,
+        origin: Point,
+        degrees: f64,
+        color: Rgba,
+        owner: NodeId,
+        out: &mut Vec<Item>,
+    ) {
+        let b = self.turned_bounds(degrees);
+        let bounds = Rect::new(origin.x + b.x, origin.y + b.y, b.width, b.height);
         ctx.check_on_page(owner, &self.source, bounds);
-        self.draw_upwards(origin, color, owner, out);
+        self.draw_turned(origin, degrees, color, owner, out);
+    }
+
+    /// Returns the page-space offset of the point `local`, given in the text's own frame (x along the baseline from
+    /// the baseline origin, y downwards), from the baseline origin once the text is turned `degrees` anticlockwise.
+    pub fn turned_point(degrees: f64, local: Point) -> Point {
+        let (s, c) = exact_sin_cos(degrees);
+        // An anticlockwise turn on a page whose y axis points downwards: the baseline direction (1, 0) becomes
+        // (cos, −sin), and the downward direction (0, 1) becomes (sin, cos).
+        Point::new(c * local.x + s * local.y, -s * local.x + c * local.y)
+    }
+
+    /// Returns the corners of the text's box in its own frame, as [`TextBlock::turned_point`] takes them.
+    pub fn corners(&self) -> [Point; 4] {
+        let (w, h, d) = (self.width(), self.height(), self.depth());
+        [
+            Point::new(0.0, -h),
+            Point::new(w, -h),
+            Point::new(w, d),
+            Point::new(0.0, d),
+        ]
+    }
+
+    /// Returns the axis-aligned box that the text's box covers once turned `degrees` anticlockwise about its baseline
+    /// origin, as an offset from that origin.
+    pub fn turned_bounds(&self, degrees: f64) -> Rect {
+        let points = self.corners().map(|p| Self::turned_point(degrees, p));
+        let (mut x0, mut y0, mut x1, mut y1) = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for p in points {
+            x0 = x0.min(p.x);
+            y0 = y0.min(p.y);
+            x1 = x1.max(p.x);
+            y1 = y1.max(p.y);
+        }
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
     }
 
     /// Emits the text with its baseline origin at `origin`.
@@ -104,12 +156,18 @@ impl TextBlock {
         out.extend(self.items(origin, color, source));
     }
 
-    /// Emits the text turned a quarter turn to read upwards, with its baseline origin at `origin` in page space.
+    /// Emits the text turned `degrees` anticlockwise about its baseline origin, which lies at `origin` in page space.
     ///
-    /// The text occupies page x from `origin.x - height` to `origin.x + depth`, and page y from
-    /// `origin.y - width` to `origin.y`.
-    pub fn draw_upwards(&self, origin: Point, color: Rgba, source: NodeId, out: &mut Vec<Item>) {
-        if !paths::finite(origin) {
+    /// The text is wrapped in a group whose transform turns it; [`TextBlock::turned_bounds`] gives the box it covers.
+    pub fn draw_turned(
+        &self,
+        origin: Point,
+        degrees: f64,
+        color: Rgba,
+        source: NodeId,
+        out: &mut Vec<Item>,
+    ) {
+        if !paths::finite(origin) || !degrees.is_finite() {
             return;
         }
         let items = self.items(Point::new(0.0, 0.0), color, source);
@@ -120,8 +178,9 @@ impl TextBlock {
             source: Some(source),
             kind: ItemKind::Group {
                 clip: None,
+                // `Transform::rotate` turns positive angles clockwise on screen, so an anticlockwise turn is negated.
                 transform: Some(
-                    Transform::rotate(-90.0).then(Transform::translate(origin.x, origin.y)),
+                    Transform::rotate(-degrees).then(Transform::translate(origin.x, origin.y)),
                 ),
                 items,
             },
@@ -185,6 +244,22 @@ impl TextBlock {
             }
         }
         out
+    }
+}
+
+/// Returns the sine and cosine of an angle in degrees, exact at whole quarter turns, so that the box of text turned
+/// by a quarter turn is measured without rounding.
+fn exact_sin_cos(degrees: f64) -> (f64, f64) {
+    let quarter = degrees / 90.0;
+    if quarter.fract() == 0.0 && quarter.is_finite() {
+        match (quarter as i64).rem_euclid(4) {
+            0 => (0.0, 1.0),
+            1 => (1.0, 0.0),
+            2 => (0.0, -1.0),
+            _ => (-1.0, 0.0),
+        }
+    } else {
+        degrees.to_radians().sin_cos()
     }
 }
 
