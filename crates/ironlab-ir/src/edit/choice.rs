@@ -361,11 +361,19 @@ const COLORMAPPED_ON_A_QUIVER: &str = colormapped_unavailable!(
      colormapped arrows are drawn in the middle colour of viridis."
 );
 
-/// Why a colormapped colour is unavailable on bars and stairs.
-const COLORMAPPED_ON_BARS_OR_STAIRS: &str = colormapped_unavailable!(
-    "Bars and stairs take solid colours only and have no colour scale, so a colormapped \
-     colour has nothing to look the colour up in and makes the figure invalid. Values that \
-     must be coloured through a scale are drawn as cells instead."
+/// Why a colormapped colour is unavailable on bars without colour data.
+const COLORMAPPED_BARS_WITHOUT_COLOUR_DATA: &str = colormapped_unavailable!(
+    "These bars have no colour data, so they provide no value to look the colour up by: a \
+     colormapped face or outline is drawn in the colour of the series, as an automatic one. \
+     Colour data is given to bars by the program that builds the figure."
+);
+
+/// Why a colormapped colour is unavailable on stairs.
+const COLORMAPPED_ON_STAIRS: &str = colormapped_unavailable!(
+    "Stairs take solid colours only and have neither colour data nor a colour scale, so a \
+     colormapped colour has nothing to look the colour up in and makes the figure invalid. \
+     Values that must be coloured through a scale are drawn as cells or as bars with colour \
+     data instead."
 );
 
 /// Why a colormapped colour is unavailable anywhere else.
@@ -399,6 +407,17 @@ fn colormapped_without_a_value_to_index_by(
         };
         return series_colormapped(figure, series, path, names_a_scale());
     }
+    // Every colour of bars (the face and the outline) takes the colour of its bar's value,
+    // so it needs colour data to look the colour up by and a scale to look it up in.
+    if kind == NodeKind::Bar {
+        let Some((_, Artist::Bar(bar))) = figure.artist(node) else {
+            return None;
+        };
+        if bar.color_data.is_none() {
+            return Some(COLORMAPPED_BARS_WITHOUT_COLOUR_DATA);
+        }
+        return (!names_a_scale()).then_some(COLORMAPPED_WITHOUT_A_SCALE);
+    }
     if indexes_the_colormap(kind, path) {
         return (!names_a_scale()).then_some(COLORMAPPED_WITHOUT_A_SCALE);
     }
@@ -406,13 +425,14 @@ fn colormapped_without_a_value_to_index_by(
     // said why a colour of that kind cannot be colormapped.
     Some(match kind {
         NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
-        NodeKind::Bar | NodeKind::Stairs => COLORMAPPED_ON_BARS_OR_STAIRS,
+        NodeKind::Stairs => COLORMAPPED_ON_STAIRS,
         // Every colour of a contour and of a surface indexes the colormap, every colour
-        // of a series is decided above, and a figure, a data array, a colour scale, an
+        // of a series and of bars is decided above, and a figure, a data array, a colour scale, an
         // axes, a panel and an image hold no colour specification at all (the fixed
         // colour of an out-of-range policy is a colour, not a specification), so these
         // kinds reach this reason only if they gain a colour that indexes nothing.
         NodeKind::Series
+        | NodeKind::Bar
         | NodeKind::Contour
         | NodeKind::Surface
         | NodeKind::Figure
@@ -576,8 +596,8 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         NodeKind::Cells => segments == ["edge", "color"],
         // An image holds no colour specification: a true-colour image carries its own
         // colours, and a scalar image maps its numbers through its scale rather than
-        // through a colour property. The colours of a series index the colormap when it
-        // has colour data, which `series_colormapped` decides.
+        // through a colour property. The colours of a series and of bars index the
+        // colormap when they have colour data, which is decided before this is asked.
         NodeKind::Figure
         | NodeKind::DataArray
         | NodeKind::ColorScale

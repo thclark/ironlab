@@ -182,6 +182,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
             if let BarSlot::Data(widths) = a.slot {
                 all.push(widths);
             }
+            all.extend(a.color_data);
             a.positions
         }
         Artist::Stairs(a) => {

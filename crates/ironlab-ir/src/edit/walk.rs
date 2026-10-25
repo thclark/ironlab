@@ -783,13 +783,17 @@ ir_node! {
         optional "group" => group: BarGroup =
             "The group of bars of the axes to which the series belongs, or absent for a series drawn on its own.";
         plain "face" => face: ColorSpec =
-            "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, or none.";
-        entries "colors" => colors: Color =
-            "The fixed colour of one bar, which overrides the face colour.";
+            "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, none, or colormapped, which gives each bar the colour of its value of the colour data through the colour scale.";
+        optional "color_data" => color_data: NodeId =
+            "The values that colour the bars through their colour scale, one per bar; when absent the bars take fixed colours.";
+        optional "color_scale" => color_scale: NodeId =
+            "The colour scale through which the colour data is mapped; bars with colour data must name one.";
         plain "edge" => edge: LineStyle =
-            "The style of the outline of every bar; a colour of none draws no outline.";
+            "The style of the outline of every bar: a colour of none draws no outline, an automatic colour is the colour of the series, and a colormapped colour gives each outline the colour of its bar's value through the colour scale.";
         plain "face_opacity" => face_opacity: f64 =
-            "The opacity of the bars, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
+            "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
+        plain "edge_opacity" => edge_opacity: f64 =
+            "The opacity of the outlines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
     }
 
     Stairs {
@@ -806,6 +810,8 @@ ir_node! {
             "The style of the outline, whose automatic colour is the next colour of the colour order.";
         plain "fill" => fill: ColorSpec =
             "The colour of the area between the outline and the base, or none; a fill needs a base.";
+        plain "line_opacity" => line_opacity: f64 =
+            "The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
         plain "fill_opacity" => fill_opacity: f64 =
             "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
     }
@@ -827,9 +833,11 @@ ir_node! {
         optional "color_scale" => color_scale: NodeId =
             "The colour scale through which the values are mapped; cells must name one.";
         optional "alpha" => alpha: NodeId =
-            "The alpha of every cell, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255. When absent the cells are uniformly opaque before the opacity applies.";
-        plain "opacity" => opacity: f64 =
+            "The alpha of every cell, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255. When absent the cells are uniformly opaque before the face opacity applies.";
+        plain "face_opacity" => face_opacity: f64 =
             "The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every cell.";
+        plain "edge_opacity" => edge_opacity: f64 =
+            "The opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
     }
 }
 

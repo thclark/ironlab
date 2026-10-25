@@ -295,7 +295,8 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// transparent policy between them. Every artist is three-dimensional or planar, so the
 /// figure is valid. The axes lies in the first of three columns, and a legend panel (11) in
 /// the second. A two-dimensional axes (14) in the third column holds the artists that are
-/// valid only in two dimensions: bars (15) of the y values at the x positions, stairs (16)
+/// valid only in two dimensions: bars (15) of the y values at the x positions, whose faces
+/// are coloured by the v values through the continuous scale, stairs (16)
 /// through the y values at the x samples, and cells (17) of the field through the
 /// continuous scale, so that the figure holds a node of every kind.
 pub fn figure_with_every_artist() -> Figure {
@@ -456,6 +457,9 @@ pub fn figure_with_every_artist() -> Figure {
             id: NodeId(15),
             positions: x,
             values: y,
+            face: ColorSpec::Colormapped,
+            color_data: Some(v),
+            color_scale: Some(NodeId(12)),
             ..Bar::default()
         }),
         Artist::Stairs(Stairs {

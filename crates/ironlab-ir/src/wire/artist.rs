@@ -411,13 +411,22 @@ proto_file! {
         message BarGroup group = 10;
         /// The colour of the bars; absent means the next colour of the colour order.
         message ColorSpec face = 11;
-        /// One fixed colour for each bar, which overrides the face; empty when every bar
-        /// takes the face.
-        repeated message Color colors = 12;
-        /// The style of the outline of every bar; absent means no outline.
+        /// The number and name of the fixed colour of each bar, which colour data
+        /// replaced.
+        reserved 12, colors;
+        /// The style of the outline of every bar; absent means a solid black line 0.5
+        /// points wide.
         message LineStyle edge = 13;
-        /// The opacity of the bars, from 0 to 1; absent means 1.
+        /// The opacity of the faces, from 0 to 1; absent means 1.
         optional double face_opacity = 14;
+        /// The data identifier of the values that colour the bars, one per bar; absent
+        /// for bars of fixed colours.
+        optional uint64 color_data = 15;
+        /// The node identifier of the colour scale through which the colour data is
+        /// mapped; absent when the bars name none.
+        optional uint64 color_scale = 16;
+        /// The opacity of the outlines, from 0 to 1; absent means 1.
+        optional double edge_opacity = 17;
     }
 
     /// Where the bars of a series start along the value axis.
@@ -512,6 +521,8 @@ proto_file! {
         message ColorSpec fill = 8;
         /// The opacity of the fill, from 0 to 1; absent means 1.
         optional double fill_opacity = 9;
+        /// The opacity of the outline, from 0 to 1; absent means 1.
+        optional double line_opacity = 10;
     }
 
     /// The steps of stairs: values between edges, or values at samples.
@@ -581,8 +592,13 @@ proto_file! {
         /// floating-point values from 0 to 1 or 8-bit values from 0 to 255; absent when
         /// the cells are uniformly opaque before the opacity.
         optional uint64 alpha = 10;
+        /// The number and name of the single opacity of the cells, which the face and
+        /// edge opacities replaced.
+        reserved 11, opacity;
         /// The opacity of the cells, from 0 to 1; absent means 1.
-        optional double opacity = 11;
+        optional double face_opacity = 12;
+        /// The opacity of the outlines of the cells, from 0 to 1; absent means 1.
+        optional double edge_opacity = 13;
     }
 
     /// The edges of the columns or rows of cells.

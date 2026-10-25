@@ -1218,7 +1218,7 @@ fn the_registry_lists_the_properties_of_a_colour_scale() {
     );
 }
 
-// Why: each colour-mapped artist names its scale as an optional reference, and the policies and colormap that moved to the scale must no longer be listed where they were.
+// Why: each colour-mapped artist (bars, which colour by data as a series does, among them) names its scale as an optional reference, and the policies and colormap that moved to the scale must no longer be listed where they were.
 #[test]
 fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
     for kind in [
@@ -1227,6 +1227,7 @@ fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
         NodeKind::Surface,
         NodeKind::Series,
         NodeKind::Cells,
+        NodeKind::Bar,
     ] {
         let property = properties(kind)
             .into_iter()

@@ -880,6 +880,7 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
                 .into_iter()
                 .chain(base)
                 .chain(widths)
+                .chain(bar.color_data)
                 .collect()
         }
         Artist::Stairs(stairs) => vec![stairs.data.positions(), stairs.data.values()],

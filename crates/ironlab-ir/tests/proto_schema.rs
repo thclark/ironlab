@@ -908,10 +908,13 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
 // it, because the property paths of the editor are those names. A reference that the IR
 // makes optional (the group of a bar series, the base of stairs, the colour scale and
 // alpha of cells) must have presence, because absent means none and a zero would be a
-// different value: a base at 0 or the identifier 0. The gap and the opacities must have
-// presence too, because their absence decodes to defaults (a gap of 0.2, full opacity)
-// that differ from proto3's zero. The tagged values of the new types
-// must be read through a oneof named `kind`, as every other tagged value is.
+// different value: a base at 0 or the identifier 0; so must the colour data and colour
+// scale of bars, as a series' do. The gap and every opacity must have presence too,
+// because their absence decodes to defaults (a gap of 0.2, full opacity) that differ from
+// proto3's zero. The per-bar colours and the single opacity of cells, which colour data
+// and the face and edge opacities replaced, must be gone, and their numbers and names
+// reserved so that no later field reuses them with another meaning. The tagged values of
+// the new types must be read through a oneof named `kind`, as every other tagged value is.
 #[test]
 fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
     let pool = compile();
@@ -947,9 +950,11 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "gap",
                 "group",
                 "face",
-                "colors",
+                "color_data",
+                "color_scale",
                 "edge",
                 "face_opacity",
+                "edge_opacity",
             ][..],
         ),
         (
@@ -963,6 +968,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "base",
                 "line",
                 "fill",
+                "line_opacity",
                 "fill_opacity",
             ][..],
         ),
@@ -979,7 +985,8 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "edge",
                 "color_scale",
                 "alpha",
-                "opacity",
+                "face_opacity",
+                "edge_opacity",
             ][..],
         ),
         ("BarGroup", &["name", "layout"][..]),
@@ -997,12 +1004,17 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
     for (message, field) in [
         ("Bar", "group"),
         ("Bar", "gap"),
+        ("Bar", "color_data"),
+        ("Bar", "color_scale"),
         ("Bar", "face_opacity"),
+        ("Bar", "edge_opacity"),
         ("Stairs", "base"),
+        ("Stairs", "line_opacity"),
         ("Stairs", "fill_opacity"),
         ("Cells", "color_scale"),
         ("Cells", "alpha"),
-        ("Cells", "opacity"),
+        ("Cells", "face_opacity"),
+        ("Cells", "edge_opacity"),
     ] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
@@ -1011,6 +1023,21 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
             .get_field_by_name(field)
             .unwrap_or_else(|| panic!("{message} declares {field}"));
         assert!(field.supports_presence(), "{message}.{}", field.name());
+    }
+    for (message, number, name) in [("Bar", 12, "colors"), ("Cells", 11, "opacity")] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        assert!(
+            descriptor
+                .reserved_ranges()
+                .any(|range| range.contains(&number)),
+            "{message} does not reserve {number}"
+        );
+        assert!(
+            descriptor.reserved_names().any(|reserved| reserved == name),
+            "{message} does not reserve {name}"
+        );
     }
     for message in ["BarBase", "BarSlot", "StairsData", "CellEdges"] {
         let descriptor = pool

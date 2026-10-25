@@ -14,13 +14,13 @@ use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
 /// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
-/// scale reference, contour levels, pixel range or plane offset, the group of a bar series,
-/// and the base of stairs), by full Protocol Buffers name.
+/// scale reference, contour levels, pixel range or plane offset, the group and colour data
+/// of a bar series, and the base of stairs), by full Protocol Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 43] = [
+pub const OPTIONAL_IN_IR: [&str; 45] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -52,6 +52,8 @@ pub const OPTIONAL_IN_IR: [&str; 43] = [
     "ironlab.ir.v0.ScalarImage.alpha",
     "ironlab.ir.v0.Bar.label",
     "ironlab.ir.v0.Bar.group",
+    "ironlab.ir.v0.Bar.color_data",
+    "ironlab.ir.v0.Bar.color_scale",
     "ironlab.ir.v0.Stairs.label",
     "ironlab.ir.v0.Stairs.base",
     "ironlab.ir.v0.Cells.label",
@@ -653,6 +655,7 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
                 .into_iter()
                 .chain(base)
                 .chain(slot)
+                .chain(a.color_data)
                 .collect()
         }
         Artist::Stairs(a) => match a.data {
@@ -722,6 +725,7 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
                 .into_iter()
                 .chain(base)
                 .chain(slot)
+                .chain(a.color_data.as_mut())
                 .collect()
         }
         Artist::Stairs(a) => match &mut a.data {
@@ -1916,12 +1920,15 @@ pub fn kitchen_sink_figure() -> Figure {
 /// axes and rotates the labels of its y ticks.
 ///
 /// The bars are three grouped series of four categories that agree in orientation, slot,
-/// gap and base, one of them with a NaN value and one with a colour per bar; two stacked
-/// horizontal series of a fixed width, one with negative values; and a hidden series of
-/// floating bars on a base and widths given as data. The stairs are an open outline on
+/// gap and base, one of them with a NaN value and one whose faces and outlines are coloured
+/// by data through `palette`; two stacked
+/// horizontal series of a fixed width, one with negative values, translucent faces and
+/// translucent edges; and a hidden series of floating bars on a base and widths given as
+/// data. The stairs are an open outline on
 /// edges, and three filled or unfilled outlines on samples, one for each step position.
-/// The cells are a grid of floats on decreasing column edges and unit rows, with gaps,
-/// edges, alpha and opacity, mapped through a scale of their own (numbered 910, appended
+/// The stairs on samples have translucent lines. The cells are a grid of floats on
+/// decreasing column edges and unit rows, with gaps, edges, alpha and face and edge
+/// opacities, mapped through a scale of their own (numbered 910, appended
 /// after the kitchen-sink scales so that their indices are unchanged), and a hidden grid of
 /// the 8-bit `bytes` on unit columns and explicit rows through `palette`. Every array is
 /// referred to, so the axes adds no unused-data warning, and every member of a group
@@ -1946,6 +1953,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
     let alpha = b.matrix(2, 3, |j, i| (j * 3 + i) as f64 / 5.0);
     let falling = b.vector(&[3.0, 2.0, 1.0, 0.0]);
     let rows = b.vector(&[0.0, 10.0, 20.0]);
+    let codes = b.vector(&[0.0, 1.0, 2.0, 3.0]);
 
     let models = |layout| {
         Some(BarGroup {
@@ -1953,14 +1961,10 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             layout,
         })
     };
-    for (k, (values, face, colors)) in [
-        (first, ColorSpec::Auto, vec![]),
-        (
-            second,
-            ColorSpec::Rgba { color: blue },
-            vec![red, blue, red, blue],
-        ),
-        (gappy, ColorSpec::None, vec![]),
+    for (k, (values, face, color_data)) in [
+        (first, ColorSpec::Auto, None),
+        (second, ColorSpec::Colormapped, Some(codes)),
+        (gappy, ColorSpec::None, None),
     ]
     .into_iter()
     .enumerate()
@@ -1975,12 +1979,13 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                 values,
                 group: models(BarLayout::Grouped),
                 face,
-                colors,
+                color_data,
+                color_scale: color_data.map(|_| palette),
                 edge: LineStyle {
-                    color: if k == 2 {
-                        ColorSpec::Auto
-                    } else {
-                        ColorSpec::None
+                    color: match k {
+                        1 => ColorSpec::Colormapped,
+                        2 => ColorSpec::Auto,
+                        _ => ColorSpec::None,
                     },
                     ..Bar::default().edge
                 },
@@ -2009,6 +2014,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                     dash: DashStyle::Dashed,
                 },
                 face_opacity: 0.5,
+                edge_opacity: 0.75,
                 ..Bar::default()
             }),
         );
@@ -2071,6 +2077,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                     ..LineStyle::default()
                 },
                 fill,
+                line_opacity: 0.5,
                 fill_opacity: if base.is_some() { 0.25 } else { 1.0 },
                 ..Stairs::default()
             }),
@@ -2101,7 +2108,8 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             },
             color_scale: Some(scale),
             alpha: Some(alpha),
-            opacity: 0.8,
+            face_opacity: 0.8,
+            edge_opacity: 0.6,
             ..Cells::default()
         }),
     );
@@ -2411,19 +2419,22 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                     visit(at("gap"), &mut bar.gap);
                     visit(at("edge.width_pt"), &mut bar.edge.width_pt);
                     visit(at("face_opacity"), &mut bar.face_opacity);
+                    visit(at("edge_opacity"), &mut bar.edge_opacity);
                 }
                 Artist::Stairs(stairs) => {
                     if let Some(base) = &mut stairs.base {
                         visit(at("base"), base);
                     }
                     visit(at("line.width_pt"), &mut stairs.line.width_pt);
+                    visit(at("line_opacity"), &mut stairs.line_opacity);
                     visit(at("fill_opacity"), &mut stairs.fill_opacity);
                 }
                 Artist::Cells(cells) => {
                     visit(at("gap.x"), &mut cells.gap.x);
                     visit(at("gap.y"), &mut cells.gap.y);
                     visit(at("edge.width_pt"), &mut cells.edge.width_pt);
-                    visit(at("opacity"), &mut cells.opacity);
+                    visit(at("face_opacity"), &mut cells.face_opacity);
+                    visit(at("edge_opacity"), &mut cells.edge_opacity);
                 }
             }
         }

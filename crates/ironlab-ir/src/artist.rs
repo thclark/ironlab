@@ -720,8 +720,10 @@ impl Orientation {
 /// and must have the same number of elements. Each bar is centred in a slot along the
 /// category axis, of which the fraction `gap` is left empty, measured on the page so that
 /// bars on a logarithmic axis remain symmetric. A bar whose position or value is not
-/// finite is not drawn, and a non-finite position takes no part in the pitch. Bars take
-/// solid colours only: they have no colour scale.
+/// finite is not drawn, and a non-finite position takes no part in the pitch. Bars colour
+/// individual bars as a series colours individual markers: with colour data of one value
+/// per bar, mapped through a colour scale of any kind, a colormapped face or edge takes
+/// the colour of each bar's value.
 ///
 /// Bars of one axes whose groups share a name form one group. The members of a grouped
 /// group split the drawn part of each slot equally, in artist order, and touch one
@@ -754,32 +756,41 @@ pub struct Bar {
     /// The group of bars of the axes to which the series belongs, or `None` for a
     /// series drawn on its own.
     pub group: Option<BarGroup>,
-    /// The colour of the bars: automatic for the next colour of the colour order, a
-    /// fixed colour, or none. A colormapped colour is invalid, because bars have no
-    /// colour scale.
+    /// The colour of the bars: automatic for the next colour of the colour order, which
+    /// is the colour of the series, a fixed colour, none, or colormapped, which gives each
+    /// bar the colour of its value of the colour data through the colour scale. Without
+    /// colour data a colormapped face has no value to map and is drawn as an automatic one.
     pub face: ColorSpec,
-    /// One fixed colour for each bar, which overrides `face`, or no colours for bars that
-    /// all take `face`. A legend shows the first colour.
-    ///
-    /// The property is omitted from JSON when it holds no colours, and holds none when
-    /// JSON omits it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub colors: Vec<Color>,
-    /// The style of the outline of every bar; a colour of none draws no outline. A
-    /// colormapped colour is invalid.
+    /// The values that colour the bars through their colour scale, one per bar, or `None`
+    /// for bars of fixed colours.
+    pub color_data: Option<NodeId>,
+    /// The colour scale through which the colour data is mapped. Bars with colour data
+    /// must name one; bars without colour data map nothing.
+    pub color_scale: Option<NodeId>,
+    /// The style of the outline of every bar. Its colour is none for no outline, a fixed
+    /// colour, automatic for the colour of the series (as an automatic marker edge is), or
+    /// colormapped, which gives the outline of each bar the colour of its bar's value
+    /// through the colour scale.
     pub edge: LineStyle,
-    /// The opacity of the bars, from 0 (transparent) to 1 (opaque), which multiplies the
+    /// The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of their colours.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
     pub face_opacity: f64,
+    /// The opacity of the outlines, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of their colours.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub edge_opacity: f64,
 }
 
 impl Default for Bar {
     /// The series that `bar` draws: upright bars in the next colour of the colour order,
-    /// rising from 0, each across four fifths of the pitch between positions, without an
-    /// outline or a group, visible and opaque.
+    /// rising from 0, each across four fifths of the pitch between positions, outlined by
+    /// a black line 0.5 points wide, without colour data, a colour scale or a group,
+    /// visible and opaque.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
@@ -793,15 +804,23 @@ impl Default for Bar {
             gap: 0.2,
             group: None,
             face: ColorSpec::Auto,
-            colors: Vec::new(),
-            edge: no_edge(),
+            color_data: None,
+            color_scale: None,
+            edge: LineStyle {
+                color: ColorSpec::Rgba {
+                    color: Color::BLACK,
+                },
+                width_pt: 0.5,
+                dash: DashStyle::Solid,
+            },
             face_opacity: 1.0,
+            edge_opacity: 1.0,
         }
     }
 }
 
-/// Returns the edge of bars and cells by default: no outline, 0.5 points wide and solid
-/// when a colour is given.
+/// Returns the edge of cells by default: no outline, 0.5 points wide and solid when a
+/// colour is given.
 fn no_edge() -> LineStyle {
     LineStyle {
         color: ColorSpec::None,
@@ -894,11 +913,18 @@ pub struct Stairs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<f64>,
     /// The style of the outline, whose automatic colour is the next colour of the colour
-    /// order. A colormapped colour is invalid, because stairs have no colour scale.
+    /// order. A colormapped colour is invalid, because stairs have no colour data and no
+    /// colour scale.
     pub line: LineStyle,
     /// The colour of the area between the outline and the base, or none for no fill. A
     /// fill other than none needs a base; a colormapped fill is invalid.
     pub fill: ColorSpec,
+    /// The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies
+    /// the alpha of its colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub line_opacity: f64,
     /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of its colour.
     ///
@@ -920,6 +946,7 @@ impl Default for Stairs {
             base: None,
             line: LineStyle::default(),
             fill: ColorSpec::None,
+            line_opacity: 1.0,
             fill_opacity: 1.0,
         }
     }
@@ -1031,18 +1058,25 @@ pub struct Cells {
     pub color_scale: Option<NodeId>,
     /// The alpha of every cell, a two-dimensional array with the same shape as `values`,
     /// or `None` for cells that are uniformly opaque before
-    /// [`opacity`](Cells::opacity) applies. The array may hold floating-point values from
+    /// [`face_opacity`](Cells::face_opacity) applies. The array may hold floating-point values from
     /// 0 to 1 or 8-bit values from 0 to 255, as the alpha of a scalar image may.
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpha: Option<NodeId>,
     /// The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the
-    /// alpha of every cell.
+    /// alpha of every cell: the alpha of its colour and, when present, its
+    /// [`alpha`](Cells::alpha).
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
-    pub opacity: f64,
+    pub face_opacity: f64,
+    /// The opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque), which
+    /// multiplies the alpha of their colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub edge_opacity: f64,
 }
 
 impl Default for Cells {
@@ -1060,7 +1094,8 @@ impl Default for Cells {
             edge: no_edge(),
             color_scale: None,
             alpha: None,
-            opacity: 1.0,
+            face_opacity: 1.0,
+            edge_opacity: 1.0,
         }
     }
 }

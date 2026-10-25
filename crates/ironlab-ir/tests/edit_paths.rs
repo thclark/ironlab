@@ -284,10 +284,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Surface, "Surface", read_only),
         (NodeKind::Image, "Image", read_only),
         (NodeKind::ScalarImage, "ScalarImage", read_only),
-        // The colours of individual bars are structure that code writes, one for each bar,
-        // read but not set as a list through the registry, as the colours of a listed
-        // colormap are; each colour is set by its index.
-        (NodeKind::Bar, "Bar", &["id", "colors"]),
+        (NodeKind::Bar, "Bar", read_only),
         (NodeKind::Stairs, "Stairs", read_only),
         (NodeKind::Cells, "Cells", read_only),
         // The entries of an indexed or categorical scale, and the colours of a listed
@@ -1273,7 +1270,8 @@ fn plain_artist(fig: &Figure, index: usize, kind: NodeKind) -> NodeId {
 
 // Why: the property editor adjusts a chart a value at a time: the gap between bars, the
 // layout of a group, the level from which bars rise, the width of a fixed slot, the gap
-// between cells along one direction, the colour of one highlighted bar, and the step
+// between cells along one direction, whether bars coloured by data show those colours on
+// their faces, the opacities of bar edges, stair lines and cell edges, and the step
 // position or base of stairs. Each of these must be addressable by the path that the wire
 // schema names (a tagged value's single field named after its variant, as `legend.panel`
 // is), must read back as set, and must be undone exactly by the inverse, or the editor's
@@ -1282,11 +1280,10 @@ fn plain_artist(fig: &Figure, index: usize, kind: NodeKind) -> NodeId {
 fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
     let fig = kitchen_sink_figure();
     let grouped = plain_artist(&fig, 0, NodeKind::Bar); // pitch slot, constant base 0
-    let coloured = plain_artist(&fig, 1, NodeKind::Bar); // one colour per bar
+    let coloured = plain_artist(&fig, 1, NodeKind::Bar); // colour data through a scale
     let stacked = plain_artist(&fig, 3, NodeKind::Bar); // a slot of width 0.6
     let sampled = plain_artist(&fig, 7, NodeKind::Stairs); // samples, step before, base 0
     let cells = plain_artist(&fig, 10, NodeKind::Cells); // gap { x: 0.1, y: 0.25 }
-    let green = Color::rgb(0.0, 1.0, 0.0);
     let (edited, inverse) = applied(
         &fig,
         &tx([
@@ -1303,10 +1300,13 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
                 "group.layout",
                 Value::BarLayout(BarLayout::Grouped),
             ),
-            set(coloured, "colors.2", Value::Color(green)),
+            set(coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
+            set(coloured, "edge_opacity", Value::Double(0.25)),
             set(sampled, "data.step", Value::StepAt(StepAt::Mid)),
             set(sampled, "base", Value::Double(-2.0)),
+            set(sampled, "line_opacity", Value::Double(0.75)),
             set(cells, "gap.x", Value::Double(0.5)),
+            set(cells, "edge_opacity", Value::Double(0.0)),
         ]),
     )
     .unwrap();
@@ -1327,21 +1327,16 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
                 layout: BarLayout::Grouped,
             }),
         ),
-        (coloured, "colors.2", Value::Color(green)),
+        (coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
+        (coloured, "edge_opacity", Value::Double(0.25)),
         (sampled, "data.step", Value::StepAt(StepAt::Mid)),
         (sampled, "base", Value::Double(-2.0)),
+        (sampled, "line_opacity", Value::Double(0.75)),
         (cells, "gap", Value::CellGap(CellGap { x: 0.5, y: 0.25 })),
+        (cells, "edge_opacity", Value::Double(0.0)),
     ] {
         assert_eq!(edited.get(node, &path(at)).unwrap(), expected, "{at}");
     }
-    let Some((_, Artist::Bar(bar))) = edited.artist(coloured) else {
-        panic!("the coloured bars are bars");
-    };
-    assert_eq!(
-        bar.colors.get(2).copied(),
-        Some(green),
-        "only the third bar takes the colour"
-    );
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(restored, fig);
 }
@@ -1349,7 +1344,8 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
 // Why: a gap of 1 or more leaves nothing of a bar or a cell to draw, and the property
 // editor sends whatever the user types; the edit must be refused with the validation
 // issue that explains it, leaving the figure as it was, rather than accepted and drawn as
-// nothing. The same holds for the width of a fixed slot.
+// nothing. The same holds for the width of a fixed slot and for an opacity outside [0, 1]
+// on any of the new opacities.
 #[test]
 fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
     let fig = kitchen_sink_figure();
@@ -1360,6 +1356,18 @@ fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
         (grouped, "gap", Value::Double(1.0), IssueKind::InvalidGap),
         (cells, "gap.y", Value::Double(1.5), IssueKind::InvalidGap),
         (cells, "gap.x", Value::Double(-0.25), IssueKind::InvalidGap),
+        (
+            grouped,
+            "edge_opacity",
+            Value::Double(1.5),
+            IssueKind::InvalidOpacity,
+        ),
+        (
+            cells,
+            "face_opacity",
+            Value::Double(-0.5),
+            IssueKind::InvalidOpacity,
+        ),
         (
             stacked,
             "slot.width",

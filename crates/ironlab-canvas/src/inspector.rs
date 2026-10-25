@@ -662,6 +662,7 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::Surface
         | NodeKind::ScalarImage
         | NodeKind::Cells
+        | NodeKind::Bar
             if segments == ["color_scale"] =>
         {
             Some(COLOR_SCALE_REFERENCE_REASON)

@@ -74,11 +74,11 @@ pub enum IssueKind {
     UnknownColorScale,
     /// An artist maps numbers to colours but names no colour scale: a scalar image, cells, a
     /// contour whose bands are filled or whose isolines are colormapped or automatic, a
-    /// surface whose faces or edges are colormapped or automatic, or a series with colour
-    /// data, whatever its colours. The axes hold no colormap to fall back on, so the
+    /// surface whose faces or edges are colormapped or automatic, or a series or bars with
+    /// colour data, whatever their colours. The axes hold no colormap to fall back on, so the
     /// artist cannot be coloured. It is reported against the artist. A colormapped quiver,
-    /// or a colormapped colour of a series without colour data, maps no number and needs
-    /// no scale.
+    /// or a colormapped colour of a series or bars without colour data, maps no number and
+    /// needs no scale.
     MissingColorScale,
     /// A colour scale cannot map any value: an indexed scale with no entries, or a
     /// categorical scale with no categories. It is reported against the scale, whether or
@@ -100,7 +100,7 @@ pub enum IssueKind {
     /// value per segment (one fewer than the points) for a series that draws a line and
     /// has no colormapped marker face or edge, since a marker colour needs a value at its
     /// point. The arrays of bars and stairs must be one-dimensional, with one entry per bar
-    /// (the per-bar colours included, when there are any), one more edge than values, or
+    /// (the colour data included, when there is any), one more edge than values, or
     /// one sample per value; the values of cells must be two-dimensional, with one more
     /// column edge than columns, one more row edge than rows, and alpha of their shape.
     ShapeMismatch,
@@ -260,9 +260,9 @@ pub enum IssueKind {
     /// count: the third axis, along which the plane is offset, may be logarithmic, and
     /// the z axis of a two-dimensional axes is ignored.
     ImageOnLogAxis,
-    /// The opacity of an artist (of an image, of the faces or edges of a surface, of the
-    /// faces of bars, of the fill of stairs, or of cells) is not a finite number from 0
-    /// to 1.
+    /// The opacity of an artist (of an image, of the faces or edges of a surface, of bars
+    /// or of cells, of the lines or fill of a contour or of stairs) is not a finite number
+    /// from 0 to 1.
     InvalidOpacity,
     /// The gap of bars, or the gap of cells along x or y, is not a finite number from 0
     /// up to, but not including, 1. A gap of 1 or more leaves nothing of the bar or cell
@@ -275,8 +275,8 @@ pub enum IssueKind {
     /// The fixed width of the slot of bars, or a width given per bar, is not a finite
     /// positive number.
     InvalidBarSlot,
-    /// A colour of bars (their face or edge) or of stairs (their line or fill) is
-    /// colormapped, but bars and stairs have no colour scale to look the colour up in.
+    /// A colour of stairs (their line or fill) is colormapped, but stairs have no colour
+    /// data to map and no colour scale to look the colour up in.
     ColormapNotSupported,
     /// Stairs have a fill other than none but no base, so there is nothing to fill down
     /// to.
@@ -1208,9 +1208,9 @@ impl<'a> Validator<'a> {
         }
     }
 
-    /// Checks that the arrays of bars are one-dimensional with one entry per bar, as the
-    /// per-bar colours are when there are any, and that every width given per bar is a
-    /// finite positive number, and returns whether all of them hold.
+    /// Checks that the arrays of bars, their colour data included, are one-dimensional with
+    /// one entry per bar, and that every width given per bar is a finite positive number,
+    /// and returns whether all of them hold.
     fn check_bar_shapes(&mut self, node: NodeId, bar: &Bar) -> bool {
         let data = self.arrays;
         let mut arrays = vec![("positions", bar.positions), ("values", bar.values)];
@@ -1219,6 +1219,9 @@ impl<'a> Validator<'a> {
         }
         if let BarSlot::Data(widths) = bar.slot {
             arrays.push(("widths", widths));
+        }
+        if let Some(colors) = bar.color_data {
+            arrays.push(("colour data", colors));
         }
         if !self.check_vectors(node, &arrays) {
             return false;
@@ -1235,17 +1238,6 @@ impl<'a> Validator<'a> {
                 );
                 agree = false;
             }
-        }
-        if !bar.colors.is_empty() && bar.colors.len() != n {
-            self.error(
-                Some(node),
-                IssueKind::ShapeMismatch,
-                format!(
-                    "the bars have {} colours, but there are {n} bars, each of which needs one",
-                    bar.colors.len()
-                ),
-            );
-            agree = false;
         }
         if !agree {
             return false;
@@ -2480,6 +2472,7 @@ impl Usage for Bar {
         if let BarSlot::Data(widths) = self.slot {
             references.push(widths);
         }
+        references.extend(self.color_data);
         let mut problems = gap_problems("gap of the bars", self.gap);
         if let BarSlot::Width(width) = self.slot
             && !(width.is_finite() && width > 0.0)
@@ -2491,14 +2484,16 @@ impl Usage for Bar {
                 ),
             ));
         }
-        problems.extend(colormap_problems(
-            "bars",
-            &[("face", self.face), ("edge", self.edge.color)],
-        ));
+        // A colormapped face or edge follows the rules of a series: with colour data it
+        // needs a scale, which the colour mapping of the bars requires, and without colour
+        // data it maps nothing and is drawn as an automatic colour.
         ArtistUsage {
             two_d_only: true,
             problems,
-            opacities: vec![("face opacity", self.face_opacity)],
+            opacities: vec![
+                ("face opacity", self.face_opacity),
+                ("edge opacity", self.edge_opacity),
+            ],
             ..ArtistUsage::new(references, positions, false, Shape::Bars(self))
         }
     }
@@ -2523,7 +2518,10 @@ impl Usage for Stairs {
         ArtistUsage {
             two_d_only: true,
             problems,
-            opacities: vec![("fill opacity", self.fill_opacity)],
+            opacities: vec![
+                ("line opacity", self.line_opacity),
+                ("fill opacity", self.fill_opacity),
+            ],
             ..ArtistUsage::new(references, positions, false, Shape::Stairs(self))
         }
     }
@@ -2549,7 +2547,10 @@ impl Usage for Cells {
             bytes,
             two_d_only: true,
             problems,
-            opacities: vec![("opacity", self.opacity)],
+            opacities: vec![
+                ("face opacity", self.face_opacity),
+                ("edge opacity", self.edge_opacity),
+            ],
             ..ArtistUsage::new(references, Vec::new(), false, Shape::Cells(self))
         }
     }
@@ -2570,8 +2571,8 @@ fn gap_problems(what: &str, gap: f64) -> Vec<(IssueKind, String)> {
     }
 }
 
-/// Returns a problem for each named colour of `artist`, which has no colour scale, that is
-/// colormapped.
+/// Returns a problem for each named colour of `artist`, which has no colour data and no
+/// colour scale, that is colormapped.
 fn colormap_problems(artist: &str, colors: &[(&str, ColorSpec)]) -> Vec<(IssueKind, String)> {
     colors
         .iter()
@@ -2581,7 +2582,7 @@ fn colormap_problems(artist: &str, colors: &[(&str, ColorSpec)]) -> Vec<(IssueKi
                 IssueKind::ColormapNotSupported,
                 format!(
                     "the {what} colour of the {artist} is colormapped, but {artist} have no \
-                     colour scale to look it up in"
+                     colour data to map and no colour scale to look it up in"
                 ),
             )
         })

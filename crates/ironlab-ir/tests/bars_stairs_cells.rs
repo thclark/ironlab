@@ -209,9 +209,12 @@ fn replace_array(fig: &mut Figure, id: NodeId, array: NdArray) {
 // Why: the defaults are what a program gets when it sets only the data, so they must draw
 // an ordinary bar chart: bars in the next colour of the colour order, rising from zero,
 // each taking four fifths of the spacing between neighbouring positions so that a gap
-// separates them, standing alone rather than in a group, with no outline and fully opaque.
-// A default edge of the automatic colour would outline every bar in the colour of its own
-// face; a default gap of 0 would join the bars into a histogram.
+// separates them, standing alone rather than in a group, outlined by a thin black line (as
+// the faces of a surface are) so that neighbouring bars of similar colours stay distinct,
+// with no colour data and no colour scale (so that nothing is mapped and no scale is
+// required), and with faces and edges fully opaque. A default edge of the automatic colour
+// would outline every bar in the colour of its own face and so be invisible; a default gap
+// of 0 would join the bars into a histogram.
 #[test]
 fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     let bar = Bar::default();
@@ -223,16 +226,20 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     assert_eq!(bar.gap, 0.2);
     assert_eq!(bar.group, None);
     assert_eq!(bar.face, ColorSpec::Auto);
-    assert_eq!(bar.colors, vec![]);
+    assert_eq!(bar.color_data, None);
+    assert_eq!(bar.color_scale, None);
     assert_eq!(
         bar.edge,
         LineStyle {
-            color: ColorSpec::None,
+            color: ColorSpec::Rgba {
+                color: Color::BLACK,
+            },
             width_pt: 0.5,
             dash: DashStyle::Solid,
         }
     );
     assert_eq!(bar.face_opacity, 1.0);
+    assert_eq!(bar.edge_opacity, 1.0);
     // A group that is created is grouped side by side unless it says otherwise, as
     // grouped bars are the common comparison.
     assert_eq!(BarLayout::default(), BarLayout::Grouped);
@@ -243,8 +250,8 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
 
 // Why: stairs are what a step histogram draws, whose default is an open outline in the
 // colour order: no base (so the outline does not drop to an axis it was not asked to
-// reach), no fill, and the step after each sample, as MATLAB's `stairs` and Matplotlib's
-// `step(where="post")` place it.
+// reach), no fill, an outline and fill that are fully opaque, and the step after each
+// sample, as MATLAB's `stairs` and Matplotlib's `step(where="post")` place it.
 #[test]
 fn default_stairs_are_an_open_unfilled_outline_in_the_colour_order() {
     let stairs = Stairs::default();
@@ -260,6 +267,7 @@ fn default_stairs_are_an_open_unfilled_outline_in_the_colour_order() {
     assert_eq!(stairs.line, LineStyle::default());
     assert_eq!(stairs.line.color, ColorSpec::Auto);
     assert_eq!(stairs.fill, ColorSpec::None);
+    assert_eq!(stairs.line_opacity, 1.0);
     assert_eq!(stairs.fill_opacity, 1.0);
     assert_eq!(StepAt::default(), StepAt::Post);
 }
@@ -267,7 +275,7 @@ fn default_stairs_are_an_open_unfilled_outline_in_the_colour_order() {
 // Why: cells are what a 2D histogram and a heatmap draw, whose default is a seamless grid
 // of cells centred on whole numbers (so that cell k of a matrix sits at k, as an image's
 // pixels do), with no gaps and no outlines, mapped through a scale that the program must
-// name, without alpha, and fully opaque.
+// name, without alpha, and with faces and edges fully opaque, as a surface's are.
 #[test]
 fn default_cells_are_a_seamless_grid_on_unit_edges_without_outlines() {
     let cells = Cells::default();
@@ -287,7 +295,8 @@ fn default_cells_are_a_seamless_grid_on_unit_edges_without_outlines() {
     );
     assert_eq!(cells.color_scale, None);
     assert_eq!(cells.alpha, None);
-    assert_eq!(cells.opacity, 1.0);
+    assert_eq!(cells.face_opacity, 1.0);
+    assert_eq!(cells.edge_opacity, 1.0);
     assert_eq!(CellEdges::default(), CellEdges::Unit);
 }
 
@@ -314,9 +323,9 @@ fn written_artists(artists: Vec<Artist>) -> (Vec<JsonValue>, Figure) {
 
 // Why: web clients and other tools write `.fig.json` by hand from the documented form, so
 // the form of a default bar series is a contract: the tag `bar`, the base as a tagged
-// constant, the slot as a tag without a value, and every plain property written; the
-// per-bar colours and the opacity, which are absent or 1 in almost every chart, are left
-// out, so that files stay as short as those written before bars had them.
+// constant, the slot as a tag without a value, and every plain property written, the
+// colour data and colour scale as null as a series writes them; the opacities, which are 1
+// in almost every chart, are left out, as they are for every other artist.
 #[test]
 fn a_default_bar_series_is_written_in_the_documented_json_form() {
     let (artists, _) = written_artists(vec![Artist::Bar(Bar {
@@ -340,18 +349,21 @@ fn a_default_bar_series_is_written_in_the_documented_json_form() {
             "gap": 0.2,
             "group": null,
             "face": { "type": "auto" },
-            "edge": { "color": { "type": "none" }, "width_pt": 0.5, "dash": "solid" }
+            "color_data": null,
+            "color_scale": null,
+            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" }
         })
     );
 }
 
 // Why: the variants that a hand-written file uses for floating bars (a base given as
-// data), for fixed and per-bar widths, for a stacked group and for highlighted bars must be
-// written as documented, with a face opacity of 0 written although it is falsy, because it
-// hides the faces rather than leaving them at the default.
+// data), for fixed and per-bar widths, for a stacked group and for bars coloured by data
+// through a scale must be written as documented, with face and edge opacities of 0
+// written although they are falsy, because they hide the faces and edges rather than
+// leaving them at the default; and a list of per-bar colours, which colour data replaced,
+// must not be written at all.
 #[test]
 fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
-    let red = Color::rgb(1.0, 0.0, 0.0);
     let (artists, _) = written_artists(vec![
         Artist::Bar(Bar {
             id: NodeId(3),
@@ -365,8 +377,15 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
                 name: "models".to_owned(),
                 layout: BarLayout::Stacked,
             }),
-            colors: vec![red, Color::BLACK],
+            face: ColorSpec::Colormapped,
+            color_data: Some(NodeId(14)),
+            color_scale: Some(NodeId(20)),
+            edge: LineStyle {
+                color: ColorSpec::Colormapped,
+                ..Bar::default().edge
+            },
             face_opacity: 0.0,
+            edge_opacity: 0.0,
             ..Bar::default()
         }),
         Artist::Bar(Bar {
@@ -386,21 +405,33 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
         first["group"],
         json!({ "name": "models", "layout": "stacked" })
     );
-    assert_eq!(first["colors"], json!(["#ff0000", "#000000"]));
+    assert_eq!(first["face"], json!({ "type": "colormapped" }));
+    assert_eq!(first["color_data"], json!(14));
+    assert_eq!(first["color_scale"], json!(20));
+    assert_eq!(first["edge"]["color"], json!({ "type": "colormapped" }));
     assert_eq!(first["face_opacity"], json!(0.0));
-    assert_eq!(artists[1]["slot"], json!({ "type": "data", "value": 13 }));
+    assert_eq!(first["edge_opacity"], json!(0.0));
     assert_eq!(
-        artists[1].get("colors"),
+        first.get("colors"),
         None,
-        "absent colours are written: {}",
-        artists[1]
+        "per-bar colours are written: {first}"
     );
+    assert_eq!(artists[1]["slot"], json!({ "type": "data", "value": 13 }));
+    for opacity in ["face_opacity", "edge_opacity"] {
+        assert_eq!(
+            artists[1].get(opacity),
+            None,
+            "an opacity of 1 is written: {}",
+            artists[1]
+        );
+    }
 }
 
 // Why: the two forms of stairs data are written by hand from the documented form, so each
 // must be tagged by its name with its arrays named as in the IR; and the base of open
 // stairs, which is absent in a plain step plot, must be left out rather than written as
-// null, while a base of 0, which closes the outline at the axis, must be written.
+// null, while a base of 0, which closes the outline at the axis, must be written. The line
+// and fill opacities are left out at 1 and written otherwise, as a contour's are.
 #[test]
 fn stairs_are_written_in_the_documented_json_form() {
     let (artists, _) = written_artists(vec![
@@ -422,6 +453,7 @@ fn stairs_are_written_in_the_documented_json_form() {
             },
             base: Some(0.0),
             fill: ColorSpec::Auto,
+            line_opacity: 0.25,
             fill_opacity: 0.5,
             ..Stairs::default()
         }),
@@ -446,13 +478,15 @@ fn stairs_are_written_in_the_documented_json_form() {
     );
     assert_eq!(filled["base"], json!(0.0));
     assert_eq!(filled["fill"], json!({ "type": "auto" }));
+    assert_eq!(filled["line_opacity"], json!(0.25));
     assert_eq!(filled["fill_opacity"], json!(0.5));
 }
 
 // Why: cells are written by hand from the documented form, so unit edges must be a tag
 // without a value and explicit edges a tagged reference, the gap an object of its two
-// fractions, and the alpha and opacity, which are absent or 1 in almost every heatmap,
-// left out as they are for a scalar image.
+// fractions, and the alpha and the face and edge opacities, which are absent or 1 in almost
+// every heatmap, left out as they are for a surface; an opacity other than 1 is written,
+// each under its own name.
 #[test]
 fn cells_are_written_in_the_documented_json_form() {
     let (artists, _) = written_artists(vec![Artist::Cells(Cells {
@@ -479,12 +513,23 @@ fn cells_are_written_in_the_documented_json_form() {
             "color_scale": 20
         })
     );
+    let (artists, _) = written_artists(vec![Artist::Cells(Cells {
+        id: NodeId(3),
+        values: NodeId(10),
+        face_opacity: 0.5,
+        edge_opacity: 0.0,
+        ..Cells::default()
+    })]);
+    assert_eq!(artists[0]["face_opacity"], json!(0.5));
+    assert_eq!(artists[0]["edge_opacity"], json!(0.0));
+    assert_eq!(artists[0].get("opacity"), None, "{}", artists[0]);
 }
 
 // Why: a hand-written or web-written file leaves out what it does not set; bars without
-// colours or an opacity, stairs without a base or a fill opacity, and cells without alpha
-// or an opacity must load with the defaults of those properties (no colours, an open
-// outline, no alpha, opaque) rather than be refused as incomplete.
+// colour data, a colour scale or opacities, stairs without a base or opacities, and cells
+// without alpha or opacities must load with the defaults of those properties (nothing
+// mapped, an open outline, no alpha, opaque faces, edges, lines and fills) rather than be
+// refused as incomplete.
 #[test]
 fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
     let mut fig = Figure::new();
@@ -499,7 +544,7 @@ fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
             "orientation": "vertical", "positions": 10, "values": 11,
             "base": { "type": "constant", "value": 0.0 }, "slot": { "type": "pitch" },
             "gap": 0.2, "group": null, "face": { "type": "auto" },
-            "edge": { "color": { "type": "none" }, "width_pt": 0.5, "dash": "solid" }
+            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" }
         },
         {
             "type": "stairs", "id": 4, "label": null, "visible": true,
@@ -585,10 +630,11 @@ fn default_artists_figure() -> Figure {
 }
 
 // Why: proto3 omits zero-valued fields, and the defaults of these artists are not zero in
-// many places (a gap of 0.2, an opacity of 1, a visible artist, an edge 0.5 points wide
-// in no colour). A writer in another language that leaves those fields out must get the
-// defaults of the artist, not proto3's zeros or the defaults of another context: an absent
-// gap is 0.2, not 0, which would join the bars; an absent bar edge is no edge, not the
+// many places (a gap of 0.2, every opacity of 1, a visible artist, an edge 0.5 points wide
+// in black for bars and in no colour for cells). A writer in another language that leaves
+// those fields out must get the defaults of the artist, not proto3's zeros or the defaults
+// of another context: an absent gap is 0.2, not 0, which would join the bars; an absent
+// bar edge is a thin black outline and an absent cell edge is no edge, neither of them the
 // automatic edge that a line takes; and an absent orientation is vertical.
 #[test]
 fn absent_fields_of_bars_stairs_and_cells_decode_to_the_defaults_of_each_artist() {
@@ -605,12 +651,14 @@ fn absent_fields_of_bars_stairs_and_cells_decode_to_the_defaults_of_each_artist(
                 bar.face = None;
                 bar.edge = None;
                 bar.face_opacity = None;
+                bar.edge_opacity = None;
             }
             wire::ArtistKind::Stairs(stairs) => {
                 stairs.visible = None;
                 stairs.orientation = 0;
                 stairs.line = None;
                 stairs.fill = None;
+                stairs.line_opacity = None;
                 stairs.fill_opacity = None;
             }
             wire::ArtistKind::Cells(cells) => {
@@ -619,7 +667,8 @@ fn absent_fields_of_bars_stairs_and_cells_decode_to_the_defaults_of_each_artist(
                 cells.rows = None;
                 cells.gap = None;
                 cells.edge = None;
-                cells.opacity = None;
+                cells.face_opacity = None;
+                cells.edge_opacity = None;
             }
             other => panic!("unexpected artist {other:?}"),
         }
@@ -680,10 +729,11 @@ fn absent_data_of_bars_stairs_and_cells_is_an_error_that_names_the_field() {
 
 // Why: a base of 0 and a gap of 0 are real values that differ from absence (a closed
 // outline rather than an open one, and touching bars rather than the default gap), a base
-// of negative zero is a different number in the binary format, an opacity of 0 hides
+// of negative zero is a different number in the binary format, every opacity of 0 hides
 // rather than defaults, an empty group name is a group rather than none, and identifier 0
-// is a valid reference; each must survive both formats as itself, together with every
-// variant of the tagged values, rather than collapse to proto3's zero or to absence.
+// is a valid reference (as the colour data and colour scale of bars too); each must
+// survive both formats as itself, together with every variant of the tagged values, rather
+// than collapse to proto3's zero or to absence.
 #[test]
 fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
     let mut fig = Figure::new();
@@ -702,8 +752,11 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
                     name: String::new(),
                     layout: BarLayout::Stacked,
                 }),
-                colors: vec![Color::WHITE, Color::BLACK],
+                face: ColorSpec::Colormapped,
+                color_data: Some(NodeId(0)),
+                color_scale: Some(NodeId(0)),
                 face_opacity: 0.0,
+                edge_opacity: 0.0,
                 ..Bar::default()
             }),
             Artist::Bar(Bar {
@@ -727,6 +780,7 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
                 },
                 base: Some(0.0),
                 fill: ColorSpec::Auto,
+                line_opacity: 0.0,
                 fill_opacity: 0.0,
                 ..Stairs::default()
             }),
@@ -738,7 +792,8 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
                 gap: CellGap { x: 0.0, y: 0.5 },
                 color_scale: Some(NodeId(0)),
                 alpha: Some(NodeId(0)),
-                opacity: 0.0,
+                face_opacity: 0.0,
+                edge_opacity: 0.0,
                 ..Cells::default()
             }),
         ],
@@ -755,13 +810,25 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
 // Colour mapping
 // ---------------------------------------------------------------------------------
 
-// Why: only cells map numbers through a colour scale; bars and stairs take fixed colours
-// or the colour order. Automatic colour limits and colourbars are found from the artists
-// that map through a scale, so cells must report their scale and their values there, and
-// bars and stairs must report none, or a scale's automatic limits would include bar
-// heights.
+/// Gives the bar series of a fixture colour data of the given values, added under the
+/// identifier 60, and names [`SCALE`] as its colour scale.
+fn give_colour_data(fig: &mut Figure, values: &[f64]) -> NodeId {
+    let data = push_vector(fig, NodeId(60), values);
+    let bar = bar_mut(fig);
+    bar.color_data = Some(data);
+    bar.color_scale = Some(SCALE);
+    data
+}
+
+// Why: automatic colour limits and colourbars are found from the artists that map numbers
+// through a scale, so every artist that maps must report its scale and its numbers there,
+// and every other artist must report none. Cells map their values; bars map their colour
+// data whenever they have some, whatever their colours, as a series does, so that the
+// limits of the scale cover the colours a colormapped face or edge would take; bars
+// without colour data, and stairs, which take fixed colours or the colour order only, map
+// nothing, or a scale's automatic limits would include bar heights or stair values.
 #[test]
-fn only_cells_map_their_values_through_a_colour_scale() {
+fn cells_and_bars_with_colour_data_map_through_a_colour_scale_and_stairs_never_do() {
     let fx = fixture(false, cells(2, 3));
     let values = match &fx.fig.axes[0].artists[0] {
         Artist::Cells(cells) => cells.values,
@@ -777,6 +844,34 @@ fn only_cells_map_their_values_through_a_colour_scale() {
         })
     );
     assert_eq!(fx.fig.color_scale_values(SCALE), vec![values]);
+
+    for face in [ColorSpec::Colormapped, ColorSpec::Auto] {
+        let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+        let data = give_colour_data(&mut fx.fig, &[0.0, 1.0, 2.0]);
+        bar_mut(&mut fx.fig).face = face;
+        let artist = &fx.fig.axes[0].artists[0];
+        assert_eq!(artist.color_scale(), Some(SCALE), "{face:?}");
+        assert_eq!(
+            artist.color_mapping(),
+            Some(ColorMapping {
+                color_scale: Some(SCALE),
+                values: data,
+            }),
+            "{face:?}"
+        );
+        assert_eq!(fx.fig.color_scale_values(SCALE), vec![data], "{face:?}");
+    }
+
+    // A bar series without colour data maps nothing even when it names a scale and its
+    // face is colormapped, because it has no number to map.
+    let mut fx = fixture(false, bars(&[1.0, 2.0]));
+    let bar = bar_mut(&mut fx.fig);
+    bar.face = ColorSpec::Colormapped;
+    bar.color_scale = Some(SCALE);
+    let artist = &fx.fig.axes[0].artists[0];
+    assert_eq!(artist.color_scale(), Some(SCALE));
+    assert_eq!(artist.color_mapping(), None);
+    assert_eq!(fx.fig.color_scale_values(SCALE), vec![]);
 
     let fixed: [Make; 2] = [
         Box::new(bars(&[1.0, 2.0])),
@@ -801,8 +896,8 @@ fn only_cells_map_their_values_through_a_colour_scale() {
 // particular order (categories placed by a lookup rather than sorted), a missing value
 // (NaN, which draws no bar for that position), bars below the base, touching bars (a gap
 // of 0) and nearly invisible ones (a gap just below 1), floating bars, per-bar widths,
-// per-bar colours, outlined bars without a face, and horizontal bars. None must raise an
-// issue.
+// bars and outlines coloured by data through a scale, outlined bars without a face, and
+// horizontal bars. None must raise an issue.
 #[test]
 fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
     type Change = Box<dyn FnOnce(&mut Figure)>;
@@ -865,10 +960,21 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             }),
         ),
         (
-            "a colour per bar",
+            "faces coloured by data",
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
-                bar_mut(fig).colors = vec![Color::BLACK, Color::WHITE, Color::BLACK];
+                give_colour_data(fig, &[0.5, 1.0, 0.0]);
+                bar_mut(fig).face = ColorSpec::Colormapped;
+            }),
+        ),
+        (
+            "outlines coloured by data around faces without a colour",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| {
+                give_colour_data(fig, &[0.5, 1.0, 0.0]);
+                let bar = bar_mut(fig);
+                bar.face = ColorSpec::None;
+                bar.edge.color = ColorSpec::Colormapped;
             }),
         ),
         (
@@ -940,13 +1046,14 @@ fn a_bar_slot_that_is_not_finite_and_positive_is_an_error_on_the_bars() {
 }
 
 // Why: every array of a bar series holds one entry per bar, so arrays of different lengths
-// leave bars without a position, a value, a base, a width or a colour; and each must be a
-// vector, because a matrix of the same count has no order of bars that a reader could
-// rely on.
+// leave bars without a position, a value, a base, a width or a value to colour them by;
+// and each must be a vector, because a matrix of the same count has no order of bars that
+// a reader could rely on. Colour data holds one value per bar only: unlike a series, bars
+// have no segments to colour, so one value fewer than the bars is a mismatch too.
 #[test]
 fn bar_arrays_that_do_not_hold_one_entry_per_bar_are_shape_mismatches() {
     type Change = fn(&mut Figure);
-    let cases: [(&str, Change); 6] = [
+    let cases: [(&str, Change); 8] = [
         ("fewer values than positions", |fig| {
             let values = bar_mut(fig).values;
             replace_array(fig, values, NdArray::vector(vec![1.0, 2.0]));
@@ -959,8 +1066,20 @@ fn bar_arrays_that_do_not_hold_one_entry_per_bar_are_shape_mismatches() {
             let widths = push_vector(fig, NodeId(50), &[1.0, 1.0, 1.0, 1.0]);
             bar_mut(fig).slot = BarSlot::Data(widths);
         }),
-        ("colours of another length", |fig| {
-            bar_mut(fig).colors = vec![Color::BLACK];
+        ("colour data of one value", |fig| {
+            give_colour_data(fig, &[1.0]);
+            bar_mut(fig).face = ColorSpec::Colormapped;
+        }),
+        ("colour data of one value per gap between bars", |fig| {
+            give_colour_data(fig, &[1.0, 2.0]);
+            bar_mut(fig).edge.color = ColorSpec::Colormapped;
+        }),
+        ("colour data as a matrix", |fig| {
+            let data = push_array(fig, NodeId(60), vec![3, 1], vec![1.0, 2.0, 3.0]);
+            let bar = bar_mut(fig);
+            bar.color_data = Some(data);
+            bar.color_scale = Some(SCALE);
+            bar.face = ColorSpec::Colormapped;
         }),
         ("positions as a matrix", |fig| {
             let positions = bar_mut(fig).positions;
@@ -991,12 +1110,13 @@ fn bar_arrays_that_do_not_hold_one_entry_per_bar_are_shape_mismatches() {
 }
 
 // Why: only images and the values and alpha of cells read 8-bit values; every array of a
-// bar series is read as floating-point numbers, so an array of bytes there is refused as
-// the wrong element type rather than read as garbage.
+// bar series, its colour data included as a series' is, is read as floating-point
+// numbers, so an array of bytes there is refused as the wrong element type rather than
+// read as garbage.
 #[test]
 fn bar_arrays_of_bytes_are_element_type_mismatches() {
     type Change = fn(&mut Figure, NodeId);
-    let cases: [(&str, Change); 4] = [
+    let cases: [(&str, Change); 5] = [
         ("positions", |fig, bytes| bar_mut(fig).positions = bytes),
         ("values", |fig, bytes| bar_mut(fig).values = bytes),
         ("base", |fig, bytes| {
@@ -1004,6 +1124,12 @@ fn bar_arrays_of_bytes_are_element_type_mismatches() {
         }),
         ("widths", |fig, bytes| {
             bar_mut(fig).slot = BarSlot::Data(bytes)
+        }),
+        ("colour data", |fig, bytes| {
+            let bar = bar_mut(fig);
+            bar.color_data = Some(bytes);
+            bar.color_scale = Some(SCALE);
+            bar.face = ColorSpec::Colormapped;
         }),
     ];
     for (name, change) in cases {
@@ -1026,29 +1152,13 @@ fn drop_unused(fig: &mut Figure) {
     fig.data.retain(|data| used.contains(&data.id));
 }
 
-// Why: bars and stairs have no colour scale, so a colormapped face, edge, line or fill has
-// no scale to look its colour up in; drawing it in some fallback colour would hide the
-// mistake, so it is refused, naming the artist. Cells, which do map their values, are not
-// affected.
+// Why: stairs have no colour scale and no colour data, so a colormapped line or fill has no
+// value to look a colour up by and no scale to look it up in; drawing it in some fallback
+// colour would hide the mistake, so it is refused, naming the artist. Bars, which may
+// have colour data, and cells, which map their values, are not affected.
 #[test]
-fn a_colormapped_colour_on_bars_or_stairs_is_an_error() {
+fn a_colormapped_colour_on_stairs_is_an_error() {
     type Change = fn(&mut Figure);
-    let bar_cases: [(&str, Change); 2] = [
-        ("bar face", |fig| bar_mut(fig).face = ColorSpec::Colormapped),
-        ("bar edge", |fig| {
-            bar_mut(fig).edge.color = ColorSpec::Colormapped;
-        }),
-    ];
-    for (name, change) in bar_cases {
-        let mut fx = fixture(false, bars(&[2.0, 5.0]));
-        change(&mut fx.fig);
-        assert_only_error(
-            &fx.fig.validate(),
-            IssueKind::ColormapNotSupported,
-            fx.artist,
-            name,
-        );
-    }
     let stairs_cases: [(&str, Change); 2] = [
         ("stairs line", |fig| {
             stairs_mut(fig).line.color = ColorSpec::Colormapped;
@@ -1067,6 +1177,242 @@ fn a_colormapped_colour_on_bars_or_stairs_is_an_error() {
             IssueKind::ColormapNotSupported,
             fx.artist,
             name,
+        );
+    }
+}
+
+/// Gives the fixture's scale [`SCALE`] the given kind.
+fn set_scale_kind(fig: &mut Figure, kind: ColorScaleKind) {
+    fig.color_scales
+        .iter_mut()
+        .find(|scale| scale.id == SCALE)
+        .expect("the fixture holds its scale")
+        .kind = kind;
+}
+
+// Why: a bar chart coloured by category (the occupancy of each slot, the model of each
+// bar) maps whole-number codes through a categorical or indexed scale, and one coloured by
+// a quantity maps it through a continuous scale; bars, like series, accept every kind of
+// scale, so none of these may be refused, whether the face or the outline is
+// colormapped. Values that each scale places are used, so that only a wrongful
+// restriction on the kind of scale can fail the test.
+#[test]
+fn bars_coloured_by_data_accept_every_kind_of_colour_scale() {
+    let entries = vec![Color::BLACK, Color::WHITE, Color::BLACK];
+    let kinds = [
+        ("continuous", ColorScaleKind::default()),
+        (
+            "indexed",
+            ColorScaleKind::Indexed(IndexedColorScale {
+                colors: entries.clone(),
+                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+                ..IndexedColorScale::default()
+            }),
+        ),
+        (
+            "categorical",
+            ColorScaleKind::Categorical(CategoricalColorScale {
+                categories: ["low", "middle", "high"]
+                    .map(|label| ColorCategory {
+                        color: Color::BLACK,
+                        label: Text::plain(label),
+                    })
+                    .to_vec(),
+                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            }),
+        ),
+    ];
+    for (name, kind) in kinds {
+        for on_edge in [false, true] {
+            let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+            set_scale_kind(&mut fx.fig, kind.clone());
+            give_colour_data(&mut fx.fig, &[0.0, 2.0, 1.0]);
+            let bar = bar_mut(&mut fx.fig);
+            if on_edge {
+                bar.edge.color = ColorSpec::Colormapped;
+            } else {
+                bar.face = ColorSpec::Colormapped;
+            }
+            assert_no_issues(
+                &fx.fig.validate(),
+                &format!(
+                    "{name}, colormapped {}",
+                    if on_edge { "edge" } else { "face" }
+                ),
+            );
+        }
+    }
+}
+
+// Why: bars map their colour data through their scale as a series does, so a strict policy
+// of an index-mapped scale must refuse a code it cannot place, rather than draw that bar
+// in no colour without a word.
+#[test]
+fn a_bar_colour_value_that_a_strict_scale_cannot_place_is_out_of_range() {
+    let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+    set_scale_kind(
+        &mut fx.fig,
+        ColorScaleKind::Indexed(IndexedColorScale {
+            colors: vec![Color::BLACK; 2],
+            outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            ..IndexedColorScale::default()
+        }),
+    );
+    give_colour_data(&mut fx.fig, &[0.0, 1.0, 2.0]);
+    bar_mut(&mut fx.fig).face = ColorSpec::Colormapped;
+    assert_only_error(
+        &fx.fig.validate(),
+        IssueKind::ValueOutOfRange,
+        fx.artist,
+        "the code 2 names no entry of two",
+    );
+}
+
+/// Builds a figure of one 2D axes holding, over three points, either a bar series or a
+/// series that draws markers without a line, each with the given colour data (added when
+/// present) and colour scale reference ([`SCALE`] when `named`), and with its face (the
+/// bars' or the markers') set to `face` and its edge to `edge`. Returns the report of its
+/// validation and the identifier of the artist.
+fn coloured(
+    as_bars: bool,
+    data: bool,
+    named: bool,
+    face: ColorSpec,
+    edge: ColorSpec,
+) -> (ValidationReport, NodeId) {
+    let fx = fixture(false, move |b, id| {
+        let points = b.vector(&[1.0, 2.0, 3.0]);
+        let color_data = data.then(|| b.vector(&[0.0, 0.5, 1.0]));
+        let color_scale = named.then_some(SCALE);
+        if as_bars {
+            Artist::Bar(Bar {
+                id,
+                positions: points,
+                values: points,
+                face,
+                edge: LineStyle {
+                    color: edge,
+                    ..Bar::default().edge
+                },
+                color_data,
+                color_scale,
+                ..Bar::default()
+            })
+        } else {
+            Artist::Series(Series {
+                id,
+                x: points,
+                y: points,
+                line: LineStyle {
+                    dash: DashStyle::None,
+                    ..LineStyle::default()
+                },
+                marker: MarkerStyle {
+                    shape: MarkerShape::Circle,
+                    face,
+                    edge,
+                    ..MarkerStyle::default()
+                },
+                color_data,
+                color_scale,
+                ..Series::default()
+            })
+        }
+    });
+    // A scale that no artist names is valid on its own, so it stays in the figure.
+    (fx.fig.validate(), fx.artist)
+}
+
+// Why: bars colour individual bars the way a series colours individual markers, so they
+// must follow the same rules, with the same issue kinds, or a program that builds both
+// from one description of its colours would find one valid and the other refused. Colour
+// data without a scale has nothing to be looked up in and is refused as a missing scale,
+// whatever the colours, because it would still set the scale's limits; a colormapped face
+// or edge without colour data has no number to map and is drawn as an automatic colour,
+// so it needs no scale and raises nothing; and with both, a colormapped face or edge is
+// valid. Each case is compared with the equivalent series and also stated outright, so
+// that a change to the series rules cannot silently pass for bars.
+#[test]
+fn a_colormapped_bar_face_or_edge_follows_the_colour_rules_of_a_series() {
+    use ColorSpec::{Auto, Colormapped};
+    let none = ColorSpec::None;
+    /// A case: its name, whether the artist has colour data and names a scale, its face
+    /// and edge colours, and the errors expected of it.
+    type Case = (
+        &'static str,
+        bool,
+        bool,
+        ColorSpec,
+        ColorSpec,
+        &'static [IssueKind],
+    );
+    let cases: [Case; 6] = [
+        (
+            "a colormapped face without colour data or a scale",
+            false,
+            false,
+            Colormapped,
+            none,
+            &[],
+        ),
+        (
+            "a colormapped edge without colour data, naming a scale",
+            false,
+            true,
+            Auto,
+            Colormapped,
+            &[],
+        ),
+        (
+            "a colormapped face with colour data but no scale",
+            true,
+            false,
+            Colormapped,
+            none,
+            &[IssueKind::MissingColorScale],
+        ),
+        (
+            "a colormapped edge with colour data but no scale",
+            true,
+            false,
+            Auto,
+            Colormapped,
+            &[IssueKind::MissingColorScale],
+        ),
+        (
+            "colour data without a scale or a colormapped colour",
+            true,
+            false,
+            Auto,
+            none,
+            &[IssueKind::MissingColorScale],
+        ),
+        (
+            "a colormapped face and edge with colour data and a scale",
+            true,
+            true,
+            Colormapped,
+            Colormapped,
+            &[],
+        ),
+    ];
+    for (name, data, named, face, edge, expected) in cases {
+        let (bars, bar) = coloured(true, data, named, face, edge);
+        let (series, _) = coloured(false, data, named, face, edge);
+        assert_eq!(error_kinds(&bars), expected, "{name}: {bars:?}");
+        assert!(
+            expected.iter().all(|&kind| has_error(&bars, kind, bar)),
+            "{name}: the errors are not against the bars: {bars:?}"
+        );
+        assert_eq!(
+            error_kinds(&bars),
+            error_kinds(&series),
+            "{name}: the bars and the series differ: {bars:?} / {series:?}"
+        );
+        assert_eq!(
+            warning_kinds(&bars),
+            warning_kinds(&series),
+            "{name}: the bars and the series differ: {bars:?} / {series:?}"
         );
     }
 }
@@ -1656,8 +2002,8 @@ fn the_ordinary_forms_of_cells_raise_no_issue() {
                 };
             }),
         ),
-        // Unlike bars and stairs, cells have a colour scale, so an outline can take the
-        // colour of its cell, which outlines cells separated by a gap in their own colours.
+        // Unlike stairs, cells have a colour scale, so an outline can take the colour of its
+        // cell, which outlines cells separated by a gap in their own colours.
         (
             "outlines in the colour of each cell",
             (2, 3),
@@ -1955,37 +2301,59 @@ fn bars_stairs_and_cells_in_a_three_dimensional_axes_are_errors() {
 }
 
 // Why: an opacity is a fraction of full coverage, so a value outside [0, 1] or a NaN has
-// no meaning; it is refused on the faces of bars, the fill of stairs and cells alike,
-// while both ends of the range, transparent and opaque, are accepted.
+// no meaning; it is refused on every opacity of the new artists (the faces and edges of
+// bars, the line and fill of stairs, and the faces and edges of cells) alike, while both
+// ends of the range, transparent and opaque, are accepted. Each opacity is checked on its
+// own, so that one that is not validated cannot hide behind another that is.
 #[test]
 fn an_opacity_outside_zero_to_one_is_an_error_on_bars_stairs_and_cells() {
     type SetOpacity = fn(&mut Artist, f64);
-    let set: [SetOpacity; 3] = [
-        |artist, value| {
+    let opacities: [(&str, usize, SetOpacity); 6] = [
+        ("bar face", 0, |artist, value| {
             if let Artist::Bar(bar) = artist {
                 bar.face_opacity = value;
             }
-        },
-        |artist, value| {
+        }),
+        ("bar edge", 0, |artist, value| {
+            if let Artist::Bar(bar) = artist {
+                bar.edge.color = ColorSpec::Auto;
+                bar.edge_opacity = value;
+            }
+        }),
+        ("stairs line", 1, |artist, value| {
+            if let Artist::Stairs(stairs) = artist {
+                stairs.line_opacity = value;
+            }
+        }),
+        ("stairs fill", 1, |artist, value| {
             if let Artist::Stairs(stairs) = artist {
                 stairs.base = Some(0.0);
                 stairs.fill = ColorSpec::Auto;
                 stairs.fill_opacity = value;
             }
-        },
-        |artist, value| {
+        }),
+        ("cell faces", 2, |artist, value| {
             if let Artist::Cells(cells) = artist {
-                cells.opacity = value;
+                cells.face_opacity = value;
             }
-        },
+        }),
+        ("cell edges", 2, |artist, value| {
+            if let Artist::Cells(cells) = artist {
+                cells.edge.color = ColorSpec::Colormapped;
+                cells.edge_opacity = value;
+            }
+        }),
     ];
-    for ((name, make), set) in every_new_artist().into_iter().zip(set) {
-        let mut fx = fixture(false, make);
+    for (name, artist, set) in opacities {
         for value in [0.0, 0.5, 1.0] {
+            let (_, make) = every_new_artist().swap_remove(artist);
+            let mut fx = fixture(false, make);
             set(only_artist(&mut fx.fig), value);
             assert_no_issues(&fx.fig.validate(), &format!("{name} at {value}"));
         }
         for value in [-0.01, 1.01, f64::NAN, f64::INFINITY] {
+            let (_, make) = every_new_artist().swap_remove(artist);
+            let mut fx = fixture(false, make);
             set(only_artist(&mut fx.fig), value);
             assert_only_error(
                 &fx.fig.validate(),

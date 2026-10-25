@@ -3775,8 +3775,9 @@ fn absent_values_without_a_default_are_errors_that_name_the_field() {
 // colour data and the face and edge
 // alpha of a surface, the height of a contour plane, the levels of a contour, the colour
 // scale of a colour-mapped artist, the alpha of a scalar image, the title of a colour
-// scale and the label of its key, the pixel ranges and plane offset of an image, the group of
-// a bar series, the base of stairs, and the colour scale and alpha of cells) must not
+// scale and the label of its key, the pixel ranges and plane offset of an image, the group,
+// colour data and colour scale of a bar series, the base of stairs, and the colour scale
+// and alpha of cells) must not
 // become errors or defaults when absent, because a figure without them is complete; and
 // the encoder must write them as absent rather than as a zero, which would move the
 // image.
@@ -3839,8 +3840,8 @@ fn absent_optional_references_decode_as_absent() {
         id: NodeId(67),
         ..ColorScale::default()
     });
-    // A bar series without a group or colours of its own, open stairs without a base, and
-    // cells without a colour scale or alpha.
+    // A bar series without a group, colour data or a colour scale, open stairs without a
+    // base, and cells without a colour scale or alpha.
     let artists = &mut fig
         .axes
         .iter_mut()
@@ -3892,7 +3893,9 @@ fn absent_optional_references_decode_as_absent() {
                         Some(wire::ImagePlaneKind::Xy(xy)) if xy.z.is_none()
                     )
             }
-            wire::ArtistKind::Bar(bar) => bar.group.is_none(),
+            wire::ArtistKind::Bar(bar) => {
+                bar.group.is_none() && bar.color_data.is_none() && bar.color_scale.is_none()
+            }
             wire::ArtistKind::Stairs(stairs) => stairs.base.is_none(),
             wire::ArtistKind::Cells(cells) => cells.color_scale.is_none() && cells.alpha.is_none(),
             wire::ArtistKind::ScalarImage(image) => {

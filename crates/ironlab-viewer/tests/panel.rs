@@ -1655,19 +1655,23 @@ fn choice<'a>(
 // by. Removing the choice where it cannot be honoured would hide from the user that data
 // colouring exists at all, so it is listed everywhere and marked where it cannot be taken;
 // marking it where a surface face uses it would take away the reason a surface is drawn in
-// colour.
+// colour. Bars with colour data colour their faces and outlines by it as a series colours
+// its markers, while stairs have no colour data and so cannot be colormapped.
 #[test]
 fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours_by_data() {
     let state = FigureState::new(figure_with_every_artist());
     let (line, markers, contour, quiver, surface) =
         (NodeId(3), NodeId(4), NodeId(5), NodeId(6), NodeId(7));
+    let (bars, stairs) = (NodeId(15), NodeId(16));
 
-    // A series without colour data, and a quiver, have no value to look a colour up by.
+    // A series without colour data, a quiver and stairs have no value to look a colour up by.
     for (node, group_name, label) in [
         (line, "line", "color"),
         (line, "marker", "face"),
         (line, "marker", "edge"),
         (quiver, "line", "color"),
+        (stairs, "line", "color"),
+        (stairs, "fill", ""),
     ] {
         let labels = offered(&groups_of(&state, node), group_name, label);
         assert!(
@@ -1690,7 +1694,8 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
         );
     }
 
-    // A series with colour data colours its line and its markers by it (#19).
+    // A series with colour data colours its line and its markers by it (#19), and bars with
+    // colour data their faces and outlines.
     for (node, group_name, label) in [
         (contour, "line", "color"),
         (surface, "face", ""),
@@ -1698,6 +1703,8 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
         (markers, "line", "color"),
         (markers, "marker", "face"),
         (markers, "marker", "edge"),
+        (bars, "face", ""),
+        (bars, "edge", "color"),
     ] {
         assert!(
             choice(&groups_of(&state, node), group_name, label, "Colormapped").available(),

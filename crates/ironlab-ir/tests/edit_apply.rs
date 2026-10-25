@@ -2080,9 +2080,21 @@ fn the_registry_describes_opacities_as_numbers_and_alpha_as_optional_data() {
         ),
         (NodeKind::Image, &["opacity"][..], &[][..]),
         (NodeKind::ScalarImage, &["opacity"][..], &["alpha"][..]),
-        (NodeKind::Bar, &["face_opacity"][..], &[][..]),
-        (NodeKind::Stairs, &["fill_opacity"][..], &[][..]),
-        (NodeKind::Cells, &["opacity"][..], &["alpha"][..]),
+        (
+            NodeKind::Bar,
+            &["face_opacity", "edge_opacity"][..],
+            &[][..],
+        ),
+        (
+            NodeKind::Stairs,
+            &["line_opacity", "fill_opacity"][..],
+            &[][..],
+        ),
+        (
+            NodeKind::Cells,
+            &["face_opacity", "edge_opacity"][..],
+            &["alpha"][..],
+        ),
         (
             NodeKind::Contour,
             &["line_opacity", "fill_opacity"][..],

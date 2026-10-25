@@ -471,3 +471,44 @@ fn the_axis_definition_does_not_require_its_visibility_or_tick_label_angle() {
         );
     }
 }
+
+// Why: an opacity of 1 is left out of a written file, so the schema must not require any
+// opacity of bars, stairs or cells, or every file that keeps them opaque would fail
+// validation against the schema while IronLAB still reads it; nor may it still describe the
+// per-bar colours or the single opacity of cells, which colour data and the face and edge
+// opacities replaced, since a hand-written file that follows the schema would then be
+// refused by the reader.
+#[test]
+fn the_opacities_of_bars_stairs_and_cells_are_described_but_not_required() {
+    let schema = ironlab_ir::json_schema();
+    for (name, opacities, gone) in [
+        ("Bar", &["face_opacity", "edge_opacity"][..], "colors"),
+        ("Stairs", &["line_opacity", "fill_opacity"][..], "opacity"),
+        ("Cells", &["face_opacity", "edge_opacity"][..], "opacity"),
+    ] {
+        let definition = schema
+            .pointer(&format!("/$defs/{name}"))
+            .unwrap_or_else(|| panic!("the schema defines {name}"));
+        let required: Vec<&str> = definition
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        for opacity in opacities {
+            assert!(
+                definition
+                    .pointer(&format!("/properties/{opacity}"))
+                    .is_some(),
+                "{name} has no {opacity} property"
+            );
+            assert!(
+                !required.contains(opacity),
+                "{name} requires {opacity}: {required:?}"
+            );
+        }
+        assert!(
+            definition.pointer(&format!("/properties/{gone}")).is_none(),
+            "{name} still has a {gone} property"
+        );
+    }
+}

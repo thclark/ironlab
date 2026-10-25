@@ -781,9 +781,11 @@ impl Encode for Bar {
             gap: Some(self.gap),
             group: self.group.as_ref().map(encode_bar_group),
             face: Some(encode_color_spec(self.face)),
-            colors: self.colors.iter().copied().map(encode_color).collect(),
+            color_data: self.color_data.map(|id| id.0),
+            color_scale: self.color_scale.map(|id| id.0),
             edge: Some(encode_line_style(self.edge)),
             face_opacity: Some(self.face_opacity),
+            edge_opacity: Some(self.edge_opacity),
         }
     }
 }
@@ -827,6 +829,7 @@ impl Encode for Stairs {
             base: self.base,
             line: Some(encode_line_style(self.line)),
             fill: Some(encode_color_spec(self.fill)),
+            line_opacity: Some(self.line_opacity),
             fill_opacity: Some(self.fill_opacity),
         }
     }
@@ -864,7 +867,8 @@ impl Encode for Cells {
             edge: Some(encode_line_style(self.edge)),
             color_scale: self.color_scale.map(|id| id.0),
             alpha: self.alpha.map(|id| id.0),
-            opacity: Some(self.opacity),
+            face_opacity: Some(self.face_opacity),
+            edge_opacity: Some(self.edge_opacity),
         }
     }
 }
@@ -1961,9 +1965,11 @@ impl Decode for Bar {
                 .map(|group| decode_bar_group(group, &join(at, "group")))
                 .transpose()?,
             face: decode_color_spec(wire.face, default.face),
-            colors: wire.colors.into_iter().map(decode_color).collect(),
+            color_data: wire.color_data.map(NodeId),
+            color_scale: wire.color_scale.map(NodeId),
             edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+            edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
         })
     }
 }
@@ -2026,6 +2032,7 @@ impl Decode for Stairs {
             base: wire.base,
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
             fill: decode_color_spec(wire.fill, default.fill),
+            line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
         })
     }
@@ -2072,7 +2079,8 @@ impl Decode for Cells {
             edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
             color_scale: wire.color_scale.map(NodeId),
             alpha: wire.alpha.map(NodeId),
-            opacity: wire.opacity.unwrap_or(default.opacity),
+            face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+            edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
         })
     }
 }
