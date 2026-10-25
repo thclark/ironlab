@@ -900,6 +900,193 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
     );
 }
 
+// Why: clients in other languages read bars, stairs and cells from the schema from the day
+// it is generated, and `buf breaking` against `main` cannot check numbers that `main` does
+// not have. The artist oneof must carry the three kinds at the agreed numbers 11, 12 and
+// 13, after the last existing variant, inside the oneof named `kind` like the rest. Each
+// message must declare a field for every property of its IR type, named as the IR names
+// it, because the property paths of the editor are those names. A reference that the IR
+// makes optional (the group of a bar series, the base of stairs, the colour scale and
+// alpha of cells) must have presence, because absent means none and a zero would be a
+// different value: a base at 0 or the identifier 0; so must the colour data and colour
+// scale of bars, as a series' do. The gap and every opacity must have presence too,
+// because their absence decodes to defaults (a gap of 0.2, full opacity) that differ from
+// proto3's zero. The per-bar colours and the single opacity of cells, which colour data
+// and the face and edge opacities replaced, must be gone, and their numbers and names
+// reserved so that no later field reuses them with another meaning. The tagged values of
+// the new types must be read through a oneof named `kind`, as every other tagged value is.
+#[test]
+fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
+    let pool = compile();
+    let artist = declared_fields(&pool, "Artist");
+    for (number, field, kind) in [
+        (11, "bar", "Bar"),
+        (12, "stairs", "Stairs"),
+        (13, "cells", "Cells"),
+    ] {
+        assert!(
+            artist.contains(&(number, field.to_owned(), kind.to_owned())),
+            "Artist lacks {field} = {number} of {kind}: {artist:?}"
+        );
+    }
+    let names = |message: &str| -> BTreeSet<String> {
+        declared_fields(&pool, message)
+            .into_iter()
+            .map(|(_, name, _)| name)
+            .collect()
+    };
+    for (message, fields) in [
+        (
+            "Bar",
+            &[
+                "id",
+                "label",
+                "visible",
+                "orientation",
+                "positions",
+                "values",
+                "base",
+                "slot",
+                "gap",
+                "group",
+                "face",
+                "color_data",
+                "color_scale",
+                "edge",
+                "face_opacity",
+                "edge_opacity",
+            ][..],
+        ),
+        (
+            "Stairs",
+            &[
+                "id",
+                "label",
+                "visible",
+                "orientation",
+                "data",
+                "base",
+                "line",
+                "fill",
+                "line_opacity",
+                "fill_opacity",
+            ][..],
+        ),
+        (
+            "Cells",
+            &[
+                "id",
+                "label",
+                "visible",
+                "values",
+                "columns",
+                "rows",
+                "gap",
+                "edge",
+                "color_scale",
+                "alpha",
+                "face_opacity",
+                "edge_opacity",
+            ][..],
+        ),
+        ("BarGroup", &["name", "layout"][..]),
+        ("CellGap", &["x", "y"][..]),
+    ] {
+        assert_eq!(
+            names(message),
+            fields
+                .iter()
+                .map(|f| (*f).to_owned())
+                .collect::<BTreeSet<_>>(),
+            "{message}"
+        );
+    }
+    for (message, field) in [
+        ("Bar", "group"),
+        ("Bar", "gap"),
+        ("Bar", "color_data"),
+        ("Bar", "color_scale"),
+        ("Bar", "face_opacity"),
+        ("Bar", "edge_opacity"),
+        ("Stairs", "base"),
+        ("Stairs", "line_opacity"),
+        ("Stairs", "fill_opacity"),
+        ("Cells", "color_scale"),
+        ("Cells", "alpha"),
+        ("Cells", "face_opacity"),
+        ("Cells", "edge_opacity"),
+    ] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        let field = descriptor
+            .get_field_by_name(field)
+            .unwrap_or_else(|| panic!("{message} declares {field}"));
+        assert!(field.supports_presence(), "{message}.{}", field.name());
+    }
+    for (message, number, name) in [("Bar", 12, "colors"), ("Cells", 11, "opacity")] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .expect("the package declares the message");
+        assert!(
+            descriptor
+                .reserved_ranges()
+                .any(|range| range.contains(&number)),
+            "{message} does not reserve {number}"
+        );
+        assert!(
+            descriptor.reserved_names().any(|reserved| reserved == name),
+            "{message} does not reserve {name}"
+        );
+    }
+    for message in ["BarBase", "BarSlot", "StairsData", "CellEdges"] {
+        let descriptor = pool
+            .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
+            .unwrap_or_else(|| panic!("the package declares {message}"));
+        assert!(
+            descriptor
+                .oneofs()
+                .any(|oneof| !oneof.is_synthetic() && oneof.name() == "kind"),
+            "{message} is not read through a oneof named kind"
+        );
+    }
+}
+
+// Why: the visibility and the tick label angle of an axis were added to a message that
+// clients in other languages already read, so they must continue its numbering after its
+// last field (7, the tick labels), leaving every existing number with its meaning; and
+// each must have presence, because an absent visibility must mean visible (a file written
+// before the field existed shows every axis) and an absent angle must mean 0, neither of
+// which a reader could tell from proto3's zero for a field without presence.
+#[test]
+fn the_axis_message_declares_its_visibility_and_tick_label_angle_after_its_existing_fields() {
+    let pool = compile();
+    assert_eq!(
+        declared_fields(&pool, "Axis"),
+        [
+            (1, "label", "Text"),
+            (2, "scale", "Scale"),
+            (3, "limits", "Limits"),
+            (4, "grid", "bool"),
+            (5, "reverse", "bool"),
+            (6, "ticks", "Ticks"),
+            (7, "tick_labels", "TickLabels"),
+            (8, "visible", "bool"),
+            (9, "tick_label_angle", "double"),
+        ]
+        .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
+    );
+    let axis = pool
+        .get_message_by_name("ironlab.ir.v0.Axis")
+        .expect("the package declares Axis");
+    for field in ["visible", "tick_label_angle"] {
+        let field = axis
+            .get_field_by_name(field)
+            .unwrap_or_else(|| panic!("Axis declares {field}"));
+        assert!(field.supports_presence(), "Axis.{}", field.name());
+    }
+}
+
 // Why: proto3 decodes an absent enum as its zero value, so the zero value must mean
 // "unspecified" rather than a real choice, and enum values share the package's
 // namespace, so each must carry its enum's name (as the buf STANDARD rules require).

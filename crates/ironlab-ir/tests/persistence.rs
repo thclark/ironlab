@@ -65,6 +65,8 @@ fn decay_figure() -> Figure {
                 },
                 tick_labels: TickLabels::Auto,
                 grid: false,
+                visible: true,
+                tick_label_angle: 0.0,
             },
             y: Axis {
                 label: None,
@@ -78,6 +80,8 @@ fn decay_figure() -> Figure {
                     Text::plain("high"),
                 ]),
                 grid: true,
+                visible: true,
+                tick_label_angle: 0.0,
             },
             z: Axis::default(),
             aspect: Aspect::Ratio { y: 0.5, z: 2.0 },

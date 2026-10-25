@@ -1525,6 +1525,11 @@ fn sample(
                 edge: None,
             },
         },
+        // These kinds are not drawn yet, so their samples are empty patches.
+        Artist::Bar(_) | Artist::Stairs(_) | Artist::Cells(_) => SampleLook::Patch {
+            fill: None,
+            edge: None,
+        },
     }
 }
 

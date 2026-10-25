@@ -373,3 +373,142 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
         assert!(!artists.contains(gone), "Artist still admits {gone:?}");
     }
 }
+
+// Why: tools that validate `.fig.json` files find the definitions of bars, stairs and cells
+// by name in the file of the artist module, and the split into one file per module places
+// each definition with the wire message of the same name, so a type defined under another
+// name or in another module would leave such files unvalidatable or break the generation.
+// The tagged types must admit exactly the variant names of the documented form, which is
+// what a hand-written file writes: the kinds of artist, the orientations, the bases, slots
+// and layouts of bars, the two forms of stairs data with the three step positions, and the
+// two kinds of cell edges.
+#[test]
+fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_variant_names() {
+    let schema = ironlab_ir::json_schema();
+    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
+        .into_iter()
+        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
+        .collect();
+    let artist = files
+        .get(Path::new("artist.schema.json"))
+        .expect("artist.schema.json is generated");
+    for name in [
+        "Bar",
+        "Stairs",
+        "Cells",
+        "Orientation",
+        "BarBase",
+        "BarSlot",
+        "BarGroup",
+        "BarLayout",
+        "StairsData",
+        "StepAt",
+        "CellEdges",
+        "CellGap",
+    ] {
+        assert!(
+            schema.pointer(&format!("/$defs/{name}")).is_some(),
+            "the schema does not define {name}"
+        );
+        assert!(
+            artist.pointer(&format!("/$defs/{name}")).is_some(),
+            "artist.schema.json does not define {name}"
+        );
+    }
+
+    let strings_under = |name: &str| {
+        let definition = schema
+            .pointer(&format!("/$defs/{name}"))
+            .unwrap_or_else(|| panic!("the schema defines {name}"));
+        let mut allowed = BTreeSet::new();
+        allowed_strings(&schema, definition, &mut BTreeSet::new(), &mut allowed);
+        allowed
+    };
+    for (name, variants) in [
+        ("Artist", &["bar", "stairs", "cells"][..]),
+        ("Orientation", &["vertical", "horizontal"][..]),
+        ("BarBase", &["constant", "data"][..]),
+        ("BarSlot", &["pitch", "width", "data"][..]),
+        ("BarLayout", &["grouped", "stacked"][..]),
+        ("StairsData", &["edges", "samples"][..]),
+        ("StepAt", &["pre", "post", "mid"][..]),
+        ("CellEdges", &["unit", "edges"][..]),
+    ] {
+        let allowed = strings_under(name);
+        for variant in variants {
+            assert!(
+                allowed.contains(*variant),
+                "{name} does not admit {variant:?}; it admits {allowed:?}"
+            );
+        }
+    }
+}
+
+// Why: files written before an axis could be hidden or its tick labels rotated have
+// neither property, so the schema must not require them, or every existing file would
+// fail validation against the schema while IronLAB still reads it.
+#[test]
+fn the_axis_definition_does_not_require_its_visibility_or_tick_label_angle() {
+    let schema = ironlab_ir::json_schema();
+    let axis = schema
+        .pointer("/$defs/Axis")
+        .expect("the schema defines Axis");
+    for property in ["visible", "tick_label_angle"] {
+        assert!(
+            axis.pointer(&format!("/properties/{property}")).is_some(),
+            "Axis has no {property} property"
+        );
+    }
+    let required: Vec<&str> = axis
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    for property in ["visible", "tick_label_angle"] {
+        assert!(
+            !required.contains(&property),
+            "{property} is required, so files written before it would not validate: {required:?}"
+        );
+    }
+}
+
+// Why: an opacity of 1 is left out of a written file, so the schema must not require any
+// opacity of bars, stairs or cells, or every file that keeps them opaque would fail
+// validation against the schema while IronLAB still reads it; nor may it still describe the
+// per-bar colours or the single opacity of cells, which colour data and the face and edge
+// opacities replaced, since a hand-written file that follows the schema would then be
+// refused by the reader.
+#[test]
+fn the_opacities_of_bars_stairs_and_cells_are_described_but_not_required() {
+    let schema = ironlab_ir::json_schema();
+    for (name, opacities, gone) in [
+        ("Bar", &["face_opacity", "edge_opacity"][..], "colors"),
+        ("Stairs", &["line_opacity", "fill_opacity"][..], "opacity"),
+        ("Cells", &["face_opacity", "edge_opacity"][..], "opacity"),
+    ] {
+        let definition = schema
+            .pointer(&format!("/$defs/{name}"))
+            .unwrap_or_else(|| panic!("the schema defines {name}"));
+        let required: Vec<&str> = definition
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        for opacity in opacities {
+            assert!(
+                definition
+                    .pointer(&format!("/properties/{opacity}"))
+                    .is_some(),
+                "{name} has no {opacity} property"
+            );
+            assert!(
+                !required.contains(opacity),
+                "{name} requires {opacity}: {required:?}"
+            );
+        }
+        assert!(
+            definition.pointer(&format!("/properties/{gone}")).is_none(),
+            "{name} still has a {gone} property"
+        );
+    }
+}

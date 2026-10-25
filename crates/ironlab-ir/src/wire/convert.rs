@@ -10,18 +10,20 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, CategoricalColorScale, Cell, Color,
-    ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
-    ColormapName, ContinuousColorScale, Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS,
-    DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid,
-    Image, ImagePlacement, ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide,
-    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
-    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, OutOfRange, Panel,
+    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarBase, BarGroup, BarLayout, BarSlot,
+    CategoricalColorScale, Cell, CellEdges, CellGap, Cells, Color, ColorCategory, ColorScale,
+    ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec,
+    ColorbarOrientation, ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale,
+    Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS, DashStyle, DataArray, Dimension,
+    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
+    ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter,
+    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
+    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape,
+    MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel,
     PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection,
-    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Surface, Text, TickLabels, Ticks,
-    TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
+    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs, StairsData, StepAt,
+    Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value,
+    Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -117,6 +119,9 @@ wire_enum! {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
     Coords => Coords { Data, AxesFraction }
+    Orientation => Orientation { Vertical, Horizontal }
+    BarLayout => BarLayout { Grouped, Stacked }
+    StepAt => StepAt { Pre, Post, Mid }
     Dimension => Dimension { X, Y, Z }
     NdArrayElement => NdArrayElement { F64, U8 }
 }
@@ -340,6 +345,8 @@ fn encode_axis(axis: &Axis) -> w::Axis {
         reverse: Some(axis.reverse),
         ticks: Some(encode_ticks(&axis.ticks)),
         tick_labels: Some(encode_tick_labels(&axis.tick_labels)),
+        visible: Some(axis.visible),
+        tick_label_angle: Some(axis.tick_label_angle),
     }
 }
 
@@ -755,6 +762,131 @@ impl Encode for ScalarImage {
             alpha: self.alpha.map(|id| id.0),
             opacity: Some(self.opacity),
         }
+    }
+}
+
+impl Encode for Bar {
+    type Message = w::Bar;
+
+    fn encode(&self) -> w::Bar {
+        w::Bar {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            orientation: self.orientation.to_wire(),
+            positions: Some(self.positions.0),
+            values: Some(self.values.0),
+            base: Some(encode_bar_base(self.base)),
+            slot: Some(encode_bar_slot(self.slot)),
+            gap: Some(self.gap),
+            group: self.group.as_ref().map(encode_bar_group),
+            face: Some(encode_color_spec(self.face)),
+            color_data: self.color_data.map(|id| id.0),
+            color_scale: self.color_scale.map(|id| id.0),
+            edge: Some(encode_line_style(self.edge)),
+            face_opacity: Some(self.face_opacity),
+            edge_opacity: Some(self.edge_opacity),
+        }
+    }
+}
+
+fn encode_bar_base(base: BarBase) -> w::BarBase {
+    let kind = match base {
+        BarBase::Constant(constant) => w::BarBaseKind::Constant(w::BarBaseConstant {
+            constant: Some(constant),
+        }),
+        BarBase::Data(data) => w::BarBaseKind::Data(w::BarBaseData { data: Some(data.0) }),
+    };
+    w::BarBase { kind: Some(kind) }
+}
+
+fn encode_bar_slot(slot: BarSlot) -> w::BarSlot {
+    let kind = match slot {
+        BarSlot::Pitch => w::BarSlotKind::Pitch(w::BarSlotPitch {}),
+        BarSlot::Width(width) => w::BarSlotKind::Width(w::BarSlotWidth { width: Some(width) }),
+        BarSlot::Data(data) => w::BarSlotKind::Data(w::BarSlotData { data: Some(data.0) }),
+    };
+    w::BarSlot { kind: Some(kind) }
+}
+
+fn encode_bar_group(group: &BarGroup) -> w::BarGroup {
+    w::BarGroup {
+        name: group.name.clone(),
+        layout: group.layout.to_wire(),
+    }
+}
+
+impl Encode for Stairs {
+    type Message = w::Stairs;
+
+    fn encode(&self) -> w::Stairs {
+        w::Stairs {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            orientation: self.orientation.to_wire(),
+            data: Some(encode_stairs_data(self.data)),
+            base: self.base,
+            line: Some(encode_line_style(self.line)),
+            fill: Some(encode_color_spec(self.fill)),
+            line_opacity: Some(self.line_opacity),
+            fill_opacity: Some(self.fill_opacity),
+        }
+    }
+}
+
+fn encode_stairs_data(data: StairsData) -> w::StairsData {
+    let kind = match data {
+        StairsData::Edges { edges, values } => w::StairsDataKind::Edges(w::StairsDataEdges {
+            edges: Some(edges.0),
+            values: Some(values.0),
+        }),
+        StairsData::Samples { x, values, step } => {
+            w::StairsDataKind::Samples(w::StairsDataSamples {
+                x: Some(x.0),
+                values: Some(values.0),
+                step: step.to_wire(),
+            })
+        }
+    };
+    w::StairsData { kind: Some(kind) }
+}
+
+impl Encode for Cells {
+    type Message = w::Cells;
+
+    fn encode(&self) -> w::Cells {
+        w::Cells {
+            id: Some(self.id.0),
+            label: self.label.as_ref().map(encode_text),
+            visible: Some(self.visible),
+            values: Some(self.values.0),
+            columns: Some(encode_cell_edges(self.columns)),
+            rows: Some(encode_cell_edges(self.rows)),
+            gap: Some(encode_cell_gap(self.gap)),
+            edge: Some(encode_line_style(self.edge)),
+            color_scale: self.color_scale.map(|id| id.0),
+            alpha: self.alpha.map(|id| id.0),
+            face_opacity: Some(self.face_opacity),
+            edge_opacity: Some(self.edge_opacity),
+        }
+    }
+}
+
+fn encode_cell_edges(edges: CellEdges) -> w::CellEdges {
+    let kind = match edges {
+        CellEdges::Unit => w::CellEdgesKind::Unit(w::CellEdgesUnit {}),
+        CellEdges::Edges(edges) => w::CellEdgesKind::Edges(w::CellEdgesEdges {
+            edges: Some(edges.0),
+        }),
+    };
+    w::CellEdges { kind: Some(kind) }
+}
+
+fn encode_cell_gap(gap: CellGap) -> w::CellGap {
+    w::CellGap {
+        x: Some(gap.x),
+        y: Some(gap.y),
     }
 }
 
@@ -1498,6 +1630,8 @@ fn decode_axis(wire: Option<w::Axis>, at: &str) -> Result<Axis> {
         ticks: decode_ticks(wire.ticks, &join(at, "ticks"))?,
         tick_labels: decode_tick_labels(wire.tick_labels, &join(at, "tick_labels"))?,
         grid: wire.grid.unwrap_or(default.grid),
+        visible: wire.visible.unwrap_or(default.visible),
+        tick_label_angle: wire.tick_label_angle.unwrap_or(default.tick_label_angle),
     })
 }
 
@@ -1803,6 +1937,176 @@ impl Decode for ScalarImage {
             alpha: wire.alpha.map(NodeId),
             opacity: wire.opacity.unwrap_or(default.opacity),
         })
+    }
+}
+
+impl Decode for Bar {
+    type Message = w::Bar;
+
+    fn decode(wire: w::Bar, at: &str) -> Result<Self> {
+        let default = Bar::default();
+        Ok(Bar {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            orientation: decode_enum(
+                wire.orientation,
+                Some(default.orientation),
+                at,
+                "orientation",
+            )?,
+            positions: reference(wire.positions, at, "positions")?,
+            values: reference(wire.values, at, "values")?,
+            base: decode_bar_base(wire.base, default.base, &join(at, "base"))?,
+            slot: decode_bar_slot(wire.slot, default.slot, &join(at, "slot"))?,
+            gap: wire.gap.unwrap_or(default.gap),
+            group: wire
+                .group
+                .map(|group| decode_bar_group(group, &join(at, "group")))
+                .transpose()?,
+            face: decode_color_spec(wire.face, default.face),
+            color_data: wire.color_data.map(NodeId),
+            color_scale: wire.color_scale.map(NodeId),
+            edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
+            face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+            edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
+        })
+    }
+}
+
+/// Decodes the base of bars, taking an unset base as `default`; `at` is the path of the
+/// base itself.
+fn decode_bar_base(wire: Option<w::BarBase>, default: BarBase, at: &str) -> Result<BarBase> {
+    Ok(match wire.and_then(|base| base.kind) {
+        None => default,
+        Some(w::BarBaseKind::Constant(constant)) => BarBase::Constant(required(
+            constant.constant,
+            &join(at, "constant"),
+            "constant",
+        )?),
+        Some(w::BarBaseKind::Data(data)) => {
+            BarBase::Data(reference(data.data, &join(at, "data"), "data")?)
+        }
+    })
+}
+
+/// Decodes the slot of bars, taking an unset slot as `default`; `at` is the path of the
+/// slot itself.
+fn decode_bar_slot(wire: Option<w::BarSlot>, default: BarSlot, at: &str) -> Result<BarSlot> {
+    Ok(match wire.and_then(|slot| slot.kind) {
+        None => default,
+        Some(w::BarSlotKind::Pitch(_)) => BarSlot::Pitch,
+        Some(w::BarSlotKind::Width(width)) => {
+            BarSlot::Width(required(width.width, &join(at, "width"), "width")?)
+        }
+        Some(w::BarSlotKind::Data(data)) => {
+            BarSlot::Data(reference(data.data, &join(at, "data"), "data")?)
+        }
+    })
+}
+
+/// Decodes the group of a bar series; `at` is the path of the group itself.
+fn decode_bar_group(wire: w::BarGroup, at: &str) -> Result<BarGroup> {
+    Ok(BarGroup {
+        name: wire.name,
+        layout: decode_enum(wire.layout, Some(BarLayout::default()), at, "layout")?,
+    })
+}
+
+impl Decode for Stairs {
+    type Message = w::Stairs;
+
+    fn decode(wire: w::Stairs, at: &str) -> Result<Self> {
+        let default = Stairs::default();
+        Ok(Stairs {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            orientation: decode_enum(
+                wire.orientation,
+                Some(default.orientation),
+                at,
+                "orientation",
+            )?,
+            data: decode_stairs_data(wire.data, &join(at, "data"))?,
+            base: wire.base,
+            line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
+            fill: decode_color_spec(wire.fill, default.fill),
+            line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
+            fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
+        })
+    }
+}
+
+/// Decodes the steps of stairs, which have no default because they name the data; `at`
+/// is the path of the steps themselves.
+fn decode_stairs_data(wire: Option<w::StairsData>, at: &str) -> Result<StairsData> {
+    let wire = wire.ok_or_else(|| ProtobufError::MissingField {
+        field: at.to_owned(),
+    })?;
+    Ok(match required(wire.kind, at, "kind")? {
+        w::StairsDataKind::Edges(edges) => {
+            let at = join(at, "edges");
+            StairsData::Edges {
+                edges: reference(edges.edges, &at, "edges")?,
+                values: reference(edges.values, &at, "values")?,
+            }
+        }
+        w::StairsDataKind::Samples(samples) => {
+            let at = join(at, "samples");
+            StairsData::Samples {
+                x: reference(samples.x, &at, "x")?,
+                values: reference(samples.values, &at, "values")?,
+                step: decode_enum(samples.step, Some(StepAt::default()), &at, "step")?,
+            }
+        }
+    })
+}
+
+impl Decode for Cells {
+    type Message = w::Cells;
+
+    fn decode(wire: w::Cells, at: &str) -> Result<Self> {
+        let default = Cells::default();
+        Ok(Cells {
+            id: node_id(wire.id, at)?,
+            label: decode_label(wire.label, at)?,
+            visible: wire.visible.unwrap_or(default.visible),
+            values: reference(wire.values, at, "values")?,
+            columns: decode_cell_edges(wire.columns, default.columns, &join(at, "columns"))?,
+            rows: decode_cell_edges(wire.rows, default.rows, &join(at, "rows"))?,
+            gap: decode_cell_gap(wire.gap, default.gap),
+            edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
+            color_scale: wire.color_scale.map(NodeId),
+            alpha: wire.alpha.map(NodeId),
+            face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
+            edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
+        })
+    }
+}
+
+/// Decodes the edges of cells, taking unset edges as `default`; `at` is the path of the
+/// edges themselves.
+fn decode_cell_edges(
+    wire: Option<w::CellEdges>,
+    default: CellEdges,
+    at: &str,
+) -> Result<CellEdges> {
+    Ok(match wire.and_then(|edges| edges.kind) {
+        None => default,
+        Some(w::CellEdgesKind::Unit(_)) => CellEdges::Unit,
+        Some(w::CellEdgesKind::Edges(edges)) => {
+            CellEdges::Edges(reference(edges.edges, &join(at, "edges"), "edges")?)
+        }
+    })
+}
+
+/// Decodes the gap of cells, taking an absent gap or fraction as `default`.
+fn decode_cell_gap(wire: Option<w::CellGap>, default: CellGap) -> CellGap {
+    let wire = wire.unwrap_or_default();
+    CellGap {
+        x: wire.x.unwrap_or(default.x),
+        y: wire.y.unwrap_or(default.y),
     }
 }
 
@@ -2268,6 +2572,29 @@ fn encode_value(value: &Value) -> w::Value {
                 value: v.to_wire(),
             })
         }
+        Value::Orientation(v) => {
+            w::ValueKind::Orientation(w::ValueOrientation { value: v.to_wire() })
+        }
+        Value::BarBase(v) => w::ValueKind::BarBase(w::ValueBarBase {
+            value: Some(encode_bar_base(*v)),
+        }),
+        Value::BarSlot(v) => w::ValueKind::BarSlot(w::ValueBarSlot {
+            value: Some(encode_bar_slot(*v)),
+        }),
+        Value::BarGroup(v) => w::ValueKind::BarGroup(w::ValueBarGroup {
+            value: Some(encode_bar_group(v)),
+        }),
+        Value::BarLayout(v) => w::ValueKind::BarLayout(w::ValueBarLayout { value: v.to_wire() }),
+        Value::StairsData(v) => w::ValueKind::StairsData(w::ValueStairsData {
+            value: Some(encode_stairs_data(*v)),
+        }),
+        Value::StepAt(v) => w::ValueKind::StepAt(w::ValueStepAt { value: v.to_wire() }),
+        Value::CellEdges(v) => w::ValueKind::CellEdges(w::ValueCellEdges {
+            value: Some(encode_cell_edges(*v)),
+        }),
+        Value::CellGap(v) => w::ValueKind::CellGap(w::ValueCellGap {
+            value: Some(encode_cell_gap(*v)),
+        }),
     };
     w::Value { kind: Some(kind) }
 }
@@ -2683,5 +3010,47 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "colorbar_title_placement_value"),
             "value",
         )?),
+        w::ValueKind::Orientation(v) => Value::Orientation(decode_enum(
+            v.value,
+            None,
+            &join(at, "orientation_value"),
+            "value",
+        )?),
+        w::ValueKind::BarBase(v) => {
+            let (base, at) = value_message(v.value, at, "bar_base_value")?;
+            Value::BarBase(decode_bar_base(Some(base), BarBase::default(), &at)?)
+        }
+        w::ValueKind::BarSlot(v) => {
+            let (slot, at) = value_message(v.value, at, "bar_slot_value")?;
+            Value::BarSlot(decode_bar_slot(Some(slot), BarSlot::default(), &at)?)
+        }
+        w::ValueKind::BarGroup(v) => {
+            let (group, at) = value_message(v.value, at, "bar_group_value")?;
+            Value::BarGroup(decode_bar_group(group, &at)?)
+        }
+        w::ValueKind::BarLayout(v) => Value::BarLayout(decode_enum(
+            v.value,
+            None,
+            &join(at, "bar_layout_value"),
+            "value",
+        )?),
+        w::ValueKind::StairsData(v) => {
+            let (data, at) = value_message(v.value, at, "stairs_data_value")?;
+            Value::StairsData(decode_stairs_data(Some(data), &at)?)
+        }
+        w::ValueKind::StepAt(v) => Value::StepAt(decode_enum(
+            v.value,
+            None,
+            &join(at, "step_at_value"),
+            "value",
+        )?),
+        w::ValueKind::CellEdges(v) => {
+            let (edges, at) = value_message(v.value, at, "cell_edges_value")?;
+            Value::CellEdges(decode_cell_edges(Some(edges), CellEdges::default(), &at)?)
+        }
+        w::ValueKind::CellGap(v) => {
+            let (gap, _) = value_message(v.value, at, "cell_gap_value")?;
+            Value::CellGap(decode_cell_gap(Some(gap), CellGap::default()))
+        }
     })
 }

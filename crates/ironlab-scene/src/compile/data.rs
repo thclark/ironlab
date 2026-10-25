@@ -366,6 +366,10 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
             };
             image_data(figure, axes, i.values, ImageKind::Scalar, i.placement, look)?
         }
+        // The scene compiler does not draw these kinds yet, so each is left out with the reason as its warning.
+        Artist::Bar(_) => return Err("bar artists are not drawn yet".to_owned()),
+        Artist::Stairs(_) => return Err("stairs artists are not drawn yet".to_owned()),
+        Artist::Cells(_) => return Err("cells artists are not drawn yet".to_owned()),
     })
 }
 
