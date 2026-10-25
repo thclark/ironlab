@@ -67,8 +67,13 @@ fn give_scales(fig: &mut Figure) {
             Artist::ScalarImage(a) => &mut a.color_scale,
             Artist::Contour(a) => &mut a.color_scale,
             Artist::Surface(a) => &mut a.color_scale,
+            Artist::Cells(a) => &mut a.color_scale,
             Artist::Series(a) if a.color_data.is_some() => &mut a.color_scale,
-            Artist::Series(_) | Artist::Quiver(_) | Artist::Image(_) => continue,
+            Artist::Series(_)
+            | Artist::Quiver(_)
+            | Artist::Image(_)
+            | Artist::Bar(_)
+            | Artist::Stairs(_) => continue,
         };
         reference.get_or_insert(SCALE);
     }

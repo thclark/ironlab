@@ -6,7 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::{
-    ContourPlacement, Coords, Grid, ImagePlacement, ImagePlane, Levels, PixelRange, QuiverScale,
+    BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, ContourPlacement, Coords, Grid,
+    ImagePlacement, ImagePlane, Levels, Orientation, PixelRange, QuiverScale, StairsData, StepAt,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
@@ -187,6 +188,24 @@ pub enum Value {
     InsideColorbarSide(InsideColorbarSide),
     /// Where the title of a colour scale is drawn beside a colourbar.
     ColorbarTitlePlacement(ColorbarTitlePlacement),
+    /// The direction in which bars or stairs extend.
+    Orientation(Orientation),
+    /// Where the bars of a series start along the value axis.
+    BarBase(BarBase),
+    /// The extent of the slot of each bar along the category axis.
+    BarSlot(BarSlot),
+    /// The group of bars of an axes to which a bar series belongs.
+    BarGroup(BarGroup),
+    /// How the members of a group of bars share each position.
+    BarLayout(BarLayout),
+    /// The steps of stairs: values between edges, or values at samples.
+    StairsData(StairsData),
+    /// Where the step of stairs through samples occurs relative to its samples.
+    StepAt(StepAt),
+    /// The edges of the columns or rows of cells.
+    CellEdges(CellEdges),
+    /// The fractions of the extent of each cell left empty along x and along y.
+    CellGap(CellGap),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -327,6 +346,24 @@ pub enum ValueType {
     InsideColorbarSide,
     /// See [`Value::ColorbarTitlePlacement`].
     ColorbarTitlePlacement,
+    /// See [`Value::Orientation`].
+    Orientation,
+    /// See [`Value::BarBase`].
+    BarBase,
+    /// See [`Value::BarSlot`].
+    BarSlot,
+    /// See [`Value::BarGroup`].
+    BarGroup,
+    /// See [`Value::BarLayout`].
+    BarLayout,
+    /// See [`Value::StairsData`].
+    StairsData,
+    /// See [`Value::StepAt`].
+    StepAt,
+    /// See [`Value::CellEdges`].
+    CellEdges,
+    /// See [`Value::CellGap`].
+    CellGap,
 }
 
 impl Value {
@@ -404,6 +441,15 @@ impl Value {
             Value::InsideColorbar(_) => ValueType::InsideColorbar,
             Value::InsideColorbarSide(_) => ValueType::InsideColorbarSide,
             Value::ColorbarTitlePlacement(_) => ValueType::ColorbarTitlePlacement,
+            Value::Orientation(_) => ValueType::Orientation,
+            Value::BarBase(_) => ValueType::BarBase,
+            Value::BarSlot(_) => ValueType::BarSlot,
+            Value::BarGroup(_) => ValueType::BarGroup,
+            Value::BarLayout(_) => ValueType::BarLayout,
+            Value::StairsData(_) => ValueType::StairsData,
+            Value::StepAt(_) => ValueType::StepAt,
+            Value::CellEdges(_) => ValueType::CellEdges,
+            Value::CellGap(_) => ValueType::CellGap,
         })
     }
 }

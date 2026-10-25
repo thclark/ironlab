@@ -58,6 +58,9 @@ pub fn artist_kind(artist: &Artist) -> NodeKind {
         Artist::Surface(_) => NodeKind::Surface,
         Artist::Image(_) => NodeKind::Image,
         Artist::ScalarImage(_) => NodeKind::ScalarImage,
+        Artist::Bar(_) => NodeKind::Bar,
+        Artist::Stairs(_) => NodeKind::Stairs,
+        Artist::Cells(_) => NodeKind::Cells,
     }
 }
 
@@ -130,8 +133,10 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 /// out-of-range category of a colour scale has a label and a fixed colour for the same
 /// reason, every automatic limit of a colour scale is manual, the ticks of every colour
 /// scale take another variant, every contour has levels of its own, both pixel ranges and
-/// the plane offset of every image are present, and every image on a wall of a
-/// three-dimensional axes is moved to the other wall.
+/// the plane offset of every image are present, every image on a wall of a
+/// three-dimensional axes is moved to the other wall, the faces and edges of bars, the
+/// lines and fills of stairs and the edges of cells take a fixed colour, and every stairs
+/// has a base.
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
 /// both projections, both grids, both kinds of levels and of band edges, both colormaps,
@@ -243,6 +248,22 @@ pub fn representative_figures() -> Vec<Figure> {
                 Artist::ScalarImage(a) => {
                     a.label.get_or_insert_with(|| Text::new("scalar image"));
                     fill_placement(&mut a.placement);
+                }
+                Artist::Bar(a) => {
+                    a.label.get_or_insert_with(|| Text::new("bar"));
+                    a.face = fixed;
+                    a.edge.color = fixed;
+                }
+                // A fill needs a base, so every stairs gains one before it is filled.
+                Artist::Stairs(a) => {
+                    a.label.get_or_insert_with(|| Text::new("stairs"));
+                    a.line.color = fixed;
+                    a.base.get_or_insert(0.0);
+                    a.fill = fixed;
+                }
+                Artist::Cells(a) => {
+                    a.label.get_or_insert_with(|| Text::new("cells"));
+                    a.edge.color = fixed;
                 }
             }
             if let Artist::Contour(a) = artist {
@@ -495,6 +516,47 @@ pub fn perturb(value: &Value) -> Value {
         Value::Axis(axis) => Value::Axis(Axis {
             grid: !axis.grid,
             ..axis.clone()
+        }),
+        Value::Orientation(Orientation::Vertical) => Value::Orientation(Orientation::Horizontal),
+        Value::Orientation(Orientation::Horizontal) => Value::Orientation(Orientation::Vertical),
+        Value::BarBase(BarBase::Constant(base)) => Value::BarBase(BarBase::Constant(base + 1.0)),
+        Value::BarBase(BarBase::Data(_)) => Value::BarBase(BarBase::Constant(0.0)),
+        Value::BarSlot(BarSlot::Pitch) => Value::BarSlot(BarSlot::Width(0.5)),
+        Value::BarSlot(BarSlot::Width(_) | BarSlot::Data(_)) => Value::BarSlot(BarSlot::Pitch),
+        Value::BarGroup(group) => Value::BarGroup(BarGroup {
+            layout: other_layout(group.layout),
+            ..group.clone()
+        }),
+        Value::BarLayout(layout) => Value::BarLayout(other_layout(*layout)),
+        // Edges become samples at the values themselves, which have as many entries as the
+        // values; the stairs stay valid only when the values are strictly monotonic, as
+        // samples must be, and an invalid perturbation is refused like any other.
+        Value::StairsData(StairsData::Edges { values, .. }) => {
+            Value::StairsData(StairsData::Samples {
+                x: *values,
+                values: *values,
+                step: StepAt::Post,
+            })
+        }
+        Value::StairsData(StairsData::Samples { x, values, step }) => {
+            Value::StairsData(StairsData::Samples {
+                x: *x,
+                values: *values,
+                step: next_step(*step),
+            })
+        }
+        Value::StepAt(step) => Value::StepAt(next_step(*step)),
+        // Unit edges fit any number of cells, so explicit edges become unit edges; there is
+        // no array to give unit edges, which are left as they are.
+        Value::CellEdges(CellEdges::Unit) => Value::CellEdges(CellEdges::Unit),
+        Value::CellEdges(CellEdges::Edges(_)) => Value::CellEdges(CellEdges::Unit),
+        Value::CellGap(gap) => Value::CellGap(CellGap {
+            x: if gap.x < 0.5 {
+                gap.x + 0.25
+            } else {
+                gap.x - 0.25
+            },
+            y: gap.y,
         }),
         Value::Scale(Scale::Linear) => Value::Scale(Scale::Log),
         Value::Scale(Scale::Log) => Value::Scale(Scale::Linear),
@@ -750,6 +812,23 @@ pub fn perturb(value: &Value) -> Value {
     }
 }
 
+/// Returns the other layout of a group of bars.
+fn other_layout(layout: BarLayout) -> BarLayout {
+    match layout {
+        BarLayout::Grouped => BarLayout::Stacked,
+        BarLayout::Stacked => BarLayout::Grouped,
+    }
+}
+
+/// Returns the next position of the step of stairs drawn through samples.
+fn next_step(step: StepAt) -> StepAt {
+    match step {
+        StepAt::Pre => StepAt::Post,
+        StepAt::Post => StepAt::Mid,
+        StepAt::Mid => StepAt::Pre,
+    }
+}
+
 /// Returns the other orientation of a colourbar.
 fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
     match orientation {
@@ -762,7 +841,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 68;
+pub const VALUE_VARIANTS: usize = 77;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -839,6 +918,15 @@ pub fn value_variant(value: &Value) -> usize {
         Value::InsideColorbar(_) => 65,
         Value::InsideColorbarSide(_) => 66,
         Value::ColorbarTitlePlacement(_) => 67,
+        Value::Orientation(_) => 68,
+        Value::BarBase(_) => 69,
+        Value::BarSlot(_) => 70,
+        Value::BarGroup(_) => 71,
+        Value::BarLayout(_) => 72,
+        Value::StairsData(_) => 73,
+        Value::StepAt(_) => 74,
+        Value::CellEdges(_) => 75,
+        Value::CellGap(_) => 76,
     }
 }
 
@@ -923,6 +1011,8 @@ pub fn sample_values() -> Vec<Value> {
                 Text::plain("100"),
             ]),
             grid: true,
+            visible: false,
+            tick_label_angle: -37.5,
         }),
         Value::Ticks(Ticks::Step {
             step: 0.2,
@@ -1092,6 +1182,22 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::InsideColorbarSide(InsideColorbarSide::East),
         Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
+        Value::Orientation(Orientation::Horizontal),
+        Value::BarBase(BarBase::Data(NodeId((1 << 53) + 13))),
+        Value::BarSlot(BarSlot::Width(0.375)),
+        Value::BarGroup(BarGroup {
+            name: "k–ω models".to_owned(),
+            layout: BarLayout::Stacked,
+        }),
+        Value::BarLayout(BarLayout::Stacked),
+        Value::StairsData(StairsData::Samples {
+            x: NodeId(5),
+            values: NodeId((1 << 53) + 15),
+            step: StepAt::Mid,
+        }),
+        Value::StepAt(StepAt::Pre),
+        Value::CellEdges(CellEdges::Edges(NodeId((1 << 53) + 17))),
+        Value::CellGap(CellGap { x: 0.125, y: 0.25 }),
     ]
 }
 

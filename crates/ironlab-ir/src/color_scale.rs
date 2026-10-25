@@ -733,7 +733,8 @@ pub struct ColorMapping {
     /// The colour scale that the artist names, or `None` when it names none, which makes
     /// the figure invalid.
     pub color_scale: Option<NodeId>,
-    /// The data array of the numbers that the artist maps: the values of a scalar image,
+    /// The data array of the numbers that the artist maps: the values of a scalar image or
+    /// of cells,
     /// the field of a contour, the colour data of a surface (or its field when it has
     /// none), and the colour data of a series.
     pub values: NodeId,
@@ -749,21 +750,24 @@ impl Artist {
             Artist::Contour(a) => a.color_scale,
             Artist::Surface(a) => a.color_scale,
             Artist::Series(a) => a.color_scale,
-            Artist::Quiver(_) | Artist::Image(_) => None,
+            Artist::Cells(a) => a.color_scale,
+            Artist::Quiver(_) | Artist::Image(_) | Artist::Bar(_) | Artist::Stairs(_) => None,
         }
     }
 
     /// Returns how the artist maps numbers to colours, or `None` when it maps none.
     ///
-    /// A scalar image always maps its values. A contour maps its field when its bands are
-    /// filled or its isolines are colour-mapped, a surface maps its colour data (or its
-    /// field) when its faces or its edges are colour-mapped, and a series maps its colour
-    /// data whenever it has some, per point or per segment, whatever its colours. On a
-    /// contour's isolines and a surface's faces and edges, an automatic colour is
+    /// A scalar image and cells always map their values. A contour maps its field when its
+    /// bands are filled or its isolines are colour-mapped, a surface maps its colour data
+    /// (or its field) when its faces or its edges are colour-mapped, and a series maps its
+    /// colour data whenever it has some, per point or per segment, whatever its colours.
+    /// On a contour's isolines and a surface's faces and edges, an automatic colour is
     /// colour-mapped as an explicit `Colormapped` colour is, because neither artist has a
     /// colour of its own for `Auto` to stand for. A series without colour data, a quiver
     /// and a true-colour image map nothing, even when a colour is colormapped: such a
-    /// colour has no number to map and is drawn in the middle colour of viridis.
+    /// colour has no number to map and is drawn in the middle colour of viridis. Bars and
+    /// stairs map nothing either: they take fixed colours or the colour order, and a
+    /// colormapped colour on them is invalid.
     ///
     /// This is the one rule by which validation, automatic limits and the scene compiler
     /// decide whether an artist is colour-mapped.
@@ -777,7 +781,13 @@ impl Artist {
                 (a.color_scale, a.c.unwrap_or(a.z))
             }
             Artist::Series(a) => (a.color_scale, a.color_data?),
-            Artist::Contour(_) | Artist::Surface(_) | Artist::Quiver(_) | Artist::Image(_) => {
+            Artist::Cells(a) => (a.color_scale, a.values),
+            Artist::Contour(_)
+            | Artist::Surface(_)
+            | Artist::Quiver(_)
+            | Artist::Image(_)
+            | Artist::Bar(_)
+            | Artist::Stairs(_) => {
                 return None;
             }
         };

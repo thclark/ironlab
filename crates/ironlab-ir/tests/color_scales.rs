@@ -1226,6 +1226,7 @@ fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
         NodeKind::Contour,
         NodeKind::Surface,
         NodeKind::Series,
+        NodeKind::Cells,
     ] {
         let property = properties(kind)
             .into_iter()

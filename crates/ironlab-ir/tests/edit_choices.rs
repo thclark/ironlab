@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 34] = [
+const WITH_CHOICES: [ValueType; 41] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -48,6 +48,13 @@ const WITH_CHOICES: [ValueType; 34] = [
     ValueType::ColorScaleLevels,
     ValueType::Interpreter,
     ValueType::FontSetId,
+    ValueType::Orientation,
+    ValueType::BarBase,
+    ValueType::BarSlot,
+    ValueType::BarLayout,
+    ValueType::StairsData,
+    ValueType::StepAt,
+    ValueType::CellEdges,
 ];
 
 /// Every value type, taken from the sample values rather than from the API under test.
@@ -666,6 +673,8 @@ fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'stat
     match kind {
         NodeKind::Contour => vec!["line.color"],
         NodeKind::Surface => vec!["face", "edge"],
+        // The outline of each cell takes the colour of its cell.
+        NodeKind::Cells => vec!["edge.color"],
         NodeKind::Series => {
             let Some((_, Artist::Series(series))) = figure.artist(node) else {
                 return vec![];
@@ -760,7 +769,8 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
             Artist::Surface(a) => a.color_scale = None,
             Artist::Series(a) => a.color_scale = None,
             Artist::ScalarImage(a) => a.color_scale = None,
-            Artist::Quiver(_) | Artist::Image(_) => {}
+            Artist::Cells(a) => a.color_scale = None,
+            Artist::Quiver(_) | Artist::Image(_) | Artist::Bar(_) | Artist::Stairs(_) => {}
         }
     }
     figures.push(unscaled);
@@ -772,6 +782,7 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
                     Artist::Contour(a) => a.color_scale,
                     Artist::Surface(a) => a.color_scale,
                     Artist::Series(a) => a.color_scale,
+                    Artist::Cells(a) => a.color_scale,
                     _ => None,
                 })
                 .is_some_and(|scale| figure.color_scales.iter().any(|s| s.id == scale));

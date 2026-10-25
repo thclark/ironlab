@@ -32,11 +32,11 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, CategoricalColorScale, Cell as IrCell, Choice, Color, ColorScaleOutOfRange,
-    ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
-    InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
-    Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d,
-    choices,
+    Axis, BarGroup, CategoricalColorScale, Cell as IrCell, CellGap, Choice, Color,
+    ColorScaleOutOfRange, ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement,
+    IndexedColorScale, InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange,
+    PanelLegend, Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value,
+    ValueType, View3d, choices,
 };
 
 use crate::widgets::{
@@ -928,6 +928,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::CategoricalColorScale => Some(Value::CategoricalColorScale(
             CategoricalColorScale::default(),
         )),
+        ValueType::BarGroup => Some(Value::BarGroup(BarGroup::default())),
+        ValueType::CellGap => Some(Value::CellGap(CellGap::default())),
         // A colourbar names a colour scale, which is a reference to a node.
         ValueType::NodeId | ValueType::PanelColorbar | ValueType::InsideColorbar => None,
         // Every remaining type has choices, and the first of them was returned above.
@@ -964,7 +966,14 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::ColorScaleKind
         | ValueType::Colormap
         | ValueType::ColorScaleNorm
-        | ValueType::ColorScaleLevels => None,
+        | ValueType::ColorScaleLevels
+        | ValueType::Orientation
+        | ValueType::BarBase
+        | ValueType::BarSlot
+        | ValueType::BarLayout
+        | ValueType::StairsData
+        | ValueType::StepAt
+        | ValueType::CellEdges => None,
     }
 }
 

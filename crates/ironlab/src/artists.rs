@@ -867,5 +867,33 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
         Artist::ScalarImage(ScalarImage { values, alpha, .. }) => {
             [*values].into_iter().chain(*alpha).collect()
         }
+        Artist::Bar(bar) => {
+            let base = match bar.base {
+                ironlab_ir::BarBase::Constant(_) => None,
+                ironlab_ir::BarBase::Data(id) => Some(id),
+            };
+            let widths = match bar.slot {
+                ironlab_ir::BarSlot::Pitch | ironlab_ir::BarSlot::Width(_) => None,
+                ironlab_ir::BarSlot::Data(id) => Some(id),
+            };
+            [bar.positions, bar.values]
+                .into_iter()
+                .chain(base)
+                .chain(widths)
+                .collect()
+        }
+        Artist::Stairs(stairs) => vec![stairs.data.positions(), stairs.data.values()],
+        Artist::Cells(cells) => {
+            let edges = |edges: ironlab_ir::CellEdges| match edges {
+                ironlab_ir::CellEdges::Unit => None,
+                ironlab_ir::CellEdges::Edges(id) => Some(id),
+            };
+            [cells.values]
+                .into_iter()
+                .chain(edges(cells.columns))
+                .chain(edges(cells.rows))
+                .chain(cells.alpha)
+                .collect()
+        }
     }
 }

@@ -174,6 +174,11 @@ proto_file! {
         message Ticks ticks = 6;
         /// What is written at the major ticks of the axis.
         message TickLabels tick_labels = 7;
+        /// Whether the axis is drawn; absent means visible.
+        optional bool visible = 8;
+        /// The angle of every tick label in degrees anticlockwise from horizontal; absent
+        /// means 0.
+        optional double tick_label_angle = 9;
     }
 
     /// Where the major ticks of an axis are placed.

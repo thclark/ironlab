@@ -540,10 +540,14 @@ pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
                 }
                 Artist::Series(series) => series.line.color,
                 Artist::Quiver(quiver) => quiver.line.color,
+                // Bars, stairs and cells are not drawn yet, so they take no colour from the order.
                 Artist::Contour(_)
                 | Artist::Surface(_)
                 | Artist::Image(_)
-                | Artist::ScalarImage(_) => ColorSpec::Colormapped,
+                | Artist::ScalarImage(_)
+                | Artist::Bar(_)
+                | Artist::Stairs(_)
+                | Artist::Cells(_) => ColorSpec::Colormapped,
             };
             match spec {
                 ColorSpec::Auto => auto(),

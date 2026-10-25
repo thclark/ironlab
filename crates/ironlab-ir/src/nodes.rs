@@ -35,7 +35,9 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::artist::{Artist, Contour, Image, Quiver, ScalarImage, Series, Surface};
+use crate::artist::{
+    Artist, Bar, Cells, Contour, Image, Quiver, ScalarImage, Series, Stairs, Surface,
+};
 use crate::axes::Axes;
 use crate::color_scale::ColorScale;
 use crate::data::DataArray;
@@ -537,6 +539,13 @@ figure_nodes! {
         /// A scalar image artist, whose pixels each hold one number mapped through a
         /// colour scale.
         ScalarImage encoded as scalar_image,
+        /// A bar artist: one rectangle per position from a base to each value.
+        Bar encoded as bar,
+        /// A stairs artist: a stepped outline through values between edges or at samples.
+        Stairs encoded as stairs,
+        /// A cells artist: a grid of rectangles, each coloured by its value through a
+        /// colour scale.
+        Cells encoded as cells,
     }
 }
 

@@ -22,7 +22,10 @@
 //! stated here and not in the viewer.
 
 use crate::artist::Coords;
-use crate::artist::{Artist, ContourPlacement, Grid, ImagePlane, Levels, QuiverScale, Series};
+use crate::artist::{
+    Artist, BarBase, BarLayout, BarSlot, CellEdges, ContourPlacement, Grid, ImagePlane, Levels,
+    Orientation, QuiverScale, Series, StairsData, StepAt,
+};
 use crate::axes::{
     Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, Projection, Scale,
     TickLabels, Ticks, TitleAlign, View3d,
@@ -115,6 +118,10 @@ const FALLBACK_LEVEL_COUNT: u32 = 10;
 /// length that the automatic scale gives them.
 const FALLBACK_QUIVER_FACTOR: f64 = 1.0;
 
+/// The width that a fixed bar slot starts from when the value it replaces holds none:
+/// one data unit, the pitch of bars at consecutive whole numbers.
+const FALLBACK_BAR_WIDTH: f64 = 1.0;
+
 /// The number of columns that a fixed number of legend columns starts from, which is the
 /// number of columns of an inside legend by default.
 const FALLBACK_LEGEND_COLUMNS: u32 = 1;
@@ -193,6 +200,13 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Coords => coords_choices(),
         ValueType::Interpreter => interpreter_choices(),
         ValueType::FontSetId => font_set_id_choices(),
+        ValueType::Orientation => orientation_choices(),
+        ValueType::BarBase => bar_base_choices(replacing),
+        ValueType::BarSlot => bar_slot_choices(replacing),
+        ValueType::BarLayout => bar_layout_choices(),
+        ValueType::StairsData => stairs_data_choices(replacing),
+        ValueType::StepAt => step_at_choices(),
+        ValueType::CellEdges => cell_edges_choices(replacing),
         ValueType::Bool
         | ValueType::UInt32
         | ValueType::Double
@@ -225,7 +239,9 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::ContinuousColorScale
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale => Vec::new(),
+        | ValueType::CategoricalColorScale
+        | ValueType::BarGroup
+        | ValueType::CellGap => Vec::new(),
     }
 }
 
@@ -310,8 +326,9 @@ macro_rules! colormapped_unavailable {
             $why,
             " Colouring through a colour scale is available for the faces and edges of a \
              surface and for the isolines of a contour, which take the colour of their \
-             level, and for the line and markers of a series with colour data, when the \
-             artist names a colour scale."
+             level, for the line and markers of a series with colour data, and for the \
+             outlines of cells, which take the colour of their cell, when the artist names \
+             a colour scale."
         )
     };
 }
@@ -342,6 +359,13 @@ const COLORMAPPED_MARKER_PER_SEGMENT: &str = colormapped_unavailable!(
 const COLORMAPPED_ON_A_QUIVER: &str = colormapped_unavailable!(
     "A quiver is drawn in one colour and provides no value to look that colour up by, so \
      colormapped arrows are drawn in the middle colour of viridis."
+);
+
+/// Why a colormapped colour is unavailable on bars and stairs.
+const COLORMAPPED_ON_BARS_OR_STAIRS: &str = colormapped_unavailable!(
+    "Bars and stairs take solid colours only and have no colour scale, so a colormapped \
+     colour has nothing to look the colour up in and makes the figure invalid. Values that \
+     must be coloured through a scale are drawn as cells instead."
 );
 
 /// Why a colormapped colour is unavailable anywhere else.
@@ -382,6 +406,7 @@ fn colormapped_without_a_value_to_index_by(
     // said why a colour of that kind cannot be colormapped.
     Some(match kind {
         NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
+        NodeKind::Bar | NodeKind::Stairs => COLORMAPPED_ON_BARS_OR_STAIRS,
         // Every colour of a contour and of a surface indexes the colormap, every colour
         // of a series is decided above, and a figure, a data array, a colour scale, an
         // axes, a panel and an image hold no colour specification at all (the fixed
@@ -396,6 +421,7 @@ fn colormapped_without_a_value_to_index_by(
         | NodeKind::Axes
         | NodeKind::Image
         | NodeKind::ScalarImage
+        | NodeKind::Cells
         | NodeKind::Panel => COLORMAPPED_ELSEWHERE,
     })
 }
@@ -546,6 +572,8 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         NodeKind::Contour => segments == ["line", "color"],
         // Each face is coloured by its colour data, or by its height when it has none.
         NodeKind::Surface => segments == ["face"] || segments == ["edge"],
+        // The outline of each cell takes the colour of its cell.
+        NodeKind::Cells => segments == ["edge", "color"],
         // An image holds no colour specification: a true-colour image carries its own
         // colours, and a scalar image maps its numbers through its scale rather than
         // through a colour property. The colours of a series index the colormap when it
@@ -558,6 +586,8 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
         | NodeKind::Quiver
         | NodeKind::Image
         | NodeKind::ScalarImage
+        | NodeKind::Bar
+        | NodeKind::Stairs
         | NodeKind::Panel => false,
     }
 }
@@ -603,6 +633,13 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Coords(v) => coords_label(v),
         Value::Interpreter(v) => interpreter_label(v),
         Value::FontSetId(v) => font_set_id_label(v),
+        Value::Orientation(v) => orientation_label(v),
+        Value::BarBase(v) => bar_base_label(v),
+        Value::BarSlot(v) => bar_slot_label(v),
+        Value::BarLayout(v) => bar_layout_label(v),
+        Value::StairsData(v) => stairs_data_label(v),
+        Value::StepAt(v) => step_at_label(v),
+        Value::CellEdges(v) => cell_edges_label(v),
         Value::Unset
         | Value::Bool(_)
         | Value::UInt32(_)
@@ -636,7 +673,9 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::ContinuousColorScale(_)
         | Value::DiscreteColorScale(_)
         | Value::IndexedColorScale(_)
-        | Value::CategoricalColorScale(_) => return None,
+        | Value::CategoricalColorScale(_)
+        | Value::BarGroup(_)
+        | Value::CellGap(_) => return None,
     })
 }
 
@@ -959,6 +998,63 @@ tagged_choices! {
         };
     }
 
+    BarBase as BarBase (bar_base_choices, bar_base_label) replacing replacing {
+        BarBase::Constant(_) => "Constant" = BarBase::Constant(match replacing {
+            Some(Value::BarBase(BarBase::Constant(base))) => *base,
+            _ => 0.0,
+        });
+        BarBase::Data(_) => "Per bar" = BarBase::Data(match replacing {
+            Some(Value::BarBase(BarBase::Data(data))) => *data,
+            _ => FALLBACK_DATA,
+        });
+    }
+
+    BarSlot as BarSlot (bar_slot_choices, bar_slot_label) replacing replacing {
+        BarSlot::Pitch => "Pitch" = BarSlot::Pitch;
+        BarSlot::Width(_) => "Fixed width" = BarSlot::Width(match replacing {
+            Some(Value::BarSlot(BarSlot::Width(width))) => *width,
+            _ => FALLBACK_BAR_WIDTH,
+        });
+        BarSlot::Data(_) => "Width per bar" = BarSlot::Data(match replacing {
+            Some(Value::BarSlot(BarSlot::Data(data))) => *data,
+            _ => FALLBACK_DATA,
+        });
+    }
+
+    // Both forms keep the values; the edges and the samples are different arrays (one
+    // more edge than values, one sample per value), so neither is taken from the other.
+    StairsData as StairsData (stairs_data_choices, stairs_data_label) replacing replacing {
+        StairsData::Edges { .. } => "Between edges" = match replacing {
+            Some(Value::StairsData(edges @ StairsData::Edges { .. })) => *edges,
+            Some(Value::StairsData(StairsData::Samples { values, .. })) => StairsData::Edges {
+                edges: FALLBACK_DATA,
+                values: *values,
+            },
+            _ => StairsData::default(),
+        };
+        StairsData::Samples { .. } => "At samples" = match replacing {
+            Some(Value::StairsData(samples @ StairsData::Samples { .. })) => *samples,
+            Some(Value::StairsData(StairsData::Edges { values, .. })) => StairsData::Samples {
+                x: FALLBACK_DATA,
+                values: *values,
+                step: StepAt::default(),
+            },
+            _ => StairsData::Samples {
+                x: FALLBACK_DATA,
+                values: FALLBACK_DATA,
+                step: StepAt::default(),
+            },
+        };
+    }
+
+    CellEdges as CellEdges (cell_edges_choices, cell_edges_label) replacing replacing {
+        CellEdges::Unit => "Unit" = CellEdges::Unit;
+        CellEdges::Edges(_) => "Explicit edges" = CellEdges::Edges(match replacing {
+            Some(Value::CellEdges(CellEdges::Edges(edges))) => *edges,
+            _ => FALLBACK_DATA,
+        });
+    }
+
     LegendEntryColumns as LegendEntryColumns (legend_entry_columns_choices, legend_entry_columns_label) replacing replacing {
         LegendEntryColumns::Auto => "Automatic" = LegendEntryColumns::Auto;
         LegendEntryColumns::Count(_) => "Fixed number" = LegendEntryColumns::Count(match replacing {
@@ -969,6 +1065,22 @@ tagged_choices! {
 }
 
 plain_choices! {
+    Orientation as Orientation (orientation_choices, orientation_label) {
+        Orientation::Vertical => "Vertical";
+        Orientation::Horizontal => "Horizontal";
+    }
+
+    BarLayout as BarLayout (bar_layout_choices, bar_layout_label) {
+        BarLayout::Grouped => "Grouped";
+        BarLayout::Stacked => "Stacked";
+    }
+
+    StepAt as StepAt (step_at_choices, step_at_label) {
+        StepAt::Pre => "At the earlier sample";
+        StepAt::Post => "At the later sample";
+        StepAt::Mid => "Midway";
+    }
+
     Scale as Scale (scale_choices, scale_label) {
         Scale::Linear => "Linear";
         Scale::Log => "Logarithmic";

@@ -919,6 +919,9 @@ fn every_kind_of_artist_lists_its_label_and_no_display_name() {
         NodeKind::Surface,
         NodeKind::Image,
         NodeKind::ScalarImage,
+        NodeKind::Bar,
+        NodeKind::Stairs,
+        NodeKind::Cells,
     ] {
         let paths: Vec<String> = properties(kind)
             .iter()

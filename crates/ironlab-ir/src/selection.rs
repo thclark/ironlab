@@ -2,7 +2,8 @@
 //!
 //! A [`Selection`] names a node and, optionally, flat indices into the primary array of
 //! an artist: the x data of a series or quiver, the z data of a contour or
-//! surface, and the pixels, indices or values of an image. The flat index of row `j` and
+//! surface, the pixels, indices or values of an image, the positions of bars, and the
+//! values of stairs and of cells. The flat index of row `j` and
 //! column `i` of a two-dimensional array is `j * nx + i`, and the indices into the pixels
 //! of a true-colour image count colour components, so that a row of `nx` pixels of
 //! `channels` components holds `nx * channels` entries. When a transaction is applied to
@@ -11,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::artist::{Artist, Grid};
+use crate::artist::{Artist, BarBase, BarSlot, CellEdges, Grid};
 use crate::edit::{Edit, Transaction};
 use crate::figure::Figure;
 use crate::ids::NodeId;
@@ -171,6 +172,30 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
         }
         Artist::ScalarImage(a) => {
             all.push(a.values);
+            a.values
+        }
+        Artist::Bar(a) => {
+            all.extend([a.positions, a.values]);
+            if let BarBase::Data(base) = a.base {
+                all.push(base);
+            }
+            if let BarSlot::Data(widths) = a.slot {
+                all.push(widths);
+            }
+            a.positions
+        }
+        Artist::Stairs(a) => {
+            all.extend([a.data.positions(), a.data.values()]);
+            a.data.values()
+        }
+        Artist::Cells(a) => {
+            all.push(a.values);
+            for edges in [a.columns, a.rows] {
+                if let CellEdges::Edges(edges) = edges {
+                    all.push(edges);
+                }
+            }
+            all.extend(a.alpha);
             a.values
         }
     };

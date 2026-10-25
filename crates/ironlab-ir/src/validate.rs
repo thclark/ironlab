@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::artist::{
-    Artist, Contour, ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels,
-    PixelRange, Quiver, ScalarImage, Series, Surface,
+    Artist, Bar, BarBase, BarSlot, CellEdges, Cells, Contour, ContourPlacement, Coords, Grid,
+    Image, ImagePlacement, ImagePlane, Levels, PixelRange, Quiver, ScalarImage, Series, Stairs,
+    StairsData, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::color_scale::{
@@ -71,7 +72,7 @@ pub enum IssueKind {
     /// colourbar, or the owner of a legend that lists the scale (the panel of a legend
     /// panel, or the axes of an inside legend).
     UnknownColorScale,
-    /// An artist maps numbers to colours but names no colour scale: a scalar image, a
+    /// An artist maps numbers to colours but names no colour scale: a scalar image, cells, a
     /// contour whose bands are filled or whose isolines are colormapped or automatic, a
     /// surface whose faces or edges are colormapped or automatic, or a series with colour
     /// data, whatever its colours. The axes hold no colormap to fall back on, so the
@@ -98,13 +99,17 @@ pub enum IssueKind {
     /// data of a series is such a mismatch unless it holds one value per point, or one
     /// value per segment (one fewer than the points) for a series that draws a line and
     /// has no colormapped marker face or edge, since a marker colour needs a value at its
-    /// point.
+    /// point. The arrays of bars and stairs must be one-dimensional, with one entry per bar
+    /// (the per-bar colours included, when there are any), one more edge than values, or
+    /// one sample per value; the values of cells must be two-dimensional, with one more
+    /// column edge than columns, one more row edge than rows, and alpha of their shape.
     ShapeMismatch,
     /// An artist refers to an array whose element type it cannot use: every artist
-    /// other than an image requires 64-bit floating-point values, so such an artist
-    /// cannot plot an array of 8-bit values, and the alpha of a surface must hold
+    /// other than an image or cells requires 64-bit floating-point values, so such an
+    /// artist cannot plot an array of 8-bit values, and the alpha of a surface must hold
     /// 64-bit floating-point values too. The two image kinds accept either element
-    /// type, for their alpha as for their pixels or values.
+    /// type, for their alpha as for their pixels or values, and so do the values and the
+    /// alpha of cells, whose edges must hold 64-bit floating-point values.
     ElementTypeMismatch,
     /// An artist or placement that needs the z axis (z or w data, contours at their
     /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
@@ -200,12 +205,18 @@ pub enum IssueKind {
     /// colourbar, a fraction of the span of the plot boxes beside it, against the panel.
     InvalidColorbarLength,
     /// Data plotted along a logarithmic axis contains finite values less than or
-    /// equal to zero, which are not drawn.
+    /// equal to zero, which are not drawn. It is also reported for a base of bars that is
+    /// not positive on a logarithmic value axis, in which case the bars are drawn from the
+    /// low edge of the plot area instead; for a base of stairs that is not positive on a
+    /// logarithmic value axis, in which case the outline drops to the low edge instead; and
+    /// for edges of cells that are not positive on a logarithmic axis, including unit
+    /// edges, which start at −0.5, in which case the cells they bound are not drawn.
     NonPositiveOnLogAxis,
     /// An artist whose data gives it nothing to draw, so that it is left out of the
-    /// drawing: a series or quiver of no points; an image of any kind with no rows
-    /// or no columns; or a contour or surface whose field has no rows or no columns, or a
-    /// single row or a single column (values, but no cell between nodes to draw them in).
+    /// drawing: a series or quiver of no points; bars or stairs of no values; an image of
+    /// any kind, or cells, with no rows or no columns; or a contour or surface whose field
+    /// has no rows or no columns, or a single row or a single column (values, but no cell
+    /// between nodes to draw them in).
     /// The message states which case applies and the shape of the array. This is a
     /// warning, not an error, because empty and singleton data are valid: a figure built
     /// before its data arrives, or streamed from nothing, passes through these states. It
@@ -249,9 +260,44 @@ pub enum IssueKind {
     /// count: the third axis, along which the plane is offset, may be logarithmic, and
     /// the z axis of a two-dimensional axes is ignored.
     ImageOnLogAxis,
-    /// The opacity of an artist (of an image, or of the faces or edges of a surface) is
-    /// not a finite number from 0 to 1.
+    /// The opacity of an artist (of an image, of the faces or edges of a surface, of the
+    /// faces of bars, of the fill of stairs, or of cells) is not a finite number from 0
+    /// to 1.
     InvalidOpacity,
+    /// The gap of bars, or the gap of cells along x or y, is not a finite number from 0
+    /// up to, but not including, 1. A gap of 1 or more leaves nothing of the bar or cell
+    /// to draw, and a negative gap overlaps its neighbours.
+    InvalidGap,
+    /// The edges of cells, or the edges or samples of stairs, are not finite and strictly
+    /// monotonic (increasing or decreasing), so that some cell or step has no width, lies
+    /// over its neighbour, or has no place.
+    InvalidEdges,
+    /// The fixed width of the slot of bars, or a width given per bar, is not a finite
+    /// positive number.
+    InvalidBarSlot,
+    /// A colour of bars (their face or edge) or of stairs (their line or fill) is
+    /// colormapped, but bars and stairs have no colour scale to look the colour up in.
+    ColormapNotSupported,
+    /// Stairs have a fill other than none but no base, so there is nothing to fill down
+    /// to.
+    StairsFillWithoutBase,
+    /// Bars of one axes that share a group name differ from the first member of the group,
+    /// in artist order, in orientation, slot, gap, base or layout. The group is drawn with
+    /// the properties of its first member, so this is a warning, not an error. It is
+    /// reported against the member that differs, and the message names the first member
+    /// and each property that differs.
+    InconsistentBarGroup,
+    /// Bars, stairs or cells are placed in a three-dimensional axes; they are drawn only
+    /// in the plane of a two-dimensional axes.
+    TwoDArtistInThreeDAxes,
+    /// The tick label angle of an axis that is drawn is not finite. It is reported against
+    /// the axes; the z axis of a two-dimensional axes is ignored.
+    InvalidTickLabelAngle,
+    /// An axis of a three-dimensional axes has a tick label angle other than 0, which a
+    /// three-dimensional axes ignores because its tick labels lie along projected edges.
+    /// This is a warning, not an error, because the figure is drawn with level labels. It is
+    /// reported against the axes.
+    TickLabelAngleIgnored,
 }
 
 impl Figure {
@@ -323,6 +369,15 @@ impl Figure {
     /// are valid and its scale reference names a valid colour scale. An artist is
     /// reported as having nothing to draw only when it is reported for no error, so that
     /// the error, which is what must be fixed, stands alone.
+    ///
+    /// Bars, stairs and cells are errors in a three-dimensional axes. Their own errors are
+    /// a gap outside `[0, 1)`, a slot width that is not finite and positive, edges or
+    /// samples that are not finite and strictly monotonic, a colormapped colour on bars or
+    /// stairs, and a fill on stairs without a base; their warnings are a base or an edge
+    /// that is not positive on a logarithmic axis, and a member of a group of bars that
+    /// differs from the first member. The tick label angle of an axis that is drawn must
+    /// be finite, and an angle other than 0 in a three-dimensional axes is ignored with a
+    /// warning.
     pub fn validate(&self) -> ValidationReport {
         let mut kinds = HashMap::new();
         let mut counts: BTreeMap<NodeId, usize> = BTreeMap::new();
@@ -900,6 +955,26 @@ impl<'a> Validator<'a> {
         if three_d {
             axes_drawn.push(("z", &axes.z));
         }
+        for &(name, axis) in &axes_drawn {
+            let angle = axis.tick_label_angle;
+            if !angle.is_finite() {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::InvalidTickLabelAngle,
+                    format!("the tick label angle {angle} of the {name} axis is not finite"),
+                );
+            } else if three_d && angle != 0.0 {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::TickLabelAngleIgnored,
+                    format!(
+                        "the tick label angle {angle} of the {name} axis is ignored, because a \
+                         three-dimensional axes draws its tick labels along projected edges"
+                    ),
+                );
+            }
+        }
+        self.check_bar_groups(axes);
         for (name, axis) in axes_drawn {
             let problems = tick_problems(
                 &format!("{name} axis"),
@@ -954,14 +1029,26 @@ impl<'a> Validator<'a> {
         if let Some(levels) = usage.levels {
             self.check_levels(id, levels);
         }
-        let scale = self.check_color_scale_reference(id, usage.color_scale, usage.color);
-        // An artist reported for an invalid opacity is not also reported as having nothing to
-        // draw, so that the error stands alone.
+        // An artist reported for an error of its own (a missing colour scale or an invalid
+        // opacity among them) is not also reported as having nothing to draw, so that the
+        // error stands alone.
         let errors_before = self.report.errors.len();
+        let scale = self.check_color_scale_reference(id, usage.color_scale, usage.color);
         self.check_opacities(id, &usage.opacities);
+        if three_d && usage.two_d_only {
+            self.error(
+                Some(id),
+                IssueKind::TwoDArtistInThreeDAxes,
+                "bars, stairs and cells are drawn only in a two-dimensional axes, but this \
+                 artist is placed in a three-dimensional axes"
+                    .to_owned(),
+            );
+        }
+        for (kind, message) in &usage.problems {
+            self.error(Some(id), *kind, message.clone());
+        }
 
-        let references_are_valid =
-            self.check_references(id, &usage.references, usage.accepts_bytes);
+        let references_are_valid = self.check_references(id, &usage.references, &usage.bytes);
         if references_are_valid && let (Some(scale), Some(mapping)) = (scale, usage.color) {
             self.check_mapped_values(id, scale, mapping.values);
         }
@@ -982,6 +1069,9 @@ impl<'a> Validator<'a> {
                 self.check_something_to_draw(id, shape);
             }
             _ => {}
+        }
+        if !three_d && references_are_valid {
+            self.check_log_extents(axes, id, &usage.shape);
         }
 
         for &(dimension, data) in &usage.positions {
@@ -1026,26 +1116,24 @@ impl<'a> Validator<'a> {
     }
 
     /// Reports each distinct data reference of an artist that names no node or a node
-    /// that is not a data array and, unless the artist accepts 8-bit values, each distinct
-    /// reference to an array of them, and returns whether every reference is to a data
-    /// array of an element type the artist can use whose values match its shape.
-    fn check_references(
-        &mut self,
-        node: NodeId,
-        references: &[NodeId],
-        accepts_bytes: bool,
-    ) -> bool {
+    /// that is not a data array and, unless it is among the references in `bytes` that
+    /// accept 8-bit values, each distinct reference to an array of them, and returns
+    /// whether every reference is to a data array of an element type the artist can use
+    /// whose values match its shape.
+    fn check_references(&mut self, node: NodeId, references: &[NodeId], bytes: &[NodeId]) -> bool {
         let mut valid = true;
         let mut reported: Vec<NodeId> = Vec::new();
         for &data in references {
             let problem = match self.arrays.get(&data) {
-                Some(array) if !accepts_bytes && array.element() != NdArrayElement::F64 => Some((
-                    IssueKind::ElementTypeMismatch,
-                    format!(
-                        "{data} holds {} values, but the artist requires f64 values",
-                        array.element()
-                    ),
-                )),
+                Some(array) if !bytes.contains(&data) && array.element() != NdArrayElement::F64 => {
+                    Some((
+                        IssueKind::ElementTypeMismatch,
+                        format!(
+                            "{data} holds {} values, but the artist requires f64 values",
+                            array.element()
+                        ),
+                    ))
+                }
                 Some(array) => {
                     valid &= is_consistent(array);
                     None
@@ -1111,9 +1199,317 @@ impl<'a> Validator<'a> {
                 }
                 grid_agrees && agree
             }
+            Shape::Bars(bar) => self.check_bar_shapes(node, bar),
+            Shape::Stairs(stairs) => self.check_stairs_shapes(node, stairs),
+            Shape::Cells(cells) => self.check_cells_shapes(node, cells),
             // The shape of an image is checked by `check_image`, which also needs the
             // number of pixels along each axis of the image.
             Shape::Image(_) => true,
+        }
+    }
+
+    /// Checks that the arrays of bars are one-dimensional with one entry per bar, as the
+    /// per-bar colours are when there are any, and that every width given per bar is a
+    /// finite positive number, and returns whether all of them hold.
+    fn check_bar_shapes(&mut self, node: NodeId, bar: &Bar) -> bool {
+        let data = self.arrays;
+        let mut arrays = vec![("positions", bar.positions), ("values", bar.values)];
+        if let BarBase::Data(base) = bar.base {
+            arrays.push(("bases", base));
+        }
+        if let BarSlot::Data(widths) = bar.slot {
+            arrays.push(("widths", widths));
+        }
+        if !self.check_vectors(node, &arrays) {
+            return false;
+        }
+        let n = data[&bar.positions].len();
+        let mut agree = true;
+        for &(what, array) in &arrays[1..] {
+            let len = data[&array].len();
+            if len != n {
+                self.error(
+                    Some(node),
+                    IssueKind::ShapeMismatch,
+                    format!("the {what} hold {len} values, but the positions hold {n}"),
+                );
+                agree = false;
+            }
+        }
+        if !bar.colors.is_empty() && bar.colors.len() != n {
+            self.error(
+                Some(node),
+                IssueKind::ShapeMismatch,
+                format!(
+                    "the bars have {} colours, but there are {n} bars, each of which needs one",
+                    bar.colors.len()
+                ),
+            );
+            agree = false;
+        }
+        if !agree {
+            return false;
+        }
+        if let BarSlot::Data(widths) = bar.slot
+            && let Some(values) = data[&widths].as_f64()
+            && let Some(bad) = values.iter().find(|&&w| !(w.is_finite() && w > 0.0))
+        {
+            self.error(
+                Some(node),
+                IssueKind::InvalidBarSlot,
+                format!("the width {bad} in {widths} is not a finite positive number"),
+            );
+            return false;
+        }
+        true
+    }
+
+    /// Checks that the arrays of stairs are one-dimensional, with one more edge than values
+    /// or one sample per value, and that the edges or samples are finite and strictly
+    /// monotonic, and returns whether all of them hold.
+    fn check_stairs_shapes(&mut self, node: NodeId, stairs: &Stairs) -> bool {
+        let data = self.arrays;
+        let (what, positions, extra) = match stairs.data {
+            StairsData::Edges { edges, .. } => ("edges", edges, 1),
+            StairsData::Samples { x, .. } => ("samples", x, 0),
+        };
+        let values = stairs.data.values();
+        if !self.check_vectors(node, &[(what, positions), ("values", values)]) {
+            return false;
+        }
+        let (count, n) = (data[&positions].len(), data[&values].len());
+        if count != n + extra {
+            let needed = if extra == 1 {
+                "one more edge than values"
+            } else {
+                "one sample per value"
+            };
+            self.error(
+                Some(node),
+                IssueKind::ShapeMismatch,
+                format!("the stairs have {count} {what} for {n} values, but they need {needed}"),
+            );
+            return false;
+        }
+        self.check_monotonic(node, &format!("the {what} of the stairs"), positions)
+    }
+
+    /// Checks that the values of cells are two-dimensional, that explicit edges are
+    /// one-dimensional with one more edge than cells and are finite and strictly
+    /// monotonic, and that the alpha has the shape of the values, and returns whether all
+    /// of them hold.
+    fn check_cells_shapes(&mut self, node: NodeId, cells: &Cells) -> bool {
+        let data = self.arrays;
+        let shape = &data[&cells.values].shape;
+        let &[ny, nx] = shape.as_slice() else {
+            self.error(
+                Some(node),
+                IssueKind::ShapeMismatch,
+                format!("the values have shape {shape:?}, but they must be two-dimensional"),
+            );
+            return false;
+        };
+        let mut agree = true;
+        if let Some(alpha) = cells.alpha
+            && data[&alpha].shape != *shape
+        {
+            self.error(
+                Some(node),
+                IssueKind::ShapeMismatch,
+                format!(
+                    "the alpha has shape {:?}, but the values have shape {shape:?}",
+                    data[&alpha].shape
+                ),
+            );
+            agree = false;
+        }
+        for (what, edges, count) in [("column", cells.columns, nx), ("row", cells.rows, ny)] {
+            let CellEdges::Edges(edges) = edges else {
+                continue;
+            };
+            let name = format!("{what} edges");
+            if !self.check_vectors(node, &[(name.as_str(), edges)]) {
+                agree = false;
+                continue;
+            }
+            let found = data[&edges].len();
+            if found != count + 1 {
+                self.error(
+                    Some(node),
+                    IssueKind::ShapeMismatch,
+                    format!(
+                        "there are {found} {what} edges, but the values of shape {shape:?} \
+                         need {}, one more than the {what}s",
+                        count + 1
+                    ),
+                );
+                agree = false;
+                continue;
+            }
+            agree &= self.check_monotonic(node, &format!("the {what} edges of the cells"), edges);
+        }
+        agree
+    }
+
+    /// Reports each named array that is not one-dimensional, and returns whether all of
+    /// them are.
+    fn check_vectors(&mut self, node: NodeId, arrays: &[(&str, NodeId)]) -> bool {
+        let mut all = true;
+        for &(what, array) in arrays {
+            let shape = &self.arrays[&array].shape;
+            if shape.len() != 1 {
+                self.error(
+                    Some(node),
+                    IssueKind::ShapeMismatch,
+                    format!("the {what} have shape {shape:?}, but they must be one-dimensional"),
+                );
+                all = false;
+            }
+        }
+        all
+    }
+
+    /// Reports edges or samples, described by `what`, that are not finite and strictly
+    /// monotonic, and returns whether they are.
+    fn check_monotonic(&mut self, node: NodeId, what: &str, array: NodeId) -> bool {
+        let Some(values) = self.arrays[&array].as_f64() else {
+            return true;
+        };
+        let problem = if let Some(bad) = values.iter().find(|v| !v.is_finite()) {
+            format!("{what} include {bad}, which is not finite")
+        } else if !(values.windows(2).all(|pair| pair[0] < pair[1])
+            || values.windows(2).all(|pair| pair[0] > pair[1]))
+        {
+            format!("{what} are not strictly increasing or strictly decreasing")
+        } else {
+            return true;
+        };
+        self.error(Some(node), IssueKind::InvalidEdges, problem);
+        false
+    }
+
+    /// Warns of the bases of bars and stairs that are not positive on a logarithmic value
+    /// axis, and of the edges of cells that are not positive on a logarithmic axis; the
+    /// references of the artist are valid.
+    fn check_log_extents(&mut self, axes: &Axes, node: NodeId, shape: &Shape<'_>) {
+        match shape {
+            Shape::Bars(bar) => {
+                let dimension = bar.orientation.value_dimension();
+                if axis_of(axes, dimension).scale != Scale::Log {
+                    return;
+                }
+                let not_positive = match bar.base {
+                    BarBase::Constant(base) => base <= 0.0,
+                    BarBase::Data(base) => self.arrays[&base]
+                        .as_f64()
+                        .is_some_and(|values| values.iter().any(|&v| v <= 0.0)),
+                };
+                if not_positive {
+                    self.warning(
+                        Some(node),
+                        IssueKind::NonPositiveOnLogAxis,
+                        format!(
+                            "the base of the bars is not positive along the logarithmic {} \
+                             axis, which has no place for it, so the bars are drawn from the \
+                             low edge of the plot area",
+                            dimension_name(dimension)
+                        ),
+                    );
+                }
+            }
+            Shape::Stairs(stairs) => {
+                let dimension = stairs.orientation.value_dimension();
+                if let Some(base) = stairs.base
+                    && base <= 0.0
+                    && axis_of(axes, dimension).scale == Scale::Log
+                {
+                    self.warning(
+                        Some(node),
+                        IssueKind::NonPositiveOnLogAxis,
+                        format!(
+                            "the base {base} of the stairs is not positive along the \
+                             logarithmic {} axis, which has no place for it, so the outline \
+                             drops to the low edge of the plot area",
+                            dimension_name(dimension)
+                        ),
+                    );
+                }
+            }
+            Shape::Cells(cells) => {
+                for (dimension, what, edges) in [
+                    (Dimension::X, "column", cells.columns),
+                    (Dimension::Y, "row", cells.rows),
+                ] {
+                    if axis_of(axes, dimension).scale != Scale::Log {
+                        continue;
+                    }
+                    let message = match edges {
+                        CellEdges::Unit => format!(
+                            "the unit {what} edges start at −0.5, which is not positive along \
+                             the logarithmic {} axis, so the first {what} is not drawn",
+                            dimension_name(dimension)
+                        ),
+                        CellEdges::Edges(edges)
+                            if self.arrays[&edges]
+                                .as_f64()
+                                .is_some_and(|values| values.iter().any(|&v| v <= 0.0)) =>
+                        {
+                            format!(
+                                "the {what} edges in {edges} include values less than or equal \
+                                 to zero along the logarithmic {} axis, so the {what}s they \
+                                 bound are not drawn",
+                                dimension_name(dimension)
+                            )
+                        }
+                        CellEdges::Edges(_) => continue,
+                    };
+                    self.warning(Some(node), IssueKind::NonPositiveOnLogAxis, message);
+                }
+            }
+            Shape::Points { .. } | Shape::Grid { .. } | Shape::Image(_) => {}
+        }
+    }
+
+    /// Warns of every bar series whose group differs from the first member of the group of
+    /// the same name in the axes, in artist order, naming the first member and each
+    /// property that differs.
+    fn check_bar_groups(&mut self, axes: &Axes) {
+        let mut first: BTreeMap<&str, &Bar> = BTreeMap::new();
+        for artist in &axes.artists {
+            let Artist::Bar(bar) = artist else {
+                continue;
+            };
+            let Some(group) = &bar.group else {
+                continue;
+            };
+            let Some(leader) = first.get(group.name.as_str()).copied() else {
+                first.insert(&group.name, bar);
+                continue;
+            };
+            let layout = leader.group.as_ref().map(|g| g.layout);
+            let differ: Vec<&str> = [
+                ("orientation", bar.orientation != leader.orientation),
+                ("slot", bar.slot != leader.slot),
+                ("gap", bar.gap.to_bits() != leader.gap.to_bits()),
+                ("base", bar.base != leader.base),
+                ("layout", Some(group.layout) != layout),
+            ]
+            .into_iter()
+            .filter_map(|(name, differs)| differs.then_some(name))
+            .collect();
+            if differ.is_empty() {
+                continue;
+            }
+            let properties = differ.join(" and ");
+            self.warning(
+                Some(bar.id),
+                IssueKind::InconsistentBarGroup,
+                format!(
+                    "the bars of {} differ in their {properties} from {}, the first member of \
+                     the group {:?}, so they are drawn with the {properties} of {}",
+                    bar.id, leader.id, group.name, leader.id
+                ),
+            );
         }
     }
 
@@ -1176,6 +1572,39 @@ impl<'a> Validator<'a> {
                 }
                 format!(
                     "{points} have shape {shape:?}, so the artist has no points and is left out \
+                     of the drawing"
+                )
+            }
+            Shape::Bars(bar) => {
+                let shape = &data[&bar.values].shape;
+                if shape.iter().product::<usize>() > 0 {
+                    return;
+                }
+                format!(
+                    "the values have shape {shape:?}, so the series has no bars and is left out \
+                     of the drawing"
+                )
+            }
+            Shape::Stairs(stairs) => {
+                let shape = &data[&stairs.data.values()].shape;
+                if shape.iter().product::<usize>() > 0 {
+                    return;
+                }
+                format!(
+                    "the values have shape {shape:?}, so the stairs have no steps and are left \
+                     out of the drawing"
+                )
+            }
+            Shape::Cells(cells) => {
+                let shape = &data[&cells.values].shape;
+                let case = match shape.as_slice() {
+                    [0, 0] => "no rows and no columns",
+                    [0, _] => "no rows",
+                    [_, 0] => "no columns",
+                    _ => return,
+                };
+                format!(
+                    "the values have shape {shape:?}, so the cells have {case} and are left out \
                      of the drawing"
                 )
             }
@@ -1744,8 +2173,16 @@ pub(crate) struct ArtistUsage<'a> {
     /// the z axis to be placed. A surface does not: seen from directly above, it is the
     /// pseudocolour plot of a two-dimensional axes.
     three_d: bool,
-    /// Whether the artist can use arrays of 8-bit values, as the image kinds can.
-    accepts_bytes: bool,
+    /// The references that may name arrays of 8-bit values, as the data and alpha of an
+    /// image and the values and alpha of cells may; every other reference requires 64-bit
+    /// floating-point values.
+    bytes: Vec<NodeId>,
+    /// Whether the artist can only be drawn in a two-dimensional axes, as bars, stairs and
+    /// cells can.
+    two_d_only: bool,
+    /// The errors of the artist that its properties alone decide, each with its kind and
+    /// message.
+    problems: Vec<(IssueKind, String)>,
     /// Whether the x and y values of a series are fractions of the plot area
     /// rather than data.
     fraction: [bool; 2],
@@ -1804,6 +2241,15 @@ enum Shape<'a> {
     },
     /// An image, which [`Validator::check_image`] checks.
     Image(ImageView<'a>),
+    /// Bars, whose arrays hold one entry per bar; they have nothing to draw when they
+    /// have no values.
+    Bars(&'a Bar),
+    /// Stairs, whose edges or samples must fit their values; they have nothing to draw
+    /// when they have no values.
+    Stairs(&'a Stairs),
+    /// Cells, whose values are two-dimensional and whose edges fit them; they have
+    /// nothing to draw when they have no rows or no columns.
+    Cells(&'a Cells),
 }
 
 impl ArtistUsage<'_> {
@@ -1833,7 +2279,9 @@ impl<'a> ArtistUsage<'a> {
             references,
             positions,
             three_d,
-            accepts_bytes: false,
+            bytes: Vec::new(),
+            two_d_only: false,
+            problems: Vec::new(),
             fraction: [false; 2],
             clip_released: false,
             opacities: Vec::new(),
@@ -1848,14 +2296,15 @@ impl<'a> ArtistUsage<'a> {
     /// alpha, if it has one, each of either element type, plots nothing as a position
     /// along an axis, and needs a three-dimensional axes when it lies on a wall.
     fn image(image: ImageView<'a>, opacity: f64) -> Self {
+        let references: Vec<NodeId> = [Some(image.data), image.alpha]
+            .into_iter()
+            .flatten()
+            .collect();
         Self {
-            accepts_bytes: true,
+            bytes: references.clone(),
             opacities: vec![("opacity", opacity)],
             ..Self::new(
-                [Some(image.data), image.alpha]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
+                references,
                 Vec::new(),
                 !matches!(image.placement.plane, ImagePlane::Xy { .. }),
                 Shape::Image(image),
@@ -2016,6 +2465,127 @@ impl Usage for ScalarImage {
         };
         ArtistUsage::image(image, self.opacity)
     }
+}
+
+impl Usage for Bar {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let positions = vec![
+            (self.orientation.category_dimension(), self.positions),
+            (self.orientation.value_dimension(), self.values),
+        ];
+        let mut references = ids(&positions);
+        if let BarBase::Data(base) = self.base {
+            references.push(base);
+        }
+        if let BarSlot::Data(widths) = self.slot {
+            references.push(widths);
+        }
+        let mut problems = gap_problems("gap of the bars", self.gap);
+        if let BarSlot::Width(width) = self.slot
+            && !(width.is_finite() && width > 0.0)
+        {
+            problems.push((
+                IssueKind::InvalidBarSlot,
+                format!(
+                    "the width {width} of the slot of the bars is not a finite positive number"
+                ),
+            ));
+        }
+        problems.extend(colormap_problems(
+            "bars",
+            &[("face", self.face), ("edge", self.edge.color)],
+        ));
+        ArtistUsage {
+            two_d_only: true,
+            problems,
+            opacities: vec![("face opacity", self.face_opacity)],
+            ..ArtistUsage::new(references, positions, false, Shape::Bars(self))
+        }
+    }
+}
+
+impl Usage for Stairs {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let positions = vec![
+            (self.orientation.category_dimension(), self.data.positions()),
+            (self.orientation.value_dimension(), self.data.values()),
+        ];
+        let references = ids(&positions);
+        let mut problems =
+            colormap_problems("stairs", &[("line", self.line.color), ("fill", self.fill)]);
+        if self.fill != ColorSpec::None && self.base.is_none() {
+            problems.push((
+                IssueKind::StairsFillWithoutBase,
+                "the stairs are filled but have no base, so there is nothing to fill down to"
+                    .to_owned(),
+            ));
+        }
+        ArtistUsage {
+            two_d_only: true,
+            problems,
+            opacities: vec![("fill opacity", self.fill_opacity)],
+            ..ArtistUsage::new(references, positions, false, Shape::Stairs(self))
+        }
+    }
+}
+
+impl Usage for Cells {
+    fn usage(&self) -> ArtistUsage<'_> {
+        let bytes: Vec<NodeId> = [Some(self.values), self.alpha]
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut references = bytes.clone();
+        for edges in [self.columns, self.rows] {
+            if let CellEdges::Edges(edges) = edges {
+                references.push(edges);
+            }
+        }
+        let mut problems = gap_problems("gap of the cells along x", self.gap.x);
+        problems.extend(gap_problems("gap of the cells along y", self.gap.y));
+        // The edges of cells are checked on a logarithmic axis by a check of their own,
+        // which knows that unit edges start at −0.5, so they are not listed as positions.
+        ArtistUsage {
+            bytes,
+            two_d_only: true,
+            problems,
+            opacities: vec![("opacity", self.opacity)],
+            ..ArtistUsage::new(references, Vec::new(), false, Shape::Cells(self))
+        }
+    }
+}
+
+/// Returns the problem of a gap, named `what` in the message, that is not a finite number
+/// from 0 up to, but not including, 1.
+fn gap_problems(what: &str, gap: f64) -> Vec<(IssueKind, String)> {
+    if (0.0..1.0).contains(&gap) {
+        Vec::new()
+    } else {
+        vec![(
+            IssueKind::InvalidGap,
+            format!(
+                "the {what} is {gap}, but it must be a number from 0 up to, but not including, 1"
+            ),
+        )]
+    }
+}
+
+/// Returns a problem for each named colour of `artist`, which has no colour scale, that is
+/// colormapped.
+fn colormap_problems(artist: &str, colors: &[(&str, ColorSpec)]) -> Vec<(IssueKind, String)> {
+    colors
+        .iter()
+        .filter(|&&(_, color)| color == ColorSpec::Colormapped)
+        .map(|&(what, _)| {
+            (
+                IssueKind::ColormapNotSupported,
+                format!(
+                    "the {what} colour of the {artist} is colormapped, but {artist} have no \
+                     colour scale to look it up in"
+                ),
+            )
+        })
+        .collect()
 }
 
 /// Returns whether the x and y values of a series are fractions of the plot area.

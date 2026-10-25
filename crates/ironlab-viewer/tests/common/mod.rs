@@ -293,15 +293,18 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// value, and the image of indices through an indexed colour scale (13) of nine entries
 /// that clamps an index outside them, so that the scales hold a fixed colour, a clamp and a
 /// transparent policy between them. Every artist is three-dimensional or planar, so the
-/// figure is valid. The axes lies in the first of two columns, and a legend panel (11) in
-/// the second, so that the figure holds a node of every kind.
+/// figure is valid. The axes lies in the first of three columns, and a legend panel (11) in
+/// the second. A two-dimensional axes (14) in the third column holds the artists that are
+/// valid only in two dimensions: bars (15) of the y values at the x positions, stairs (16)
+/// through the y values at the x samples, and cells (17) of the field through the
+/// continuous scale, so that the figure holds a node of every kind.
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
-        Artist, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ColorSpec,
+        Artist, Bar, Cells, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ColorSpec,
         ContinuousColorScale, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
         Levels, LineStyle, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, ScalarImage,
-        Series, Surface,
+        Series, Stairs, StairsData, StepAt, Surface,
     };
 
     let ids: Vec<NodeId> = (0..10).map(array_id).collect();
@@ -448,15 +451,48 @@ pub fn figure_with_every_artist() -> Figure {
         }),
         ..ColorScale::default()
     };
+    let flat = vec![
+        Artist::Bar(Bar {
+            id: NodeId(15),
+            positions: x,
+            values: y,
+            ..Bar::default()
+        }),
+        Artist::Stairs(Stairs {
+            id: NodeId(16),
+            data: StairsData::Samples {
+                x,
+                values: y,
+                step: StepAt::Mid,
+            },
+            ..Stairs::default()
+        }),
+        Artist::Cells(Cells {
+            id: NodeId(17),
+            values: field,
+            color_scale: Some(NodeId(12)),
+            ..Cells::default()
+        }),
+    ];
     Figure {
         id: NodeId(1),
-        layout: ironlab_ir::TileLayout::new(1, 2),
+        layout: ironlab_ir::TileLayout::new(1, 3),
         data,
         color_scales: vec![continuous, indexed],
-        axes: vec![Axes {
-            artists,
-            ..axes_3d(2)
-        }],
+        axes: vec![
+            Axes {
+                artists,
+                ..axes_3d(2)
+            },
+            Axes {
+                cell: ironlab_ir::Cell {
+                    col: 2,
+                    ..ironlab_ir::Cell::default()
+                },
+                artists: flat,
+                ..axes_2d(14)
+            },
+        ],
         panels: vec![ironlab_ir::Panel {
             id: NodeId(11),
             cell: ironlab_ir::Cell {

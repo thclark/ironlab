@@ -114,6 +114,9 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
                     Artist::Quiver(_) => "quiver",
                     Artist::Surface(_) => "surface",
                     Artist::Image(_) | Artist::ScalarImage(_) => "image",
+                    Artist::Bar(_) => "bar",
+                    Artist::Stairs(_) => "stairs",
+                    Artist::Cells(_) => "cells",
                 }
                 .to_owned(),
             );

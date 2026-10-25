@@ -32,6 +32,14 @@ pub enum Artist {
     /// A raster of numbers, each mapped to a colour through a colour scale (image with
     /// an indexed array, imagesc).
     ScalarImage(ScalarImage),
+    /// Rectangles that rise from a base to each value, one per position along a category
+    /// axis (bar, barh).
+    Bar(Bar),
+    /// A stepped outline through values held between edges or at samples (stairs, step).
+    Stairs(Stairs),
+    /// A grid of rectangular cells between edges, each coloured by its value through a
+    /// colour scale (heatmap, pcolormesh on a rectilinear grid, histogram2).
+    Cells(Cells),
 }
 
 /// A series of data points, drawn as a line through them, as markers at them, or as both
@@ -668,4 +676,415 @@ impl ImagePlane {
             ImagePlane::Yz { x } => x,
         }
     }
+}
+
+/// The direction in which bars and stairs extend.
+///
+/// The category axis is the axis along which the positions of bars, and the edges or
+/// samples of stairs, lie; the value axis is the axis along which their values lie.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Orientation {
+    /// Positions and edges lie along x and values along y, so that bars stand upright
+    /// (bar).
+    #[default]
+    Vertical,
+    /// Positions and edges lie along y and values along x, so that bars lie flat (barh).
+    Horizontal,
+}
+
+impl Orientation {
+    /// Returns the dimension along which positions, edges and samples lie.
+    #[must_use]
+    pub fn category_dimension(self) -> Dimension {
+        match self {
+            Orientation::Vertical => Dimension::X,
+            Orientation::Horizontal => Dimension::Y,
+        }
+    }
+
+    /// Returns the dimension along which values and bases lie.
+    #[must_use]
+    pub fn value_dimension(self) -> Dimension {
+        match self {
+            Orientation::Vertical => Dimension::Y,
+            Orientation::Horizontal => Dimension::X,
+        }
+    }
+}
+
+/// A series of bars: one rectangle for each position along the category axis, which
+/// extends along the value axis from a base to the value (bar, barh).
+///
+/// The positions, the values and any base or widths given as data hold one entry per bar
+/// and must have the same number of elements. Each bar is centred in a slot along the
+/// category axis, of which the fraction `gap` is left empty, measured on the page so that
+/// bars on a logarithmic axis remain symmetric. A bar whose position or value is not
+/// finite is not drawn, and a non-finite position takes no part in the pitch. Bars take
+/// solid colours only: they have no colour scale.
+///
+/// Bars of one axes whose groups share a name form one group. The members of a grouped
+/// group split the drawn part of each slot equally, in artist order, and touch one
+/// another; the members of a stacked group at the same position build on one another,
+/// positive and negative values separately. The orientation, slot, gap, base and layout
+/// of a group are those of its first member in artist order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Bar {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// Whether the bars stand upright or lie flat.
+    pub orientation: Orientation,
+    /// The centre of the slot of each bar along the category axis, one value per bar.
+    pub positions: NodeId,
+    /// The end of each bar along the value axis, one value per bar; a value that is not
+    /// finite draws no bar.
+    pub values: NodeId,
+    /// Where each bar starts along the value axis.
+    pub base: BarBase,
+    /// The extent of the slot of each bar along the category axis.
+    pub slot: BarSlot,
+    /// The fraction of each slot left empty, measured on the page and shared equally by
+    /// the two sides of the bar: a finite number from 0 (touching bars) up to, but not
+    /// including, 1.
+    pub gap: f64,
+    /// The group of bars of the axes to which the series belongs, or `None` for a
+    /// series drawn on its own.
+    pub group: Option<BarGroup>,
+    /// The colour of the bars: automatic for the next colour of the colour order, a
+    /// fixed colour, or none. A colormapped colour is invalid, because bars have no
+    /// colour scale.
+    pub face: ColorSpec,
+    /// One fixed colour for each bar, which overrides `face`, or no colours for bars that
+    /// all take `face`. A legend shows the first colour.
+    ///
+    /// The property is omitted from JSON when it holds no colours, and holds none when
+    /// JSON omits it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<Color>,
+    /// The style of the outline of every bar; a colour of none draws no outline. A
+    /// colormapped colour is invalid.
+    pub edge: LineStyle,
+    /// The opacity of the bars, from 0 (transparent) to 1 (opaque), which multiplies the
+    /// alpha of their colours.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub face_opacity: f64,
+}
+
+impl Default for Bar {
+    /// The series that `bar` draws: upright bars in the next colour of the colour order,
+    /// rising from 0, each across four fifths of the pitch between positions, without an
+    /// outline or a group, visible and opaque.
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            label: None,
+            visible: true,
+            orientation: Orientation::Vertical,
+            positions: NodeId::default(),
+            values: NodeId::default(),
+            base: BarBase::default(),
+            slot: BarSlot::default(),
+            gap: 0.2,
+            group: None,
+            face: ColorSpec::Auto,
+            colors: Vec::new(),
+            edge: no_edge(),
+            face_opacity: 1.0,
+        }
+    }
+}
+
+/// Returns the edge of bars and cells by default: no outline, 0.5 points wide and solid
+/// when a colour is given.
+fn no_edge() -> LineStyle {
+    LineStyle {
+        color: ColorSpec::None,
+        width_pt: 0.5,
+        dash: DashStyle::Solid,
+    }
+}
+
+/// Where the bars of a series start along the value axis.
+///
+/// On a logarithmic value axis a base that is not positive has no place, so such a bar is
+/// drawn from the low edge of the plot area instead, with a warning.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum BarBase {
+    /// Every bar starts at the same value.
+    Constant(f64),
+    /// Each bar starts at its own value, one per bar, which draws floating bars.
+    Data(NodeId),
+}
+
+impl Default for BarBase {
+    /// Bars that rise from 0.
+    fn default() -> Self {
+        BarBase::Constant(0.0)
+    }
+}
+
+/// The extent of the slot of each bar along the category axis, of which the bar is drawn
+/// across the fraction `1 − gap`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum BarSlot {
+    /// The smallest distance between neighbouring distinct finite positions, or 1 when
+    /// there is a single distinct position.
+    #[default]
+    Pitch,
+    /// The same extent for every bar, in data units: a finite positive number.
+    Width(f64),
+    /// One extent for each bar, in data units, each a finite positive number; this is how
+    /// a histogram of unequal bins is drawn.
+    Data(NodeId),
+}
+
+/// The group of bars of an axes to which a bar series belongs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct BarGroup {
+    /// The name of the group; the bar series of one axes whose groups share a name form
+    /// one group. It is never drawn.
+    pub name: String,
+    /// How the members of the group share each position.
+    pub layout: BarLayout,
+}
+
+/// How the members of a group of bars share each position.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BarLayout {
+    /// The members stand side by side: they split the drawn part of each slot equally,
+    /// in artist order, and touch one another, so that the gap falls between positions.
+    #[default]
+    Grouped,
+    /// The members at the same position build on one another, in artist order, positive
+    /// and negative values separately, so that each column shows a total.
+    Stacked,
+}
+
+/// A stepped outline through values held between edges or at samples (stairs, step).
+///
+/// Stairs draw the outline that a histogram of steps draws: along the category axis the
+/// outline runs through each value across its step, and it joins neighbouring steps with
+/// segments along the value axis. A value that is not finite breaks the outline. With a
+/// base, the outline drops to the base at both ends and may be filled down to it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Stairs {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// Whether the steps lie along x, with values along y, or the reverse.
+    pub orientation: Orientation,
+    /// The steps: values between edges, or values at samples.
+    pub data: StairsData,
+    /// The value along the value axis to which the outline drops at both ends, or `None`
+    /// for an open outline that starts and ends at the first and last values.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<f64>,
+    /// The style of the outline, whose automatic colour is the next colour of the colour
+    /// order. A colormapped colour is invalid, because stairs have no colour scale.
+    pub line: LineStyle,
+    /// The colour of the area between the outline and the base, or none for no fill. A
+    /// fill other than none needs a base; a colormapped fill is invalid.
+    pub fill: ColorSpec,
+    /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
+    /// alpha of its colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub fill_opacity: f64,
+}
+
+impl Default for Stairs {
+    /// The stairs that `stairs` draws: an open, unfilled outline in the next colour of the
+    /// colour order, upright and visible.
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            label: None,
+            visible: true,
+            orientation: Orientation::Vertical,
+            data: StairsData::default(),
+            base: None,
+            line: LineStyle::default(),
+            fill: ColorSpec::None,
+            fill_opacity: 1.0,
+        }
+    }
+}
+
+/// The steps of stairs: values between edges, or values at samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StairsData {
+    /// Each value holds between two neighbouring edges, as the counts of a histogram hold
+    /// between its bin edges (Matplotlib's `stairs`).
+    Edges {
+        /// The edges of the steps along the category axis, one more than the values:
+        /// finite and strictly monotonic, increasing or decreasing.
+        edges: NodeId,
+        /// The value of each step.
+        values: NodeId,
+    },
+    /// Each value holds at a sample, and the step from one value to the next occurs where
+    /// `step` places it (MATLAB's `stairs` and Matplotlib's `step`).
+    Samples {
+        /// The positions of the samples along the category axis, one per value: finite
+        /// and strictly monotonic, increasing or decreasing.
+        x: NodeId,
+        /// The value at each sample.
+        values: NodeId,
+        /// Where each step occurs relative to its samples.
+        step: StepAt,
+    },
+}
+
+impl Default for StairsData {
+    /// Steps between edges, naming the identifier 0 for both arrays.
+    fn default() -> Self {
+        StairsData::Edges {
+            edges: NodeId::default(),
+            values: NodeId::default(),
+        }
+    }
+}
+
+impl StairsData {
+    /// Returns the array of values.
+    #[must_use]
+    pub fn values(self) -> NodeId {
+        match self {
+            StairsData::Edges { values, .. } | StairsData::Samples { values, .. } => values,
+        }
+    }
+
+    /// Returns the array of positions along the category axis: the edges or the samples.
+    #[must_use]
+    pub fn positions(self) -> NodeId {
+        match self {
+            StairsData::Edges { edges, .. } => edges,
+            StairsData::Samples { x, .. } => x,
+        }
+    }
+}
+
+/// Where the step of stairs through samples occurs relative to its samples, as the
+/// `where` argument of Matplotlib's `step` places it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StepAt {
+    /// Each value holds from the previous sample up to its own, so the step occurs at the
+    /// earlier sample.
+    Pre,
+    /// Each value holds from its own sample up to the next, so the step occurs at the
+    /// later sample.
+    #[default]
+    Post,
+    /// Each value holds from halfway to the previous sample to halfway to the next, so the
+    /// step occurs midway between the samples.
+    Mid,
+}
+
+/// A grid of rectangular cells, each coloured by its value through a colour scale
+/// (heatmap, histogram2, pcolormesh on a rectilinear grid).
+///
+/// Cell `(j, i)` holds the value in row `j` and column `i` of `values` and spans the
+/// column edges `i` and `i + 1` along x and the row edges `j` and `j + 1` along y, so that
+/// row 0 lies between the first two row edges. The fraction `gap` of each cell's extent is
+/// left empty, measured on the page so that cells on a logarithmic axis remain
+/// symmetric. Cells are valid only in a two-dimensional axes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Cells {
+    /// The node identifier of the artist, unique within the figure.
+    pub id: NodeId,
+    /// The label drawn beside the artist in a legend.
+    pub label: Option<Text>,
+    /// Whether the artist is drawn.
+    pub visible: bool,
+    /// The values, a two-dimensional array of shape `[ny, nx]` with one value per cell.
+    /// The array may hold floating-point values or 8-bit values; an 8-bit value is mapped
+    /// as the whole number it denotes.
+    pub values: NodeId,
+    /// The edges of the columns along x.
+    pub columns: CellEdges,
+    /// The edges of the rows along y.
+    pub rows: CellEdges,
+    /// The fraction of each cell's extent left empty, along x and along y.
+    pub gap: CellGap,
+    /// The style of the outline of every cell; a colour of none draws no outline, and a
+    /// colormapped colour gives each outline the colour of its cell.
+    pub edge: LineStyle,
+    /// The colour scale through which the values are mapped. Cells always map their
+    /// values, so a figure in which they name no scale is invalid.
+    pub color_scale: Option<NodeId>,
+    /// The alpha of every cell, a two-dimensional array with the same shape as `values`,
+    /// or `None` for cells that are uniformly opaque before
+    /// [`opacity`](Cells::opacity) applies. The array may hold floating-point values from
+    /// 0 to 1 or 8-bit values from 0 to 255, as the alpha of a scalar image may.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<NodeId>,
+    /// The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the
+    /// alpha of every cell.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub opacity: f64,
+}
+
+impl Default for Cells {
+    /// Seamless cells centred on whole numbers, without outlines, alpha or a colour
+    /// scale, visible and opaque.
+    fn default() -> Self {
+        Self {
+            id: NodeId::default(),
+            label: None,
+            visible: true,
+            values: NodeId::default(),
+            columns: CellEdges::Unit,
+            rows: CellEdges::Unit,
+            gap: CellGap::default(),
+            edge: no_edge(),
+            color_scale: None,
+            alpha: None,
+            opacity: 1.0,
+        }
+    }
+}
+
+/// The edges of the columns or rows of cells.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum CellEdges {
+    /// Cell `k` spans `k − 0.5` to `k + 0.5`, so the centres lie at 0, 1, 2 and so on, as
+    /// the pixels of an image without a range do.
+    #[default]
+    Unit,
+    /// The edges given as data: one more than the cells, finite and strictly monotonic,
+    /// increasing or decreasing.
+    Edges(NodeId),
+}
+
+/// The fractions of the extent of each cell left empty along x and along y, measured on
+/// the page and shared equally by the two sides of the cell; each is a finite number from
+/// 0 up to, but not including, 1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct CellGap {
+    /// The fraction of the width of each cell left empty.
+    pub x: f64,
+    /// The fraction of the height of each cell left empty.
+    pub y: f64,
 }

@@ -260,6 +260,24 @@ proto_file! {
             InsideColorbarSide(ValueInsideColorbarSide) inside_colorbar_side_value = 70;
             /// Where the title of a colour scale is drawn beside a colourbar.
             ColorbarTitlePlacement(ValueColorbarTitlePlacement) colorbar_title_placement_value = 71;
+            /// The direction in which bars and stairs extend.
+            Orientation(ValueOrientation) orientation_value = 72;
+            /// Where the bars of a series start.
+            BarBase(ValueBarBase) bar_base_value = 73;
+            /// The extent of the slot of each bar.
+            BarSlot(ValueBarSlot) bar_slot_value = 74;
+            /// The group of bars to which a bar series belongs.
+            BarGroup(ValueBarGroup) bar_group_value = 75;
+            /// How the members of a group of bars share each position.
+            BarLayout(ValueBarLayout) bar_layout_value = 76;
+            /// The steps of stairs.
+            StairsData(ValueStairsData) stairs_data_value = 77;
+            /// Where the step of stairs through samples occurs.
+            StepAt(ValueStepAt) step_at_value = 78;
+            /// The edges of the columns or rows of cells.
+            CellEdges(ValueCellEdges) cell_edges_value = 79;
+            /// The fractions of the extent of each cell left empty.
+            CellGap(ValueCellGap) cell_gap_value = 80;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -672,5 +690,59 @@ proto_file! {
     message ValueColorbarTitlePlacement {
         /// The placement; it must be specified.
         enum ColorbarTitlePlacement value = 1;
+    }
+
+    /// An orientation of bars or stairs.
+    message ValueOrientation {
+        /// The orientation; it must be specified.
+        enum Orientation value = 1;
+    }
+
+    /// A base of bars.
+    message ValueBarBase {
+        /// The base; it must be present.
+        message BarBase value = 1;
+    }
+
+    /// A slot of bars.
+    message ValueBarSlot {
+        /// The slot; it must be present.
+        message BarSlot value = 1;
+    }
+
+    /// A group of bars.
+    message ValueBarGroup {
+        /// The group; it must be present.
+        message BarGroup value = 1;
+    }
+
+    /// A layout of a group of bars.
+    message ValueBarLayout {
+        /// The layout; it must be specified.
+        enum BarLayout value = 1;
+    }
+
+    /// The steps of stairs.
+    message ValueStairsData {
+        /// The steps; they must be present.
+        message StairsData value = 1;
+    }
+
+    /// The position of the step of stairs through samples.
+    message ValueStepAt {
+        /// The position; it must be specified.
+        enum StepAt value = 1;
+    }
+
+    /// The edges of the columns or rows of cells.
+    message ValueCellEdges {
+        /// The edges; they must be present.
+        message CellEdges value = 1;
+    }
+
+    /// The gaps between cells.
+    message ValueCellGap {
+        /// The gaps; they must be present.
+        message CellGap value = 1;
     }
 }

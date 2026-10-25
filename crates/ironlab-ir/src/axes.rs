@@ -234,7 +234,7 @@ impl Default for View3d {
 }
 
 /// One coordinate axis of an axes.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Axis {
     /// The axis label.
     pub label: Option<Text>,
@@ -253,6 +253,56 @@ pub struct Axis {
     pub tick_labels: TickLabels,
     /// Whether grid lines are drawn at the major ticks of this axis.
     pub grid: bool,
+    /// Whether the axis is drawn. A hidden axis draws no spine (the edges of the plot box
+    /// along it), ticks, tick labels or label, and no space is reserved for them; its grid
+    /// lines still follow [`grid`](Axis::grid), and its limits, scale and ticks still
+    /// place the data. In a three-dimensional axes the edges of the box are drawn
+    /// whatever the visibility.
+    ///
+    /// The property is omitted from JSON when it is true, and is true when JSON omits it.
+    #[serde(default = "shown", skip_serializing_if = "is_shown")]
+    pub visible: bool,
+    /// The angle of every tick label of the axis, in degrees anticlockwise from
+    /// horizontal, about the end of the label nearest its tick; any finite number. A
+    /// three-dimensional axes ignores it.
+    ///
+    /// The property is omitted from JSON when it is 0, and is 0 when JSON omits it.
+    #[serde(default, skip_serializing_if = "is_level")]
+    pub tick_label_angle: f64,
+}
+
+impl Default for Axis {
+    /// A visible linear axis with automatic limits and ticks, level tick labels and no
+    /// label, running from its lower limit to its upper limit, without grid lines.
+    fn default() -> Self {
+        Self {
+            label: None,
+            scale: Scale::default(),
+            limits: Limits::default(),
+            reverse: false,
+            ticks: Ticks::default(),
+            tick_labels: TickLabels::default(),
+            grid: false,
+            visible: true,
+            tick_label_angle: 0.0,
+        }
+    }
+}
+
+/// Returns the visibility of an axis that JSON leaves out.
+fn shown() -> bool {
+    true
+}
+
+/// Returns whether an axis is visible, in which case JSON omits its visibility.
+fn is_shown(visible: &bool) -> bool {
+    *visible
+}
+
+/// Returns whether a tick label angle is exactly positive zero, in which case JSON omits
+/// it; a negative zero is written, so that it reloads as itself.
+fn is_level(angle: &f64) -> bool {
+    *angle == 0.0 && angle.is_sign_positive()
 }
 
 /// Where the major ticks of an axis are placed.

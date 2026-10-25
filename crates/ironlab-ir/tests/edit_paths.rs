@@ -254,7 +254,7 @@ fn collect_paths(
 fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
     let pool = descriptor_pool();
     let read_only: &[&str] = &["id"];
-    let cases: [(NodeKind, &str, &[&str]); 11] = [
+    let cases: [(NodeKind, &str, &[&str]); 14] = [
         (
             NodeKind::Figure,
             "Figure",
@@ -284,6 +284,12 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Surface, "Surface", read_only),
         (NodeKind::Image, "Image", read_only),
         (NodeKind::ScalarImage, "ScalarImage", read_only),
+        // The colours of individual bars are structure that code writes, one for each bar,
+        // read but not set as a list through the registry, as the colours of a listed
+        // colormap are; each colour is set by its index.
+        (NodeKind::Bar, "Bar", &["id", "colors"]),
+        (NodeKind::Stairs, "Stairs", read_only),
+        (NodeKind::Cells, "Cells", read_only),
         // The entries of an indexed or categorical scale, and the colours of a listed
         // colormap, are structure that code writes, read but not set through the
         // registry, as the entries of a legend are.
@@ -1249,4 +1255,198 @@ fn the_name_of_a_data_array_is_set_and_unset_by_path() {
     );
     assert_eq!(registry[0].value_type, ValueType::String);
     assert!(registry[0].optional);
+}
+
+// ---------------------------------------------------------------------------------
+// Bars, stairs, cells and the display of an axis
+// ---------------------------------------------------------------------------------
+
+/// Returns the identifier of the artist at `index` of the axes of the kitchen-sink figure
+/// that holds its bars, stairs and cells (the axes without a title or legend), checking
+/// that it is of the expected kind so that a reordered fixture fails here rather than as
+/// a confusing edit error.
+fn plain_artist(fig: &Figure, index: usize, kind: NodeKind) -> NodeId {
+    let artist = &fig.axes[9].artists[index];
+    assert_eq!(fig.node_kind(artist.id()), Some(kind), "artist {index}");
+    artist.id()
+}
+
+// Why: the property editor adjusts a chart a value at a time: the gap between bars, the
+// layout of a group, the level from which bars rise, the width of a fixed slot, the gap
+// between cells along one direction, the colour of one highlighted bar, and the step
+// position or base of stairs. Each of these must be addressable by the path that the wire
+// schema names (a tagged value's single field named after its variant, as `legend.panel`
+// is), must read back as set, and must be undone exactly by the inverse, or the editor's
+// rows for these artists would be dead or would corrupt the figure on undo.
+#[test]
+fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
+    let fig = kitchen_sink_figure();
+    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // pitch slot, constant base 0
+    let coloured = plain_artist(&fig, 1, NodeKind::Bar); // one colour per bar
+    let stacked = plain_artist(&fig, 3, NodeKind::Bar); // a slot of width 0.6
+    let sampled = plain_artist(&fig, 7, NodeKind::Stairs); // samples, step before, base 0
+    let cells = plain_artist(&fig, 10, NodeKind::Cells); // gap { x: 0.1, y: 0.25 }
+    let green = Color::rgb(0.0, 1.0, 0.0);
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([
+            set(grouped, "gap", Value::Double(0.35)),
+            set(grouped, "base.constant", Value::Double(1.5)),
+            set(
+                grouped,
+                "orientation",
+                Value::Orientation(Orientation::Horizontal),
+            ),
+            set(stacked, "slot.width", Value::Double(0.9)),
+            set(
+                stacked,
+                "group.layout",
+                Value::BarLayout(BarLayout::Grouped),
+            ),
+            set(coloured, "colors.2", Value::Color(green)),
+            set(sampled, "data.step", Value::StepAt(StepAt::Mid)),
+            set(sampled, "base", Value::Double(-2.0)),
+            set(cells, "gap.x", Value::Double(0.5)),
+        ]),
+    )
+    .unwrap();
+    for (node, at, expected) in [
+        (grouped, "gap", Value::Double(0.35)),
+        (grouped, "base", Value::BarBase(BarBase::Constant(1.5))),
+        (
+            grouped,
+            "orientation",
+            Value::Orientation(Orientation::Horizontal),
+        ),
+        (stacked, "slot", Value::BarSlot(BarSlot::Width(0.9))),
+        (
+            stacked,
+            "group",
+            Value::BarGroup(BarGroup {
+                name: "stack".to_owned(),
+                layout: BarLayout::Grouped,
+            }),
+        ),
+        (coloured, "colors.2", Value::Color(green)),
+        (sampled, "data.step", Value::StepAt(StepAt::Mid)),
+        (sampled, "base", Value::Double(-2.0)),
+        (cells, "gap", Value::CellGap(CellGap { x: 0.5, y: 0.25 })),
+    ] {
+        assert_eq!(edited.get(node, &path(at)).unwrap(), expected, "{at}");
+    }
+    let Some((_, Artist::Bar(bar))) = edited.artist(coloured) else {
+        panic!("the coloured bars are bars");
+    };
+    assert_eq!(
+        bar.colors.get(2).copied(),
+        Some(green),
+        "only the third bar takes the colour"
+    );
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
+}
+
+// Why: a gap of 1 or more leaves nothing of a bar or a cell to draw, and the property
+// editor sends whatever the user types; the edit must be refused with the validation
+// issue that explains it, leaving the figure as it was, rather than accepted and drawn as
+// nothing. The same holds for the width of a fixed slot.
+#[test]
+fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
+    let fig = kitchen_sink_figure();
+    let grouped = plain_artist(&fig, 0, NodeKind::Bar);
+    let stacked = plain_artist(&fig, 3, NodeKind::Bar);
+    let cells = plain_artist(&fig, 10, NodeKind::Cells);
+    for (node, at, value, kind) in [
+        (grouped, "gap", Value::Double(1.0), IssueKind::InvalidGap),
+        (cells, "gap.y", Value::Double(1.5), IssueKind::InvalidGap),
+        (cells, "gap.x", Value::Double(-0.25), IssueKind::InvalidGap),
+        (
+            stacked,
+            "slot.width",
+            Value::Double(0.0),
+            IssueKind::InvalidBarSlot,
+        ),
+    ] {
+        let mut edited = fig.clone();
+        let result = edited.apply(&tx([set(node, at, value)]));
+        assert!(
+            matches!(&result, Err(EditError::Invalid(issues)) if issues.iter().any(|issue| issue.kind == kind && issue.node == Some(node))),
+            "{at}: {result:?}"
+        );
+        assert_eq!(edited, fig, "{at}: a refused edit changed the figure");
+    }
+}
+
+// Why: the width of a fixed slot exists only while the slot is fixed, and the edges of
+// cells only while they are explicit; a path into a variant that is not set is a stale
+// edit (a width dragged after the slot became the pitch) and must be refused as such,
+// distinctly from a misspelling, so that the overlay drops it.
+#[test]
+fn a_path_into_an_unset_variant_of_a_bar_slot_or_cell_edges_is_an_inactive_variant() {
+    let fig = kitchen_sink_figure();
+    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // pitch slot
+    let cells = plain_artist(&fig, 10, NodeKind::Cells); // unit rows
+    for (node, at, value) in [
+        (grouped, "slot.width", Value::Double(0.5)),
+        (grouped, "base.data", Value::NodeId(NodeId(1000))),
+        (cells, "rows.edges", Value::NodeId(NodeId(1000))),
+    ] {
+        let result = applied(&fig, &tx([set(node, at, value)]));
+        assert!(
+            matches!(
+                result,
+                Err(EditError::InactiveVariant { edit: Some(0), .. })
+            ),
+            "{at}: {result:?}"
+        );
+    }
+}
+
+// Why: hiding an axis and rotating its tick labels are the two display settings an
+// occupancy matrix needs, and a user makes them in the property editor; both must be
+// settable on each axis independently by the paths the wire schema names, must read back
+// as set, and must be undone by the inverse.
+#[test]
+fn an_axis_is_hidden_and_its_tick_labels_rotated_through_its_properties() {
+    let fig = kitchen_sink_figure();
+    let axes = fig.axes[0].id; // 2D, every axis visible, x labels at 30 degrees
+    let (edited, inverse) = applied(
+        &fig,
+        &tx([
+            set(axes, "y.visible", Value::Bool(false)),
+            set(axes, "x.tick_label_angle", Value::Double(90.0)),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(
+        edited.get(axes, &path("y.visible")).unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        edited.get(axes, &path("x.visible")).unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        edited.get(axes, &path("x.tick_label_angle")).unwrap(),
+        Value::Double(90.0)
+    );
+    assert_eq!(
+        edited.get(axes, &path("y.tick_label_angle")).unwrap(),
+        Value::Double(0.0)
+    );
+    let mut expected = fig.clone();
+    expected.axes[0].y.visible = false;
+    expected.axes[0].x.tick_label_angle = 90.0;
+    assert_eq!(edited, expected);
+    let (restored, _) = applied(&edited, &inverse).unwrap();
+    assert_eq!(restored, fig);
+
+    let result = applied(
+        &fig,
+        &tx([set(axes, "x.tick_label_angle", Value::Double(f64::NAN))]),
+    );
+    assert!(
+        matches!(&result, Err(EditError::Invalid(issues)) if issues.iter().any(|issue| issue.kind == IssueKind::InvalidTickLabelAngle)),
+        "{result:?}"
+    );
 }

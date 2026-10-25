@@ -613,8 +613,10 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
             "limits",
             "reverse",
             "scale",
+            "tick_label_angle",
             "tick_labels",
-            "ticks"
+            "ticks",
+            "visible"
         ],
         "the rows of a group are labelled by the rest of their path"
     );
@@ -1852,9 +1854,17 @@ fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_
         .map(|row| row.label)
         .collect();
     assert_eq!(
-        &labels[labels.len() - 3..],
-        ["Image", "Scalar image", "Scalar image"],
-        "the images are the last three artists of the axes"
+        &labels[labels.len() - 6..],
+        [
+            "Image",
+            "Scalar image",
+            "Scalar image",
+            "Bar",
+            "Stairs",
+            "Cells"
+        ],
+        "the images are the last three artists of the three-dimensional axes, which the \
+         artists of the two-dimensional axes follow"
     );
 
     let state = FigureState::new(figure);
