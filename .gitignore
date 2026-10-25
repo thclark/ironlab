@@ -32,3 +32,9 @@ site/
 
 # The browser bundle assembled by scripts/build-web.sh
 dist/
+
+# Any temporary files or folders
+.tmp/
+
+# Claude's worktrees and temporary plans
+.claude/
