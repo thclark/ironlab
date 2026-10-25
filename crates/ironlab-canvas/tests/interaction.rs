@@ -30,6 +30,8 @@ fn single_2d() -> (FigureState, HitMap) {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     (state, hit)
 }
@@ -43,6 +45,8 @@ fn single_3d() -> (FigureState, HitMap) {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     (state, hit)
 }
@@ -114,6 +118,8 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
 
     assert!(state.scroll(&zoomed, at, 1.0 / 1.25));
@@ -149,6 +155,8 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     let at = Point::new(100.0, 70.0);
     let x0 = xm.to_data(at.x);
@@ -176,6 +184,8 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     assert!(state.scroll(&zoomed, at, 0.1));
     let x = manual_of(state.figure(), 2, Dimension::X);
@@ -202,6 +212,8 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     let centre = Point::new(PLOT.x + PLOT.width / 2.0, PLOT.y + PLOT.height / 2.0);
 
@@ -326,6 +338,8 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     let start = Point::new(120.0, 90.0);
     let end = Point::new(120.0, 40.0);
@@ -381,6 +395,8 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
 
     state.drag_start(&hit, Point::new(60.0, 60.0));
@@ -627,6 +643,8 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     for (id, x, y) in [
         (2, (100.0, 110.0), (7.0, 8.0)),
@@ -747,6 +765,8 @@ fn figure_with_legend() -> (FigureState, HitMap) {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     (state, hit)
 }
@@ -799,6 +819,8 @@ fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
         artists: vec![],
         images: vec![],
         colorbars: vec![],
+        bars: vec![],
+        steps: vec![],
     };
     (state, hit)
 }

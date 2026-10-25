@@ -73,6 +73,25 @@ pub fn scalar_image(fig: &Figure, id: NodeId) -> &ir::ScalarImage {
     }
 }
 
+pub fn bar(fig: &Figure, id: NodeId) -> &ir::Bar {
+    match artist(fig, id) {
+        Artist::Bar(a) => a,
+        other => panic!("expected a bar series, found {other:?}"),
+    }
+}
+
+pub fn stairs(fig: &Figure, id: NodeId) -> &ir::Stairs {
+    match artist(fig, id) {
+        Artist::Stairs(a) => a,
+        other => panic!("expected stairs, found {other:?}"),
+    }
+}
+
+/// Returns true when the report has a warning of the given kind.
+pub fn has_warning(report: &ValidationReport, kind: IssueKind) -> bool {
+    report.warnings.iter().any(|issue| issue.kind == kind)
+}
+
 /// Returns the array of the data array with the given identifier, panicking if it does
 /// not exist.
 pub fn data(fig: &Figure, id: NodeId) -> &NdArray {

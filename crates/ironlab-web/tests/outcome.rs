@@ -13,9 +13,10 @@ use std::sync::LazyLock;
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, DataArray, Figure, FigureSize, Limits, NdArray, NodeId, Series, Text,
+    Artist, Axes, Axis, Bar, DataArray, Figure, FigureSize, Limits, NdArray, NodeId, Series, Text,
 };
 use ironlab_scene::display::Point;
+use ironlab_scene::hit::AxesHitKind;
 use ironlab_text::TextEngine;
 use ironlab_web::{Datatip, Marker, Outcome, download_stem};
 use serde_json::json;
@@ -337,6 +338,58 @@ fn hovering_a_drawn_point_gives_a_datatip_ringed_and_anchored_where_it_was_drawn
         outcome_of(&mut canvas, false).datatip.is_none(),
         "nothing is read once the pointer has left"
     );
+}
+
+/// The screen position of the data point `(x, y)` in the first axes.
+fn data_point(canvas: &mut FigureCanvas, x: f64, y: f64) -> Pos2 {
+    let position = match canvas.scene(&TEXT).hit_map.axes[0].kind {
+        AxesHitKind::TwoD { x: xm, y: ym } => Point::new(xm.to_figure(x), ym.to_figure(y)),
+        AxesHitKind::ThreeD => panic!("the axes is two-dimensional"),
+    };
+    let fit = canvas.fit(&TEXT).expect("the canvas is fitted");
+    fit.to_screen.apply(position)
+}
+
+// Why: a page shows a datatip for a bar as it does for a pixel: it outlines the bar that was read, so that the reader
+// sees which bar the numbers belong to, and the text names the series and the bar's value. The page draws only what
+// the outcome carries, so a bar the canvas reads but the outcome drops would show the reader nothing.
+#[test]
+fn hovering_a_bar_gives_a_datatip_outlining_the_bar_and_naming_its_value() {
+    let mut figure = figure();
+    figure.axes[0].artists = vec![Artist::Bar(Bar {
+        id: NodeId(3),
+        label: Some(Text::plain("Revenue")),
+        positions: NodeId(10),
+        values: NodeId(11),
+        ..Bar::default()
+    })];
+    let mut canvas = fitted(figure);
+    // The positions 2, 5 and 8 have a pitch of 3, so the bar at 5 spans 3.8 to 6.2 and rises from 0 to 2.5.
+    let at = data_point(&mut canvas, 5.0, 1.25);
+    canvas.hover(Some(at));
+    let Datatip { text, marker, .. } = outcome_of(&mut canvas, false)
+        .datatip
+        .expect("hovering over a bar gives a datatip");
+    assert!(
+        text.contains("Revenue"),
+        "the text names the series: {text:?}"
+    );
+    assert!(text.contains("2.5"), "and the bar's value: {text:?}");
+    let Marker::Outline { points } = marker else {
+        panic!("a bar is outlined, not {marker:?}");
+    };
+    let mut corners = Vec::new();
+    for (x, y) in [(3.8, 0.0), (6.2, 0.0), (6.2, 2.5), (3.8, 2.5)] {
+        corners.push(data_point(&mut canvas, x, y));
+    }
+    for corner in corners {
+        assert!(
+            points
+                .iter()
+                .any(|p| (p[0] - corner.x).abs() <= 1e-2 && (p[1] - corner.y).abs() <= 1e-2),
+            "the outline has the bar's corner {corner:?}: {points:?}"
+        );
+    }
 }
 
 // Why: the problems indicator of a page shows a count and opens the list on demand, so the outcome must count what

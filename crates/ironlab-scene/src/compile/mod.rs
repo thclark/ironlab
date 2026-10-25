@@ -23,6 +23,7 @@ mod artists;
 mod aspect;
 mod axes2d;
 mod axes3d;
+mod bars;
 mod colorbar;
 mod data;
 mod decor;

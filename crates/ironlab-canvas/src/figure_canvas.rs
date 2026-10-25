@@ -30,7 +30,8 @@ use ironlab_text::TextEngine;
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::DrawList;
 use crate::interaction::{
-    ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip, PixelValue, Tip, Tool,
+    BarDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip, PixelValue,
+    StepDatatip, Tip, Tool,
 };
 use crate::problems::Problem;
 
@@ -140,6 +141,54 @@ pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
             format!("{label} = {}", listed.join(", "))
         }
     });
+    lines.join("\n")
+}
+
+/// The text of the callout that names the bar under the pointer, one item per line: the label of the series when it
+/// has one, the name of the bar's category when its category axis names it by a text tick label, the position of
+/// the bar, its value, its base when it is not 0, the segment a part of a stack occupies, and the index of the bar
+/// in the artist's own arrays, every number formatted as the point datatip formats its coordinates.
+#[must_use]
+pub fn bar_datatip_text(tip: &BarDatatip) -> String {
+    let mut lines = Vec::new();
+    if let Some(label) = &tip.label {
+        lines.push(label.clone());
+    }
+    if let Some(category) = &tip.tick_label {
+        lines.push(format!("category = {category}"));
+    }
+    lines.push(format!("position = {}", datatip_value(tip.at)));
+    lines.push(format!("value = {}", datatip_value(tip.value)));
+    if tip.base != 0.0 {
+        lines.push(format!("base = {}", datatip_value(tip.base)));
+    }
+    if let Some((bottom, top)) = tip.segment {
+        lines.push(format!(
+            "segment = {} – {}",
+            datatip_value(bottom),
+            datatip_value(top)
+        ));
+    }
+    lines.push(format!("index {}", tip.index));
+    lines.join("\n")
+}
+
+/// The text of the callout that names the step of stairs under the pointer, one item per line: the label of the
+/// stairs when they have one, the two edges the step holds across, its value, and the index of the value in the
+/// artist's own array of values.
+#[must_use]
+pub fn step_datatip_text(tip: &StepDatatip) -> String {
+    let mut lines = Vec::new();
+    if let Some(label) = &tip.label {
+        lines.push(label.clone());
+    }
+    lines.push(format!(
+        "edges = {} – {}",
+        datatip_value(tip.edges.0),
+        datatip_value(tip.edges.1)
+    ));
+    lines.push(format!("value = {}", datatip_value(tip.value)));
+    lines.push(format!("index {}", tip.index));
     lines.join("\n")
 }
 
@@ -548,8 +597,8 @@ impl FigureCanvas {
         ))
     }
 
-    /// What lies under the pointer — a colourbar, a drawn data point or, where none is within reach, the pixel of an
-    /// image — as a mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the
+    /// What lies under the pointer — a colourbar, a drawn data point or, where none is within reach, a step of
+    /// stairs, a bar or the pixel of an image — as a mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the
     /// figure draws nothing.
     ///
     /// All come from the hit map of the current compilation, so a point names the index and the values of the
@@ -557,7 +606,9 @@ impl FigureCanvas {
     /// the user's own array. A point is ringed. A pixel is outlined, so that the reader sees the extent that was
     /// read, or ringed at its centre when it is smaller on screen than the ring, so that the mark is never too small
     /// to see. A colourbar's reading is ringed where it was taken on a continuous bar, which has no pieces, and the
-    /// piece read (a band, an entry's block, a square or a key) is outlined on every other bar.
+    /// piece read (a band, an entry's block, a square or a key) is outlined on every other bar. A bar is outlined,
+    /// so that the reader sees which bar the numbers belong to, and a step is ringed at the point of it nearest the
+    /// pointer.
     pub fn callout(&mut self, text: &TextEngine) -> Option<Callout> {
         if self.dragging {
             return None;
@@ -585,6 +636,25 @@ impl FigureCanvas {
                     text: pixel_datatip_text(&tip),
                 }
             }
+            Tip::Bar(tip) => {
+                let r = tip.rect;
+                Callout {
+                    marker: Marker::Outline(
+                        [
+                            (r.x, r.y),
+                            (r.right(), r.y),
+                            (r.right(), r.bottom()),
+                            (r.x, r.bottom()),
+                        ]
+                        .map(|(x, y)| to_screen.apply(Point::new(x, y))),
+                    ),
+                    text: bar_datatip_text(&tip),
+                }
+            }
+            Tip::Step(tip) => Callout {
+                marker: ring(tip.position),
+                text: step_datatip_text(&tip),
+            },
             Tip::Colorbar(tip) => Callout {
                 marker: tip.piece.map_or_else(
                     || ring(tip.position),

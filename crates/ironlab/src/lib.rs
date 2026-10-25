@@ -70,7 +70,9 @@ mod pixels;
 
 pub use ironlab_ir as ir;
 
-pub use artists::{ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, SurfaceMut};
+pub use artists::{
+    BarMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut, SurfaceMut,
+};
 pub use axes::AxesMut;
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
@@ -112,12 +114,12 @@ pub use ironlab_ir::ColorScaleKey;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
-    InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
+    Aspect, AspectAdjust, BarLayout, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement,
+    Coords, InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
-    LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, PanelLegend, PanelLocation,
-    Parameter, Scale, Text, TickLabels, Ticks, TitleAlign, TrackSize, ValidationIssue,
-    ValidationReport,
+    LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Orientation, PanelLegend,
+    PanelLocation, Parameter, Scale, StepAt, Text, TickLabels, Ticks, TitleAlign, TrackSize,
+    ValidationIssue, ValidationReport,
 };
 
 /// How a dense artist and a three-dimensional axes are drawn when the figure is exported,
@@ -183,14 +185,14 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Aspect, AspectAdjust, ByteMatrix, Color, ColorScaleKey, ColorScaleMut, ColorScaleNorm,
-        ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap, ColormapSample,
-        ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error, Figure, ImageMut,
-        ImagePlane, ImageValues, InsideColorbarMut, InsideColorbarSide, IntoColorSpec,
+        Aspect, AspectAdjust, BarLayout, BarMut, ByteMatrix, Color, ColorScaleKey, ColorScaleMut,
+        ColorScaleNorm, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
+        ColormapSample, ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error, Figure,
+        ImageMut, ImagePlane, ImageValues, InsideColorbarMut, InsideColorbarSide, IntoColorSpec,
         LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation,
-        LegendSample, Marker, Matrix, NodeId, OutOfRange, PanelColorbarMut, PanelLegendMut,
-        PanelLocation, PanelMut, Parameter, Pixels, QuiverMut, RasterOptions, RasterPolicy,
-        ScalarImageMut, Scale, SeriesMut, SurfaceMut, Text, TitleAlign, TrackSize, linspace,
-        logspace, meshgrid,
+        LegendSample, Marker, Matrix, NodeId, Orientation, OutOfRange, PanelColorbarMut,
+        PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut, RasterOptions,
+        RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt, SurfaceMut, Text,
+        TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
 }

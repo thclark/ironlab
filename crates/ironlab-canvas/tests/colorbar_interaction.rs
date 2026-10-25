@@ -325,6 +325,8 @@ fn hit_with(colorbars: Vec<ColorbarHit>) -> HitMap {
         artists: vec![],
         images: vec![],
         colorbars,
+        bars: vec![],
+        steps: vec![],
     }
 }
 
