@@ -133,15 +133,37 @@ pub(super) fn visit_extent(bar: &Bar, data: &BarsData, dim: usize, visit: &mut d
     }
 }
 
-/// Returns the reading of bin `index` of a histogram binned as `binning` records, from its values, of which the bin
-/// drew `values[index]`, and `size`, the width of the bin.
+/// Returns the bin among the resolved bin edges `edges` that holds `position`, as the binning counted samples: every
+/// bin is half open except the last, which is closed; `None` when the position lies outside the edges.
+fn bin_holding(edges: &[f64], position: f64) -> Option<usize> {
+    let (first, last) = (*edges.first()?, *edges.last()?);
+    if !(first..=last).contains(&position) {
+        return None;
+    }
+    let bins = edges.len() - 1;
+    Some(
+        edges
+            .partition_point(|&e| e <= position)
+            .saturating_sub(1)
+            .min(bins - 1),
+    )
+}
+
+/// Returns the width of bin `bin` between the resolved bin edges `edges`, or `None` when there is no such bin.
+fn bin_width(edges: &[f64], bin: usize) -> Option<f64> {
+    Some(edges.get(bin + 1)? - edges.get(bin)?)
+}
+
+/// Returns the reading of the value `values[index]` of a histogram binned as `binning` records, drawn for a bin of
+/// width `size`: the width of the bin between the record's edges, never the width drawn, which for a member of a
+/// grouped histogram is only its share of the bin.
 fn bin_of(
     binning: Option<&ironlab_ir::Binning>,
     values: &[f64],
     index: usize,
-    size: f64,
+    size: Option<f64>,
 ) -> Option<BinReading> {
-    let binning = binning?;
+    let (binning, size) = (binning?, size?);
     let before = index
         .checked_sub(1)
         .and_then(|k| values.get(k).copied())
@@ -260,11 +282,15 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
                 value: data.arrays.values[piece.index],
                 base: piece.base,
                 segment: (start, end),
+                // The bar's bin is the one that holds its position, which lies at the centre of the bin for every
+                // member of a group, whatever share of the bin the member draws.
                 bin: bin_of(
                     bar.binning.as_ref(),
                     data.arrays.values,
                     piece.index,
-                    piece.span[1] - piece.span[0],
+                    data.arrays
+                        .bin_edges
+                        .and_then(|edges| bin_width(edges, bin_holding(edges, piece.position)?)),
                 ),
             });
         }
@@ -329,7 +355,12 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
                     value: v,
                     from,
                     to,
-                    bin: bin_of(stairs.binning.as_ref(), data.values, k, (e1 - e0).abs()),
+                    bin: bin_of(
+                        stairs.binning.as_ref(),
+                        data.values,
+                        k,
+                        data.bin_edges.and_then(|edges| bin_width(edges, k)),
+                    ),
                 });
             }
             k += 1;

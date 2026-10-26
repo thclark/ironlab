@@ -528,7 +528,8 @@ proto_file! {
         optional uint64 excluded_non_finite = 5;
         /// The number of samples left out because they lay outside the range; absent
         /// means 0.
-        optional uint64 excluded_out_of_range = 6;
+        optional uint64 excluded_out_of_range = 6;        /// The data array of the resolved bin edges; it must be present.
+        optional uint64 edges = 7;
     }
 
     /// How the bins of a histogram of two dimensions were made from its samples.
@@ -553,7 +554,10 @@ proto_file! {
         optional uint64 excluded_non_finite = 8;
         /// The number of samples left out because they lay outside the ranges; absent
         /// means 0.
-        optional uint64 excluded_out_of_range = 9;
+        optional uint64 excluded_out_of_range = 9;        /// The data array of the resolved bin edges along x; it must be present.
+        optional uint64 x_edges = 10;
+        /// The data array of the resolved bin edges along y; it must be present.
+        optional uint64 y_edges = 11;
     }
 
     /// The range of sample values that a histogram binned.

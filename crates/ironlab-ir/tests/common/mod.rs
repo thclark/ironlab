@@ -664,12 +664,17 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
                 .chain(base)
                 .chain(slot)
                 .chain(a.color_data)
+                .chain(a.binning.as_ref().map(|b| b.edges))
                 .collect()
         }
-        Artist::Stairs(a) => match a.data {
-            StairsData::Edges { edges, values } => vec![edges, values],
-            StairsData::Samples { x, values, .. } => vec![x, values],
-        },
+        Artist::Stairs(a) => {
+            let mut ids = match a.data {
+                StairsData::Edges { edges, values } => vec![edges, values],
+                StairsData::Samples { x, values, .. } => vec![x, values],
+            };
+            ids.extend(a.binning.as_ref().map(|b| b.edges));
+            ids
+        }
         Artist::Cells(a) => {
             let edges = |edges: &CellEdges| match *edges {
                 CellEdges::Unit => None,
@@ -680,6 +685,7 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
                 .chain(edges(&a.columns))
                 .chain(edges(&a.rows))
                 .chain(a.alpha)
+                .chain(a.binning.iter().flat_map(|b| [b.x_edges, b.y_edges]))
                 .collect()
         }
     }
@@ -734,12 +740,17 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
                 .chain(base)
                 .chain(slot)
                 .chain(a.color_data.as_mut())
+                .chain(a.binning.as_mut().map(|b| &mut b.edges))
                 .collect()
         }
-        Artist::Stairs(a) => match &mut a.data {
-            StairsData::Edges { edges, values } => vec![edges, values],
-            StairsData::Samples { x, values, .. } => vec![x, values],
-        },
+        Artist::Stairs(a) => {
+            let mut ids = match &mut a.data {
+                StairsData::Edges { edges, values } => vec![edges, values],
+                StairsData::Samples { x, values, .. } => vec![x, values],
+            };
+            ids.extend(a.binning.as_mut().map(|b| &mut b.edges));
+            ids
+        }
         Artist::Cells(a) => {
             fn edges(edges: &mut CellEdges) -> Option<&mut NodeId> {
                 match edges {
@@ -752,6 +763,11 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
                 .chain(edges(&mut a.columns))
                 .chain(edges(&mut a.rows))
                 .chain(a.alpha.as_mut())
+                .chain(
+                    a.binning
+                        .iter_mut()
+                        .flat_map(|b| [&mut b.x_edges, &mut b.y_edges]),
+                )
                 .collect()
         }
     }
@@ -2028,6 +2044,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             }),
         );
     }
+    let bin_edges = b.vector(&[0.5, 1.5, 2.5, 3.5, 4.5]);
     let id = b.node();
     b.push(
         axes,
@@ -2042,6 +2059,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             margin: 0.0,
             binning: Some(Binning {
                 bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5, 4.5]),
+                edges: bin_edges,
                 range: Some([0.5, 4.5]),
                 normalization: HistNorm::Density,
                 total: 12.0,
@@ -2063,6 +2081,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             },
             binning: Some(Binning {
                 bins: Bins::Rule(BinRule::Sturges),
+                edges,
                 range: None,
                 normalization: HistNorm::CumulativeCount,
                 total: 14.0,
@@ -2115,6 +2134,8 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
         title: Some(Text::plain("cells")),
         ..ColorScale::default()
     });
+    let matrix_x_edges = b.vector(&[0.0, 1.0, 2.0, 3.0]);
+    let matrix_y_edges = b.vector(&[-0.5, 0.5, 1.5]);
     let id = b.node();
     b.push(
         axes,
@@ -2139,6 +2160,8 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             binning: Some(Binning2d {
                 x_bins: Bins::Count(3),
                 y_bins: Bins::Width(0.5),
+                x_edges: matrix_x_edges,
+                y_edges: matrix_y_edges,
                 x_range: Some([0.0, 3.0]),
                 y_range: None,
                 normalization: HistNorm::Percentage,
@@ -2150,6 +2173,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             ..Cells::default()
         }),
     );
+    let byte_x_edges = b.vector(&[-0.5, 0.5, 1.5, 2.5]);
     let id = b.node();
     b.push(
         axes,
@@ -2163,6 +2187,8 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             binning: Some(Binning2d {
                 x_bins: Bins::Width(1.0),
                 y_bins: Bins::Edges(vec![0.0, 10.0, 20.0]),
+                x_edges: byte_x_edges,
+                y_edges: rows,
                 x_range: None,
                 y_range: Some([0.0, 20.0]),
                 normalization: HistNorm::Count,

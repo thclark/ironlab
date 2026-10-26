@@ -149,7 +149,7 @@ Categories are not a separate kind of axis: categorical bars stand at the positi
 
 A bar series is a primitive: it draws exactly the bars it describes, each from its own width, offset and base, as [ADR 0026](../adrs/0026-bars-are-a-primitive-coloured-as-series-are.md) records. Its setters choose them:
 
-- `width_pitch(f)` makes every bar the fraction `f` of the pitch wide, `width(w)` gives every bar the same width in data units, and `widths(data)` gives each bar a width of its own, which is how a histogram of unequal bins is drawn.
+- `width_pitch(f)` makes every bar the fraction `f` of the pitch wide, `width(w)` gives every bar the same width in data units, and `widths(data)` gives each bar a width of its own, which is how a [histogram](#histograms) of unequal bins is drawn.
 - `offset_widths(k)` moves every bar `k` of its own widths along the category axis, and `offset(d)` moves it the distance `d` in data units. An offset in widths stays a multiple of the width when the width changes afterwards.
 - `base(b)` makes every bar start at `b` rather than 0, so that a negative value hangs down from it, and `base_data(data)` gives each bar a base of its own, which draws floating bars such as ranges or the steps of a waterfall.
 - `margin(f)` sets the fraction of the span of the bars that the automatic limits of the value axis add beyond the ends of the bars, 0.05 by default, so that the tallest bar does not touch the box while bars rising from 0 keep 0 at the edge of the axis. A margin of 0 ends the axis at the end of the tallest bar, and manual limits ignore the margin.
@@ -240,7 +240,7 @@ ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
 
 ### Cells and categorical rows
 
-`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a two-dimensional histogram of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`.
+`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a [two-dimensional histogram](#histograms) of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`.
 
 ```rust
 let counts = Matrix::from_rows(&[[1.0, 4.0, 2.0], [3.0, 9.0, 5.0]]);
@@ -278,6 +278,68 @@ fig.panel(1, 0).legend().item(status); // a key of the statuses under the plot
 ```
 
 A datatip in the [viewer](viewer.md#datatips) names the cell under the pointer by its row and column in the array, its value in the words of its scale (the label of its category, through a categorical scale), and the names of its row and column when the axes name them with text tick labels. A cell that its scale leaves transparent, such as the padding of a short row, has no datatip, and neither has the gap between cells. The [figure schema](../reference/figure-schema.md#cells) states the rules of cells in full.
+
+### Histograms
+
+`hist(sample)` bins a sample and draws each bin as a bar that spans the bin and rises from 0 to the number of samples in it, so that neighbouring bars touch, in the next colour of the axes colour order (MATLAB's `histogram`, Matplotlib's `hist`). It returns a `HistMut`. The binning follows `numpy.histogram`: the bins span the range of the finite samples, every bin is half open except the last, which is closed so that the largest sample is counted, and samples that are NaN or infinite are left out.
+
+The figure stores the binned values, not the sample. With the bars it stores a record of how they were binned: the bins and the range as the program gave them, the edges they resolved to, the normalisation, the number of samples counted and the numbers left out, as [ADR 0029](../adrs/0029-histograms-store-their-bins-and-how-they-were-made.md) decides. A [datatip](viewer.md#datatips) therefore reports the count and the density of the bin under the pointer whatever the normalisation, but the viewer cannot rebin the histogram, because the sample is not in the figure; different bins are made by changing the program. A sample given as the identifier of a data array of the figure is read and not referenced, so the array stays as its author made it, and [validation](#validating-a-figure) reports it as unused data while no other plot refers to it.
+
+`bins(spec)` sets how the range is divided:
+
+- `Bins::Count(n)` gives `n` bins of equal width.
+- `Bins::Width(w)` gives bins of width `w` from the minimum of the range, the last of which may extend beyond the largest sample.
+- `Bins::Edges(edges)` gives the bins between the edges, which may differ in width; samples outside the first and last edges are left out.
+- `Bins::Rule(rule)` lets a rule choose a number of equal bins from the sample: `BinRule::Auto` (numpy's `'auto'`, the default), `Sturges`, `Scott`, `FreedmanDiaconis`, `Sqrt`, or `Integers`, which gives one bin of unit width centred on each whole number, for samples of counts.
+
+`range(min, max)` bins that range instead of the range of the sample, and leaves out the samples outside it. `weights(data)` counts each sample as its weight, so that a bin holds the sum of the weights of its samples. `normalize(norm)` chooses what the height of a bar means, with MATLAB's names: `HistNorm::Count` (the default), `Probability` (the count divided by the number of samples counted), `Percentage`, `CountDensity` (the count divided by the width of the bin), `Density` (the probability divided by the width of the bin, so that the bars enclose unit area, as a probability density function laid over them does), `CumulativeCount` and `Cdf` (the cumulative probability, which ends at 1). The samples left out by a range or because they are not finite are left out of the total too, as numpy leaves them out.
+
+`style(style)` chooses how the bins are drawn: `HistStyle::Bar` (the default), `HistStyle::Step`, the outline of the bins as [stairs](#stairs) closed down to 0 at both ends, which is how several samples are overlaid without hiding one another, or `HistStyle::FilledStep`, the same outline filled in its own colour. `color(c)` sets the colour of the bars or of the outline and its fill, `label(text)` names the histogram in a legend, and `orientation(Orientation::Horizontal)` lays the bins along y, as a marginal histogram beside the y axis of a scatter plot lies.
+
+```rust
+let mut ax = fig.axes(0, 0);
+for (sample, name) in [(&before, "Before"), (&after, "After")] {
+    ax.hist(sample)
+        .bins(Bins::Edges(edges.clone()))     // the same bins, so that the outlines compare
+        .normalize(HistNorm::Density)
+        .style(HistStyle::Step)
+        .label(name);
+}
+ax.plot(&x, &pdf).label("Normal PDF");        // a density laid over the outlines
+```
+
+Each setter that changes the binning bins the sample again and replaces what the figure stores, and changing the style replaces the bars by stairs, or the reverse, in the same place among the plots of the axes and with the same identifier, label and colour. The setters may therefore be called in any order. The handle keeps a copy of the sample while it lives, and `summary()` returns the number of samples counted and the numbers left out for each reason. A specification that cannot be applied, such as zero bins, a width that is not positive, a reversed range or weights of the wrong length, does not stop the program: the histogram draws nothing and stores no record, [validation](#validating-a-figure) warns that it has nothing to draw, and `error()` returns the reason until a later setter corrects it. An empty sample, or one whose every value is NaN, is not a mistake: it draws nothing and records that nothing was counted.
+
+`hist_counts(edges, counts)` draws counts binned elsewhere, by MATLAB's `histcounts`, numpy or an instrument, as the touching bars that `hist` would draw, one fewer than the edges. It returns the `BarMut` of ordinary bars, which carry no record, because the figure cannot know how many samples the counts hold or how they were binned; `stairs(edges, counts)` draws the same counts as an outline.
+
+`hists(bins)` draws several samples as stacked or grouped histograms, the counterpart of [`bars`](#bar-charts), and returns a `HistsMut`. `series(label, sample)` adds a histogram as a column of its own, and `stacked(column, label, sample)` adds one to the stacked column of that name. Every sample is binned on one shared set of edges, so that the samples compare bin by bin: explicit edges are used as given, and any other specification is applied to all the samples pooled together. The histograms are placed by the same code that places the series of `bars`: grouped histograms split each bin into equal parts in the order they were added, the first at the low end, and each stacked histogram spans its bin and rests on those added to its column before it. `normalize(norm)` and `range(min, max)` apply to every histogram, each normalised by its own total, and each histogram keeps a record of its own sample's total and exclusions. A stacked density histogram is therefore a stack of densities that each enclose unit area, which differs from Matplotlib's `stacked=True, density=True`, which scales the whole stack to unit area. `horizontal()` lays every histogram flat, with the bins along y. `ids()`, `last()` and `get(index)` return the histograms for styling, and `error()` returns the reason when the specification cannot be applied. A datatip on a member of a grouped histogram reports the count and density of the whole bin, although the member draws only its share of it.
+
+```rust
+fig.axes(0, 0)
+    .hists(Bins::Count(20))
+    .stacked("all", "Control", &control)
+    .stacked("all", "Treated", &treated);
+```
+
+`hist2d(x, y)` bins pairs of samples along x and y and draws each bin as a [cell](#cells-and-categorical-rows) between its edges, seamless, coloured by its count through the default [colour scale](colour.md) of the axes (MATLAB's `histogram2` viewed from above, Matplotlib's `hist2d`). It returns a `Hist2dMut`, whose `bins(x, y)`, `range(x, y)`, `weights` and `normalize` apply along both dimensions as those of `hist` apply to one, a density being divided by the area of its bin. `min_count(c)` makes every bin with fewer than `c` samples NaN, so that it draws nothing and the background shows through, as Matplotlib's `cmin` does; this also keeps empty bins off a logarithmic colour scale, which cannot place a count of 0. `gap(x, y)`, `color_scale(id)` and `label(text)` set the properties of the cells. The cells store their own record of how they were binned, so a datatip on a cell reports its count and density as one on a bar does.
+
+```rust
+let mut fig = Figure::new().tiles(1, 3).fit_col(1);
+let mut ax = fig.axes(0, 0);
+ax.hist2d(&x, &y)
+    .bins(Bins::Count(40), Bins::Count(40))
+    .min_count(1.0);                           // empty bins draw nothing
+let counts = ax.color_scale().norm(ColorScaleNorm::Log).title("Count").id();
+fig.panel(0, 1).colorbar(counts);              // the colourbar in its own column
+fig.axes(0, 2)
+    .density_contour(&x, &y)
+    .bins(Bins::Count(25), Bins::Count(25))
+    .normalize(HistNorm::Density)
+    .levels(8)
+    .filled(true);
+```
+
+`density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
 
 ### Contours
 

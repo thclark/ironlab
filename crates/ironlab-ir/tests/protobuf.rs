@@ -2303,6 +2303,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                             total: Some(1.0),
                             excluded_non_finite: Some(0),
                             excluded_out_of_range: Some(0),
+                            edges: Some(0),
                             ..wire::Binning::default()
                         }),
                         ..wire::Bar::default()
@@ -2338,6 +2339,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                             total: Some(1.0),
                             excluded_non_finite: Some(0),
                             excluded_out_of_range: Some(0),
+                            edges: Some(0),
                             ..wire::Binning::default()
                         }),
                         ..wire::Bar::default()

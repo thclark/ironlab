@@ -58,12 +58,14 @@
 
 mod artists;
 mod axes;
+pub mod binning;
 mod color;
 mod color_scale;
 mod colorbar;
 mod data;
 mod error;
 mod figure;
+mod hist;
 mod legend;
 mod matrix;
 mod pixels;
@@ -75,12 +77,14 @@ pub use artists::{
     StairsMut, SurfaceMut,
 };
 pub use axes::{AxesMut, CategoryRows};
+pub use binning::{BinRule, Bins, HistNorm, HistStyle, HistogramSummary};
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
 pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
+pub use hist::{DensityContourMut, Hist2dMut, HistMut, HistsMut};
 pub use legend::{LegendItemRef, PanelLegendMut, PanelMut};
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
@@ -195,5 +199,9 @@ pub mod prelude {
         PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut,
         RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt,
         SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
+    };
+    pub use crate::{
+        BinRule, Bins, DensityContourMut, Hist2dMut, HistMut, HistNorm, HistStyle,
+        HistogramSummary, HistsMut,
     };
 }
