@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 41] = [
+const WITH_CHOICES: [ValueType; 44] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -49,9 +49,12 @@ const WITH_CHOICES: [ValueType; 41] = [
     ValueType::Interpreter,
     ValueType::FontSetId,
     ValueType::Orientation,
-    ValueType::BarBase,
-    ValueType::BarSlot,
-    ValueType::BarLayout,
+    ValueType::PerBar,
+    ValueType::BarWidth,
+    ValueType::BarOffset,
+    ValueType::Bins,
+    ValueType::BinRule,
+    ValueType::HistNorm,
     ValueType::StairsData,
     ValueType::StepAt,
     ValueType::CellEdges,
@@ -308,6 +311,73 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
     );
 }
 
+// Why: the width and the offset of bars each hold a number in every variant but one, and a
+// user switching between them in the editor expects to keep the number they set: switching
+// a fixed width to a fraction of the pitch, or an offset in widths to one in data units,
+// must carry the number over rather than reset it, while a width per bar keeps the array it
+// replaces and starts from it again when chosen. Chosen afresh, each variant starts from
+// the default the Rust API gives: four fifths of the pitch, no offset, and a base of 0.
+#[test]
+fn bar_width_offset_and_base_choices_carry_their_number_across_variants() {
+    let replacing = |value_type, replaced: Value, label: &str| {
+        choices(value_type, Some(&replaced))
+            .into_iter()
+            .find(|choice| choice.label == label)
+            .unwrap_or_else(|| panic!("{value_type:?} offers {label:?}"))
+            .value
+    };
+    let labels_of = |value_type| labels(&choices(value_type, None));
+    assert_eq!(
+        labels_of(ValueType::BarWidth),
+        ["Pitch", "Constant", "Data"],
+        "the widths are offered in the order of the IR"
+    );
+    assert_eq!(labels_of(ValueType::BarOffset), ["Widths", "Absolute"]);
+
+    let width = ValueType::BarWidth;
+    assert_eq!(
+        replacing(width, Value::BarWidth(BarWidth::Constant(0.6)), "Pitch"),
+        Value::BarWidth(BarWidth::Pitch(0.6))
+    );
+    assert_eq!(
+        replacing(width, Value::BarWidth(BarWidth::Pitch(0.25)), "Constant"),
+        Value::BarWidth(BarWidth::Constant(0.25))
+    );
+    assert_eq!(
+        replacing(width, Value::BarWidth(BarWidth::Data(NodeId(40))), "Data"),
+        Value::BarWidth(BarWidth::Data(NodeId(40)))
+    );
+    let offset = ValueType::BarOffset;
+    assert_eq!(
+        replacing(
+            offset,
+            Value::BarOffset(BarOffset::Widths(-1.0)),
+            "Absolute"
+        ),
+        Value::BarOffset(BarOffset::Absolute(-1.0))
+    );
+    assert_eq!(
+        replacing(offset, Value::BarOffset(BarOffset::Absolute(0.3)), "Widths"),
+        Value::BarOffset(BarOffset::Widths(0.3))
+    );
+    let fresh = |value_type, label: &str| {
+        choices(value_type, None)
+            .into_iter()
+            .find(|choice| choice.label == label)
+            .unwrap_or_else(|| panic!("{value_type:?} offers {label:?}"))
+            .value
+    };
+    assert_eq!(fresh(width, "Pitch"), Value::BarWidth(BarWidth::default()));
+    assert_eq!(
+        fresh(offset, "Widths"),
+        Value::BarOffset(BarOffset::default())
+    );
+    assert_eq!(
+        fresh(ValueType::PerBar, "Constant"),
+        Value::PerBar(PerBar::default())
+    );
+}
+
 // Why: every choice is offered to the user as something to click, so each one must either
 // be applicable or be refused for a reason the user can act on. The only refusal allowed
 // is validation: a choice can be one the figure does not suit (contours at their levels
@@ -373,6 +443,64 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
                 view3d: View3d::default(),
             }),
         ],
+    );
+    covered(
+        ValueType::PerBar,
+        vec![
+            Value::PerBar(PerBar::Constant(2.0)),
+            Value::PerBar(PerBar::Data(NodeId(3))),
+        ],
+    );
+    covered(
+        ValueType::BarWidth,
+        vec![
+            Value::BarWidth(BarWidth::Pitch(0.5)),
+            Value::BarWidth(BarWidth::Constant(2.0)),
+            Value::BarWidth(BarWidth::Data(NodeId(3))),
+        ],
+    );
+    covered(
+        ValueType::BarOffset,
+        vec![
+            Value::BarOffset(BarOffset::Widths(-1.0)),
+            Value::BarOffset(BarOffset::Absolute(0.25)),
+        ],
+    );
+    covered(
+        ValueType::Bins,
+        vec![
+            Value::Bins(Bins::Count(5)),
+            Value::Bins(Bins::Width(0.5)),
+            Value::Bins(Bins::Edges(vec![0.0, 1.0])),
+            Value::Bins(Bins::Rule(BinRule::Scott)),
+        ],
+    );
+    covered(
+        ValueType::BinRule,
+        [
+            BinRule::Auto,
+            BinRule::Sturges,
+            BinRule::Scott,
+            BinRule::FreedmanDiaconis,
+            BinRule::Sqrt,
+            BinRule::Integers,
+        ]
+        .map(Value::BinRule)
+        .to_vec(),
+    );
+    covered(
+        ValueType::HistNorm,
+        [
+            HistNorm::Count,
+            HistNorm::Probability,
+            HistNorm::Percentage,
+            HistNorm::CountDensity,
+            HistNorm::Density,
+            HistNorm::CumulativeCount,
+            HistNorm::Cdf,
+        ]
+        .map(Value::HistNorm)
+        .to_vec(),
     );
     covered(
         ValueType::Limits,

@@ -132,13 +132,13 @@ Only a two-dimensional axes has a plot area to take a fraction of, so axes-fract
 
 ### Bar charts
 
-`bar(positions, values)` draws one upright bar at each position, from 0 to its value, and `barh(positions, values)` draws the same bars lying flat, which is how long category names are made readable. Each bar is centred in a slot whose width is the smallest distance between neighbouring positions, and is drawn across four fifths of it, so that a fifth of each slot is left as a gap between neighbouring bars. The bars take the next colour of the axes colour order and are outlined by a black line 0.5 pt wide. Every bar function returns a `BarMut`.
+`bar(positions, values)` draws one upright bar at each position, and `barh(positions, values)` draws the same bars lying flat, which is how long category names are made readable. A value is the length of its bar from its base, as in Matplotlib and Plotly: each bar runs from 0 by default for the length of its value, and a negative value extends the other way. Each bar is centred on its position and is four fifths of the **pitch** wide, the pitch being the smallest distance between neighbouring positions, so that a fifth of the pitch is left between neighbouring bars. The bars take the next colour of the axes colour order and are outlined by a black line 0.5 pt wide. Every bar function returns a `BarMut`.
 
 ```rust
 let mut ax = fig.axes(0, 0);
 ax.bar([0.0, 1.0, 2.0, 3.0], [12.0, 7.5, 9.0, 4.0])
     .label("Revenue")
-    .gap(0.3)                         // the fraction of each slot left empty; 0 for bars that touch
+    .width_pitch(0.7)                 // seven tenths of the pitch; 1 for bars that touch
     .face_color(Color::rgb(0.3, 0.5, 0.7))
     .edge_color(None);                // no outline
 ax.xticks([0.0, 1.0, 2.0, 3.0])
@@ -147,28 +147,60 @@ ax.xticks([0.0, 1.0, 2.0, 3.0])
 
 Categories are not a separate kind of axis: categorical bars stand at the positions 0, 1, …, N − 1 and are named by text tick labels, as above. A bar whose position or value is not finite is not drawn, and the bars beside it keep their places.
 
-`width(w)` gives every slot the same width in data units, and `widths(data)` gives each bar a width of its own, which is how a histogram of unequal bins is drawn with a gap of 0. `base(b)` makes every bar start at `b` rather than 0, so that a value below `b` hangs down from it, and `base_data(data)` gives each bar a base of its own, which draws floating bars such as ranges. On a logarithmic value axis a base that is not positive cannot be placed, so such bars are drawn from the low edge of the plot area, and validation warns about the base.
+A bar series is a primitive: it draws exactly the bars it describes, each from its own width, offset and base, as [ADR 0026](../adrs/0026-bars-are-a-primitive-coloured-as-series-are.md) records. Its setters choose them:
 
-Several series are compared at each position by putting them in one **group** of the same name. In a group laid out with `BarLayout::Grouped`, the members stand side by side within each slot, in the order they were plotted, and keep their own labels, colours and legend entries. Three series compared across four categories:
+- `width_pitch(f)` makes every bar the fraction `f` of the pitch wide, `width(w)` gives every bar the same width in data units, and `widths(data)` gives each bar a width of its own, which is how a histogram of unequal bins is drawn.
+- `offset_widths(k)` moves every bar `k` of its own widths along the category axis, and `offset(d)` moves it the distance `d` in data units. An offset in widths stays a multiple of the width when the width changes afterwards.
+- `base(b)` makes every bar start at `b` rather than 0, so that a negative value hangs down from it, and `base_data(data)` gives each bar a base of its own, which draws floating bars such as ranges or the steps of a waterfall.
+- `margin(f)` sets the fraction of the span of the bars that the automatic limits of the value axis add beyond the ends of the bars, 0.05 by default, so that the tallest bar does not touch the box while bars rising from 0 keep 0 at the edge of the axis. A margin of 0 ends the axis at the end of the tallest bar, and manual limits ignore the margin.
+
+```rust
+// Ranges from a low to a high value: each bar starts at its low value and is as long as the range.
+let low = [2.0, 3.5, 1.0];
+let high = [5.0, 6.0, 4.5];
+let length: Vec<f64> = low.iter().zip(&high).map(|(l, h)| h - l).collect();
+fig.axes(0, 0)
+    .bar([0.0, 1.0, 2.0], length)
+    .base_data(low);
+```
+
+On a logarithmic value axis what must be positive is the end of a bar, its base plus its value. A bar whose base is not positive is drawn from the low edge of the plot area, a bar whose end is not positive is not drawn, and validation warns about each.
+
+`bars(positions)` writes grouped and stacked bars into ordinary bar series, one per call of `series` or `stacked`, each with its own label, colour and legend entry. It returns a `BarsMut` that holds the positions:
+
+- `series(label, values)` adds a column of its own.
+- `stacked(column, label, values)` adds a part to the column of that name, created where it first appears. The parts of a column build on one another in the order they were added: positive values stack upwards from 0 and negative values downwards, separately, and a part whose value is not finite contributes nothing. The parts share the positions of the helper, so they are matched by index.
+- `gap(g)` sets the space between neighbouring clusters as a fraction of the pitch, 0.2 by default, and `group_gap(g)` the space between neighbouring columns of a cluster as a fraction of a column, 0 by default, at which the columns touch.
+- `horizontal()` lays every series flat, and `margin(f)` sets the margin of every series.
+- `ids()` returns the series in the order they were added, and `last()` and `get(index)` return the `BarMut` of a series, so that it can be styled like any other.
+
+Every call rewrites the width, offset and base of every series the helper holds, so the result does not depend on the order of the calls: for `m` columns each series is the fraction `(1 − gap)(1 − group_gap) / m` of the pitch wide, and the series of column `k` are offset by `(k − (m − 1) / 2) / (1 − group_gap)` widths. A style set through `last()` or `get(index)` survives the later calls, which change only where the bars are placed. Three series compared across four categories:
 
 ```rust
 let categories = [0.0, 1.0, 2.0, 3.0];
 let mut ax = fig.axes(0, 0);
-for (name, scores) in [
-    ("Model A", [3.0, 4.5, 2.0, 5.0]),
-    ("Model B", [2.5, 3.0, 4.0, 4.5]),
-    ("Model C", [4.0, 2.0, 3.5, 3.0]),
-] {
-    ax.bar(categories, scores)
-        .label(name)
-        .group("models", BarLayout::Grouped);
-}
+ax.bars(categories)
+    .series("Model A", [3.0, 4.5, 2.0, 5.0])
+    .series("Model B", [2.5, 3.0, 4.0, 4.5])
+    .series("Model C", [4.0, 2.0, 3.5, 3.0]);
 ax.xticks(categories)
     .xtick_labels(["Lift", "Drag", "Mass", "Cost"])
     .legend(LegendLocation::NorthWest);
 ```
 
-In a group laid out with `BarLayout::Stacked`, the members build on one another at each position, so that each column shows a total: positive values stack upwards from the base and negative values downwards from it, and each value is the length of its part. The width, gap, base and layout of a group are those of its first member. Hiding a member of a grouped group by its legend entry leaves its place empty, so that no other bar moves, while hiding a member of a stack closes the column up, so that the column shows the total of the parts that remain. The [figure schema](../reference/figure-schema.md#groups-of-bars) states the rules in full.
+Two stacks of gains and losses stand side by side, each a column of the cluster, and the losses of 2026 are drawn in a colour of their own:
+
+```rust
+let mut ax = fig.axes(0, 0);
+let mut bars = ax.bars([0.0, 1.0, 2.0]);
+bars.stacked("2025", "Gains 2025", [3.0, 2.0, 4.0])
+    .stacked("2025", "Losses 2025", [-1.0, -2.5, -0.5])
+    .stacked("2026", "Gains 2026", [3.5, 2.5, 3.0])
+    .stacked("2026", "Losses 2026", [-1.5, -1.0, -2.0]);
+bars.last().face_color(Color::rgb(0.8, 0.1, 0.1));
+```
+
+Because each series draws only its own bars, hiding one by its legend entry moves no other bar: a hidden column leaves its place empty, and a hidden part of a stack leaves a gap in its column.
 
 `colors` gives each bar its own colour, such as one that highlights a bar among grey ones; it stores an indexed [colour scale](colour.md) of the distinct colours and, per bar, the index of its colour. `color_data` colours the bars by a quantity through the colour scale of the axes instead, as it colours the markers of a series.
 
@@ -180,7 +212,7 @@ fig.axes(0, 0)
     .colors([grey, grey, red, grey]);   // the third bar stands out
 ```
 
-A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the name of its category when the axis names it with a text tick label, and, for a part of a stack, the segment it occupies.
+A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the segment it spans from its base to its end, and the name of its category when the axis names it with a text tick label. The [figure schema](../reference/figure-schema.md#bar) states the rules of bars in full.
 
 ### Stairs
 

@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::artist::{
-    Artist, Bar, BarBase, BarSlot, CellEdges, Cells, Contour, ContourPlacement, Coords, Grid,
-    Image, ImagePlacement, ImagePlane, Levels, PixelRange, Quiver, ScalarImage, Series, Stairs,
-    StairsData, Surface,
+    Artist, Bar, BarOffset, BarWidth, Binning, Binning2d, Bins, CellEdges, Cells, Contour,
+    ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PerBar, PixelRange,
+    Quiver, ScalarImage, Series, Stairs, StairsData, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
 use crate::color_scale::{
@@ -264,29 +264,34 @@ pub enum IssueKind {
     /// or of cells, of the lines or fill of a contour or of stairs) is not a finite number
     /// from 0 to 1.
     InvalidOpacity,
-    /// The gap of bars, or the gap of cells along x or y, is not a finite number from 0
-    /// up to, but not including, 1. A gap of 1 or more leaves nothing of the bar or cell
-    /// to draw, and a negative gap overlaps its neighbours.
+    /// The gap of cells along x or y is not a finite number from 0 up to, but not
+    /// including, 1. A gap of 1 or more leaves nothing of the cell to draw, and a negative
+    /// gap overlaps its neighbours.
     InvalidGap,
     /// The edges of cells, or the edges or samples of stairs, are not finite and strictly
     /// monotonic (increasing or decreasing), so that some cell or step has no width, lies
-    /// over its neighbour, or has no place.
+    /// over its neighbour, or has no place; or the bin edges of a binning record are not
+    /// finite and strictly increasing.
     InvalidEdges,
-    /// The fixed width of the slot of bars, or a width given per bar, is not a finite
-    /// positive number.
-    InvalidBarSlot,
+    /// The width of bars, as a fraction of the pitch, as a fixed width or as a width given
+    /// per bar, is not a finite positive number.
+    InvalidBarWidth,
+    /// The offset of bars, in widths or in data units, is not finite.
+    InvalidBarOffset,
+    /// The margin of bars is not a finite number from 0.
+    InvalidBarMargin,
+    /// A binning record of bars, stairs or cells describes no possible bins: its total or
+    /// minimum count is negative or not finite, it has no bins or fewer than two bin
+    /// edges, its bin width is not a finite positive number, or a range is not finite or
+    /// does not increase. Bin edges that are not finite and strictly increasing are
+    /// [`InvalidEdges`](IssueKind::InvalidEdges) instead.
+    InvalidBinning,
     /// A colour of stairs (their line or fill) is colormapped, but stairs have no colour
     /// data to map and no colour scale to look the colour up in.
     ColormapNotSupported,
     /// Stairs have a fill other than none but no base, so there is nothing to fill down
     /// to.
     StairsFillWithoutBase,
-    /// Bars of one axes that share a group name differ from the first member of the group,
-    /// in artist order, in orientation, slot, gap, base or layout. The group is drawn with
-    /// the properties of its first member, so this is a warning, not an error. It is
-    /// reported against the member that differs, and the message names the first member
-    /// and each property that differs.
-    InconsistentBarGroup,
     /// Bars, stairs or cells are placed in a three-dimensional axes; they are drawn only
     /// in the plane of a two-dimensional axes.
     TwoDArtistInThreeDAxes,
@@ -974,7 +979,6 @@ impl<'a> Validator<'a> {
                 );
             }
         }
-        self.check_bar_groups(axes);
         for (name, axis) in axes_drawn {
             let problems = tick_problems(
                 &format!("{name} axis"),
@@ -1214,10 +1218,10 @@ impl<'a> Validator<'a> {
     fn check_bar_shapes(&mut self, node: NodeId, bar: &Bar) -> bool {
         let data = self.arrays;
         let mut arrays = vec![("positions", bar.positions), ("values", bar.values)];
-        if let BarBase::Data(base) = bar.base {
+        if let PerBar::Data(base) = bar.base {
             arrays.push(("bases", base));
         }
-        if let BarSlot::Data(widths) = bar.slot {
+        if let BarWidth::Data(widths) = bar.width {
             arrays.push(("widths", widths));
         }
         if let Some(colors) = bar.color_data {
@@ -1242,13 +1246,13 @@ impl<'a> Validator<'a> {
         if !agree {
             return false;
         }
-        if let BarSlot::Data(widths) = bar.slot
+        if let BarWidth::Data(widths) = bar.width
             && let Some(values) = data[&widths].as_f64()
             && let Some(bad) = values.iter().find(|&&w| !(w.is_finite() && w > 0.0))
         {
             self.error(
                 Some(node),
-                IssueKind::InvalidBarSlot,
+                IssueKind::InvalidBarWidth,
                 format!("the width {bad} in {widths} is not a finite positive number"),
             );
             return false;
@@ -1381,8 +1385,9 @@ impl<'a> Validator<'a> {
     }
 
     /// Warns of the bases of bars and stairs that are not positive on a logarithmic value
-    /// axis, and of the edges of cells that are not positive on a logarithmic axis; the
-    /// references of the artist are valid.
+    /// axis, of bars whose end, their base plus their length, is not positive there, and
+    /// of the edges of cells that are not positive on a logarithmic axis; the references
+    /// of the artist are valid.
     fn check_log_extents(&mut self, axes: &Axes, node: NodeId, shape: &Shape<'_>) {
         match shape {
             Shape::Bars(bar) => {
@@ -1390,12 +1395,36 @@ impl<'a> Validator<'a> {
                 if axis_of(axes, dimension).scale != Scale::Log {
                     return;
                 }
-                let not_positive = match bar.base {
-                    BarBase::Constant(base) => base <= 0.0,
-                    BarBase::Data(base) => self.arrays[&base]
-                        .as_f64()
-                        .is_some_and(|values| values.iter().any(|&v| v <= 0.0)),
+                let bases: Option<&[f64]> = match bar.base {
+                    PerBar::Constant(_) => None,
+                    PerBar::Data(base) => self.arrays[&base].as_f64(),
                 };
+                let base_at = |k: usize| match bar.base {
+                    PerBar::Constant(base) => base,
+                    PerBar::Data(_) => bases.and_then(|b| b.get(k).copied()).unwrap_or(0.0),
+                };
+                let not_positive = match bar.base {
+                    PerBar::Constant(base) => base <= 0.0,
+                    PerBar::Data(_) => bases.is_some_and(|values| values.iter().any(|&v| v <= 0.0)),
+                };
+                // A value is a length from the base, so what the axis must place is the end
+                // of each bar; a bar whose finite end is not positive has nowhere to end.
+                let ends_not_positive = self.arrays[&bar.values].as_f64().is_some_and(|values| {
+                    values.iter().enumerate().any(|(k, &value)| {
+                        let end = base_at(k) + value;
+                        value.is_finite() && end.is_finite() && end <= 0.0
+                    })
+                });
+                if ends_not_positive {
+                    self.warning(
+                        Some(node),
+                        IssueKind::NonPositiveOnLogAxis,
+                        format!(
+                            "some bars end, at their base plus their value, at a value that is                              not positive along the logarithmic {} axis, which has no place                              for it, so those bars are not drawn",
+                            dimension_name(dimension)
+                        ),
+                    );
+                }
                 if not_positive {
                     self.warning(
                         Some(node),
@@ -1459,49 +1488,6 @@ impl<'a> Validator<'a> {
                 }
             }
             Shape::Points { .. } | Shape::Grid { .. } | Shape::Image(_) => {}
-        }
-    }
-
-    /// Warns of every bar series whose group differs from the first member of the group of
-    /// the same name in the axes, in artist order, naming the first member and each
-    /// property that differs.
-    fn check_bar_groups(&mut self, axes: &Axes) {
-        let mut first: BTreeMap<&str, &Bar> = BTreeMap::new();
-        for artist in &axes.artists {
-            let Artist::Bar(bar) = artist else {
-                continue;
-            };
-            let Some(group) = &bar.group else {
-                continue;
-            };
-            let Some(leader) = first.get(group.name.as_str()).copied() else {
-                first.insert(&group.name, bar);
-                continue;
-            };
-            let layout = leader.group.as_ref().map(|g| g.layout);
-            let differ: Vec<&str> = [
-                ("orientation", bar.orientation != leader.orientation),
-                ("slot", bar.slot != leader.slot),
-                ("gap", bar.gap.to_bits() != leader.gap.to_bits()),
-                ("base", bar.base != leader.base),
-                ("layout", Some(group.layout) != layout),
-            ]
-            .into_iter()
-            .filter_map(|(name, differs)| differs.then_some(name))
-            .collect();
-            if differ.is_empty() {
-                continue;
-            }
-            let properties = differ.join(" and ");
-            self.warning(
-                Some(bar.id),
-                IssueKind::InconsistentBarGroup,
-                format!(
-                    "the bars of {} differ in their {properties} from {}, the first member of \
-                     the group {:?}, so they are drawn with the {properties} of {}",
-                    bar.id, leader.id, group.name, leader.id
-                ),
-            );
         }
     }
 
@@ -2461,28 +2447,51 @@ impl Usage for ScalarImage {
 
 impl Usage for Bar {
     fn usage(&self) -> ArtistUsage<'_> {
-        let positions = vec![
-            (self.orientation.category_dimension(), self.positions),
-            (self.orientation.value_dimension(), self.values),
-        ];
+        // The values are lengths from the base rather than places on the value axis, so
+        // only the positions are checked as places; the ends of the bars are checked on a
+        // logarithmic value axis by a check of their own.
+        let positions = vec![(self.orientation.category_dimension(), self.positions)];
         let mut references = ids(&positions);
-        if let BarBase::Data(base) = self.base {
+        references.push(self.values);
+        if let PerBar::Data(base) = self.base {
             references.push(base);
         }
-        if let BarSlot::Data(widths) = self.slot {
+        if let BarWidth::Data(widths) = self.width {
             references.push(widths);
         }
         references.extend(self.color_data);
-        let mut problems = gap_problems("gap of the bars", self.gap);
-        if let BarSlot::Width(width) = self.slot
+        let mut problems = Vec::new();
+        let width = match self.width {
+            BarWidth::Pitch(fraction) => Some(("fraction of the pitch", fraction)),
+            BarWidth::Constant(width) => Some(("fixed width", width)),
+            BarWidth::Data(_) => None,
+        };
+        if let Some((what, width)) = width
             && !(width.is_finite() && width > 0.0)
         {
             problems.push((
-                IssueKind::InvalidBarSlot,
+                IssueKind::InvalidBarWidth,
+                format!("the {what} {width} of the bars is not a finite positive number"),
+            ));
+        }
+        let (BarOffset::Widths(offset) | BarOffset::Absolute(offset)) = self.offset;
+        if !offset.is_finite() {
+            problems.push((
+                IssueKind::InvalidBarOffset,
+                format!("the offset {offset} of the bars is not finite"),
+            ));
+        }
+        if !(self.margin.is_finite() && self.margin >= 0.0) {
+            problems.push((
+                IssueKind::InvalidBarMargin,
                 format!(
-                    "the width {width} of the slot of the bars is not a finite positive number"
+                    "the margin {} of the bars is not a finite number from 0",
+                    self.margin
                 ),
             ));
+        }
+        if let Some(binning) = &self.binning {
+            problems.extend(binning_problems(binning));
         }
         // A colormapped face or edge follows the rules of a series: with colour data it
         // needs a scale, which the colour mapping of the bars requires, and without colour
@@ -2508,6 +2517,9 @@ impl Usage for Stairs {
         let references = ids(&positions);
         let mut problems =
             colormap_problems("stairs", &[("line", self.line.color), ("fill", self.fill)]);
+        if let Some(binning) = &self.binning {
+            problems.extend(binning_problems(binning));
+        }
         if self.fill != ColorSpec::None && self.base.is_none() {
             problems.push((
                 IssueKind::StairsFillWithoutBase,
@@ -2541,6 +2553,9 @@ impl Usage for Cells {
         }
         let mut problems = gap_problems("gap of the cells along x", self.gap.x);
         problems.extend(gap_problems("gap of the cells along y", self.gap.y));
+        if let Some(binning) = &self.binning {
+            problems.extend(binning_2d_problems(binning));
+        }
         // The edges of cells are checked on a logarithmic axis by a check of their own,
         // which knows that unit edges start at −0.5, so they are not listed as positions.
         ArtistUsage {
@@ -2568,6 +2583,90 @@ fn gap_problems(what: &str, gap: f64) -> Vec<(IssueKind, String)> {
                 "the {what} is {gap}, but it must be a number from 0 up to, but not including, 1"
             ),
         )]
+    }
+}
+
+/// Returns the problems of a binning record of one dimension that describes no possible
+/// bins.
+fn binning_problems(binning: &Binning) -> Vec<(IssueKind, String)> {
+    let mut problems = count_problems("total", binning.total);
+    problems.extend(bins_problems("bins", &binning.bins));
+    problems.extend(range_problems("range", binning.range));
+    problems
+}
+
+/// Returns the problems of a binning record of two dimensions that describes no possible
+/// bins, each dimension checked on its own.
+fn binning_2d_problems(binning: &Binning2d) -> Vec<(IssueKind, String)> {
+    let mut problems = count_problems("total", binning.total);
+    if let Some(min_count) = binning.min_count {
+        problems.extend(count_problems("minimum count", min_count));
+    }
+    problems.extend(bins_problems("bins along x", &binning.x_bins));
+    problems.extend(bins_problems("bins along y", &binning.y_bins));
+    problems.extend(range_problems("range along x", binning.x_range));
+    problems.extend(range_problems("range along y", binning.y_range));
+    problems
+}
+
+/// Returns the problem of a number of samples of a binning record, named `what`, that is
+/// negative or not finite.
+fn count_problems(what: &str, count: f64) -> Vec<(IssueKind, String)> {
+    if count.is_finite() && count >= 0.0 {
+        Vec::new()
+    } else {
+        vec![(
+            IssueKind::InvalidBinning,
+            format!("the {what} {count} of the binning record is not a finite number from 0"),
+        )]
+    }
+}
+
+/// Returns the problem of bins of a binning record, named `what`, that can bound no bin.
+fn bins_problems(what: &str, bins: &Bins) -> Vec<(IssueKind, String)> {
+    let problem = match bins {
+        Bins::Count(0) => (
+            IssueKind::InvalidBinning,
+            format!("the {what} of the binning record are a count of 0, which holds no bin"),
+        ),
+        Bins::Width(width) if !(width.is_finite() && *width > 0.0) => (
+            IssueKind::InvalidBinning,
+            format!(
+                "the {what} of the binning record have the width {width}, which is not a \
+                 finite positive number"
+            ),
+        ),
+        Bins::Edges(edges) if edges.len() < 2 => (
+            IssueKind::InvalidBinning,
+            format!(
+                "the {what} of the binning record have {} edges, but at least two bound a bin",
+                edges.len()
+            ),
+        ),
+        Bins::Edges(edges) if edges.iter().any(|edge| !edge.is_finite()) => (
+            IssueKind::InvalidEdges,
+            format!("the edges of the {what} of the binning record are not all finite"),
+        ),
+        Bins::Edges(edges) if !edges.windows(2).all(|pair| pair[0] < pair[1]) => (
+            IssueKind::InvalidEdges,
+            format!("the edges of the {what} of the binning record are not strictly increasing"),
+        ),
+        Bins::Count(_) | Bins::Width(_) | Bins::Edges(_) | Bins::Rule(_) => return Vec::new(),
+    };
+    vec![problem]
+}
+
+/// Returns the problem of a range of a binning record, named `what`, that is not finite
+/// or does not increase.
+fn range_problems(what: &str, range: Option<[f64; 2]>) -> Vec<(IssueKind, String)> {
+    match range {
+        Some([low, high]) if !(low.is_finite() && high.is_finite() && low < high) => vec![(
+            IssueKind::InvalidBinning,
+            format!(
+                "the {what} [{low}, {high}] of the binning record is not finite and increasing"
+            ),
+        )],
+        _ => Vec::new(),
     }
 }
 

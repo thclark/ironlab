@@ -2,14 +2,16 @@
 //!
 //! These tests compile the figure, because what they are about is the agreement between where the scene compiler drew
 //! a bar or a step and what the viewer reports for a pointer over it: the bar under the pointer, its index in the
-//! user's arrays, its position, value and base, the segment a stacked bar occupies, and the name of its category
-//! when the category axis is labelled with text.
+//! user's arrays, its position, length and base, the segment it occupies from its base to its end, the name of its
+//! category when the category axis is labelled with text, and, for the bars or steps of a histogram that records its
+//! binning, the count of the bin and its density.
 //!
 //! The API these tests assume, beyond what `interaction.rs` exercises:
 //!
 //! ```text
 //! // crates/ironlab-canvas/src/interaction.rs
-//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colorbar(ColorbarTip), Bar(BarDatatip), Step(StepDatatip) }
+//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colorbar(ColorbarTip), Bar(BarDatatip), Step(StepDatatip),
+//!     Cell(CellDatatip) }
 //!
 //! /// The bar under the pointer, as the viewer reports it.
 //! pub struct BarDatatip {
@@ -21,44 +23,48 @@
 //!     pub index: usize,
 //!     /// Where a callout is anchored, in figure space: a point of the drawn bar.
 //!     pub position: Point,
-//!     /// The position of the bar along the category axis, as its data holds it.
+//!     /// The rectangle of the bar as drawn, in figure space.
+//!     pub rect: Rect,
+//!     /// The position of the bar along the category axis, as its data holds it, without its offset.
 //!     pub at: f64,
-//!     /// The value of the bar, as its data holds it.
+//!     /// The value of the bar, as its data holds it: the length of the bar from its base.
 //!     pub value: f64,
-//!     /// The base the bar rises from: the constant base, or the bar's own base.
+//!     /// The base the bar starts from: the constant base, or the bar's own base.
 //!     pub base: f64,
-//!     /// For a member of a stack, the bottom and top of the segment the bar occupies, along the value axis.
-//!     pub segment: Option<(f64, f64)>,
+//!     /// The start and end of the bar along the value axis: `(base, base + value)`.
+//!     pub segment: (f64, f64),
 //!     /// The text tick label of the category axis at the bar's position, when the axis is labelled with text and a
 //!     /// tick falls exactly there: the name of the bar's category.
 //!     pub tick_label: Option<String>,
+//!     /// The count and density of the bin the bar draws, when the series records the binning of a histogram.
+//!     pub bin: Option<BinReading>,
 //! }
 //!
-//! /// The step of stairs under the pointer.
-//! pub struct StepDatatip {
-//!     pub axes: NodeId,
-//!     pub artist: NodeId,
-//!     pub label: Option<String>,
-//!     /// The index of the step's value in the artist's array of values.
-//!     pub index: usize,
-//!     /// Where a callout is anchored, in figure space: a point of the drawn step.
-//!     pub position: Point,
-//!     /// The two edges of the step, in the order of the data.
-//!     pub edges: (f64, f64),
-//!     /// The value held across the step.
-//!     pub value: f64,
+//! /// The step of stairs under the pointer; it gains `bin` as a bar does.
+//! pub struct StepDatatip { …, pub edges: (f64, f64), pub value: f64, pub bin: Option<BinReading> }
+//!
+//! /// The cell under the pointer; it gains `bin` as a bar does, its area the cell's width times its height.
+//! pub struct CellDatatip { …, pub bin: Option<BinReading> }
+//!
+//! /// What a bin of a histogram holds, recovered from the value drawn, the extent of the bin, and the normalisation
+//! /// and total of the binning record; a cumulative value is first differenced with that of the bin before it.
+//! pub struct BinReading {
+//!     /// The number of samples in the bin.
+//!     pub count: f64,
+//!     /// The probability density of the bin: its count divided by the total and by its width (or area).
+//!     pub density: f64,
 //! }
 //! ```
 
 mod common;
 
 use common::*;
-use ironlab_canvas::interaction::Tip;
+use ironlab_canvas::interaction::{BinReading, Tip};
 use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState};
 
 use ironlab_ir::{
-    Artist, Bar, BarGroup, BarLayout, Figure, NdArray, NodeId, Orientation, Series, Stairs,
-    StairsData, StepAt, Text, TickLabels, Ticks,
+    Artist, Bar, BarOffset, BarWidth, Binning, Bins, Figure, HistNorm, Limits, NdArray, NodeId,
+    Orientation, PerBar, Series, Stairs, StairsData, StepAt, Text, TickLabels, Ticks,
 };
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::{AxesHitKind, HitMap};
@@ -92,7 +98,7 @@ fn compiled(figure: Figure) -> (FigureState, HitMap) {
     (state, hit)
 }
 
-/// A bar series (node `id`) at the positions in array `positions` rising to the values in array `values`.
+/// A bar series (node `id`) at the positions in array `positions` of the lengths in array `values`.
 fn bar(id: u64, positions: u64, values: u64) -> Bar {
     Bar {
         id: NodeId(id),
@@ -127,9 +133,10 @@ fn inside(p: Point, [left, top, right, bottom]: [f64; 4]) -> bool {
 // ---------------------------------------------------------------------------------------------------------------
 
 // Why: a datatip is how a reader gets the number behind a bar, so the bar under the pointer must be named with its
-// index in the user's own arrays and with the position, value and base the data holds, not values read back from
-// the page; a negative bar hangs below the base and must be read there too. The callout is anchored on the bar
-// itself, so that the canvas marks the bar that was read.
+// index in the user's own arrays and with the position, length and base the data holds, not values read back from
+// the page, together with the segment it spans from its base to its end; a negative bar hangs below the base and
+// must be read there too. The callout is anchored on the bar itself, so that the canvas marks the bar that was read,
+// and a bar of a plain chart carries no reading of a bin.
 #[test]
 fn the_bar_under_the_pointer_is_named_with_its_index_position_value_and_base() {
     let (state, hit) = compiled(figure_of(
@@ -149,11 +156,9 @@ fn the_bar_under_the_pointer_is_named_with_its_index_position_value_and_base() {
             assert_eq!(tip.at, 5.0);
             assert_eq!(tip.value, -1.0);
             assert_eq!(tip.base, 0.0);
-            assert_eq!(
-                tip.segment, None,
-                "a bar on its own is not a segment of a stack"
-            );
+            assert_eq!(tip.segment, (0.0, -1.0), "from the base to its end");
             assert_eq!(tip.tick_label, None, "the axis is not labelled with text");
+            assert_eq!(tip.bin, None, "a plain bar chart records no binning");
             assert!(
                 inside(tip.position, page_box(&hit, [3.8, 6.2], [-1.0, 0.0])),
                 "the callout is anchored on the bar: {:?}",
@@ -197,23 +202,26 @@ fn a_hidden_bar_series_is_not_read() {
     assert!(state.tip_at(&hit, at_data(&hit, 5.0, 1.0)).is_none());
 }
 
-// Why: in a stack the value of a part is not where it ends on the axis, so the datatip must give the part's own
-// value and, separately, the bottom and top of the segment it occupies, which is what the reader sees; otherwise the
-// reader would have to subtract the parts below to get the number the data holds.
+// Why: a value is a length from the base, so a bar that rests on another, as a part of a stack does, or floats on a
+// base of its own, ends somewhere other than its value; the datatip must give the bar's own value, its base and the
+// segment from base to end that the reader sees, or the reader would have to add the base to the value to find
+// where the bar ends, or subtract it to find the number the data holds.
 #[test]
-fn a_stacked_bar_reports_its_own_value_and_the_segment_it_occupies() {
-    let stacked = |id, values| {
-        Artist::Bar(Bar {
-            group: Some(BarGroup {
-                name: "parts".to_owned(),
-                layout: BarLayout::Stacked,
-            }),
-            ..bar(id, 0, values)
-        })
-    };
+fn a_bar_on_a_base_reports_its_own_value_its_base_and_the_segment_it_spans() {
     let (state, hit) = compiled(figure_of(
-        vec![vec![2.0, 5.0], vec![1.0, 1.5], vec![2.0, 3.0]],
-        vec![stacked(3, 1), stacked(4, 2)],
+        vec![
+            vec![2.0, 5.0],
+            vec![1.0, 1.5],
+            vec![2.0, 3.0],
+            vec![1.0, 1.5],
+        ],
+        vec![
+            Artist::Bar(bar(3, 0, 1)),
+            Artist::Bar(Bar {
+                base: PerBar::Data(array_id(3)),
+                ..bar(4, 0, 2)
+            }),
+        ],
     ));
     match state.tip_at(&hit, at_data(&hit, 2.0, 2.0)) {
         Some(Tip::Bar(tip)) => {
@@ -222,8 +230,9 @@ fn a_stacked_bar_reports_its_own_value_and_the_segment_it_occupies() {
                 (NodeId(4), 0),
                 "the upper part at 2"
             );
-            assert_eq!(tip.value, 2.0, "its own value, not its top");
-            assert_eq!(tip.segment, Some((1.0, 3.0)), "on top of the lower part");
+            assert_eq!(tip.value, 2.0, "its own value, not its end");
+            assert_eq!(tip.base, 1.0, "its own base");
+            assert_eq!(tip.segment, (1.0, 3.0), "on top of the lower part");
         }
         other => panic!("the upper part lies under the pointer, not {other:?}"),
     }
@@ -235,7 +244,7 @@ fn a_stacked_bar_reports_its_own_value_and_the_segment_it_occupies() {
                 "the lower part at 5"
             );
             assert_eq!(tip.value, 1.5);
-            assert_eq!(tip.segment, Some((0.0, 1.5)));
+            assert_eq!(tip.segment, (0.0, 1.5));
         }
         other => panic!("the lower part lies under the pointer, not {other:?}"),
     }
@@ -244,7 +253,8 @@ fn a_stacked_bar_reports_its_own_value_and_the_segment_it_occupies() {
 // Why: a categorical bar chart places its bars at 0, 1, 2, … and names them with text tick labels, so the number the
 // position holds means nothing to the reader; the datatip must carry the name of the category, which is the tick
 // label at the bar's position on its category axis: x for upright bars and y for bars lying flat. A bar between
-// ticks belongs to no named category.
+// ticks belongs to no named category, and a bar drawn beside its position by an offset still belongs to the category
+// of its position.
 #[test]
 fn a_bar_on_a_labelled_tick_of_its_category_axis_carries_the_name_of_its_category() {
     let mut figure = figure_of(
@@ -274,6 +284,37 @@ fn a_bar_on_a_labelled_tick_of_its_category_axis_carries_the_name_of_its_categor
             assert_eq!(tip.tick_label, None, "no tick falls at 6.5");
         }
         other => panic!("the bar at 6.5 lies under the pointer, not {other:?}"),
+    }
+
+    // A series of a grouped chart is drawn beside its position, offset by a width, yet it belongs to the category
+    // of its position, so it is named by the tick at its position, not by the place it is drawn at.
+    let mut figure = figure_of(
+        vec![vec![2.0, 5.0, 8.0], vec![3.0, 1.0, 2.0]],
+        vec![Artist::Bar(Bar {
+            width: BarWidth::Pitch(0.4),
+            offset: BarOffset::Widths(1.0),
+            ..bar(3, 0, 1)
+        })],
+    );
+    let axes = &mut figure.axes[0];
+    axes.x.ticks = Ticks::Values(vec![2.0, 5.0, 8.0]);
+    axes.x.tick_labels = TickLabels::Text(vec![
+        Text::plain("North"),
+        Text::plain("South"),
+        Text::plain("East"),
+    ]);
+    let (state, hit) = compiled(figure);
+    // The pitch is 3, so the bar at 5 is 1.2 wide and centred at 6.2.
+    match state.tip_at(&hit, at_data(&hit, 6.2, 0.5)) {
+        Some(Tip::Bar(tip)) => {
+            assert_eq!((tip.index, tip.at), (1, 5.0), "the bar of position 5");
+            assert_eq!(
+                tip.tick_label.as_deref(),
+                Some("South"),
+                "named by the tick at its position"
+            );
+        }
+        other => panic!("the offset bar at 5 lies under the pointer, not {other:?}"),
     }
 
     let mut figure = figure_of(
@@ -327,6 +368,165 @@ fn a_point_within_reach_is_preferred_over_the_bar_beneath_it() {
         "precondition: no point within reach"
     );
     assert!(matches!(state.tip_at(&hit, away), Some(Tip::Bar(_))));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Histograms: the count and density of a bin
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The bins of every histogram here: [0, 1], [1, 3] and [3, 6], of widths 1, 2 and 3.
+const EDGES: [f64; 4] = [0.0, 1.0, 3.0, 6.0];
+/// The counts of the three bins.
+const COUNTS: [f64; 3] = [4.0, 6.0, 2.0];
+/// The number of samples counted.
+const TOTAL: f64 = 12.0;
+
+/// The value that a histogram of [`COUNTS`] in the bins of [`EDGES`] draws for each bin under `norm`, written out
+/// from the definitions of the normalisations rather than taken from the code under test.
+fn normalised(norm: HistNorm) -> Vec<f64> {
+    let widths: Vec<f64> = EDGES.windows(2).map(|w| w[1] - w[0]).collect();
+    let mut cumulative = 0.0;
+    COUNTS
+        .iter()
+        .zip(&widths)
+        .map(|(&count, &width)| {
+            cumulative += count;
+            match norm {
+                HistNorm::Count => count,
+                HistNorm::Probability => count / TOTAL,
+                HistNorm::Percentage => 100.0 * count / TOTAL,
+                HistNorm::CountDensity => count / width,
+                HistNorm::Density => count / (TOTAL * width),
+                HistNorm::CumulativeCount => cumulative,
+                HistNorm::Cdf => cumulative / TOTAL,
+            }
+        })
+        .collect()
+}
+
+/// The reading each bin must give: its count, and its count over the total and its width.
+fn expected_reading(k: usize) -> BinReading {
+    let width = EDGES[k + 1] - EDGES[k];
+    BinReading {
+        count: COUNTS[k],
+        density: COUNTS[k] / (TOTAL * width),
+    }
+}
+
+/// The binning record of the histogram under `norm`.
+fn record(norm: HistNorm) -> Binning {
+    Binning {
+        bins: Bins::Edges(EDGES.to_vec()),
+        range: None,
+        normalization: norm,
+        total: TOTAL,
+        excluded_non_finite: 0,
+        excluded_out_of_range: 0,
+    }
+}
+
+const EVERY_NORM: [HistNorm; 7] = [
+    HistNorm::Count,
+    HistNorm::Probability,
+    HistNorm::Percentage,
+    HistNorm::CountDensity,
+    HistNorm::Density,
+    HistNorm::CumulativeCount,
+    HistNorm::Cdf,
+];
+
+#[track_caller]
+fn assert_reading(found: Option<BinReading>, expected: BinReading, what: &str) {
+    let found = found.unwrap_or_else(|| panic!("{what}: no reading of the bin"));
+    assert_close(found.count, expected.count, 1e-9, &format!("{what}: count"));
+    assert_close(
+        found.density,
+        expected.density,
+        1e-9,
+        &format!("{what}: density"),
+    );
+}
+
+// Why: a histogram normalised to probabilities, percentages or densities, or drawn cumulatively, no longer shows the
+// number of samples in a bin, which is what a reader most often wants to know, nor the density that makes bins of
+// unequal widths comparable. Its binning record holds what is needed to recover both from the value drawn: the
+// normalisation, the total, and the width of the bar, which is the width of the bin; a cumulative value is first
+// differenced with that of the bin before it. Every normalisation must give back the same counts and densities, on
+// bins of unequal widths so that a width taken from the wrong bin or from the pitch would be caught, and the bin of
+// the middle of three so that a cumulative value that is not differenced would be caught too.
+#[test]
+fn a_bar_of_a_binned_histogram_reports_the_count_and_density_of_its_bin_for_every_normalisation() {
+    for norm in EVERY_NORM {
+        let values = normalised(norm);
+        let mut figure = figure_of(
+            vec![vec![0.5, 2.0, 4.5], values.clone(), vec![1.0, 2.0, 3.0]],
+            vec![Artist::Bar(Bar {
+                width: BarWidth::Data(array_id(2)),
+                binning: Some(record(norm)),
+                ..bar(3, 0, 1)
+            })],
+        );
+        figure.axes[0].y.limits = Limits::Auto;
+        let (state, hit) = compiled(figure);
+        for k in 0..3 {
+            let centre = (EDGES[k] + EDGES[k + 1]) / 2.0;
+            match state.tip_at(&hit, at_data(&hit, centre, values[k] / 2.0)) {
+                Some(Tip::Bar(tip)) => {
+                    assert_eq!(tip.index, k, "{norm:?}");
+                    assert_reading(tip.bin, expected_reading(k), &format!("{norm:?}, bin {k}"));
+                }
+                other => panic!("{norm:?}: bin {k} lies under the pointer, not {other:?}"),
+            }
+        }
+    }
+}
+
+// Why: stairs are the other way a histogram is drawn, as an outline over its bin edges, and a reader pointing at a
+// step wants the same numbers as for a bar: the count of the bin and its density, recovered from the step's value,
+// the width between its two edges and the binning record, for every normalisation alike.
+#[test]
+fn a_step_of_binned_stairs_reports_the_count_and_density_of_its_bin_for_every_normalisation() {
+    for norm in EVERY_NORM {
+        let values = normalised(norm);
+        let mut figure = figure_of(
+            vec![EDGES.to_vec(), values.clone()],
+            vec![Artist::Stairs(Stairs {
+                id: NodeId(3),
+                data: StairsData::Edges {
+                    edges: array_id(0),
+                    values: array_id(1),
+                },
+                binning: Some(record(norm)),
+                ..Stairs::default()
+            })],
+        );
+        figure.axes[0].y.limits = Limits::Auto;
+        let (state, hit) = compiled(figure);
+        for k in 0..3 {
+            let centre = (EDGES[k] + EDGES[k + 1]) / 2.0;
+            match state.tip_at(&hit, at_data(&hit, centre, values[k])) {
+                Some(Tip::Step(tip)) => {
+                    assert_eq!(tip.index, k, "{norm:?}");
+                    assert_reading(tip.bin, expected_reading(k), &format!("{norm:?}, step {k}"));
+                }
+                other => panic!("{norm:?}: step {k} lies under the pointer, not {other:?}"),
+            }
+        }
+    }
+    // Stairs that record no binning are a step plot of values, which have no bins to count.
+    let mut figure = figure_of(
+        vec![EDGES.to_vec(), COUNTS.to_vec()],
+        vec![stairs(StairsData::Edges {
+            edges: array_id(0),
+            values: array_id(1),
+        })],
+    );
+    figure.axes[0].y.limits = Limits::Auto;
+    let (state, hit) = compiled(figure);
+    match state.tip_at(&hit, at_data(&hit, 2.0, COUNTS[1])) {
+        Some(Tip::Step(tip)) => assert_eq!(tip.bin, None),
+        other => panic!("the second step lies under the pointer, not {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

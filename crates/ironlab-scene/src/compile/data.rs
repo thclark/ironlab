@@ -14,9 +14,9 @@
 //! once they are all resolved.
 
 use ironlab_ir::{
-    Artist, Axes, BarBase, BarSlot, CellEdges, Cells, ColorSpec, ContourPlacement,
-    Coords as ArtistCoords, Dimension, Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId,
-    PixelRange, QuiverScale, Scale, Series, Stairs, StairsData, StepAt, Values,
+    Artist, Axes, BarWidth, CellEdges, Cells, ColorSpec, ContourPlacement, Coords as ArtistCoords,
+    Dimension, Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId, PerBar, PixelRange,
+    QuiverScale, Scale, Series, Stairs, StairsData, StepAt, Values,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -111,44 +111,43 @@ pub(crate) struct BarArrays<'a> {
     pub values: &'a [f64],
     /// The base of each bar, for bars whose base is given per bar.
     pub bases: Option<&'a [f64]>,
-    /// The width of the slot of each bar, for bars whose slots are given per bar.
+    /// The width of each bar, for bars whose widths are given per bar.
     pub widths: Option<&'a [f64]>,
     /// The colour data of the bars.
     pub colours: Option<&'a [f64]>,
 }
 
-/// One bar as its group lays it out, in data units: the slot it lies in, the share of the drawn part of that slot it
-/// takes, and the two ends of the bar along the value axis.
+/// One bar as its own geometry places it, in data units: the extent it covers along the category axis and the two
+/// ends it runs between along the value axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BarPiece {
     /// The index of the bar in the arrays of its series.
     pub index: usize,
-    /// The position of the bar along the category axis.
+    /// The position of the bar along the category axis, without its offset.
     pub position: f64,
-    /// The low and high edges of the slot along the category axis.
-    pub slot: [f64; 2],
-    /// The fractions of the drawn part of the slot between which the bar lies: the whole of it for a bar of its
-    /// own or of a stack, and one member's share of it in a grouped group.
-    pub share: [f64; 2],
-    /// The base from which the bar, or the column of its stack, rises.
+    /// The low and high edges of the bar along the category axis: its centre, the position plus the offset, less and
+    /// plus half its width.
+    pub span: [f64; 2],
+    /// The base from which the bar starts.
     pub base: f64,
-    /// Where the bar starts and where it ends along the value axis.
+    /// Where the bar starts and where it ends along the value axis: its base, and its base plus its value.
     pub ends: [f64; 2],
-    /// Whether the bar is a part of a stack.
-    pub stacked: bool,
 }
 
-/// The resolved data of a bar series and its layout.
+/// The resolved data of a bar series and the bars it draws.
 #[derive(Clone)]
 pub(crate) struct BarsData<'a> {
     pub arrays: BarArrays<'a>,
-    /// The index of the dimension along which the positions lie: 0 for x and 1 for y. In a group it is the
-    /// orientation of the first member.
+    /// The index of the dimension along which the positions lie: 0 for x and 1 for y.
     pub category: usize,
-    /// The fraction of each slot left empty; in a group it is the gap of the first member.
-    pub gap: f64,
-    /// The bars to draw, laid out with the rest of the group by [`super::bars::lay_out`]; a bar that is not drawn,
-    /// such as one without a finite value or a part of a hidden member of a stack, has none.
+    /// The smallest distance between neighbouring distinct finite positions of the series, or 1 when there are fewer
+    /// than two.
+    pub pitch: f64,
+    /// Whether the width of the bars is a fraction of the pitch, so that each position owns a slot one pitch wide
+    /// that the automatic limits along the category axis cover.
+    pub slotted: bool,
+    /// The bars to draw; a bar that is not drawn, because its position, value, base, width or offset is not finite,
+    /// has none.
     pub pieces: Vec<BarPiece>,
 }
 
@@ -222,7 +221,7 @@ pub(super) fn prepare_axes<'a>(
     scales: &ColourScales,
 ) -> Vec<Prepared<'a>> {
     let figure = ctx.figure;
-    let mut prepared: Vec<Prepared<'a>> = axes
+    let prepared: Vec<Prepared<'a>> = axes
         .artists
         .iter()
         .map(|artist| {
@@ -246,7 +245,6 @@ pub(super) fn prepare_axes<'a>(
             Prepared { artist, data }
         })
         .collect();
-    super::bars::lay_out(&mut prepared);
     prepared
 }
 
@@ -473,12 +471,12 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                 positions,
                 values: per_bar(bar.values, "values")?,
                 bases: match bar.base {
-                    BarBase::Constant(_) => None,
-                    BarBase::Data(id) => Some(per_bar(id, "base")?),
+                    PerBar::Constant(_) => None,
+                    PerBar::Data(id) => Some(per_bar(id, "base")?),
                 },
-                widths: match bar.slot {
-                    BarSlot::Pitch | BarSlot::Width(_) => None,
-                    BarSlot::Data(id) => Some(per_bar(id, "width")?),
+                widths: match bar.width {
+                    BarWidth::Pitch(_) | BarWidth::Constant(_) => None,
+                    BarWidth::Data(id) => Some(per_bar(id, "width")?),
                 },
                 colours: bar.color_data.map(|id| per_bar(id, "colour")).transpose()?,
             };
@@ -488,12 +486,7 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                     bar.positions
                 ));
             }
-            ArtistData::Bars(BarsData {
-                arrays,
-                category: dimension_index(bar.orientation.category_dimension()),
-                gap: bar.gap,
-                pieces: Vec::new(),
-            })
+            ArtistData::Bars(super::bars::bars_data(bar, arrays))
         }
         Artist::Stairs(stairs) => {
             only_2d(axes, "stairs")?;
@@ -1001,13 +994,8 @@ pub(crate) fn values_along(
             }
         }
         ArtistData::Bars(bars) if dim < 2 => {
-            for piece in &bars.pieces {
-                let along = if dim == bars.category {
-                    piece.slot
-                } else {
-                    piece.ends
-                };
-                along.into_iter().for_each(&mut *visit);
+            if let Artist::Bar(bar) = artist {
+                super::bars::visit_extent(bar, bars, dim, visit);
             }
         }
         ArtistData::Stairs(stairs) if dim < 2 => {

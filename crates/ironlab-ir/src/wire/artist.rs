@@ -381,8 +381,8 @@ proto_file! {
         Horizontal = 2;
     }
 
-    /// A series of bars: one rectangle for each position along the category axis, from a
-    /// base to the value along the value axis.
+    /// A series of bars: one rectangle for each position along the category axis, which
+    /// runs along the value axis from a base for the length of its value.
     message Bar {
         /// The node identifier of the artist, unique within the figure.
         optional uint64 id = 1;
@@ -392,23 +392,17 @@ proto_file! {
         optional bool visible = 3;
         /// Whether the bars stand upright or lie flat; unspecified means upright.
         enum Orientation orientation = 4;
-        /// The data identifier of the centre of the slot of each bar along the category
-        /// axis, one value per bar.
+        /// The data identifier of the position of each bar along the category axis, one
+        /// value per bar, before the offset is applied.
         optional uint64 positions = 5;
-        /// The data identifier of the end of each bar along the value axis, one value
-        /// per bar.
+        /// The data identifier of the length of each bar from its base along the value
+        /// axis, one value per bar.
         optional uint64 values = 6;
         /// Where each bar starts along the value axis; absent means 0.
-        message BarBase base = 7;
-        /// The extent of the slot of each bar along the category axis; absent means the
-        /// pitch of the positions.
-        message BarSlot slot = 8;
-        /// The fraction of each slot left empty, from 0 up to, but not including, 1;
-        /// absent means 0.2.
-        optional double gap = 9;
-        /// The group of bars of the axes to which the series belongs; absent when the
-        /// series is drawn on its own.
-        message BarGroup group = 10;
+        message PerBar base = 7;
+        /// The numbers and names of the slot, the gap and the group of bars, which the
+        /// width and the offset replaced when grouping became a helper of the facade.
+        reserved 8, 9, 10, slot, gap, group;
         /// The colour of the bars; absent means the next colour of the colour order.
         message ColorSpec face = 11;
         /// The number and name of the fixed colour of each bar, which colour data
@@ -427,76 +421,220 @@ proto_file! {
         optional uint64 color_scale = 16;
         /// The opacity of the outlines, from 0 to 1; absent means 1.
         optional double edge_opacity = 17;
+        /// How wide each bar is along the category axis; absent means four fifths of the
+        /// pitch of the positions.
+        message BarWidth width = 18;
+        /// How far the centre of each bar lies from its position; absent means no offset.
+        message BarOffset offset = 19;
+        /// The fraction of the span of the bars that the automatic limits of the value
+        /// axis add beyond the ends of the bars; absent means 0.05.
+        optional double margin = 20;
+        /// How the histogram that the bars draw was binned from its samples; absent for
+        /// bars that were not made from samples.
+        message Binning binning = 21;
     }
 
-    /// Where the bars of a series start along the value axis.
-    message BarBase {
-        /// The kind of base; unset means the default of the context.
-        oneof kind: BarBaseKind {
-            /// Every bar starts at the same value.
-            Constant(BarBaseConstant) constant = 1;
-            /// Each bar starts at its own value.
-            Data(BarBaseData) data = 2;
+    /// A number given once for every bar of a series or once per bar.
+    message PerBar {
+        /// The kind of number; unset means the default of the context.
+        oneof kind: PerBarKind {
+            /// The same number for every bar.
+            Constant(PerBarConstant) constant = 1;
+            /// One number for each bar.
+            Data(PerBarData) data = 2;
         }
     }
 
-    /// Every bar starts at the same value.
-    message BarBaseConstant {
-        /// The value at which every bar starts.
+    /// The same number for every bar.
+    message PerBarConstant {
+        /// The number of every bar.
         optional double constant = 1;
     }
 
-    /// Each bar starts at its own value.
-    message BarBaseData {
-        /// The data identifier of the value at which each bar starts, one per bar.
+    /// One number for each bar.
+    message PerBarData {
+        /// The data identifier of the number of each bar, one per bar.
         optional uint64 data = 1;
     }
 
-    /// The extent of the slot of each bar along the category axis.
-    message BarSlot {
-        /// The kind of slot; unset means the default of the context.
-        oneof kind: BarSlotKind {
-            /// The smallest distance between neighbouring distinct positions.
-            Pitch(BarSlotPitch) pitch = 1;
-            /// The same extent for every bar, in data units.
-            Width(BarSlotWidth) width = 2;
-            /// One extent for each bar, in data units.
-            Data(BarSlotData) data = 3;
+    /// How wide each bar of a series is along the category axis.
+    message BarWidth {
+        /// The kind of width; unset means the default of the context.
+        oneof kind: BarWidthKind {
+            /// A fraction of the pitch of the positions.
+            Pitch(BarWidthPitch) pitch = 1;
+            /// The same width for every bar, in data units.
+            Constant(BarWidthConstant) constant = 2;
+            /// One width for each bar, in data units.
+            Data(BarWidthData) data = 3;
         }
     }
 
-    /// The smallest distance between neighbouring distinct positions, or 1 for a single
-    /// distinct position.
-    message BarSlotPitch {}
-
-    /// The same extent for every bar, in data units.
-    message BarSlotWidth {
-        /// The extent of every slot; finite and positive.
-        optional double width = 1;
+    /// A fraction of the smallest distance between neighbouring distinct positions, or of
+    /// 1 for a single distinct position.
+    message BarWidthPitch {
+        /// The fraction; finite and positive.
+        optional double pitch = 1;
     }
 
-    /// One extent for each bar, in data units.
-    message BarSlotData {
-        /// The data identifier of the extent of each slot, one per bar; each finite and
+    /// The same width for every bar, in data units.
+    message BarWidthConstant {
+        /// The width of every bar; finite and positive.
+        optional double constant = 1;
+    }
+
+    /// One width for each bar, in data units.
+    message BarWidthData {
+        /// The data identifier of the width of each bar, one per bar; each finite and
         /// positive.
         optional uint64 data = 1;
     }
 
-    /// The group of bars of an axes to which a bar series belongs.
-    message BarGroup {
-        /// The name of the group, which the members of one group share.
-        string name = 1;
-        /// How the members of the group share each position; unspecified means side by
-        /// side.
-        enum BarLayout layout = 2;
+    /// How far the centre of each bar of a series lies from its position.
+    message BarOffset {
+        /// The kind of offset; unset means the default of the context.
+        oneof kind: BarOffsetKind {
+            /// A multiple of the width of each bar.
+            Widths(BarOffsetWidths) widths = 1;
+            /// A distance in data units.
+            Absolute(BarOffsetAbsolute) absolute = 2;
+        }
     }
 
-    /// How the members of a group of bars share each position.
-    enum BarLayout {
-        /// The members stand side by side and touch.
-        Grouped = 1;
-        /// The members build on one another, positive and negative values separately.
-        Stacked = 2;
+    /// An offset of a multiple of the width of each bar.
+    message BarOffsetWidths {
+        /// The multiple; finite.
+        optional double widths = 1;
+    }
+
+    /// An offset of a distance in data units.
+    message BarOffsetAbsolute {
+        /// The distance; finite.
+        optional double absolute = 1;
+    }
+
+    /// How the bins of a histogram of one dimension were made from its samples.
+    message Binning {
+        /// How the bins were specified; it must be present.
+        message Bins bins = 1;
+        /// The range of sample values that was binned; absent when the range of the
+        /// samples was used.
+        message BinRange range = 2;
+        /// How the counts of the bins were normalised; it must be specified.
+        enum HistNorm normalization = 3;
+        /// The number of samples counted into the bins; it must be present.
+        optional double total = 4;
+        /// The number of samples left out because they were not finite; absent means 0.
+        optional uint64 excluded_non_finite = 5;
+        /// The number of samples left out because they lay outside the range; absent
+        /// means 0.
+        optional uint64 excluded_out_of_range = 6;
+    }
+
+    /// How the bins of a histogram of two dimensions were made from its samples.
+    message Binning2d {
+        /// How the bins along x were specified; it must be present.
+        message Bins x_bins = 1;
+        /// How the bins along y were specified; it must be present.
+        message Bins y_bins = 2;
+        /// The range of sample values along x that was binned; absent for the range of
+        /// the samples.
+        message BinRange x_range = 3;
+        /// The range of sample values along y that was binned; absent for the range of
+        /// the samples.
+        message BinRange y_range = 4;
+        /// How the counts of the bins were normalised; it must be specified.
+        enum HistNorm normalization = 5;
+        /// The count below which a bin was left empty; absent when every bin was drawn.
+        optional double min_count = 6;
+        /// The number of samples counted into the bins; it must be present.
+        optional double total = 7;
+        /// The number of samples left out because they were not finite; absent means 0.
+        optional uint64 excluded_non_finite = 8;
+        /// The number of samples left out because they lay outside the ranges; absent
+        /// means 0.
+        optional uint64 excluded_out_of_range = 9;
+    }
+
+    /// The range of sample values that a histogram binned.
+    message BinRange {
+        /// The low end of the range.
+        optional double low = 1;
+        /// The high end of the range.
+        optional double high = 2;
+    }
+
+    /// How the bins of a histogram were specified.
+    message Bins {
+        /// The kind of bins; it must be set.
+        oneof kind: BinsKind {
+            /// A number of bins of equal width.
+            Count(BinsCount) count = 1;
+            /// Bins of a given width.
+            Width(BinsWidth) width = 2;
+            /// The edges of the bins.
+            Edges(BinsEdges) edges = 3;
+            /// A number of bins chosen by a named rule.
+            Rule(BinsRule) rule = 4;
+        }
+    }
+
+    /// A number of bins of equal width across the range.
+    message BinsCount {
+        /// The number of bins; at least 1.
+        optional uint32 count = 1;
+    }
+
+    /// Bins of a given width across the range.
+    message BinsWidth {
+        /// The width of every bin; finite and positive.
+        optional double width = 1;
+    }
+
+    /// The edges of the bins.
+    message BinsEdges {
+        /// The edges; at least two, finite and strictly increasing.
+        repeated double edges = 1;
+    }
+
+    /// A number of bins chosen by a named rule.
+    message BinsRule {
+        /// The rule; it must be specified.
+        enum BinRule rule = 1;
+    }
+
+    /// A named rule that chooses the number of bins of a histogram.
+    enum BinRule {
+        /// The rule that the binning library chooses by default.
+        Auto = 1;
+        /// Sturges' rule.
+        Sturges = 2;
+        /// Scott's rule.
+        Scott = 3;
+        /// The Freedman-Diaconis rule.
+        FreedmanDiaconis = 4;
+        /// The square root of the number of samples.
+        Sqrt = 5;
+        /// One bin for each whole number in the range.
+        Integers = 6;
+    }
+
+    /// How the counts of the bins of a histogram are normalised into the values drawn.
+    enum HistNorm {
+        /// The number of samples in each bin.
+        Count = 1;
+        /// The fraction of the samples in each bin.
+        Probability = 2;
+        /// The percentage of the samples in each bin.
+        Percentage = 3;
+        /// The number of samples in each bin divided by its width or area.
+        CountDensity = 4;
+        /// The probability density of each bin.
+        Density = 5;
+        /// The number of samples in each bin and every bin before it.
+        CumulativeCount = 6;
+        /// The fraction of the samples in each bin and every bin before it.
+        Cdf = 7;
     }
 
     /// A stepped outline through values held between edges or at samples.
@@ -523,6 +661,9 @@ proto_file! {
         optional double fill_opacity = 9;
         /// The opacity of the outline, from 0 to 1; absent means 1.
         optional double line_opacity = 10;
+        /// How the histogram that the stairs draw was binned from its samples; absent for
+        /// stairs that were not made from samples.
+        message Binning binning = 11;
     }
 
     /// The steps of stairs: values between edges, or values at samples.
@@ -599,6 +740,9 @@ proto_file! {
         optional double face_opacity = 12;
         /// The opacity of the outlines of the cells, from 0 to 1; absent means 1.
         optional double edge_opacity = 13;
+        /// How the two-dimensional histogram that the cells draw was binned from its
+        /// samples; absent for cells that were not made from samples.
+        message Binning2d binning = 14;
     }
 
     /// The edges of the columns or rows of cells.

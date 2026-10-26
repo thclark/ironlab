@@ -398,9 +398,9 @@ impl Fx {
         id
     }
 
-    /// Adds a bar series at `positions` rising to `values`, with the defaults of `bar` (upright bars of the next
-    /// colour of the colour order from a base of 0, across four fifths of the pitch, outlined in thin black),
-    /// customised by `edit`.
+    /// Adds a bar series at `positions` of the lengths `values`, with the defaults of `bar` (upright bars of the
+    /// next colour of the colour order from a base of 0, four fifths of the pitch wide and centred on their
+    /// positions, outlined in thin black, with a margin of 0.05 beyond their ends), customised by `edit`.
     pub fn bar(
         &mut self,
         axes: NodeId,

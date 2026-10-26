@@ -220,7 +220,73 @@ pub fn representative_figures() -> Vec<Figure> {
                 axis.limits = manual(1.0, 10.0);
             }
         }
-        for artist in &mut axes.artists {
+        for (j, artist) in axes.artists.iter_mut().enumerate() {
+            // The kinds of bins the kitchen-sink figure does not give an artist of each kind
+            // are spread over the artists of that kind, by their index in the axes, so that
+            // every kind of bins of every binning record is set in one of the two figures.
+            let other_bins = |taken: &[usize]| {
+                let all = [
+                    Bins::Count(4),
+                    Bins::Width(0.5),
+                    Bins::Edges(vec![0.0, 1.0, 2.0]),
+                    Bins::Rule(BinRule::Auto),
+                ];
+                let free: Vec<Bins> = all
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(k, _)| !taken.contains(k))
+                    .map(|(_, bins)| bins)
+                    .collect();
+                free[j % free.len()].clone()
+            };
+            // A binning record with every optional value present, so that the paths below
+            // them are set.
+            let recorded = |bins: Bins| Binning {
+                bins,
+                range: Some([0.0, 2.0]),
+                normalization: HistNorm::Probability,
+                total: 8.0,
+                excluded_non_finite: 1,
+                excluded_out_of_range: 1,
+            };
+            match artist {
+                // The kitchen-sink bars record bins at edges only, so the others are given
+                // here; a bar series that records none gains a record.
+                Artist::Bar(a) => match &mut a.binning {
+                    Some(binning) => binning.range = binning.range.or(Some([0.0, 2.0])),
+                    None => a.binning = Some(recorded(other_bins(&[2]))),
+                },
+                // The kitchen-sink stairs record a named rule only.
+                Artist::Stairs(a) => match &mut a.binning {
+                    Some(binning) => binning.range = binning.range.or(Some([0.0, 2.0])),
+                    None => a.binning = Some(recorded(other_bins(&[3]))),
+                },
+                // The kitchen-sink cells record a count along x and a width along y, and a
+                // width along x and edges along y; the other kinds are set here, alternating
+                // between the two grids.
+                Artist::Cells(a) => {
+                    let binning = a.binning.get_or_insert(Binning2d {
+                        x_bins: Bins::Count(2),
+                        y_bins: Bins::Width(1.0),
+                        x_range: None,
+                        y_range: None,
+                        normalization: HistNorm::Count,
+                        min_count: None,
+                        total: 6.0,
+                        excluded_non_finite: 0,
+                        excluded_out_of_range: 0,
+                    });
+                    (binning.x_bins, binning.y_bins) = if j % 2 == 0 {
+                        (Bins::Edges(vec![0.0, 1.5, 3.0]), Bins::Count(2))
+                    } else {
+                        (Bins::Rule(BinRule::Sqrt), Bins::Rule(BinRule::Integers))
+                    };
+                    binning.x_range.get_or_insert([0.0, 3.0]);
+                    binning.y_range.get_or_insert([0.0, 2.0]);
+                    binning.min_count.get_or_insert(0.5);
+                }
+                _ => {}
+            }
             match artist {
                 Artist::Series(a) => {
                     a.label.get_or_insert_with(|| Text::new("series"));
@@ -519,15 +585,33 @@ pub fn perturb(value: &Value) -> Value {
         }),
         Value::Orientation(Orientation::Vertical) => Value::Orientation(Orientation::Horizontal),
         Value::Orientation(Orientation::Horizontal) => Value::Orientation(Orientation::Vertical),
-        Value::BarBase(BarBase::Constant(base)) => Value::BarBase(BarBase::Constant(base + 1.0)),
-        Value::BarBase(BarBase::Data(_)) => Value::BarBase(BarBase::Constant(0.0)),
-        Value::BarSlot(BarSlot::Pitch) => Value::BarSlot(BarSlot::Width(0.5)),
-        Value::BarSlot(BarSlot::Width(_) | BarSlot::Data(_)) => Value::BarSlot(BarSlot::Pitch),
-        Value::BarGroup(group) => Value::BarGroup(BarGroup {
-            layout: other_layout(group.layout),
-            ..group.clone()
+        Value::PerBar(PerBar::Constant(base)) => Value::PerBar(PerBar::Constant(base + 1.0)),
+        Value::PerBar(PerBar::Data(_)) => Value::PerBar(PerBar::Constant(0.0)),
+        Value::BarWidth(BarWidth::Pitch(fraction)) => {
+            Value::BarWidth(BarWidth::Pitch(fraction / 2.0))
+        }
+        Value::BarWidth(BarWidth::Constant(_) | BarWidth::Data(_)) => {
+            Value::BarWidth(BarWidth::Pitch(0.8))
+        }
+        Value::BarOffset(BarOffset::Widths(widths)) => {
+            Value::BarOffset(BarOffset::Widths(widths + 1.0))
+        }
+        Value::BarOffset(BarOffset::Absolute(_)) => Value::BarOffset(BarOffset::Widths(0.0)),
+        Value::Binning(binning) => Value::Binning(Binning {
+            total: binning.total + 1.0,
+            ..binning.clone()
         }),
-        Value::BarLayout(layout) => Value::BarLayout(other_layout(*layout)),
+        Value::Binning2d(binning) => Value::Binning2d(Binning2d {
+            total: binning.total + 1.0,
+            ..binning.clone()
+        }),
+        Value::Bins(Bins::Count(count)) => Value::Bins(Bins::Count(count + 1)),
+        Value::Bins(Bins::Width(_) | Bins::Edges(_) | Bins::Rule(_)) => Value::Bins(Bins::Count(3)),
+        Value::BinRule(BinRule::Auto) => Value::BinRule(BinRule::Sturges),
+        Value::BinRule(_) => Value::BinRule(BinRule::Auto),
+        Value::HistNorm(HistNorm::Count) => Value::HistNorm(HistNorm::Density),
+        Value::HistNorm(_) => Value::HistNorm(HistNorm::Count),
+        Value::UInt64(count) => Value::UInt64(count + 1),
         // Edges become samples at the values themselves, which have as many entries as the
         // values; the stairs stay valid only when the values are strictly monotonic, as
         // samples must be, and an invalid perturbation is refused like any other.
@@ -812,14 +896,6 @@ pub fn perturb(value: &Value) -> Value {
     }
 }
 
-/// Returns the other layout of a group of bars.
-fn other_layout(layout: BarLayout) -> BarLayout {
-    match layout {
-        BarLayout::Grouped => BarLayout::Stacked,
-        BarLayout::Stacked => BarLayout::Grouped,
-    }
-}
-
 /// Returns the next position of the step of stairs drawn through samples.
 fn next_step(step: StepAt) -> StepAt {
     match step {
@@ -841,7 +917,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 77;
+pub const VALUE_VARIANTS: usize = 82;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -919,14 +995,19 @@ pub fn value_variant(value: &Value) -> usize {
         Value::InsideColorbarSide(_) => 66,
         Value::ColorbarTitlePlacement(_) => 67,
         Value::Orientation(_) => 68,
-        Value::BarBase(_) => 69,
-        Value::BarSlot(_) => 70,
-        Value::BarGroup(_) => 71,
-        Value::BarLayout(_) => 72,
+        Value::PerBar(_) => 69,
+        Value::BarWidth(_) => 70,
+        Value::BarOffset(_) => 71,
+        Value::Binning(_) => 72,
         Value::StairsData(_) => 73,
         Value::StepAt(_) => 74,
         Value::CellEdges(_) => 75,
         Value::CellGap(_) => 76,
+        Value::Binning2d(_) => 77,
+        Value::Bins(_) => 78,
+        Value::BinRule(_) => 79,
+        Value::HistNorm(_) => 80,
+        Value::UInt64(_) => 81,
     }
 }
 
@@ -1183,13 +1264,17 @@ pub fn sample_values() -> Vec<Value> {
         Value::InsideColorbarSide(InsideColorbarSide::East),
         Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
         Value::Orientation(Orientation::Horizontal),
-        Value::BarBase(BarBase::Data(NodeId((1 << 53) + 13))),
-        Value::BarSlot(BarSlot::Width(0.375)),
-        Value::BarGroup(BarGroup {
-            name: "k–ω models".to_owned(),
-            layout: BarLayout::Stacked,
+        Value::PerBar(PerBar::Data(NodeId((1 << 53) + 13))),
+        Value::BarWidth(BarWidth::Constant(0.375)),
+        Value::BarOffset(BarOffset::Absolute(-0.625)),
+        Value::Binning(Binning {
+            bins: Bins::Edges(vec![0.0, 0.5, 2.0]),
+            range: Some([0.0, 2.0]),
+            normalization: HistNorm::Cdf,
+            total: 64.0,
+            excluded_non_finite: 3,
+            excluded_out_of_range: (1 << 53) + 19,
         }),
-        Value::BarLayout(BarLayout::Stacked),
         Value::StairsData(StairsData::Samples {
             x: NodeId(5),
             values: NodeId((1 << 53) + 15),
@@ -1198,6 +1283,21 @@ pub fn sample_values() -> Vec<Value> {
         Value::StepAt(StepAt::Pre),
         Value::CellEdges(CellEdges::Edges(NodeId((1 << 53) + 17))),
         Value::CellGap(CellGap { x: 0.125, y: 0.25 }),
+        Value::Binning2d(Binning2d {
+            x_bins: Bins::Rule(BinRule::Scott),
+            y_bins: Bins::Width(0.25),
+            x_range: None,
+            y_range: Some([-1.0, 1.0]),
+            normalization: HistNorm::CountDensity,
+            min_count: Some(2.0),
+            total: 16.0,
+            excluded_non_finite: 0,
+            excluded_out_of_range: 4,
+        }),
+        Value::Bins(Bins::Rule(BinRule::Integers)),
+        Value::BinRule(BinRule::Sqrt),
+        Value::HistNorm(HistNorm::Percentage),
+        Value::UInt64((1 << 53) + 21),
     ]
 }
 

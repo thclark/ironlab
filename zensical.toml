@@ -50,6 +50,10 @@ nav = [
     { "0023 Titles, labels, names and tags" = "adrs/0023-titles-labels-names-and-tags.md" },
     { "0024 Colour scales as figure nodes, colourbars and colour keys" = "adrs/0024-colour-scales-colourbars-and-colour-keys.md" },
     { "0025 A series replaces the line and scatter artists" = "adrs/0025-series-replaces-line-and-scatter.md" },
+    { "0026 Bars are a primitive, coloured as series are" = "adrs/0026-bars-are-a-primitive-coloured-as-series-are.md" },
+    { "0027 Cells are an artist of their own" = "adrs/0027-cells-are-an-artist-of-their-own.md" },
+    { "0028 Closed shapes have faces and edges, and lines have fills" = "adrs/0028-closed-shapes-have-faces-and-lines-have-fills.md" },
+    { "0029 Histograms store their bins and how they were made" = "adrs/0029-histograms-store-their-bins-and-how-they-were-made.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

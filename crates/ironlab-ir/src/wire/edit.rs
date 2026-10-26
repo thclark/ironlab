@@ -262,14 +262,6 @@ proto_file! {
             ColorbarTitlePlacement(ValueColorbarTitlePlacement) colorbar_title_placement_value = 71;
             /// The direction in which bars and stairs extend.
             Orientation(ValueOrientation) orientation_value = 72;
-            /// Where the bars of a series start.
-            BarBase(ValueBarBase) bar_base_value = 73;
-            /// The extent of the slot of each bar.
-            BarSlot(ValueBarSlot) bar_slot_value = 74;
-            /// The group of bars to which a bar series belongs.
-            BarGroup(ValueBarGroup) bar_group_value = 75;
-            /// How the members of a group of bars share each position.
-            BarLayout(ValueBarLayout) bar_layout_value = 76;
             /// The steps of stairs.
             StairsData(ValueStairsData) stairs_data_value = 77;
             /// Where the step of stairs through samples occurs.
@@ -278,6 +270,24 @@ proto_file! {
             CellEdges(ValueCellEdges) cell_edges_value = 79;
             /// The fractions of the extent of each cell left empty.
             CellGap(ValueCellGap) cell_gap_value = 80;
+            /// A number given once for every bar of a series or once per bar.
+            PerBar(ValuePerBar) per_bar_value = 81;
+            /// How wide each bar of a series is.
+            BarWidth(ValueBarWidth) bar_width_value = 82;
+            /// How far the centre of each bar of a series lies from its position.
+            BarOffset(ValueBarOffset) bar_offset_value = 83;
+            /// How the bins of a histogram of one dimension were made.
+            Binning(ValueBinning) binning_value = 84;
+            /// How the bins of a histogram of two dimensions were made.
+            Binning2d(ValueBinning2d) binning2d_value = 85;
+            /// How the bins of a histogram were specified.
+            Bins(ValueBins) bins_value = 86;
+            /// A named rule that chooses the number of bins of a histogram.
+            BinRule(ValueBinRule) bin_rule_value = 87;
+            /// How the counts of the bins of a histogram are normalised.
+            HistNorm(ValueHistNorm) hist_norm_value = 88;
+            /// An unsigned 64-bit integer.
+            Uint64(ValueUint64) uint64_value = 89;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -285,6 +295,11 @@ proto_file! {
         /// The numbers and names of the size and colour of a scatter, which a series
         /// replaced with references to its size and colour data.
         reserved 31, 32, scatter_size_value, scatter_color_value;
+        /// The numbers and names of the base, slot, group and layout of bars, which the
+        /// per-bar number, the width and the offset replaced when grouping became a helper
+        /// of the facade.
+        reserved 73, 74, 75, 76, bar_base_value, bar_slot_value, bar_group_value,
+            bar_layout_value;
     }
 
     /// A list of sizes of the rows or columns of the tile layout.
@@ -698,28 +713,58 @@ proto_file! {
         enum Orientation value = 1;
     }
 
-    /// A base of bars.
-    message ValueBarBase {
-        /// The base; it must be present.
-        message BarBase value = 1;
+    /// A number given once for every bar or once per bar.
+    message ValuePerBar {
+        /// The number; it must be present.
+        message PerBar value = 1;
     }
 
-    /// A slot of bars.
-    message ValueBarSlot {
-        /// The slot; it must be present.
-        message BarSlot value = 1;
+    /// A width of bars.
+    message ValueBarWidth {
+        /// The width; it must be present.
+        message BarWidth value = 1;
     }
 
-    /// A group of bars.
-    message ValueBarGroup {
-        /// The group; it must be present.
-        message BarGroup value = 1;
+    /// An offset of bars.
+    message ValueBarOffset {
+        /// The offset; it must be present.
+        message BarOffset value = 1;
     }
 
-    /// A layout of a group of bars.
-    message ValueBarLayout {
-        /// The layout; it must be specified.
-        enum BarLayout value = 1;
+    /// A binning record of one dimension.
+    message ValueBinning {
+        /// The record; it must be present.
+        message Binning value = 1;
+    }
+
+    /// A binning record of two dimensions.
+    message ValueBinning2d {
+        /// The record; it must be present.
+        message Binning2d value = 1;
+    }
+
+    /// A specification of bins.
+    message ValueBins {
+        /// The bins; they must be present.
+        message Bins value = 1;
+    }
+
+    /// A rule that chooses the number of bins.
+    message ValueBinRule {
+        /// The rule; it must be specified.
+        enum BinRule value = 1;
+    }
+
+    /// A normalisation of a histogram.
+    message ValueHistNorm {
+        /// The normalisation; it must be specified.
+        enum HistNorm value = 1;
+    }
+
+    /// An unsigned 64-bit integer.
+    message ValueUint64 {
+        /// The value; it must be present.
+        optional uint64 value = 1;
     }
 
     /// The steps of stairs.

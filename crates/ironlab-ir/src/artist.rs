@@ -714,22 +714,21 @@ impl Orientation {
 }
 
 /// A series of bars: one rectangle for each position along the category axis, which
-/// extends along the value axis from a base to the value (bar, barh).
+/// runs along the value axis from a base for the length of its value (bar, barh).
 ///
 /// The positions, the values and any base or widths given as data hold one entry per bar
-/// and must have the same number of elements. Each bar is centred in a slot along the
-/// category axis, of which the fraction `gap` is left empty, measured on the page so that
-/// bars on a logarithmic axis remain symmetric. A bar whose position or value is not
-/// finite is not drawn, and a non-finite position takes no part in the pitch. Bars colour
-/// individual bars as a series colours individual markers: with colour data of one value
-/// per bar, mapped through a colour scale of any kind, a colormapped face or edge takes
-/// the colour of each bar's value.
+/// and must have the same number of elements. Each bar is centred along the category axis
+/// at its position plus the offset of the series, and is as wide as its width. It runs
+/// from its base to its base plus its value, so that a value is a length, as in Matplotlib
+/// and Plotly, and a negative value extends the other way. A bar whose position or value
+/// is not finite is not drawn, and a non-finite position takes no part in the pitch. Bars
+/// colour individual bars as a series colours individual markers: with colour data of one
+/// value per bar, mapped through a colour scale of any kind, a colormapped face or edge
+/// takes the colour of each bar's value.
 ///
-/// Bars of one axes whose groups share a name form one group. The members of a grouped
-/// group split the drawn part of each slot equally, in artist order, and touch one
-/// another; the members of a stacked group at the same position build on one another,
-/// positive and negative values separately. The orientation, slot, gap, base and layout
-/// of a group are those of its first member in artist order.
+/// A bar series draws exactly the bars it describes and lays out nothing itself: grouped
+/// and stacked bars are ordinary series whose widths, offsets and bases place them side by
+/// side or on one another, as the facade's `bars` helper writes them (ADR 0026).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Bar {
     /// The node identifier of the artist, unique within the figure.
@@ -740,22 +739,18 @@ pub struct Bar {
     pub visible: bool,
     /// Whether the bars stand upright or lie flat.
     pub orientation: Orientation,
-    /// The centre of the slot of each bar along the category axis, one value per bar.
+    /// The position of each bar along the category axis, one value per bar: the category
+    /// or value to which the bar belongs, before the offset is applied.
     pub positions: NodeId,
-    /// The end of each bar along the value axis, one value per bar; a value that is not
-    /// finite draws no bar.
+    /// The length of each bar from its base along the value axis, one value per bar; a
+    /// negative length extends the other way, and a value that is not finite draws no bar.
     pub values: NodeId,
     /// Where each bar starts along the value axis.
-    pub base: BarBase,
-    /// The extent of the slot of each bar along the category axis.
-    pub slot: BarSlot,
-    /// The fraction of each slot left empty, measured on the page and shared equally by
-    /// the two sides of the bar: a finite number from 0 (touching bars) up to, but not
-    /// including, 1.
-    pub gap: f64,
-    /// The group of bars of the axes to which the series belongs, or `None` for a
-    /// series drawn on its own.
-    pub group: Option<BarGroup>,
+    pub base: PerBar,
+    /// How wide each bar is along the category axis.
+    pub width: BarWidth,
+    /// How far the centre of each bar lies from its position along the category axis.
+    pub offset: BarOffset,
     /// The colour of the bars: automatic for the next colour of the colour order, which
     /// is the colour of the series, a fixed colour, none, or colormapped, which gives each
     /// bar the colour of its value of the colour data through the colour scale. Without
@@ -784,13 +779,27 @@ pub struct Bar {
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
     pub edge_opacity: f64,
+    /// The fraction of the span of the series along the value axis, from the lowest to the
+    /// highest of its bases and ends, that the automatic limits of the value axis add
+    /// beyond the ends of the bars, on each side where an end lies away from its base, so
+    /// that the longest bar does not touch the box while bars rising from 0 keep 0 at the
+    /// edge of the axis; a finite number from 0. Manual limits ignore it.
+    pub margin: f64,
+    /// How the histogram that the bars draw was binned from its samples, or `None` for bars
+    /// that were not made from samples (ADR 0029). The record is descriptive: it is read
+    /// by datatips to report the count and density of each bin and is never edited.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binning: Option<Binning>,
 }
 
 impl Default for Bar {
     /// The series that `bar` draws: upright bars in the next colour of the colour order,
-    /// rising from 0, each across four fifths of the pitch between positions, outlined by
-    /// a black line 0.5 points wide, without colour data, a colour scale or a group,
-    /// visible and opaque.
+    /// rising from 0, each four fifths of the pitch wide and centred on its position,
+    /// outlined by a black line 0.5 points wide, with a margin of 0.05 beyond the ends of
+    /// the bars, without colour data, a colour scale or a binning record, visible and
+    /// opaque.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
@@ -799,10 +808,9 @@ impl Default for Bar {
             orientation: Orientation::Vertical,
             positions: NodeId::default(),
             values: NodeId::default(),
-            base: BarBase::default(),
-            slot: BarSlot::default(),
-            gap: 0.2,
-            group: None,
+            base: PerBar::default(),
+            width: BarWidth::default(),
+            offset: BarOffset::default(),
             face: ColorSpec::Auto,
             color_data: None,
             color_scale: None,
@@ -815,9 +823,14 @@ impl Default for Bar {
             },
             face_opacity: 1.0,
             edge_opacity: 1.0,
+            margin: DEFAULT_BAR_MARGIN,
+            binning: None,
         }
     }
 }
+
+/// The margin of a bar series by default: a twentieth of the span of its bars.
+pub(crate) const DEFAULT_BAR_MARGIN: f64 = 0.05;
 
 /// Returns the edge of cells by default: no outline, 0.5 points wide and solid when a
 /// colour is given.
@@ -829,63 +842,177 @@ fn no_edge() -> LineStyle {
     }
 }
 
-/// Where the bars of a series start along the value axis.
+/// A number given once for every bar of a series or once per bar: where the bars of a
+/// series start along the value axis.
 ///
 /// On a logarithmic value axis a base that is not positive has no place, so such a bar is
 /// drawn from the low edge of the plot area instead, with a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-pub enum BarBase {
+pub enum PerBar {
     /// Every bar starts at the same value.
     Constant(f64),
-    /// Each bar starts at its own value, one per bar, which draws floating bars.
+    /// Each bar starts at its own value, one per bar, which draws floating bars and the
+    /// parts of a stack.
     Data(NodeId),
 }
 
-impl Default for BarBase {
+impl Default for PerBar {
     /// Bars that rise from 0.
     fn default() -> Self {
-        BarBase::Constant(0.0)
+        PerBar::Constant(0.0)
     }
 }
 
-/// The extent of the slot of each bar along the category axis, of which the bar is drawn
-/// across the fraction `1 − gap`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+/// How wide each bar of a series is along the category axis.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-pub enum BarSlot {
-    /// The smallest distance between neighbouring distinct finite positions, or 1 when
-    /// there is a single distinct position.
-    #[default]
-    Pitch,
-    /// The same extent for every bar, in data units: a finite positive number.
-    Width(f64),
-    /// One extent for each bar, in data units, each a finite positive number; this is how
-    /// a histogram of unequal bins is drawn.
+pub enum BarWidth {
+    /// A fraction of the pitch: the smallest distance between neighbouring distinct finite
+    /// positions of the series, or 1 when there is a single distinct position. The
+    /// fraction is a finite positive number; 1 draws bars that touch.
+    Pitch(f64),
+    /// The same width for every bar, in data units: a finite positive number.
+    Constant(f64),
+    /// One width for each bar, in data units, each a finite positive number; this is how a
+    /// histogram of unequal bins is drawn.
     Data(NodeId),
 }
 
-/// The group of bars of an axes to which a bar series belongs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct BarGroup {
-    /// The name of the group; the bar series of one axes whose groups share a name form
-    /// one group. It is never drawn.
-    pub name: String,
-    /// How the members of the group share each position.
-    pub layout: BarLayout,
+impl Default for BarWidth {
+    /// Four fifths of the pitch, so that a gap of a fifth separates neighbouring bars.
+    fn default() -> Self {
+        BarWidth::Pitch(0.8)
+    }
 }
 
-/// How the members of a group of bars share each position.
+/// How far the centre of each bar of a series lies from its position along the category
+/// axis.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum BarOffset {
+    /// A multiple of the width of each bar, which keeps the columns of a grouped chart side
+    /// by side whatever their width: a finite number, negative to the low side.
+    Widths(f64),
+    /// A distance in data units, the same for every bar: a finite number.
+    Absolute(f64),
+}
+
+impl Default for BarOffset {
+    /// Bars centred on their positions.
+    fn default() -> Self {
+        BarOffset::Widths(0.0)
+    }
+}
+
+/// How the bins of a histogram of one dimension were made from its samples (ADR 0029).
+///
+/// The record is descriptive: the binned values are stored on the bars or stairs that
+/// draw them, and nothing is computed from the record except the count and density of a
+/// bin that a datatip reports.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Binning {
+    /// How the bins were specified.
+    pub bins: Bins,
+    /// The range of sample values that was binned, as `[low, high]`, or `None` when the
+    /// range of the samples was used.
+    pub range: Option<[f64; 2]>,
+    /// How the counts of the bins were normalised into the values drawn.
+    pub normalization: HistNorm,
+    /// The number of samples counted into the bins: finite and not negative.
+    pub total: f64,
+    /// The number of samples left out because they were not finite.
+    pub excluded_non_finite: u64,
+    /// The number of samples left out because they lay outside the range.
+    pub excluded_out_of_range: u64,
+}
+
+/// How the bins of a histogram of two dimensions were made from its samples (ADR 0029).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Binning2d {
+    /// How the bins along x were specified.
+    pub x_bins: Bins,
+    /// How the bins along y were specified.
+    pub y_bins: Bins,
+    /// The range of sample values along x that was binned, or `None` for the range of the
+    /// samples.
+    pub x_range: Option<[f64; 2]>,
+    /// The range of sample values along y that was binned, or `None` for the range of the
+    /// samples.
+    pub y_range: Option<[f64; 2]>,
+    /// How the counts of the bins were normalised into the values drawn.
+    pub normalization: HistNorm,
+    /// The count below which a bin was left empty, or `None` when every bin was drawn: a
+    /// number of samples, finite and not negative.
+    pub min_count: Option<f64>,
+    /// The number of samples counted into the bins: finite and not negative.
+    pub total: f64,
+    /// The number of samples left out because they were not finite.
+    pub excluded_non_finite: u64,
+    /// The number of samples left out because they lay outside the ranges.
+    pub excluded_out_of_range: u64,
+}
+
+/// How the bins of a histogram were specified.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum Bins {
+    /// A number of bins of equal width across the range: at least 1.
+    Count(u32),
+    /// Bins of the given width across the range: a finite positive number.
+    Width(f64),
+    /// The edges of the bins: at least two, finite and strictly increasing.
+    Edges(Vec<f64>),
+    /// A number of bins of equal width chosen by a named rule.
+    Rule(BinRule),
+}
+
+impl Default for Bins {
+    /// The bins that the binning library chooses by default.
+    fn default() -> Self {
+        Bins::Rule(BinRule::Auto)
+    }
+}
+
+/// A named rule that chooses the number of bins of a histogram from its samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BinRule {
+    /// The rule that the binning library chooses by default.
+    Auto,
+    /// Sturges' rule: `⌈log₂ n⌉ + 1` bins.
+    Sturges,
+    /// Scott's rule, from the standard deviation of the samples.
+    Scott,
+    /// The Freedman–Diaconis rule, from the interquartile range of the samples.
+    FreedmanDiaconis,
+    /// The square root of the number of samples.
+    Sqrt,
+    /// One bin for each whole number in the range.
+    Integers,
+}
+
+/// How the counts of the bins of a histogram are normalised into the values drawn.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum BarLayout {
-    /// The members stand side by side: they split the drawn part of each slot equally,
-    /// in artist order, and touch one another, so that the gap falls between positions.
+pub enum HistNorm {
+    /// The number of samples in each bin.
     #[default]
-    Grouped,
-    /// The members at the same position build on one another, in artist order, positive
-    /// and negative values separately, so that each column shows a total.
-    Stacked,
+    Count,
+    /// The fraction of the samples in each bin, so that the values sum to 1.
+    Probability,
+    /// The percentage of the samples in each bin, so that the values sum to 100.
+    Percentage,
+    /// The number of samples in each bin divided by its width (or area).
+    CountDensity,
+    /// The probability density of each bin: its count divided by the total and by its
+    /// width (or area), so that the areas sum to 1.
+    Density,
+    /// The number of samples in each bin and every bin before it.
+    CumulativeCount,
+    /// The fraction of the samples in each bin and every bin before it: the empirical
+    /// cumulative distribution function.
+    Cdf,
 }
 
 /// A stepped outline through values held between edges or at samples (stairs, step).
@@ -931,6 +1058,13 @@ pub struct Stairs {
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
     pub fill_opacity: f64,
+    /// How the histogram that the stairs draw was binned from its samples, or `None` for
+    /// stairs that were not made from samples (ADR 0029). The record is descriptive: it is
+    /// read by datatips to report the count and density of each step and is never edited.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binning: Option<Binning>,
 }
 
 impl Default for Stairs {
@@ -948,6 +1082,7 @@ impl Default for Stairs {
             fill: ColorSpec::None,
             line_opacity: 1.0,
             fill_opacity: 1.0,
+            binning: None,
         }
     }
 }
@@ -1077,6 +1212,14 @@ pub struct Cells {
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
     pub edge_opacity: f64,
+    /// How the two-dimensional histogram that the cells draw was binned from its samples,
+    /// or `None` for cells that were not made from samples (ADR 0029). The record is
+    /// descriptive: it is read by datatips to report the count and density of each cell and
+    /// is never edited.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binning: Option<Binning2d>,
 }
 
 impl Default for Cells {
@@ -1096,6 +1239,7 @@ impl Default for Cells {
             alpha: None,
             face_opacity: 1.0,
             edge_opacity: 1.0,
+            binning: None,
         }
     }
 }

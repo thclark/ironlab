@@ -13,9 +13,9 @@ use std::sync::LazyLock;
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, Bar, CategoricalColorScale, CellEdges, CellGap, Cells, Color,
-    ColorCategory, ColorScale, ColorScaleKind, DataArray, Figure, FigureSize, Limits, NdArray,
-    NodeId, Series, Text, TickLabels, Ticks,
+    Artist, Axes, Axis, Bar, BarWidth, Binning, Bins, CategoricalColorScale, CellEdges, CellGap,
+    Cells, Color, ColorCategory, ColorScale, ColorScaleKind, DataArray, Figure, FigureSize,
+    HistNorm, Limits, NdArray, NodeId, PerBar, Series, Text, TickLabels, Ticks,
 };
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::AxesHitKind;
@@ -353,21 +353,29 @@ fn data_point(canvas: &mut FigureCanvas, x: f64, y: f64) -> Pos2 {
 }
 
 // Why: a page shows a datatip for a bar as it does for a pixel: it outlines the bar that was read, so that the reader
-// sees which bar the numbers belong to, and the text names the series and the bar's value. The page draws only what
-// the outcome carries, so a bar the canvas reads but the outcome drops would show the reader nothing.
+// sees which bar the numbers belong to, and the text names the series, the bar's value and the base it stands on. The
+// value is a length from the base, so the outline of a floating bar runs from its base to its base plus its value,
+// and the page draws only what the outcome carries, so a bar the canvas reads but the outcome drops would show the
+// reader nothing.
 #[test]
-fn hovering_a_bar_gives_a_datatip_outlining_the_bar_and_naming_its_value() {
+fn hovering_a_bar_gives_a_datatip_outlining_the_bar_from_its_base_and_naming_its_value() {
     let mut figure = figure();
+    figure.data.push(DataArray {
+        id: NodeId(12),
+        name: None,
+        array: NdArray::vector(vec![1.0, 1.0, 0.5]),
+    });
     figure.axes[0].artists = vec![Artist::Bar(Bar {
         id: NodeId(3),
         label: Some(Text::plain("Revenue")),
         positions: NodeId(10),
         values: NodeId(11),
+        base: PerBar::Data(NodeId(12)),
         ..Bar::default()
     })];
     let mut canvas = fitted(figure);
-    // The positions 2, 5 and 8 have a pitch of 3, so the bar at 5 spans 3.8 to 6.2 and rises from 0 to 2.5.
-    let at = data_point(&mut canvas, 5.0, 1.25);
+    // The positions 2, 5 and 8 have a pitch of 3, so the bar at 5 spans 3.8 to 6.2 and runs from 1 to 1 + 2.5.
+    let at = data_point(&mut canvas, 5.0, 2.25);
     canvas.hover(Some(at));
     let Datatip { text, marker, .. } = outcome_of(&mut canvas, false)
         .datatip
@@ -377,11 +385,12 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_and_naming_its_value() {
         "the text names the series: {text:?}"
     );
     assert!(text.contains("2.5"), "and the bar's value: {text:?}");
+    assert!(text.contains("base = 1"), "and its base: {text:?}");
     let Marker::Outline { points } = marker else {
         panic!("a bar is outlined, not {marker:?}");
     };
     let mut corners = Vec::new();
-    for (x, y) in [(3.8, 0.0), (6.2, 0.0), (6.2, 2.5), (3.8, 2.5)] {
+    for (x, y) in [(3.8, 1.0), (6.2, 1.0), (6.2, 3.5), (3.8, 3.5)] {
         corners.push(data_point(&mut canvas, x, y));
     }
     for corner in corners {
@@ -392,6 +401,52 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_and_naming_its_value() {
             "the outline has the bar's corner {corner:?}: {points:?}"
         );
     }
+}
+
+// Why: the count of a bin is the number a reader of a histogram wants, and the density is what makes bins of unequal
+// widths comparable, so the text of the datatip of a bar that records its binning must carry both, as the canvas
+// recovers them; without them the page would show only the normalised value. Here three bins three wide hold 1, 2
+// and 1 of 4 samples, drawn as probabilities, so the bar at 5 shows 0.5 while its bin counts 2 at a density of
+// 2 / (4 × 3); a normalisation other than counts keeps the count from being read off the value line.
+#[test]
+fn hovering_a_bar_of_a_binned_histogram_names_the_count_and_density_of_its_bin() {
+    let mut figure = figure();
+    figure.data[1].array = NdArray::vector(vec![0.25, 0.5, 0.25]);
+    figure.axes[0].artists = vec![Artist::Bar(Bar {
+        id: NodeId(3),
+        positions: NodeId(10),
+        values: NodeId(11),
+        width: BarWidth::Pitch(1.0),
+        binning: Some(Binning {
+            bins: Bins::Edges(vec![0.5, 3.5, 6.5, 9.5]),
+            range: None,
+            normalization: HistNorm::Probability,
+            total: 4.0,
+            excluded_non_finite: 0,
+            excluded_out_of_range: 0,
+        }),
+        ..Bar::default()
+    })];
+    let mut canvas = fitted(figure);
+    let at = data_point(&mut canvas, 5.0, 0.25);
+    canvas.hover(Some(at));
+    let Datatip { text, .. } = outcome_of(&mut canvas, false)
+        .datatip
+        .expect("hovering over a bar gives a datatip");
+    let line = |name: &str| {
+        text.lines()
+            .find(|line| line.contains(name))
+            .unwrap_or_else(|| panic!("no line names the {name}: {text:?}"))
+            .to_owned()
+    };
+    assert!(
+        line("count").contains('2'),
+        "the count of the bin: {text:?}"
+    );
+    assert!(
+        line("density").contains("0.1666"),
+        "the density of the bin: {text:?}"
+    );
 }
 
 // Why: a page shows a datatip for a cell as it does for a bar: it outlines the cell that was read, as drawn, inside

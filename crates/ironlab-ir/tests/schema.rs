@@ -337,6 +337,19 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
         );
     }
 
+    for name in ["Binning", "Binning2d", "Bins", "BinRule", "HistNorm"] {
+        assert!(
+            schema.pointer(&format!("/$defs/{name}")).is_some(),
+            "the schema does not define {name}"
+        );
+    }
+    for gone in ["BarBase", "BarSlot", "BarGroup", "BarLayout"] {
+        assert!(
+            schema.pointer(&format!("/$defs/{gone}")).is_none(),
+            "the schema still defines {gone}"
+        );
+    }
+
     let strings_under = |name: &str| {
         let definition = schema
             .pointer(&format!("/$defs/{name}"))
@@ -379,9 +392,11 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
 // each definition with the wire message of the same name, so a type defined under another
 // name or in another module would leave such files unvalidatable or break the generation.
 // The tagged types must admit exactly the variant names of the documented form, which is
-// what a hand-written file writes: the kinds of artist, the orientations, the bases, slots
-// and layouts of bars, the two forms of stairs data with the three step positions, and the
-// two kinds of cell edges.
+// what a hand-written file writes: the kinds of artist, the orientations, the bases, widths
+// and offsets of bars, the two forms of stairs data with the three step positions, the two
+// kinds of cell edges, and the kinds of bins, the bin rules and the normalisations of a
+// binning record. The removed types of bar groups must no longer be defined, or a tool
+// would accept a file that the reader refuses.
 #[test]
 fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_variant_names() {
     let schema = ironlab_ir::json_schema();
@@ -397,10 +412,9 @@ fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_va
         "Stairs",
         "Cells",
         "Orientation",
-        "BarBase",
-        "BarSlot",
-        "BarGroup",
-        "BarLayout",
+        "PerBar",
+        "BarWidth",
+        "BarOffset",
         "StairsData",
         "StepAt",
         "CellEdges",
@@ -427,9 +441,33 @@ fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_va
     for (name, variants) in [
         ("Artist", &["bar", "stairs", "cells"][..]),
         ("Orientation", &["vertical", "horizontal"][..]),
-        ("BarBase", &["constant", "data"][..]),
-        ("BarSlot", &["pitch", "width", "data"][..]),
-        ("BarLayout", &["grouped", "stacked"][..]),
+        ("PerBar", &["constant", "data"][..]),
+        ("BarWidth", &["pitch", "constant", "data"][..]),
+        ("BarOffset", &["widths", "absolute"][..]),
+        ("Bins", &["count", "width", "edges", "rule"][..]),
+        (
+            "BinRule",
+            &[
+                "auto",
+                "sturges",
+                "scott",
+                "freedman_diaconis",
+                "sqrt",
+                "integers",
+            ][..],
+        ),
+        (
+            "HistNorm",
+            &[
+                "count",
+                "probability",
+                "percentage",
+                "count_density",
+                "density",
+                "cumulative_count",
+                "cdf",
+            ][..],
+        ),
         ("StairsData", &["edges", "samples"][..]),
         ("StepAt", &["pre", "post", "mid"][..]),
         ("CellEdges", &["unit", "edges"][..]),
@@ -468,6 +506,49 @@ fn the_axis_definition_does_not_require_its_visibility_or_tick_label_angle() {
         assert!(
             !required.contains(&property),
             "{property} is required, so files written before it would not validate: {required:?}"
+        );
+    }
+}
+
+// Why: a binning record is left out of the file of a bar chart, stairs or cells that were
+// not made from samples, so the schema must not require it, or every plain bar chart would
+// fail validation against the schema while IronLAB still reads it; and the removed slot, gap
+// and group of bars must no longer be described, since a hand-written file that follows the
+// schema would then be refused by the reader.
+#[test]
+fn the_binning_record_is_described_but_not_required_and_bar_groups_are_gone() {
+    let schema = ironlab_ir::json_schema();
+    for name in ["Bar", "Stairs", "Cells"] {
+        let definition = schema
+            .pointer(&format!("/$defs/{name}"))
+            .unwrap_or_else(|| panic!("the schema defines {name}"));
+        let required: Vec<&str> = definition
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        assert!(
+            definition.pointer("/properties/binning").is_some(),
+            "{name} has no binning property"
+        );
+        assert!(
+            !required.contains(&"binning"),
+            "{name} requires binning: {required:?}"
+        );
+    }
+    let bar = schema
+        .pointer("/$defs/Bar")
+        .expect("the schema defines Bar");
+    for property in ["width", "offset", "margin"] {
+        assert!(
+            bar.pointer(&format!("/properties/{property}")).is_some(),
+            "Bar has no {property} property"
+        );
+    }
+    for gone in ["slot", "gap", "group"] {
+        assert!(
+            bar.pointer(&format!("/properties/{gone}")).is_none(),
+            "Bar still has a {gone} property"
         );
     }
 }

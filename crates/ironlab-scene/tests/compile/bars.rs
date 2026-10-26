@@ -1,5 +1,7 @@
-//! Bars (MATLAB's and Matplotlib's `bar` and `barh`): where each rectangle is drawn, how the members of a group share
-//! or stack on a position, what colours the bars take, and the automatic limits they set.
+//! Bars (MATLAB's and Matplotlib's `bar` and `barh`): where each rectangle is drawn from its position, offset, width,
+//! base and length, what colours the bars take, and the automatic limits they set. Bars are a primitive: each series
+//! draws exactly the bars it describes, and grouping and stacking are written into ordinary series by the facade, so
+//! the series here that stand side by side or on one another carry the widths, offsets and bases the helper writes.
 //!
 //! A bar is read by where its ends are and how wide it is, so every geometric test maps the drawn rectangle back
 //! through the axis maps of its axes, as `surfaces_2d` does for faces, and compares it in data units with what the
@@ -7,8 +9,8 @@
 //! compiler, so that the expectation does not depend on the code under test.
 
 use ironlab_ir::{
-    Artist, BarBase, BarGroup, BarLayout, BarSlot, Color, ColorScaleKind, ColorSpec,
-    ContinuousColorScale, IndexedColorScale, Limits, NodeId, Orientation, Scale,
+    BarOffset, BarWidth, Color, ColorScaleKind, ColorSpec, ContinuousColorScale, IndexedColorScale,
+    Limits, NodeId, Orientation, PerBar, Scale,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Rect, Rgba, Stroke};
@@ -138,16 +140,8 @@ fn axes() -> (Fx, NodeId) {
     (fx, ax)
 }
 
-/// A group of the given name and layout.
-fn group(name: &str, layout: BarLayout) -> Option<BarGroup> {
-    Some(BarGroup {
-        name: name.to_owned(),
-        layout,
-    })
-}
-
 // ---------------------------------------------------------------------------------------------------------------
-// One series: slot, gap, base and orientation
+// One series: position, width, base and orientation
 // ---------------------------------------------------------------------------------------------------------------
 
 // Why: a bar series was skipped with a warning until the compiler could draw it; a bar chart that compiles to
@@ -170,12 +164,12 @@ fn a_bar_series_is_drawn_as_one_rectangle_per_bar_without_a_warning() {
     );
 }
 
-// Why: the length of a bar is its value, measured from the base, so a bar must start exactly at the base and end
-// exactly at its value, downwards for a value below the base; and it must sit centred on its position across
-// `1 − gap` of its slot, so that the reader can tell which position it belongs to and neighbouring bars stand apart.
-// With positions 1, 2, 3 the pitch is 1, so each bar spans its position ± 0.4 at the default gap of 0.2.
+// Why: a value is the length of its bar, measured from the base, so a bar must start exactly at the base and end
+// exactly at the base plus its value, downwards for a negative value; and it must sit centred on its position, four
+// fifths of the pitch wide by default, so that the reader can tell which position it belongs to and neighbouring
+// bars stand apart. With positions 1, 2, 3 the pitch is 1, so each bar spans its position ± 0.4.
 #[test]
-fn each_bar_spans_its_slot_less_the_gap_centred_on_its_position_from_the_base_to_its_value() {
+fn each_bar_is_centred_on_its_position_at_its_width_and_runs_from_the_base_for_its_length() {
     let (mut fx, ax) = axes();
     let values = [3.0, -1.0, 2.0];
     let bar = fx.bar(ax, &[1.0, 2.0, 3.0], &values, |_, _| {});
@@ -185,20 +179,24 @@ fn each_bar_spans_its_slot_less_the_gap_centred_on_its_position_from_the_base_to
     for (k, value) in values.into_iter().enumerate() {
         let p = (k + 1) as f64;
         let d = at(&bars, p);
-        assert_span(d.x, [p - 0.4, p + 0.4], &format!("bar {k} across its slot"));
+        assert_span(
+            d.x,
+            [p - 0.4, p + 0.4],
+            &format!("bar {k} across its width"),
+        );
         assert_span(
             d.y,
             sorted2(0.0, value),
-            &format!("bar {k} from the base to its value"),
+            &format!("bar {k} from the base for its length"),
         );
     }
 }
 
-// Why: the pitch decides how wide every bar is, so it must be the smallest distance between neighbouring distinct
-// finite positions taken in order of value. Positions given out of order, repeated or with a missing (NaN) entry are
-// ordinary in real data: taken in array order the pitch here would be 3 (from 3 to 0), with a repeat it would be 0,
-// and with the NaN it would be NaN, and the bars would be drawn three times too wide, invisible or not at all. A
-// single position has no neighbour, so its pitch is 1.
+// Why: the pitch decides how wide every bar of a width given as a fraction of it is, so it must be the smallest
+// distance between neighbouring distinct finite positions taken in order of value. Positions given out of order,
+// repeated or with a missing (NaN) entry are ordinary in real data: taken in array order the pitch here would be 3
+// (from 3 to 0), with a repeat it would be 0, and with the NaN it would be NaN, and the bars would be drawn three
+// times too wide, invisible or not at all. A single position has no neighbour, so its pitch is 1.
 #[test]
 fn the_pitch_is_the_smallest_distance_between_distinct_finite_positions_in_order_of_value() {
     let (mut fx, ax) = axes();
@@ -255,15 +253,24 @@ fn a_bar_without_a_finite_value_is_left_out_and_its_neighbours_keep_their_places
     assert_span(at(&bars, 3.0).y, [0.0, 3.0], "and its value");
 }
 
-// Why: a fixed width draws bars narrower or wider than the pitch, and per-bar widths are how a histogram of unequal
-// bins is drawn: with a gap of 0 each bar must cover exactly its bin, so that neighbouring bins touch and the area of
-// each bar is its count times its width. A histogram whose bars overlapped or left slivers would misstate it.
+// Why: a width is how wide a bar is drawn, whichever form it takes: a fraction of the pitch (the whole pitch for
+// bars that touch), a fixed width in data units, or one width per bar, which is how a histogram of unequal bins is
+// drawn, where each bar must cover exactly its bin so that neighbouring bins touch and the area of each bar is its
+// count times its width. A histogram whose bars overlapped or left slivers would misstate it.
 #[test]
-fn a_fixed_width_and_per_bar_widths_set_the_slot_of_each_bar() {
+fn a_fraction_of_the_pitch_a_fixed_width_and_per_bar_widths_set_the_width_of_each_bar() {
+    let (mut fx, ax) = axes();
+    let touching = fx.bar(ax, &[0.0, 2.0, 4.0], &[1.0, 2.0, 3.0], |b, _| {
+        b.width = BarWidth::Pitch(1.0);
+    });
+    let scene = compile_figure(&fx.build());
+    let bars = drawn(&scene, ax, touching);
+    assert_span(at(&bars, 0.0).x, [-1.0, 1.0], "the whole pitch of 2");
+    assert_span(at(&bars, 2.0).x, [1.0, 3.0], "touching its neighbours");
+
     let (mut fx, ax) = axes();
     let fixed = fx.bar(ax, &[0.0, 3.0], &[1.0, 2.0], |b, _| {
-        b.slot = BarSlot::Width(0.5);
-        b.gap = 0.0;
+        b.width = BarWidth::Constant(0.5);
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, fixed);
@@ -273,8 +280,7 @@ fn a_fixed_width_and_per_bar_widths_set_the_slot_of_each_bar() {
     // Bins [0, 1], [1, 3] and [3, 6], as a histogram of unequal bins stores them: centres and widths.
     let (mut fx, ax) = axes();
     let histogram = fx.bar(ax, &[0.5, 2.0, 4.5], &[4.0, 2.0, 1.0], |b, fx| {
-        b.slot = BarSlot::Data(fx.vector(&[1.0, 2.0, 3.0]));
-        b.gap = 0.0;
+        b.width = BarWidth::Data(fx.vector(&[1.0, 2.0, 3.0]));
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, histogram);
@@ -283,43 +289,46 @@ fn a_fixed_width_and_per_bar_widths_set_the_slot_of_each_bar() {
     assert_span(at(&bars, 4.5).x, [3.0, 6.0], "the third bin");
 }
 
-// Why: a base given per bar draws floating bars, such as ranges or the steps of a waterfall, which are read by both
-// ends; a constant base other than 0 makes bars rise from a reference level, and a value below that level hangs down
-// from it. Either way the bar must run between exactly the two numbers the figure holds.
+// Why: a value is a length from the base, as in Matplotlib and Plotly, so a base given per bar draws floating bars,
+// such as ranges or the steps of a waterfall, from each base for each length, and a constant base other than 0
+// makes bars rise from a reference level, with a negative length hanging down from it. Reading the value as the end
+// instead would draw the bar at 1 here from 2 to 3 rather than from 2 to 5.
 #[test]
-fn bars_run_from_their_base_whether_constant_or_given_per_bar() {
+fn bars_run_from_their_base_for_their_length_whether_the_base_is_constant_or_given_per_bar() {
     let (mut fx, ax) = axes();
     let floating = fx.bar(ax, &[0.0, 1.0, 2.0], &[4.0, 3.0, 2.0], |b, fx| {
-        b.base = BarBase::Data(fx.vector(&[1.0, 2.0, -1.0]));
+        b.base = PerBar::Data(fx.vector(&[1.0, 2.0, -1.0]));
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, floating);
-    assert_span(at(&bars, 0.0).y, [1.0, 4.0], "from its own base");
-    assert_span(at(&bars, 1.0).y, [2.0, 3.0], "from its own base");
-    assert_span(at(&bars, 2.0).y, [-1.0, 2.0], "from its own base");
+    assert_span(at(&bars, 0.0).y, [1.0, 5.0], "from 1 for 4");
+    assert_span(at(&bars, 1.0).y, [2.0, 5.0], "from 2 for 3");
+    assert_span(at(&bars, 2.0).y, [-1.0, 1.0], "from −1 for 2");
 
     let (mut fx, ax) = axes();
-    let reference = fx.bar(ax, &[0.0, 1.0], &[5.0, 1.0], |b, _| {
-        b.base = BarBase::Constant(2.0);
+    let reference = fx.bar(ax, &[0.0, 1.0], &[5.0, -1.5], |b, _| {
+        b.base = PerBar::Constant(2.0);
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, reference);
-    assert_span(at(&bars, 0.0).y, [2.0, 5.0], "above the reference level");
+    assert_span(at(&bars, 0.0).y, [2.0, 7.0], "above the reference level");
     assert_span(
         at(&bars, 1.0).y,
-        [1.0, 2.0],
-        "hanging below the reference level",
+        [0.5, 2.0],
+        "a negative length hangs below the reference level",
     );
 }
 
 // Why: `barh` is how long category names are shown, and it is the same chart turned on its side: the positions and
-// slots lie along y and the values along x, so the geometry of a horizontal bar is that of an upright one with the
-// axes exchanged, and a value below the base extends to the left.
+// widths lie along y and the lengths along x, so the geometry of a horizontal bar is that of an upright one with the
+// axes exchanged, and a negative length extends to the left of the base.
 #[test]
 fn horizontal_bars_place_positions_along_y_and_values_along_x() {
     let (mut fx, ax) = axes();
     let bar = fx.bar(ax, &[0.0, 1.0], &[3.0, -2.0], |b, _| {
         b.orientation = Orientation::Horizontal;
+        b.base = PerBar::Constant(1.0);
+        b.offset = BarOffset::Absolute(0.1);
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, bar);
@@ -329,55 +338,132 @@ fn horizontal_bars_place_positions_along_y_and_values_along_x() {
             .find(|d| d.y[0] < y && y < d.y[1])
             .unwrap_or_else(|| panic!("a bar lies across y = {y}: {bars:#?}"))
     };
-    assert_span(on(0.0).y, [-0.4, 0.4], "the slot lies along y");
-    assert_span(on(0.0).x, [0.0, 3.0], "the value lies along x");
-    assert_span(on(1.0).y, [0.6, 1.4], "the slot lies along y");
     assert_span(
-        on(1.0).x,
-        [-2.0, 0.0],
-        "a negative value extends to the left",
+        on(0.1).y,
+        [-0.3, 0.5],
+        "the width lies along y, offset along y",
+    );
+    assert_span(
+        on(0.1).x,
+        [1.0, 4.0],
+        "the length lies along x from the base",
+    );
+    assert_span(
+        on(1.1).y,
+        [0.7, 1.5],
+        "the width lies along y, offset along y",
+    );
+    assert_span(
+        on(1.1).x,
+        [-1.0, 1.0],
+        "a negative length extends to the left",
     );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Groups
+// Offsets
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Three grouped members A, B and C over positions 0 to 3, edited by `edit` with the index of the member, and the
-/// drawn bars of each.
-fn grouped(edit: impl Fn(usize, &mut ironlab_ir::Bar)) -> (Scene, NodeId, [NodeId; 3]) {
+// Why: an offset in widths places a series beside its position by a multiple of its own width, which is how the
+// columns of a grouped chart stay side by side: a column offset by one width touches the column at its position
+// whatever the width is. The offset must therefore follow the width, of the pitch, fixed or per bar, rather than be
+// fixed in data units when the series is created; a bar of a per-bar width is offset by its own width.
+#[test]
+fn an_offset_in_widths_moves_each_bar_by_its_own_width_and_follows_a_change_of_width() {
+    for (fraction, width) in [(0.4, 0.4), (0.2, 0.2)] {
+        let (mut fx, ax) = axes();
+        let bar = fx.bar(ax, &[0.0, 1.0, 2.0], &[1.0, 2.0, 3.0], |b, _| {
+            b.width = BarWidth::Pitch(fraction);
+            b.offset = BarOffset::Widths(1.0);
+        });
+        let scene = compile_figure(&fx.build());
+        let bars = drawn(&scene, ax, bar);
+        for p in [0.0, 1.0, 2.0] {
+            let centre = p + width;
+            assert_span(
+                at(&bars, centre).x,
+                [centre - width / 2.0, centre + width / 2.0],
+                &format!("a width of {width}: the bar at {p} lies one width to the right"),
+            );
+        }
+    }
+
     let (mut fx, ax) = axes();
-    let positions = [0.0, 1.0, 2.0, 3.0];
-    let members = [0, 1, 2].map(|k| {
-        fx.bar(ax, &positions, &[1.0 + k as f64; 4], |b, _| {
-            b.group = group("models", BarLayout::Grouped);
-            edit(k, b);
-        })
+    let bar = fx.bar(ax, &[0.0, 4.0], &[1.0, 2.0], |b, fx| {
+        b.width = BarWidth::Data(fx.vector(&[1.0, 2.0]));
+        b.offset = BarOffset::Widths(-0.5);
     });
-    (compile_figure(&fx.build()), ax, members)
+    let scene = compile_figure(&fx.build());
+    let bars = drawn(&scene, ax, bar);
+    assert_span(
+        at(&bars, -0.5).x,
+        [-1.0, 0.0],
+        "half of its own width of 1 to the left",
+    );
+    assert_span(
+        at(&bars, 3.0).x,
+        [2.0, 4.0],
+        "half of its own width of 2 to the left",
+    );
 }
 
-// Why: grouped bars compare several series at each position, which the reader can only do if the members of a
-// cluster stand side by side in artist order and touch, while the gap separates one position's cluster from the
-// next. At the default gap of 0.2 and a pitch of 1 the drawn part of each slot is p ± 0.4, which three members split
-// into thirds of 0.8 / 3; between clusters 0.2 is left empty.
+// Why: an absolute offset places a series a fixed distance along the category axis from its positions, such as a
+// reference series drawn just beside the data, so its bars must be centred at the position plus that distance
+// whatever their width, and a change of width must leave their centres where they were.
 #[test]
-fn grouped_members_split_the_drawn_part_of_each_slot_touch_one_another_and_leave_the_gap_between_clusters()
- {
-    let (scene, ax, members) = grouped(|_, _| {});
+fn an_absolute_offset_moves_every_bar_by_a_distance_in_data_units_whatever_its_width() {
+    for width in [BarWidth::Pitch(0.8), BarWidth::Constant(0.2)] {
+        let (mut fx, ax) = axes();
+        let bar = fx.bar(ax, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
+            b.width = width;
+            b.offset = BarOffset::Absolute(-0.25);
+        });
+        let scene = compile_figure(&fx.build());
+        let bars = drawn(&scene, ax, bar);
+        let w = match width {
+            BarWidth::Constant(w) => w,
+            _ => 0.8,
+        };
+        for p in [0.0, 1.0] {
+            let centre = p - 0.25;
+            assert_span(
+                at(&bars, centre).x,
+                [centre - w / 2.0, centre + w / 2.0],
+                &format!("{width:?}: the bar at {p} is centred 0.25 to its left"),
+            );
+        }
+    }
+}
+
+// Why: grouped bars are how several series are compared at each position, and with bars as a primitive they are
+// ordinary series of a narrower width offset by whole widths, as the facade's helper writes them. Drawn that way,
+// the columns of a cluster must stand side by side in order and touch, while the gap of the cluster separates one
+// position from the next; this is the drawing the helper relies on. Three columns of a third of 0.8 at offsets −1,
+// 0 and 1 widths split p ± 0.4 into thirds and leave 0.2 between clusters.
+#[test]
+fn series_offset_by_whole_widths_stand_side_by_side_and_touch() {
+    let (mut fx, ax) = axes();
+    let positions = [0.0, 1.0, 2.0, 3.0];
     let w = 0.8 / 3.0;
+    let columns = [0, 1, 2].map(|k| {
+        fx.bar(ax, &positions, &[1.0 + k as f64; 4], |b, _| {
+            b.width = BarWidth::Pitch(w);
+            b.offset = BarOffset::Widths(k as f64 - 1.0);
+        })
+    });
+    let scene = compile_figure(&fx.build());
     let mut clusters = Vec::new();
-    for p in [0.0, 1.0, 2.0, 3.0] {
+    for p in positions {
         let mut previous_right = None;
-        for (k, &member) in members.iter().enumerate() {
-            let bars = drawn(&scene, ax, member);
+        for (k, &column) in columns.iter().enumerate() {
+            let bars = drawn(&scene, ax, column);
             let lo = p - 0.4 + k as f64 * w;
             let d = at(&bars, lo + w / 2.0);
-            assert_span(d.x, [lo, lo + w], &format!("member {k} at {p}"));
+            assert_span(d.x, [lo, lo + w], &format!("column {k} at {p}"));
             assert_span(
                 d.y,
                 [0.0, 1.0 + k as f64],
-                &format!("member {k} at {p} keeps its own value"),
+                &format!("column {k} at {p} keeps its own value"),
             );
             if let Some(right) = previous_right {
                 assert_close(d.x[0], right, TOL);
@@ -391,315 +477,52 @@ fn grouped_members_split_the_drawn_part_of_each_slot_touch_one_another_and_leave
     }
 }
 
-// Why: the members of a group need not have the same positions, and are matched by position value, not by index:
-// a member that lacks a position leaves its own sub-slot empty there, so that every other member stays in the
-// sub-slot it has at every other position and the reader finds each series at the same place in every cluster.
-// Member B here holds positions 3, 2 and 0, in reverse order and without 1.
+// Why: toggling a legend entry hides one series of a grouped chart; because each series draws only its own bars at
+// its own offset, the others must not move, so that the reader can compare the views before and after.
 #[test]
-fn a_grouped_member_is_matched_by_position_and_leaves_its_sub_slot_empty_where_it_has_no_bar() {
-    let (mut fx, ax) = axes();
-    let a = fx.bar(ax, &[0.0, 1.0, 2.0, 3.0], &[1.0; 4], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let b = fx.bar(ax, &[3.0, 2.0, 0.0], &[30.0, 20.0, 0.5], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let c = fx.bar(ax, &[0.0, 1.0, 2.0, 3.0], &[3.0; 4], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let scene = compile_figure(&fx.build());
-    let w = 0.8 / 3.0;
-    let middle = |p: f64, k: usize| p - 0.4 + (k as f64 + 0.5) * w;
-
-    let bs = drawn(&scene, ax, b);
-    assert_eq!(bs.len(), 3);
-    assert!(!covers(&bs, middle(1.0, 1)), "B has no bar at 1");
-    assert_span(
-        at(&bs, middle(3.0, 1)).y,
-        [0.0, 30.0],
-        "B's bar at 3 holds its value at 3",
-    );
-    assert_span(
-        at(&bs, middle(0.0, 1)).y,
-        [0.0, 0.5],
-        "B's bar at 0 holds its value at 0",
-    );
-    for (k, member) in [(0, a), (2, c)] {
-        let bars = drawn(&scene, ax, member);
-        let lo = 1.0 - 0.4 + k as f64 * w;
-        assert_span(
-            at(&bars, middle(1.0, k)).x,
-            [lo, lo + w],
-            &format!("member {k} keeps its sub-slot at 1"),
-        );
-    }
-}
-
-// Why: toggling a legend entry hides one member of a group; if the remaining members then widened to fill the
-// cluster, every bar of the chart would move and the reader could not compare the views before and after. A hidden
-// grouped member therefore keeps its sub-slot, empty, and draws nothing.
-#[test]
-fn a_hidden_grouped_member_keeps_its_place_and_the_others_do_not_move() {
-    let (shown, ax, members) = grouped(|_, _| {});
-    let (hidden, _, _) = grouped(|k, b| b.visible = k != 1);
-    assert!(
-        drawn(&hidden, ax, members[1]).is_empty(),
-        "the hidden member draws nothing"
-    );
-    for k in [0, 2] {
-        let before = drawn(&shown, ax, members[k]);
-        let after = drawn(&hidden, ax, members[k]);
-        assert_eq!(before.len(), 4, "member {k} draws a bar at each position");
-        assert_eq!(
-            after.len(),
-            4,
-            "member {k} still draws a bar at each position"
-        );
-        for (b, a) in before.iter().zip(&after) {
-            assert_span(a.x, b.x, &format!("member {k} stays where it was"));
-        }
-    }
-}
-
-// Why: a stack shows a total and its parts, so each member must start exactly where the members before it ended at
-// the same position, in artist order. Positive and negative values stack separately, upwards and downwards from the
-// base (Plotly's relative mode): were a negative part stacked onto the top of a positive one it would hide inside
-// it and the column would no longer show the positive total. Member B is given its positions in reverse order, so a
-// stack matched by index rather than by position value would put B's parts on the wrong columns.
-#[test]
-fn stacked_members_build_on_one_another_with_positive_and_negative_parts_stacked_separately() {
-    let (mut fx, ax) = axes();
-    let a = fx.bar(ax, &[0.0, 1.0, 2.0], &[1.0, -2.0, 3.0], |b, _| {
-        b.group = group("s", BarLayout::Stacked);
-    });
-    let b = fx.bar(ax, &[2.0, 1.0, 0.0], &[-1.0, -1.0, 2.0], |b, _| {
-        b.group = group("s", BarLayout::Stacked);
-    });
-    let c = fx.bar(ax, &[0.0, 1.0, 2.0], &[0.5, 4.0, 1.0], |b, _| {
-        b.group = group("s", BarLayout::Stacked);
-    });
-    let scene = compile_figure(&fx.build());
-    let (a, b, c) = (
-        drawn(&scene, ax, a),
-        drawn(&scene, ax, b),
-        drawn(&scene, ax, c),
-    );
-
-    // Position 0: all positive, so 0 → 1 → 3 → 3.5.
-    assert_span(at(&a, 0.0).y, [0.0, 1.0], "A at 0");
-    assert_span(at(&b, 0.0).y, [1.0, 3.0], "B at 0 starts where A ended");
-    assert_span(at(&c, 0.0).y, [3.0, 3.5], "C at 0 starts where B ended");
-    // Position 1: A and B are negative and stack downwards; C is positive and rises from the base, not from them.
-    assert_span(at(&a, 1.0).y, [-2.0, 0.0], "A at 1 hangs from the base");
-    assert_span(at(&b, 1.0).y, [-3.0, -2.0], "B at 1 hangs from A");
-    assert_span(at(&c, 1.0).y, [0.0, 4.0], "C at 1 rises from the base");
-    // Position 2: B is negative between two positive members, so C stacks on A, not on B.
-    assert_span(at(&a, 2.0).y, [0.0, 3.0], "A at 2");
-    assert_span(at(&b, 2.0).y, [-1.0, 0.0], "B at 2 hangs from the base");
-    assert_span(
-        at(&c, 2.0).y,
-        [3.0, 4.0],
-        "C at 2 stacks on A, the last positive part",
-    );
-    // Stacked members share the whole drawn part of the slot.
-    assert_span(
-        at(&c, 2.0).x,
-        [1.6, 2.4],
-        "a stack is as wide as a lone bar",
-    );
-}
-
-// Why: a stack's members build on a base other than 0 as they do on 0: the first part starts at the base, positive
-// parts above it and negative parts below it.
-#[test]
-fn a_stack_builds_from_its_base() {
-    let (mut fx, ax) = axes();
-    let members = [[2.0, -1.0], [3.0, -2.0]].map(|values| {
-        fx.bar(ax, &[0.0, 1.0], &values, |b, _| {
-            b.group = group("s", BarLayout::Stacked);
-            b.base = BarBase::Constant(10.0);
-        })
-    });
-    let scene = compile_figure(&fx.build());
-    let (a, b) = (drawn(&scene, ax, members[0]), drawn(&scene, ax, members[1]));
-    assert_span(at(&a, 0.0).y, [10.0, 12.0], "A at 0 rises from the base");
-    assert_span(at(&b, 0.0).y, [12.0, 15.0], "B at 0 rises from A");
-    assert_span(at(&a, 1.0).y, [9.0, 10.0], "A at 1 hangs from the base");
-    assert_span(at(&b, 1.0).y, [7.0, 9.0], "B at 1 hangs from A");
-}
-
-// Why: toggling a legend entry of a stack is how a reader sees the total of the remaining parts, so a hidden member
-// contributes nothing and the members above it close up onto those below, unlike a hidden grouped member, which
-// keeps its place.
-#[test]
-fn a_hidden_stacked_member_contributes_nothing_and_the_others_close_up() {
-    let (mut fx, ax) = axes();
-    let ids = [1.0, 2.0, 4.0].map(|v| {
-        fx.bar(ax, &[0.0], &[v], |b, _| {
-            b.group = group("s", BarLayout::Stacked);
-        })
-    });
-    if let Some(Artist::Bar(first)) = fx.ax(ax).artists.first_mut() {
-        first.visible = false;
-    }
-    let scene = compile_figure(&fx.build());
-    assert!(
-        drawn(&scene, ax, ids[0]).is_empty(),
-        "the hidden member draws nothing"
-    );
-    assert_span(
-        drawn(&scene, ax, ids[1])[0].y,
-        [0.0, 2.0],
-        "B closes up onto the base",
-    );
-    assert_span(
-        drawn(&scene, ax, ids[2])[0].y,
-        [2.0, 6.0],
-        "C closes up onto B",
-    );
-}
-
-// Why: the orientation, slot, gap, base and layout of a group are those of its first member, because a group with
-// members of different widths or gaps has no one cluster to draw. A later member that disagrees is warned of by
-// validation and drawn by the first member's properties, so the chart stays a readable group rather than a member
-// drawn on its own over the others.
-#[test]
-fn a_member_that_disagrees_with_the_first_is_drawn_by_the_first_members_properties() {
-    let (mut fx, ax) = axes();
-    let first = fx.bar(ax, &[0.0, 1.0], &[1.0, 1.0], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let later = fx.bar(ax, &[0.0, 1.0], &[2.0, 2.0], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-        b.gap = 0.6;
-        b.slot = BarSlot::Width(5.0);
-        b.base = BarBase::Constant(1.0);
-    });
-    let scene = compile_figure(&fx.build());
-    let first = drawn(&scene, ax, first);
-    let later = drawn(&scene, ax, later);
-    assert_span(
-        at(&first, -0.2).x,
-        [-0.4, 0.0],
-        "the first member's half of the cluster",
-    );
-    assert_span(
-        at(&later, 0.2).x,
-        [0.0, 0.4],
-        "the later member's half, by the first's slot and gap",
-    );
-    assert_span(
-        at(&later, 0.2).y,
-        [0.0, 2.0],
-        "from the first member's base",
-    );
-}
-
-// Why: members of one group commonly come from different calls with different widths, such as a histogram and a
-// reference series binned differently, yet a cluster or a column can only be drawn across one slot. Whether grouped
-// or stacked, every member takes the slot of the first member, so that the members of a cluster touch without
-// overlapping and the parts of a stack lie exactly on one another; a later member drawn at its own width would
-// stick out of the cluster or the column. The first member here has a fixed width of 2 and the second a width of
-// 0.5, both without a gap, at positions 0 and 4.
-#[test]
-fn members_of_different_slot_widths_are_drawn_across_the_first_members_slot_whatever_the_layout() {
-    for layout in [BarLayout::Grouped, BarLayout::Stacked] {
+fn a_hidden_series_draws_nothing_and_the_series_beside_it_do_not_move() {
+    let build = |hide: bool| {
         let (mut fx, ax) = axes();
-        let [first, later] = [2.0, 0.5].map(|width| {
-            fx.bar(ax, &[0.0, 4.0], &[1.0, 2.0], |b, _| {
-                b.group = group("g", layout);
-                b.slot = BarSlot::Width(width);
-                b.gap = 0.0;
+        let columns = [0, 1, 2].map(|k| {
+            fx.bar(ax, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
+                b.width = BarWidth::Pitch(0.8 / 3.0);
+                b.offset = BarOffset::Widths(k as f64 - 1.0);
+                b.visible = !(hide && k == 1);
             })
         });
-        let scene = compile_figure(&fx.build());
-        let (first, later) = (drawn(&scene, ax, first), drawn(&scene, ax, later));
-        assert_eq!((first.len(), later.len()), (2, 2), "{layout:?}");
-        for p in [0.0, 4.0] {
-            let (a, b) = match layout {
-                BarLayout::Grouped => ([p - 1.0, p], [p, p + 1.0]),
-                BarLayout::Stacked => ([p - 1.0, p + 1.0], [p - 1.0, p + 1.0]),
-            };
-            assert_span(
-                at(&first, a[0] + 0.25).x,
-                a,
-                &format!("{layout:?}: the first member at {p}"),
-            );
-            assert_span(
-                at(&later, b[1] - 0.25).x,
-                b,
-                &format!("{layout:?}: the later member at {p}"),
-            );
-        }
-    }
-}
-
-// Why: a part of a stack that is missing (NaN) has no length, so it is not drawn and contributes nothing: the part
-// above it starts where the part below it ended. Adding the missing value to the running total would make every
-// later part of the column NaN, and the column would lose its top for one missing number.
-#[test]
-fn a_part_of_a_stack_without_a_finite_value_contributes_nothing() {
-    let (mut fx, ax) = axes();
-    let ids = [1.0, f64::NAN, 2.0].map(|v| {
-        fx.bar(ax, &[0.0], &[v], |b, _| {
-            b.group = group("s", BarLayout::Stacked);
-        })
-    });
-    let scene = compile_figure(&fx.build());
+        (compile_figure(&fx.build()), ax, columns)
+    };
+    let (shown, ax, columns) = build(false);
+    let (hidden, _, _) = build(true);
     assert!(
-        drawn(&scene, ax, ids[1]).is_empty(),
-        "the missing part draws nothing"
+        drawn(&hidden, ax, columns[1]).is_empty(),
+        "the hidden series draws nothing"
     );
-    assert_span(
-        drawn(&scene, ax, ids[0])[0].y,
-        [0.0, 1.0],
-        "A from the base",
-    );
-    assert_span(
-        drawn(&scene, ax, ids[2])[0].y,
-        [1.0, 3.0],
-        "C closes up onto A",
-    );
-}
-
-// Why: a group is formed by name within one axes only, and a series without a group is never part of one. Subplots
-// commonly reuse a group name, and a chart may add a lone reference series beside a group; were either drawn into a
-// group, bars would shrink into sub-slots that belong to nothing on their own axes.
-#[test]
-fn groups_are_formed_by_name_within_one_axes_and_never_take_in_an_ungrouped_series() {
-    let mut fx = Fx::new();
-    fx.fig.layout.cols = 2;
-    let left = fx.axes2d(0, 0);
-    let right = fx.axes2d(0, 1);
-    let in_left = fx.bar(left, &[0.0, 1.0], &[1.0, 1.0], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let in_right = fx.bar(right, &[0.0, 1.0], &[1.0, 1.0], |b, _| {
-        b.group = group("g", BarLayout::Grouped);
-    });
-    let lone = fx.bar(right, &[0.0, 1.0], &[2.0, 2.0], |_, _| {});
-    let scene = compile_figure(&fx.build());
-    for (ax, bar, what) in [
-        (left, in_left, "the only member in its axes"),
-        (right, in_right, "the only member in its axes"),
-        (right, lone, "a series without a group"),
-    ] {
-        assert_span(at(&drawn(&scene, ax, bar), 0.0).x, [-0.4, 0.4], what);
+    for k in [0, 2] {
+        let before = drawn(&shown, ax, columns[k]);
+        let after = drawn(&hidden, ax, columns[k]);
+        assert_eq!(after.len(), before.len(), "series {k} draws the same bars");
+        for (b, a) in before.iter().zip(&after) {
+            assert_span(a.x, b.x, &format!("series {k} stays where it was"));
+        }
     }
 }
 
 // Why: a reversed axis is common for bars, such as a ranking read from the top down with `barh`, or depth plotted
-// downwards. A bar must still span exactly its slot less the gap and run from its base to its value: computed on
-// the page with the assumption that the page coordinate grows with the data, the inset of the gap would become an
-// outset, or the rectangle would have a negative extent and draw nothing. The bars are mapped back to data, so
-// these are the same spans as on unreversed axes, and the page order shows that the axes really are reversed.
+// downwards. A bar must still span exactly its width and run from its base for its length: computed on the page
+// with the assumption that the page coordinate grows with the data, an offset would move the bar the wrong way, or
+// the rectangle would have a negative extent and draw nothing. The bars are mapped back to data, so these are the
+// same spans as on unreversed axes, and the page order shows that the axes really are reversed.
 #[test]
-fn on_reversed_axes_each_bar_still_spans_its_slot_less_the_gap_from_its_base_to_its_value() {
+fn on_reversed_axes_each_bar_still_spans_its_width_at_its_offset_from_its_base_for_its_length() {
     let (mut fx, ax) = axes();
     fx.ax(ax).x.reverse = true;
     fx.ax(ax).y.reverse = true;
     let values = [3.0, -1.0, 2.0];
-    let bar = fx.bar(ax, &[0.0, 1.0, 2.0], &values, |_, _| {});
+    let bar = fx.bar(ax, &[0.0, 1.0, 2.0], &values, |b, _| {
+        b.width = BarWidth::Pitch(0.4);
+        b.offset = BarOffset::Widths(0.5);
+    });
     let scene = compile_figure(&fx.build());
     let (xmap, ymap) = axis_maps(&scene, ax);
     assert!(
@@ -710,50 +533,50 @@ fn on_reversed_axes_each_bar_still_spans_its_slot_less_the_gap_from_its_base_to_
     assert_eq!(bars.len(), 3);
     for (k, value) in values.into_iter().enumerate() {
         let p = k as f64;
-        let d = at(&bars, p);
-        assert_span(d.x, [p - 0.4, p + 0.4], &format!("bar {k} across its slot"));
+        let d = at(&bars, p + 0.2);
+        assert_span(
+            d.x,
+            [p, p + 0.4],
+            &format!("bar {k} half a width to the right"),
+        );
         assert_span(
             d.y,
             sorted2(0.0, value),
-            &format!("bar {k} from the base to its value"),
+            &format!("bar {k} from the base for its length"),
         );
     }
     assert!(
-        at(&bars, 0.0).page.x > at(&bars, 1.0).page.x,
+        at(&bars, 0.2).page.x > at(&bars, 1.2).page.x,
         "the first bar is drawn on the right"
     );
-    assert_close(xmap.min.min(xmap.max), -0.5, TOL);
-    assert_close(xmap.min.max(xmap.max), 2.5, TOL);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Logarithmic axes
 // ---------------------------------------------------------------------------------------------------------------
 
-// Why: on a logarithmic category axis a gap measured in data units would leave more space on the right of each bar
-// than on its left, so the bar would look off-centre in its slot. The gap is a fraction of the slot measured on the
-// page: each side is inset by a quarter of the slot's page width at a gap of 0.5, which in data units is not
-// symmetric about the position at all.
+// Why: a width and an offset are lengths in data units along the category axis, so on a logarithmic category axis a
+// bar spans exactly from its centre less half its width to its centre plus half its width in data, each edge placed
+// through the logarithmic scale, as the edges of a bin are; a histogram of logarithmic bins drawn with per-bar
+// widths then covers each bin exactly.
 #[test]
-fn on_a_logarithmic_category_axis_the_gap_is_symmetric_on_the_page() {
+fn on_a_logarithmic_category_axis_each_bar_spans_its_width_in_data_units() {
     let (mut fx, ax) = axes();
     fx.ax(ax).x.scale = Scale::Log;
-    let bar = fx.bar(ax, &[10.0, 30.0], &[1.0, 2.0], |b, _| {
-        b.slot = BarSlot::Width(10.0);
-        b.gap = 0.5;
+    // Bins [1, 10] and [10, 100], stored as centres and widths.
+    let bar = fx.bar(ax, &[5.5, 55.0], &[1.0, 2.0], |b, fx| {
+        b.width = BarWidth::Data(fx.vector(&[9.0, 90.0]));
     });
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
     let bars = drawn(&scene, ax, bar);
-    for (p, d) in [(10.0, at(&bars, 10.0)), (30.0, at(&bars, 30.0))] {
-        let (lo, hi) = (xmap.to_figure(p - 5.0), xmap.to_figure(p + 5.0));
-        let quarter = 0.25 * (hi - lo);
-        assert_close(d.page.x, lo + quarter, 1e-6);
-        assert_close(d.page.right(), hi - quarter, 1e-6);
-        let (left, right) = (d.x[0] - (p - 5.0), (p + 5.0) - d.x[1]);
-        assert!(
-            (left - right).abs() > 0.1,
-            "precondition: in data units the gap is not symmetric ({left} against {right})"
+    for (p, [lo, hi]) in [(5.5, [1.0, 10.0]), (55.0, [10.0, 100.0])] {
+        let d = at(&bars, p);
+        assert_close(d.page.x, xmap.to_figure(lo).min(xmap.to_figure(hi)), 1e-6);
+        assert_close(
+            d.page.right(),
+            xmap.to_figure(lo).max(xmap.to_figure(hi)),
+            1e-6,
         );
     }
 }
@@ -784,16 +607,44 @@ fn on_a_logarithmic_value_axis_a_base_that_is_not_positive_is_drawn_from_the_low
     }
 }
 
+// Why: on a logarithmic value axis what must be positive is the end of a bar, its base plus its length: a negative
+// length hanging from a positive base to a positive end is an ordinary bar and is drawn between the two, whereas a
+// bar whose end is not positive has nowhere to end and is not drawn, while the other bars of the series are.
+#[test]
+fn on_a_logarithmic_value_axis_a_bar_is_drawn_to_a_positive_end_and_left_out_when_its_end_is_not_positive()
+ {
+    let (mut fx, ax) = axes();
+    fx.ax(ax).y.scale = Scale::Log;
+    let bar = fx.bar(ax, &[0.0, 1.0, 2.0], &[-60.0, -100.0, 400.0], |b, _| {
+        b.base = PerBar::Constant(100.0);
+    });
+    let scene = compile_figure(&fx.build());
+    let bars = drawn(&scene, ax, bar);
+    assert_eq!(bars.len(), 2, "the bar ending at 0 is left out: {bars:#?}");
+    assert!(
+        !covers(&bars, 1.0),
+        "nothing is drawn for the bar ending at 0"
+    );
+    let hanging = at(&bars, 0.0);
+    assert_close(hanging.y[0], 40.0, 1e-9 * 40.0);
+    assert_close(hanging.y[1], 100.0, 1e-9 * 100.0);
+    let rising = at(&bars, 2.0);
+    assert_close(rising.y[0], 100.0, 1e-9 * 100.0);
+    assert_close(rising.y[1], 500.0, 1e-9 * 500.0);
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Limits
 // ---------------------------------------------------------------------------------------------------------------
 
-// Why: bars fill their slots as the cells of a grid fill theirs, so the automatic limits along the category axis end
-// exactly at the outer edges of the outermost slots, rather than at the next tick value, which would leave an
-// arbitrary empty margin at one end and not the other. With positions 1 to 3 at a pitch of 1 they are 0.5 and 3.5,
-// so the half-gap beside the outer bars matches the half-gap beside every other bar.
+// Why: bars of a width given as a fraction of the pitch fill slots one pitch wide, as the cells of a grid fill
+// theirs, so the automatic limits along the category axis end exactly half a pitch beyond the outermost positions,
+// rather than at the next tick value, which would leave an arbitrary empty margin at one end and not the other; with
+// positions 1 to 3 they are 0.5 and 3.5, so the space beside the outer bars matches the space between bars. Bars that
+// are offset beyond that half pitch, and bars of a fixed width or of widths per bar, which have no slot, end the
+// limits exactly at their drawn extent, so that no bar is cut off and no space is invented.
 #[test]
-fn automatic_category_limits_end_exactly_at_the_outer_edges_of_the_slots() {
+fn automatic_category_limits_end_half_a_pitch_beyond_the_positions_or_at_the_drawn_extent() {
     let (mut fx, ax) = axes();
     fx.bar(ax, &[1.0, 2.0, 3.0], &[3.0, 1.0, 2.0], |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -801,11 +652,30 @@ fn automatic_category_limits_end_exactly_at_the_outer_edges_of_the_slots() {
     assert_close(xmap.min, 0.5, TOL);
     assert_close(xmap.max, 3.5, TOL);
 
+    // Offset by a whole width to the right, the bar at 3 spans 3.4 to 4.2, beyond the half pitch at 3.5, while on the
+    // left the half pitch at 0.5 lies beyond the bar at 1, which starts at 1.4.
+    let (mut fx, ax) = axes();
+    fx.bar(ax, &[1.0, 2.0, 3.0], &[3.0, 1.0, 2.0], |b, _| {
+        b.offset = BarOffset::Widths(1.0);
+    });
+    let scene = compile_figure(&fx.build());
+    let (xmap, _) = axis_maps(&scene, ax);
+    assert_close(xmap.min, 0.5, TOL);
+    assert_close(xmap.max, 4.2, TOL);
+
+    let (mut fx, ax) = axes();
+    fx.bar(ax, &[0.0, 3.0], &[1.0, 2.0], |b, _| {
+        b.width = BarWidth::Constant(0.5);
+    });
+    let scene = compile_figure(&fx.build());
+    let (xmap, _) = axis_maps(&scene, ax);
+    assert_close(xmap.min, -0.25, TOL);
+    assert_close(xmap.max, 3.25, TOL);
+
     // A histogram of bins [0, 1], [1, 3] and [3, 6] ends at its outer bin edges.
     let (mut fx, ax) = axes();
     fx.bar(ax, &[0.5, 2.0, 4.5], &[4.0, 2.0, 1.0], |b, fx| {
-        b.slot = BarSlot::Data(fx.vector(&[1.0, 2.0, 3.0]));
-        b.gap = 0.0;
+        b.width = BarWidth::Data(fx.vector(&[1.0, 2.0, 3.0]));
     });
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
@@ -823,12 +693,12 @@ fn automatic_category_limits_end_exactly_at_the_outer_edges_of_the_slots() {
     assert_close(ymap.max, 3.5, TOL);
 }
 
-// Why: a bar is read against its base, so the automatic value limits include the base as well as the ends of the
-// bars: bars rising from 0 must show 0, or they would appear to start at the lowest value and their lengths would
-// misstate the ratios between them. A stack must be shown whole, so the limits cover the totals of its positive and
-// negative parts rather than the individual values.
+// Why: a bar is read against its base, so the automatic value limits include the bases as well as the ends of the
+// bars, the end being the base plus the length: bars rising from 0 must show 0, or they would appear to start at the
+// lowest value and their lengths would misstate the ratios between them; and floating bars and stacked parts, whose
+// ends lie beyond their lengths, must be shown whole.
 #[test]
-fn automatic_value_limits_include_the_base_and_the_totals_of_stacks() {
+fn automatic_value_limits_include_the_bases_and_the_ends_of_the_bars() {
     let (mut fx, ax) = axes();
     fx.bar(ax, &[0.0, 1.0, 2.0], &[30.0, 50.0, 40.0], |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -837,29 +707,97 @@ fn automatic_value_limits_include_the_base_and_the_totals_of_stacks() {
     assert!(ymap.max >= 50.0);
 
     let (mut fx, ax) = axes();
-    fx.bar(ax, &[0.0, 1.0], &[12.0, 15.0], |b, _| {
-        b.base = BarBase::Constant(10.0)
+    fx.bar(ax, &[0.0, 1.0], &[2.0, 5.0], |b, _| {
+        b.base = PerBar::Constant(10.0)
     });
     let scene = compile_figure(&fx.build());
     let (_, ymap) = axis_maps(&scene, ax);
-    assert!(ymap.min <= 10.0 && ymap.max >= 15.0, "{ymap:?}");
+    assert!(
+        ymap.min <= 10.0 && ymap.max >= 15.0,
+        "the base 10 and the end 10 + 5: {ymap:?}"
+    );
 
+    // Parts stacked as the helper stacks them: the second series rests on the first, positive and negative apart.
     let (mut fx, ax) = axes();
-    for values in [[4.0, -3.0], [6.0, -2.0]] {
-        fx.bar(ax, &[0.0, 1.0], &values, |b, _| {
-            b.group = group("s", BarLayout::Stacked);
-        });
-    }
+    fx.bar(ax, &[0.0, 1.0], &[4.0, -3.0], |_, _| {});
+    fx.bar(ax, &[0.0, 1.0], &[6.0, -2.0], |b, fx| {
+        b.base = PerBar::Data(fx.vector(&[4.0, -3.0]));
+    });
     let scene = compile_figure(&fx.build());
     let (_, ymap) = axis_maps(&scene, ax);
+    assert!(ymap.max >= 10.0, "the end 4 + 6 is shown: {ymap:?}");
+    assert!(ymap.min <= -5.0, "the end −3 − 2 is shown: {ymap:?}");
+}
+
+// Why: a bar chart whose tallest bar ends on a round tick value would otherwise have its axis end exactly there, so
+// that the bar touches the box and reads as cut off; the margin adds a fraction of the span of the bars beyond their
+// ends, before the limits are rounded to ticks, so the limit moves past the tallest bar. The base side takes no
+// margin, so that bars rising from 0 keep 0 at the edge of the axis; a margin of 0 gives the limits that the bars
+// alone give, ending at the round value; and bars of negative lengths take the margin below, where their ends are.
+#[test]
+fn the_margin_moves_the_value_limit_beyond_the_ends_of_the_bars_but_not_beyond_the_base() {
+    let limits = |values: &[f64], edit: &dyn Fn(&mut ironlab_ir::Bar)| {
+        let (mut fx, ax) = axes();
+        fx.bar(ax, &[0.0, 1.0, 2.0], values, |b, _| edit(b));
+        let scene = compile_figure(&fx.build());
+        let (xmap, ymap) = axis_maps(&scene, ax);
+        (xmap, ymap)
+    };
+
+    let (_, ymap) = limits(&[1.0, 5.0, 3.0], &|_| {});
     assert!(
-        ymap.max >= 10.0,
-        "the positive total 4 + 6 is shown: {ymap:?}"
+        ymap.max > 5.0 + 1e-9,
+        "the tallest bar ends at the round value 5, and the limit lies beyond it: {ymap:?}"
     );
+    assert_close(ymap.min, 0.0, 1e-12);
+
+    let (_, ymap) = limits(&[1.0, 5.0, 3.0], &|b| b.margin = 0.0);
+    assert_close(ymap.max, 5.0, 1e-12);
+    assert_close(ymap.min, 0.0, 1e-12);
+
+    let (_, ymap) = limits(&[-1.0, -5.0, -3.0], &|_| {});
     assert!(
-        ymap.min <= -5.0,
-        "the negative total −3 − 2 is shown: {ymap:?}"
+        ymap.min < -5.0 - 1e-9,
+        "the margin lies below bars of negative lengths: {ymap:?}"
     );
+    assert_close(ymap.max, 0.0, 1e-12);
+
+    // Floating bars rising from a base of 10 take no margin below it: their span is 10 to 15, so a margin of 0.5 adds
+    // 2.5 above the ends and nothing below the base, which already lies on a tick. A margin applied on the base side
+    // as well would move the lower limit to 7.5 and round it down further.
+    let (_, ymap) = limits(&[2.0, 5.0, 3.0], &|b| {
+        b.base = PerBar::Constant(10.0);
+        b.margin = 0.5;
+    });
+    assert_close(ymap.min, 10.0, 1e-12);
+    assert!(ymap.max >= 17.5, "{ymap:?}");
+
+    // Bars on both sides of the base take the margin on both sides, a fraction of the whole span of 6.
+    let (_, ymap) = limits(&[-2.0, 4.0, 1.0], &|b| b.margin = 0.5);
+    assert!(ymap.max >= 4.0 + 3.0, "{ymap:?}");
+    assert!(ymap.min <= -2.0 - 3.0, "{ymap:?}");
+
+    // Horizontal bars take the margin along x, and none along their category axis y.
+    let (xmap, ymap) = limits(&[1.0, 5.0, 3.0], &|b| {
+        b.orientation = Orientation::Horizontal
+    });
+    assert!(xmap.max > 5.0 + 1e-9, "{xmap:?}");
+    assert_close(xmap.min, 0.0, 1e-12);
+    assert_close(ymap.min, -0.5, TOL);
+    assert_close(ymap.max, 2.5, TOL);
+}
+
+// Why: manual limits are what the author asked for, so the margin, which only places automatic limits, must leave
+// them exactly as given.
+#[test]
+fn manual_value_limits_ignore_the_margin() {
+    let (mut fx, ax) = axes();
+    fx.ax(ax).y.limits = Limits::Manual { min: 0.0, max: 5.0 };
+    fx.bar(ax, &[0.0, 1.0], &[2.0, 5.0], |b, _| b.margin = 0.5);
+    let scene = compile_figure(&fx.build());
+    let (_, ymap) = axis_maps(&scene, ax);
+    assert_close(ymap.min, 0.0, 1e-12);
+    assert_close(ymap.max, 5.0, 1e-12);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

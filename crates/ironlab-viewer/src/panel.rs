@@ -32,11 +32,11 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, BarGroup, CategoricalColorScale, Cell as IrCell, CellGap, Choice, Color,
-    ColorScaleOutOfRange, ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement,
-    IndexedColorScale, InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange,
-    PanelLegend, Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value,
-    ValueType, View3d, choices,
+    Axis, CategoricalColorScale, Cell as IrCell, CellGap, Choice, Color, ColorScaleOutOfRange,
+    ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
+    InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
+    Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d,
+    choices,
 };
 
 use crate::widgets::{
@@ -888,6 +888,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
     match value_type {
         ValueType::Bool => Some(Value::Bool(false)),
         ValueType::UInt32 => Some(Value::UInt32(0)),
+        ValueType::UInt64 => Some(Value::UInt64(0)),
         ValueType::Double => Some(Value::Double(0.0)),
         ValueType::Float => Some(Value::Float(0.0)),
         ValueType::String => Some(Value::String(String::new())),
@@ -928,10 +929,12 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::CategoricalColorScale => Some(Value::CategoricalColorScale(
             CategoricalColorScale::default(),
         )),
-        ValueType::BarGroup => Some(Value::BarGroup(BarGroup::default())),
         ValueType::CellGap => Some(Value::CellGap(CellGap::default())),
         // A colourbar names a colour scale, which is a reference to a node.
         ValueType::NodeId | ValueType::PanelColorbar | ValueType::InsideColorbar => None,
+        // A binning record describes how the program that built the figure counted its
+        // samples, so the viewer, which shows it read-only, never invents one.
+        ValueType::Binning | ValueType::Binning2d => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
         | ValueType::Limits
@@ -968,9 +971,12 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::ColorScaleNorm
         | ValueType::ColorScaleLevels
         | ValueType::Orientation
-        | ValueType::BarBase
-        | ValueType::BarSlot
-        | ValueType::BarLayout
+        | ValueType::PerBar
+        | ValueType::BarWidth
+        | ValueType::BarOffset
+        | ValueType::Bins
+        | ValueType::BinRule
+        | ValueType::HistNorm
         | ValueType::StairsData
         | ValueType::StepAt
         | ValueType::CellEdges => None,

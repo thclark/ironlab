@@ -1,6 +1,6 @@
 //! Geometry that interactive front ends need to map pointer positions back onto figure elements.
 
-use ironlab_ir::{ColorScaleKey, ColorbarOrientation, NodeId};
+use ironlab_ir::{ColorScaleKey, ColorbarOrientation, HistNorm, NodeId};
 
 use crate::display::{Point, Rect, Transform};
 use crate::maths::decimate::Sample;
@@ -188,10 +188,9 @@ pub struct ImageHit {
 /// One bar drawn in a two-dimensional axes, from which the bar under a pointer is found.
 ///
 /// The numbers are those of the artist's own data at `index`, so that a front end reports what the user's data holds:
-/// the position, the value and the base. A part of a stack also records the bottom and top of the segment it
-/// occupies along the value axis, which is what the reader sees, because its value is its length rather than where
-/// it ends. A bar that was not drawn, because its position or value is not finite, its series is hidden or it paints
-/// nothing, has no entry.
+/// the position, the value and the base. Because a value is a length from the base, the hit also records the segment
+/// the bar spans from its base to its end, which is what the reader sees. A bar that was not drawn, because its
+/// position or value is not finite, its series is hidden or it paints nothing, has no entry.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BarHit {
     pub axes: NodeId,
@@ -200,14 +199,59 @@ pub struct BarHit {
     pub index: usize,
     /// The rectangle of the bar as drawn, in figure space.
     pub rect: Rect,
-    /// The position of the bar along the category axis.
+    /// The position of the bar along the category axis, without its offset.
     pub position: f64,
-    /// The value of the bar.
+    /// The value of the bar: its length from its base.
     pub value: f64,
-    /// The base from which the bar, or the column of its stack, rises.
+    /// The base from which the bar starts.
     pub base: f64,
-    /// For a part of a stack, the bottom and top of the segment it occupies along the value axis.
-    pub segment: Option<(f64, f64)>,
+    /// The start and end of the bar along the value axis: its base and its base plus its value.
+    pub segment: (f64, f64),
+    /// The count and density of the bin the bar draws, when its series records the binning of a histogram.
+    pub bin: Option<BinReading>,
+}
+
+/// What a bin of a histogram holds, recovered from the value drawn for it, the extent of the bin and the binning
+/// record of its artist (ADR 0029).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BinReading {
+    /// The number of samples in the bin.
+    pub count: f64,
+    /// The probability density of the bin: its count divided by the total and by its width, or by its area for a
+    /// bin of two dimensions.
+    pub density: f64,
+}
+
+impl BinReading {
+    /// Recovers the count and density of a bin from `value`, the value drawn for it under `normalization`, `size`,
+    /// the width or area of the bin, and `total`, the number of samples counted. A cumulative value is first
+    /// differenced with `before`, the cumulative value of the bins before it (0 for the first bin), so that the count
+    /// is that of the bin alone. Returns `None` when the value or the size is not finite.
+    #[must_use]
+    pub fn recover(
+        normalization: HistNorm,
+        total: f64,
+        value: f64,
+        before: f64,
+        size: f64,
+    ) -> Option<BinReading> {
+        if !(value.is_finite() && size.is_finite()) {
+            return None;
+        }
+        let count = match normalization {
+            HistNorm::Count => value,
+            HistNorm::Probability => value * total,
+            HistNorm::Percentage => value * total / 100.0,
+            HistNorm::CountDensity => value * size,
+            HistNorm::Density => value * total * size,
+            HistNorm::CumulativeCount => value - before,
+            HistNorm::Cdf => (value - before) * total,
+        };
+        Some(BinReading {
+            count,
+            density: count / (total * size),
+        })
+    }
 }
 
 /// One cell drawn in a two-dimensional axes, from which the cell under a pointer is found.
@@ -232,6 +276,9 @@ pub struct CellHit {
     pub column_edges: (f64, f64),
     /// The edges of the cell's row, edges `row` and `row + 1`, in the order of the data.
     pub row_edges: (f64, f64),
+    /// The count and density of the bin the cell draws, when the cells record the binning of a two-dimensional
+    /// histogram.
+    pub bin: Option<BinReading>,
 }
 
 /// One step of stairs drawn in a two-dimensional axes: the run of the outline at the level of one value, from which
@@ -250,6 +297,8 @@ pub struct StepHit {
     /// The two ends of the run of the outline at the level of the value, in figure space.
     pub from: Point,
     pub to: Point,
+    /// The count and density of the bin the step draws, when the stairs record the binning of a histogram.
+    pub bin: Option<BinReading>,
 }
 
 impl StepHit {

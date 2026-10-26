@@ -1,12 +1,13 @@
 //! Bars, stairs and cells: their defaults, their JSON and Protocol Buffers forms, and
 //! their validation.
 //!
-//! A bar series draws one rectangle per value from a base to the value, centred in a slot
-//! along the category axis; stairs draw a stepped outline through values held between
-//! edges or at samples; and cells fill a grid of rectangles, one per value, through a
-//! colour scale. As in `validate.rs`, each invalid case is the smallest change to an
-//! otherwise valid figure, so that a test fails only if that specific check is missing or
-//! over-eager.
+//! A bar series draws one rectangle per value from a base to the base plus the value, of a
+//! width and at an offset from its position along the category axis, and may record the
+//! binning of the histogram it draws; stairs draw a stepped outline through values held
+//! between edges or at samples; and cells fill a grid of rectangles, one per value, through a
+//! colour scale. Stairs and cells may record a binning too. As in `validate.rs`, each
+//! invalid case is the smallest change to an otherwise valid figure, so that a test fails
+//! only if that specific check is missing or over-eager.
 
 mod common;
 
@@ -208,23 +209,24 @@ fn replace_array(fig: &mut Figure, id: NodeId, array: NdArray) {
 
 // Why: the defaults are what a program gets when it sets only the data, so they must draw
 // an ordinary bar chart: bars in the next colour of the colour order, rising from zero,
-// each taking four fifths of the spacing between neighbouring positions so that a gap
-// separates them, standing alone rather than in a group, outlined by a thin black line (as
+// each four fifths of the spacing between neighbouring positions wide so that a gap
+// separates them, centred on its position with no offset, outlined by a thin black line (as
 // the faces of a surface are) so that neighbouring bars of similar colours stay distinct,
 // with no colour data and no colour scale (so that nothing is mapped and no scale is
-// required), and with faces and edges fully opaque. A default edge of the automatic colour
-// would outline every bar in the colour of its own face and so be invisible; a default gap
-// of 0 would join the bars into a histogram.
+// required), with faces and edges fully opaque, with a margin of 5 % beyond the ends of the
+// bars so that the tallest bar does not touch the box, and with no binning record, because
+// a plain bar chart was not made from samples. A default edge of the automatic colour would
+// outline every bar in the colour of its own face and so be invisible; a default width of a
+// whole pitch would join the bars into a histogram.
 #[test]
 fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     let bar = Bar::default();
     assert_eq!(bar.label, None);
     assert!(bar.visible);
     assert_eq!(bar.orientation, Orientation::Vertical);
-    assert_eq!(bar.base, BarBase::Constant(0.0));
-    assert_eq!(bar.slot, BarSlot::Pitch);
-    assert_eq!(bar.gap, 0.2);
-    assert_eq!(bar.group, None);
+    assert_eq!(bar.base, PerBar::Constant(0.0));
+    assert_eq!(bar.width, BarWidth::Pitch(0.8));
+    assert_eq!(bar.offset, BarOffset::Widths(0.0));
     assert_eq!(bar.face, ColorSpec::Auto);
     assert_eq!(bar.color_data, None);
     assert_eq!(bar.color_scale, None);
@@ -240,12 +242,15 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     );
     assert_eq!(bar.face_opacity, 1.0);
     assert_eq!(bar.edge_opacity, 1.0);
-    // A group that is created is grouped side by side unless it says otherwise, as
-    // grouped bars are the common comparison.
-    assert_eq!(BarLayout::default(), BarLayout::Grouped);
-    assert_eq!(BarBase::default(), BarBase::Constant(0.0));
-    assert_eq!(BarSlot::default(), BarSlot::Pitch);
+    assert_eq!(bar.margin, 0.05);
+    assert_eq!(bar.binning, None);
+    assert_eq!(PerBar::default(), PerBar::Constant(0.0));
+    assert_eq!(BarWidth::default(), BarWidth::Pitch(0.8));
+    assert_eq!(BarOffset::default(), BarOffset::Widths(0.0));
     assert_eq!(Orientation::default(), Orientation::Vertical);
+    // Stairs and cells drawn from values rather than samples carry no binning record.
+    assert_eq!(Stairs::default().binning, None);
+    assert_eq!(Cells::default().binning, None);
 }
 
 // Why: stairs are what a step histogram draws, whose default is an open outline in the
@@ -322,10 +327,12 @@ fn written_artists(artists: Vec<Artist>) -> (Vec<JsonValue>, Figure) {
 }
 
 // Why: web clients and other tools write `.fig.json` by hand from the documented form, so
-// the form of a default bar series is a contract: the tag `bar`, the base as a tagged
-// constant, the slot as a tag without a value, and every plain property written, the
-// colour data and colour scale as null as a series writes them; the opacities, which are 1
-// in almost every chart, are left out, as they are for every other artist.
+// the form of a default bar series is a contract: the tag `bar`, the base, the width and the
+// offset each as a tagged value with its number, the margin written as every plain property
+// is, the colour data and colour scale as null as a series writes them; the opacities, which
+// are 1 in almost every chart, and the binning record, which a plain bar chart has not, are
+// left out. The removed slot, gap and group must not be written, or a hand-written file
+// copied from the output would carry properties the reader no longer has.
 #[test]
 fn a_default_bar_series_is_written_in_the_documented_json_form() {
     let (artists, _) = written_artists(vec![Artist::Bar(Bar {
@@ -345,23 +352,24 @@ fn a_default_bar_series_is_written_in_the_documented_json_form() {
             "positions": 10,
             "values": 11,
             "base": { "type": "constant", "value": 0.0 },
-            "slot": { "type": "pitch" },
-            "gap": 0.2,
-            "group": null,
+            "width": { "type": "pitch", "value": 0.8 },
+            "offset": { "type": "widths", "value": 0.0 },
             "face": { "type": "auto" },
             "color_data": null,
             "color_scale": null,
-            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" }
+            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" },
+            "margin": 0.05
         })
     );
 }
 
 // Why: the variants that a hand-written file uses for floating bars (a base given as
-// data), for fixed and per-bar widths, for a stacked group and for bars coloured by data
-// through a scale must be written as documented, with face and edge opacities of 0
-// written although they are falsy, because they hide the faces and edges rather than
-// leaving them at the default; and a list of per-bar colours, which colour data replaced,
-// must not be written at all.
+// data), for fixed and per-bar widths, for offsets in widths and in data units and for bars
+// coloured by data through a scale must be written as documented, with face and edge
+// opacities of 0 written although they are falsy, because they hide the faces and edges
+// rather than leaving them at the default, and a margin of 0 written, because it puts the
+// axis limit at the end of the tallest bar; a list of per-bar colours, which colour data
+// replaced, must not be written at all.
 #[test]
 fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
     let (artists, _) = written_artists(vec![
@@ -370,13 +378,9 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
             orientation: Orientation::Horizontal,
             positions: NodeId(10),
             values: NodeId(11),
-            base: BarBase::Data(NodeId(12)),
-            slot: BarSlot::Width(0.5),
-            gap: 0.0,
-            group: Some(BarGroup {
-                name: "models".to_owned(),
-                layout: BarLayout::Stacked,
-            }),
+            base: PerBar::Data(NodeId(12)),
+            width: BarWidth::Constant(0.5),
+            offset: BarOffset::Absolute(-0.25),
             face: ColorSpec::Colormapped,
             color_data: Some(NodeId(14)),
             color_scale: Some(NodeId(20)),
@@ -386,24 +390,25 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
             },
             face_opacity: 0.0,
             edge_opacity: 0.0,
+            margin: 0.0,
             ..Bar::default()
         }),
         Artist::Bar(Bar {
             id: NodeId(4),
             positions: NodeId(10),
             values: NodeId(11),
-            slot: BarSlot::Data(NodeId(13)),
+            width: BarWidth::Data(NodeId(13)),
+            offset: BarOffset::Widths(-1.5),
             ..Bar::default()
         }),
     ]);
     let first = &artists[0];
     assert_eq!(first["orientation"], json!("horizontal"));
     assert_eq!(first["base"], json!({ "type": "data", "value": 12 }));
-    assert_eq!(first["slot"], json!({ "type": "width", "value": 0.5 }));
-    assert_eq!(first["gap"], json!(0.0));
+    assert_eq!(first["width"], json!({ "type": "constant", "value": 0.5 }));
     assert_eq!(
-        first["group"],
-        json!({ "name": "models", "layout": "stacked" })
+        first["offset"],
+        json!({ "type": "absolute", "value": -0.25 })
     );
     assert_eq!(first["face"], json!({ "type": "colormapped" }));
     assert_eq!(first["color_data"], json!(14));
@@ -411,12 +416,15 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
     assert_eq!(first["edge"]["color"], json!({ "type": "colormapped" }));
     assert_eq!(first["face_opacity"], json!(0.0));
     assert_eq!(first["edge_opacity"], json!(0.0));
+    assert_eq!(first["margin"], json!(0.0));
+    for gone in ["colors", "slot", "gap", "group"] {
+        assert_eq!(first.get(gone), None, "{gone} is written: {first}");
+    }
+    assert_eq!(artists[1]["width"], json!({ "type": "data", "value": 13 }));
     assert_eq!(
-        first.get("colors"),
-        None,
-        "per-bar colours are written: {first}"
+        artists[1]["offset"],
+        json!({ "type": "widths", "value": -1.5 })
     );
-    assert_eq!(artists[1]["slot"], json!({ "type": "data", "value": 13 }));
     for opacity in ["face_opacity", "edge_opacity"] {
         assert_eq!(
             artists[1].get(opacity),
@@ -424,6 +432,140 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
             "an opacity of 1 is written: {}",
             artists[1]
         );
+    }
+}
+
+/// A binning record of every kind of field: bins at explicit edges, a range, a
+/// normalisation other than counts, a total and both counts of excluded samples.
+fn edges_binning() -> Binning {
+    Binning {
+        bins: Bins::Edges(vec![0.0, 1.0, 3.0, 6.0]),
+        range: Some([0.0, 6.0]),
+        normalization: HistNorm::Density,
+        total: 120.0,
+        excluded_non_finite: 2,
+        excluded_out_of_range: 5,
+    }
+}
+
+/// A two-dimensional binning record with bins of each kind along x and y, ranges, a
+/// normalisation, a minimum count and both counts of excluded samples.
+fn grid_binning() -> Binning2d {
+    Binning2d {
+        x_bins: Bins::Count(4),
+        y_bins: Bins::Width(0.5),
+        x_range: Some([-1.0, 1.0]),
+        y_range: None,
+        normalization: HistNorm::Probability,
+        min_count: Some(1.0),
+        total: 40.0,
+        excluded_non_finite: 0,
+        excluded_out_of_range: 3,
+    }
+}
+
+// Why: a histogram written by IronLAB records how its bins were made, and a reader in
+// another language learns that only from the documented form: the record is written under
+// `binning` with its bins as a tagged value (count, width, edges or a named rule), its range
+// as a pair, its normalisation and its rule by their snake-case names, and its total and
+// excluded counts as numbers; a range that was not given is written as null, as every
+// absent plain value is. Bars, stairs and cells each carry the record of their own
+// dimension, and the record survives JSON unchanged, or a figure saved and reopened would
+// forget what its bars count.
+#[test]
+fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_trip() {
+    let (artists, _) = written_artists(vec![
+        Artist::Bar(Bar {
+            id: NodeId(3),
+            positions: NodeId(10),
+            values: NodeId(11),
+            binning: Some(edges_binning()),
+            ..Bar::default()
+        }),
+        Artist::Stairs(Stairs {
+            id: NodeId(4),
+            data: StairsData::Edges {
+                edges: NodeId(12),
+                values: NodeId(11),
+            },
+            binning: Some(Binning {
+                bins: Bins::Rule(BinRule::FreedmanDiaconis),
+                range: None,
+                normalization: HistNorm::CumulativeCount,
+                total: 7.0,
+                excluded_non_finite: 0,
+                excluded_out_of_range: 0,
+            }),
+            ..Stairs::default()
+        }),
+        Artist::Cells(Cells {
+            id: NodeId(5),
+            values: NodeId(13),
+            binning: Some(grid_binning()),
+            ..Cells::default()
+        }),
+    ]);
+    assert_eq!(
+        artists[0]["binning"],
+        json!({
+            "bins": { "type": "edges", "value": [0.0, 1.0, 3.0, 6.0] },
+            "range": [0.0, 6.0],
+            "normalization": "density",
+            "total": 120.0,
+            "excluded_non_finite": 2,
+            "excluded_out_of_range": 5
+        })
+    );
+    assert_eq!(
+        artists[1]["binning"]["bins"],
+        json!({ "type": "rule", "value": "freedman_diaconis" })
+    );
+    assert_eq!(artists[1]["binning"]["range"], json!(null));
+    assert_eq!(
+        artists[1]["binning"]["normalization"],
+        json!("cumulative_count")
+    );
+    assert_eq!(
+        artists[2]["binning"],
+        json!({
+            "x_bins": { "type": "count", "value": 4 },
+            "y_bins": { "type": "width", "value": 0.5 },
+            "x_range": [-1.0, 1.0],
+            "y_range": null,
+            "normalization": "probability",
+            "min_count": 1.0,
+            "total": 40.0,
+            "excluded_non_finite": 0,
+            "excluded_out_of_range": 3
+        })
+    );
+}
+
+// Why: a hand-written file names a rule and a normalisation by the words the documentation
+// gives, so each must have exactly the snake-case name a reader expects; a variant written
+// under another name would make the documented file unreadable.
+#[test]
+fn every_bin_rule_and_normalisation_is_written_by_its_documented_name() {
+    for (rule, name) in [
+        (BinRule::Auto, "auto"),
+        (BinRule::Sturges, "sturges"),
+        (BinRule::Scott, "scott"),
+        (BinRule::FreedmanDiaconis, "freedman_diaconis"),
+        (BinRule::Sqrt, "sqrt"),
+        (BinRule::Integers, "integers"),
+    ] {
+        assert_eq!(serde_json::to_value(rule).unwrap(), json!(name));
+    }
+    for (norm, name) in [
+        (HistNorm::Count, "count"),
+        (HistNorm::Probability, "probability"),
+        (HistNorm::Percentage, "percentage"),
+        (HistNorm::CountDensity, "count_density"),
+        (HistNorm::Density, "density"),
+        (HistNorm::CumulativeCount, "cumulative_count"),
+        (HistNorm::Cdf, "cdf"),
+    ] {
+        assert_eq!(serde_json::to_value(norm).unwrap(), json!(name));
     }
 }
 
@@ -526,10 +668,10 @@ fn cells_are_written_in_the_documented_json_form() {
 }
 
 // Why: a hand-written or web-written file leaves out what it does not set; bars without
-// colour data, a colour scale or opacities, stairs without a base or opacities, and cells
-// without alpha or opacities must load with the defaults of those properties (nothing
-// mapped, an open outline, no alpha, opaque faces, edges, lines and fills) rather than be
-// refused as incomplete.
+// colour data, a colour scale, opacities or a binning record, stairs without a base,
+// opacities or a binning record, and cells without alpha, opacities or a binning record must
+// load with the defaults of those properties (nothing mapped, an open outline, no alpha,
+// opaque faces, edges, lines and fills, nothing binned) rather than be refused as incomplete.
 #[test]
 fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
     let mut fig = Figure::new();
@@ -542,9 +684,12 @@ fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
         {
             "type": "bar", "id": 3, "label": null, "visible": true,
             "orientation": "vertical", "positions": 10, "values": 11,
-            "base": { "type": "constant", "value": 0.0 }, "slot": { "type": "pitch" },
-            "gap": 0.2, "group": null, "face": { "type": "auto" },
-            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" }
+            "base": { "type": "constant", "value": 0.0 },
+            "width": { "type": "pitch", "value": 0.8 },
+            "offset": { "type": "widths", "value": 0.0 },
+            "face": { "type": "auto" },
+            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" },
+            "margin": 0.05
         },
         {
             "type": "stairs", "id": 4, "label": null, "visible": true,
@@ -630,12 +775,14 @@ fn default_artists_figure() -> Figure {
 }
 
 // Why: proto3 omits zero-valued fields, and the defaults of these artists are not zero in
-// many places (a gap of 0.2, every opacity of 1, a visible artist, an edge 0.5 points wide
-// in black for bars and in no colour for cells). A writer in another language that leaves
-// those fields out must get the defaults of the artist, not proto3's zeros or the defaults
-// of another context: an absent gap is 0.2, not 0, which would join the bars; an absent
-// bar edge is a thin black outline and an absent cell edge is no edge, neither of them the
-// automatic edge that a line takes; and an absent orientation is vertical.
+// many places (a width of four fifths of the pitch, a margin of 0.05, every opacity of 1, a
+// visible artist, an edge 0.5 points wide in black for bars and in no colour for cells). A
+// writer in another language that leaves those fields out must get the defaults of the
+// artist, not proto3's zeros or the defaults of another context: an absent width is four
+// fifths of the pitch, not a width of 0, which would draw nothing; an absent offset centres
+// the bars on their positions; an absent margin is 0.05, not 0; an absent bar edge is a
+// thin black outline and an absent cell edge is no edge, neither of them the automatic edge
+// that a line takes; and an absent orientation is vertical.
 #[test]
 fn absent_fields_of_bars_stairs_and_cells_decode_to_the_defaults_of_each_artist() {
     let fig = default_artists_figure();
@@ -646,8 +793,9 @@ fn absent_fields_of_bars_stairs_and_cells_decode_to_the_defaults_of_each_artist(
                 bar.visible = None;
                 bar.orientation = 0;
                 bar.base = None;
-                bar.slot = None;
-                bar.gap = None;
+                bar.width = None;
+                bar.offset = None;
+                bar.margin = None;
                 bar.face = None;
                 bar.edge = None;
                 bar.face_opacity = None;
@@ -727,15 +875,15 @@ fn absent_data_of_bars_stairs_and_cells_is_an_error_that_names_the_field() {
     }
 }
 
-// Why: a base of 0 and a gap of 0 are real values that differ from absence (a closed
-// outline rather than an open one, and touching bars rather than the default gap), a base
-// of negative zero is a different number in the binary format, every opacity of 0 hides
-// rather than defaults, an empty group name is a group rather than none, and identifier 0
-// is a valid reference (as the colour data and colour scale of bars too); each must
+// Why: a base of 0, an offset of 0 and a margin of 0 are real values that differ from
+// absence (a closed outline rather than an open one, bars centred on purpose, an axis that
+// ends at the tallest bar), a base of negative zero is a different number in the binary
+// format, every opacity of 0 hides rather than defaults, and identifier 0 is a valid
+// reference (as the colour data, colour scale, bases and widths of bars too); each must
 // survive both formats as itself, together with every variant of the tagged values, rather
 // than collapse to proto3's zero or to absence.
 #[test]
-fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
+fn zero_bases_offsets_margins_and_every_variant_survive_a_protobuf_round_trip() {
     let mut fig = Figure::new();
     fig.axes.push(Axes {
         id: NodeId(2),
@@ -745,30 +893,33 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
                 orientation: Orientation::Horizontal,
                 positions: NodeId(10),
                 values: NodeId(11),
-                base: BarBase::Data(NodeId(0)),
-                slot: BarSlot::Data(NodeId(0)),
-                gap: 0.0,
-                group: Some(BarGroup {
-                    name: String::new(),
-                    layout: BarLayout::Stacked,
-                }),
+                base: PerBar::Data(NodeId(0)),
+                width: BarWidth::Data(NodeId(0)),
+                offset: BarOffset::Absolute(0.0),
                 face: ColorSpec::Colormapped,
                 color_data: Some(NodeId(0)),
                 color_scale: Some(NodeId(0)),
                 face_opacity: 0.0,
                 edge_opacity: 0.0,
+                margin: 0.0,
                 ..Bar::default()
             }),
             Artist::Bar(Bar {
                 id: NodeId(4),
                 positions: NodeId(10),
                 values: NodeId(11),
-                base: BarBase::Constant(-0.0),
-                slot: BarSlot::Width(0.25),
-                group: Some(BarGroup {
-                    name: "g".to_owned(),
-                    layout: BarLayout::Grouped,
-                }),
+                base: PerBar::Constant(-0.0),
+                width: BarWidth::Constant(0.25),
+                offset: BarOffset::Widths(0.0),
+                ..Bar::default()
+            }),
+            Artist::Bar(Bar {
+                id: NodeId(7),
+                positions: NodeId(10),
+                values: NodeId(11),
+                width: BarWidth::Pitch(1.0),
+                offset: BarOffset::Widths(-0.5),
+                margin: 0.25,
                 ..Bar::default()
             }),
             Artist::Stairs(Stairs {
@@ -797,6 +948,106 @@ fn zero_bases_gaps_and_every_variant_survive_a_protobuf_round_trip() {
                 ..Cells::default()
             }),
         ],
+        ..Axes::default()
+    });
+    let restored = Figure::from_protobuf(&fig.to_protobuf()).expect("own output decodes");
+    assert_eq!(restored, fig);
+    assert_eq!(restored.to_protobuf(), fig.to_protobuf());
+    let restored = Figure::from_json(&fig.to_json()).expect("own output parses");
+    assert_eq!(restored, fig);
+}
+
+/// Every kind of bins, every bin rule and every normalisation, in records whose totals,
+/// counts and ranges include the zeros that proto3 would otherwise drop.
+fn every_binning() -> Vec<Binning> {
+    let rules = [
+        BinRule::Auto,
+        BinRule::Sturges,
+        BinRule::Scott,
+        BinRule::FreedmanDiaconis,
+        BinRule::Sqrt,
+        BinRule::Integers,
+    ];
+    let norms = [
+        HistNorm::Count,
+        HistNorm::Probability,
+        HistNorm::Percentage,
+        HistNorm::CountDensity,
+        HistNorm::Density,
+        HistNorm::CumulativeCount,
+        HistNorm::Cdf,
+    ];
+    let mut bins = vec![
+        Bins::Count(0),
+        Bins::Count(12),
+        Bins::Width(0.25),
+        Bins::Edges(vec![]),
+        Bins::Edges(vec![-1.0, 0.0, 2.5]),
+    ];
+    bins.extend(rules.map(Bins::Rule));
+    bins.into_iter()
+        .zip(norms.into_iter().cycle())
+        .enumerate()
+        .map(|(k, (bins, normalization))| Binning {
+            bins,
+            range: (k % 2 == 0).then_some([0.0, k as f64]),
+            normalization,
+            total: if k == 0 { 0.0 } else { 10.0 * k as f64 },
+            excluded_non_finite: k as u64 % 3,
+            excluded_out_of_range: if k == 1 { u64::MAX } else { 0 },
+        })
+        .collect()
+}
+
+// Why: a binning record is what lets a datatip recover the count behind a bar of a
+// normalised histogram, so every field of it must survive both formats exactly: every kind
+// of bins and every rule and normalisation by its own variant, a count of bins or of
+// excluded samples of 0 as 0 rather than as absence, a count too large for a double as
+// itself, a range that was given as given and one that was not as absent, on bars, stairs
+// and cells alike; and a record of cells keeps its two dimensions apart. A record that
+// decoded differently would make the datatips of a reopened figure report other counts.
+#[test]
+fn every_binning_record_survives_a_protobuf_and_a_json_round_trip_on_bars_stairs_and_cells() {
+    let mut artists = Vec::new();
+    for (k, binning) in every_binning().into_iter().enumerate() {
+        let id = NodeId(100 + 3 * k as u64);
+        artists.push(Artist::Bar(Bar {
+            id,
+            positions: NodeId(10),
+            values: NodeId(11),
+            binning: Some(binning.clone()),
+            ..Bar::default()
+        }));
+        artists.push(Artist::Stairs(Stairs {
+            id: NodeId(id.0 + 1),
+            data: StairsData::Edges {
+                edges: NodeId(12),
+                values: NodeId(11),
+            },
+            binning: Some(binning.clone()),
+            ..Stairs::default()
+        }));
+        artists.push(Artist::Cells(Cells {
+            id: NodeId(id.0 + 2),
+            values: NodeId(13),
+            binning: Some(Binning2d {
+                x_bins: binning.bins.clone(),
+                y_bins: Bins::Count(k as u32),
+                x_range: binning.range,
+                y_range: binning.range.map(|[lo, hi]| [lo - 1.0, hi + 1.0]),
+                normalization: binning.normalization,
+                min_count: (k % 3 == 0).then_some(k as f64),
+                total: binning.total,
+                excluded_non_finite: binning.excluded_non_finite,
+                excluded_out_of_range: binning.excluded_out_of_range,
+            }),
+            ..Cells::default()
+        }));
+    }
+    let mut fig = Figure::new();
+    fig.axes.push(Axes {
+        id: NodeId(2),
+        artists,
         ..Axes::default()
     });
     let restored = Figure::from_protobuf(&fig.to_protobuf()).expect("own output decodes");
@@ -891,13 +1142,15 @@ fn cells_and_bars_with_colour_data_map_through_a_colour_scale_and_stairs_never_d
 // ---------------------------------------------------------------------------------
 
 // Why: a check that reports a correct chart is as harmful as a missing check, and these
-// are the cases a user meets first: a single bar (whose slot is 1, having no neighbour),
+// are the cases a user meets first: a single bar (whose pitch is 1, having no neighbour),
 // two bars at the same position (overlaid, as in MATLAB and Matplotlib), positions in no
 // particular order (categories placed by a lookup rather than sorted), a missing value
-// (NaN, which draws no bar for that position), bars below the base, touching bars (a gap
-// of 0) and nearly invisible ones (a gap just below 1), floating bars, per-bar widths,
-// bars and outlines coloured by data through a scale, outlined bars without a face, and
-// horizontal bars. None must raise an issue.
+// (NaN, which draws no bar for that position), negative lengths, touching bars (a width of
+// the whole pitch), nearly invisible ones, bars wider than the pitch that overlap their
+// neighbours, offsets in widths and in data units either way (how grouped bars are placed),
+// floating bars, per-bar widths, no margin and a large one, a binning record of a
+// histogram, bars and outlines coloured by data through a scale, outlined bars without a
+// face, and horizontal bars. None must raise an issue.
 #[test]
 fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
     type Change = Box<dyn FnOnce(&mut Figure)>;
@@ -923,40 +1176,100 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             }),
         ),
         ("a missing value", &[2.0, f64::NAN, 3.0], Box::new(|_| {})),
-        (
-            "values below the base",
-            &[-2.0, 5.0, -3.0],
-            Box::new(|_| {}),
-        ),
+        ("negative lengths", &[-2.0, 5.0, -3.0], Box::new(|_| {})),
         (
             "touching bars",
             &[2.0, 5.0, 3.0],
-            Box::new(|fig| bar_mut(fig).gap = 0.0),
+            Box::new(|fig| bar_mut(fig).width = BarWidth::Pitch(1.0)),
         ),
         (
             "nearly invisible bars",
             &[2.0, 5.0, 3.0],
-            Box::new(|fig| bar_mut(fig).gap = 0.99),
+            Box::new(|fig| bar_mut(fig).width = BarWidth::Pitch(0.01)),
+        ),
+        (
+            "bars wider than the pitch",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).width = BarWidth::Pitch(1.5)),
+        ),
+        (
+            "an offset of a negative number of widths",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).offset = BarOffset::Widths(-1.0)),
+        ),
+        (
+            "an offset of a fractional number of widths",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).offset = BarOffset::Widths(2.5)),
+        ),
+        (
+            "an absolute offset",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).offset = BarOffset::Absolute(-0.3)),
         ),
         (
             "floating bars",
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
                 let base = push_vector(fig, NodeId(50), &[1.0, -1.0, 0.5]);
-                bar_mut(fig).base = BarBase::Data(base);
+                bar_mut(fig).base = PerBar::Data(base);
             }),
+        ),
+        (
+            "bars hanging from a raised base",
+            &[-2.0, -5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).base = PerBar::Constant(10.0)),
         ),
         (
             "a fixed width",
             &[2.0, 5.0, 3.0],
-            Box::new(|fig| bar_mut(fig).slot = BarSlot::Width(0.25)),
+            Box::new(|fig| bar_mut(fig).width = BarWidth::Constant(0.25)),
         ),
         (
             "a width per bar",
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
                 let widths = push_vector(fig, NodeId(50), &[0.5, 1.0, 2.0]);
-                bar_mut(fig).slot = BarSlot::Data(widths);
+                bar_mut(fig).width = BarWidth::Data(widths);
+            }),
+        ),
+        (
+            "no margin",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).margin = 0.0),
+        ),
+        (
+            "a margin larger than the bars",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| bar_mut(fig).margin = 2.0),
+        ),
+        (
+            "a histogram's binning record",
+            &[2.0, 5.0, 3.0],
+            Box::new(|fig| {
+                bar_mut(fig).binning = Some(Binning {
+                    bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
+                    range: Some([0.5, 3.5]),
+                    normalization: HistNorm::Count,
+                    total: 10.0,
+                    excluded_non_finite: 1,
+                    excluded_out_of_range: 0,
+                })
+            }),
+        ),
+        // An empty sample is valid (ADR 0012), so a record of no samples counted is too.
+        (
+            "the binning record of an empty sample",
+            &[0.0, 0.0, 0.0],
+            Box::new(|fig| {
+                bar_mut(fig).binning = Some(Binning {
+                    bins: Bins::Rule(BinRule::Auto),
+                    range: None,
+                    normalization: HistNorm::Density,
+                    total: 0.0,
+                    excluded_non_finite: 0,
+                    excluded_out_of_range: 0,
+                })
             }),
         ),
         (
@@ -999,48 +1312,208 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
     }
 }
 
-// Why: the gap is the fraction of each slot left empty, so a gap of 1 or more leaves no
-// bar at all and a negative gap makes bars overlap their neighbours' slots; neither is a
-// chart anyone means, and a renderer would draw nothing or garbage silently. Both ends of
-// the boundary matter: 0 is valid (touching bars) and 1 is not.
+// Why: a width is a length along the category axis, so a fraction of the pitch, a fixed
+// width and a width given per bar must each be finite and positive; a zero width draws
+// nothing and a negative one would flip the bar. Every width of the data is checked, not
+// only the first. A bar no longer has a gap, so no width can be refused as one.
 #[test]
-fn a_bar_gap_outside_zero_to_one_is_an_error_on_the_bars() {
-    for gap in [1.0, 1.5, -0.01, f64::NAN, f64::INFINITY] {
-        let mut fx = fixture(false, bars(&[2.0, 5.0]));
-        bar_mut(&mut fx.fig).gap = gap;
-        assert_only_error(
-            &fx.fig.validate(),
-            IssueKind::InvalidGap,
-            fx.artist,
-            &format!("gap {gap}"),
-        );
-    }
-}
-
-// Why: a slot is a length along the category axis, so a fixed width or a width given per
-// bar must be finite and positive; a zero width draws nothing and a negative one would
-// flip the bar. Every width of the data is checked, not only the first.
-#[test]
-fn a_bar_slot_that_is_not_finite_and_positive_is_an_error_on_the_bars() {
-    for width in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-        let mut fx = fixture(false, bars(&[2.0, 5.0]));
-        bar_mut(&mut fx.fig).slot = BarSlot::Width(width);
-        assert_only_error(
-            &fx.fig.validate(),
-            IssueKind::InvalidBarSlot,
-            fx.artist,
-            &format!("width {width}"),
-        );
+fn a_bar_width_that_is_not_finite_and_positive_is_an_error_on_the_bars() {
+    for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        for width in [BarWidth::Pitch(bad), BarWidth::Constant(bad)] {
+            let mut fx = fixture(false, bars(&[2.0, 5.0]));
+            bar_mut(&mut fx.fig).width = width;
+            assert_only_error(
+                &fx.fig.validate(),
+                IssueKind::InvalidBarWidth,
+                fx.artist,
+                &format!("{width:?}"),
+            );
+        }
     }
     for bad in [0.0, -0.5, f64::NAN, f64::NEG_INFINITY] {
         let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
         let widths = push_vector(&mut fx.fig, NodeId(50), &[0.5, 0.5, bad]);
-        bar_mut(&mut fx.fig).slot = BarSlot::Data(widths);
+        bar_mut(&mut fx.fig).width = BarWidth::Data(widths);
         assert_only_error(
             &fx.fig.validate(),
-            IssueKind::InvalidBarSlot,
+            IssueKind::InvalidBarWidth,
             fx.artist,
             &format!("a width of {bad} in the data"),
+        );
+    }
+}
+
+// Why: an offset places every bar of a series beside its position, so an offset that is not
+// finite has no place: in widths it would multiply every width into NaN or infinity, and in
+// data units it would put every bar nowhere. Both forms are refused, naming the series; a
+// negative or zero offset is an ordinary placement and is not.
+#[test]
+fn a_bar_offset_that_is_not_finite_is_an_error_on_the_bars() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        for offset in [BarOffset::Widths(bad), BarOffset::Absolute(bad)] {
+            let mut fx = fixture(false, bars(&[2.0, 5.0]));
+            bar_mut(&mut fx.fig).offset = offset;
+            assert_only_error(
+                &fx.fig.validate(),
+                IssueKind::InvalidBarOffset,
+                fx.artist,
+                &format!("{offset:?}"),
+            );
+        }
+    }
+}
+
+// Why: the margin is a fraction of the span of the bars added beyond their ends, so a
+// negative margin would cut the tallest bar off at the box and a margin that is not finite
+// would give the axis no limit at all; both are refused, naming the series. A margin of 0
+// is the limit at the end of the tallest bar, which is valid.
+#[test]
+fn a_bar_margin_that_is_negative_or_not_finite_is_an_error_on_the_bars() {
+    for margin in [-0.01, -1.0, f64::NAN, f64::INFINITY] {
+        let mut fx = fixture(false, bars(&[2.0, 5.0]));
+        bar_mut(&mut fx.fig).margin = margin;
+        assert_only_error(
+            &fx.fig.validate(),
+            IssueKind::InvalidBarMargin,
+            fx.artist,
+            &format!("margin {margin}"),
+        );
+    }
+}
+
+/// The binning record of a valid count histogram of ten samples in three unit bins.
+fn counted() -> Binning {
+    Binning {
+        bins: Bins::Count(3),
+        range: Some([0.0, 3.0]),
+        normalization: HistNorm::Count,
+        total: 10.0,
+        excluded_non_finite: 0,
+        excluded_out_of_range: 0,
+    }
+}
+
+// Why: a binning record is read back to recover counts from normalised values, so it must
+// describe bins that can exist: a total of samples that is negative or not finite would
+// turn every recovered count into nonsense, a bin width that is not finite and positive
+// cannot tile a range, a range that is not finite or does not increase holds no bin, and
+// edges that are not finite and strictly increasing bound no bin. Bin edges are a
+// specification of how samples were counted, which every binning library gives in
+// increasing order, so unlike the edges of stairs and cells, which may be drawn from right
+// to left, they may not decrease. Each is refused against the artist that holds the record,
+// bars, stairs or cells alike; edges with the kind that edges of stairs and cells already
+// raise, and everything else as an invalid binning record.
+#[test]
+fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() {
+    type Spoil = fn(&mut Binning);
+    let cases: [(&str, IssueKind, Spoil); 11] = [
+        ("a negative total", IssueKind::InvalidBinning, |b| {
+            b.total = -1.0
+        }),
+        ("a total of NaN", IssueKind::InvalidBinning, |b| {
+            b.total = f64::NAN
+        }),
+        ("an infinite total", IssueKind::InvalidBinning, |b| {
+            b.total = f64::INFINITY
+        }),
+        ("a bin width of 0", IssueKind::InvalidBinning, |b| {
+            b.bins = Bins::Width(0.0)
+        }),
+        ("a negative bin width", IssueKind::InvalidBinning, |b| {
+            b.bins = Bins::Width(-0.5)
+        }),
+        ("a bin width of NaN", IssueKind::InvalidBinning, |b| {
+            b.bins = Bins::Width(f64::NAN)
+        }),
+        ("a range that decreases", IssueKind::InvalidBinning, |b| {
+            b.range = Some([3.0, 0.0])
+        }),
+        (
+            "a range that is not finite",
+            IssueKind::InvalidBinning,
+            |b| b.range = Some([0.0, f64::INFINITY]),
+        ),
+        ("edges that repeat", IssueKind::InvalidEdges, |b| {
+            b.bins = Bins::Edges(vec![0.0, 1.0, 1.0, 3.0])
+        }),
+        ("edges that decrease", IssueKind::InvalidEdges, |b| {
+            b.bins = Bins::Edges(vec![3.0, 2.0, 1.0, 0.0])
+        }),
+        ("an edge of NaN", IssueKind::InvalidEdges, |b| {
+            b.bins = Bins::Edges(vec![0.0, f64::NAN, 2.0, 3.0])
+        }),
+    ];
+    for (name, kind, spoil) in cases {
+        let mut binning = counted();
+        spoil(&mut binning);
+
+        let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+        bar_mut(&mut fx.fig).binning = Some(binning.clone());
+        assert_only_error(
+            &fx.fig.validate(),
+            kind,
+            fx.artist,
+            &format!("bars: {name}"),
+        );
+
+        let mut fx = fixture(false, stairs_on_edges(&[2.0, 5.0, 3.0]));
+        stairs_mut(&mut fx.fig).binning = Some(binning.clone());
+        assert_only_error(
+            &fx.fig.validate(),
+            kind,
+            fx.artist,
+            &format!("stairs: {name}"),
+        );
+
+        let mut fx = fixture(false, cells(2, 3));
+        cells_mut(&mut fx.fig).binning = Some(Binning2d {
+            x_bins: binning.bins.clone(),
+            y_bins: Bins::Count(2),
+            x_range: binning.range,
+            y_range: None,
+            normalization: binning.normalization,
+            min_count: None,
+            total: binning.total,
+            excluded_non_finite: 0,
+            excluded_out_of_range: 0,
+        });
+        assert_only_error(
+            &fx.fig.validate(),
+            kind,
+            fx.artist,
+            &format!("cells: {name}"),
+        );
+    }
+    // A minimum count below which cells are left empty is a number of samples, so it
+    // cannot be negative or NaN either; each axis of a 2D record is checked on its own.
+    type Spoil2d = fn(&mut Binning2d);
+    let spoilt: [(&str, Spoil2d); 3] = [
+        ("a negative minimum count", |b| b.min_count = Some(-1.0)),
+        ("a minimum count of NaN", |b| b.min_count = Some(f64::NAN)),
+        ("a y range that decreases", |b| {
+            b.y_range = Some([1.0, -1.0])
+        }),
+    ];
+    for (name, spoil) in spoilt {
+        let mut binning = Binning2d {
+            x_bins: Bins::Count(3),
+            y_bins: Bins::Count(2),
+            x_range: None,
+            y_range: None,
+            normalization: HistNorm::Count,
+            min_count: Some(1.0),
+            total: 10.0,
+            excluded_non_finite: 0,
+            excluded_out_of_range: 0,
+        };
+        spoil(&mut binning);
+        let mut fx = fixture(false, cells(2, 3));
+        cells_mut(&mut fx.fig).binning = Some(binning);
+        assert_only_error(
+            &fx.fig.validate(),
+            IssueKind::InvalidBinning,
+            fx.artist,
+            name,
         );
     }
 }
@@ -1060,11 +1533,11 @@ fn bar_arrays_that_do_not_hold_one_entry_per_bar_are_shape_mismatches() {
         }),
         ("a base of another length", |fig| {
             let base = push_vector(fig, NodeId(50), &[0.0, 0.0]);
-            bar_mut(fig).base = BarBase::Data(base);
+            bar_mut(fig).base = PerBar::Data(base);
         }),
         ("widths of another length", |fig| {
             let widths = push_vector(fig, NodeId(50), &[1.0, 1.0, 1.0, 1.0]);
-            bar_mut(fig).slot = BarSlot::Data(widths);
+            bar_mut(fig).width = BarWidth::Data(widths);
         }),
         ("colour data of one value", |fig| {
             give_colour_data(fig, &[1.0]);
@@ -1119,11 +1592,9 @@ fn bar_arrays_of_bytes_are_element_type_mismatches() {
     let cases: [(&str, Change); 5] = [
         ("positions", |fig, bytes| bar_mut(fig).positions = bytes),
         ("values", |fig, bytes| bar_mut(fig).values = bytes),
-        ("base", |fig, bytes| {
-            bar_mut(fig).base = BarBase::Data(bytes)
-        }),
+        ("base", |fig, bytes| bar_mut(fig).base = PerBar::Data(bytes)),
         ("widths", |fig, bytes| {
-            bar_mut(fig).slot = BarSlot::Data(bytes)
+            bar_mut(fig).width = BarWidth::Data(bytes)
         }),
         ("colour data", |fig, bytes| {
             let bar = bar_mut(fig);
@@ -1417,21 +1888,18 @@ fn a_colormapped_bar_face_or_edge_follows_the_colour_rules_of_a_series() {
     }
 }
 
-/// The values of a bar series of a [`bar_set`], and the change that makes it a member of
-/// the set.
-type Member = (&'static [f64], Box<dyn FnOnce(&mut Bar)>);
-
-/// Builds a figure with one 2D axes holding bar series of the values given for each, at
-/// positions 1, 2, …, n, each changed by its function, and returns it with the
-/// identifiers of the series in order.
-fn bar_set(series: Vec<Member>) -> (Figure, Vec<NodeId>) {
+/// Builds a figure with one 2D axes holding bar series at positions 1, 2, …, n, one for each
+/// set of values, each changed by its function with its index, and returns it.
+fn bar_set(
+    series: &[&'static [f64]],
+    change: impl Fn(usize, &mut Bar, &mut FigureBuilder),
+) -> Figure {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
-    let n = series.first().map_or(0, |(values, _)| values.len());
+    let n = series.first().map_or(0, |values| values.len());
     let positions: Vec<f64> = (1..=n).map(|k| k as f64).collect();
     let positions = b.vector(&positions);
-    let mut ids = Vec::new();
-    for (values, change) in series {
+    for (k, values) in series.iter().enumerate() {
         let id = b.node();
         let mut bar = Bar {
             id,
@@ -1439,21 +1907,10 @@ fn bar_set(series: Vec<Member>) -> (Figure, Vec<NodeId>) {
             values: b.vector(values),
             ..Bar::default()
         };
-        change(&mut bar);
+        change(k, &mut bar, &mut b);
         b.push(axes, Artist::Bar(bar));
-        ids.push(id);
     }
-    (b.build(), ids)
-}
-
-/// A change that puts a bar series in the group of the given name and layout.
-fn in_group(name: &'static str, layout: BarLayout) -> Box<dyn FnOnce(&mut Bar)> {
-    Box::new(move |bar: &mut Bar| {
-        bar.group = Some(BarGroup {
-            name: name.to_owned(),
-            layout,
-        })
-    })
+    b.build()
 }
 
 // Why: a missing category is written as a non-finite position as readily as a missing
@@ -1483,160 +1940,41 @@ fn a_bar_at_a_non_finite_position_draws_nothing_and_raises_no_issue() {
 
 // Why: grouped bars are how several series are compared at each position (three models
 // scored on four properties), and stacked bars are how parts add up to a total, negative
-// parts included (Plotly's relative mode). Series that agree on everything the group
-// shares must raise nothing, whatever their colours, labels and values, or the most
-// common use of the feature would always carry a warning.
+// parts included. The facade's helper writes both as ordinary series: grouped columns as
+// a narrower width with an offset in widths for each column, and stacked parts as bases
+// given per bar from the running totals. Those exact forms, overlapping or not, must raise
+// nothing, or the most common use of bars would always carry an issue; series of one axes
+// are never compared with one another, so nothing can be inconsistent between them.
 #[test]
-fn bars_of_a_group_that_agree_raise_no_issue_grouped_or_stacked() {
+fn the_series_that_grouping_and_stacking_write_raise_no_issue() {
     let models: [&'static [f64]; 3] = [
         &[0.8, 0.6, 0.9, 0.7],
         &[0.7, 0.9, 0.5, 0.8],
         &[0.9, 0.4, 0.6, f64::NAN],
     ];
-    let (fig, _) = bar_set(
-        models
-            .into_iter()
-            .map(|values| (values, in_group("models", BarLayout::Grouped)))
-            .collect(),
-    );
+    let fig = bar_set(&models, |k, bar, _| {
+        bar.width = BarWidth::Pitch(0.8 / 3.0);
+        bar.offset = BarOffset::Widths(k as f64 - 1.0);
+    });
     assert_no_issues(&fig.validate(), "three grouped series");
 
+    // Parts 1, −2, 3 / −1.5, 2, 0.5 / 2, 2, −4, positive and negative stacked apart.
     let parts: [&'static [f64]; 3] = [&[1.0, -2.0, 3.0], &[-1.5, 2.0, 0.5], &[2.0, 2.0, -4.0]];
-    let (fig, _) = bar_set(
-        parts
-            .into_iter()
-            .map(|values| (values, in_group("parts", BarLayout::Stacked)))
-            .collect(),
-    );
+    let bases: [&'static [f64]; 3] = [&[0.0, 0.0, 0.0], &[0.0, 0.0, 3.0], &[1.0, 2.0, 0.0]];
+    let fig = bar_set(&parts, |k, bar, b| {
+        bar.base = PerBar::Data(b.vector(bases[k]));
+    });
     assert_no_issues(&fig.validate(), "three stacked series with negative parts");
-}
 
-// Why: the members of a group share one layout, which is taken from the first member in
-// artist order; a later member that differs in orientation, slot, gap, base or layout
-// (grouped or stacked) is drawn by
-// the first member's rule, not its own, so the user must be told which member decides and
-// which property was overridden. It is a warning, because the group still draws. The
-// warning belongs to the member that differs, and a member that agrees with the first is
-// not reported.
-#[test]
-fn a_group_member_that_differs_from_the_first_is_a_warning_naming_the_first_and_the_property() {
-    type Change = fn(&mut Bar);
-    let cases: [(&str, Change); 5] = [
-        ("orientation", |bar| {
-            bar.orientation = Orientation::Horizontal
-        }),
-        ("slot", |bar| bar.slot = BarSlot::Width(0.5)),
-        ("gap", |bar| bar.gap = 0.0),
-        ("base", |bar| bar.base = BarBase::Constant(1.0)),
-        ("layout", |bar| {
-            if let Some(group) = &mut bar.group {
-                group.layout = BarLayout::Stacked;
-            }
-        }),
-    ];
-    for (property, change) in cases {
-        let members: Vec<Member> = vec![
-            (&[1.0, 2.0], in_group("g", BarLayout::Grouped)),
-            (
-                &[2.0, 3.0],
-                Box::new(move |bar: &mut Bar| {
-                    bar.group = Some(BarGroup {
-                        name: "g".to_owned(),
-                        layout: BarLayout::Grouped,
-                    });
-                    change(bar);
-                }),
-            ),
-            (&[3.0, 1.0], in_group("g", BarLayout::Grouped)),
-        ];
-        let (fig, ids) = bar_set(members);
-        let report = fig.validate();
-        assert_eq!(report.errors, vec![], "{property}: {report:?}");
-        assert_eq!(
-            warning_kinds(&report),
-            [IssueKind::InconsistentBarGroup],
-            "{property}: {report:?}"
-        );
-        let warning = &report.warnings[0];
-        assert_eq!(warning.node, Some(ids[1]), "{property}: {warning:?}");
-        let first = ids[0].to_string();
-        assert!(
-            warning.message.contains(&first) && warning.message.contains(property),
-            "{property}: the message must name {first} and {property}: {}",
-            warning.message
-        );
-    }
-}
-
-// Why: a group is formed by name within one axes, so two charts that happen to use the
-// same group name in different axes are separate groups, and differences between them are
-// not inconsistencies; bars without a group are never compared with anything.
-#[test]
-fn bars_sharing_a_group_name_in_different_axes_or_without_a_group_are_not_compared() {
-    let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout::new(1, 2);
-    let left = b.axes2d(0, 0);
-    let right = b.axes2d(0, 1);
-    let positions = b.vector(&[1.0, 2.0]);
-    let values = b.vector(&[3.0, 4.0]);
-    for (axes, gap, group) in [
-        (left, 0.2, Some("g")),
-        (right, 0.0, Some("g")),
-        (right, 0.5, None),
-    ] {
-        let id = b.node();
-        b.push(
-            axes,
-            Artist::Bar(Bar {
-                id,
-                positions,
-                values,
-                gap,
-                group: group.map(|name| BarGroup {
-                    name: name.to_owned(),
-                    layout: BarLayout::Grouped,
-                }),
-                ..Bar::default()
-            }),
-        );
-    }
-    assert_no_issues(&b.build().validate(), "groups in different axes");
-}
-
-// Why: stacked members build on one another by position value, and grouped members share
-// each position's slot, so the members of a group need not hold the same positions or the
-// same number of bars: a series that lacks a category, or that adds one, is ordinary (a
-// model not scored on one property, or a part present only in some totals). Positions are
-// not among the properties that the first member decides, so such a group raises nothing.
-#[test]
-fn members_of_a_group_at_different_positions_raise_no_issue() {
-    for layout in [BarLayout::Grouped, BarLayout::Stacked] {
-        let mut b = FigureBuilder::new();
-        let axes = b.axes2d(0, 0);
-        for (positions, values) in [
-            (&[1.0, 2.0, 3.0][..], &[3.0, -1.0, 2.0][..]),
-            (&[2.0, 3.0, 4.0, 5.0][..], &[1.0, 2.0, -2.0, 4.0][..]),
-            (&[3.0][..], &[0.5][..]),
-        ] {
-            let id = b.node();
-            let positions = b.vector(positions);
-            let values = b.vector(values);
-            b.push(
-                axes,
-                Artist::Bar(Bar {
-                    id,
-                    positions,
-                    values,
-                    group: Some(BarGroup {
-                        name: "g".to_owned(),
-                        layout,
-                    }),
-                    ..Bar::default()
-                }),
-            );
+    // Series that disagree in every property that a group once shared are still valid.
+    let fig = bar_set(&[&[1.0, 2.0], &[2.0, 3.0]], |k, bar, _| {
+        if k == 1 {
+            bar.orientation = Orientation::Horizontal;
+            bar.width = BarWidth::Constant(0.5);
+            bar.base = PerBar::Constant(1.0);
         }
-        assert_no_issues(&b.build().validate(), &format!("{layout:?}"));
-    }
+    });
+    assert_no_issues(&fig.validate(), "series that differ");
 }
 
 // Why: on a logarithmic value axis a bar that rises from 0 has no place to start, so it is
@@ -1654,7 +1992,7 @@ fn a_non_positive_bar_base_on_a_logarithmic_value_axis_is_a_warning() {
         ("a base given as data with a 0 under log y", |fig| {
             fig.axes[0].y.scale = Scale::Log;
             let base = push_vector(fig, NodeId(50), &[1.0, 0.0]);
-            bar_mut(fig).base = BarBase::Data(base);
+            bar_mut(fig).base = PerBar::Data(base);
         }),
         ("horizontal bars from 0 under log x", |fig| {
             fig.axes[0].x.scale = Scale::Log;
@@ -1680,7 +2018,7 @@ fn a_non_positive_bar_base_on_a_logarithmic_value_axis_is_a_warning() {
     let quiet: [(&str, Change); 2] = [
         ("a base of 1 under log y", |fig| {
             fig.axes[0].y.scale = Scale::Log;
-            bar_mut(fig).base = BarBase::Constant(1.0);
+            bar_mut(fig).base = PerBar::Constant(1.0);
         }),
         ("vertical bars from 0 under log x", |fig| {
             fig.axes[0].x.scale = Scale::Log;
@@ -1690,6 +2028,78 @@ fn a_non_positive_bar_base_on_a_logarithmic_value_axis_is_a_warning() {
         let mut fx = fixture(false, bars(&[2.0, 5.0]));
         change(&mut fx.fig);
         assert_no_issues(&fx.fig.validate(), name);
+    }
+}
+
+// Why: a value is a length from the base, not a place on the axis, so on a logarithmic
+// value axis what must be positive is where a bar ends, `base + value`, not the value: a
+// bar of length −5 hanging from 10 ends at 5 and is drawn, and must not be reported as a
+// non-positive value, while a bar of length −20 hanging from 10 ends at −10, which the axis
+// has no place for, so it is not drawn and the user is told, with a warning that says the
+// bar is not drawn. The rule follows the orientation, and a bar of length 0 ends at its
+// positive base and is drawn.
+#[test]
+fn on_a_logarithmic_value_axis_the_end_of_a_bar_not_its_length_must_be_positive() {
+    type Change = fn(&mut Figure);
+    let quiet: [(&str, &'static [f64], Change); 3] = [
+        (
+            "bars hanging from 10 that end above 0",
+            &[-5.0, -9.0],
+            |fig| {
+                fig.axes[0].y.scale = Scale::Log;
+                bar_mut(fig).base = PerBar::Constant(10.0);
+            },
+        ),
+        ("a bar of length 0 on a positive base", &[0.0, 3.0], |fig| {
+            fig.axes[0].y.scale = Scale::Log;
+            bar_mut(fig).base = PerBar::Constant(1.0);
+        }),
+        (
+            "floating bars whose ends are positive",
+            &[-1.0, 4.0],
+            |fig| {
+                fig.axes[0].y.scale = Scale::Log;
+                let base = push_vector(fig, NodeId(50), &[2.0, 0.5]);
+                bar_mut(fig).base = PerBar::Data(base);
+            },
+        ),
+    ];
+    for (name, values, change) in quiet {
+        let mut fx = fixture(false, bars(values));
+        change(&mut fx.fig);
+        assert_no_issues(&fx.fig.validate(), name);
+    }
+    let warned: [(&str, &'static [f64], Change); 2] = [
+        (
+            "a bar hanging from 10 below 0 under log y",
+            &[-20.0, 5.0],
+            |fig| {
+                fig.axes[0].y.scale = Scale::Log;
+                bar_mut(fig).base = PerBar::Constant(10.0);
+            },
+        ),
+        ("a flat bar ending at 0 under log x", &[-10.0, 5.0], |fig| {
+            fig.axes[0].x.scale = Scale::Log;
+            let bar = bar_mut(fig);
+            bar.orientation = Orientation::Horizontal;
+            bar.base = PerBar::Constant(10.0);
+        }),
+    ];
+    for (name, values, change) in warned {
+        let mut fx = fixture(false, bars(values));
+        change(&mut fx.fig);
+        let report = fx.fig.validate();
+        assert_eq!(report.errors, vec![], "{name}: {report:?}");
+        assert_eq!(
+            warning_kinds(&report),
+            [IssueKind::NonPositiveOnLogAxis],
+            "{name}: {report:?}"
+        );
+        assert!(
+            has_warning(&report, IssueKind::NonPositiveOnLogAxis, fx.artist)
+                && report.warnings[0].message.contains("not drawn"),
+            "{name}: the message must say the bar is not drawn: {report:?}"
+        );
     }
 }
 
@@ -2445,8 +2855,13 @@ fn empty_bars_stairs_and_cells_are_a_warning_that_the_artist_draws_nothing() {
 #[test]
 fn an_empty_artist_with_an_error_is_reported_for_the_error_alone() {
     let mut fx = fixture(false, bars(&[]));
-    bar_mut(&mut fx.fig).gap = 1.0;
-    assert_only_error(&fx.fig.validate(), IssueKind::InvalidGap, fx.artist, "bars");
+    bar_mut(&mut fx.fig).width = BarWidth::Pitch(0.0);
+    assert_only_error(
+        &fx.fig.validate(),
+        IssueKind::InvalidBarWidth,
+        fx.artist,
+        "bars",
+    );
 
     let mut fx = fixture(false, stairs_on_edges(&[]));
     stairs_mut(&mut fx.fig).fill = ColorSpec::Auto;
