@@ -40,6 +40,30 @@ fn every_entry_builds_a_valid_figure_without_warnings() {
     );
 }
 
+/// WHY: a layout warning means the figure is drawn other than as written: a legend whose entries do not fit its space
+/// leaves some of them out, which validation cannot see because it depends on the size of the text. An example that
+/// silently drops part of its key would mislead a reader who copies it, so the scene compiler's warnings are rejected
+/// as validation warnings are.
+#[test]
+fn every_entry_lays_out_without_warnings() {
+    let failures: Vec<String> = all()
+        .into_iter()
+        .filter_map(|entry| {
+            let warnings: Vec<String> = (entry.build)()
+                .layout_warnings()
+                .into_iter()
+                .map(|warning| warning.message)
+                .collect();
+            (!warnings.is_empty()).then(|| format!("{}: {}", entry.slug, warnings.join("; ")))
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "gallery figures with layout warnings:\n{}",
+        failures.join("\n")
+    );
+}
+
 /// WHY: the plan requires every gallery figure to carry a title, and titles are the most visible check that figure
 /// titles are laid out and exported.
 #[test]
