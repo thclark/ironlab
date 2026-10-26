@@ -922,7 +922,10 @@ pub struct Binning {
     pub range: Option<[f64; 2]>,
     /// How the counts of the bins were normalised into the values drawn.
     pub normalization: HistNorm,
-    /// The number of samples counted into the bins: finite and not negative.
+    /// The total the values were normalised by, finite and not negative: the number of
+    /// samples counted into the bins, or, for one of several histograms normalised
+    /// together, as the members of a stack are, the number counted into the bins of all
+    /// of them.
     pub total: f64,
     /// The number of samples left out because they were not finite.
     pub excluded_non_finite: u64,

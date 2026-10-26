@@ -1059,6 +1059,11 @@ impl BarColumns {
         self.members.iter().map(|(id, _)| *id).collect()
     }
 
+    /// Returns the column of every series, in the order they were added.
+    pub(crate) fn columns(&self) -> impl Iterator<Item = &BarsColumn> {
+        self.members.iter().map(|(_, column)| column)
+    }
+
     /// Returns the width of every series, as a fraction of the space of a cluster, and the
     /// offset of each series, in multiples of its own width, for clusters that leave the
     /// fraction `gap` of their space empty and columns that leave the fraction `group_gap`

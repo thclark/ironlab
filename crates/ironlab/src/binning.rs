@@ -585,6 +585,13 @@ impl Bounds {
     }
 }
 
+/// Normalises the counts of the bins of one dimension, whose widths are given, by `total`,
+/// which is the total of the included samples unless several histograms are normalised by
+/// the total they pool, as the members of a stack are.
+pub(crate) fn normalise_1d(counts: &[f64], widths: &[f64], total: f64, norm: HistNorm) -> Vec<f64> {
+    normalise(counts, widths, total, norm, cumulative_1d)
+}
+
 /// Normalises the counts of the bins, whose widths (or areas) are given, by the total of
 /// the included samples. The function `accumulate` turns counts into cumulative counts.
 fn normalise(
