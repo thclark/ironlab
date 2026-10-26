@@ -183,10 +183,12 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
                 all.push(widths);
             }
             all.extend(a.color_data);
+            all.extend(a.binning.as_ref().map(|b| b.edges));
             a.positions
         }
         Artist::Stairs(a) => {
             all.extend([a.data.positions(), a.data.values()]);
+            all.extend(a.binning.as_ref().map(|b| b.edges));
             a.data.values()
         }
         Artist::Cells(a) => {
@@ -197,6 +199,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
                 }
             }
             all.extend(a.alpha);
+            all.extend(a.binning.iter().flat_map(|b| [b.x_edges, b.y_edges]));
             a.values
         }
     };

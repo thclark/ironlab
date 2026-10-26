@@ -1257,7 +1257,45 @@ impl<'a> Validator<'a> {
             );
             return false;
         }
-        true
+        match &bar.binning {
+            Some(binning) => {
+                self.check_bin_edges(node, "bin edges of the record", binning.edges, n)
+            }
+            None => true,
+        }
+    }
+
+    /// Checks that the resolved bin edges of a binning record, described by `what`, are
+    /// one-dimensional, one more than the `bins` that the artist draws, and finite and
+    /// strictly increasing, and returns whether all of them hold.
+    fn check_bin_edges(&mut self, node: NodeId, what: &str, edges: NodeId, bins: usize) -> bool {
+        if !self.check_vectors(node, &[(what, edges)]) {
+            return false;
+        }
+        let found = self.arrays[&edges].len();
+        if found != bins + 1 {
+            self.error(
+                Some(node),
+                IssueKind::ShapeMismatch,
+                format!(
+                    "the {what} hold {found} edges, but the {bins} bins drawn need {}",
+                    bins + 1
+                ),
+            );
+            return false;
+        }
+        let Some(values) = self.arrays[&edges].as_f64() else {
+            return true;
+        };
+        let problem = if let Some(bad) = values.iter().find(|v| !v.is_finite()) {
+            format!("the {what} include {bad}, which is not finite")
+        } else if !values.windows(2).all(|pair| pair[0] < pair[1]) {
+            format!("the {what} are not strictly increasing")
+        } else {
+            return true;
+        };
+        self.error(Some(node), IssueKind::InvalidEdges, problem);
+        false
     }
 
     /// Checks that the arrays of stairs are one-dimensional, with one more edge than values
@@ -1287,7 +1325,15 @@ impl<'a> Validator<'a> {
             );
             return false;
         }
-        self.check_monotonic(node, &format!("the {what} of the stairs"), positions)
+        if !self.check_monotonic(node, &format!("the {what} of the stairs"), positions) {
+            return false;
+        }
+        match &stairs.binning {
+            Some(binning) => {
+                self.check_bin_edges(node, "bin edges of the record", binning.edges, n)
+            }
+            None => true,
+        }
     }
 
     /// Checks that the values of cells are two-dimensional, that explicit edges are
@@ -1343,6 +1389,12 @@ impl<'a> Validator<'a> {
                 continue;
             }
             agree &= self.check_monotonic(node, &format!("the {what} edges of the cells"), edges);
+        }
+        if let Some(binning) = &cells.binning {
+            agree &=
+                self.check_bin_edges(node, "bin edges along x of the record", binning.x_edges, nx);
+            agree &=
+                self.check_bin_edges(node, "bin edges along y of the record", binning.y_edges, ny);
         }
         agree
     }
@@ -2460,6 +2512,7 @@ impl Usage for Bar {
             references.push(widths);
         }
         references.extend(self.color_data);
+        references.extend(self.binning.as_ref().map(|binning| binning.edges));
         let mut problems = Vec::new();
         let width = match self.width {
             BarWidth::Pitch(fraction) => Some(("fraction of the pitch", fraction)),
@@ -2514,7 +2567,8 @@ impl Usage for Stairs {
             (self.orientation.category_dimension(), self.data.positions()),
             (self.orientation.value_dimension(), self.data.values()),
         ];
-        let references = ids(&positions);
+        let mut references = ids(&positions);
+        references.extend(self.binning.as_ref().map(|binning| binning.edges));
         let mut problems =
             colormap_problems("stairs", &[("line", self.line.color), ("fill", self.fill)]);
         if let Some(binning) = &self.binning {
@@ -2550,6 +2604,9 @@ impl Usage for Cells {
             if let CellEdges::Edges(edges) = edges {
                 references.push(edges);
             }
+        }
+        if let Some(binning) = &self.binning {
+            references.extend([binning.x_edges, binning.y_edges]);
         }
         let mut problems = gap_problems("gap of the cells along x", self.gap.x);
         problems.extend(gap_problems("gap of the cells along y", self.gap.y));

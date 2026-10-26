@@ -16,6 +16,37 @@
 //! - The total used by the normalisations is the number of included samples, or the sum
 //!   of their weights when weights are given.
 //!
+//! The bin specification, the rules and the normalisations are the model's own types,
+//! [`Bins`], [`BinRule`] and [`HistNorm`], so that the record of how a histogram was
+//! binned, which the figure stores with the binned values (ADR 0029), holds exactly what
+//! the author gave these functions. They mean the following here:
+//!
+//! - [`Bins::Count`] gives that number of bins of equal width across the range, computed
+//!   as `numpy.linspace` computes them. [`Bins::Width`] gives bins of that width from the
+//!   minimum of the range, the last edge being the first one at or beyond the maximum, so
+//!   that the last bin may extend beyond the data. [`Bins::Edges`] gives the bins between
+//!   the edges, which must be finite and strictly increasing, and excludes the samples
+//!   outside the first and last edges.
+//! - Every rule except [`BinRule::Integers`] estimates a bin width from the samples inside
+//!   the range and divides the range into the smallest number of equal bins no wider than
+//!   that width; a width of zero, as for a sample whose values are all equal, gives one
+//!   bin. [`BinRule::Auto`] is numpy's `'auto'`: the smaller of the Sturges width and the
+//!   Freedman–Diaconis width, the latter first raised to at least half the square-root
+//!   width. [`BinRule::Sturges`] divides the extent by `log2(n) + 1`, [`BinRule::Scott`]
+//!   takes `(24 √π / n)^(1/3)` times the standard deviation, [`BinRule::FreedmanDiaconis`]
+//!   takes twice the interquartile range divided by the cube root of `n`, and
+//!   [`BinRule::Sqrt`] divides the extent by `√n`. [`BinRule::Integers`] is MATLAB's
+//!   `'integers'`: one bin of unit width centred on each integer that the range spans.
+//! - The count of a bin is the number of included samples in it, or the sum of their
+//!   weights. [`HistNorm::Probability`] divides it by the total and
+//!   [`HistNorm::Percentage`] multiplies that by 100; [`HistNorm::CountDensity`] divides it
+//!   by the width of the bin, and [`HistNorm::Density`] divides the probability by the
+//!   width, so that the area of the histogram is one (numpy's `density=True`, MATLAB's
+//!   `'pdf'`). [`HistNorm::CumulativeCount`] adds the counts of the bins before, and
+//!   [`HistNorm::Cdf`] divides that by the total, ending at one. In two dimensions the
+//!   width of a bin is its area, and the cumulative normalisations accumulate over both
+//!   dimensions.
+//!
 //! IronLAB departs from numpy in three places, each to keep a figure valid rather than
 //! raise an error. A bin rule applied to a sample with no finite samples (inside the
 //! range, if one is given) gives no bins, where numpy gives one bin on `[0, 1]`. A bin rule
@@ -43,89 +74,7 @@ pub const MAX_BINS: usize = 1 << 24;
 /// histogram span. Samples outside it are excluded.
 pub type BinRange = (f64, f64);
 
-/// How the range of a sample is divided into bins.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Bins {
-    /// The given number of bins of equal width, spanning the range.
-    Count(usize),
-    /// Bins of the given width, starting at the minimum of the range. The last edge is the
-    /// first one at or beyond the maximum of the range, so the last bin may extend beyond
-    /// the data.
-    Width(f64),
-    /// Bins between the given edges, which must be finite and strictly increasing. The
-    /// bins may have different widths. Samples outside the first and last edges are
-    /// excluded.
-    Edges(Vec<f64>),
-    /// Bins of equal width, whose number is chosen by a rule from the sample.
-    Rule(BinRule),
-}
-
-impl Default for Bins {
-    /// Returns bins chosen by numpy's automatic rule, [`BinRule::Auto`].
-    fn default() -> Self {
-        Self::Rule(BinRule::Auto)
-    }
-}
-
-/// A rule that chooses the bins from the sample, with the definitions of
-/// `numpy.histogram_bin_edges` (except for [`BinRule::Integers`], which is MATLAB's).
-///
-/// Every rule except [`BinRule::Integers`] estimates a bin width from the samples inside
-/// the range, and then divides the range into the smallest number of equal bins that are
-/// no wider than that width. A rule whose estimated width is zero, as it is for a sample
-/// whose values are all equal, gives one bin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BinRule {
-    /// numpy's `'auto'` rule: the smaller of the Sturges width and the Freedman–Diaconis
-    /// width, where the Freedman–Diaconis width is first raised to at least half the
-    /// square-root width so that outliers cannot produce a great many narrow bins.
-    #[default]
-    Auto,
-    /// Sturges' rule: the width is the extent of the sample divided by `log2(n) + 1`. It
-    /// suits small samples from a roughly normal distribution.
-    Sturges,
-    /// Scott's rule: the width is `(24 √π / n)^(1/3)` times the standard deviation of the
-    /// sample, which is optimal for normally distributed data.
-    Scott,
-    /// The Freedman–Diaconis rule: the width is twice the interquartile range divided by
-    /// the cube root of `n`. It is robust to outliers.
-    FreedmanDiaconis,
-    /// The square-root rule: the width is the extent of the sample divided by `√n`.
-    Sqrt,
-    /// One bin of unit width centred on each integer that the range spans (MATLAB's
-    /// `'integers'` rule), for samples of integer values such as counts.
-    Integers,
-}
-
-/// What the value of each bin of a histogram represents, with MATLAB's names.
-///
-/// In the descriptions, the count of a bin is the number of included samples in it, or
-/// the sum of their weights when weights are given, and the total is the count of all
-/// the included samples. In two dimensions, the width of a bin is its area, and the
-/// cumulative normalisations accumulate over both dimensions, so that each cell holds
-/// the samples whose coordinates are both no greater than its upper edges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum HistNorm {
-    /// The count of each bin.
-    #[default]
-    Count,
-    /// The count of each bin divided by the total, so that the values sum to one.
-    Probability,
-    /// The probability of each bin multiplied by 100, so that the values sum to 100.
-    Percentage,
-    /// The count of each bin divided by its width.
-    CountDensity,
-    /// The probability of each bin divided by its width, so that the area of the
-    /// histogram is one. This is numpy's `density=True` and MATLAB's `'pdf'`, and is the
-    /// normalisation to use when a probability density function is drawn over the
-    /// histogram.
-    Density,
-    /// The count of each bin added to the counts of all the bins before it.
-    CumulativeCount,
-    /// The cumulative count of each bin divided by the total, which is an empirical
-    /// cumulative distribution function that ends at one (MATLAB's `'cdf'`).
-    Cdf,
-}
+pub use ironlab_ir::{BinRule, Bins, HistNorm};
 
 /// How a one-dimensional histogram is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -451,7 +400,7 @@ fn edges_for(
     match bins {
         Bins::Count(n) => {
             let (lo, hi) = outer_edges(values, range);
-            equal_edges(lo, hi, *n)
+            equal_edges(lo, hi, *n as usize)
         }
         Bins::Width(width) => {
             let (lo, hi) = outer_edges(values, range);

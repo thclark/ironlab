@@ -65,6 +65,7 @@ mod colorbar;
 mod data;
 mod error;
 mod figure;
+mod hist;
 mod legend;
 mod matrix;
 mod pixels;
@@ -83,6 +84,7 @@ pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
+pub use hist::{DensityContourMut, Hist2dMut, HistMut, HistsMut};
 pub use legend::{LegendItemRef, PanelLegendMut, PanelMut};
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
@@ -198,5 +200,8 @@ pub mod prelude {
         RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt,
         SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
-    pub use crate::{BinRule, Bins, HistNorm, HistStyle, HistogramSummary};
+    pub use crate::{
+        BinRule, Bins, DensityContourMut, Hist2dMut, HistMut, HistNorm, HistStyle,
+        HistogramSummary, HistsMut,
+    };
 }

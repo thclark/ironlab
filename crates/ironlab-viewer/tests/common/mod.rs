@@ -310,9 +310,12 @@ pub fn figure_with_every_artist() -> Figure {
         PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
     };
 
-    let ids: Vec<NodeId> = (0..10).map(array_id).collect();
+    let ids: Vec<NodeId> = (0..11).map(array_id).collect();
     let (x, y, z, u, v, w) = (ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]);
     let (gx, field, pixels, indices) = (ids[6], ids[7], ids[8], ids[9]);
+    // The resolved edges of every binning record: three bins, as the bars, the stairs and
+    // each dimension of the cells hold.
+    let bin_edges = ids[10];
     let vector = |start: f64| NdArray::vector(vec![start, start + 1.0, start + 2.0]);
     let data = data_arrays([
         (x, vector(1.0)),
@@ -337,6 +340,7 @@ pub fn figure_with_every_artist() -> Figure {
             NdArray::from_shape_u8(vec![3, 3], (0..9).collect())
                 .expect("the shape matches the values"),
         ),
+        (bin_edges, NdArray::vector(vec![0.5, 1.5, 2.5, 3.5])),
     ]);
     let ranges = ImagePlacement {
         plane: ImagePlane::default(),
@@ -464,6 +468,7 @@ pub fn figure_with_every_artist() -> Figure {
             color_scale: Some(NodeId(12)),
             binning: Some(Binning {
                 bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
+                edges: bin_edges,
                 range: Some([0.5, 3.5]),
                 normalization: HistNorm::Count,
                 total: 9.0,
@@ -481,6 +486,7 @@ pub fn figure_with_every_artist() -> Figure {
             },
             binning: Some(Binning {
                 bins: Bins::Count(3),
+                edges: bin_edges,
                 range: None,
                 normalization: HistNorm::Density,
                 total: 9.0,
@@ -496,6 +502,8 @@ pub fn figure_with_every_artist() -> Figure {
             binning: Some(Binning2d {
                 x_bins: Bins::Width(1.0),
                 y_bins: Bins::Count(3),
+                x_edges: bin_edges,
+                y_edges: bin_edges,
                 x_range: None,
                 y_range: Some([0.0, 3.0]),
                 normalization: HistNorm::Probability,

@@ -79,6 +79,25 @@ fn types_are_in_the_prelude() {
     let _ = HistogramSummary::default();
 }
 
+// WHY: the binning record stored on bars, stairs and cells (ADR 0029) holds the bins and
+// the normalisation exactly as the author gave them to the binning functions. That is
+// true by construction only when the binning functions take the IR's own types: a second,
+// look-alike set of facade types would need a conversion that could drift from the model.
+// Each binding below compiles only when the facade's, the prelude's and the IR's names
+// denote one type; `HistStyle` is a choice of drawing, not of binning, so it stays a
+// facade type and is not part of the record.
+#[test]
+fn the_binning_functions_take_the_types_of_the_ir() {
+    let bins: ironlab::ir::Bins = ironlab::prelude::Bins::Rule(ironlab::binning::BinRule::Scott);
+    let rule: ironlab::ir::BinRule = ironlab::prelude::BinRule::Integers;
+    let norm: ironlab::ir::HistNorm = ironlab::binning::HistNorm::Cdf;
+    let from_ir: ironlab::binning::Bins = ironlab::ir::Bins::Count(2);
+    let h = histogram(&[0.0, 1.0, 1.0], None, &from_ir, None, norm).expect("valid binning");
+    assert_eq!(h.values, [1.0 / 3.0, 1.0]);
+    assert_eq!(bins, ironlab::ir::Bins::Rule(ironlab::ir::BinRule::Scott));
+    assert_eq!(rule, ironlab::ir::BinRule::Integers);
+}
+
 // ---------------------------------------------------------------------------------------
 // Bin specifications
 // ---------------------------------------------------------------------------------------

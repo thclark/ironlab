@@ -909,11 +909,14 @@ impl Default for BarOffset {
 ///
 /// The record is descriptive: the binned values are stored on the bars or stairs that
 /// draw them, and nothing is computed from the record except the count and density of a
-/// bin that a datatip reports.
+/// bin that a datatip reports, from the width of the bin between its resolved edges.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Binning {
     /// How the bins were specified.
     pub bins: Bins,
+    /// The data array of the edges that the specification resolved to: one more than the
+    /// bins, finite and strictly increasing. Stairs refer to the array of their own edges.
+    pub edges: NodeId,
     /// The range of sample values that was binned, as `[low, high]`, or `None` when the
     /// range of the samples was used.
     pub range: Option<[f64; 2]>,
@@ -934,6 +937,14 @@ pub struct Binning2d {
     pub x_bins: Bins,
     /// How the bins along y were specified.
     pub y_bins: Bins,
+    /// The data array of the edges along x that the specification resolved to: one more
+    /// than the columns, finite and strictly increasing. Cells on explicit column edges
+    /// refer to the array of those edges.
+    pub x_edges: NodeId,
+    /// The data array of the edges along y that the specification resolved to: one more
+    /// than the rows, finite and strictly increasing. Cells on explicit row edges refer to
+    /// the array of those edges.
+    pub y_edges: NodeId,
     /// The range of sample values along x that was binned, or `None` for the range of the
     /// samples.
     pub x_range: Option<[f64; 2]>,

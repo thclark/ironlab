@@ -68,8 +68,10 @@ fn bin_of(cells: &Cells, data: &CellsData, j: usize, i: usize) -> Option<BinRead
     let (before_j, before_i) = (j.checked_sub(1), i.checked_sub(1));
     let before = cumulative(Some(j), before_i) + cumulative(before_j, Some(i))
         - cumulative(before_j, before_i);
-    let area =
-        (data.columns[i + 1] - data.columns[i]).abs() * (data.rows[j + 1] - data.rows[j]).abs();
+    // The area of the bin between the record's edges, which the drawn cell may not span when the cells are set apart
+    // by a gap.
+    let (x_edges, y_edges) = data.bin_edges?;
+    let area = (x_edges.get(i + 1)? - x_edges.get(i)?) * (y_edges.get(j + 1)? - y_edges.get(j)?);
     BinReading::recover(
         binning.normalization,
         binning.total,

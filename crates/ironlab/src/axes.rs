@@ -13,9 +13,11 @@ use crate::artists::{
     BarMut, BarsMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut,
     StairsMut, SurfaceMut,
 };
+use crate::binning::Bins;
 use crate::color_scale::{self, ColorScaleMut};
 use crate::colorbar::InsideColorbarMut;
 use crate::data::{DataSource, store_grid};
+use crate::hist::{DensityContourMut, Hist2dMut, HistMut, HistsMut};
 
 /// The colour of a reference line drawn by [`hline`](AxesMut::hline) or
 /// [`vline`](AxesMut::vline): the dark grey of MATLAB's `xline` and `yline`, which is
@@ -280,6 +282,127 @@ impl AxesMut<'_> {
         let x = x.into().store(self.fig);
         let values = values.into().store(self.fig);
         self.add_stairs(StairsData::Samples { x, values, step })
+    }
+
+    // Histograms.
+
+    /// Draws a histogram of a sample (MATLAB's `histogram`, Matplotlib's `hist`): the
+    /// sample is binned, by default with numpy's automatic rule, and each bin is drawn as a
+    /// bar spanning the bin, rising from 0 to the number of samples in it, with no gap
+    /// between neighbouring bars, in the next colour of the axes colour order.
+    ///
+    /// The returned [`HistMut`] sets the bins, the range, the weights, the normalisation and
+    /// the style (bars, a step outline or a filled step outline), each of which bins the
+    /// sample again. The figure stores the binned values and a record of how they were
+    /// binned, not the sample (ADR 0029): a datatip reports the count and density of each
+    /// bin, but a viewer of the figure cannot rebin it. A sample given as the identifier of
+    /// a data array of the figure is read and not referenced, so the array stays in the
+    /// figure as its author made it, and [`Figure::validate`](crate::Figure::validate)
+    /// reports it as unused data while no other artist refers to it. Several histograms on
+    /// shared bins, stacked or side by side, are drawn by [`hists`](Self::hists); counts
+    /// binned beforehand are drawn by [`hist_counts`](Self::hist_counts) or, as an outline,
+    /// by [`stairs`](Self::stairs).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let sample: Vec<f64> = (0..500).map(|k| (f64::from(k) * 0.618).fract()).collect();
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.hist(&sample)
+    ///     .bins(Bins::Count(10))
+    ///     .normalize(HistNorm::Density)
+    ///     .label("Sample");
+    /// ax.xlabel("$x$").ylabel("Density");
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn hist(&mut self, sample: impl Into<DataSource>) -> HistMut<'_> {
+        HistMut::create(self.fig, self.id, sample.into())
+    }
+
+    /// Returns the helper that draws stacked and grouped histograms of several samples on
+    /// one shared set of bins, specified by `bins` (MATLAB's `histogram` of several
+    /// samples, Matplotlib's `hist` with `stacked=True` or a list of samples), each an
+    /// ordinary bar series placed as [`bars`](Self::bars) places its series; see
+    /// [`HistsMut`].
+    pub fn hists(&mut self, bins: Bins) -> HistsMut<'_> {
+        HistsMut::new(self.fig, self.id, bins)
+    }
+
+    /// Draws counts binned beforehand, by MATLAB's `histcounts`, numpy's `histogram` or an
+    /// instrument, as touching bars between the given edges, of which there is one more
+    /// than counts: the histogram that [`hist`](Self::hist) would draw of the sample.
+    ///
+    /// The bars are ordinary bars, whose returned [`BarMut`] sets their colours and label.
+    /// They carry no binning record, because the figure cannot know how many samples the
+    /// counts hold or how they were binned. Edges that are not one more than the counts are
+    /// reported by [`Figure::validate`](crate::Figure::validate). The edges are read to
+    /// place the bars and are not stored; the counts are stored, or shared when given by
+    /// identifier.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0).hist_counts([0.0, 1.0, 3.0, 4.0], [2.0, 5.0, 1.0]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn hist_counts(
+        &mut self,
+        edges: impl Into<DataSource>,
+        counts: impl Into<DataSource>,
+    ) -> BarMut<'_> {
+        let edges = edges.into().read(self.fig);
+        let counts = counts.into().store(self.fig);
+        let id = self.fig.alloc_node_id();
+        let bar = crate::hist::binned_bars(self.fig, id, &edges, counts, Orientation::Vertical);
+        self.axes().artists.push(Artist::Bar(bar));
+        BarMut::new(self.fig, id, None)
+    }
+
+    /// Draws a two-dimensional histogram of pairs of samples (MATLAB's `histogram2` viewed
+    /// from above, Matplotlib's `hist2d`): the pairs are binned along x and y, by default
+    /// with numpy's automatic rule along each, and each bin is drawn as a cell between its
+    /// edges, coloured by its count through the default colour scale of the axes (see
+    /// [`color_scale`](Self::color_scale)), which is created when the axes has none.
+    ///
+    /// The returned [`Hist2dMut`] sets the bins, the ranges, the weights, the normalisation
+    /// and a minimum count below which a bin is not drawn. The figure stores the binned
+    /// values as the cells, with a record of how they were binned, not the samples, so a
+    /// viewer of the figure cannot rebin them; samples given by identifier are read and not
+    /// referenced, as for [`hist`](Self::hist).
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let x: Vec<f64> = (0..400).map(|k| (f64::from(k) * 0.37).sin()).collect();
+    /// let y: Vec<f64> = (0..400).map(|k| (f64::from(k) * 0.53).cos()).collect();
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.hist2d(&x, &y).bins(Bins::Count(20), Bins::Count(20));
+    /// let counts = ax.color_scale().id();
+    /// ax.colorbar(counts, InsideColorbarSide::East);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn hist2d(&mut self, x: impl Into<DataSource>, y: impl Into<DataSource>) -> Hist2dMut<'_> {
+        Hist2dMut::create(self.fig, self.id, x.into(), y.into())
+    }
+
+    /// Draws the contours of the density of pairs of samples (Plotly's
+    /// `histogram2dcontour`): the pairs are binned as [`hist2d`](Self::hist2d) bins them, and
+    /// the binned values are contoured on the grid of the bin centres, the isolines
+    /// coloured by level through the default colour scale of the axes.
+    ///
+    /// The returned [`DensityContourMut`] sets the binning as [`Hist2dMut`] does, and the
+    /// levels and the fill as [`ContourMut`] does. The figure stores the binned values as
+    /// the field of the contour, not the samples, so a viewer of the figure cannot rebin
+    /// them.
+    pub fn density_contour(
+        &mut self,
+        x: impl Into<DataSource>,
+        y: impl Into<DataSource>,
+    ) -> DensityContourMut<'_> {
+        DensityContourMut::create(self.fig, self.id, x.into(), y.into())
     }
 
     // Contour plots.

@@ -173,3 +173,142 @@ pub fn image_figure() -> Figure {
         .non_finite(Color::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
     fig
 }
+
+/// Compiles the figure into a scene, as every front end does before drawing it.
+pub fn compile(fig: &Figure) -> ironlab_scene::Scene {
+    ironlab_scene::compile(fig.ir(), &ironlab_text::TextEngine::new())
+}
+
+/// The filled paths of a visible colour that the scene compiler drew for the artist, as the fill colour (to 8 bits)
+/// and the number of subpaths of each, in paint order.
+pub fn filled_paths(fig: &Figure, id: NodeId) -> Vec<([u8; 4], usize)> {
+    use ironlab_scene::display::{ItemKind, PathSegment};
+    let scene = compile(fig);
+    let mut out = Vec::new();
+    scene.display_list.visit_leaves(|item, _, _| {
+        if item.source != Some(id) {
+            return;
+        }
+        if let ItemKind::Path(path) = &item.kind
+            && let Some(fill) = path.fill.filter(|f| f.color.a > 0.0)
+        {
+            let c = fill.color;
+            let colour = [c.r, c.g, c.b, c.a].map(|v| (v * 255.0).round() as u8);
+            let subpaths = path
+                .segments
+                .iter()
+                .filter(|s| matches!(s, PathSegment::MoveTo(_)))
+                .count();
+            out.push((colour, subpaths));
+        }
+    });
+    out
+}
+
+/// The number of filled shapes of a visible colour that the scene compiler drew for the artist: one per subpath of
+/// each filled path, so that the count does not depend on whether shapes of one colour share a path.
+pub fn filled_shapes(fig: &Figure, id: NodeId) -> usize {
+    filled_paths(fig, id).iter().map(|(_, n)| n).sum()
+}
+
+/// The range of values, `(min, max)`, over which the colourbar of the given colour scale is drawn in the compiled
+/// figure, which for automatic limits is the range the scene compiler resolved from the artists.
+pub fn colorbar_span(fig: &Figure, scale: NodeId) -> (f64, f64) {
+    let scene = compile(fig);
+    let bar = scene
+        .hit_map
+        .colorbars
+        .iter()
+        .find(|bar| bar.scale == scale)
+        .unwrap_or_else(|| panic!("no colourbar of {scale} is drawn"));
+    let map = bar
+        .map
+        .as_ref()
+        .expect("a continuous scale's bar maps values");
+    (map.min, map.max)
+}
+
+/// The distinct colours (to 8 bits) of the visible strokes that the scene compiler drew for the artist.
+pub fn stroke_colours(fig: &Figure, id: NodeId) -> std::collections::BTreeSet<[u8; 4]> {
+    use ironlab_scene::display::ItemKind;
+    let scene = compile(fig);
+    let mut out = std::collections::BTreeSet::new();
+    scene.display_list.visit_leaves(|item, _, _| {
+        if item.source != Some(id) {
+            return;
+        }
+        if let ItemKind::Path(path) = &item.kind
+            && let Some(stroke) = path.stroke.as_ref().filter(|s| s.color.a > 0.0)
+        {
+            let c = stroke.color;
+            out.insert([c.r, c.g, c.b, c.a].map(|v| (v * 255.0).round() as u8));
+        }
+    });
+    out
+}
+
+/// Where one bar of a series lies, in data units, as the model defines it (ADR 0026): from `low` to `high` along the
+/// category axis, and from `base` to `end` (its base plus its value) along the value axis.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarExtent {
+    pub low: f64,
+    pub high: f64,
+    pub base: f64,
+    pub end: f64,
+}
+
+/// Returns where each bar of the bar series lies, resolving its width (a fraction of the pitch, a constant or one per
+/// bar), its offset (in widths or in data units) and its base (a constant or one per bar) as the `Bar` artist
+/// documents them, so that a test of the geometry of bars does not depend on which of the equivalent forms the facade
+/// chose to store.
+pub fn bar_extents(fig: &Figure, id: NodeId) -> Vec<BarExtent> {
+    use ir::{BarOffset, BarWidth, PerBar};
+    let vector = |id: NodeId| -> Vec<f64> {
+        data(fig, id)
+            .as_f64()
+            .expect("the arrays of bars are floating-point")
+            .to_vec()
+    };
+    let b = bar(fig, id);
+    let positions = vector(b.positions);
+    let values = vector(b.values);
+    let n = positions.len();
+    let widths = match b.width {
+        BarWidth::Pitch(fraction) => {
+            let mut distinct: Vec<f64> = positions
+                .iter()
+                .copied()
+                .filter(|p| p.is_finite())
+                .collect();
+            distinct.sort_by(f64::total_cmp);
+            distinct.dedup();
+            let pitch = distinct
+                .windows(2)
+                .map(|w| w[1] - w[0])
+                .fold(f64::INFINITY, f64::min);
+            let pitch = if pitch.is_finite() { pitch } else { 1.0 };
+            vec![fraction * pitch; n]
+        }
+        BarWidth::Constant(width) => vec![width; n],
+        BarWidth::Data(widths) => vector(widths),
+    };
+    let bases = match b.base {
+        PerBar::Constant(base) => vec![base; n],
+        PerBar::Data(bases) => vector(bases),
+    };
+    (0..n)
+        .map(|k| {
+            let offset = match b.offset {
+                BarOffset::Widths(multiple) => multiple * widths[k],
+                BarOffset::Absolute(distance) => distance,
+            };
+            let centre = positions[k] + offset;
+            BarExtent {
+                low: centre - widths[k] / 2.0,
+                high: centre + widths[k] / 2.0,
+                base: bases[k],
+                end: bases[k] + values[k],
+            }
+        })
+        .collect()
+}

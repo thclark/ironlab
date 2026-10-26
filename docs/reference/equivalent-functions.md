@@ -128,7 +128,24 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | Stepped outline between edges | `histogram` with `DisplayStyle` set to `stairs` | `stairs` | `Scatter` with `line_shape="hv"` through the edges | `stairs` |
 | Stepped line through samples | `stairs` | `step`, or `plot` with `drawstyle="steps-post"` | `Scatter` with `line_shape="hv"`, `"vh"` or `"hvh"` | `stairs_at` with `StepAt::Post`, `StepAt::Pre` or `StepAt::Mid` |
 
-Bars that compare series side by side or stack them are separate series in one named group, so that each series keeps its own label, colour and legend entry, as [bar charts](../guides/getting-started.md#bar-charts) describes. The positions are always numbers: categorical bars stand at 0, 1, …, N − 1 and are named by text tick labels.
+Bars that compare series side by side or stack them are separate series placed by the `bars` helper, so that each series keeps its own label, colour and legend entry, as [bar charts](../guides/getting-started.md#bar-charts) describes. The positions are always numbers: categorical bars stand at 0, 1, …, N − 1 and are named by text tick labels.
+
+## Histograms
+
+| Plot | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Histogram of a sample | `histogram` | `hist` | `Histogram` | `hist` |
+| Histogram with a chosen number of bins, bin width, bin edges or rule | `histogram(x, nbins)`, `'BinWidth'`, `histogram(x, edges)`, `'BinMethod'` | `hist(x, bins=n)`, `bins=edges`, `bins="auto"` | `Histogram` with `nbinsx` or `xbins` | `hist` with `bins(Bins::Count(n))`, `Bins::Width(w)`, `Bins::Edges(edges)` or `Bins::Rule(rule)` |
+| Normalised histogram | `histogram` with `'Normalization'` | `hist` with `density=True`, `weights=`, `cumulative=True` | `Histogram` with `histnorm` and `cumulative_enabled` | `hist` with `normalize(HistNorm::…)` |
+| Outline of a histogram | `histogram` with `DisplayStyle` set to `stairs` | `hist` with `histtype="step"` or `"stepfilled"` | no equivalent trace | `hist` with `style(HistStyle::Step)` or `style(HistStyle::FilledStep)` |
+| Histogram lying flat | `histogram` with `'Orientation'` set to `horizontal` | `hist` with `orientation="horizontal"` | `Histogram` with `y=` the sample | `hist` with `orientation(Orientation::Horizontal)` |
+| Counts binned beforehand drawn as a histogram | `histogram('BinEdges', edges, 'BinCounts', counts)` | `stairs(counts, edges, fill=True)`, or `bar` of the bin centres | `Bar` of the bin centres with `width=` the bin widths | `hist_counts(edges, counts)` |
+| Several histograms stacked or side by side on shared bins | no equivalent; one `histogram` per sample on the same `BinEdges` | `hist` with a list of samples, and `stacked=True` to stack them | `Histogram` traces with `barmode="stack"` or `"group"` | `hists` with one `stacked` or `series` per sample |
+| Two-dimensional histogram drawn as tiles | `histogram2` with `DisplayStyle` set to `tile` | `hist2d` | `Histogram2d` | `hist2d` |
+| Two-dimensional histogram without its sparse bins | no equivalent | `hist2d` with `cmin=` | no equivalent | `hist2d` with `min_count` |
+| Contours of the density of pairs of samples | no equivalent | no equivalent; `contour` of the counts of `numpy.histogram2d` | `Histogram2dContour` | `density_contour` |
+
+IronLAB bins every histogram when the figure is built and stores the binned values with a record of how they were binned, rather than the sample, so a datatip reports the count and the density of each bin but the viewer cannot rebin, as [histograms](../guides/getting-started.md#histograms) describes. The binning follows `numpy.histogram`, and the normalisations take MATLAB's names.
 
 ## Axes
 
@@ -147,4 +164,4 @@ Every angle is in degrees anticlockwise from horizontal, as in MATLAB, so 45 giv
 
 ## Plots without an equivalent
 
-IronLAB does not yet bin samples into histograms of one or two dimensions, although it draws binned counts as bars, stairs or cells; nor does it draw stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.
+IronLAB does not yet draw stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.
