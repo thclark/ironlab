@@ -132,7 +132,7 @@ Only a two-dimensional axes has a plot area to take a fraction of, so axes-fract
 
 ### Bar charts
 
-`bar(positions, values)` draws one upright bar at each position, and `barh(positions, values)` draws the same bars lying flat, which is how long category names are made readable. A value is the length of its bar from its base, as in Matplotlib and Plotly: each bar runs from 0 by default for the length of its value, and a negative value extends the other way. Each bar is centred on its position and is four fifths of the **pitch** wide, the pitch being the smallest distance between neighbouring positions, so that a fifth of the pitch is left between neighbouring bars. The bars take the next colour of the axes colour order and are outlined by a black line 0.5 pt wide. Every bar function returns a `BarMut`.
+`bar(positions, values)` draws one upright bar at each position, and `barh(positions, values)` draws the same bars lying flat, which is how long category names are made readable. A value is the length of its bar from its base, as in Matplotlib and Plotly: each bar runs from 0 by default for the length of its value, and a negative value extends the other way. Each bar is centred on its position and is 0.55 of the **pitch** wide, the pitch being the smallest distance between neighbouring positions, so that 0.45 of the pitch is left between neighbouring bars. The bars take the next colour of the axes colour order and are outlined by a black line 0.5 pt wide. Every bar function returns a `BarMut`.
 
 ```rust
 let mut ax = fig.axes(0, 0);
@@ -170,7 +170,7 @@ On a logarithmic value axis what must be positive is the end of a bar, its base 
 
 - `series(label, values)` adds a column of its own.
 - `stacked(column, label, values)` adds a part to the column of that name, created where it first appears. The parts of a column build on one another in the order they were added: positive values stack upwards from 0 and negative values downwards, separately, and a part whose value is not finite contributes nothing. The parts share the positions of the helper, so they are matched by index.
-- `gap(g)` sets the space between neighbouring clusters as a fraction of the pitch, 0.2 by default, and `group_gap(g)` the space between neighbouring columns of a cluster as a fraction of a column, 0 by default, at which the columns touch.
+- `gap(g)` sets the space between neighbouring clusters as a fraction of the pitch, 0.45 by default, so that a lone series of the helper is as wide as one drawn by `bar`, and `group_gap(g)` the space between neighbouring columns of a cluster as a fraction of a column, 0 by default, at which the columns touch.
 - `horizontal()` lays every series flat, and `margin(f)` sets the margin of every series.
 - `ids()` returns the series in the order they were added, and `last()` and `get(index)` return the `BarMut` of a series, so that it can be styled like any other.
 

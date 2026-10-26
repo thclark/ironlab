@@ -225,7 +225,7 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     assert!(bar.visible);
     assert_eq!(bar.orientation, Orientation::Vertical);
     assert_eq!(bar.base, PerBar::Constant(0.0));
-    assert_eq!(bar.width, BarWidth::Pitch(0.8));
+    assert_eq!(bar.width, BarWidth::Pitch(0.55));
     assert_eq!(bar.offset, BarOffset::Widths(0.0));
     assert_eq!(bar.face, ColorSpec::Auto);
     assert_eq!(bar.color_data, None);
@@ -245,7 +245,7 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     assert_eq!(bar.margin, 0.05);
     assert_eq!(bar.binning, None);
     assert_eq!(PerBar::default(), PerBar::Constant(0.0));
-    assert_eq!(BarWidth::default(), BarWidth::Pitch(0.8));
+    assert_eq!(BarWidth::default(), BarWidth::Pitch(0.55));
     assert_eq!(BarOffset::default(), BarOffset::Widths(0.0));
     assert_eq!(Orientation::default(), Orientation::Vertical);
     // Stairs and cells drawn from values rather than samples carry no binning record.
@@ -352,7 +352,7 @@ fn a_default_bar_series_is_written_in_the_documented_json_form() {
             "positions": 10,
             "values": 11,
             "base": { "type": "constant", "value": 0.0 },
-            "width": { "type": "pitch", "value": 0.8 },
+            "width": { "type": "pitch", "value": 0.55 },
             "offset": { "type": "widths", "value": 0.0 },
             "face": { "type": "auto" },
             "color_data": null,
@@ -692,7 +692,7 @@ fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
             "type": "bar", "id": 3, "label": null, "visible": true,
             "orientation": "vertical", "positions": 10, "values": 11,
             "base": { "type": "constant", "value": 0.0 },
-            "width": { "type": "pitch", "value": 0.8 },
+            "width": { "type": "pitch", "value": 0.55 },
             "offset": { "type": "widths", "value": 0.0 },
             "face": { "type": "auto" },
             "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" },
