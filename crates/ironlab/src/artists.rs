@@ -1022,23 +1022,122 @@ pub struct BarsMut<'a> {
     /// The margin of every series, once one has been given.
     margin: Option<f64>,
     /// The series, in the order they were added, with the column each belongs to.
-    members: Vec<BarsMember>,
+    columns: BarColumns,
 }
 
-/// A series of the bars helper and the column it belongs to.
-#[derive(Debug)]
-struct BarsMember {
-    id: NodeId,
-    column: BarsColumn,
-}
-
-/// The column of a series of the bars helper: its own, or a stack shared by name.
+/// The column of a series of a helper that groups and stacks bar series: its own, or a
+/// stack shared by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum BarsColumn {
+pub(crate) enum BarsColumn {
     /// A column of its own, named by the series' place among the members.
     Own(usize),
     /// A stacked column of the given name.
     Stacked(String),
+}
+
+/// The series of a helper that groups and stacks bar series, in the order they were added,
+/// each with the column it belongs to: the one placement of grouped and stacked bars that
+/// [`BarsMut`] and the histogram helper [`HistsMut`](crate::HistsMut) share.
+#[derive(Debug, Default)]
+pub(crate) struct BarColumns {
+    members: Vec<(NodeId, BarsColumn)>,
+}
+
+impl BarColumns {
+    /// Returns the column of the next series when it is a column of its own.
+    pub(crate) fn own(&self) -> BarsColumn {
+        BarsColumn::Own(self.members.len())
+    }
+
+    /// Adds a series to a column.
+    pub(crate) fn push(&mut self, id: NodeId, column: BarsColumn) {
+        self.members.push((id, column));
+    }
+
+    /// Returns the series, in the order they were added.
+    pub(crate) fn ids(&self) -> Vec<NodeId> {
+        self.members.iter().map(|(id, _)| *id).collect()
+    }
+
+    /// Returns the width of every series, as a fraction of the space of a cluster, and the
+    /// offset of each series, in multiples of its own width, for clusters that leave the
+    /// fraction `gap` of their space empty and columns that leave the fraction `group_gap`
+    /// of their width empty between them.
+    ///
+    /// For `m` columns, each series is a fraction `(1 − gap)(1 − group_gap) / m` of the
+    /// space wide, and the series of column `k` (from 0) are offset by
+    /// `(k − (m − 1) / 2) / (1 − group_gap)` of their width, so that the cluster is centred
+    /// on its position and the columns stand side by side in the order they first appear.
+    pub(crate) fn placement(&self, gap: f64, group_gap: f64) -> (f64, Vec<(NodeId, f64)>) {
+        let mut columns: Vec<&BarsColumn> = Vec::new();
+        for (_, column) in &self.members {
+            if !columns.contains(&column) {
+                columns.push(column);
+            }
+        }
+        let m = columns.len() as f64;
+        let width = (1.0 - gap) * (1.0 - group_gap) / m;
+        let offsets = self
+            .members
+            .iter()
+            .map(|(id, column)| {
+                let k = columns.iter().position(|c| *c == column).unwrap_or(0) as f64;
+                (*id, (k - (m - 1.0) / 2.0) / (1.0 - group_gap))
+            })
+            .collect();
+        (width, offsets)
+    }
+
+    /// Gives every series of a stacked column, whose bars number `n`, the running totals
+    /// of the parts before it at each index as its bases, positive and negative values
+    /// apart, a part that is not finite contributing nothing; the bases it replaces are
+    /// released.
+    pub(crate) fn stack(&self, fig: &mut Figure, n: usize) {
+        let mut totals: Vec<(&str, Vec<f64>, Vec<f64>)> = Vec::new();
+        let mut bases: Vec<(NodeId, Vec<f64>)> = Vec::new();
+        for (id, column) in &self.members {
+            let BarsColumn::Stacked(name) = column else {
+                continue;
+            };
+            let at = match totals
+                .iter()
+                .position(|(column, ..)| *column == name.as_str())
+            {
+                Some(at) => at,
+                None => {
+                    totals.push((name.as_str(), vec![0.0; n], vec![0.0; n]));
+                    totals.len() - 1
+                }
+            };
+            let values: Vec<f64> = match fig.artist(*id) {
+                Some((_, Artist::Bar(bar))) => fig
+                    .data_array(bar.values)
+                    .and_then(|data| data.array.as_f64())
+                    .map(<[f64]>::to_vec)
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let (_, above, below) = &mut totals[at];
+            let mut base = Vec::with_capacity(n);
+            for k in 0..n {
+                let value = values.get(k).copied().unwrap_or(f64::NAN);
+                if value.is_finite() && value < 0.0 {
+                    base.push(below[k]);
+                    below[k] += value;
+                } else {
+                    base.push(above[k]);
+                    if value.is_finite() {
+                        above[k] += value;
+                    }
+                }
+            }
+            bases.push((*id, base));
+        }
+        for (id, base) in bases {
+            let data = DataSource::from(base).store(fig);
+            set_bar_base(fig, id, PerBar::Data(data));
+        }
+    }
 }
 
 impl<'a> BarsMut<'a> {
@@ -1054,13 +1153,13 @@ impl<'a> BarsMut<'a> {
             gap: 0.2,
             group_gap: 0.0,
             margin: None,
-            members: Vec::new(),
+            columns: BarColumns::default(),
         }
     }
 
     /// Adds a series of the given label and values as a column of its own.
     pub fn series(&mut self, label: impl Into<Text>, values: impl Into<DataSource>) -> &mut Self {
-        let column = BarsColumn::Own(self.members.len());
+        let column = self.columns.own();
         self.add(column, label.into(), values.into())
     }
 
@@ -1112,7 +1211,7 @@ impl<'a> BarsMut<'a> {
     /// Returns the series of the helper, in the order they were added.
     #[must_use]
     pub fn ids(&self) -> Vec<NodeId> {
-        self.members.iter().map(|member| member.id).collect()
+        self.columns.ids()
     }
 
     /// Returns the handle of the series added last, for styling.
@@ -1121,11 +1220,11 @@ impl<'a> BarsMut<'a> {
     ///
     /// Panics when the helper holds no series.
     pub fn last(&mut self) -> BarMut<'_> {
-        let id = self
-            .members
+        let id = *self
+            .columns
+            .ids()
             .last()
-            .expect("the bars helper holds a series")
-            .id;
+            .expect("the bars helper holds a series");
         BarMut::new(self.fig, id, None)
     }
 
@@ -1136,7 +1235,7 @@ impl<'a> BarsMut<'a> {
     ///
     /// Panics when the helper holds no series of that index.
     pub fn get(&mut self, index: usize) -> BarMut<'_> {
-        let id = self.members[index].id;
+        let id = self.columns.ids()[index];
         BarMut::new(self.fig, id, None)
     }
 
@@ -1158,7 +1257,7 @@ impl<'a> BarsMut<'a> {
             .expect("the bars helper refers to an axes of its figure")
             .artists
             .push(bar);
-        self.members.push(BarsMember { id, column });
+        self.columns.push(id, column);
         self.lay_out();
         self
     }
@@ -1166,25 +1265,7 @@ impl<'a> BarsMut<'a> {
     /// Rewrites the width, the offset, the orientation and the margin of every series, and
     /// the base of every series of a stacked column, from the columns as they now stand.
     fn lay_out(&mut self) {
-        let mut columns: Vec<&BarsColumn> = Vec::new();
-        for member in &self.members {
-            if !columns.contains(&&member.column) {
-                columns.push(&member.column);
-            }
-        }
-        let m = columns.len() as f64;
-        let width = (1.0 - self.gap) * (1.0 - self.group_gap) / m;
-        let placed: Vec<(NodeId, f64)> = self
-            .members
-            .iter()
-            .map(|member| {
-                let k = columns
-                    .iter()
-                    .position(|column| **column == member.column)
-                    .unwrap_or(0) as f64;
-                (member.id, (k - (m - 1.0) / 2.0) / (1.0 - self.group_gap))
-            })
-            .collect();
+        let (width, placed) = self.columns.placement(self.gap, self.group_gap);
         for (id, offset) in placed {
             let Some(Artist::Bar(bar)) = self.fig.artist_mut(id) else {
                 continue;
@@ -1196,61 +1277,11 @@ impl<'a> BarsMut<'a> {
                 bar.margin = margin;
             }
         }
-        self.stack();
-    }
-
-    /// Gives every series of a stacked column the running totals of the parts before it at
-    /// each index as its bases, positive and negative values apart.
-    fn stack(&mut self) {
         let n = self
             .fig
             .data_array(self.positions)
             .map_or(0, |data| data.array.len());
-        let mut totals: Vec<(&str, Vec<f64>, Vec<f64>)> = Vec::new();
-        let mut bases: Vec<(NodeId, Vec<f64>)> = Vec::new();
-        for member in &self.members {
-            let BarsColumn::Stacked(name) = &member.column else {
-                continue;
-            };
-            let at = match totals
-                .iter()
-                .position(|(column, ..)| *column == name.as_str())
-            {
-                Some(at) => at,
-                None => {
-                    totals.push((name.as_str(), vec![0.0; n], vec![0.0; n]));
-                    totals.len() - 1
-                }
-            };
-            let values: Vec<f64> = match self.fig.artist(member.id) {
-                Some((_, Artist::Bar(bar))) => self
-                    .fig
-                    .data_array(bar.values)
-                    .and_then(|data| data.array.as_f64())
-                    .map(<[f64]>::to_vec)
-                    .unwrap_or_default(),
-                _ => Vec::new(),
-            };
-            let (_, above, below) = &mut totals[at];
-            let mut base = Vec::with_capacity(n);
-            for k in 0..n {
-                let value = values.get(k).copied().unwrap_or(f64::NAN);
-                if value.is_finite() && value < 0.0 {
-                    base.push(below[k]);
-                    below[k] += value;
-                } else {
-                    base.push(above[k]);
-                    if value.is_finite() {
-                        above[k] += value;
-                    }
-                }
-            }
-            bases.push((member.id, base));
-        }
-        for (id, base) in bases {
-            let data = DataSource::from(base).store(self.fig);
-            set_bar_base(self.fig, id, PerBar::Data(data));
-        }
+        self.columns.stack(self.fig, n);
     }
 }
 
@@ -1620,7 +1651,7 @@ fn make_3d_for_wall(fig: &mut Figure, id: NodeId, plane: ImagePlane) {
 /// (or by hand), and its maker may give it to another artist later, so it is kept. The rule
 /// reads only the IR, so a figure wrapped from its IR is treated as the session that built
 /// it was.
-fn release_data(fig: &mut Figure, id: NodeId) {
+pub(crate) fn release_data(fig: &mut Figure, id: NodeId) {
     let referenced = fig
         .axes
         .iter()
@@ -1632,7 +1663,7 @@ fn release_data(fig: &mut Figure, id: NodeId) {
 }
 
 /// Returns the identifier of every data array that an artist refers to.
-fn data_ids(artist: &Artist) -> Vec<NodeId> {
+pub(crate) fn data_ids(artist: &Artist) -> Vec<NodeId> {
     let grid_ids = |grid: &ironlab_ir::Grid| match *grid {
         ironlab_ir::Grid::Rectilinear { x, y } | ironlab_ir::Grid::Curvilinear { x, y } => [x, y],
     };
@@ -1688,9 +1719,13 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
                 .chain(base)
                 .chain(widths)
                 .chain(bar.color_data)
+                .chain(bar.binning.as_ref().map(|binning| binning.edges))
                 .collect()
         }
-        Artist::Stairs(stairs) => vec![stairs.data.positions(), stairs.data.values()],
+        Artist::Stairs(stairs) => [stairs.data.positions(), stairs.data.values()]
+            .into_iter()
+            .chain(stairs.binning.as_ref().map(|binning| binning.edges))
+            .collect(),
         Artist::Cells(cells) => {
             let edges = |edges: ironlab_ir::CellEdges| match edges {
                 ironlab_ir::CellEdges::Unit => None,
@@ -1701,6 +1736,12 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
                 .chain(edges(cells.columns))
                 .chain(edges(cells.rows))
                 .chain(cells.alpha)
+                .chain(
+                    cells
+                        .binning
+                        .iter()
+                        .flat_map(|binning| [binning.x_edges, binning.y_edges]),
+                )
                 .collect()
         }
     }

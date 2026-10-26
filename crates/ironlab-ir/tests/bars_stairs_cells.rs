@@ -440,6 +440,7 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
 fn edges_binning() -> Binning {
     Binning {
         bins: Bins::Edges(vec![0.0, 1.0, 3.0, 6.0]),
+        edges: NodeId(14),
         range: Some([0.0, 6.0]),
         normalization: HistNorm::Density,
         total: 120.0,
@@ -454,6 +455,8 @@ fn grid_binning() -> Binning2d {
     Binning2d {
         x_bins: Bins::Count(4),
         y_bins: Bins::Width(0.5),
+        x_edges: NodeId(15),
+        y_edges: NodeId(16),
         x_range: Some([-1.0, 1.0]),
         y_range: None,
         normalization: HistNorm::Probability,
@@ -490,6 +493,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
             },
             binning: Some(Binning {
                 bins: Bins::Rule(BinRule::FreedmanDiaconis),
+                edges: NodeId(12),
                 range: None,
                 normalization: HistNorm::CumulativeCount,
                 total: 7.0,
@@ -509,6 +513,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
         artists[0]["binning"],
         json!({
             "bins": { "type": "edges", "value": [0.0, 1.0, 3.0, 6.0] },
+            "edges": 14,
             "range": [0.0, 6.0],
             "normalization": "density",
             "total": 120.0,
@@ -530,6 +535,8 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
         json!({
             "x_bins": { "type": "count", "value": 4 },
             "y_bins": { "type": "width", "value": 0.5 },
+            "x_edges": 15,
+            "y_edges": 16,
             "x_range": [-1.0, 1.0],
             "y_range": null,
             "normalization": "probability",
@@ -990,6 +997,7 @@ fn every_binning() -> Vec<Binning> {
         .enumerate()
         .map(|(k, (bins, normalization))| Binning {
             bins,
+            edges: NodeId(14),
             range: (k % 2 == 0).then_some([0.0, k as f64]),
             normalization,
             total: if k == 0 { 0.0 } else { 10.0 * k as f64 },
@@ -1033,6 +1041,8 @@ fn every_binning_record_survives_a_protobuf_and_a_json_round_trip_on_bars_stairs
             binning: Some(Binning2d {
                 x_bins: binning.bins.clone(),
                 y_bins: Bins::Count(k as u32),
+                x_edges: NodeId(15),
+                y_edges: NodeId(16),
                 x_range: binning.range,
                 y_range: binning.range.map(|[lo, hi]| [lo - 1.0, hi + 1.0]),
                 normalization: binning.normalization,
@@ -1247,8 +1257,10 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             "a histogram's binning record",
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
+                let edges = push_vector(fig, NodeId(51), &[0.5, 1.5, 2.5, 3.5]);
                 bar_mut(fig).binning = Some(Binning {
                     bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
+                    edges,
                     range: Some([0.5, 3.5]),
                     normalization: HistNorm::Count,
                     total: 10.0,
@@ -1262,8 +1274,10 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             "the binning record of an empty sample",
             &[0.0, 0.0, 0.0],
             Box::new(|fig| {
+                let edges = unit_bin_edges(fig, NodeId(51), 3);
                 bar_mut(fig).binning = Some(Binning {
                     bins: Bins::Rule(BinRule::Auto),
+                    edges,
                     range: None,
                     normalization: HistNorm::Density,
                     total: 0.0,
@@ -1385,12 +1399,144 @@ fn a_bar_margin_that_is_negative_or_not_finite_is_an_error_on_the_bars() {
 fn counted() -> Binning {
     Binning {
         bins: Bins::Count(3),
+        edges: NodeId(5002),
         range: Some([0.0, 3.0]),
         normalization: HistNorm::Count,
         total: 10.0,
         excluded_non_finite: 0,
         excluded_out_of_range: 0,
     }
+}
+
+/// Stores the edges `0, 1, …, n` of `n` unit bins in a built figure under the given
+/// identifier and returns it.
+fn unit_bin_edges(fig: &mut Figure, id: NodeId, n: usize) -> NodeId {
+    let edges: Vec<f64> = (0..=n).map(|k| k as f64).collect();
+    push_vector(fig, id, &edges)
+}
+
+// Why: a datatip finds the bin of a bar, a step or a cell among the resolved edges of the
+// record and divides by that bin's width or area, so the edges must be an array of the
+// figure, finite and strictly increasing, and one more than the bins the artist draws: one
+// more than the bars or the values of stairs, and one more than the columns along x and the
+// rows along y of cells. Edges that are missing, that bound no bin or that do not match the
+// bins drawn would make every reading wrong, so each is refused against the artist that
+// holds the record: a missing array as unknown data, edges that are not finite and
+// increasing as invalid edges (bin edges may not decrease, as the bins of a record may not),
+// and edges of the wrong number or shape as a shape mismatch.
+#[test]
+fn binning_edges_that_are_missing_bound_no_bins_or_miss_the_bins_drawn_are_errors() {
+    let cases: [(&str, Option<NdArray>, IssueKind); 6] = [
+        ("a missing array", None, IssueKind::UnknownData),
+        (
+            "an edge of NaN",
+            Some(NdArray::vector(vec![0.0, 1.0, f64::NAN, 3.0])),
+            IssueKind::InvalidEdges,
+        ),
+        (
+            "edges out of order",
+            Some(NdArray::vector(vec![0.0, 2.0, 1.0, 3.0])),
+            IssueKind::InvalidEdges,
+        ),
+        (
+            "edges that decrease",
+            Some(NdArray::vector(vec![3.0, 2.0, 1.0, 0.0])),
+            IssueKind::InvalidEdges,
+        ),
+        (
+            "one edge too few",
+            Some(NdArray::vector(vec![0.0, 1.0, 2.0])),
+            IssueKind::ShapeMismatch,
+        ),
+        (
+            "edges that are not a vector",
+            Some(NdArray {
+                shape: vec![2, 2],
+                values: Values::F64(vec![0.0, 1.0, 2.0, 3.0]),
+            }),
+            IssueKind::ShapeMismatch,
+        ),
+    ];
+    let place = |fig: &mut Figure, array: &Option<NdArray>| match array {
+        Some(array) => {
+            fig.data.push(DataArray {
+                id: NodeId(5000),
+                name: None,
+                array: array.clone(),
+            });
+            NodeId(5000)
+        }
+        None => NodeId(999_999),
+    };
+    for (name, array, kind) in &cases {
+        // Three bars, three steps and three columns each need four edges.
+        let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+        let edges = place(&mut fx.fig, array);
+        bar_mut(&mut fx.fig).binning = Some(Binning { edges, ..counted() });
+        assert_only_error(
+            &fx.fig.validate(),
+            *kind,
+            fx.artist,
+            &format!("bars: {name}"),
+        );
+
+        let mut fx = fixture(false, stairs_on_edges(&[2.0, 5.0, 3.0]));
+        let edges = place(&mut fx.fig, array);
+        stairs_mut(&mut fx.fig).binning = Some(Binning { edges, ..counted() });
+        assert_only_error(
+            &fx.fig.validate(),
+            *kind,
+            fx.artist,
+            &format!("stairs: {name}"),
+        );
+
+        for along_x in [true, false] {
+            let mut fx = fixture(false, cells(3, 3));
+            let spoilt = place(&mut fx.fig, array);
+            let good = unit_bin_edges(&mut fx.fig, NodeId(5001), 3);
+            let (x_edges, y_edges) = if along_x {
+                (spoilt, good)
+            } else {
+                (good, spoilt)
+            };
+            cells_mut(&mut fx.fig).binning = Some(Binning2d {
+                x_bins: Bins::Count(3),
+                y_bins: Bins::Count(3),
+                x_edges,
+                y_edges,
+                total: 10.0,
+                ..Binning2d::default()
+            });
+            assert_only_error(
+                &fx.fig.validate(),
+                *kind,
+                fx.artist,
+                &format!("cells, along x {along_x}: {name}"),
+            );
+        }
+    }
+    // The edges of the cells are matched to the columns along x and to the rows along y,
+    // which differ in number here.
+    let mut fx = fixture(false, cells(2, 3));
+    let x_edges = unit_bin_edges(&mut fx.fig, NodeId(5000), 3);
+    let y_edges = unit_bin_edges(&mut fx.fig, NodeId(5001), 2);
+    cells_mut(&mut fx.fig).binning = Some(Binning2d {
+        x_bins: Bins::Count(3),
+        y_bins: Bins::Count(2),
+        x_edges,
+        y_edges,
+        total: 10.0,
+        ..Binning2d::default()
+    });
+    assert_no_issues(&fx.fig.validate(), "cells of two rows and three columns");
+    cells_mut(&mut fx.fig).binning.as_mut().unwrap().x_edges = y_edges;
+    fx.fig.data.retain(|data| data.id != x_edges);
+    assert_only_error(
+        &fx.fig.validate(),
+        IssueKind::ShapeMismatch,
+        fx.artist,
+        "row edges given as the column edges",
+    );
 }
 
 // Why: a binning record is read back to recover counts from normalised values, so it must
@@ -1448,6 +1594,7 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
         spoil(&mut binning);
 
         let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
+        unit_bin_edges(&mut fx.fig, NodeId(5002), 3);
         bar_mut(&mut fx.fig).binning = Some(binning.clone());
         assert_only_error(
             &fx.fig.validate(),
@@ -1457,6 +1604,7 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
         );
 
         let mut fx = fixture(false, stairs_on_edges(&[2.0, 5.0, 3.0]));
+        unit_bin_edges(&mut fx.fig, NodeId(5002), 3);
         stairs_mut(&mut fx.fig).binning = Some(binning.clone());
         assert_only_error(
             &fx.fig.validate(),
@@ -1466,9 +1614,13 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
         );
 
         let mut fx = fixture(false, cells(2, 3));
+        let x_edges = unit_bin_edges(&mut fx.fig, NodeId(5002), 3);
+        let y_edges = unit_bin_edges(&mut fx.fig, NodeId(5003), 2);
         cells_mut(&mut fx.fig).binning = Some(Binning2d {
             x_bins: binning.bins.clone(),
             y_bins: Bins::Count(2),
+            x_edges,
+            y_edges,
             x_range: binning.range,
             y_range: None,
             normalization: binning.normalization,
@@ -1498,6 +1650,8 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
         let mut binning = Binning2d {
             x_bins: Bins::Count(3),
             y_bins: Bins::Count(2),
+            x_edges: NodeId(5002),
+            y_edges: NodeId(5003),
             x_range: None,
             y_range: None,
             normalization: HistNorm::Count,
@@ -1508,6 +1662,8 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
         };
         spoil(&mut binning);
         let mut fx = fixture(false, cells(2, 3));
+        unit_bin_edges(&mut fx.fig, NodeId(5002), 3);
+        unit_bin_edges(&mut fx.fig, NodeId(5003), 2);
         cells_mut(&mut fx.fig).binning = Some(binning);
         assert_only_error(
             &fx.fig.validate(),

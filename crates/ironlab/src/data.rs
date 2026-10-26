@@ -155,6 +155,21 @@ impl DataSource {
         }
     }
 
+    /// Returns a copy of the values of the data as floating-point numbers, in row-major
+    /// order: the values given, or those of the data array the identifier names, with
+    /// 8-bit values widened to the numbers they denote. An identifier that names no data
+    /// array gives no values.
+    pub(crate) fn read(&self, fig: &ironlab_ir::Figure) -> Vec<f64> {
+        let array = match self {
+            DataSource::Values(array) => Some(array),
+            DataSource::Node(id) => fig.data_array(*id).map(|data| &data.array),
+        };
+        array.map_or_else(Vec::new, |array| match &array.values {
+            Values::F64(values) => values.clone(),
+            Values::U8(values) => values.iter().map(|&v| f64::from(v)).collect(),
+        })
+    }
+
     /// Returns the shape of the data: that of the values, or that of the data array the
     /// identifier names, or `None` when it names no data array.
     fn shape<'a>(&'a self, fig: &'a ironlab_ir::Figure) -> Option<&'a [usize]> {

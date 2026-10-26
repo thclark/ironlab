@@ -860,6 +860,7 @@ fn encode_binning(binning: &Binning) -> w::Binning {
         total: Some(binning.total),
         excluded_non_finite: Some(binning.excluded_non_finite),
         excluded_out_of_range: Some(binning.excluded_out_of_range),
+        edges: Some(binning.edges.0),
     }
 }
 
@@ -874,6 +875,8 @@ fn encode_binning_2d(binning: &Binning2d) -> w::Binning2d {
         total: Some(binning.total),
         excluded_non_finite: Some(binning.excluded_non_finite),
         excluded_out_of_range: Some(binning.excluded_out_of_range),
+        x_edges: Some(binning.x_edges.0),
+        y_edges: Some(binning.y_edges.0),
     }
 }
 
@@ -2128,6 +2131,7 @@ fn decode_bin_range(wire: Option<w::BinRange>, at: &str) -> Result<Option<[f64; 
 fn decode_binning(wire: w::Binning, at: &str) -> Result<Binning> {
     Ok(Binning {
         bins: decode_bins(wire.bins, &join(at, "bins"))?,
+        edges: reference(wire.edges, at, "edges")?,
         range: decode_bin_range(wire.range, &join(at, "range"))?,
         normalization: decode_enum(wire.normalization, None, at, "normalization")?,
         total: required(wire.total, at, "total")?,
@@ -2141,6 +2145,8 @@ fn decode_binning_2d(wire: w::Binning2d, at: &str) -> Result<Binning2d> {
     Ok(Binning2d {
         x_bins: decode_bins(wire.x_bins, &join(at, "x_bins"))?,
         y_bins: decode_bins(wire.y_bins, &join(at, "y_bins"))?,
+        x_edges: reference(wire.x_edges, at, "x_edges")?,
+        y_edges: reference(wire.y_edges, at, "y_edges")?,
         x_range: decode_bin_range(wire.x_range, &join(at, "x_range"))?,
         y_range: decode_bin_range(wire.y_range, &join(at, "y_range"))?,
         normalization: decode_enum(wire.normalization, None, at, "normalization")?,

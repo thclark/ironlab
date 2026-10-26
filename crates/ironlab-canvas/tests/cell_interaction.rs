@@ -503,6 +503,8 @@ fn a_cell_of_a_binned_two_dimensional_histogram_reports_the_count_and_density_of
                 cells.binning = Some(Binning2d {
                     x_bins: Bins::Edges(columns.to_vec()),
                     y_bins: Bins::Edges(vec![0.0, 2.0]),
+                    x_edges: array_id(1),
+                    y_edges: array_id(2),
                     x_range: None,
                     y_range: None,
                     normalization: norm,

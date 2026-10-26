@@ -412,6 +412,11 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_from_its_base_and_naming_its
 fn hovering_a_bar_of_a_binned_histogram_names_the_count_and_density_of_its_bin() {
     let mut figure = figure();
     figure.data[1].array = NdArray::vector(vec![0.25, 0.5, 0.25]);
+    figure.data.push(DataArray {
+        id: NodeId(12),
+        name: None,
+        array: NdArray::vector(vec![0.5, 3.5, 6.5, 9.5]),
+    });
     figure.axes[0].artists = vec![Artist::Bar(Bar {
         id: NodeId(3),
         positions: NodeId(10),
@@ -419,6 +424,7 @@ fn hovering_a_bar_of_a_binned_histogram_names_the_count_and_density_of_its_bin()
         width: BarWidth::Pitch(1.0),
         binning: Some(Binning {
             bins: Bins::Edges(vec![0.5, 3.5, 6.5, 9.5]),
+            edges: NodeId(12),
             range: None,
             normalization: HistNorm::Probability,
             total: 4.0,

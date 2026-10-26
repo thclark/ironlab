@@ -10,7 +10,7 @@ A histogram counts a sample into bins. The sample may be very large, and a reade
 
 ## Decision
 
-A histogram is binned when the figure is built, not when it is drawn. The figure stores the binned values on the bars, stairs or cells that draw them. With them it stores a record of how the bins were made: the bin specification, the range, the normalisation, the number of samples counted and the number excluded. A datatip can then report the count and density of a bin without the sample.
+A histogram is binned when the figure is built, not when it is drawn. The figure stores the binned values on the bars, stairs or cells that draw them. With them it stores a record of how the bins were made: the bin specification, the resolved bin edges, the range, the normalisation, the number of samples counted and the number excluded. A datatip can then report the count and density of a bin without the sample, taking the width of the bin from the resolved edges rather than from what is drawn, which for a member of a grouped histogram is only part of the bin.
 
 ## Alternatives considered
 

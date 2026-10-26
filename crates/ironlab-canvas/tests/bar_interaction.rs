@@ -413,10 +413,11 @@ fn expected_reading(k: usize) -> BinReading {
     }
 }
 
-/// The binning record of the histogram under `norm`.
-fn record(norm: HistNorm) -> Binning {
+/// The binning record of the histogram under `norm`, whose resolved edges, [`EDGES`], are the array `edges`.
+fn record(norm: HistNorm, edges: NodeId) -> Binning {
     Binning {
         bins: Bins::Edges(EDGES.to_vec()),
+        edges,
         range: None,
         normalization: norm,
         total: TOTAL,
@@ -450,7 +451,7 @@ fn assert_reading(found: Option<BinReading>, expected: BinReading, what: &str) {
 // Why: a histogram normalised to probabilities, percentages or densities, or drawn cumulatively, no longer shows the
 // number of samples in a bin, which is what a reader most often wants to know, nor the density that makes bins of
 // unequal widths comparable. Its binning record holds what is needed to recover both from the value drawn: the
-// normalisation, the total, and the width of the bar, which is the width of the bin; a cumulative value is first
+// normalisation, the total, and the width of the bin between the edges the record holds; a cumulative value is first
 // differenced with that of the bin before it. Every normalisation must give back the same counts and densities, on
 // bins of unequal widths so that a width taken from the wrong bin or from the pitch would be caught, and the bin of
 // the middle of three so that a cumulative value that is not differenced would be caught too.
@@ -459,10 +460,15 @@ fn a_bar_of_a_binned_histogram_reports_the_count_and_density_of_its_bin_for_ever
     for norm in EVERY_NORM {
         let values = normalised(norm);
         let mut figure = figure_of(
-            vec![vec![0.5, 2.0, 4.5], values.clone(), vec![1.0, 2.0, 3.0]],
+            vec![
+                vec![0.5, 2.0, 4.5],
+                values.clone(),
+                vec![1.0, 2.0, 3.0],
+                EDGES.to_vec(),
+            ],
             vec![Artist::Bar(Bar {
                 width: BarWidth::Data(array_id(2)),
-                binning: Some(record(norm)),
+                binning: Some(record(norm, array_id(3))),
                 ..bar(3, 0, 1)
             })],
         );
@@ -496,7 +502,7 @@ fn a_step_of_binned_stairs_reports_the_count_and_density_of_its_bin_for_every_no
                     edges: array_id(0),
                     values: array_id(1),
                 },
-                binning: Some(record(norm)),
+                binning: Some(record(norm, array_id(0))),
                 ..Stairs::default()
             })],
         );

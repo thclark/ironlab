@@ -243,6 +243,7 @@ pub fn representative_figures() -> Vec<Figure> {
             // them are set.
             let recorded = |bins: Bins| Binning {
                 bins,
+                edges: NodeId(1000),
                 range: Some([0.0, 2.0]),
                 normalization: HistNorm::Probability,
                 total: 8.0,
@@ -268,6 +269,8 @@ pub fn representative_figures() -> Vec<Figure> {
                     let binning = a.binning.get_or_insert(Binning2d {
                         x_bins: Bins::Count(2),
                         y_bins: Bins::Width(1.0),
+                        x_edges: NodeId(1000),
+                        y_edges: NodeId(1001),
                         x_range: None,
                         y_range: None,
                         normalization: HistNorm::Count,
@@ -1269,6 +1272,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::BarOffset(BarOffset::Absolute(-0.625)),
         Value::Binning(Binning {
             bins: Bins::Edges(vec![0.0, 0.5, 2.0]),
+            edges: NodeId((1 << 53) + 23),
             range: Some([0.0, 2.0]),
             normalization: HistNorm::Cdf,
             total: 64.0,
@@ -1286,6 +1290,8 @@ pub fn sample_values() -> Vec<Value> {
         Value::Binning2d(Binning2d {
             x_bins: Bins::Rule(BinRule::Scott),
             y_bins: Bins::Width(0.25),
+            x_edges: NodeId((1 << 53) + 25),
+            y_edges: NodeId(7),
             x_range: None,
             y_range: Some([-1.0, 1.0]),
             normalization: HistNorm::CountDensity,

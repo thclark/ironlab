@@ -658,20 +658,21 @@ In Protocol Buffers cells are the variant `cells`, field 13 of the oneof of an `
 
 ### Binning
 
-A histogram is binned when the figure is built, not when it is drawn, as [ADR 0029](../adrs/0029-histograms-store-their-bins-and-how-they-were-made.md) decides. The figure stores the binned values on the [bars](#bar), [stairs](#stairs) or [cells](#cells) that draw them, and with them a binning record of how the bins were made. The record is descriptive: nothing in the drawing is computed from it. A datatip reads it to report the count and the density of the bin under the pointer, and the property editor shows it read-only, because changing it would describe bins that the stored values do not hold.
+A histogram is binned when the figure is built, not when it is drawn, as [ADR 0029](../adrs/0029-histograms-store-their-bins-and-how-they-were-made.md) decides. The figure stores the binned values on the [bars](#bar), [stairs](#stairs) or [cells](#cells) that draw them, and with them a binning record of how the bins were made. The builder's histogram functions, which bin the samples and write the record, are described in [histograms](../guides/getting-started.md#histograms). The record is descriptive: nothing in the drawing is computed from it. A datatip reads it to report the count and the density of the bin under the pointer, and the property editor shows it read-only, because changing it would describe bins that the stored values do not hold.
 
 Bars and stairs carry a record of one dimension, `Binning`:
 
 | Property | Meaning |
 | --- | --- |
 | `bins` | How the bins were specified, as described below. |
+| `edges` | The `NodeId` of the data array of the edges that the specification resolved to: one more than the bars or the values of the stairs, finite and strictly increasing. The record of stairs refers to the stairs' own edges; the record of bars refers to an array of its own. |
 | `range` | The range of sample values that was binned, as `[low, high]`, or `null` when the range of the samples was used. A range must be finite and increasing. |
 | `normalization` | How the counts of the bins were normalised into the values drawn, as described below. |
 | `total` | The number of samples counted into the bins, a finite number from 0. |
 | `excluded_non_finite` | The number of samples left out because they were not finite, a whole number from 0. |
 | `excluded_out_of_range` | The number of samples left out because they lay outside the range, a whole number from 0. |
 
-Cells carry a record of two dimensions, `Binning2d`, whose `x_bins` and `y_bins` specify the bins along x and along y, whose `x_range` and `y_range` are the ranges along x and along y in the form of `range`, and whose `normalization`, `total`, `excluded_non_finite` and `excluded_out_of_range` are those of a record of one dimension. Its `min_count` is the count below which a bin was left empty, a finite number from 0, or `null` when every bin was drawn.
+Cells carry a record of two dimensions, `Binning2d`, whose `x_bins` and `y_bins` specify the bins along x and along y, whose `x_edges` and `y_edges` are the `NodeId`s of the resolved edges along x and along y in the form of `edges`, one more than the columns and one more than the rows (the record of cells on explicit edges refers to the cells' own column and row edges), whose `x_range` and `y_range` are the ranges along x and along y in the form of `range`, and whose `normalization`, `total`, `excluded_non_finite` and `excluded_out_of_range` are those of a record of one dimension. Its `min_count` is the count below which a bin was left empty, a finite number from 0, or `null` when every bin was drawn.
 
 The bins take one of four forms:
 
@@ -682,11 +683,11 @@ The bins take one of four forms:
 
 The normalisation is one of `"count"` (the number of samples in each bin), `"probability"` (the fraction of the samples in each bin), `"percentage"` (that fraction as a percentage), `"count_density"` (the count divided by the width of the bin, or by the area of a cell), `"density"` (the probability density: the count divided by the total and by the width or area), `"cumulative_count"` (the count of the bin and of every bin before it) and `"cdf"` (that cumulative count as a fraction of the total).
 
-A datatip recovers the count of a bin from the value drawn, the width of the bar or step or the area of the cell, the normalisation and the total; a cumulative value is first differenced with the value of the bin before it. It reports that count and the probability density of the bin, the count divided by the total and by the width or area, so that bins of unequal widths can be compared.
+A datatip recovers the count of a bin from the value drawn, the width of the bin or the area of the cell's bin between the resolved edges, the normalisation and the total; a cumulative value is first differenced with the value of the bin before it. The bin of a bar is the one among the edges that holds the bar's position, so that a member of a grouped histogram, which draws only its share of each bin, reads the width of the whole bin rather than the width it is drawn; the bin of a step or a cell is the one of the same index. It reports that count and the probability density of the bin, the count divided by the total and by the width or area, so that bins of unequal widths can be compared.
 
-Validation reports a record that describes no possible bins against the artist that holds it: a total or minimum count that is negative or not finite, a count of 0 bins, a bin width that is not a finite positive number, fewer than two bin edges, or a range that is not finite or does not increase is the error `InvalidBinning`, and bin edges that are not finite and strictly increasing are the error `InvalidEdges`.
+Validation reports a record that describes no possible bins against the artist that holds it: a total or minimum count that is negative or not finite, a count of 0 bins, a bin width that is not a finite positive number, fewer than two bin edges, or a range that is not finite or does not increase is the error `InvalidBinning`, and bin edges that are not finite and strictly increasing are the error `InvalidEdges`. The resolved edges must be a data array of the figure (`UnknownData` otherwise), one-dimensional with one more edge than the bins the artist draws (`ShapeMismatch` otherwise), and finite and strictly increasing (`InvalidEdges` otherwise). A histogram of no bins holds one resolved edge.
 
-In Protocol Buffers a range is a `BinRange` message of `low` and `high`, and the counts of excluded samples are optional fields whose absence decodes as 0.
+In Protocol Buffers a range is a `BinRange` message of `low` and `high`, and the counts of excluded samples are optional fields whose absence decodes as 0. The `edges` of a `Binning` are field 7, and the `x_edges` and `y_edges` of a `Binning2d` are fields 10 and 11; each must be present.
 
 ### `image`
 

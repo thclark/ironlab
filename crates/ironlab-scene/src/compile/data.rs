@@ -115,6 +115,9 @@ pub(crate) struct BarArrays<'a> {
     pub widths: Option<&'a [f64]>,
     /// The colour data of the bars.
     pub colours: Option<&'a [f64]>,
+    /// The resolved bin edges of the binning record of the bars, when it has edges that
+    /// bound bins.
+    pub bin_edges: Option<&'a [f64]>,
 }
 
 /// One bar as its own geometry places it, in data units: the extent it covers along the category axis and the two
@@ -161,6 +164,9 @@ pub(crate) struct StairsGeometry<'a> {
     pub values: &'a [f64],
     /// The index of the dimension along which the edges lie: 0 for x and 1 for y.
     pub category: usize,
+    /// The resolved bin edges of the binning record of the stairs, when it has edges that
+    /// bound bins.
+    pub bin_edges: Option<&'a [f64]>,
 }
 
 /// The resolved data of cells, which have at least one row and one column.
@@ -177,6 +183,9 @@ pub(crate) struct CellsData<'a> {
     /// The alpha of every cell, an array of the shape of the values of either element type, or `None` when the
     /// cells have none.
     pub alpha: Option<&'a NdArray>,
+    /// The resolved bin edges along x and along y of the binning record of the cells, when it has edges that bound
+    /// bins along both.
+    pub bin_edges: Option<(&'a [f64], &'a [f64])>,
 }
 
 /// The resolved arrays of an artist.
@@ -270,6 +279,17 @@ fn array(figure: &Figure, id: NodeId) -> Result<&NdArray, String> {
 
 /// Looks up an array that must hold floating-point values, which every artist requires. `what` names the role of
 /// the array in the artist, such as `x` or `colour`.
+/// Returns the resolved bin edges of a binning record, the array `id`, when it holds at least two finite, strictly
+/// increasing edges, and `None` otherwise, which validation reports; a histogram whose record has no usable edges is
+/// still drawn, and its datatips report no bin.
+fn bin_edges(figure: &Figure, id: NodeId) -> Option<&[f64]> {
+    let edges = f64_values(figure, id, "bin edges").ok()?;
+    let usable = edges.len() >= 2
+        && edges.iter().all(|e| e.is_finite())
+        && edges.windows(2).all(|pair| pair[0] < pair[1]);
+    usable.then_some(edges)
+}
+
 fn f64_values<'a>(figure: &'a Figure, id: NodeId, what: &str) -> Result<&'a [f64], String> {
     array(figure, id)?.as_f64().ok_or_else(|| {
         format!(
@@ -479,6 +499,10 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                     BarWidth::Data(id) => Some(per_bar(id, "width")?),
                 },
                 colours: bar.color_data.map(|id| per_bar(id, "colour")).transpose()?,
+                bin_edges: bar
+                    .binning
+                    .as_ref()
+                    .and_then(|binning| bin_edges(figure, binning.edges)),
             };
             if n == 0 {
                 return Err(format!(
@@ -575,12 +599,19 @@ fn cells_data<'a>(figure: &'a Figure, cells: &Cells) -> Result<CellsData<'a>, St
             cells.values, values.shape
         ));
     }
+    let bin_edges = cells.binning.as_ref().and_then(|binning| {
+        Some((
+            bin_edges(figure, binning.x_edges)?,
+            bin_edges(figure, binning.y_edges)?,
+        ))
+    });
     Ok(CellsData {
         values,
         nx,
         columns,
         rows,
         alpha,
+        bin_edges,
     })
 }
 
@@ -642,6 +673,10 @@ fn stairs_geometry<'a>(figure: &'a Figure, stairs: &Stairs) -> Result<StairsGeom
         edges,
         values,
         category: dimension_index(stairs.orientation.category_dimension()),
+        bin_edges: stairs
+            .binning
+            .as_ref()
+            .and_then(|binning| bin_edges(figure, binning.edges)),
     })
 }
 

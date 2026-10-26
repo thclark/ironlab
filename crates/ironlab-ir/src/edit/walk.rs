@@ -1099,6 +1099,8 @@ ir_value! {
     Binning as Binning {
         plain "bins" => bins: Bins =
             "How the bins were specified: a number of bins, a bin width, the bin edges, or a named rule.";
+        plain "edges" => edges: NodeId =
+            "The data array of the bin edges that the specification resolved to, one more than the bins.";
         optional "range" => range: [f64; 2] =
             "The range of sample values that was binned, as its low and high ends, or absent when the range of the samples was used.";
         plain "normalization" => normalization: HistNorm =
@@ -1113,6 +1115,10 @@ ir_value! {
     Binning2d as Binning2d {
         plain "x_bins" => x_bins: Bins = "How the bins along x were specified.";
         plain "y_bins" => y_bins: Bins = "How the bins along y were specified.";
+        plain "x_edges" => x_edges: NodeId =
+            "The data array of the bin edges along x that the specification resolved to, one more than the columns.";
+        plain "y_edges" => y_edges: NodeId =
+            "The data array of the bin edges along y that the specification resolved to, one more than the rows.";
         optional "x_range" => x_range: [f64; 2] =
             "The range of sample values along x that was binned, or absent for the range of the samples.";
         optional "y_range" => y_range: [f64; 2] =
