@@ -30,7 +30,7 @@ fn decay_figure() -> Figure {
         },
     ];
     Figure {
-        schema_version: "0.7.0".to_owned(),
+        schema_version: "0.8.0".to_owned(),
         id: NodeId(1),
         title: Some(Text::new("Decay of $e^{-t}$")),
         size: FigureSize {
@@ -657,33 +657,31 @@ fn every_image_variant_survives_a_json_round_trip() {
     assert_eq!(restored.to_json(), text);
 }
 
-// Why: this release restructures the figure in ways that a reader of the previous release
-// cannot interpret: data arrays become named nodes in the one identifier space, panels with
-// content replace legend panels, colour scales become nodes that artists, colourbars and
-// legend items name in place of the colormap and colour limits of an axes, a scalar image
-// replaces the indexed and mapped images, a series replaces the line and scatter artists,
-// and display names and labels are renamed to labels and tags. It therefore raises the
-// schema version to 0.7.0. The build must declare it and the fixture, which declares 0.7.0,
-// must load. A `.fig.json` document of the previous minor release, 0.6.0, must be refused,
-// and the refusal must name both versions, so that the user knows which build to use.
+// Why: this release adds artists and properties that a reader of the previous release
+// cannot interpret: the bar, stairs and cells artists, the binning records of the
+// histograms they draw, and the visibility and tick label angle of an axis, which such a
+// reader would ignore, drawing a hidden axis and its rotated tick labels as a visible axis
+// with level labels. It therefore raises the schema version to 0.8.0. The build must declare it and the fixture, which declares 0.8.0, must
+// load. A `.fig.json` document of the previous minor release, 0.7.0, must be refused, and
+// the refusal must name both versions, so that the user knows which build to use.
 #[test]
-fn the_build_implements_schema_version_0_7_0_and_refuses_documents_of_0_6_0() {
-    assert_eq!(SCHEMA_VERSION, "0.7.0");
+fn the_build_implements_schema_version_0_8_0_and_refuses_documents_of_0_7_0() {
+    assert_eq!(SCHEMA_VERSION, "0.8.0");
     let loaded = Figure::from_json(DECAY_FIXTURE).expect("the fixture declares the version");
-    assert_eq!(loaded.schema_version, "0.7.0");
-    let error = Figure::from_json(&decay_fixture_with_version(json!("0.6.0")))
+    assert_eq!(loaded.schema_version, "0.8.0");
+    let error = Figure::from_json(&decay_fixture_with_version(json!("0.7.0")))
         .expect_err("a document of the previous minor version is refused");
     assert!(
         matches!(
             &error,
             IrError::IncompatibleSchemaVersion { found, supported }
-                if found == "0.6.0" && *supported == "0.7.0"
+                if found == "0.7.0" && *supported == "0.8.0"
         ),
         "{error:?}"
     );
     let message = error.to_string();
     assert!(
-        message.contains("0.6.0") && message.contains("0.7.0"),
+        message.contains("0.7.0") && message.contains("0.8.0"),
         "the message must name both versions: {message}"
     );
 }
