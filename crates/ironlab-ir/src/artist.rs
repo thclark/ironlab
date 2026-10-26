@@ -796,7 +796,7 @@ pub struct Bar {
 
 impl Default for Bar {
     /// The series that `bar` draws: upright bars in the next colour of the colour order,
-    /// rising from 0, each four fifths of the pitch wide and centred on its position,
+    /// rising from 0, each 0.55 of the pitch wide and centred on its position,
     /// outlined by a black line 0.5 points wide, with a margin of 0.05 beyond the ends of
     /// the bars, without colour data, a colour scale or a binning record, visible and
     /// opaque.
@@ -880,9 +880,9 @@ pub enum BarWidth {
 }
 
 impl Default for BarWidth {
-    /// Four fifths of the pitch, so that a gap of a fifth separates neighbouring bars.
+    /// 0.55 of the pitch, so that a gap of 0.45 of the pitch separates neighbouring bars.
     fn default() -> Self {
-        BarWidth::Pitch(0.8)
+        BarWidth::Pitch(0.55)
     }
 }
 

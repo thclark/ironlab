@@ -14,7 +14,7 @@
 //! pub fn series(&mut self, label: impl Into<Text>, values: impl Into<DataSource>) -> &mut Self; // a column of its own
 //! pub fn stacked(&mut self, column: impl Into<String>, label: impl Into<Text>, values: impl Into<DataSource>)
 //!     -> &mut Self;                                       // joins the named column and stacks within it
-//! pub fn gap(&mut self, gap: f64) -> &mut Self;            // between clusters, as a fraction of the pitch; 0.2
+//! pub fn gap(&mut self, gap: f64) -> &mut Self;            // between clusters, as a fraction of the pitch; 0.45
 //! pub fn group_gap(&mut self, gap: f64) -> &mut Self;      // between columns, as a fraction of a column; 0
 //! pub fn horizontal(&mut self) -> &mut Self;               // every series lies flat
 //! pub fn margin(&mut self, margin: f64) -> &mut Self;      // the margin of every series
@@ -117,7 +117,7 @@ fn bar_stores_the_positions_and_values_with_the_defaults_of_a_bar_chart() {
     assert_eq!(data(&fig, b.values), &NdArray::vector(vec![3.0, 1.0, 2.0]));
     assert_eq!(b.orientation, Orientation::Vertical);
     assert_eq!(b.base, PerBar::Constant(0.0));
-    assert_eq!(b.width, BarWidth::Pitch(0.8));
+    assert_eq!(b.width, BarWidth::Pitch(0.55));
     assert_eq!(b.offset, BarOffset::Widths(0.0));
     assert_eq!(b.margin, 0.05);
     assert_eq!(b.binning, None);
@@ -373,7 +373,7 @@ fn positions_and_values_of_different_lengths_are_reported_by_validate() {
 // WHY: a grouped comparison (three models scored on three properties) must come out of the helper as one ordinary bar
 // series per model, each with its own label, values and colour from the colour order, all at the helper's positions,
 // so that legends, selection and the property editor treat each model as they treat any series. At the default gap
-// of 0.2 and no gap within a cluster, three columns are each a third of four fifths of the pitch wide and are offset
+// of 0.45 and no gap within a cluster, three columns are each a third of 0.55 of the pitch wide and are offset
 // by −1, 0 and 1 of their widths, which is the geometry the scene draws as three touching bars centred on each
 // position; and the figure is valid without a warning, so the recipe users follow gives a clean figure.
 #[test]
@@ -406,7 +406,7 @@ fn series_of_the_helper_are_columns_a_third_of_the_drawn_cluster_wide_side_by_si
         assert_eq!(b.orientation, Orientation::Vertical);
         assert_eq!(b.face, ColorSpec::Auto, "column {k} takes the colour order");
         assert_eq!(b.margin, 0.05, "column {k} keeps the default margin");
-        assert_close(pitch_fraction(&fig, id), 0.8 / 3.0, "a third of 0.8");
+        assert_close(pitch_fraction(&fig, id), 0.55 / 3.0, "a third of 0.55");
         assert_close(
             offset_in_widths(&fig, id),
             k as f64 - 1.0,
@@ -417,6 +417,74 @@ fn series_of_the_helper_are_columns_a_third_of_the_drawn_cluster_wide_side_by_si
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");
+}
+
+// WHY: a chart often starts as one series and grows into a grouped comparison, and swapping `bar` for the `bars`
+// helper must not by itself change how the first series looks. The default gap between clusters is therefore the
+// complement of the default width of a bar, so that a lone column of the helper is stored exactly as `bar` stores the
+// same data, upright or lying flat: the same width, offset, base, margin, colours and outline, differing only in the
+// identifiers of the nodes and in the label the helper requires.
+#[test]
+fn a_lone_series_of_the_helper_is_stored_exactly_as_bar_stores_it() {
+    for horizontal in [false, true] {
+        let positions = [0.0, 1.0, 2.0];
+        let values = [3.0, -1.0, 2.0];
+        let mut plain_fig = Figure::new();
+        let plain_id = {
+            let mut ax = plain_fig.axes(0, 0);
+            if horizontal {
+                ax.barh(positions, values).id()
+            } else {
+                ax.bar(positions, values).id()
+            }
+        };
+        let mut helper_fig = Figure::new();
+        let helper_id = {
+            let mut ax = helper_fig.axes(0, 0);
+            let mut bars = ax.bars(positions);
+            if horizontal {
+                bars.horizontal();
+            }
+            bars.series("only", values).ids()[0]
+        };
+        let plain = bar(&plain_fig, plain_id);
+        let helper = bar(&helper_fig, helper_id);
+        let what = if horizontal { "lying flat" } else { "upright" };
+        assert_eq!(
+            data(&plain_fig, plain.positions),
+            data(&helper_fig, helper.positions),
+            "{what}: positions"
+        );
+        assert_eq!(
+            data(&plain_fig, plain.values),
+            data(&helper_fig, helper.values),
+            "{what}: values"
+        );
+        assert_eq!(
+            bases(&plain_fig, plain_id),
+            bases(&helper_fig, helper_id),
+            "{what}: bases"
+        );
+        assert_eq!(plain.width, helper.width, "{what}: width");
+        assert_eq!(plain.offset, helper.offset, "{what}: offset");
+        assert_eq!(plain.orientation, helper.orientation, "{what}: orientation");
+        assert_eq!(plain.margin, helper.margin, "{what}: margin");
+        assert_eq!(plain.face, helper.face, "{what}: face");
+        assert_eq!(plain.edge, helper.edge, "{what}: outline");
+        assert_eq!(
+            plain.face_opacity, helper.face_opacity,
+            "{what}: face opacity"
+        );
+        assert_eq!(
+            plain.edge_opacity, helper.edge_opacity,
+            "{what}: edge opacity"
+        );
+        assert_eq!(plain.color_data, helper.color_data, "{what}: colour data");
+        assert_eq!(
+            plain.color_scale, helper.color_scale,
+            "{what}: colour scale"
+        );
+    }
 }
 
 // WHY: the gap between clusters and the gap within a cluster are the two spacings a grouped chart is tuned by, and
@@ -499,7 +567,7 @@ fn stacked_series_rest_on_the_running_totals_of_the_parts_before_them_positive_a
     for &id in &ids {
         assert_close(
             pitch_fraction(&fig, id),
-            0.8,
+            0.55,
             "a column of parts is as wide as a lone column",
         );
         assert_close(
@@ -560,7 +628,7 @@ fn stacked_columns_stand_side_by_side_with_each_other_and_with_lone_columns() {
     let [haiku, gains_26, gains_25, losses_26, losses_25] = ids[..] else {
         panic!("five series: {ids:?}");
     };
-    let width = 0.8 / 3.0;
+    let width = 0.55 / 3.0;
     for (id, column) in [
         (haiku, 0),
         (gains_26, 1),
@@ -706,7 +774,7 @@ fn the_helper_hands_out_each_series_for_styling_and_keeps_its_style_through_late
     assert_eq!(bar(&fig, ids[2]).face, ColorSpec::Auto);
     assert_close(
         pitch_fraction(&fig, ids[0]),
-        0.8 / 3.0,
+        0.55 / 3.0,
         "the styled series was laid out again when C was added",
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());

@@ -756,7 +756,7 @@ impl BarMut<'_> {
     }
 
     /// Makes every bar the given fraction of the pitch wide, the pitch being the smallest
-    /// distance between neighbouring distinct positions (MATLAB's `bar(x, y, width)`): 0.8
+    /// distance between neighbouring distinct positions (MATLAB's `bar(x, y, width)`): 0.55
     /// by default, and 1 for bars that touch.
     pub fn width_pitch(&mut self, fraction: f64) -> &mut Self {
         self.set_width(BarWidth::Pitch(fraction));
@@ -1155,7 +1155,7 @@ impl<'a> BarsMut<'a> {
             axes,
             positions,
             orientation: Orientation::Vertical,
-            gap: 0.2,
+            gap: 0.45,
             group_gap: 0.0,
             margin: None,
             columns: BarColumns::default(),
@@ -1182,7 +1182,8 @@ impl<'a> BarsMut<'a> {
     }
 
     /// Sets the fraction of the pitch left empty between neighbouring clusters, from 0 up
-    /// to, but not including, 1: 0.2 by default.
+    /// to, but not including, 1: 0.45 by default, so that a lone column is as wide as a
+    /// bar of [`bar`](crate::AxesMut::bar).
     pub fn gap(&mut self, gap: f64) -> &mut Self {
         self.gap = gap;
         self.lay_out();

@@ -421,8 +421,8 @@ proto_file! {
         optional uint64 color_scale = 16;
         /// The opacity of the outlines, from 0 to 1; absent means 1.
         optional double edge_opacity = 17;
-        /// How wide each bar is along the category axis; absent means four fifths of the
-        /// pitch of the positions.
+        /// How wide each bar is along the category axis; absent means 0.55 of the pitch
+        /// of the positions.
         message BarWidth width = 18;
         /// How far the centre of each bar lies from its position; absent means no offset.
         message BarOffset offset = 19;

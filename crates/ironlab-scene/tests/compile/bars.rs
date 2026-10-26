@@ -165,9 +165,9 @@ fn a_bar_series_is_drawn_as_one_rectangle_per_bar_without_a_warning() {
 }
 
 // Why: a value is the length of its bar, measured from the base, so a bar must start exactly at the base and end
-// exactly at the base plus its value, downwards for a negative value; and it must sit centred on its position, four
-// fifths of the pitch wide by default, so that the reader can tell which position it belongs to and neighbouring
-// bars stand apart. With positions 1, 2, 3 the pitch is 1, so each bar spans its position ± 0.4.
+// exactly at the base plus its value, downwards for a negative value; and it must sit centred on its position, 0.55
+// of the pitch wide by default, so that the reader can tell which position it belongs to and neighbouring
+// bars stand apart. With positions 1, 2, 3 the pitch is 1, so each bar spans its position ± 0.275.
 #[test]
 fn each_bar_is_centred_on_its_position_at_its_width_and_runs_from_the_base_for_its_length() {
     let (mut fx, ax) = axes();
@@ -181,7 +181,7 @@ fn each_bar_is_centred_on_its_position_at_its_width_and_runs_from_the_base_for_i
         let d = at(&bars, p);
         assert_span(
             d.x,
-            [p - 0.4, p + 0.4],
+            [p - 0.275, p + 0.275],
             &format!("bar {k} across its width"),
         );
         assert_span(
@@ -215,15 +215,23 @@ fn the_pitch_is_the_smallest_distance_between_distinct_finite_positions_in_order
         3,
         "the bar at the non-finite position is not drawn: {bars:#?}"
     );
-    assert_span(at(&bars, 3.0).x, [2.6, 3.4], "the pitch is 1, from 0 to 1");
-    assert_span(at(&bars, 0.0).x, [-0.4, 0.4], "the pitch is 1, from 0 to 1");
+    assert_span(
+        at(&bars, 3.0).x,
+        [2.725, 3.275],
+        "the pitch is 1, from 0 to 1",
+    );
+    assert_span(
+        at(&bars, 0.0).x,
+        [-0.275, 0.275],
+        "the pitch is 1, from 0 to 1",
+    );
 
     let (mut fx, ax) = axes();
     let single = fx.bar(ax, &[5.0], &[2.0], |_, _| {});
     let scene = compile_figure(&fx.build());
     assert_span(
         drawn(&scene, ax, single)[0].x,
-        [4.6, 5.4],
+        [4.725, 5.275],
         "a single position has a pitch of 1",
     );
 }
@@ -246,10 +254,14 @@ fn a_bar_without_a_finite_value_is_left_out_and_its_neighbours_keep_their_places
     assert!(!covers(&bars, 1.0) && !covers(&bars, 2.0));
     assert_span(
         at(&bars, 0.0).x,
-        [-0.4, 0.4],
+        [-0.275, 0.275],
         "the first bar keeps its place",
     );
-    assert_span(at(&bars, 3.0).x, [2.6, 3.4], "the last bar keeps its place");
+    assert_span(
+        at(&bars, 3.0).x,
+        [2.725, 3.275],
+        "the last bar keeps its place",
+    );
     assert_span(at(&bars, 3.0).y, [0.0, 3.0], "and its value");
 }
 
@@ -340,7 +352,7 @@ fn horizontal_bars_place_positions_along_y_and_values_along_x() {
     };
     assert_span(
         on(0.1).y,
-        [-0.3, 0.5],
+        [-0.175, 0.375],
         "the width lies along y, offset along y",
     );
     assert_span(
@@ -350,7 +362,7 @@ fn horizontal_bars_place_positions_along_y_and_values_along_x() {
     );
     assert_span(
         on(1.1).y,
-        [0.7, 1.5],
+        [0.825, 1.375],
         "the width lies along y, offset along y",
     );
     assert_span(
@@ -652,8 +664,8 @@ fn automatic_category_limits_end_half_a_pitch_beyond_the_positions_or_at_the_dra
     assert_close(xmap.min, 0.5, TOL);
     assert_close(xmap.max, 3.5, TOL);
 
-    // Offset by a whole width to the right, the bar at 3 spans 3.4 to 4.2, beyond the half pitch at 3.5, while on the
-    // left the half pitch at 0.5 lies beyond the bar at 1, which starts at 1.4.
+    // Offset by a whole width to the right, the bar at 3 spans 3.275 to 3.825, beyond the half pitch at 3.5, while on the
+    // left the half pitch at 0.5 lies beyond the bar at 1, which starts at 1.275.
     let (mut fx, ax) = axes();
     fx.bar(ax, &[1.0, 2.0, 3.0], &[3.0, 1.0, 2.0], |b, _| {
         b.offset = BarOffset::Widths(1.0);
@@ -661,7 +673,7 @@ fn automatic_category_limits_end_half_a_pitch_beyond_the_positions_or_at_the_dra
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
     assert_close(xmap.min, 0.5, TOL);
-    assert_close(xmap.max, 4.2, TOL);
+    assert_close(xmap.max, 3.825, TOL);
 
     let (mut fx, ax) = axes();
     fx.bar(ax, &[0.0, 3.0], &[1.0, 2.0], |b, _| {

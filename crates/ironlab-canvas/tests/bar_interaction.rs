@@ -177,7 +177,7 @@ fn nothing_is_read_in_the_gap_between_bars_or_beyond_the_end_of_a_bar() {
         vec![vec![2.0, 5.0, 8.0], vec![3.0, 1.0, 2.0]],
         vec![Artist::Bar(bar(3, 0, 1))],
     ));
-    // The bars at 2 and 5 span [0.8, 3.2] and [3.8, 6.2], so 3.5 lies in the gap between them.
+    // The bars at 2 and 5 span [1.175, 2.825] and [4.175, 5.825], so 3.5 lies in the gap between them.
     assert!(
         state.tip_at(&hit, at_data(&hit, 3.5, 0.5)).is_none(),
         "in the gap"
