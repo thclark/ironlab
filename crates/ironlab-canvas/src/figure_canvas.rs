@@ -30,8 +30,8 @@ use ironlab_text::TextEngine;
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::DrawList;
 use crate::interaction::{
-    BarDatatip, CellDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip,
-    PixelValue, StepDatatip, Tip, Tool,
+    BarDatatip, BinReading, CellDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState,
+    PixelDatatip, PixelValue, StepDatatip, Tip, Tool,
 };
 use crate::problems::Problem;
 
@@ -152,8 +152,9 @@ fn value_line(value: &PixelValue) -> String {
 
 /// The text of the callout that names the bar under the pointer, one item per line: the label of the series when it
 /// has one, the name of the bar's category when its category axis names it by a text tick label, the position of
-/// the bar, its value, its base when it is not 0, the segment a part of a stack occupies, and the index of the bar
-/// in the artist's own arrays, every number formatted as the point datatip formats its coordinates.
+/// the bar, its value, which is its length, its base and the segment it spans from its base to its end when the base
+/// is not 0, the count and density of its bin when its series records the binning of a histogram, and the index of
+/// the bar in the artist's own arrays, every number formatted as the point datatip formats its coordinates.
 #[must_use]
 pub fn bar_datatip_text(tip: &BarDatatip) -> String {
     let mut lines = Vec::new();
@@ -166,24 +167,25 @@ pub fn bar_datatip_text(tip: &BarDatatip) -> String {
     lines.push(format!("position = {}", datatip_value(tip.at)));
     lines.push(format!("value = {}", datatip_value(tip.value)));
     if tip.base != 0.0 {
+        let (start, end) = tip.segment;
         lines.push(format!("base = {}", datatip_value(tip.base)));
-    }
-    if let Some((bottom, top)) = tip.segment {
         lines.push(format!(
             "segment = {} – {}",
-            datatip_value(bottom),
-            datatip_value(top)
+            datatip_value(start),
+            datatip_value(end)
         ));
     }
+    push_bin(&mut lines, tip.bin);
     lines.push(format!("index {}", tip.index));
     lines.join("\n")
 }
 
 /// The text of the callout that names the cell under the pointer, one item per line: the label of the cells when they
 /// have one, the names of the cell's row and column when the axes name them by text tick labels, the value in the
-/// words a pixel of a scalar image uses for it (`category = … (index …)`, `index = …` or `value = …`), and the row
-/// and column of the cell in the artist's own array, every number formatted as the point datatip formats its
-/// coordinates, so that the callouts read as one.
+/// words a pixel of a scalar image uses for it (`category = … (index …)`, `index = …` or `value = …`), the count and
+/// density of its bin when the cells record the binning of a two-dimensional histogram, and the row and column of the
+/// cell in the artist's own array, every number formatted as the point datatip formats its coordinates, so that the
+/// callouts read as one.
 #[must_use]
 pub fn cell_datatip_text(tip: &CellDatatip) -> String {
     let mut lines = Vec::new();
@@ -197,13 +199,14 @@ pub fn cell_datatip_text(tip: &CellDatatip) -> String {
         lines.push(format!("column = {column}"));
     }
     lines.push(value_line(&tip.value));
+    push_bin(&mut lines, tip.bin);
     lines.push(format!("row {}, column {}", tip.row, tip.column));
     lines.join("\n")
 }
 
 /// The text of the callout that names the step of stairs under the pointer, one item per line: the label of the
-/// stairs when they have one, the two edges the step holds across, its value, and the index of the value in the
-/// artist's own array of values.
+/// stairs when they have one, the two edges the step holds across, its value, the count and density of its bin when
+/// the stairs record the binning of a histogram, and the index of the value in the artist's own array of values.
 #[must_use]
 pub fn step_datatip_text(tip: &StepDatatip) -> String {
     let mut lines = Vec::new();
@@ -216,8 +219,17 @@ pub fn step_datatip_text(tip: &StepDatatip) -> String {
         datatip_value(tip.edges.1)
     ));
     lines.push(format!("value = {}", datatip_value(tip.value)));
+    push_bin(&mut lines, tip.bin);
     lines.push(format!("index {}", tip.index));
     lines.join("\n")
+}
+
+/// Adds the count and the density of a bin of a histogram to the lines of a callout, when there is a reading of one.
+fn push_bin(lines: &mut Vec<String>, bin: Option<BinReading>) {
+    if let Some(BinReading { count, density }) = bin {
+        lines.push(format!("count = {}", datatip_value(count)));
+        lines.push(format!("density = {}", datatip_value(density)));
+    }
 }
 
 /// The text of the callout that names what a colourbar reads under the pointer: the title of the scale when it has

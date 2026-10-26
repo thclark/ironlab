@@ -14,13 +14,15 @@ use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
 /// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
-/// scale reference, contour levels, pixel range or plane offset, the group and colour data
-/// of a bar series, and the base of stairs), by full Protocol Buffers name.
+/// scale reference, contour levels, pixel range or plane offset, the colour data and
+/// binning record of a bar series, the base and binning record of stairs, the binning record
+/// of cells, and the ranges and minimum count of a binning record), by full Protocol Buffers
+/// name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 45] = [
+pub const OPTIONAL_IN_IR: [&str; 51] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -51,14 +53,20 @@ pub const OPTIONAL_IN_IR: [&str; 45] = [
     "ironlab.ir.v0.ScalarImage.color_scale",
     "ironlab.ir.v0.ScalarImage.alpha",
     "ironlab.ir.v0.Bar.label",
-    "ironlab.ir.v0.Bar.group",
     "ironlab.ir.v0.Bar.color_data",
     "ironlab.ir.v0.Bar.color_scale",
+    "ironlab.ir.v0.Bar.binning",
     "ironlab.ir.v0.Stairs.label",
     "ironlab.ir.v0.Stairs.base",
+    "ironlab.ir.v0.Stairs.binning",
     "ironlab.ir.v0.Cells.label",
     "ironlab.ir.v0.Cells.color_scale",
     "ironlab.ir.v0.Cells.alpha",
+    "ironlab.ir.v0.Cells.binning",
+    "ironlab.ir.v0.Binning.range",
+    "ironlab.ir.v0.Binning2d.x_range",
+    "ironlab.ir.v0.Binning2d.y_range",
+    "ironlab.ir.v0.Binning2d.min_count",
     "ironlab.ir.v0.ColorScale.title",
     "ironlab.ir.v0.ColorScaleOutOfRange.label",
     "ironlab.ir.v0.ImagePlacement.columns",
@@ -644,12 +652,12 @@ pub fn data_references(artist: &Artist) -> Vec<NodeId> {
         Artist::ScalarImage(a) => [a.values].into_iter().chain(a.alpha).collect(),
         Artist::Bar(a) => {
             let base = match a.base {
-                BarBase::Constant(_) => None,
-                BarBase::Data(id) => Some(id),
+                PerBar::Constant(_) => None,
+                PerBar::Data(id) => Some(id),
             };
-            let slot = match a.slot {
-                BarSlot::Pitch | BarSlot::Width(_) => None,
-                BarSlot::Data(id) => Some(id),
+            let slot = match a.width {
+                BarWidth::Pitch(_) | BarWidth::Constant(_) => None,
+                BarWidth::Data(id) => Some(id),
             };
             [a.positions, a.values]
                 .into_iter()
@@ -714,12 +722,12 @@ pub fn data_references_mut(artist: &mut Artist) -> Vec<&mut NodeId> {
             .collect(),
         Artist::Bar(a) => {
             let base = match &mut a.base {
-                BarBase::Constant(_) => None,
-                BarBase::Data(id) => Some(id),
+                PerBar::Constant(_) => None,
+                PerBar::Data(id) => Some(id),
             };
-            let slot = match &mut a.slot {
-                BarSlot::Pitch | BarSlot::Width(_) => None,
-                BarSlot::Data(id) => Some(id),
+            let slot = match &mut a.width {
+                BarWidth::Pitch(_) | BarWidth::Constant(_) => None,
+                BarWidth::Data(id) => Some(id),
             };
             [&mut a.positions, &mut a.values]
                 .into_iter()
@@ -1919,20 +1927,24 @@ pub fn kitchen_sink_figure() -> Figure {
 /// variant of every enum and tagged value of those artists, and hides the x axis of the
 /// axes and rotates the labels of its y ticks.
 ///
-/// The bars are three grouped series of four categories that agree in orientation, slot,
-/// gap and base, one of them with a NaN value and one whose faces and outlines are coloured
-/// by data through `palette`; two stacked
-/// horizontal series of a fixed width, one with negative values, translucent faces and
-/// translucent edges; and a hidden series of floating bars on a base and widths given as
-/// data. The stairs are an open outline on
-/// edges, and three filled or unfilled outlines on samples, one for each step position.
-/// The stairs on samples have translucent lines. The cells are a grid of floats on
-/// decreasing column edges and unit rows, with gaps, edges, alpha and face and edge
-/// opacities, mapped through a scale of their own (numbered 910, appended
-/// after the kitchen-sink scales so that their indices are unchanged), and a hidden grid of
-/// the 8-bit `bytes` on unit columns and explicit rows through `palette`. Every array is
-/// referred to, so the axes adds no unused-data warning, and every member of a group
-/// agrees with the first, so it adds no inconsistent-group warning.
+/// The bars are three series of four categories placed side by side as the facade's
+/// grouping helper places them (a third of four fifths of the pitch wide, offset by −1, 0
+/// and 1 widths), one of them with a NaN value and one whose faces and outlines are
+/// coloured by data through `palette`; two horizontal series of a fixed width and an
+/// absolute offset stacked as the stacking helper stacks them (the second on bases given
+/// per bar from the positive parts of the first), one with negative values, translucent
+/// faces and translucent edges, and with margins of their own; and a hidden series of
+/// floating bars on a base and widths given as data, offset by half a width, which records
+/// the binning of a density histogram. The stairs are an open outline on edges, which
+/// records the binning of a cumulative histogram by a named rule, and three filled or
+/// unfilled outlines on samples, one for each step position. The stairs on samples have
+/// translucent lines. The cells are a grid of floats on decreasing column edges and unit
+/// rows, with gaps, edges, alpha and face and edge opacities, mapped through a scale of
+/// their own (numbered 910, appended after the kitchen-sink scales so that their indices
+/// are unchanged), which records a two-dimensional binning with a minimum count, and a
+/// hidden grid of the 8-bit `bytes` on unit columns and explicit rows through `palette`,
+/// which records a binning of bins of a width along x and at edges along y. Every array
+/// is referred to, so the axes adds no unused-data warning.
 fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId, palette: NodeId) {
     let red = Color::rgb(1.0, 0.0, 0.0);
     let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
@@ -1946,6 +1958,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
     let second = b.vector(&[4.0, 1.0, 3.0, 5.0]);
     let gappy = b.vector(&[2.0, f64::NAN, 4.0, 1.0]);
     let signed = b.vector(&[-1.0, 2.0, -3.0, 4.0]);
+    let stacked_on = b.vector(&[0.0, 2.0, 0.0, 4.0]);
     let floor = b.vector(&[0.5, 0.5, 1.0, 1.0]);
     let widths = b.vector(&[0.5, 0.8, 0.5, 0.8]);
     let edges = b.vector(&[0.0, 1.0, 2.0, 3.0, 4.0]);
@@ -1955,12 +1968,6 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
     let rows = b.vector(&[0.0, 10.0, 20.0]);
     let codes = b.vector(&[0.0, 1.0, 2.0, 3.0]);
 
-    let models = |layout| {
-        Some(BarGroup {
-            name: "models".to_owned(),
-            layout,
-        })
-    };
     for (k, (values, face, color_data)) in [
         (first, ColorSpec::Auto, None),
         (second, ColorSpec::Colormapped, Some(codes)),
@@ -1977,7 +1984,8 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                 label: Some(Text::new(format!("model ${k}$"))),
                 positions: categories,
                 values,
-                group: models(BarLayout::Grouped),
+                width: BarWidth::Pitch(0.8 / 3.0),
+                offset: BarOffset::Widths(k as f64 - 1.0),
                 face,
                 color_data,
                 color_scale: color_data.map(|_| palette),
@@ -1993,7 +2001,10 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             }),
         );
     }
-    for values in [signed, first] {
+    for (values, base) in [
+        (signed, PerBar::Constant(0.0)),
+        (first, PerBar::Data(stacked_on)),
+    ] {
         let id = b.node();
         b.push(
             axes,
@@ -2002,12 +2013,9 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                 orientation: Orientation::Horizontal,
                 positions: categories,
                 values,
-                slot: BarSlot::Width(0.6),
-                gap: 0.1,
-                group: Some(BarGroup {
-                    name: "stack".to_owned(),
-                    layout: BarLayout::Stacked,
-                }),
+                base,
+                width: BarWidth::Constant(0.6),
+                offset: BarOffset::Absolute(0.1),
                 edge: LineStyle {
                     color: ColorSpec::Rgba { color: red },
                     width_pt: 0.25,
@@ -2015,6 +2023,7 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                 },
                 face_opacity: 0.5,
                 edge_opacity: 0.75,
+                margin: 0.1,
                 ..Bar::default()
             }),
         );
@@ -2027,9 +2036,18 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             visible: false,
             positions: categories,
             values: second,
-            base: BarBase::Data(floor),
-            slot: BarSlot::Data(widths),
-            gap: 0.0,
+            base: PerBar::Data(floor),
+            width: BarWidth::Data(widths),
+            offset: BarOffset::Widths(0.5),
+            margin: 0.0,
+            binning: Some(Binning {
+                bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5, 4.5]),
+                range: Some([0.5, 4.5]),
+                normalization: HistNorm::Density,
+                total: 12.0,
+                excluded_non_finite: 1,
+                excluded_out_of_range: 2,
+            }),
             ..Bar::default()
         }),
     );
@@ -2043,6 +2061,14 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
                 edges,
                 values: first,
             },
+            binning: Some(Binning {
+                bins: Bins::Rule(BinRule::Sturges),
+                range: None,
+                normalization: HistNorm::CumulativeCount,
+                total: 14.0,
+                excluded_non_finite: 0,
+                excluded_out_of_range: 3,
+            }),
             ..Stairs::default()
         }),
     );
@@ -2110,6 +2136,17 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             alpha: Some(alpha),
             face_opacity: 0.8,
             edge_opacity: 0.6,
+            binning: Some(Binning2d {
+                x_bins: Bins::Count(3),
+                y_bins: Bins::Width(0.5),
+                x_range: Some([0.0, 3.0]),
+                y_range: None,
+                normalization: HistNorm::Percentage,
+                min_count: Some(1.0),
+                total: 30.0,
+                excluded_non_finite: 2,
+                excluded_out_of_range: 0,
+            }),
             ..Cells::default()
         }),
     );
@@ -2123,6 +2160,17 @@ fn add_bars_stairs_and_cells(b: &mut FigureBuilder, axes: NodeId, bytes: NodeId,
             columns: CellEdges::Unit,
             rows: CellEdges::Edges(rows),
             color_scale: Some(palette),
+            binning: Some(Binning2d {
+                x_bins: Bins::Width(1.0),
+                y_bins: Bins::Edges(vec![0.0, 10.0, 20.0]),
+                x_range: None,
+                y_range: Some([0.0, 20.0]),
+                normalization: HistNorm::Count,
+                min_count: None,
+                total: 9.0,
+                excluded_non_finite: 0,
+                excluded_out_of_range: 0,
+            }),
             ..Cells::default()
         }),
     );
@@ -2318,11 +2366,37 @@ pub const SPECIAL_F64: [f64; 12] = [
     f64::MIN,
 ];
 
+/// Visits the numbers of a binning record of one dimension: its bin width or edges, its
+/// range and its total.
+fn visit_binning(visit: &mut dyn FnMut(String, &mut f64), at: &str, binning: &mut Binning) {
+    visit_bins(visit, &format!("{at}.bins"), &mut binning.bins);
+    if let Some([low, high]) = &mut binning.range {
+        visit(format!("{at}.range[0]"), low);
+        visit(format!("{at}.range[1]"), high);
+    }
+    visit(format!("{at}.total"), &mut binning.total);
+}
+
+/// Visits the numbers of bins: a width, or every edge.
+fn visit_bins(visit: &mut dyn FnMut(String, &mut f64), at: &str, bins: &mut Bins) {
+    match bins {
+        Bins::Width(width) => visit(format!("{at}.width"), width),
+        Bins::Edges(edges) => {
+            for (i, edge) in edges.iter_mut().enumerate() {
+                visit(format!("{at}.edges[{i}]"), edge);
+            }
+        }
+        Bins::Count(_) | Bins::Rule(_) => {}
+    }
+}
+
 /// Calls `visit` with a path and a mutable reference for every `f64` held by the
 /// figure outside colours and ticks: sizes, numeric figure parameters, limits (of axes
 /// and of colour scales), tick label angles, views, style widths and sizes (of artists and
-/// of the custom line samples of legends), artist parameters (the gaps, bases, widths and
-/// opacities of bars, stairs and cells among them), explicit levels and band edges, and
+/// of the custom line samples of legends), artist parameters (the bases, widths, offsets,
+/// margins and opacities of bars, the gaps and opacities of cells, the bases and opacities of
+/// stairs, and every number of their binning records among them), explicit levels and band
+/// edges, and
 /// every value of every `f64` data array. An array of 8-bit values
 /// holds no floats and is skipped.
 ///
@@ -2410,16 +2484,25 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 Artist::Image(image) => visit_placement(visit, &at, &mut image.placement),
                 Artist::ScalarImage(image) => visit_placement(visit, &at, &mut image.placement),
                 Artist::Bar(bar) => {
-                    if let BarBase::Constant(base) = &mut bar.base {
+                    if let PerBar::Constant(base) = &mut bar.base {
                         visit(at("base.constant"), base);
                     }
-                    if let BarSlot::Width(width) = &mut bar.slot {
-                        visit(at("slot.width"), width);
+                    match &mut bar.width {
+                        BarWidth::Pitch(fraction) => visit(at("width.pitch"), fraction),
+                        BarWidth::Constant(width) => visit(at("width.constant"), width),
+                        BarWidth::Data(_) => {}
                     }
-                    visit(at("gap"), &mut bar.gap);
+                    match &mut bar.offset {
+                        BarOffset::Widths(widths) => visit(at("offset.widths"), widths),
+                        BarOffset::Absolute(offset) => visit(at("offset.absolute"), offset),
+                    }
                     visit(at("edge.width_pt"), &mut bar.edge.width_pt);
                     visit(at("face_opacity"), &mut bar.face_opacity);
                     visit(at("edge_opacity"), &mut bar.edge_opacity);
+                    visit(at("margin"), &mut bar.margin);
+                    if let Some(binning) = &mut bar.binning {
+                        visit_binning(visit, &at("binning"), binning);
+                    }
                 }
                 Artist::Stairs(stairs) => {
                     if let Some(base) = &mut stairs.base {
@@ -2428,6 +2511,9 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                     visit(at("line.width_pt"), &mut stairs.line.width_pt);
                     visit(at("line_opacity"), &mut stairs.line_opacity);
                     visit(at("fill_opacity"), &mut stairs.fill_opacity);
+                    if let Some(binning) = &mut stairs.binning {
+                        visit_binning(visit, &at("binning"), binning);
+                    }
                 }
                 Artist::Cells(cells) => {
                     visit(at("gap.x"), &mut cells.gap.x);
@@ -2435,6 +2521,24 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                     visit(at("edge.width_pt"), &mut cells.edge.width_pt);
                     visit(at("face_opacity"), &mut cells.face_opacity);
                     visit(at("edge_opacity"), &mut cells.edge_opacity);
+                    if let Some(binning) = &mut cells.binning {
+                        let at = at("binning");
+                        visit_bins(visit, &format!("{at}.x_bins"), &mut binning.x_bins);
+                        visit_bins(visit, &format!("{at}.y_bins"), &mut binning.y_bins);
+                        for (name, range) in [
+                            ("x_range", &mut binning.x_range),
+                            ("y_range", &mut binning.y_range),
+                        ] {
+                            if let Some([low, high]) = range {
+                                visit(format!("{at}.{name}[0]"), low);
+                                visit(format!("{at}.{name}[1]"), high);
+                            }
+                        }
+                        if let Some(min_count) = &mut binning.min_count {
+                            visit(format!("{at}.min_count"), min_count);
+                        }
+                        visit(format!("{at}.total"), &mut binning.total);
+                    }
                 }
             }
         }

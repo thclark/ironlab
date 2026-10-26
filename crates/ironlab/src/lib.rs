@@ -71,8 +71,8 @@ mod pixels;
 pub use ironlab_ir as ir;
 
 pub use artists::{
-    BarMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut,
-    SurfaceMut,
+    BarMut, BarsMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut,
+    StairsMut, SurfaceMut,
 };
 pub use axes::{AxesMut, CategoryRows};
 pub use color::IntoColorSpec;
@@ -115,8 +115,8 @@ pub use ironlab_ir::ColorScaleKey;
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{
-    Aspect, AspectAdjust, BarLayout, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement,
-    Coords, InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
+    Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
+    InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
     LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Orientation, PanelLegend,
     PanelLocation, Parameter, Scale, StepAt, Text, TickLabels, Ticks, TitleAlign, TrackSize,
@@ -186,7 +186,7 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Aspect, AspectAdjust, BarLayout, BarMut, ByteMatrix, CategoryRows, CellsMut, Color,
+        Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
         ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,
         ColorbarTitlePlacement, Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut,
         DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues, InsideColorbarMut,

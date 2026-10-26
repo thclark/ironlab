@@ -8,7 +8,7 @@
 use ironlab_ir::{Cells, NdArray, Values};
 
 use crate::display::Rgba;
-use crate::hit::{AxisMap, CellHit};
+use crate::hit::{AxisMap, BinReading, CellHit};
 
 use super::artists::{Draw, Space};
 use super::data::CellsData;
@@ -41,6 +41,42 @@ fn alpha_at(alpha: Option<&NdArray>, k: usize) -> f64 {
         Some(Values::F64(_)) => 0.0,
         Some(Values::U8(values)) => f64::from(values[k]) / 255.0,
     }
+}
+
+/// Returns the value of cell `k` as a number: a floating-point value as it is, and an 8-bit value as the whole number
+/// it denotes.
+fn value_at(values: &NdArray, k: usize) -> f64 {
+    match &values.values {
+        Values::F64(values) => values[k],
+        Values::U8(values) => f64::from(values[k]),
+    }
+}
+
+/// Returns the reading of the bin that cell `(j, i)` draws when the cells record the binning of a two-dimensional
+/// histogram: its count and density, recovered from its value, its area and the record. A cumulative value is first
+/// differenced with the cells before it along both axes, by inclusion and exclusion, so that the count is that of
+/// the cell alone.
+fn bin_of(cells: &Cells, data: &CellsData, j: usize, i: usize) -> Option<BinReading> {
+    let binning = cells.binning.as_ref()?;
+    let cumulative = |j: Option<usize>, i: Option<usize>| match (j, i) {
+        (Some(j), Some(i)) => {
+            let v = value_at(data.values, j * data.nx + i);
+            if v.is_finite() { v } else { 0.0 }
+        }
+        _ => 0.0,
+    };
+    let (before_j, before_i) = (j.checked_sub(1), i.checked_sub(1));
+    let before = cumulative(Some(j), before_i) + cumulative(before_j, Some(i))
+        - cumulative(before_j, before_i);
+    let area =
+        (data.columns[i + 1] - data.columns[i]).abs() * (data.rows[j + 1] - data.rows[j]).abs();
+    BinReading::recover(
+        binning.normalization,
+        binning.total,
+        value_at(data.values, j * data.nx + i),
+        before,
+        area,
+    )
 }
 
 /// Draws every cell as a closed rectangle, records each in the hit map, and counts the cells drawn as dense content,
@@ -125,6 +161,7 @@ pub(super) fn draw_cells(
                     rect: seen,
                     column_edges: (data.columns[i], data.columns[i + 1]),
                     row_edges: (data.rows[j], data.rows[j + 1]),
+                    bin: bin_of(cells, data, j, i),
                 });
             }
         }

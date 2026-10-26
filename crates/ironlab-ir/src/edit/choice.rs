@@ -23,8 +23,8 @@
 
 use crate::artist::Coords;
 use crate::artist::{
-    Artist, BarBase, BarLayout, BarSlot, CellEdges, ContourPlacement, Grid, ImagePlane, Levels,
-    Orientation, QuiverScale, Series, StairsData, StepAt,
+    Artist, BarOffset, BarWidth, BinRule, Bins, CellEdges, ContourPlacement, Grid, HistNorm,
+    ImagePlane, Levels, Orientation, PerBar, QuiverScale, Series, StairsData, StepAt,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, Projection, Scale,
@@ -118,9 +118,12 @@ const FALLBACK_LEVEL_COUNT: u32 = 10;
 /// length that the automatic scale gives them.
 const FALLBACK_QUIVER_FACTOR: f64 = 1.0;
 
-/// The width that a fixed bar slot starts from when the value it replaces holds none:
-/// one data unit, the pitch of bars at consecutive whole numbers.
+/// The width that a fixed bar width or a bin width starts from when the value it replaces
+/// holds none: one data unit, the pitch of bars at consecutive whole numbers.
 const FALLBACK_BAR_WIDTH: f64 = 1.0;
+
+/// The number of bins offered when a count of bins replaces another kind of bins.
+const FALLBACK_BIN_COUNT: u32 = 10;
 
 /// The number of columns that a fixed number of legend columns starts from, which is the
 /// number of columns of an inside legend by default.
@@ -201,9 +204,12 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Interpreter => interpreter_choices(),
         ValueType::FontSetId => font_set_id_choices(),
         ValueType::Orientation => orientation_choices(),
-        ValueType::BarBase => bar_base_choices(replacing),
-        ValueType::BarSlot => bar_slot_choices(replacing),
-        ValueType::BarLayout => bar_layout_choices(),
+        ValueType::PerBar => per_bar_choices(replacing),
+        ValueType::BarWidth => bar_width_choices(replacing),
+        ValueType::BarOffset => bar_offset_choices(replacing),
+        ValueType::Bins => bins_choices(replacing),
+        ValueType::BinRule => bin_rule_choices(),
+        ValueType::HistNorm => hist_norm_choices(),
         ValueType::StairsData => stairs_data_choices(replacing),
         ValueType::StepAt => step_at_choices(),
         ValueType::CellEdges => cell_edges_choices(replacing),
@@ -240,7 +246,9 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
         | ValueType::CategoricalColorScale
-        | ValueType::BarGroup
+        | ValueType::Binning
+        | ValueType::Binning2d
+        | ValueType::UInt64
         | ValueType::CellGap => Vec::new(),
     }
 }
@@ -654,9 +662,12 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Interpreter(v) => interpreter_label(v),
         Value::FontSetId(v) => font_set_id_label(v),
         Value::Orientation(v) => orientation_label(v),
-        Value::BarBase(v) => bar_base_label(v),
-        Value::BarSlot(v) => bar_slot_label(v),
-        Value::BarLayout(v) => bar_layout_label(v),
+        Value::PerBar(v) => per_bar_label(v),
+        Value::BarWidth(v) => bar_width_label(v),
+        Value::BarOffset(v) => bar_offset_label(v),
+        Value::Bins(v) => bins_label(v),
+        Value::BinRule(v) => bin_rule_label(v),
+        Value::HistNorm(v) => hist_norm_label(v),
         Value::StairsData(v) => stairs_data_label(v),
         Value::StepAt(v) => step_at_label(v),
         Value::CellEdges(v) => cell_edges_label(v),
@@ -694,7 +705,9 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::DiscreteColorScale(_)
         | Value::IndexedColorScale(_)
         | Value::CategoricalColorScale(_)
-        | Value::BarGroup(_)
+        | Value::Binning(_)
+        | Value::Binning2d(_)
+        | Value::UInt64(_)
         | Value::CellGap(_) => return None,
     })
 }
@@ -1018,26 +1031,61 @@ tagged_choices! {
         };
     }
 
-    BarBase as BarBase (bar_base_choices, bar_base_label) replacing replacing {
-        BarBase::Constant(_) => "Constant" = BarBase::Constant(match replacing {
-            Some(Value::BarBase(BarBase::Constant(base))) => *base,
+    PerBar as PerBar (per_bar_choices, per_bar_label) replacing replacing {
+        PerBar::Constant(_) => "Constant" = PerBar::Constant(match replacing {
+            Some(Value::PerBar(PerBar::Constant(base))) => *base,
             _ => 0.0,
         });
-        BarBase::Data(_) => "Per bar" = BarBase::Data(match replacing {
-            Some(Value::BarBase(BarBase::Data(data))) => *data,
+        PerBar::Data(_) => "Data" = PerBar::Data(match replacing {
+            Some(Value::PerBar(PerBar::Data(data))) => *data,
             _ => FALLBACK_DATA,
         });
     }
 
-    BarSlot as BarSlot (bar_slot_choices, bar_slot_label) replacing replacing {
-        BarSlot::Pitch => "Pitch" = BarSlot::Pitch;
-        BarSlot::Width(_) => "Fixed width" = BarSlot::Width(match replacing {
-            Some(Value::BarSlot(BarSlot::Width(width))) => *width,
+    // A fraction of the pitch and a fixed width each hold one number, which a switch
+    // between them carries over, so that the number the user set is kept.
+    BarWidth as BarWidth (bar_width_choices, bar_width_label) replacing replacing {
+        BarWidth::Pitch(_) => "Pitch" = match replacing {
+            Some(Value::BarWidth(BarWidth::Pitch(w) | BarWidth::Constant(w))) => BarWidth::Pitch(*w),
+            _ => BarWidth::default(),
+        };
+        BarWidth::Constant(_) => "Constant" = BarWidth::Constant(match replacing {
+            Some(Value::BarWidth(BarWidth::Pitch(w) | BarWidth::Constant(w))) => *w,
             _ => FALLBACK_BAR_WIDTH,
         });
-        BarSlot::Data(_) => "Width per bar" = BarSlot::Data(match replacing {
-            Some(Value::BarSlot(BarSlot::Data(data))) => *data,
+        BarWidth::Data(_) => "Data" = BarWidth::Data(match replacing {
+            Some(Value::BarWidth(BarWidth::Data(data))) => *data,
             _ => FALLBACK_DATA,
+        });
+    }
+
+    BarOffset as BarOffset (bar_offset_choices, bar_offset_label) replacing replacing {
+        BarOffset::Widths(_) => "Widths" = BarOffset::Widths(match replacing {
+            Some(Value::BarOffset(BarOffset::Widths(d) | BarOffset::Absolute(d))) => *d,
+            _ => 0.0,
+        });
+        BarOffset::Absolute(_) => "Absolute" = BarOffset::Absolute(match replacing {
+            Some(Value::BarOffset(BarOffset::Widths(d) | BarOffset::Absolute(d))) => *d,
+            _ => 0.0,
+        });
+    }
+
+    Bins as Bins (bins_choices, bins_label) replacing replacing {
+        Bins::Count(_) => "Count" = Bins::Count(match replacing {
+            Some(Value::Bins(Bins::Count(count))) => *count,
+            _ => FALLBACK_BIN_COUNT,
+        });
+        Bins::Width(_) => "Width" = Bins::Width(match replacing {
+            Some(Value::Bins(Bins::Width(width))) => *width,
+            _ => FALLBACK_BAR_WIDTH,
+        });
+        Bins::Edges(_) => "Edges" = Bins::Edges(match replacing {
+            Some(Value::Bins(Bins::Edges(edges))) => edges.clone(),
+            _ => vec![FALLBACK_LIMITS.0, FALLBACK_LIMITS.1],
+        });
+        Bins::Rule(_) => "Rule" = Bins::Rule(match replacing {
+            Some(Value::Bins(Bins::Rule(rule))) => *rule,
+            _ => BinRule::Auto,
         });
     }
 
@@ -1090,9 +1138,23 @@ plain_choices! {
         Orientation::Horizontal => "Horizontal";
     }
 
-    BarLayout as BarLayout (bar_layout_choices, bar_layout_label) {
-        BarLayout::Grouped => "Grouped";
-        BarLayout::Stacked => "Stacked";
+    BinRule as BinRule (bin_rule_choices, bin_rule_label) {
+        BinRule::Auto => "Automatic";
+        BinRule::Sturges => "Sturges";
+        BinRule::Scott => "Scott";
+        BinRule::FreedmanDiaconis => "Freedman–Diaconis";
+        BinRule::Sqrt => "Square root";
+        BinRule::Integers => "Integers";
+    }
+
+    HistNorm as HistNorm (hist_norm_choices, hist_norm_label) {
+        HistNorm::Count => "Count";
+        HistNorm::Probability => "Probability";
+        HistNorm::Percentage => "Percentage";
+        HistNorm::CountDensity => "Count density";
+        HistNorm::Density => "Density";
+        HistNorm::CumulativeCount => "Cumulative count";
+        HistNorm::Cdf => "Cumulative distribution";
     }
 
     StepAt as StepAt (step_at_choices, step_at_label) {

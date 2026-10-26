@@ -298,14 +298,16 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 /// valid only in two dimensions: bars (15) of the y values at the x positions, whose faces
 /// are coloured by the v values through the continuous scale, stairs (16)
 /// through the y values at the x samples, and cells (17) of the field through the
-/// continuous scale, so that the figure holds a node of every kind.
+/// continuous scale, so that the figure holds a node of every kind. The bars, the stairs and
+/// the cells each record the binning of a histogram, so that the property editor has a
+/// binning record of each dimension to show.
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
-        Artist, Bar, Cells, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange, ColorSpec,
-        ContinuousColorScale, Contour, Grid, Image, ImagePlacement, ImagePlane, IndexedColorScale,
-        Levels, LineStyle, NdArray, OutOfRange, PixelRange, Quiver, QuiverScale, ScalarImage,
-        Series, Stairs, StairsData, StepAt, Surface,
+        Artist, Bar, Binning, Binning2d, Bins, Cells, Color, ColorScale, ColorScaleKind,
+        ColorScaleOutOfRange, ColorSpec, ContinuousColorScale, Contour, Grid, HistNorm, Image,
+        ImagePlacement, ImagePlane, IndexedColorScale, Levels, LineStyle, NdArray, OutOfRange,
+        PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
     };
 
     let ids: Vec<NodeId> = (0..10).map(array_id).collect();
@@ -460,6 +462,14 @@ pub fn figure_with_every_artist() -> Figure {
             face: ColorSpec::Colormapped,
             color_data: Some(v),
             color_scale: Some(NodeId(12)),
+            binning: Some(Binning {
+                bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
+                range: Some([0.5, 3.5]),
+                normalization: HistNorm::Count,
+                total: 9.0,
+                excluded_non_finite: 1,
+                excluded_out_of_range: 0,
+            }),
             ..Bar::default()
         }),
         Artist::Stairs(Stairs {
@@ -469,12 +479,31 @@ pub fn figure_with_every_artist() -> Figure {
                 values: y,
                 step: StepAt::Mid,
             },
+            binning: Some(Binning {
+                bins: Bins::Count(3),
+                range: None,
+                normalization: HistNorm::Density,
+                total: 9.0,
+                excluded_non_finite: 0,
+                excluded_out_of_range: 2,
+            }),
             ..Stairs::default()
         }),
         Artist::Cells(Cells {
             id: NodeId(17),
             values: field,
             color_scale: Some(NodeId(12)),
+            binning: Some(Binning2d {
+                x_bins: Bins::Width(1.0),
+                y_bins: Bins::Count(3),
+                x_range: None,
+                y_range: Some([0.0, 3.0]),
+                normalization: HistNorm::Probability,
+                min_count: Some(1.0),
+                total: 20.0,
+                excluded_non_finite: 0,
+                excluded_out_of_range: 0,
+            }),
             ..Cells::default()
         }),
     ];

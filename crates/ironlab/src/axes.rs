@@ -10,8 +10,8 @@ use ironlab_ir::{
 };
 
 use crate::artists::{
-    BarMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut,
-    SurfaceMut,
+    BarMut, BarsMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut,
+    StairsMut, SurfaceMut,
 };
 use crate::color_scale::{self, ColorScaleMut};
 use crate::colorbar::InsideColorbarMut;
@@ -192,15 +192,17 @@ impl AxesMut<'_> {
 
     // Bars and stairs.
 
-    /// Draws a bar at each position, rising from 0 to its value (MATLAB's and
-    /// Matplotlib's `bar`).
+    /// Draws a bar at each position, rising from 0 for the length of its value (MATLAB's
+    /// and Matplotlib's `bar`).
     ///
     /// The bars stand upright in the next colour of the axes colour order, outlined by a
-    /// thin black line, each across four fifths of its slot, whose width is the smallest
-    /// distance between neighbouring positions. The returned [`BarMut`] sets the width,
-    /// the gap, the base, the colours, and the group through which several series are
-    /// compared side by side or stacked. Categorical bars are bars at 0, 1, …, N − 1,
-    /// named by [`xticks`](Self::xticks) and [`xtick_labels`](Self::xtick_labels).
+    /// thin black line, each four fifths of the pitch wide, the pitch being the smallest
+    /// distance between neighbouring positions, and centred on its position. A negative
+    /// value hangs down from the base. The automatic limits leave a margin of 0.05 of the
+    /// span of the bars beyond their ends. The returned [`BarMut`] sets the width, the
+    /// offset, the base, the margin and the colours; [`bars`](Self::bars) writes grouped
+    /// and stacked bars. Categorical bars are bars at 0, 1, …, N − 1, named by
+    /// [`xticks`](Self::xticks) and [`xtick_labels`](Self::xtick_labels).
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -219,15 +221,24 @@ impl AxesMut<'_> {
         self.add_bar(positions.into(), values.into(), Orientation::Vertical)
     }
 
-    /// Draws a bar lying flat at each position along y, extending from 0 to its value
-    /// along x (MATLAB's and Matplotlib's `barh`), which is how long category names are
-    /// made readable; it differs from [`bar`](Self::bar) only in its orientation.
+    /// Draws a bar lying flat at each position along y, extending from 0 for the length of
+    /// its value along x (MATLAB's and Matplotlib's `barh`), which is how long category
+    /// names are made readable; it differs from [`bar`](Self::bar) only in its
+    /// orientation.
     pub fn barh(
         &mut self,
         positions: impl Into<DataSource>,
         values: impl Into<DataSource>,
     ) -> BarMut<'_> {
         self.add_bar(positions.into(), values.into(), Orientation::Horizontal)
+    }
+
+    /// Returns the helper that draws grouped and stacked bars at the given positions
+    /// (MATLAB's `bar(x, Y)` and `bar(x, Y, 'stacked')`, Matplotlib's grouped and stacked
+    /// bars), each series an ordinary bar series whose width, offset and base the helper
+    /// writes; see [`BarsMut`].
+    pub fn bars(&mut self, positions: impl Into<DataSource>) -> BarsMut<'_> {
+        BarsMut::new(self.fig, self.id, positions.into())
     }
 
     /// Draws a stepped outline holding each value between two neighbouring edges, of

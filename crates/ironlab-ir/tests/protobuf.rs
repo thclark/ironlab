@@ -2285,7 +2285,9 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                 other => panic!("the carrier's bars decoded as {other:?}"),
             },
         ),
-        check::<wire::BarLayout>(
+        // A bin rule and a normalisation are placed in the binning record of bars added
+        // beside the carrier's line.
+        check::<wire::BinRule>(
             |w, v| {
                 w.axes[0]
                     .artists
@@ -2293,18 +2295,60 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                         id: Some(6),
                         positions: Some(0),
                         values: Some(0),
-                        group: Some(wire::BarGroup {
-                            name: "g".to_owned(),
-                            layout: v,
+                        binning: Some(wire::Binning {
+                            bins: Some(wire::Bins {
+                                kind: Some(wire::BinsKind::Rule(wire::BinsRule { rule: v })),
+                            }),
+                            normalization: wire::HistNorm::Count as i32,
+                            total: Some(1.0),
+                            excluded_non_finite: Some(0),
+                            excluded_out_of_range: Some(0),
+                            ..wire::Binning::default()
                         }),
                         ..wire::Bar::default()
                     })));
             },
             |f| match &f.axes[0].artists[1] {
                 Artist::Bar(Bar {
-                    group: Some(group), ..
-                }) => format!("{:?}", group.layout),
-                other => panic!("the carrier's grouped bars decoded as {other:?}"),
+                    binning:
+                        Some(Binning {
+                            bins: Bins::Rule(rule),
+                            ..
+                        }),
+                    ..
+                }) => format!("{rule:?}"),
+                other => panic!("the carrier's binned bars decoded as {other:?}"),
+            },
+        ),
+        check::<wire::HistNorm>(
+            |w, v| {
+                w.axes[0]
+                    .artists
+                    .push(wire_artist(wire::ArtistKind::Bar(wire::Bar {
+                        id: Some(6),
+                        positions: Some(0),
+                        values: Some(0),
+                        binning: Some(wire::Binning {
+                            bins: Some(wire::Bins {
+                                kind: Some(wire::BinsKind::Count(wire::BinsCount {
+                                    count: Some(3),
+                                })),
+                            }),
+                            normalization: v,
+                            total: Some(1.0),
+                            excluded_non_finite: Some(0),
+                            excluded_out_of_range: Some(0),
+                            ..wire::Binning::default()
+                        }),
+                        ..wire::Bar::default()
+                    })));
+            },
+            |f| match &f.axes[0].artists[1] {
+                Artist::Bar(Bar {
+                    binning: Some(binning),
+                    ..
+                }) => format!("{:?}", binning.normalization),
+                other => panic!("the carrier's binned bars decoded as {other:?}"),
             },
         ),
         check::<wire::StepAt>(
@@ -3840,7 +3884,7 @@ fn absent_optional_references_decode_as_absent() {
         id: NodeId(67),
         ..ColorScale::default()
     });
-    // A bar series without a group, colour data or a colour scale, open stairs without a
+    // A bar series without a binning record, colour data or a colour scale, open stairs without a
     // base, and cells without a colour scale or alpha.
     let artists = &mut fig
         .axes
@@ -3894,7 +3938,7 @@ fn absent_optional_references_decode_as_absent() {
                     )
             }
             wire::ArtistKind::Bar(bar) => {
-                bar.group.is_none() && bar.color_data.is_none() && bar.color_scale.is_none()
+                bar.binning.is_none() && bar.color_data.is_none() && bar.color_scale.is_none()
             }
             wire::ArtistKind::Stairs(stairs) => stairs.base.is_none(),
             wire::ArtistKind::Cells(cells) => cells.color_scale.is_none() && cells.alpha.is_none(),

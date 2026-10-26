@@ -5,9 +5,9 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Bar, BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, Cells, Color,
-    ColorSpec, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId,
-    Orientation, PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
+    Artist, Bar, BarOffset, BarWidth, CellEdges, CellGap, Cells, Color, ColorSpec, Contour, Coords,
+    DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId, Orientation, PerBar,
+    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
 };
 
 use crate::axes::AxesMut;
@@ -714,31 +714,24 @@ impl SurfaceMut<'_> {
 /// A handle to a bar series created by [`bar`](crate::AxesMut::bar) or
 /// [`barh`](crate::AxesMut::barh).
 ///
-/// A bar series draws one rectangle for each position, from a base to its value. Its
-/// setters choose the width of the slots, the gap between neighbouring bars, the base,
-/// the group the series belongs to, and the colours of the faces and the outlines,
-/// which can be given per bar with [`colors`](Self::colors) or by data with
-/// [`color_data`](Self::color_data).
+/// A bar series draws one rectangle for each position, which runs from its base for the
+/// length of its value, so that a negative value extends the other way. Its setters choose
+/// the width of the bars, their offset from their positions, their base, the margin that
+/// the automatic limits leave beyond their ends, and the colours of the faces and the
+/// outlines, which can be given per bar with [`colors`](Self::colors) or by data with
+/// [`color_data`](Self::color_data). Grouped and stacked bars are series whose widths,
+/// offsets and bases the [`bars`](crate::AxesMut::bars) helper writes.
 ///
-/// Three series compared across four categories, as a grouped bar chart:
+/// Floating bars, each running from its own base for its length:
 ///
 /// ```
 /// use ironlab::prelude::*;
 ///
-/// let categories = [0.0, 1.0, 2.0, 3.0];
 /// let mut fig = Figure::new();
-/// let mut ax = fig.axes(0, 0);
-/// for (name, scores) in [
-///     ("Model A", [3.0, 4.5, 2.0, 5.0]),
-///     ("Model B", [2.5, 3.0, 4.0, 4.5]),
-///     ("Model C", [4.0, 2.0, 3.5, 3.0]),
-/// ] {
-///     ax.bar(categories, scores)
-///         .label(name)
-///         .group("models", BarLayout::Grouped);
-/// }
-/// ax.xticks(categories)
-///     .xtick_labels(["Lift", "Drag", "Mass", "Cost"]);
+/// fig.axes(0, 0)
+///     .bar([0.0, 1.0, 2.0], [4.0, 3.0, 2.0])
+///     .base_data([1.0, 2.0, -1.0])
+///     .label("Ranges");
 /// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
@@ -762,54 +755,67 @@ impl BarMut<'_> {
         self
     }
 
-    /// Gives every bar a slot of the same width, in data units (MATLAB's `bar(x, y,
-    /// width)` gives the fraction instead), in place of the pitch between positions.
-    pub fn width(&mut self, width: f64) -> &mut Self {
-        self.set_slot(BarSlot::Width(width));
+    /// Makes every bar the given fraction of the pitch wide, the pitch being the smallest
+    /// distance between neighbouring distinct positions (MATLAB's `bar(x, y, width)`): 0.8
+    /// by default, and 1 for bars that touch.
+    pub fn width_pitch(&mut self, fraction: f64) -> &mut Self {
+        self.set_width(BarWidth::Pitch(fraction));
         self
     }
 
-    /// Gives each bar a slot of its own width, in data units, one value per bar: the
-    /// widths of the bins of a histogram of unequal bins, drawn with a [`gap`](Self::gap)
-    /// of 0. Data that this call replaces is released from the figure when nothing else
-    /// uses it and it has no name.
+    /// Makes every bar the same width, in data units (Matplotlib's `bar(x, y, width)`).
+    pub fn width(&mut self, width: f64) -> &mut Self {
+        self.set_width(BarWidth::Constant(width));
+        self
+    }
+
+    /// Gives each bar a width of its own, in data units, one value per bar: the widths of
+    /// the bins of a histogram of unequal bins. Data that this call replaces is released
+    /// from the figure when nothing else uses it and it has no name.
     pub fn widths(&mut self, widths: impl Into<DataSource>) -> &mut Self {
         let data = widths.into().store(self.fig);
-        self.set_slot(BarSlot::Data(data));
+        self.set_width(BarWidth::Data(data));
         self
     }
 
-    /// Sets the fraction of each slot left empty, shared equally by the two sides of the
-    /// bar: 0 for bars that touch, and 0.2 by default.
-    pub fn gap(&mut self, gap: f64) -> &mut Self {
-        self.artist().gap = gap;
+    /// Centres every bar the given multiple of its own width from its position, negative
+    /// to the low side, so that the bar stays beside its position whatever its width; this
+    /// is how the columns of a grouped chart stand side by side.
+    pub fn offset_widths(&mut self, widths: f64) -> &mut Self {
+        self.artist().offset = BarOffset::Widths(widths);
+        self
+    }
+
+    /// Centres every bar the given distance from its position, in data units along the
+    /// category axis, whatever its width.
+    pub fn offset(&mut self, offset: f64) -> &mut Self {
+        self.artist().offset = BarOffset::Absolute(offset);
         self
     }
 
     /// Makes every bar start at the same value along the value axis (MATLAB's
-    /// `BaseValue`), which is 0 by default; a value below the base hangs down from it.
+    /// `BaseValue`), which is 0 by default; a negative value hangs down from it.
     pub fn base(&mut self, base: f64) -> &mut Self {
-        self.set_base(BarBase::Constant(base));
+        self.set_base(PerBar::Constant(base));
         self
     }
 
     /// Makes each bar start at its own value, one per bar, which draws floating bars,
-    /// such as ranges or the steps of a waterfall.
+    /// such as ranges or the steps of a waterfall, and the parts of a stack. Data that
+    /// this call replaces is released from the figure when nothing else uses it and it has
+    /// no name.
     pub fn base_data(&mut self, bases: impl Into<DataSource>) -> &mut Self {
         let data = bases.into().store(self.fig);
-        self.set_base(BarBase::Data(data));
+        self.set_base(PerBar::Data(data));
         self
     }
 
-    /// Puts the series in the group of bars of its axes with the given name, whose
-    /// members stand side by side ([`BarLayout::Grouped`]) or build on one another
-    /// ([`BarLayout::Stacked`]) at each position. The orientation, slot, gap, base and
-    /// layout of a group are those of its first member.
-    pub fn group(&mut self, name: impl Into<String>, layout: BarLayout) -> &mut Self {
-        self.artist().group = Some(BarGroup {
-            name: name.into(),
-            layout,
-        });
+    /// Sets the fraction of the span of the bars along the value axis that the automatic
+    /// limits add beyond the ends of the bars, away from their base, so that the longest
+    /// bar does not touch the box: 0.05 by default, and 0 for limits that end at the
+    /// longest bar. Manual limits ignore it.
+    pub fn margin(&mut self, margin: f64) -> &mut Self {
+        self.artist().margin = margin;
         self
     }
 
@@ -938,17 +944,312 @@ impl BarMut<'_> {
         }
     }
 
-    /// Sets the slot, releasing the widths it replaces.
-    fn set_slot(&mut self, slot: BarSlot) {
-        if let BarSlot::Data(previous) = std::mem::replace(&mut self.artist().slot, slot) {
+    /// Sets the width, releasing the widths it replaces.
+    fn set_width(&mut self, width: BarWidth) {
+        if let BarWidth::Data(previous) = std::mem::replace(&mut self.artist().width, width) {
             release_data(self.fig, previous);
         }
     }
 
     /// Sets the base, releasing the bases it replaces.
-    fn set_base(&mut self, base: BarBase) {
-        if let BarBase::Data(previous) = std::mem::replace(&mut self.artist().base, base) {
-            release_data(self.fig, previous);
+    fn set_base(&mut self, base: PerBar) {
+        set_bar_base(self.fig, self.id, base);
+    }
+}
+
+/// Sets the base of the bar series `id`, releasing the bases it replaces.
+fn set_bar_base(fig: &mut Figure, id: NodeId, base: PerBar) {
+    let Some(Artist::Bar(bar)) = fig.artist_mut(id) else {
+        unreachable!("a bar handle always refers to a bar series of its figure");
+    };
+    if let PerBar::Data(previous) = std::mem::replace(&mut bar.base, base) {
+        release_data(fig, previous);
+    }
+}
+
+/// The helper that writes grouped and stacked bars into ordinary bar series, created by
+/// [`bars`](crate::AxesMut::bars).
+///
+/// The helper holds one set of positions and adds bar series at them, each with its own
+/// label, values and colour from the colour order. A series added by
+/// [`series`](Self::series) is a column of its own; a series added by
+/// [`stacked`](Self::stacked) joins the column of the name it is given, in which the parts
+/// rest on one another, positive and negative values apart (Plotly's relative mode). The
+/// columns stand side by side at each position in the order they first appear.
+///
+/// Every call rewrites the width, the offset and, for a stacked column, the base of every
+/// series the helper holds, so that the chart does not depend on the order of the calls.
+/// For `m` columns, each series is a fraction `(1 − gap)(1 − group_gap) / m` of the pitch
+/// wide, and the series of column `k` (from 0) are offset by
+/// `(k − (m − 1) / 2) / (1 − group_gap)` of their width, so that the cluster is centred on
+/// its position, neighbouring columns are the fraction `group_gap` of a column apart, and
+/// the fraction `gap` of the pitch is left between clusters. A part of a stack rests on the
+/// sum of the parts of its sign before it at the same index, a part that is not finite
+/// contributing nothing. Styles set through [`last`](Self::last) or [`get`](Self::get) are
+/// kept, because the helper rewrites only where the bars are placed (ADR 0026).
+///
+/// Three models compared across three properties, and gains and losses stacked:
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let mut fig = Figure::new().tiles(1, 2);
+/// let mut ax = fig.axes(0, 0);
+/// ax.bars([0.0, 1.0, 2.0])
+///     .series("Model A", [3.0, 4.5, 2.0])
+///     .series("Model B", [2.5, 3.0, 4.0])
+///     .series("Model C", [4.0, 2.0, 3.5]);
+/// ax.xticks([0.0, 1.0, 2.0]).xtick_labels(["Lift", "Drag", "Mass"]);
+///
+/// let mut ax = fig.axes(0, 1);
+/// ax.bars([0.0, 1.0])
+///     .stacked("2026", "gains", [2.0, 3.0])
+///     .stacked("2026", "losses", [-1.0, -2.0]);
+/// assert!(fig.validate().is_valid());
+/// ```
+#[derive(Debug)]
+pub struct BarsMut<'a> {
+    fig: &'a mut Figure,
+    axes: NodeId,
+    /// The positions that every series of the helper shares.
+    positions: NodeId,
+    /// The orientation of every series.
+    orientation: Orientation,
+    /// The fraction of the pitch left between clusters.
+    gap: f64,
+    /// The fraction of a column left between neighbouring columns of a cluster.
+    group_gap: f64,
+    /// The margin of every series, once one has been given.
+    margin: Option<f64>,
+    /// The series, in the order they were added, with the column each belongs to.
+    members: Vec<BarsMember>,
+}
+
+/// A series of the bars helper and the column it belongs to.
+#[derive(Debug)]
+struct BarsMember {
+    id: NodeId,
+    column: BarsColumn,
+}
+
+/// The column of a series of the bars helper: its own, or a stack shared by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BarsColumn {
+    /// A column of its own, named by the series' place among the members.
+    Own(usize),
+    /// A stacked column of the given name.
+    Stacked(String),
+}
+
+impl<'a> BarsMut<'a> {
+    /// Returns a helper for the axes `axes` holding no series yet, at the positions
+    /// `positions`, which are stored once and shared by every series.
+    pub(crate) fn new(fig: &'a mut Figure, axes: NodeId, positions: DataSource) -> Self {
+        let positions = positions.store(fig);
+        BarsMut {
+            fig,
+            axes,
+            positions,
+            orientation: Orientation::Vertical,
+            gap: 0.2,
+            group_gap: 0.0,
+            margin: None,
+            members: Vec::new(),
+        }
+    }
+
+    /// Adds a series of the given label and values as a column of its own.
+    pub fn series(&mut self, label: impl Into<Text>, values: impl Into<DataSource>) -> &mut Self {
+        let column = BarsColumn::Own(self.members.len());
+        self.add(column, label.into(), values.into())
+    }
+
+    /// Adds a series of the given label and values to the stacked column named `column`,
+    /// which is created beside the columns before it when no series has named it yet. The
+    /// series rests on the parts of the column added before it.
+    pub fn stacked(
+        &mut self,
+        column: impl Into<String>,
+        label: impl Into<Text>,
+        values: impl Into<DataSource>,
+    ) -> &mut Self {
+        let column = BarsColumn::Stacked(column.into());
+        self.add(column, label.into(), values.into())
+    }
+
+    /// Sets the fraction of the pitch left empty between neighbouring clusters, from 0 up
+    /// to, but not including, 1: 0.2 by default.
+    pub fn gap(&mut self, gap: f64) -> &mut Self {
+        self.gap = gap;
+        self.lay_out();
+        self
+    }
+
+    /// Sets the fraction of the width of a column left empty between neighbouring columns
+    /// of a cluster, from 0 up to, but not including, 1: 0 by default, for columns that
+    /// touch.
+    pub fn group_gap(&mut self, gap: f64) -> &mut Self {
+        self.group_gap = gap;
+        self.lay_out();
+        self
+    }
+
+    /// Lays every series flat, with the positions along y and the values along x, as
+    /// [`barh`](crate::AxesMut::barh) does.
+    pub fn horizontal(&mut self) -> &mut Self {
+        self.orientation = Orientation::Horizontal;
+        self.lay_out();
+        self
+    }
+
+    /// Sets the margin of every series, as [`BarMut::margin`] sets it for one.
+    pub fn margin(&mut self, margin: f64) -> &mut Self {
+        self.margin = Some(margin);
+        self.lay_out();
+        self
+    }
+
+    /// Returns the series of the helper, in the order they were added.
+    #[must_use]
+    pub fn ids(&self) -> Vec<NodeId> {
+        self.members.iter().map(|member| member.id).collect()
+    }
+
+    /// Returns the handle of the series added last, for styling.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the helper holds no series.
+    pub fn last(&mut self) -> BarMut<'_> {
+        let id = self
+            .members
+            .last()
+            .expect("the bars helper holds a series")
+            .id;
+        BarMut::new(self.fig, id, None)
+    }
+
+    /// Returns the handle of the series of the given index, in the order the series were
+    /// added, for styling.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the helper holds no series of that index.
+    pub fn get(&mut self, index: usize) -> BarMut<'_> {
+        let id = self.members[index].id;
+        BarMut::new(self.fig, id, None)
+    }
+
+    /// Adds a bar series to `column` and lays out every series again.
+    fn add(&mut self, column: BarsColumn, label: Text, values: DataSource) -> &mut Self {
+        let values = values.store(self.fig);
+        let id = self.fig.alloc_node_id();
+        let bar = Artist::Bar(Bar {
+            id,
+            label: Some(label),
+            positions: self.positions,
+            values,
+            ..Bar::default()
+        });
+        self.fig
+            .axes
+            .iter_mut()
+            .find(|axes| axes.id == self.axes)
+            .expect("the bars helper refers to an axes of its figure")
+            .artists
+            .push(bar);
+        self.members.push(BarsMember { id, column });
+        self.lay_out();
+        self
+    }
+
+    /// Rewrites the width, the offset, the orientation and the margin of every series, and
+    /// the base of every series of a stacked column, from the columns as they now stand.
+    fn lay_out(&mut self) {
+        let mut columns: Vec<&BarsColumn> = Vec::new();
+        for member in &self.members {
+            if !columns.contains(&&member.column) {
+                columns.push(&member.column);
+            }
+        }
+        let m = columns.len() as f64;
+        let width = (1.0 - self.gap) * (1.0 - self.group_gap) / m;
+        let placed: Vec<(NodeId, f64)> = self
+            .members
+            .iter()
+            .map(|member| {
+                let k = columns
+                    .iter()
+                    .position(|column| **column == member.column)
+                    .unwrap_or(0) as f64;
+                (member.id, (k - (m - 1.0) / 2.0) / (1.0 - self.group_gap))
+            })
+            .collect();
+        for (id, offset) in placed {
+            let Some(Artist::Bar(bar)) = self.fig.artist_mut(id) else {
+                continue;
+            };
+            bar.width = BarWidth::Pitch(width);
+            bar.offset = BarOffset::Widths(offset);
+            bar.orientation = self.orientation;
+            if let Some(margin) = self.margin {
+                bar.margin = margin;
+            }
+        }
+        self.stack();
+    }
+
+    /// Gives every series of a stacked column the running totals of the parts before it at
+    /// each index as its bases, positive and negative values apart.
+    fn stack(&mut self) {
+        let n = self
+            .fig
+            .data_array(self.positions)
+            .map_or(0, |data| data.array.len());
+        let mut totals: Vec<(&str, Vec<f64>, Vec<f64>)> = Vec::new();
+        let mut bases: Vec<(NodeId, Vec<f64>)> = Vec::new();
+        for member in &self.members {
+            let BarsColumn::Stacked(name) = &member.column else {
+                continue;
+            };
+            let at = match totals
+                .iter()
+                .position(|(column, ..)| *column == name.as_str())
+            {
+                Some(at) => at,
+                None => {
+                    totals.push((name.as_str(), vec![0.0; n], vec![0.0; n]));
+                    totals.len() - 1
+                }
+            };
+            let values: Vec<f64> = match self.fig.artist(member.id) {
+                Some((_, Artist::Bar(bar))) => self
+                    .fig
+                    .data_array(bar.values)
+                    .and_then(|data| data.array.as_f64())
+                    .map(<[f64]>::to_vec)
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let (_, above, below) = &mut totals[at];
+            let mut base = Vec::with_capacity(n);
+            for k in 0..n {
+                let value = values.get(k).copied().unwrap_or(f64::NAN);
+                if value.is_finite() && value < 0.0 {
+                    base.push(below[k]);
+                    below[k] += value;
+                } else {
+                    base.push(above[k]);
+                    if value.is_finite() {
+                        above[k] += value;
+                    }
+                }
+            }
+            bases.push((member.id, base));
+        }
+        for (id, base) in bases {
+            let data = DataSource::from(base).store(self.fig);
+            set_bar_base(self.fig, id, PerBar::Data(data));
         }
     }
 }
@@ -1375,12 +1676,12 @@ fn data_ids(artist: &Artist) -> Vec<NodeId> {
         }
         Artist::Bar(bar) => {
             let base = match bar.base {
-                ironlab_ir::BarBase::Constant(_) => None,
-                ironlab_ir::BarBase::Data(id) => Some(id),
+                PerBar::Constant(_) => None,
+                PerBar::Data(id) => Some(id),
             };
-            let widths = match bar.slot {
-                ironlab_ir::BarSlot::Pitch | ironlab_ir::BarSlot::Width(_) => None,
-                ironlab_ir::BarSlot::Data(id) => Some(id),
+            let widths = match bar.width {
+                BarWidth::Pitch(_) | BarWidth::Constant(_) => None,
+                BarWidth::Data(id) => Some(id),
             };
             [bar.positions, bar.values]
                 .into_iter()

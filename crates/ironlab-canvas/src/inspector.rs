@@ -68,7 +68,7 @@ use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, Cell, Choice, ColorScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
     NodeKind, Panel, PanelContent, Parameter, Projection, Property, PropertyPath, Transaction,
-    Value, ValueType, command, properties_of, property_choices,
+    Value, ValueType, choices, command, properties_of, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -592,6 +592,11 @@ const TICK_LABELS_REASON: &str = "Explicit tick labels name the tick values one 
 const LINKS_REASON: &str = "The groups of axes whose limits are linked are set by the \
      program that builds the figure, as part of how its axes relate to one another.";
 
+/// The reason the binning record of a histogram is not changed here.
+const BINNING_REASON: &str = "How a histogram was binned is recorded by the program that \
+     counted its samples into the bars, steps or cells drawn. Changing the record here would \
+     describe bins that the data does not have, so the samples are binned again there.";
+
 /// The reason the coordinates in which a series places its values are not changed here.
 const COORDS_REASON: &str = "Whether a plot places its values as data or as fractions of \
      the plot area is set by the program that builds the figure, because it decides what \
@@ -671,6 +676,14 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         // type, so an image has no read-only property of its own. Every property of a colour
         // scale that has a row is editable: the lists of its entries, categories and listed
         // colours have none.
+        // How a histogram was binned describes how its bars, steps or cells were computed
+        // from samples that only the program that binned them holds, so it is shown but
+        // never changed: a change would describe bins the data does not have.
+        NodeKind::Bar | NodeKind::Stairs | NodeKind::Cells
+            if segments.first().is_some_and(|first| first == "binning") =>
+        {
+            Some(BINNING_REASON)
+        }
         NodeKind::Axes
         | NodeKind::Series
         | NodeKind::Contour
@@ -719,7 +732,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
         | ValueType::CategoricalColorScale
-        | ValueType::BarGroup
+        | ValueType::Binning
+        | ValueType::Binning2d
         | ValueType::CellGap => true,
         ValueType::Bool
         | ValueType::UInt32
@@ -770,9 +784,13 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::ColorScaleNorm
         | ValueType::ColorScaleLevels
         | ValueType::Orientation
-        | ValueType::BarBase
-        | ValueType::BarSlot
-        | ValueType::BarLayout
+        | ValueType::UInt64
+        | ValueType::PerBar
+        | ValueType::BarWidth
+        | ValueType::BarOffset
+        | ValueType::Bins
+        | ValueType::BinRule
+        | ValueType::HistNorm
         | ValueType::StairsData
         | ValueType::StepAt
         | ValueType::CellEdges => false,
@@ -805,7 +823,7 @@ fn editor_for(
     }
     match property.value_type {
         ValueType::Bool => Editor::Bool,
-        ValueType::UInt32 => number_editor(&property.path, value, true),
+        ValueType::UInt32 | ValueType::UInt64 => number_editor(&property.path, value, true),
         ValueType::Double | ValueType::Float => number_editor(&property.path, value, false),
         ValueType::String => Editor::Text,
         ValueType::Text => Editor::RichText,
@@ -863,9 +881,12 @@ fn editor_for(
         | ValueType::Interpreter
         | ValueType::FontSetId
         | ValueType::Orientation
-        | ValueType::BarBase
-        | ValueType::BarSlot
-        | ValueType::BarLayout
+        | ValueType::PerBar
+        | ValueType::BarWidth
+        | ValueType::BarOffset
+        | ValueType::Bins
+        | ValueType::BinRule
+        | ValueType::HistNorm
         | ValueType::StairsData
         | ValueType::StepAt
         | ValueType::CellEdges => Editor::Choice {
@@ -893,7 +914,8 @@ fn editor_for(
         | ValueType::DiscreteColorScale
         | ValueType::IndexedColorScale
         | ValueType::CategoricalColorScale
-        | ValueType::BarGroup
+        | ValueType::Binning
+        | ValueType::Binning2d
         | ValueType::CellGap => Editor::Group,
     }
 }
@@ -1218,14 +1240,30 @@ pub fn read_only_label(value: &Value) -> String {
             1 => "1 group of linked axes".to_owned(),
             groups => format!("{groups} groups of linked axes"),
         },
+        Value::UInt64(number) => number.to_string(),
+        // A list of two numbers is a range, such as the range of a binning record.
+        Value::Doubles(numbers) if numbers.len() == 2 => {
+            format!("{} – {}", numbers[0], numbers[1])
+        }
+        Value::Doubles(numbers) => {
+            let listed: Vec<String> = numbers.iter().map(f64::to_string).collect();
+            listed.join(", ")
+        }
         Value::Unset => "unset".to_owned(),
-        // No other value reaches a read-only row: a container is drawn as a heading with
-        // its members beneath it, and a tagged value is chosen from a list. Should one
-        // ever arrive, it is named by its type rather than dumped, because the name of a
-        // value is readable where the contents of one are not.
-        other => other
-            .value_type()
-            .map_or_else(String::new, |value_type| format!("{value_type:?}")),
+        // A container is drawn as a heading with its members beneath it. A tagged or
+        // enumerated value, such as the normalisation of a read-only binning record, is
+        // named by the label under which its choice is offered, and its contents are shown
+        // in the rows beneath it. Any other value is named by its type rather than dumped,
+        // because the name of a value is readable where the contents of one are not.
+        other => other.value_type().map_or_else(String::new, |value_type| {
+            choices(value_type, Some(other))
+                .into_iter()
+                .find(|choice| choice.value == *other)
+                .map_or_else(
+                    || format!("{value_type:?}"),
+                    |choice| choice.label.to_owned(),
+                )
+        }),
     }
 }
 

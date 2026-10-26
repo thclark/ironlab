@@ -6,8 +6,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::{
-    BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, ContourPlacement, Coords, Grid,
-    ImagePlacement, ImagePlane, Levels, Orientation, PixelRange, QuiverScale, StairsData, StepAt,
+    BarOffset, BarWidth, BinRule, Binning, Binning2d, Bins, CellEdges, CellGap, ContourPlacement,
+    Coords, Grid, HistNorm, ImagePlacement, ImagePlane, Levels, Orientation, PerBar, PixelRange,
+    QuiverScale, StairsData, StepAt,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
@@ -190,14 +191,14 @@ pub enum Value {
     ColorbarTitlePlacement(ColorbarTitlePlacement),
     /// The direction in which bars or stairs extend.
     Orientation(Orientation),
-    /// Where the bars of a series start along the value axis.
-    BarBase(BarBase),
-    /// The extent of the slot of each bar along the category axis.
-    BarSlot(BarSlot),
-    /// The group of bars of an axes to which a bar series belongs.
-    BarGroup(BarGroup),
-    /// How the members of a group of bars share each position.
-    BarLayout(BarLayout),
+    /// A number given once for every bar of a series or once per bar, such as its base.
+    PerBar(PerBar),
+    /// How wide each bar of a series is along the category axis.
+    BarWidth(BarWidth),
+    /// How far the centre of each bar of a series lies from its position.
+    BarOffset(BarOffset),
+    /// How the bins of a histogram of one dimension were made from its samples.
+    Binning(Binning),
     /// The steps of stairs: values between edges, or values at samples.
     StairsData(StairsData),
     /// Where the step of stairs through samples occurs relative to its samples.
@@ -206,6 +207,16 @@ pub enum Value {
     CellEdges(CellEdges),
     /// The fractions of the extent of each cell left empty along x and along y.
     CellGap(CellGap),
+    /// How the bins of a histogram of two dimensions were made from its samples.
+    Binning2d(Binning2d),
+    /// How the bins of a histogram were specified.
+    Bins(Bins),
+    /// A named rule that chooses the number of bins of a histogram.
+    BinRule(BinRule),
+    /// How the counts of the bins of a histogram are normalised.
+    HistNorm(HistNorm),
+    /// An unsigned 64-bit integer, such as a number of samples.
+    UInt64(u64),
 }
 
 /// The type of a [`Value`] other than [`Value::Unset`], with one variant for each
@@ -348,14 +359,14 @@ pub enum ValueType {
     ColorbarTitlePlacement,
     /// See [`Value::Orientation`].
     Orientation,
-    /// See [`Value::BarBase`].
-    BarBase,
-    /// See [`Value::BarSlot`].
-    BarSlot,
-    /// See [`Value::BarGroup`].
-    BarGroup,
-    /// See [`Value::BarLayout`].
-    BarLayout,
+    /// See [`Value::PerBar`].
+    PerBar,
+    /// See [`Value::BarWidth`].
+    BarWidth,
+    /// See [`Value::BarOffset`].
+    BarOffset,
+    /// See [`Value::Binning`].
+    Binning,
     /// See [`Value::StairsData`].
     StairsData,
     /// See [`Value::StepAt`].
@@ -364,6 +375,16 @@ pub enum ValueType {
     CellEdges,
     /// See [`Value::CellGap`].
     CellGap,
+    /// See [`Value::Binning2d`].
+    Binning2d,
+    /// See [`Value::Bins`].
+    Bins,
+    /// See [`Value::BinRule`].
+    BinRule,
+    /// See [`Value::HistNorm`].
+    HistNorm,
+    /// See [`Value::UInt64`].
+    UInt64,
 }
 
 impl Value {
@@ -442,14 +463,19 @@ impl Value {
             Value::InsideColorbarSide(_) => ValueType::InsideColorbarSide,
             Value::ColorbarTitlePlacement(_) => ValueType::ColorbarTitlePlacement,
             Value::Orientation(_) => ValueType::Orientation,
-            Value::BarBase(_) => ValueType::BarBase,
-            Value::BarSlot(_) => ValueType::BarSlot,
-            Value::BarGroup(_) => ValueType::BarGroup,
-            Value::BarLayout(_) => ValueType::BarLayout,
+            Value::PerBar(_) => ValueType::PerBar,
+            Value::BarWidth(_) => ValueType::BarWidth,
+            Value::BarOffset(_) => ValueType::BarOffset,
+            Value::Binning(_) => ValueType::Binning,
             Value::StairsData(_) => ValueType::StairsData,
             Value::StepAt(_) => ValueType::StepAt,
             Value::CellEdges(_) => ValueType::CellEdges,
             Value::CellGap(_) => ValueType::CellGap,
+            Value::Binning2d(_) => ValueType::Binning2d,
+            Value::Bins(_) => ValueType::Bins,
+            Value::BinRule(_) => ValueType::BinRule,
+            Value::HistNorm(_) => ValueType::HistNorm,
+            Value::UInt64(_) => ValueType::UInt64,
         })
     }
 }
