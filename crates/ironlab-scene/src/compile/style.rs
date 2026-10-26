@@ -131,6 +131,11 @@ pub(crate) struct ResolvedScale<'a> {
 }
 
 impl ResolvedScale<'_> {
+    /// Returns the norm of the scale, which is linear for an indexed or categorical scale.
+    pub fn norm(&self) -> ColorScaleNorm {
+        self.scale.kind.norm()
+    }
+
     /// Returns whether the scale is indexed or categorical, so that it maps whole numbers to entries.
     pub fn is_index_mapped(&self) -> bool {
         matches!(self.domain, ColorScaleDomain::Entries { .. })

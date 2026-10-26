@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, ColorSpec, Contour, ContourPlacement, Coords as ArtistCoords, DashStyle, Levels,
-    NodeId, Quiver, Series, Surface, View3d,
+    Artist, Axes, ColorScaleNorm, ColorSpec, Contour, ContourPlacement, Coords as ArtistCoords,
+    DashStyle, Levels, NodeId, Quiver, Series, Surface, View3d,
 };
 
 use crate::display::{
@@ -991,11 +991,32 @@ fn field_range(values: &[f64]) -> Option<(f64, f64)> {
     (lo <= hi).then_some((lo, hi))
 }
 
+/// Returns the finite positive range of a field's values, over which a logarithmic norm places levels.
+fn positive_field_range(values: &[f64]) -> Option<(f64, f64)> {
+    let positive: Vec<f64> = values.iter().copied().filter(|v| *v > 0.0).collect();
+    field_range(&positive)
+}
+
 /// Returns the contour levels of an artist for a field spanning `[zmin, zmax]`, sorted and without duplicates.
-pub(super) fn contour_levels(levels: &Levels, zmin: f64, zmax: f64) -> Vec<f64> {
-    let mut out = match levels {
-        Levels::Auto { count } => contour::auto_levels(zmin, zmax, (*count).max(1) as usize),
-        Levels::Explicit { values } => values.iter().copied().filter(|v| v.is_finite()).collect(),
+///
+/// Automatic levels are spaced linearly, or, when `log_range` holds the positive range of the field under a
+/// logarithmic norm, logarithmically within it (see [`contour::auto_log_levels`]).
+pub(super) fn contour_levels(
+    levels: &Levels,
+    zmin: f64,
+    zmax: f64,
+    log_range: Option<(f64, f64)>,
+) -> Vec<f64> {
+    let mut out = match (levels, log_range) {
+        (Levels::Auto { count }, None) => {
+            contour::auto_levels(zmin, zmax, (*count).max(1) as usize)
+        }
+        (Levels::Auto { count }, Some((lo, hi))) => {
+            contour::auto_log_levels(lo, hi, (*count).max(1) as usize)
+        }
+        (Levels::Explicit { values }, _) => {
+            values.iter().copied().filter(|v| v.is_finite()).collect()
+        }
     };
     out.sort_by(f64::total_cmp);
     out.dedup();
@@ -1009,8 +1030,9 @@ const AUTOMATIC_CONTOUR_LEVELS: u32 = 10;
 /// line opacity; an opacity of 0 draws nothing.
 ///
 /// A contour without levels of its own takes them from its colour scale (see [`ResolvedScale::contour_levels`]), and
-/// otherwise draws ten automatic levels. A band is coloured by the middle of its range within the field, and an
-/// isoline by its level, except for the levels a contour takes from an indexed or categorical scale: those lie
+/// otherwise draws ten automatic levels, which a scale with a logarithmic norm spaces logarithmically over the positive
+/// values of the field. A band is coloured by the middle of its range within the field, geometric under a logarithmic
+/// norm when the range is positive, and an isoline by its level, except for the levels a contour takes from an indexed or categorical scale: those lie
 /// between entries, so a band takes the entry of the whole number it holds and an isoline the entry of the band
 /// below it. A colormapped colour of a contour that names no usable scale takes the middle of viridis.
 fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
@@ -1026,15 +1048,24 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     };
     // Levels between the entries of an indexed or categorical scale, of which each band holds one whole number.
     let between_entries = from_scale.is_some() && scale.is_some_and(ResolvedScale::is_index_mapped);
+    let log = scale.is_some_and(|scale| scale.norm() == ColorScaleNorm::Log);
+    let log_range = if log {
+        positive_field_range(grid.z)
+    } else {
+        None
+    };
     let levels = match (&c.levels, from_scale) {
-        (Some(levels), _) => contour_levels(levels, zmin, zmax),
-        (None, Some(levels)) => contour_levels(&Levels::Explicit { values: levels }, zmin, zmax),
+        (Some(levels), _) => contour_levels(levels, zmin, zmax, log_range),
+        (None, Some(levels)) => {
+            contour_levels(&Levels::Explicit { values: levels }, zmin, zmax, log_range)
+        }
         (None, None) => contour_levels(
             &Levels::Auto {
                 count: AUTOMATIC_CONTOUR_LEVELS,
             },
             zmin,
             zmax,
+            log_range,
         ),
     };
     let mapped = |value: f64| match scale {
@@ -1047,7 +1078,14 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     };
     if c.fill && fill_opacity > 0.0 {
         for (lo, hi) in contour::band_edges(&levels, zmin, zmax) {
-            let mid = (lo.max(zmin) + hi.min(zmax)) / 2.0;
+            let (low, high) = (lo.max(zmin), hi.min(zmax));
+            // Under a logarithmic norm a band of positive values is coloured by its geometric middle, which is the
+            // middle of its span on the scale.
+            let mid = if log && low > 0.0 {
+                (low * high).sqrt()
+            } else {
+                (low + high) / 2.0
+            };
             let value = if between_entries { mid.round() } else { mid };
             let Some(colour) = mapped(value) else {
                 continue;
