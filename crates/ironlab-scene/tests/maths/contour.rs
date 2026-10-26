@@ -1,5 +1,6 @@
 use ironlab_scene::maths::contour::{
-    Coords, GridRef, GridShapeError, Polyline, auto_levels, band_edges, isobands, isolines,
+    Coords, GridRef, GridShapeError, Polyline, auto_levels, auto_log_levels, band_edges, isobands,
+    isolines,
 };
 use proptest::prelude::*;
 
@@ -777,6 +778,57 @@ fn auto_levels_empty_for_degenerate_ranges() {
     assert!(auto_levels(1.0, 1.0, 5).is_empty());
     assert!(auto_levels(2.0, 1.0, 5).is_empty());
     assert!(auto_levels(f64::NAN, 1.0, 5).is_empty());
+}
+
+// Why: under a logarithmic norm the levels are the decades strictly inside the range, as the decades are the marks a
+// reader of a logarithmic scale reads first; the data extremes are excluded because a level there is degenerate.
+#[test]
+fn auto_log_levels_are_the_decades_strictly_inside() {
+    assert_eq!(
+        auto_log_levels(0.01, 1000.0, 10),
+        vec![0.1, 1.0, 10.0, 100.0]
+    );
+    assert_eq!(
+        auto_log_levels(0.015, 950.0, 10),
+        vec![0.1, 1.0, 10.0, 100.0]
+    );
+}
+
+// Why: a request for few levels over many decades thins the decades by the smallest even stride that keeps at most
+// the requested count, so the levels stay evenly spaced on the logarithmic scale.
+#[test]
+fn auto_log_levels_thin_the_decades_to_at_most_the_count() {
+    // Decades 1e-9 to 1e9 lie inside; a stride of 4 leaves 1e-8, 1e-4, 1, 1e4 and 1e8.
+    assert_eq!(
+        auto_log_levels(1e-10, 1e10, 5),
+        vec![1e-8, 1e-4, 1.0, 1e4, 1e8]
+    );
+    let levels = auto_log_levels(1e-10, 1e10, 3);
+    assert!(levels.len() <= 3, "{levels:?}");
+    assert!(levels.len() >= 2, "{levels:?}");
+}
+
+// Why: a range holding fewer than two decades would show one isoline or none, so finer marks of the logarithmic
+// scale are used: first 1, 2 and 5 times each decade, then every integer multiple, and only then linear levels.
+#[test]
+fn auto_log_levels_fall_back_to_finer_marks_on_a_narrow_range() {
+    assert_eq!(auto_log_levels(1.5, 40.0, 10), vec![2.0, 5.0, 10.0, 20.0]);
+    assert_eq!(
+        auto_log_levels(2.5, 9.5, 10),
+        vec![3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+    );
+    assert_eq!(auto_log_levels(2.1, 2.9, 10), auto_levels(2.1, 2.9, 10));
+}
+
+// Why: a range that is constant, inverted, not finite or not positive has no logarithmic levels.
+#[test]
+fn auto_log_levels_empty_for_unusable_ranges() {
+    assert!(auto_log_levels(10.0, 10.0, 5).is_empty());
+    assert!(auto_log_levels(100.0, 1.0, 5).is_empty());
+    assert!(auto_log_levels(0.0, 100.0, 5).is_empty());
+    assert!(auto_log_levels(-1.0, 100.0, 5).is_empty());
+    assert!(auto_log_levels(f64::NAN, 100.0, 5).is_empty());
+    assert!(auto_log_levels(1.0, f64::INFINITY, 5).is_empty());
 }
 
 // Why: filled contours paint below the first level and above the last level too; infinite outer
