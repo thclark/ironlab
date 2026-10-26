@@ -78,6 +78,7 @@ use ironlab_ir::{
     TickLabels, Ticks, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
+pub use ironlab_scene::hit::BinReading;
 use ironlab_scene::hit::{AxesHitKind, AxisMap, ColorbarHit, ColorbarOwner, HitMap};
 use ironlab_scene::maths::aspect;
 
@@ -193,17 +194,19 @@ pub struct BarDatatip {
     pub position: Point,
     /// The rectangle of the bar as drawn, in figure space, which the canvas outlines.
     pub rect: Rect,
-    /// The position of the bar along the category axis, as its data holds it.
+    /// The position of the bar along the category axis, as its data holds it, without its offset.
     pub at: f64,
-    /// The value of the bar, as its data holds it.
+    /// The value of the bar, as its data holds it: the length of the bar from its base.
     pub value: f64,
-    /// The base the bar rises from: the constant base, or the bar's own base.
+    /// The base the bar starts from: the constant base, or the bar's own base.
     pub base: f64,
-    /// For a part of a stack, the bottom and top of the segment the bar occupies along the value axis.
-    pub segment: Option<(f64, f64)>,
+    /// The start and end of the bar along the value axis: `(base, base + value)`.
+    pub segment: (f64, f64),
     /// The text tick label of the category axis at the bar's position, when the axis is labelled with text and a
     /// tick falls exactly there: the name of the bar's category.
     pub tick_label: Option<String>,
+    /// The count and density of the bin the bar draws, when the series records the binning of a histogram.
+    pub bin: Option<BinReading>,
 }
 
 /// The cell under the pointer, as the viewer reports it.
@@ -240,6 +243,9 @@ pub struct CellDatatip {
     pub row_name: Option<String>,
     /// The text tick label of the x axis at the centre of the cell's column, likewise: the name of the column.
     pub column_name: Option<String>,
+    /// The count and density of the bin the cell draws, when the cells record the binning of a two-dimensional
+    /// histogram, its area being the cell's width times its height.
+    pub bin: Option<BinReading>,
 }
 
 /// The step of stairs under the pointer, as the viewer reports it.
@@ -259,6 +265,8 @@ pub struct StepDatatip {
     pub edges: (f64, f64),
     /// The value held across the step.
     pub value: f64,
+    /// The count and density of the bin the step draws, when the stairs record the binning of a histogram.
+    pub bin: Option<BinReading>,
 }
 
 /// What lies under the pointer: a colourbar, a drawn data point, or, where none is within reach, a step of stairs, a
@@ -1074,6 +1082,7 @@ impl FigureState {
             value,
             row_name: category_name(&axes.y, centre(drawn.row_edges)),
             column_name: category_name(&axes.x, centre(drawn.column_edges)),
+            bin: drawn.bin,
         })
     }
 
@@ -1110,10 +1119,11 @@ impl FigureState {
     /// Returns the bar drawn last under the pointer, or `None` where no bar lies.
     ///
     /// The bar comes from the hit map of the most recent compilation, which records each bar drawn with its index in
-    /// the arrays of its series, its position, value and base, and for a part of a stack the segment it occupies.
-    /// When the category axis of the bar (x for upright bars, y for bars lying flat) has explicit ticks labelled
-    /// with text and one of them falls exactly at the bar's position, the tip carries that label, the name of the
-    /// bar's category.
+    /// the arrays of its series, its position, value and base, the segment it spans from its base to its end, and,
+    /// for a series that records the binning of a histogram, the count and density of its bin. When the category axis
+    /// of the bar (x for upright bars, y for bars lying flat) has explicit ticks labelled with text and one of them
+    /// falls exactly at the bar's position, the tip carries that label, the name of the bar's category; the position
+    /// is the bar's own, without its offset, so that a bar drawn beside its position still names its category.
     #[must_use]
     pub fn bar_datatip(&self, hit: &HitMap, at: Point) -> Option<BarDatatip> {
         let drawn = hit.bar_at(at)?;
@@ -1138,6 +1148,7 @@ impl FigureState {
             base: drawn.base,
             segment: drawn.segment,
             tick_label,
+            bin: drawn.bin,
         })
     }
 
@@ -1159,6 +1170,7 @@ impl FigureState {
             position: drawn.nearest(at),
             edges: drawn.edges,
             value: drawn.value,
+            bin: drawn.bin,
         })
     }
 

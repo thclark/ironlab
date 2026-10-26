@@ -121,8 +121,8 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | --- | --- | --- | --- | --- |
 | Upright bars | `bar` | `bar` | `Bar` | `bar` |
 | Bars lying flat | `barh` | `barh` | `Bar` with `orientation="h"` | `barh` |
-| Several series side by side at each position | `bar` with a matrix of values, `'grouped'` | one `bar` per series, each offset by hand | `Bar` traces with `barmode="group"` | one `bar` per series, each with `group(name, BarLayout::Grouped)` |
-| Several series stacked at each position | `bar` with a matrix of values and `'stacked'` | one `bar` per series, each with `bottom=` the sum of those below | `Bar` traces with `barmode="relative"` | one `bar` per series, each with `group(name, BarLayout::Stacked)` |
+| Several series side by side at each position | `bar` with a matrix of values, `'grouped'` | one `bar` per series, each offset by hand | `Bar` traces with `barmode="group"` | `bars` with one `series` per series |
+| Several series stacked at each position | `bar` with a matrix of values and `'stacked'` | one `bar` per series, each with `bottom=` the sum of those below | `Bar` traces with `barmode="relative"` | `bars` with one `stacked` per series, each naming the same column |
 | Floating bars | `bar` with `BaseValue`, one base for all bars | `bar` with `bottom=` an array | `Bar` with `base=` an array | `bar` with `base_data` |
 | One colour per bar | `bar` with `FaceColor` set to `flat` and `CData` | `bar` with `color=` a list | `Bar` with `marker.color` set to a list | `bar` with `colors` |
 | Stepped outline between edges | `histogram` with `DisplayStyle` set to `stairs` | `stairs` | `Scatter` with `line_shape="hv"` through the edges | `stairs` |

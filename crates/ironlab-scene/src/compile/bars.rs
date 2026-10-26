@@ -1,34 +1,29 @@
-//! Bars and stairs: the layout of the bars of a group, and the drawing of bars and stairs in a two-dimensional axes.
+//! Bars and stairs: the geometry of the bars of a series, and the drawing of bars and stairs in a two-dimensional
+//! axes.
 //!
-//! The bars of an axes are laid out once, before limits are computed, because the automatic limits cover the slots
-//! and the stacked totals that the layout decides. The layout is in data units: each bar is given its slot along the
-//! category axis, the share of the drawn part of the slot it takes, and its two ends along the value axis. The gap is
-//! applied only when the bar is drawn, on the page, so that bars on a logarithmic category axis remain symmetric.
+//! A bar series draws exactly the bars it describes (ADR 0026): each bar is centred along the category axis at its
+//! position plus the offset of the series, is as wide as its width, and runs along the value axis from its base to
+//! its base plus its value. Grouped and stacked bars are ordinary series whose widths, offsets and bases the facade
+//! writes, so nothing here relates one series to another. The geometry is in data units and is computed once, when
+//! the data of the series is resolved, because the automatic limits cover it.
 
-use std::collections::HashMap;
-
-use ironlab_ir::{Artist, Bar, BarBase, BarLayout, BarSlot, ColorSpec, Stairs};
+use ironlab_ir::{Bar, BarOffset, BarWidth, ColorSpec, PerBar, Stairs};
 
 use crate::display::{Point, Rect, Rgba};
-use crate::hit::{AxisMap, BarHit, StepHit};
+use crate::hit::{AxisMap, BarHit, BinReading, StepHit};
 
 use super::artists::{Draw, Space};
-use super::data::{ArtistData, BarPiece, BarsData, Prepared, StairsGeometry};
+use super::data::{BarArrays, BarPiece, BarsData, StairsGeometry};
 use super::paths::{self, PathBuilder};
-use super::rects::{CLAMP_MARGIN, clamped_rect, expand, faded, inset, intersection, unit_gap};
+use super::rects::{CLAMP_MARGIN, clamped_rect, expand, faded, intersection};
 use super::style::{self, Paint};
-
-/// Returns the key under which a position is matched with the positions of other members of a group: its bits,
-/// with −0 taken as 0, so that positions are matched exactly by value.
-fn key(position: f64) -> u64 {
-    (position + 0.0).to_bits()
-}
 
 /// Returns the smallest distance between neighbouring distinct finite positions, taken in order of value, or 1 when
 /// there are fewer than two distinct finite positions.
-fn pitch<'p>(positions: impl Iterator<Item = &'p [f64]>) -> f64 {
+fn pitch(positions: &[f64]) -> f64 {
     let mut finite: Vec<f64> = positions
-        .flat_map(|p| p.iter().copied())
+        .iter()
+        .copied()
         .filter(|p| p.is_finite())
         .collect();
     finite.sort_by(f64::total_cmp);
@@ -42,162 +37,123 @@ fn pitch<'p>(positions: impl Iterator<Item = &'p [f64]>) -> f64 {
         .unwrap_or(1.0)
 }
 
-/// One member of a group of bars, as the layout reads it.
-struct Member<'p> {
-    /// The index of the member among the prepared artists of its axes.
-    at: usize,
-    bar: &'p Bar,
-    /// For each position the member holds, the index of its first bar there.
-    first: HashMap<u64, usize>,
-}
-
-/// Lays out every bar series of an axes, writing the bars each draws into its data.
+/// Resolves the bars of a series from its arrays: the pitch of its positions and, for every bar that can be drawn,
+/// its extent along the category axis and its ends along the value axis.
 ///
-/// Bar series whose groups share a name form one group, in artist order; a series without a group, or whose data
-/// cannot be used, is laid out on its own. The orientation, slot, gap, base and layout of a group are those of its
-/// first member, and every member is drawn by them, whatever its own. Along the category axis the slot of a bar
-/// is centred on its position. Its width is the pitch, which for a group is taken over the positions of all its
-/// members, a fixed width, or, for widths given per bar, the width of the first member, in artist order, that has a
-/// bar at that position and gives widths per bar; a base given per bar is chosen in the same way.
-///
-/// In a grouped group every member takes an equal share of the drawn part of each slot, in artist order, whether or
-/// not it has a bar there and whether or not it is visible, so that hiding a member, or a member missing a position,
-/// leaves its share empty and moves no other bar. In a stacked group the visible members at each position build on
-/// one another in artist order, positive values upwards from the base and negative values downwards from it, each
-/// value being the length of its part; a hidden member contributes nothing, so that the parts above it close up and
-/// the column shows the total of the parts that remain, and a part without a finite value contributes nothing
-/// either. Outside a stack a bar runs from its base to its value.
-pub(super) fn lay_out(prepared: &mut [Prepared]) {
-    let mut groups: Vec<(Option<&str>, Vec<usize>)> = Vec::new();
-    for (at, p) in prepared.iter().enumerate() {
-        let (Artist::Bar(bar), Some(ArtistData::Bars(_))) = (p.artist, &p.data) else {
-            continue;
+/// The width of a bar is the fraction of the pitch, the fixed width, or the bar's own width; its offset is a multiple
+/// of that width or a distance in data units; and it runs from its base, the constant base or its own, to its base
+/// plus its value. A bar whose position, value, base, width or offset is not finite, or whose width is not positive,
+/// is not drawn.
+pub(super) fn bars_data<'a>(bar: &Bar, arrays: BarArrays<'a>) -> BarsData<'a> {
+    let pitch = pitch(arrays.positions);
+    let mut pieces = Vec::new();
+    for (index, (&position, &value)) in arrays.positions.iter().zip(arrays.values).enumerate() {
+        let width = match bar.width {
+            BarWidth::Pitch(fraction) => fraction * pitch,
+            BarWidth::Constant(width) => width,
+            BarWidth::Data(_) => arrays.widths.map_or(f64::NAN, |widths| widths[index]),
         };
-        let name = bar.group.as_ref().map(|group| group.name.as_str());
-        match groups
-            .iter_mut()
-            .find(|(existing, _)| name.is_some() && *existing == name)
-        {
-            Some((_, members)) => members.push(at),
-            None => groups.push((name, vec![at])),
-        }
-    }
-    for (_, indices) in groups {
-        let pieces = lay_out_group(prepared, &indices);
-        let leader = match prepared[indices[0]].artist {
-            Artist::Bar(bar) => bar,
-            _ => unreachable!("a group holds bar series only"),
+        let base = match bar.base {
+            PerBar::Constant(base) => base,
+            PerBar::Data(_) => arrays.bases.map_or(f64::NAN, |bases| bases[index]),
         };
-        let category = super::data::dimension_index(leader.orientation.category_dimension());
-        for (at, pieces) in indices.into_iter().zip(pieces) {
-            if let Some(ArtistData::Bars(data)) = &mut prepared[at].data {
-                data.pieces = pieces;
-                data.category = category;
-                data.gap = leader.gap;
-            }
-        }
-    }
-}
-
-/// Returns the bars of each member of one group, in the order of `indices`.
-fn lay_out_group(prepared: &[Prepared], indices: &[usize]) -> Vec<Vec<BarPiece>> {
-    let arrays = |at: usize| match &prepared[at].data {
-        Some(ArtistData::Bars(data)) => data.arrays,
-        _ => unreachable!("a group holds bar series with usable data only"),
-    };
-    let members: Vec<Member> = indices
-        .iter()
-        .map(|&at| {
-            let bar = match prepared[at].artist {
-                Artist::Bar(bar) => bar,
-                _ => unreachable!("a group holds bar series only"),
+        let centre = position
+            + match bar.offset {
+                BarOffset::Widths(widths) => widths * width,
+                BarOffset::Absolute(offset) => offset,
             };
-            let mut first = HashMap::new();
-            for (k, &p) in arrays(at).positions.iter().enumerate() {
-                if p.is_finite() {
-                    first.entry(key(p)).or_insert(k);
+        let end = base + value;
+        if !([position, value, base, width, centre, end]
+            .iter()
+            .all(|v| v.is_finite())
+            && width > 0.0)
+        {
+            continue;
+        }
+        pieces.push(BarPiece {
+            index,
+            position,
+            span: [centre - width / 2.0, centre + width / 2.0],
+            base,
+            ends: [base, end],
+        });
+    }
+    BarsData {
+        arrays,
+        category: super::data::dimension_index(bar.orientation.category_dimension()),
+        pitch,
+        slotted: matches!(bar.width, BarWidth::Pitch(_)),
+        pieces,
+    }
+}
+
+/// Visits the values that a bar series places along `dim`, from which its automatic limits are found.
+///
+/// Along the category axis these are the drawn extent of every bar and, for bars whose width is a fraction of the
+/// pitch, the slot one pitch wide centred on every finite position, so that the outer bars keep half a slot beside
+/// them. Along the value axis they are the bases and ends of the bars, and, beyond each end that lies away from its
+/// base, the fraction `margin` of the span of the series along the value axis (from the lowest to the highest of
+/// its bases and ends), so that the longest bar does not touch the box while the side of the base takes no margin.
+pub(super) fn visit_extent(bar: &Bar, data: &BarsData, dim: usize, visit: &mut dyn FnMut(f64)) {
+    if dim == data.category {
+        if data.slotted {
+            for &position in data.arrays.positions {
+                if position.is_finite() {
+                    visit(position - data.pitch / 2.0);
+                    visit(position + data.pitch / 2.0);
                 }
             }
-            Member { at, bar, first }
-        })
-        .collect();
-    let leader = members[0].bar;
-    let layout = leader
-        .group
-        .as_ref()
-        .map_or(BarLayout::Grouped, |group| group.layout);
-    let pitch = pitch(members.iter().map(|m| arrays(m.at).positions));
-    // The width of the slot and the base at a position: the first member's kind of each, and, for one given per bar,
-    // the value of the first member that has a bar at the position and gives one per bar.
-    let per_bar = |p: f64, widths: bool| {
-        members.iter().find_map(|m| {
-            let k = *m.first.get(&key(p))?;
-            let data = arrays(m.at);
-            let values = if widths { data.widths } else { data.bases };
-            values.map(|values| values[k])
-        })
-    };
-    let width_at = |p: f64| match leader.slot {
-        BarSlot::Pitch => pitch,
-        BarSlot::Width(width) => width,
-        BarSlot::Data(_) => per_bar(p, true).unwrap_or(pitch),
-    };
-    let base_at = |p: f64| match leader.base {
-        BarBase::Constant(base) => base,
-        BarBase::Data(_) => per_bar(p, false).unwrap_or(0.0),
-    };
-    let n = members.len() as f64;
-    // The running top of the positive parts and bottom of the negative parts of each column of a stack.
-    let mut columns: HashMap<u64, (f64, f64)> = HashMap::new();
-    members
+        }
+        for piece in &data.pieces {
+            piece.span.into_iter().for_each(&mut *visit);
+        }
+        return;
+    }
+    let (low, high) = data
+        .pieces
         .iter()
-        .enumerate()
-        .map(|(j, member)| {
-            let data = arrays(member.at);
-            let stacked = layout == BarLayout::Stacked;
-            if stacked && !member.bar.visible {
-                return Vec::new();
-            }
-            let mut pieces = Vec::new();
-            for (index, (&position, &value)) in data.positions.iter().zip(data.values).enumerate() {
-                if !(position.is_finite() && value.is_finite()) {
-                    continue;
-                }
-                let width = width_at(position);
-                let base = base_at(position);
-                if !(width.is_finite() && width > 0.0 && base.is_finite()) {
-                    continue;
-                }
-                let slot = [position - width / 2.0, position + width / 2.0];
-                let (share, ends) = if stacked {
-                    let (top, bottom) = columns.entry(key(position)).or_insert((base, base));
-                    let ends = if value >= 0.0 {
-                        let start = *top;
-                        *top += value;
-                        [start, *top]
-                    } else {
-                        let start = *bottom;
-                        *bottom += value;
-                        [start, *bottom]
-                    };
-                    ([0.0, 1.0], ends)
-                } else {
-                    let j = j as f64;
-                    ([j / n, (j + 1.0) / n], [base, value])
-                };
-                pieces.push(BarPiece {
-                    index,
-                    position,
-                    slot,
-                    share,
-                    base,
-                    ends,
-                    stacked,
-                });
-            }
-            pieces
-        })
-        .collect()
+        .flat_map(|piece| piece.ends)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        });
+    let margin = if bar.margin.is_finite() && bar.margin > 0.0 && low < high {
+        bar.margin * (high - low)
+    } else {
+        0.0
+    };
+    for piece in &data.pieces {
+        let [base, end] = piece.ends;
+        visit(base);
+        visit(end);
+        if end > base {
+            visit(end + margin);
+        } else if end < base {
+            visit(end - margin);
+        }
+    }
+}
+
+/// Returns the reading of bin `index` of a histogram binned as `binning` records, from its values, of which the bin
+/// drew `values[index]`, and `size`, the width of the bin.
+fn bin_of(
+    binning: Option<&ironlab_ir::Binning>,
+    values: &[f64],
+    index: usize,
+    size: f64,
+) -> Option<BinReading> {
+    let binning = binning?;
+    let before = index
+        .checked_sub(1)
+        .and_then(|k| values.get(k).copied())
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0);
+    BinReading::recover(
+        binning.normalization,
+        binning.total,
+        values[index],
+        before,
+        size,
+    )
 }
 
 /// Returns the two axis maps of a two-dimensional space, the category axis first.
@@ -237,9 +193,10 @@ fn series_colour(primary: Paint) -> Option<Rgba> {
 /// Draws every bar of a bar series as a closed rectangle, filled with its face and outlined by its edge, records
 /// each in the hit map, and counts the bars drawn as dense content, as the faces of a surface are counted.
 ///
-/// The slot of a bar is mapped onto the page through the category axis, and the drawn part of it is the slot less
-/// the fraction `gap` of its width on the page, half on each side, of which the bar takes its share. Its ends are
-/// mapped through the value axis, an end that a logarithmic axis cannot place lying at the low edge of the plot.
+/// The extent of a bar along the category axis is mapped onto the page through the category axis, so that a bar on a
+/// logarithmic category axis covers exactly its extent in data units; a bar whose low edge such an axis cannot place
+/// is not drawn. Its ends are mapped through the value axis: a base that a logarithmic axis cannot place lies at the
+/// low edge of the plot, and a bar whose end such an axis cannot place is not drawn.
 pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Paint) {
     let Some((category, value)) = maps(&draw.space, data.category) else {
         return;
@@ -251,20 +208,19 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
         .and_then(|id| draw.scales.get(id));
     let width = style::width_or(bar.edge.width_pt, 0.5);
     let dash = style::dash_array(bar.edge.dash, width);
-    let gap = unit_gap(data.gap);
     let bounds = expand(draw.clip, CLAMP_MARGIN);
     let mut drawn: u64 = 0;
     for piece in &data.pieces {
-        if category.log && piece.slot[0] <= 0.0 {
+        if category.log && piece.span[0] <= 0.0 {
             continue;
         }
-        let (low, high) = (
-            category.to_figure(piece.slot[0]),
-            category.to_figure(piece.slot[1]),
+        if value.log && piece.ends[1] <= 0.0 {
+            continue;
+        }
+        let (a, b) = (
+            category.to_figure(piece.span[0]),
+            category.to_figure(piece.span[1]),
         );
-        let (start, drawn_span) = inset(low, high, gap);
-        let a = start + drawn_span * piece.share[0];
-        let b = start + drawn_span * piece.share[1];
         let (c, d) = (
             value_on_page(&value, piece.ends[0]),
             value_on_page(&value, piece.ends[1]),
@@ -294,19 +250,22 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
             let Some(rect) = intersection(rect, draw.clip) else {
                 continue;
             };
-            let value = data.arrays.values[piece.index];
+            let [start, end] = piece.ends;
             draw.bars.push(BarHit {
                 axes: draw.axes,
                 artist: bar.id,
                 index: piece.index,
                 rect,
                 position: piece.position,
-                value,
+                value: data.arrays.values[piece.index],
                 base: piece.base,
-                segment: piece.stacked.then(|| {
-                    let [s, e] = piece.ends;
-                    (s.min(e), s.max(e))
-                }),
+                segment: (start, end),
+                bin: bin_of(
+                    bar.binning.as_ref(),
+                    data.arrays.values,
+                    piece.index,
+                    piece.span[1] - piece.span[0],
+                ),
             });
         }
     }
@@ -370,6 +329,7 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
                     value: v,
                     from,
                     to,
+                    bin: bin_of(stairs.binning.as_ref(), data.values, k, (e1 - e0).abs()),
                 });
             }
             k += 1;

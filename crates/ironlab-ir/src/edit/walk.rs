@@ -17,9 +17,10 @@
 use std::collections::BTreeMap;
 
 use crate::artist::{
-    Bar, BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, Cells, Contour,
-    ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, Orientation,
-    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
+    Bar, BarOffset, BarWidth, BinRule, Binning, Binning2d, Bins, CellEdges, CellGap, Cells,
+    Contour, ContourPlacement, Coords, Grid, HistNorm, Image, ImagePlacement, ImagePlane, Levels,
+    Orientation, PerBar, PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData,
+    StepAt, Surface,
 };
 use crate::axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
@@ -534,6 +535,7 @@ fn entries_set<E: Entry>(list: &mut [E], path: &[String], value: Value) -> Resul
 ir_leaf! {
     bool => Bool;
     u32 => UInt32;
+    u64 => UInt64;
     f64 => Double;
     f32 => Float;
     String => String;
@@ -561,8 +563,67 @@ ir_leaf! {
     MarkerShape => MarkerShape;
     Coords => Coords;
     Orientation => Orientation;
-    BarLayout => BarLayout;
     StepAt => StepAt;
+    BinRule => BinRule;
+    HistNorm => HistNorm;
+}
+
+/// A range of two numbers, such as the range of a binning record, is read and written as
+/// a whole as a list of exactly two numbers, and its ends one at a time as `low` and
+/// `high`, the names the wire schema gives them.
+impl Walk for [f64; 2] {
+    const TYPE: ValueType = ValueType::Doubles;
+
+    fn get(&self, path: &[String]) -> Result<Value, Step> {
+        match path {
+            [] => Ok(Value::Doubles(self.to_vec())),
+            [end] if end == "low" => Ok(Value::Double(self[0])),
+            [end] if end == "high" => Ok(Value::Double(self[1])),
+            _ => Err(Step::Unknown),
+        }
+    }
+
+    fn set(&mut self, path: &[String], value: Value) -> Result<(), Step> {
+        let end = match path {
+            [] => {
+                return match value {
+                    Value::Doubles(new) if new.len() == 2 => {
+                        *self = [new[0], new[1]];
+                        Ok(())
+                    }
+                    other => Err(Step::Type {
+                        expected: ValueType::Doubles,
+                        found: other.value_type(),
+                    }),
+                };
+            }
+            [end] if end == "low" => &mut self[0],
+            [end] if end == "high" => &mut self[1],
+            _ => return Err(Step::Unknown),
+        };
+        Walk::set(end, &[], value)
+    }
+
+    fn describe(prefix: &mut Vec<&'static str>, conditional: bool, out: &mut Vec<Property>) {
+        walk_describe!(
+            plain,
+            f64,
+            "low",
+            "The low end of the range.",
+            prefix,
+            conditional,
+            out
+        );
+        walk_describe!(
+            plain,
+            f64,
+            "high",
+            "The high end of the range.",
+            prefix,
+            conditional,
+            out
+        );
+    }
 }
 
 ir_node! {
@@ -771,17 +832,15 @@ ir_node! {
         plain "orientation" => orientation: Orientation =
             "Whether the bars stand upright, with positions along x and values along y, or lie flat, with positions along y and values along x.";
         plain "positions" => positions: NodeId =
-            "The centre of the slot of each bar along the category axis, one value per bar.";
+            "The position of each bar along the category axis, one value per bar: the category or value to which it belongs, before the offset is applied.";
         plain "values" => values: NodeId =
-            "The end of each bar along the value axis, one value per bar; a value that is not finite draws no bar.";
-        plain "base" => base: BarBase =
-            "Where each bar starts along the value axis: one value for every bar, or one value per bar for floating bars.";
-        plain "slot" => slot: BarSlot =
-            "The extent of the slot of each bar along the category axis: the pitch of the positions, one width for every bar, or one width per bar.";
-        plain "gap" => gap: f64 =
-            "The fraction of each slot left empty, measured on the page: from 0 for touching bars up to, but not including, 1.";
-        optional "group" => group: BarGroup =
-            "The group of bars of the axes to which the series belongs, or absent for a series drawn on its own.";
+            "The length of each bar from its base along the value axis, one value per bar; a negative length extends the other way, and a value that is not finite draws no bar.";
+        plain "base" => base: PerBar =
+            "Where each bar starts along the value axis: one value for every bar, or one value per bar for floating bars and the parts of a stack.";
+        plain "width" => width: BarWidth =
+            "How wide each bar is along the category axis: a fraction of the pitch of the positions, one width for every bar, or one width per bar.";
+        plain "offset" => offset: BarOffset =
+            "How far the centre of each bar lies from its position along the category axis: a multiple of the width of the bar, or a distance in data units.";
         plain "face" => face: ColorSpec =
             "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, none, or colormapped, which gives each bar the colour of its value of the colour data through the colour scale.";
         optional "color_data" => color_data: NodeId =
@@ -794,6 +853,10 @@ ir_node! {
             "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
         plain "edge_opacity" => edge_opacity: f64 =
             "The opacity of the outlines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
+        plain "margin" => margin: f64 =
+            "The fraction of the span of the bars along the value axis that the automatic limits add beyond the ends of the bars, on each side where an end lies away from its base: a finite number from 0.";
+        optional "binning" => binning: Binning =
+            "How the histogram that the bars draw was binned from its samples, or absent for bars that were not made from samples.";
     }
 
     Stairs {
@@ -814,6 +877,8 @@ ir_node! {
             "The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
         plain "fill_opacity" => fill_opacity: f64 =
             "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
+        optional "binning" => binning: Binning =
+            "How the histogram that the stairs draw was binned from its samples, or absent for stairs that were not made from samples.";
     }
 
     Cells {
@@ -838,6 +903,8 @@ ir_node! {
             "The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of every cell.";
         plain "edge_opacity" => edge_opacity: f64 =
             "The opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
+        optional "binning" => binning: Binning2d =
+            "How the two-dimensional histogram that the cells draw was binned from its samples, or absent for cells that were not made from samples.";
     }
 }
 
@@ -1029,11 +1096,36 @@ ir_value! {
             "What is drawn for a value that names no category.";
     }
 
-    BarGroup as BarGroup {
-        plain "name" => name: String =
-            "The name of the group, which the members of one group share; never drawn.";
-        plain "layout" => layout: BarLayout =
-            "How the members share each position: side by side, or stacked on one another.";
+    Binning as Binning {
+        plain "bins" => bins: Bins =
+            "How the bins were specified: a number of bins, a bin width, the bin edges, or a named rule.";
+        optional "range" => range: [f64; 2] =
+            "The range of sample values that was binned, as its low and high ends, or absent when the range of the samples was used.";
+        plain "normalization" => normalization: HistNorm =
+            "How the counts of the bins were normalised into the values drawn.";
+        plain "total" => total: f64 = "The number of samples counted into the bins.";
+        plain "excluded_non_finite" => excluded_non_finite: u64 =
+            "The number of samples left out because they were not finite.";
+        plain "excluded_out_of_range" => excluded_out_of_range: u64 =
+            "The number of samples left out because they lay outside the range.";
+    }
+
+    Binning2d as Binning2d {
+        plain "x_bins" => x_bins: Bins = "How the bins along x were specified.";
+        plain "y_bins" => y_bins: Bins = "How the bins along y were specified.";
+        optional "x_range" => x_range: [f64; 2] =
+            "The range of sample values along x that was binned, or absent for the range of the samples.";
+        optional "y_range" => y_range: [f64; 2] =
+            "The range of sample values along y that was binned, or absent for the range of the samples.";
+        plain "normalization" => normalization: HistNorm =
+            "How the counts of the bins were normalised into the values drawn.";
+        optional "min_count" => min_count: f64 =
+            "The count below which a bin was left empty, or absent when every bin was drawn.";
+        plain "total" => total: f64 = "The number of samples counted into the bins.";
+        plain "excluded_non_finite" => excluded_non_finite: u64 =
+            "The number of samples left out because they were not finite.";
+        plain "excluded_out_of_range" => excluded_out_of_range: u64 =
+            "The number of samples left out because they lay outside the ranges.";
     }
 
     CellGap as CellGap {
@@ -1051,24 +1143,53 @@ ir_value! {
 }
 
 ir_tagged! {
-    BarBase as BarBase {
+    PerBar as PerBar {
         Constant {
-            plain "constant" => 0: f64 = "The value at which every bar starts.";
+            plain "constant" => 0: f64 = "The value for every bar.";
         }
         Data {
-            plain "data" => 0: NodeId = "The value at which each bar starts, one per bar.";
+            plain "data" => 0: NodeId = "The value of each bar, one per bar.";
         }
     }
 
-    BarSlot as BarSlot {
-        Pitch {}
-        Width {
-            plain "width" => 0: f64 =
-                "The extent of the slot of every bar, in data units; finite and positive.";
+    BarWidth as BarWidth {
+        Pitch {
+            plain "pitch" => 0: f64 =
+                "The width of every bar as a fraction of the pitch of the positions; finite and positive.";
+        }
+        Constant {
+            plain "constant" => 0: f64 =
+                "The width of every bar, in data units; finite and positive.";
         }
         Data {
             plain "data" => 0: NodeId =
-                "The extent of the slot of each bar, in data units, one per bar; each finite and positive.";
+                "The width of each bar, in data units, one per bar; each finite and positive.";
+        }
+    }
+
+    BarOffset as BarOffset {
+        Widths {
+            plain "widths" => 0: f64 =
+                "The offset of every bar as a multiple of its own width; finite.";
+        }
+        Absolute {
+            plain "absolute" => 0: f64 = "The offset of every bar, in data units; finite.";
+        }
+    }
+
+    Bins as Bins {
+        Count {
+            plain "count" => 0: u32 = "The number of bins of equal width; at least 1.";
+        }
+        Width {
+            plain "width" => 0: f64 = "The width of every bin; finite and positive.";
+        }
+        Edges {
+            plain "edges" => 0: Vec<f64> =
+                "The edges of the bins: at least two, finite and strictly increasing.";
+        }
+        Rule {
+            plain "rule" => 0: BinRule = "The rule that chose the number of bins.";
         }
     }
 

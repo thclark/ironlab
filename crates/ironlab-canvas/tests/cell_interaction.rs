@@ -38,6 +38,9 @@
 //!     pub row_name: Option<String>,
 //!     /// The text tick label of the x axis at the centre of the cell's column, likewise: the name of the column.
 //!     pub column_name: Option<String>,
+//!     /// The count and density of the bin the cell draws, when the cells record the binning of a two-dimensional
+//!     /// histogram; see `bar_interaction.rs` for `BinReading`.
+//!     pub bin: Option<BinReading>,
 //! }
 //!
 //! // crates/ironlab-canvas/src/figure_canvas.rs, re-exported from the crate root
@@ -452,6 +455,91 @@ fn a_point_within_reach_is_preferred_over_the_cell_beneath_it() {
         "precondition: no point within reach"
     );
     assert!(matches!(state.tip_at(&hit, away), Some(Tip::Cell(_))));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Two-dimensional histograms: the count and density of a bin
+// ---------------------------------------------------------------------------------------------------------------
+
+// Why: a two-dimensional histogram normalised to probabilities, percentages or densities no longer shows the number
+// of samples in a cell, nor the density that makes cells of unequal areas comparable. Its binning record holds what
+// is needed to recover both from the value drawn: the normalisation, the total, and the area of the cell, its width
+// times its height. The columns here are of widths 1, 2 and 3 and the single row of height 2, so that an area taken
+// from the width alone, or from the wrong cell, would give other numbers. Cells that record no binning are a heatmap
+// of values, which has no bins to count.
+#[test]
+fn a_cell_of_a_binned_two_dimensional_histogram_reports_the_count_and_density_of_its_bin() {
+    use ironlab_canvas::interaction::BinReading;
+    use ironlab_ir::{Binning2d, Bins, HistNorm};
+    let columns = [0.0, 1.0, 3.0, 6.0];
+    let counts = [4.0, 6.0, 2.0];
+    let total = 12.0;
+    let area = |k: usize| (columns[k + 1] - columns[k]) * 2.0;
+    let automatic = || scale(ColorScaleKind::Continuous(ContinuousColorScale::default()));
+    for norm in [
+        HistNorm::Count,
+        HistNorm::Probability,
+        HistNorm::Percentage,
+        HistNorm::CountDensity,
+        HistNorm::Density,
+    ] {
+        let values: Vec<f64> = (0..3)
+            .map(|k| match norm {
+                HistNorm::Count => counts[k],
+                HistNorm::Probability => counts[k] / total,
+                HistNorm::Percentage => 100.0 * counts[k] / total,
+                HistNorm::CountDensity => counts[k] / area(k),
+                _ => counts[k] / (total * area(k)),
+            })
+            .collect();
+        let (state, hit) = compiled(figure_of(
+            matrix(1, 3, values),
+            automatic(),
+            |cells, _, data| {
+                data.push(data_array(array_id(1), NdArray::vector(columns.to_vec())));
+                data.push(data_array(array_id(2), NdArray::vector(vec![0.0, 2.0])));
+                cells.columns = CellEdges::Edges(array_id(1));
+                cells.rows = CellEdges::Edges(array_id(2));
+                cells.binning = Some(Binning2d {
+                    x_bins: Bins::Edges(columns.to_vec()),
+                    y_bins: Bins::Edges(vec![0.0, 2.0]),
+                    x_range: None,
+                    y_range: None,
+                    normalization: norm,
+                    min_count: None,
+                    total,
+                    excluded_non_finite: 0,
+                    excluded_out_of_range: 0,
+                });
+            },
+        ));
+        for k in 0..3 {
+            let tip = cell_tip(&state, &hit, (columns[k] + columns[k + 1]) / 2.0, 1.0);
+            assert_eq!(tip.column, k, "{norm:?}");
+            let BinReading { count, density } = tip
+                .bin
+                .unwrap_or_else(|| panic!("{norm:?}: cell {k} gives no reading of its bin"));
+            assert_close(
+                count,
+                counts[k],
+                1e-9,
+                &format!("{norm:?}, cell {k}: count"),
+            );
+            assert_close(
+                density,
+                counts[k] / (total * area(k)),
+                1e-9,
+                &format!("{norm:?}, cell {k}: density"),
+            );
+        }
+    }
+
+    let (state, hit) = compiled(figure_of(
+        matrix(1, 1, vec![0.25]),
+        continuous(),
+        |_, _, _| {},
+    ));
+    assert_eq!(cell_tip(&state, &hit, 0.0, 0.0).bin, None);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

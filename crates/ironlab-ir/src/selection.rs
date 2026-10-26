@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::artist::{Artist, BarBase, BarSlot, CellEdges, Grid};
+use crate::artist::{Artist, BarWidth, CellEdges, Grid, PerBar};
 use crate::edit::{Edit, Transaction};
 use crate::figure::Figure;
 use crate::ids::NodeId;
@@ -176,10 +176,10 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
         }
         Artist::Bar(a) => {
             all.extend([a.positions, a.values]);
-            if let BarBase::Data(base) = a.base {
+            if let PerBar::Data(base) = a.base {
                 all.push(base);
             }
-            if let BarSlot::Data(widths) = a.slot {
+            if let BarWidth::Data(widths) = a.width {
                 all.push(widths);
             }
             all.extend(a.color_data);

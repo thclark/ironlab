@@ -261,6 +261,50 @@ fn bar_entries_of_one_name_merge_when_they_look_alike_and_not_otherwise() {
     );
 }
 
+// Why: a grouped comparison drawn in two subplots gives the same series a different column in each when the
+// subplots group different numbers of series, so the same series is drawn at another width, offset and base in
+// each. The key draws a swatch, which shows none of these, so entries of one name and one face must still merge into
+// one entry that stands for both, rather than list the series twice or report a clash of names.
+#[test]
+fn bar_entries_of_one_name_and_face_merge_whatever_their_widths_offsets_and_bases() {
+    use ironlab_ir::{BarOffset, BarWidth, PerBar};
+    let mut fx = Fx::new();
+    fx.fig.layout.rows = 2;
+    fx.fig.layout.cols = 2;
+    let left = fx.axes2d(0, 0);
+    let right = fx.axes2d(0, 1);
+    let panel = fx.panel(cell(1, 0, 1, 2));
+    fx.legend_in(left, panel);
+    fx.legend_in(right, panel);
+    let a = fx.bar(left, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
+        b.label = Some(Text::plain("Model A"));
+        b.face = ColorSpec::Rgba { color: RED };
+        b.width = BarWidth::Pitch(0.4);
+        b.offset = BarOffset::Widths(-0.5);
+    });
+    let b = fx.bar(right, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
+        b.label = Some(Text::plain("Model A"));
+        b.face = ColorSpec::Rgba { color: RED };
+        b.width = BarWidth::Constant(0.2);
+        b.offset = BarOffset::Absolute(0.3);
+        b.base = PerBar::Constant(1.0);
+    });
+    let scene = compile_figure(&fx.build());
+    let entries = panel_entries(&scene, panel);
+    assert_eq!(entries.len(), 1, "one entry for both: {entries:?}");
+    let mut targets: Vec<NodeId> = entries[0].targets.iter().map(|&(_, t)| t).collect();
+    targets.sort();
+    assert_eq!(targets, vec![a, b]);
+    assert!(
+        !scene
+            .warnings
+            .iter()
+            .any(|w| matches!(&w.kind, SceneWarningKind::LegendNameClash { .. })),
+        "no clash of names is reported: {:?}",
+        scene.warnings
+    );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Stairs
 // ---------------------------------------------------------------------------------------------------------------

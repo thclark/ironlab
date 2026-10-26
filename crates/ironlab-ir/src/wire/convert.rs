@@ -10,20 +10,20 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarBase, BarGroup, BarLayout, BarSlot,
-    CategoricalColorScale, Cell, CellEdges, CellGap, Cells, Color, ColorCategory, ColorScale,
-    ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec,
+    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarOffset, BarWidth, BinRule, Binning,
+    Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap, Cells, Color, ColorCategory,
+    ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec,
     ColorbarOrientation, ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale,
     Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS, DashStyle, DataArray, Dimension,
-    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, Image, ImagePlacement,
+    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, HistNorm, Image, ImagePlacement,
     ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter,
     Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
     LegendItemContent, LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape,
     MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel,
-    PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PixelRange, Projection,
-    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs, StairsData, StepAt,
-    Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction, Value,
-    Values, View3d,
+    PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PerBar, PixelRange,
+    Projection, Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs, StairsData,
+    StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
+    Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -120,7 +120,10 @@ wire_enum! {
     }
     Coords => Coords { Data, AxesFraction }
     Orientation => Orientation { Vertical, Horizontal }
-    BarLayout => BarLayout { Grouped, Stacked }
+    BinRule => BinRule { Auto, Sturges, Scott, FreedmanDiaconis, Sqrt, Integers }
+    HistNorm => HistNorm {
+        Count, Probability, Percentage, CountDensity, Density, CumulativeCount, Cdf,
+    }
     StepAt => StepAt { Pre, Post, Mid }
     Dimension => Dimension { X, Y, Z }
     NdArrayElement => NdArrayElement { F64, U8 }
@@ -776,43 +779,101 @@ impl Encode for Bar {
             orientation: self.orientation.to_wire(),
             positions: Some(self.positions.0),
             values: Some(self.values.0),
-            base: Some(encode_bar_base(self.base)),
-            slot: Some(encode_bar_slot(self.slot)),
-            gap: Some(self.gap),
-            group: self.group.as_ref().map(encode_bar_group),
+            base: Some(encode_per_bar(self.base)),
+            width: Some(encode_bar_width(self.width)),
+            offset: Some(encode_bar_offset(self.offset)),
             face: Some(encode_color_spec(self.face)),
             color_data: self.color_data.map(|id| id.0),
             color_scale: self.color_scale.map(|id| id.0),
             edge: Some(encode_line_style(self.edge)),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
+            margin: Some(self.margin),
+            binning: self.binning.as_ref().map(encode_binning),
         }
     }
 }
 
-fn encode_bar_base(base: BarBase) -> w::BarBase {
+fn encode_per_bar(base: PerBar) -> w::PerBar {
     let kind = match base {
-        BarBase::Constant(constant) => w::BarBaseKind::Constant(w::BarBaseConstant {
+        PerBar::Constant(constant) => w::PerBarKind::Constant(w::PerBarConstant {
             constant: Some(constant),
         }),
-        BarBase::Data(data) => w::BarBaseKind::Data(w::BarBaseData { data: Some(data.0) }),
+        PerBar::Data(data) => w::PerBarKind::Data(w::PerBarData { data: Some(data.0) }),
     };
-    w::BarBase { kind: Some(kind) }
+    w::PerBar { kind: Some(kind) }
 }
 
-fn encode_bar_slot(slot: BarSlot) -> w::BarSlot {
-    let kind = match slot {
-        BarSlot::Pitch => w::BarSlotKind::Pitch(w::BarSlotPitch {}),
-        BarSlot::Width(width) => w::BarSlotKind::Width(w::BarSlotWidth { width: Some(width) }),
-        BarSlot::Data(data) => w::BarSlotKind::Data(w::BarSlotData { data: Some(data.0) }),
+fn encode_bar_width(width: BarWidth) -> w::BarWidth {
+    let kind = match width {
+        BarWidth::Pitch(pitch) => w::BarWidthKind::Pitch(w::BarWidthPitch { pitch: Some(pitch) }),
+        BarWidth::Constant(constant) => w::BarWidthKind::Constant(w::BarWidthConstant {
+            constant: Some(constant),
+        }),
+        BarWidth::Data(data) => w::BarWidthKind::Data(w::BarWidthData { data: Some(data.0) }),
     };
-    w::BarSlot { kind: Some(kind) }
+    w::BarWidth { kind: Some(kind) }
 }
 
-fn encode_bar_group(group: &BarGroup) -> w::BarGroup {
-    w::BarGroup {
-        name: group.name.clone(),
-        layout: group.layout.to_wire(),
+fn encode_bar_offset(offset: BarOffset) -> w::BarOffset {
+    let kind = match offset {
+        BarOffset::Widths(widths) => w::BarOffsetKind::Widths(w::BarOffsetWidths {
+            widths: Some(widths),
+        }),
+        BarOffset::Absolute(absolute) => w::BarOffsetKind::Absolute(w::BarOffsetAbsolute {
+            absolute: Some(absolute),
+        }),
+    };
+    w::BarOffset { kind: Some(kind) }
+}
+
+fn encode_bins(bins: &Bins) -> w::Bins {
+    let kind = match bins {
+        Bins::Count(count) => w::BinsKind::Count(w::BinsCount {
+            count: Some(*count),
+        }),
+        Bins::Width(width) => w::BinsKind::Width(w::BinsWidth {
+            width: Some(*width),
+        }),
+        Bins::Edges(edges) => w::BinsKind::Edges(w::BinsEdges {
+            edges: edges.clone(),
+        }),
+        Bins::Rule(rule) => w::BinsKind::Rule(w::BinsRule {
+            rule: rule.to_wire(),
+        }),
+    };
+    w::Bins { kind: Some(kind) }
+}
+
+fn encode_bin_range(range: Option<[f64; 2]>) -> Option<w::BinRange> {
+    range.map(|[low, high]| w::BinRange {
+        low: Some(low),
+        high: Some(high),
+    })
+}
+
+fn encode_binning(binning: &Binning) -> w::Binning {
+    w::Binning {
+        bins: Some(encode_bins(&binning.bins)),
+        range: encode_bin_range(binning.range),
+        normalization: binning.normalization.to_wire(),
+        total: Some(binning.total),
+        excluded_non_finite: Some(binning.excluded_non_finite),
+        excluded_out_of_range: Some(binning.excluded_out_of_range),
+    }
+}
+
+fn encode_binning_2d(binning: &Binning2d) -> w::Binning2d {
+    w::Binning2d {
+        x_bins: Some(encode_bins(&binning.x_bins)),
+        y_bins: Some(encode_bins(&binning.y_bins)),
+        x_range: encode_bin_range(binning.x_range),
+        y_range: encode_bin_range(binning.y_range),
+        normalization: binning.normalization.to_wire(),
+        min_count: binning.min_count,
+        total: Some(binning.total),
+        excluded_non_finite: Some(binning.excluded_non_finite),
+        excluded_out_of_range: Some(binning.excluded_out_of_range),
     }
 }
 
@@ -831,6 +892,7 @@ impl Encode for Stairs {
             fill: Some(encode_color_spec(self.fill)),
             line_opacity: Some(self.line_opacity),
             fill_opacity: Some(self.fill_opacity),
+            binning: self.binning.as_ref().map(encode_binning),
         }
     }
 }
@@ -869,6 +931,7 @@ impl Encode for Cells {
             alpha: self.alpha.map(|id| id.0),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
+            binning: self.binning.as_ref().map(encode_binning_2d),
         }
     }
 }
@@ -1957,59 +2020,134 @@ impl Decode for Bar {
             )?,
             positions: reference(wire.positions, at, "positions")?,
             values: reference(wire.values, at, "values")?,
-            base: decode_bar_base(wire.base, default.base, &join(at, "base"))?,
-            slot: decode_bar_slot(wire.slot, default.slot, &join(at, "slot"))?,
-            gap: wire.gap.unwrap_or(default.gap),
-            group: wire
-                .group
-                .map(|group| decode_bar_group(group, &join(at, "group")))
-                .transpose()?,
+            base: decode_per_bar(wire.base, default.base, &join(at, "base"))?,
+            width: decode_bar_width(wire.width, default.width, &join(at, "width"))?,
+            offset: decode_bar_offset(wire.offset, default.offset, &join(at, "offset"))?,
             face: decode_color_spec(wire.face, default.face),
             color_data: wire.color_data.map(NodeId),
             color_scale: wire.color_scale.map(NodeId),
             edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
             edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
+            margin: wire.margin.unwrap_or(default.margin),
+            binning: wire
+                .binning
+                .map(|binning| decode_binning(binning, &join(at, "binning")))
+                .transpose()?,
         })
     }
 }
 
-/// Decodes the base of bars, taking an unset base as `default`; `at` is the path of the
-/// base itself.
-fn decode_bar_base(wire: Option<w::BarBase>, default: BarBase, at: &str) -> Result<BarBase> {
+/// Decodes a number given once for every bar or once per bar, taking an unset one as
+/// `default`; `at` is the path of the number itself.
+fn decode_per_bar(wire: Option<w::PerBar>, default: PerBar, at: &str) -> Result<PerBar> {
     Ok(match wire.and_then(|base| base.kind) {
         None => default,
-        Some(w::BarBaseKind::Constant(constant)) => BarBase::Constant(required(
+        Some(w::PerBarKind::Constant(constant)) => PerBar::Constant(required(
             constant.constant,
             &join(at, "constant"),
             "constant",
         )?),
-        Some(w::BarBaseKind::Data(data)) => {
-            BarBase::Data(reference(data.data, &join(at, "data"), "data")?)
+        Some(w::PerBarKind::Data(data)) => {
+            PerBar::Data(reference(data.data, &join(at, "data"), "data")?)
         }
     })
 }
 
-/// Decodes the slot of bars, taking an unset slot as `default`; `at` is the path of the
-/// slot itself.
-fn decode_bar_slot(wire: Option<w::BarSlot>, default: BarSlot, at: &str) -> Result<BarSlot> {
-    Ok(match wire.and_then(|slot| slot.kind) {
+/// Decodes the width of bars, taking an unset width as `default`; `at` is the path of the
+/// width itself.
+fn decode_bar_width(wire: Option<w::BarWidth>, default: BarWidth, at: &str) -> Result<BarWidth> {
+    Ok(match wire.and_then(|width| width.kind) {
         None => default,
-        Some(w::BarSlotKind::Pitch(_)) => BarSlot::Pitch,
-        Some(w::BarSlotKind::Width(width)) => {
-            BarSlot::Width(required(width.width, &join(at, "width"), "width")?)
+        Some(w::BarWidthKind::Pitch(pitch)) => {
+            BarWidth::Pitch(required(pitch.pitch, &join(at, "pitch"), "pitch")?)
         }
-        Some(w::BarSlotKind::Data(data)) => {
-            BarSlot::Data(reference(data.data, &join(at, "data"), "data")?)
+        Some(w::BarWidthKind::Constant(constant)) => BarWidth::Constant(required(
+            constant.constant,
+            &join(at, "constant"),
+            "constant",
+        )?),
+        Some(w::BarWidthKind::Data(data)) => {
+            BarWidth::Data(reference(data.data, &join(at, "data"), "data")?)
         }
     })
 }
 
-/// Decodes the group of a bar series; `at` is the path of the group itself.
-fn decode_bar_group(wire: w::BarGroup, at: &str) -> Result<BarGroup> {
-    Ok(BarGroup {
-        name: wire.name,
-        layout: decode_enum(wire.layout, Some(BarLayout::default()), at, "layout")?,
+/// Decodes the offset of bars, taking an unset offset as `default`; `at` is the path of
+/// the offset itself.
+fn decode_bar_offset(
+    wire: Option<w::BarOffset>,
+    default: BarOffset,
+    at: &str,
+) -> Result<BarOffset> {
+    Ok(match wire.and_then(|offset| offset.kind) {
+        None => default,
+        Some(w::BarOffsetKind::Widths(widths)) => {
+            BarOffset::Widths(required(widths.widths, &join(at, "widths"), "widths")?)
+        }
+        Some(w::BarOffsetKind::Absolute(absolute)) => BarOffset::Absolute(required(
+            absolute.absolute,
+            &join(at, "absolute"),
+            "absolute",
+        )?),
+    })
+}
+
+/// Decodes a specification of bins, which has no default; `at` is the path of the bins
+/// themselves.
+fn decode_bins(wire: Option<w::Bins>, at: &str) -> Result<Bins> {
+    let wire = wire.ok_or_else(|| ProtobufError::MissingField {
+        field: at.to_owned(),
+    })?;
+    Ok(match required(wire.kind, at, "kind")? {
+        w::BinsKind::Count(count) => {
+            Bins::Count(required(count.count, &join(at, "count"), "count")?)
+        }
+        w::BinsKind::Width(width) => {
+            Bins::Width(required(width.width, &join(at, "width"), "width")?)
+        }
+        w::BinsKind::Edges(edges) => Bins::Edges(edges.edges),
+        w::BinsKind::Rule(rule) => {
+            Bins::Rule(decode_enum(rule.rule, None, &join(at, "rule"), "rule")?)
+        }
+    })
+}
+
+/// Decodes the range of a binning record; `at` is the path of the range itself.
+fn decode_bin_range(wire: Option<w::BinRange>, at: &str) -> Result<Option<[f64; 2]>> {
+    wire.map(|range| {
+        Ok([
+            required(range.low, at, "low")?,
+            required(range.high, at, "high")?,
+        ])
+    })
+    .transpose()
+}
+
+/// Decodes a binning record of one dimension; `at` is the path of the record itself.
+fn decode_binning(wire: w::Binning, at: &str) -> Result<Binning> {
+    Ok(Binning {
+        bins: decode_bins(wire.bins, &join(at, "bins"))?,
+        range: decode_bin_range(wire.range, &join(at, "range"))?,
+        normalization: decode_enum(wire.normalization, None, at, "normalization")?,
+        total: required(wire.total, at, "total")?,
+        excluded_non_finite: wire.excluded_non_finite.unwrap_or(0),
+        excluded_out_of_range: wire.excluded_out_of_range.unwrap_or(0),
+    })
+}
+
+/// Decodes a binning record of two dimensions; `at` is the path of the record itself.
+fn decode_binning_2d(wire: w::Binning2d, at: &str) -> Result<Binning2d> {
+    Ok(Binning2d {
+        x_bins: decode_bins(wire.x_bins, &join(at, "x_bins"))?,
+        y_bins: decode_bins(wire.y_bins, &join(at, "y_bins"))?,
+        x_range: decode_bin_range(wire.x_range, &join(at, "x_range"))?,
+        y_range: decode_bin_range(wire.y_range, &join(at, "y_range"))?,
+        normalization: decode_enum(wire.normalization, None, at, "normalization")?,
+        min_count: wire.min_count,
+        total: required(wire.total, at, "total")?,
+        excluded_non_finite: wire.excluded_non_finite.unwrap_or(0),
+        excluded_out_of_range: wire.excluded_out_of_range.unwrap_or(0),
     })
 }
 
@@ -2034,6 +2172,10 @@ impl Decode for Stairs {
             fill: decode_color_spec(wire.fill, default.fill),
             line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
+            binning: wire
+                .binning
+                .map(|binning| decode_binning(binning, &join(at, "binning")))
+                .transpose()?,
         })
     }
 }
@@ -2081,6 +2223,10 @@ impl Decode for Cells {
             alpha: wire.alpha.map(NodeId),
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
             edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
+            binning: wire
+                .binning
+                .map(|binning| decode_binning_2d(binning, &join(at, "binning")))
+                .transpose()?,
         })
     }
 }
@@ -2575,16 +2721,27 @@ fn encode_value(value: &Value) -> w::Value {
         Value::Orientation(v) => {
             w::ValueKind::Orientation(w::ValueOrientation { value: v.to_wire() })
         }
-        Value::BarBase(v) => w::ValueKind::BarBase(w::ValueBarBase {
-            value: Some(encode_bar_base(*v)),
+        Value::PerBar(v) => w::ValueKind::PerBar(w::ValuePerBar {
+            value: Some(encode_per_bar(*v)),
         }),
-        Value::BarSlot(v) => w::ValueKind::BarSlot(w::ValueBarSlot {
-            value: Some(encode_bar_slot(*v)),
+        Value::BarWidth(v) => w::ValueKind::BarWidth(w::ValueBarWidth {
+            value: Some(encode_bar_width(*v)),
         }),
-        Value::BarGroup(v) => w::ValueKind::BarGroup(w::ValueBarGroup {
-            value: Some(encode_bar_group(v)),
+        Value::BarOffset(v) => w::ValueKind::BarOffset(w::ValueBarOffset {
+            value: Some(encode_bar_offset(*v)),
         }),
-        Value::BarLayout(v) => w::ValueKind::BarLayout(w::ValueBarLayout { value: v.to_wire() }),
+        Value::Binning(v) => w::ValueKind::Binning(w::ValueBinning {
+            value: Some(encode_binning(v)),
+        }),
+        Value::Binning2d(v) => w::ValueKind::Binning2d(w::ValueBinning2d {
+            value: Some(encode_binning_2d(v)),
+        }),
+        Value::Bins(v) => w::ValueKind::Bins(w::ValueBins {
+            value: Some(encode_bins(v)),
+        }),
+        Value::BinRule(v) => w::ValueKind::BinRule(w::ValueBinRule { value: v.to_wire() }),
+        Value::HistNorm(v) => w::ValueKind::HistNorm(w::ValueHistNorm { value: v.to_wire() }),
+        Value::UInt64(v) => w::ValueKind::Uint64(w::ValueUint64 { value: Some(*v) }),
         Value::StairsData(v) => w::ValueKind::StairsData(w::ValueStairsData {
             value: Some(encode_stairs_data(*v)),
         }),
@@ -3016,24 +3173,45 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "orientation_value"),
             "value",
         )?),
-        w::ValueKind::BarBase(v) => {
-            let (base, at) = value_message(v.value, at, "bar_base_value")?;
-            Value::BarBase(decode_bar_base(Some(base), BarBase::default(), &at)?)
+        w::ValueKind::PerBar(v) => {
+            let (base, at) = value_message(v.value, at, "per_bar_value")?;
+            Value::PerBar(decode_per_bar(Some(base), PerBar::default(), &at)?)
         }
-        w::ValueKind::BarSlot(v) => {
-            let (slot, at) = value_message(v.value, at, "bar_slot_value")?;
-            Value::BarSlot(decode_bar_slot(Some(slot), BarSlot::default(), &at)?)
+        w::ValueKind::BarWidth(v) => {
+            let (width, at) = value_message(v.value, at, "bar_width_value")?;
+            Value::BarWidth(decode_bar_width(Some(width), BarWidth::default(), &at)?)
         }
-        w::ValueKind::BarGroup(v) => {
-            let (group, at) = value_message(v.value, at, "bar_group_value")?;
-            Value::BarGroup(decode_bar_group(group, &at)?)
+        w::ValueKind::BarOffset(v) => {
+            let (offset, at) = value_message(v.value, at, "bar_offset_value")?;
+            Value::BarOffset(decode_bar_offset(Some(offset), BarOffset::default(), &at)?)
         }
-        w::ValueKind::BarLayout(v) => Value::BarLayout(decode_enum(
+        w::ValueKind::Binning(v) => {
+            let (binning, at) = value_message(v.value, at, "binning_value")?;
+            Value::Binning(decode_binning(binning, &at)?)
+        }
+        w::ValueKind::Binning2d(v) => {
+            let (binning, at) = value_message(v.value, at, "binning2d_value")?;
+            Value::Binning2d(decode_binning_2d(binning, &at)?)
+        }
+        w::ValueKind::Bins(v) => {
+            let (bins, at) = value_message(v.value, at, "bins_value")?;
+            Value::Bins(decode_bins(Some(bins), &at)?)
+        }
+        w::ValueKind::BinRule(v) => Value::BinRule(decode_enum(
             v.value,
             None,
-            &join(at, "bar_layout_value"),
+            &join(at, "bin_rule_value"),
             "value",
         )?),
+        w::ValueKind::HistNorm(v) => Value::HistNorm(decode_enum(
+            v.value,
+            None,
+            &join(at, "hist_norm_value"),
+            "value",
+        )?),
+        w::ValueKind::Uint64(v) => {
+            Value::UInt64(required(v.value, &join(at, "uint64_value"), "value")?)
+        }
         w::ValueKind::StairsData(v) => {
             let (data, at) = value_message(v.value, at, "stairs_data_value")?;
             Value::StairsData(decode_stairs_data(Some(data), &at)?)

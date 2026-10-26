@@ -86,9 +86,10 @@ mod validate;
 pub mod wire;
 
 pub use artist::{
-    Artist, Bar, BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, Cells, Contour,
-    ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, Orientation,
-    PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
+    Artist, Bar, BarOffset, BarWidth, BinRule, Binning, Binning2d, Bins, CellEdges, CellGap, Cells,
+    Contour, ContourPlacement, Coords, Grid, HistNorm, Image, ImagePlacement, ImagePlane, Levels,
+    Orientation, PerBar, PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData,
+    StepAt, Surface,
 };
 pub use axes::{
     Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,

@@ -905,16 +905,18 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
 // not have. The artist oneof must carry the three kinds at the agreed numbers 11, 12 and
 // 13, after the last existing variant, inside the oneof named `kind` like the rest. Each
 // message must declare a field for every property of its IR type, named as the IR names
-// it, because the property paths of the editor are those names. A reference that the IR
-// makes optional (the group of a bar series, the base of stairs, the colour scale and
-// alpha of cells) must have presence, because absent means none and a zero would be a
-// different value: a base at 0 or the identifier 0; so must the colour data and colour
-// scale of bars, as a series' do. The gap and every opacity must have presence too,
-// because their absence decodes to defaults (a gap of 0.2, full opacity) that differ from
-// proto3's zero. The per-bar colours and the single opacity of cells, which colour data
-// and the face and edge opacities replaced, must be gone, and their numbers and names
-// reserved so that no later field reuses them with another meaning. The tagged values of
-// the new types must be read through a oneof named `kind`, as every other tagged value is.
+// it, because the property paths of the editor are those names; so must the binning
+// records. A value that the IR makes optional (the base and binning record of stairs, the
+// colour scale, alpha and binning record of cells, the colour data, colour scale and
+// binning record of bars, and the ranges and minimum count of a binning record) must have
+// presence, because absent means none and a zero would be a different value. The margin
+// and every opacity must have presence too, because their absence decodes to defaults (a
+// margin of 0.05, full opacity) that differ from proto3's zero. The per-bar colours, the
+// single opacity of cells, and the slot, gap and group of bars, which colour data, the face
+// and edge opacities, and the width and offset replaced, must be gone, with their numbers
+// and names reserved so that no later field reuses them with another meaning, and the
+// messages of the bar group and its layout must be gone with them. The tagged values must
+// be read through a oneof named `kind`, as every other tagged value is.
 #[test]
 fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
     let pool = compile();
@@ -946,15 +948,16 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "positions",
                 "values",
                 "base",
-                "slot",
-                "gap",
-                "group",
+                "width",
+                "offset",
                 "face",
                 "color_data",
                 "color_scale",
                 "edge",
                 "face_opacity",
                 "edge_opacity",
+                "margin",
+                "binning",
             ][..],
         ),
         (
@@ -970,6 +973,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "fill",
                 "line_opacity",
                 "fill_opacity",
+                "binning",
             ][..],
         ),
         (
@@ -987,9 +991,34 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "alpha",
                 "face_opacity",
                 "edge_opacity",
+                "binning",
             ][..],
         ),
-        ("BarGroup", &["name", "layout"][..]),
+        (
+            "Binning",
+            &[
+                "bins",
+                "range",
+                "normalization",
+                "total",
+                "excluded_non_finite",
+                "excluded_out_of_range",
+            ][..],
+        ),
+        (
+            "Binning2d",
+            &[
+                "x_bins",
+                "y_bins",
+                "x_range",
+                "y_range",
+                "normalization",
+                "min_count",
+                "total",
+                "excluded_non_finite",
+                "excluded_out_of_range",
+            ][..],
+        ),
         ("CellGap", &["x", "y"][..]),
     ] {
         assert_eq!(
@@ -1002,8 +1031,8 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
         );
     }
     for (message, field) in [
-        ("Bar", "group"),
-        ("Bar", "gap"),
+        ("Bar", "margin"),
+        ("Bar", "binning"),
         ("Bar", "color_data"),
         ("Bar", "color_scale"),
         ("Bar", "face_opacity"),
@@ -1015,6 +1044,13 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
         ("Cells", "alpha"),
         ("Cells", "face_opacity"),
         ("Cells", "edge_opacity"),
+        ("Stairs", "binning"),
+        ("Cells", "binning"),
+        ("Binning", "range"),
+        ("Binning", "total"),
+        ("Binning2d", "x_range"),
+        ("Binning2d", "y_range"),
+        ("Binning2d", "min_count"),
     ] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
@@ -1024,7 +1060,13 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
             .unwrap_or_else(|| panic!("{message} declares {field}"));
         assert!(field.supports_presence(), "{message}.{}", field.name());
     }
-    for (message, number, name) in [("Bar", 12, "colors"), ("Cells", 11, "opacity")] {
+    for (message, number, name) in [
+        ("Bar", 12, "colors"),
+        ("Bar", 8, "slot"),
+        ("Bar", 9, "gap"),
+        ("Bar", 10, "group"),
+        ("Cells", 11, "opacity"),
+    ] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
             .expect("the package declares the message");
@@ -1039,7 +1081,24 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
             "{message} does not reserve {name}"
         );
     }
-    for message in ["BarBase", "BarSlot", "StairsData", "CellEdges"] {
+    for gone in ["BarGroup", "BarLayout", "BarSlot", "BarBase"] {
+        assert!(
+            pool.get_message_by_name(&format!("ironlab.ir.v0.{gone}"))
+                .is_none()
+                && pool
+                    .get_enum_by_name(&format!("ironlab.ir.v0.{gone}"))
+                    .is_none(),
+            "{gone} is still declared"
+        );
+    }
+    for message in [
+        "PerBar",
+        "BarWidth",
+        "BarOffset",
+        "Bins",
+        "StairsData",
+        "CellEdges",
+    ] {
         let descriptor = pool
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
             .unwrap_or_else(|| panic!("the package declares {message}"));

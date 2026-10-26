@@ -1747,6 +1747,52 @@ fn a_series_lists_its_colour_and_size_data_and_its_scale_as_references() {
     );
 }
 
+// Why: a binning record says how a histogram was made from its samples (its bins, range, normalisation and the
+// samples it counted and left out), which only the program that binned the samples knows; the bars, steps or cells
+// drawn are its result. The viewer views figures rather than building them, so the record of bars, of stairs and of
+// cells must be shown, every row of it with the reason it cannot be changed, rather than offering a control that
+// would change the description without rebinning the data it describes.
+#[test]
+fn the_binning_record_of_bars_stairs_and_cells_is_shown_read_only_and_says_why() {
+    let state = FigureState::new(figure_with_every_artist());
+    for (node, kind) in [
+        (NodeId(15), NodeKind::Bar),
+        (NodeId(16), NodeKind::Stairs),
+        (NodeId(17), NodeKind::Cells),
+    ] {
+        let groups = groups_of(&state, node);
+        let binning = group(&groups, "binning");
+        let read_only: Vec<&PropertyRow> = binning
+            .rows
+            .iter()
+            .filter(|row| matches!(row.editor, Editor::ReadOnly { .. }))
+            .collect();
+        assert!(
+            !read_only.is_empty(),
+            "{kind:?}: the record is shown, not hidden: {:?}",
+            binning.rows
+        );
+        for row in &binning.rows {
+            match row.editor {
+                Editor::Group => {}
+                Editor::ReadOnly { reason } => {
+                    assert!(
+                        !reason.is_empty() && reason.ends_with('.'),
+                        "{kind:?}: binning.{} gives no usable reason: {reason:?}",
+                        row.label
+                    );
+                    assert_eq!(
+                        read_only_reason(kind, &row.path),
+                        Some(reason),
+                        "{kind:?}: the reason the panel shows is the one the inspector states"
+                    );
+                }
+                ref other => panic!("{kind:?}: binning.{} can be edited: {other:?}", row.label),
+            }
+        }
+    }
+}
+
 // Why: the tile layout is the frame the program placed its axes in, and the editor
 // changes the properties of those axes rather than the structure around them. Showing a
 // control that adds a row would offer a figure the panel cannot finish making.

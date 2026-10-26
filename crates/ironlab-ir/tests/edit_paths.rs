@@ -1268,8 +1268,9 @@ fn plain_artist(fig: &Figure, index: usize, kind: NodeKind) -> NodeId {
     artist.id()
 }
 
-// Why: the property editor adjusts a chart a value at a time: the gap between bars, the
-// layout of a group, the level from which bars rise, the width of a fixed slot, the gap
+// Why: the property editor adjusts a chart a value at a time: the fraction of the pitch a
+// bar is wide, the offset of a column of bars in widths or in data units, the level from
+// which bars rise, the width of fixed bars, the margin beyond the ends of the bars, the gap
 // between cells along one direction, whether bars coloured by data show those colours on
 // their faces, the opacities of bar edges, stair lines and cell edges, and the step
 // position or base of stairs. Each of these must be addressable by the path that the wire
@@ -1279,27 +1280,25 @@ fn plain_artist(fig: &Figure, index: usize, kind: NodeKind) -> NodeId {
 #[test]
 fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
     let fig = kitchen_sink_figure();
-    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // pitch slot, constant base 0
+    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // a pitch width, offset −1 widths
     let coloured = plain_artist(&fig, 1, NodeKind::Bar); // colour data through a scale
-    let stacked = plain_artist(&fig, 3, NodeKind::Bar); // a slot of width 0.6
+    let stacked = plain_artist(&fig, 3, NodeKind::Bar); // a width of 0.6, an absolute offset
     let sampled = plain_artist(&fig, 7, NodeKind::Stairs); // samples, step before, base 0
     let cells = plain_artist(&fig, 10, NodeKind::Cells); // gap { x: 0.1, y: 0.25 }
     let (edited, inverse) = applied(
         &fig,
         &tx([
-            set(grouped, "gap", Value::Double(0.35)),
+            set(grouped, "width.pitch", Value::Double(0.5)),
+            set(grouped, "offset.widths", Value::Double(1.0)),
             set(grouped, "base.constant", Value::Double(1.5)),
+            set(grouped, "margin", Value::Double(0.0)),
             set(
                 grouped,
                 "orientation",
                 Value::Orientation(Orientation::Horizontal),
             ),
-            set(stacked, "slot.width", Value::Double(0.9)),
-            set(
-                stacked,
-                "group.layout",
-                Value::BarLayout(BarLayout::Grouped),
-            ),
+            set(stacked, "width.constant", Value::Double(0.9)),
+            set(stacked, "offset.absolute", Value::Double(-0.2)),
             set(coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
             set(coloured, "edge_opacity", Value::Double(0.25)),
             set(sampled, "data.step", Value::StepAt(StepAt::Mid)),
@@ -1311,21 +1310,20 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
     )
     .unwrap();
     for (node, at, expected) in [
-        (grouped, "gap", Value::Double(0.35)),
-        (grouped, "base", Value::BarBase(BarBase::Constant(1.5))),
+        (grouped, "width", Value::BarWidth(BarWidth::Pitch(0.5))),
+        (grouped, "offset", Value::BarOffset(BarOffset::Widths(1.0))),
+        (grouped, "base", Value::PerBar(PerBar::Constant(1.5))),
+        (grouped, "margin", Value::Double(0.0)),
         (
             grouped,
             "orientation",
             Value::Orientation(Orientation::Horizontal),
         ),
-        (stacked, "slot", Value::BarSlot(BarSlot::Width(0.9))),
+        (stacked, "width", Value::BarWidth(BarWidth::Constant(0.9))),
         (
             stacked,
-            "group",
-            Value::BarGroup(BarGroup {
-                name: "stack".to_owned(),
-                layout: BarLayout::Grouped,
-            }),
+            "offset",
+            Value::BarOffset(BarOffset::Absolute(-0.2)),
         ),
         (coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
         (coloured, "edge_opacity", Value::Double(0.25)),
@@ -1341,19 +1339,86 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
     assert_eq!(restored, fig);
 }
 
-// Why: a gap of 1 or more leaves nothing of a bar or a cell to draw, and the property
-// editor sends whatever the user types; the edit must be refused with the validation
-// issue that explains it, leaving the figure as it was, rather than accepted and drawn as
-// nothing. The same holds for the width of a fixed slot and for an opacity outside [0, 1]
-// on any of the new opacities.
+// Why: the binning record of a histogram is shown in the property editor, so the registry
+// must list it, optional, on bars, stairs and cells alike, and reading it must return the
+// record the artist holds, of one dimension for bars and stairs and of two for cells; an
+// artist without a record reads as unset rather than failing, so that the editor can show
+// that a plain bar chart was not binned.
 #[test]
-fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
+fn the_binning_record_of_bars_stairs_and_cells_is_listed_and_read() {
+    let fig = kitchen_sink_figure();
+    let binned_bars = plain_artist(&fig, 5, NodeKind::Bar);
+    let plain_bars = plain_artist(&fig, 0, NodeKind::Bar);
+    let binned_stairs = plain_artist(&fig, 6, NodeKind::Stairs);
+    let binned_cells = plain_artist(&fig, 10, NodeKind::Cells);
+    for kind in [NodeKind::Bar, NodeKind::Stairs, NodeKind::Cells] {
+        let listed = properties(kind)
+            .into_iter()
+            .find(|property| property.path == path("binning"))
+            .unwrap_or_else(|| panic!("{kind:?} does not list its binning record"));
+        assert!(listed.optional, "{kind:?}: a binning record may be absent");
+        assert!(
+            !listed.docs.is_empty(),
+            "{kind:?}: the record is documented"
+        );
+    }
+    let record = |node| match fig.artist(node) {
+        Some((_, Artist::Bar(a))) => a.binning.clone().map(Value::Binning),
+        Some((_, Artist::Stairs(a))) => a.binning.clone().map(Value::Binning),
+        Some((_, Artist::Cells(a))) => a.binning.clone().map(Value::Binning2d),
+        other => panic!("{node} is not binned: {other:?}"),
+    };
+    for node in [binned_bars, binned_stairs, binned_cells] {
+        assert_eq!(
+            Some(fig.get(node, &path("binning")).unwrap()),
+            record(node),
+            "{node}"
+        );
+    }
+    assert_eq!(fig.get(plain_bars, &path("binning")).unwrap(), Value::Unset);
+    assert_eq!(
+        fig.get(binned_bars, &path("binning.normalization"))
+            .unwrap(),
+        Value::HistNorm(HistNorm::Density)
+    );
+}
+
+// Why: a width of 0 draws nothing, a margin below 0 cuts the bars off at the box, and an
+// opacity outside [0, 1] means nothing, and the property editor sends whatever the user
+// types; the edit must be refused with the validation issue that explains it, leaving the
+// figure as it was, rather than accepted and drawn as nothing. A gap outside [0, 1) of
+// cells is refused in the same way.
+#[test]
+fn an_edit_that_makes_a_width_a_margin_a_gap_or_an_opacity_invalid_is_refused() {
     let fig = kitchen_sink_figure();
     let grouped = plain_artist(&fig, 0, NodeKind::Bar);
     let stacked = plain_artist(&fig, 3, NodeKind::Bar);
     let cells = plain_artist(&fig, 10, NodeKind::Cells);
     for (node, at, value, kind) in [
-        (grouped, "gap", Value::Double(1.0), IssueKind::InvalidGap),
+        (
+            grouped,
+            "width.pitch",
+            Value::Double(0.0),
+            IssueKind::InvalidBarWidth,
+        ),
+        (
+            stacked,
+            "width.constant",
+            Value::Double(-1.0),
+            IssueKind::InvalidBarWidth,
+        ),
+        (
+            grouped,
+            "offset.widths",
+            Value::Double(f64::NAN),
+            IssueKind::InvalidBarOffset,
+        ),
+        (
+            grouped,
+            "margin",
+            Value::Double(-0.5),
+            IssueKind::InvalidBarMargin,
+        ),
         (cells, "gap.y", Value::Double(1.5), IssueKind::InvalidGap),
         (cells, "gap.x", Value::Double(-0.25), IssueKind::InvalidGap),
         (
@@ -1368,12 +1433,6 @@ fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
             Value::Double(-0.5),
             IssueKind::InvalidOpacity,
         ),
-        (
-            stacked,
-            "slot.width",
-            Value::Double(0.0),
-            IssueKind::InvalidBarSlot,
-        ),
     ] {
         let mut edited = fig.clone();
         let result = edited.apply(&tx([set(node, at, value)]));
@@ -1385,17 +1444,19 @@ fn an_edit_that_makes_a_gap_or_a_slot_invalid_is_refused() {
     }
 }
 
-// Why: the width of a fixed slot exists only while the slot is fixed, and the edges of
-// cells only while they are explicit; a path into a variant that is not set is a stale
-// edit (a width dragged after the slot became the pitch) and must be refused as such,
-// distinctly from a misspelling, so that the overlay drops it.
+// Why: the fixed width of bars exists only while the width is fixed, an absolute offset
+// only while the offset is in data units, and the edges of cells only while they are
+// explicit; a path into a variant that is not set is a stale edit (a width dragged after the
+// bars became a fraction of the pitch) and must be refused as such, distinctly from a
+// misspelling, so that the overlay drops it.
 #[test]
-fn a_path_into_an_unset_variant_of_a_bar_slot_or_cell_edges_is_an_inactive_variant() {
+fn a_path_into_an_unset_variant_of_a_bar_width_offset_or_cell_edges_is_an_inactive_variant() {
     let fig = kitchen_sink_figure();
-    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // pitch slot
+    let grouped = plain_artist(&fig, 0, NodeKind::Bar); // a pitch width, an offset in widths
     let cells = plain_artist(&fig, 10, NodeKind::Cells); // unit rows
     for (node, at, value) in [
-        (grouped, "slot.width", Value::Double(0.5)),
+        (grouped, "width.constant", Value::Double(0.5)),
+        (grouped, "offset.absolute", Value::Double(0.5)),
         (grouped, "base.data", Value::NodeId(NodeId(1000))),
         (cells, "rows.edges", Value::NodeId(NodeId(1000))),
     ] {
