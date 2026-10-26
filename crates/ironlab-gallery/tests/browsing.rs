@@ -386,6 +386,14 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
         "markers",
         "placement",
         "transparency",
+        "grouped",
+        "stacked",
+        "histogram",
+        "2d-histogram",
+        "density",
+        "tick-angle",
+        "occupancy",
+        "hidden-axis",
     ] {
         assert!(
             values.iter().any(|value| value == wanted),
@@ -393,6 +401,58 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
              browsed by: {values:?}"
         );
     }
+}
+
+// Why: a reader looking for a kind of chart types the word they know for it, and the tag menu offers whole tags,
+// so each kind must be named by a tag rather than left to a title. These words name kinds of chart that the bar,
+// stairs and cells artists make, which no structural tag distinguishes: a stacked or grouped bar chart and a
+// histogram are all bars, and an occupancy matrix and a two-dimensional histogram are both cells. "2d" alone
+// would not do, because every flat figure's dimensionality parameter already reads "2D".
+#[test]
+fn each_kind_of_bar_and_cell_chart_is_found_by_its_name() {
+    let expect = |query: &str, titles: &[&str]| {
+        let mut got = found(query);
+        got.sort();
+        let mut want: Vec<String> = titles.iter().map(|title| (*title).to_owned()).collect();
+        want.sort();
+        assert_eq!(got, want, "{query:?} should find exactly these figures");
+    };
+    expect(
+        "tag:stacked",
+        &[
+            "Histograms",
+            "Stacked, horizontal, floating and highlighted bars",
+        ],
+    );
+    expect(
+        "tag:grouped",
+        &["Grouped bar chart", "Branch coverage occupancy matrix"],
+    );
+    expect(
+        "tag:histogram",
+        &[
+            "Histograms",
+            "Two-dimensional histogram and density contour",
+        ],
+    );
+    expect(
+        "tag:2d-histogram",
+        &["Two-dimensional histogram and density contour"],
+    );
+    expect(
+        "tag:angle",
+        &[
+            "Stacked, horizontal, floating and highlighted bars",
+            "Case by subroutine coverage matrix",
+        ],
+    );
+    expect(
+        "tag:occupancy",
+        &[
+            "Branch coverage occupancy matrix",
+            "Case by subroutine coverage matrix",
+        ],
+    );
 }
 
 // Why: the counts are what make the menu worth opening rather than guessing, and they have to come from the whole
