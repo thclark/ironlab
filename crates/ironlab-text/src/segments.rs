@@ -1,4 +1,4 @@
-//! Splitting label source into plain, monospace and math segments.
+//! Splitting label source into plain, bold, monospace and math segments.
 
 use crate::TextWarning;
 
@@ -13,30 +13,42 @@ pub(crate) enum Segment {
     /// Text to set in monospace, from the argument of `\texttt{…}` outside math,
     /// with escapes resolved and grouping braces removed.
     Mono(String),
+    /// Text to set in the bold text face, from the argument of `\textbf{…}` outside
+    /// math, with escapes resolved and grouping braces removed.
+    Bold(String),
 }
 
 /// The command, with its opening brace, that sets its argument in monospace outside math.
 const TEXTTT: &str = r"\texttt{";
 
-/// Splits `content` into plain, monospace and math segments.
+/// The command, with its opening brace, that sets its argument in bold outside math.
+const TEXTBF: &str = r"\textbf{";
+
+/// Builds the segment that holds the argument of a text command.
+type MakeSegment = fn(String) -> Segment;
+
+/// The text commands outside math, each with the segment that holds its argument.
+const TEXT_COMMANDS: [(&str, MakeSegment); 2] = [(TEXTTT, Segment::Mono), (TEXTBF, Segment::Bold)];
+
+/// Splits `content` into plain, bold, monospace and math segments.
 ///
 /// Outside math, `\$` produces a literal dollar sign, `\texttt{…}` sets its argument
-/// in monospace, and every other character, including a lone backslash, is kept
+/// in monospace, `\textbf{…}` sets its argument in bold, and every other character, including a lone backslash, is kept
 /// verbatim. An unescaped `$` opens math, which extends to the next `$` that is not
 /// preceded by a backslash command (so `\$` inside math does not close it). A
 /// `$` with no closing partner is kept as a literal character and reported in
 /// the returned warnings. Adjacent plain text is merged into one segment, and
 /// no segment is empty except math between two adjacent delimiters.
 ///
-/// The argument of `\texttt` ends at the brace that balances its opening brace;
+/// The argument of `\texttt` or `\textbf` ends at the brace that balances its opening brace;
 /// braces nested inside it group, as in LaTeX, and are not printed. Within it, `\_`,
 /// `\{`, `\}`, `\$`, `\&`, `\%`, `\#` and `\ ` (a backslash and a space) produce the
 /// character after the backslash; a bare `_` is accepted as a literal underscore,
 /// which LaTeX itself rejects outside math, so that identifiers can be written
 /// unchanged; a `$` is a literal dollar sign rather than the start of math; and any
 /// other backslash is kept verbatim together with the character after it. A
-/// `\texttt{` whose argument is never closed is kept as literal text and reported in
-/// the returned warnings, and the text after it is split as usual.
+/// `\texttt{` or `\textbf{` whose argument is never closed is kept as literal text and
+/// reported in the returned warnings, and the text after it is split as usual.
 pub(crate) fn split(content: &str) -> (Vec<Segment>, Vec<TextWarning>) {
     let bytes = content.as_bytes();
     let mut segments = Vec::new();
@@ -47,21 +59,24 @@ pub(crate) fn split(content: &str) -> (Vec<Segment>, Vec<TextWarning>) {
         if bytes[i] == b'\\' && bytes.get(i + 1) == Some(&b'$') {
             plain.push('$');
             i += 2;
-        } else if content[i..].starts_with(TEXTTT) {
-            if let Some((text, consumed)) = monospace_argument(&content[i + TEXTTT.len()..]) {
+        } else if let Some((command, segment)) = TEXT_COMMANDS
+            .iter()
+            .find(|(command, _)| content[i..].starts_with(command))
+        {
+            if let Some((text, consumed)) = text_argument(&content[i + command.len()..]) {
                 if !plain.is_empty() {
                     segments.push(Segment::Plain(std::mem::take(&mut plain)));
                 }
-                segments.push(Segment::Mono(text));
-                i += TEXTTT.len() + consumed;
+                segments.push(segment(text));
+                i += command.len() + consumed;
             } else {
+                let name = &command[..command.len() - 1];
                 warnings.push(TextWarning {
                     source: content[i..].to_owned(),
-                    message: r"This \texttt has no closing brace, so it is shown literally."
-                        .to_owned(),
+                    message: format!("This {name} has no closing brace, so it is shown literally."),
                 });
-                plain.push_str(TEXTTT);
-                i += TEXTTT.len();
+                plain.push_str(command);
+                i += command.len();
             }
         } else if bytes[i] == b'$' {
             if let Some(close) = find_closing_dollar(bytes, i + 1) {
@@ -94,12 +109,12 @@ pub(crate) fn split(content: &str) -> (Vec<Segment>, Vec<TextWarning>) {
     (segments, warnings)
 }
 
-/// Reads the argument of `\texttt{` from `rest`, the source after its opening brace.
+/// Reads the argument of `\texttt{` or `\textbf{` from `rest`, the source after its opening brace.
 ///
 /// Returns the text to set, with escapes resolved and grouping braces removed, and the
 /// number of bytes consumed including the closing brace, or `None` when no brace closes
 /// the argument.
-fn monospace_argument(rest: &str) -> Option<(String, usize)> {
+fn text_argument(rest: &str) -> Option<(String, usize)> {
     let mut text = String::new();
     let mut depth = 1usize;
     let mut chars = rest.char_indices();

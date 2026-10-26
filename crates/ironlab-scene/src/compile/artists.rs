@@ -15,7 +15,7 @@ use ironlab_ir::{
 use crate::display::{
     Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Stroke, Transform,
 };
-use crate::hit::{ArtistHit, AxisMap, BarHit, ImageHit, StepHit};
+use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, StepHit};
 use crate::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
     fit_to_rect, normalise_box, wrap_azimuth,
@@ -210,6 +210,8 @@ pub(crate) struct Drawn {
     pub bars: Vec<BarHit>,
     /// Every step of stairs drawn, for finding the step under a pointer.
     pub steps: Vec<StepHit>,
+    /// Every cell drawn, for finding the cell under a pointer.
+    pub cells: Vec<CellHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
     ///
     /// The count is of the cells the artist actually drew, not of the cells its data holds. A backend thresholds on
@@ -247,6 +249,8 @@ pub(super) struct Draw<'a, 'f> {
     pub(super) bars: Vec<BarHit>,
     /// Every step of stairs drawn, for finding the step under a pointer.
     pub(super) steps: Vec<StepHit>,
+    /// Every cell drawn, for finding the cell under a pointer.
+    pub(super) cells: Vec<CellHit>,
     /// The number of data cells drawn by each artist whose geometry a backend may rasterise, by artist.
     pub(super) dense: BTreeMap<NodeId, u64>,
 }
@@ -318,6 +322,7 @@ pub(super) fn draw_artists(
         images: Vec::new(),
         bars: Vec::new(),
         steps: Vec::new(),
+        cells: Vec::new(),
         dense: BTreeMap::new(),
     };
     for (prepared, primary) in input.prepared.iter().zip(primaries) {
@@ -375,6 +380,10 @@ pub(super) fn draw_artists(
             (Artist::Stairs(stairs), ArtistData::Stairs(geometry)) => {
                 super::bars::draw_stairs(&mut draw, stairs, geometry, *primary);
             }
+            (Artist::Cells(cells), ArtistData::Cells(data)) => {
+                let scale = draw.scales.of(prepared.artist);
+                super::cells::draw_cells(&mut draw, cells, data, scale);
+            }
             _ => {}
         }
     }
@@ -384,6 +393,7 @@ pub(super) fn draw_artists(
         images: draw.images,
         bars: draw.bars,
         steps: draw.steps,
+        cells: draw.cells,
         dense: draw.dense,
     }
 }

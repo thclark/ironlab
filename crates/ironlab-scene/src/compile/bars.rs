@@ -15,12 +15,8 @@ use crate::hit::{AxisMap, BarHit, StepHit};
 use super::artists::{Draw, Space};
 use super::data::{ArtistData, BarPiece, BarsData, Prepared, StairsGeometry};
 use super::paths::{self, PathBuilder};
+use super::rects::{CLAMP_MARGIN, clamped_rect, expand, faded, inset, intersection, unit_gap};
 use super::style::{self, Paint};
-
-/// How far beyond the clip rectangle, in points, a bar or a step may be drawn before its coordinates are clamped,
-/// so that a bar reaching far beyond the limits is drawn as a rectangle of reasonable size whose clamped edges
-/// lie outside the clip and are never seen.
-const CLAMP_MARGIN: f64 = 16.0;
 
 /// Returns the key under which a position is matched with the positions of other members of a group: its bits,
 /// with −0 taken as 0, so that positions are matched exactly by value.
@@ -223,11 +219,6 @@ fn value_on_page(map: &AxisMap, value: f64) -> f64 {
     }
 }
 
-/// Returns `colour` with its alpha multiplied by `opacity`, which is taken as a number from 0 to 1.
-fn faded(colour: Option<Rgba>, opacity: f64) -> Option<Rgba> {
-    colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
-}
-
 /// Returns the colour of a face or outline of a bar: `series` for an automatic colour, and for a colormapped one
 /// without colour data or a usable scale; the colour of the bar's value through the scale for a colormapped one with
 /// both.
@@ -260,11 +251,7 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
         .and_then(|id| draw.scales.get(id));
     let width = style::width_or(bar.edge.width_pt, 0.5);
     let dash = style::dash_array(bar.edge.dash, width);
-    let gap = if data.gap.is_finite() {
-        data.gap.clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
+    let gap = unit_gap(data.gap);
     let bounds = expand(draw.clip, CLAMP_MARGIN);
     let mut drawn: u64 = 0;
     for piece in &data.pieces {
@@ -275,9 +262,7 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
             category.to_figure(piece.slot[0]),
             category.to_figure(piece.slot[1]),
         );
-        let span = high - low;
-        let start = low + span * gap / 2.0;
-        let drawn_span = span * (1.0 - gap);
+        let (start, drawn_span) = inset(low, high, gap);
         let a = start + drawn_span * piece.share[0];
         let b = start + drawn_span * piece.share[1];
         let (c, d) = (
@@ -292,9 +277,7 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
         } else {
             (c, d, a, b)
         };
-        let (left, right) = clamp_span(x0, x1, bounds.x, bounds.right());
-        let (top, bottom) = clamp_span(y0, y1, bounds.y, bounds.bottom());
-        let rect = Rect::new(left, top, right - left, bottom - top);
+        let rect = clamped_rect(x0, x1, y0, y1, bounds);
         let mapped = data.arrays.colours.map(|colours| {
             scale.map_or(Some(style::viridis_middle()), |scale| {
                 scale.colour(colours[piece.index])
@@ -330,28 +313,6 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
     if drawn > 0 {
         *draw.dense.entry(bar.id).or_default() += drawn;
     }
-}
-
-/// Returns `rect` grown by `margin` on every side.
-fn expand(rect: Rect, margin: f64) -> Rect {
-    Rect::new(
-        rect.x - margin,
-        rect.y - margin,
-        rect.width + 2.0 * margin,
-        rect.height + 2.0 * margin,
-    )
-}
-
-/// Returns the rectangle that two rectangles share, or `None` when they share none.
-fn intersection(a: Rect, b: Rect) -> Option<Rect> {
-    let (left, right) = (a.x.max(b.x), a.right().min(b.right()));
-    let (top, bottom) = (a.y.max(b.y), a.bottom().min(b.bottom()));
-    (left <= right && top <= bottom).then(|| Rect::new(left, top, right - left, bottom - top))
-}
-
-/// Returns the span from `a` to `b`, in increasing order, clamped to `[low, high]`.
-fn clamp_span(a: f64, b: f64, low: f64, high: f64) -> (f64, f64) {
-    (a.min(b).clamp(low, high), a.max(b).clamp(low, high))
 }
 
 /// Draws stairs: the stepped outline through their values, broken where a value is not finite, and, with a base,

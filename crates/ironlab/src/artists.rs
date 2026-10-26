@@ -5,9 +5,9 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Bar, BarBase, BarGroup, BarLayout, BarSlot, Color, ColorSpec, Contour, Coords,
-    DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId, Orientation, PixelRange,
-    Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
+    Artist, Bar, BarBase, BarGroup, BarLayout, BarSlot, CellEdges, CellGap, Cells, Color,
+    ColorSpec, Contour, Coords, DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId,
+    Orientation, PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
 };
 
 use crate::axes::AxesMut;
@@ -123,6 +123,7 @@ artist_handle!(BarMut, Bar, scaled);
 artist_handle!(StairsMut, Stairs);
 artist_handle!(QuiverMut, Quiver);
 artist_handle!(SurfaceMut, Surface, scaled);
+artist_handle!(CellsMut, Cells, scaled);
 
 /// Defines the setters that every kind of image has: its label, the placement of its
 /// pixel centres, its plane and its opacity.
@@ -1133,6 +1134,165 @@ impl ScalarImageMut<'_> {
             release_data(self.fig, previous);
         }
         self
+    }
+}
+
+/// A handle to cells created by [`cells`](crate::AxesMut::cells) or
+/// [`occupancy`](crate::AxesMut::occupancy).
+///
+/// Cells are a grid of rectangles, each coloured by its value through a colour scale
+/// (MATLAB's `heatmap` and `histogram2` drawn as tiles, and Matplotlib's `pcolormesh` on a
+/// rectilinear grid). Cell `(j, i)` holds the value in row `j` and column `i` of the matrix
+/// and lies between column edges `i` and `i + 1` along x and row edges `j` and `j + 1`
+/// along y. Without explicit edges the cells are centred on whole numbers, so that cell
+/// `(j, i)` is centred on `(i, j)`. The setters choose the edges, the gap that sets the
+/// cells apart, their outlines, their alpha and their opacities.
+///
+/// A two-dimensional histogram of unequal bins:
+///
+/// ```
+/// use ironlab::prelude::*;
+///
+/// let counts = Matrix::from_rows(&[[1.0, 4.0, 2.0], [3.0, 9.0, 5.0]]);
+/// let mut fig = Figure::new();
+/// fig.axes(0, 0)
+///     .cells(&counts)
+///     .column_edges([0.0, 1.0, 3.0, 7.0])
+///     .row_edges([0.0, 0.5, 2.0])
+///     .edge_color(Color::WHITE)
+///     .label("Counts");
+/// assert!(fig.validate().is_valid());
+/// ```
+#[derive(Debug)]
+pub struct CellsMut<'a> {
+    pub(crate) fig: &'a mut Figure,
+    pub(crate) id: NodeId,
+    /// The default colour scale of the axes that the plotting call created, if any.
+    created_scale: Option<NodeId>,
+}
+
+impl CellsMut<'_> {
+    /// Returns the node identifier of the cells.
+    #[must_use]
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Returns the identifier of the data array of the values, which another plotting call
+    /// accepts to share it.
+    #[must_use]
+    pub fn values_data(&self) -> NodeId {
+        self.get().values
+    }
+
+    /// Sets the label of the cells, drawn beside their sample in a legend.
+    pub fn label(&mut self, label: impl Into<Text>) -> &mut Self {
+        self.artist().label = Some(label.into());
+        self
+    }
+
+    /// Places the columns between the given edges along x, one more than the columns,
+    /// finite and strictly monotonic, increasing or decreasing; uneven edges draw the bins
+    /// of a histogram of unequal widths. Edges of another number, or that are not
+    /// monotonic, are reported by [`Figure::validate`](crate::Figure::validate). Data that
+    /// this call replaces is released from the figure when nothing else uses it and it has
+    /// no name.
+    pub fn column_edges(&mut self, edges: impl Into<DataSource>) -> &mut Self {
+        let data = edges.into().store(self.fig);
+        self.set_columns(CellEdges::Edges(data));
+        self
+    }
+
+    /// Places the rows between the given edges along y, as
+    /// [`column_edges`](Self::column_edges) places the columns. Row 0 lies between the
+    /// first two edges.
+    pub fn row_edges(&mut self, edges: impl Into<DataSource>) -> &mut Self {
+        let data = edges.into().store(self.fig);
+        self.set_rows(CellEdges::Edges(data));
+        self
+    }
+
+    /// Centres the columns on whole numbers, column `k` spanning `k − 0.5` to `k + 0.5`,
+    /// which is the default, releasing any explicit edges as
+    /// [`column_edges`](Self::column_edges) does.
+    pub fn unit_columns(&mut self) -> &mut Self {
+        self.set_columns(CellEdges::Unit);
+        self
+    }
+
+    /// Centres the rows on whole numbers, as [`unit_columns`](Self::unit_columns) centres
+    /// the columns.
+    pub fn unit_rows(&mut self) -> &mut Self {
+        self.set_rows(CellEdges::Unit);
+        self
+    }
+
+    /// Sets the fractions of the width and the height of each cell left empty, shared
+    /// equally by the two sides of the cell and measured on the page, so that cells on a
+    /// logarithmic axis stay centred in their bins. The default of 0 along both draws
+    /// seamless cells; each fraction must be at least 0 and less than 1, as
+    /// [`Figure::validate`](crate::Figure::validate) checks.
+    pub fn gap(&mut self, x: f64, y: f64) -> &mut Self {
+        self.artist().gap = CellGap { x, y };
+        self
+    }
+
+    /// Sets the colour of the outlines of the cells, which have none by default; `None`
+    /// hides them, and an automatic or colormapped colour gives each outline the colour of
+    /// its cell.
+    pub fn edge_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().edge.color = color.into_color_spec();
+        self
+    }
+
+    /// Sets the width of the outlines of the cells in points.
+    pub fn edge_width(&mut self, width_pt: f64) -> &mut Self {
+        self.artist().edge.width_pt = width_pt;
+        self
+    }
+
+    /// Gives every cell its own alpha, from 0 (transparent) to 1 (opaque), as a matrix of
+    /// the shape of the values, as [`ScalarImageMut::alpha`] gives every pixel its own.
+    ///
+    /// The alpha multiplies the alpha of the colour of each cell and of its outline, and
+    /// is multiplied in turn by the [`face_opacity`](Self::face_opacity) and the
+    /// [`edge_opacity`](Self::edge_opacity); a cell whose alpha is 0 is not drawn. Data
+    /// that this call replaces is released from the figure when nothing else uses it and
+    /// it has no name.
+    pub fn alpha(&mut self, alpha: impl Into<DataSource>) -> &mut Self {
+        let data = alpha.into().store(self.fig);
+        if let Some(previous) = self.artist().alpha.replace(data) {
+            release_data(self.fig, previous);
+        }
+        self
+    }
+
+    /// Sets the opacity of the cells, from 0 (transparent) to 1 (opaque, the default),
+    /// which multiplies the alpha of every cell.
+    pub fn face_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().face_opacity = opacity;
+        self
+    }
+
+    /// Sets the opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque,
+    /// the default), which multiplies the alpha of their colour.
+    pub fn edge_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().edge_opacity = opacity;
+        self
+    }
+
+    /// Sets the edges of the columns, releasing the edges they replace.
+    fn set_columns(&mut self, edges: CellEdges) {
+        if let CellEdges::Edges(previous) = std::mem::replace(&mut self.artist().columns, edges) {
+            release_data(self.fig, previous);
+        }
+    }
+
+    /// Sets the edges of the rows, releasing the edges they replace.
+    fn set_rows(&mut self, edges: CellEdges) {
+        if let CellEdges::Edges(previous) = std::mem::replace(&mut self.artist().rows, edges) {
+            release_data(self.fig, previous);
+        }
     }
 }
 

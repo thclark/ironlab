@@ -1021,6 +1021,7 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
         colorbars: vec![],
         bars: vec![],
         steps: vec![],
+        cells: vec![],
     }
 }
 
@@ -1065,6 +1066,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
         colorbars: vec![],
         bars: vec![],
         steps: vec![],
+        cells: vec![],
     };
 
     assert!(
@@ -1097,6 +1099,7 @@ fn the_selection_survives_a_gesture() {
         colorbars: vec![],
         bars: vec![],
         steps: vec![],
+        cells: vec![],
     };
 
     state.drag_start(&hit, Point::new(100.0, 50.0));

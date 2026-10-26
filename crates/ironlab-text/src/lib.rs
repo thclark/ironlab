@@ -8,6 +8,7 @@
 //! layout always refer to the same font bytes that the renderers draw with.
 //! Monospace text, written `\texttt{…}` outside math, is set in the Mathematical
 //! Monospace alphabet of the same math face, because no monospace font is bundled.
+//! Bold text, written `\textbf{…}` outside math, is shaped against STIX Two Text Bold.
 //!
 //! All output coordinates share one convention: the origin is the left end of
 //! the baseline, x increases to the right and y increases downwards, so glyphs
@@ -69,6 +70,8 @@ pub struct TextEngine {
     /// HarfRust shaping cache for STIX Two Text Regular, the face used for
     /// all plain text.
     shaper_data: harfrust::ShaperData,
+    /// HarfRust shaping cache for STIX Two Text Bold, the face of `\textbf{…}`.
+    bold_shaper_data: harfrust::ShaperData,
     /// Parsed faces of the whole font set, for metrics and outlines.
     faces: fonts::Faces,
     /// Memoised layouts.
@@ -97,10 +100,13 @@ impl TextEngine {
             latex_rust::MathFont::stix_two_math().expect("the embedded STIX Two Math face parses");
         let regular = harfrust::FontRef::new(fonts::bytes(FontId::TextRegular))
             .expect("the bundled STIX Two Text Regular face parses");
+        let bold = harfrust::FontRef::new(fonts::bytes(FontId::TextBold))
+            .expect("the bundled STIX Two Text Bold face parses");
         Self {
             faces: fonts::Faces::parse(&math_font),
             math_font,
             shaper_data: harfrust::ShaperData::new(&regular),
+            bold_shaper_data: harfrust::ShaperData::new(&bold),
             layouts: Mutex::new(HashMap::new()),
             outlines: Mutex::new(HashMap::new()),
         }
@@ -128,7 +134,9 @@ impl TextEngine {
     /// `\texttt{…}` sets its argument in monospace: letters and digits in the
     /// Mathematical Monospace alphabet of STIX Two Math, and every character in a
     /// cell of one fixed width, with the extents of plain text; within it a bare
-    /// `_` is a literal underscore, as `\_` is. When `parse_math`
+    /// `_` is a literal underscore, as `\_` is. Outside math, `\textbf{…}` sets its
+    /// argument in STIX Two Text Bold, with the same rules for its argument as
+    /// `\texttt{…}`. When `parse_math`
     /// is false, `content` is shaped verbatim, including any `$` and `\`
     /// characters.
     ///
@@ -202,6 +210,7 @@ impl TextEngine {
             builder.append(plain::shape(
                 &self.shaper_data,
                 &self.faces,
+                FontId::TextRegular,
                 content,
                 size_pt,
             ));
@@ -216,6 +225,16 @@ impl TextEngine {
         for segment in segments {
             match segment {
                 Segment::Plain(text) => plain.push_str(&text),
+                Segment::Bold(text) => {
+                    self.flush_plain(&mut builder, &mut plain, size_pt);
+                    builder.append(plain::shape(
+                        &self.bold_shaper_data,
+                        &self.faces,
+                        FontId::TextBold,
+                        &text,
+                        size_pt,
+                    ));
+                }
                 Segment::Mono(text) => {
                     self.flush_plain(&mut builder, &mut plain, size_pt);
                     let (layout, warnings) = mono::shape(&self.faces, &text, size_pt);
@@ -250,7 +269,13 @@ impl TextEngine {
     /// Shapes and appends any accumulated plain text.
     fn flush_plain(&self, builder: &mut LayoutBuilder, plain: &mut String, size_pt: f64) {
         if !plain.is_empty() {
-            builder.append(plain::shape(&self.shaper_data, &self.faces, plain, size_pt));
+            builder.append(plain::shape(
+                &self.shaper_data,
+                &self.faces,
+                FontId::TextRegular,
+                plain,
+                size_pt,
+            ));
             plain.clear();
         }
     }

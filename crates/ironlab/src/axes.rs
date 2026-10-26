@@ -1,15 +1,17 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, Bar, Color, ColorSpec, Contour, ContourPlacement,
-    Coords, DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide, InsideLegend, IrError,
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendLocation, Limits,
-    MarkerShape, NodeId, Orientation, Projection, Quiver, ScalarImage, Scale, Series, Stairs,
-    StairsData, StepAt, Surface, Text, TickLabels, Ticks, TitleAlign, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, Bar, CellGap, Cells, Color, ColorSpec, Contour,
+    ContourPlacement, Coords, DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide,
+    InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder,
+    LegendLocation, Limits, MarkerShape, NdArray, NodeId, Orientation, Projection, Quiver,
+    ScalarImage, Scale, Series, Stairs, StairsData, StepAt, Surface, Text, TickLabels, Ticks,
+    TitleAlign, View3d,
 };
 
 use crate::artists::{
-    BarMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut, SurfaceMut,
+    BarMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut,
+    SurfaceMut,
 };
 use crate::color_scale::{self, ColorScaleMut};
 use crate::colorbar::InsideColorbarMut;
@@ -594,6 +596,194 @@ impl AxesMut<'_> {
             })
         });
         ScalarImageMut::new(self.fig, id, created.then_some(scale))
+    }
+
+    // Cells and categorical axes.
+
+    /// Draws a grid of cells, each coloured by its value through a colour scale (MATLAB's
+    /// `heatmap`, and Matplotlib's `pcolormesh` given the edges of its cells).
+    ///
+    /// `values` is a matrix of `ny` rows and `nx` columns, a [`Matrix`](crate::Matrix) of
+    /// numbers or a [`ByteMatrix`](crate::ByteMatrix) of whole numbers such as the indices
+    /// of categories, or the identifier of such an array in the figure. Cell `(j, i)` holds
+    /// the value in row `j` and column `i`; without explicit edges it is centred on
+    /// `(i, j)`. The cells are seamless and have no outlines, as a heatmap does, and are
+    /// mapped through the default colour scale of the axes (see
+    /// [`color_scale`](AxesMut::color_scale)), which is created when the axes has none;
+    /// [`CellsMut::color_scale`] names another, such as a categorical scale whose
+    /// categories the values name. A value that the scale cannot place, NaN among them,
+    /// follows the scale's out-of-range policy, which by default draws nothing for NaN.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let z = Matrix::from_fn(4, 6, |row, col| (row * col) as f64);
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.cells(&z).edge_color(Color::WHITE);
+    /// ax.color_scale().colormap(Colormap::Cividis);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn cells(&mut self, values: impl Into<DataSource>) -> CellsMut<'_> {
+        let values = values.into().store(self.fig);
+        self.add_cells(values, CellGap::default())
+    }
+
+    /// Draws an occupancy matrix: one row of cells per given row, each cell coloured by
+    /// its value, usually the index of a category of a categorical colour scale.
+    ///
+    /// The rows may be of different lengths, as the branches of the subroutines of a
+    /// program are; each is padded with NaN at its end to the length of the longest, and
+    /// NaN draws nothing under the default out-of-range policy, so that a short row ends
+    /// where its data ends. The cells lie on unit edges, cell `i` of row `j` centred on
+    /// `(i, j)`, with a gap of 0.2 along x and y that sets each cell apart, and the x axis
+    /// is hidden, because the position of a cell in its row names nothing.
+    ///
+    /// The rows are named by [`ycategories`](AxesMut::ycategories), whose names are given
+    /// in the order of the rows, or by [`ycategory_groups`](AxesMut::ycategory_groups),
+    /// whose [`CategoryRows::place`] arranges the data of each member in the rows that it
+    /// lays out, header and blank rows included.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let status = fig
+    ///     .categorical_scale([
+    ///         (Color::rgb(0.0, 0.6, 0.3), "taken"),
+    ///         (Color::rgb(0.8, 0.2, 0.1), "not taken"),
+    ///     ])
+    ///     .id();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.occupancy([vec![0.0, 1.0, 0.0], vec![1.0], vec![0.0, 0.0]])
+    ///     .color_scale(status);
+    /// ax.ycategories([r"\texttt{psilin}", r"\texttt{ggcalc}", r"\texttt{blsolv}"]);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn occupancy<R: AsRef<[f64]>>(
+        &mut self,
+        rows: impl IntoIterator<Item = R>,
+    ) -> CellsMut<'_> {
+        let rows: Vec<R> = rows.into_iter().collect();
+        let nx = rows.iter().map(|row| row.as_ref().len()).max().unwrap_or(0);
+        let mut values = Vec::with_capacity(rows.len() * nx);
+        for row in &rows {
+            let row = row.as_ref();
+            values.extend_from_slice(row);
+            values.extend(std::iter::repeat_n(f64::NAN, nx - row.len()));
+        }
+        let array = NdArray::from_shape(vec![rows.len(), nx], values)
+            .expect("the padded rows fill the shape");
+        let values = DataSource::from(array).store(self.fig);
+        self.axes().x.visible = false;
+        self.add_cells(values, CellGap { x: 0.2, y: 0.2 })
+    }
+
+    /// Makes the x axis categorical: a tick at 0, 1, …, N − 1, labelled with the given
+    /// names in order, which is where [`cells`](AxesMut::cells) on unit edges and bars at
+    /// whole positions lie. The first category is at the left.
+    ///
+    /// The names are LaTeX, as every other text of the figure is, so that
+    /// `\texttt{…}` sets a name of code in monospace. The limits are not changed.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// fig.axes(0, 0)
+    ///     .xcategories([r"\texttt{case_a}", r"\texttt{case_b}"])
+    ///     .xtick_label_angle(90.0);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn xcategories<T: Into<Text>>(&mut self, names: impl IntoIterator<Item = T>) -> &mut Self {
+        let labels: Vec<Text> = names.into_iter().map(Into::into).collect();
+        let axis = &mut self.axes().x;
+        axis.ticks = Ticks::Values((0..labels.len()).map(|k| k as f64).collect());
+        axis.tick_labels = TickLabels::Text(labels);
+        self
+    }
+
+    /// Makes the y axis categorical, as [`xcategories`](AxesMut::xcategories) makes the x
+    /// axis, and reverses it, so that the first category is at the top, as the rows of a
+    /// table are read.
+    pub fn ycategories<T: Into<Text>>(&mut self, names: impl IntoIterator<Item = T>) -> &mut Self {
+        let labels: Vec<Text> = names.into_iter().map(Into::into).collect();
+        let axis = &mut self.axes().y;
+        axis.ticks = Ticks::Values((0..labels.len()).map(|k| k as f64).collect());
+        axis.tick_labels = TickLabels::Text(labels);
+        axis.reverse = true;
+        self
+    }
+
+    /// Makes the y axis categorical with its rows in groups, and returns where each row
+    /// lies, so that data can be placed beside its name.
+    ///
+    /// From the top, each group takes a header row, labelled with the name of the group
+    /// in bold, then one row per member, labelled with its name, and consecutive groups
+    /// are separated by one blank row, which has no tick. A header keeps its tick mark,
+    /// because an axis draws a tick label only beside a tick. Rows are numbered from 0 at
+    /// the top, and the y axis is reversed, as [`ycategories`](AxesMut::ycategories)
+    /// reverses it. The limits are not changed.
+    ///
+    /// The names of the groups and of the members are LaTeX source, like every other text
+    /// of the figure: a header is written `\textbf{group}` around the name as given,
+    /// without escaping it, so that a name may itself hold LaTeX, and a character that
+    /// LaTeX reserves must be escaped by the caller.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// let rows = ax.ycategory_groups([
+    ///     ("xpanel.f", vec!["psilin", "ggcalc"]),
+    ///     ("xbl.f", vec!["blsolv"]),
+    /// ]);
+    /// // 0 xpanel.f, 1 psilin, 2 ggcalc, 3 blank, 4 xbl.f, 5 blsolv.
+    /// assert_eq!(rows.len(), 6);
+    /// assert_eq!(rows.row("xbl.f", "blsolv"), Some(5));
+    /// ax.occupancy(rows.place(&[vec![0.0, 1.0], vec![1.0], vec![0.0, 0.0, 1.0]]));
+    /// ```
+    pub fn ycategory_groups<G, M, N>(
+        &mut self,
+        groups: impl IntoIterator<Item = (G, M)>,
+    ) -> CategoryRows
+    where
+        G: AsRef<str>,
+        M: IntoIterator<Item = N>,
+        N: AsRef<str>,
+    {
+        let mut rows = CategoryRows::default();
+        let mut ticks = Vec::new();
+        let mut labels = Vec::new();
+        for (group, members) in groups {
+            if !rows.groups.is_empty() {
+                rows.len += 1;
+            }
+            let name = group.as_ref().to_owned();
+            let header = rows.len;
+            ticks.push(header as f64);
+            labels.push(Text::new(format!(r"\textbf{{{name}}}")));
+            rows.len += 1;
+            let mut placed = Vec::new();
+            for member in members {
+                let member = member.as_ref().to_owned();
+                ticks.push(rows.len as f64);
+                labels.push(Text::new(member.clone()));
+                placed.push((member, rows.len));
+                rows.len += 1;
+            }
+            rows.groups.push(CategoryGroup {
+                name,
+                header,
+                members: placed,
+            });
+        }
+        let axis = &mut self.axes().y;
+        axis.ticks = Ticks::Values(ticks);
+        axis.tick_labels = TickLabels::Text(labels);
+        axis.reverse = true;
+        rows
     }
 
     // Colour scales.
@@ -1357,6 +1547,22 @@ impl AxesMut<'_> {
         BarMut::new(self.fig, id, None)
     }
 
+    /// Adds cells of the stored values on unit edges with the given gap, mapped through the
+    /// default colour scale of the axes.
+    fn add_cells(&mut self, values: NodeId, gap: CellGap) -> CellsMut<'_> {
+        let (scale, created) = self.default_scale();
+        let id = self.push_artist(|id| {
+            Artist::Cells(Cells {
+                id,
+                values,
+                gap,
+                color_scale: Some(scale),
+                ..Cells::default()
+            })
+        });
+        CellsMut::new(self.fig, id, created.then_some(scale))
+    }
+
     /// Adds stairs with the defaults of `stairs`.
     fn add_stairs(&mut self, data: StairsData) -> StairsMut<'_> {
         let id = self.push_artist(|id| {
@@ -1426,5 +1632,101 @@ fn axis_mut(axes: &mut Axes, dim: Dimension) -> &mut Axis {
         Dimension::X => &mut axes.x,
         Dimension::Y => &mut axes.y,
         Dimension::Z => &mut axes.z,
+    }
+}
+
+/// One group of the rows that [`ycategory_groups`](AxesMut::ycategory_groups) lays out.
+#[derive(Clone, Debug, PartialEq)]
+struct CategoryGroup {
+    /// The name of the group, as given.
+    name: String,
+    /// The row of the header of the group.
+    header: usize,
+    /// The name of each member, as given, with its row, in the order given.
+    members: Vec<(String, usize)>,
+}
+
+/// The rows of a categorical y axis laid out in groups by
+/// [`ycategory_groups`](AxesMut::ycategory_groups): where each header and each member
+/// lies, and how many rows there are, header and blank rows included.
+///
+/// Rows are numbered from 0 at the top, and the number of a row is its y coordinate on
+/// cells with unit edges, so that [`place`](CategoryRows::place) gives
+/// [`occupancy`](AxesMut::occupancy) one row of data per row of the layout.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CategoryRows {
+    groups: Vec<CategoryGroup>,
+    len: usize,
+}
+
+impl CategoryRows {
+    /// Returns the number of rows laid out, header and blank rows included.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns whether no row was laid out, which is the case when there were no groups.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the row of the member `member` of the group `group`, or `None` when that
+    /// group has no such member. A name that occurs in several groups is found in the
+    /// group named only.
+    #[must_use]
+    pub fn row(&self, group: &str, member: &str) -> Option<usize> {
+        self.groups
+            .iter()
+            .filter(|g| g.name == group)
+            .flat_map(|g| &g.members)
+            .find(|(name, _)| name == member)
+            .map(|&(_, row)| row)
+    }
+
+    /// Returns the row of the header of the group `group`, or `None` when there is no
+    /// such group.
+    #[must_use]
+    pub fn header(&self, group: &str) -> Option<usize> {
+        self.groups
+            .iter()
+            .find(|g| g.name == group)
+            .map(|g| g.header)
+    }
+
+    /// Returns every row of the layout, holding the data of each member in its own row and
+    /// nothing in a header or blank row, ready for [`occupancy`](AxesMut::occupancy).
+    ///
+    /// `member_rows` holds one row of data per member, in the order the members were
+    /// given, group by group.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `member_rows` does not hold one row per member, because the rows could
+    /// not then be matched to the names, and placing them anyway would draw the data of
+    /// one member beside the name of another.
+    #[must_use]
+    pub fn place<R: AsRef<[f64]>>(
+        &self,
+        member_rows: impl IntoIterator<Item = R>,
+    ) -> Vec<Vec<f64>> {
+        let given: Vec<R> = member_rows.into_iter().collect();
+        let members: Vec<usize> = self
+            .groups
+            .iter()
+            .flat_map(|g| g.members.iter().map(|&(_, row)| row))
+            .collect();
+        assert!(
+            given.len() == members.len(),
+            "CategoryRows::place needs one row per member: {} members were laid out, but {} rows were given",
+            members.len(),
+            given.len()
+        );
+        let mut rows = vec![Vec::new(); self.len];
+        for (row, data) in members.into_iter().zip(&given) {
+            rows[row] = data.as_ref().to_vec();
+        }
+        rows
     }
 }
