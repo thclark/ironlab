@@ -42,7 +42,7 @@ A line or a set of markers placed in data coordinates along one axis and in frac
 
 `surface` adds the same object as `surf` and leaves the projection of the axes as it is, so it draws a pseudocolour plot in a two-dimensional axes and a surface in a three-dimensional one. [Surfaces in two-dimensional axes](../guides/getting-started.md#surfaces-in-two-dimensional-axes) explains how such a plot differs from a scalar image and from MATLAB's `pcolor`, and the [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry shows one on a polar mesh.
 
-A value that belongs to a cell between edges, rather than to a vertex of a grid, is drawn by `cells`, which is what matplotlib's `pcolormesh` draws when it is given one more edge than values along each axis. `occupancy` pads ragged rows with NaN and sets the cells apart by a gap, as [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows) describes.
+A value that belongs to a cell between edges, rather than to a vertex of a grid, is drawn by `cells`, which is what matplotlib's `pcolormesh` draws when it is given one more edge than values along each axis. `occupancy` pads ragged rows with NaN and sets the cells apart by a gap, as [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows) describes, and the [branch coverage occupancy matrix](../gallery/branch_coverage.md) and the [case by subroutine coverage matrix](../gallery/coverage_matrix.md) gallery entries draw both kinds.
 
 ## Images
 
@@ -128,7 +128,7 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | Stepped outline between edges | `histogram` with `DisplayStyle` set to `stairs` | `stairs` | `Scatter` with `line_shape="hv"` through the edges | `stairs` |
 | Stepped line through samples | `stairs` | `step`, or `plot` with `drawstyle="steps-post"` | `Scatter` with `line_shape="hv"`, `"vh"` or `"hvh"` | `stairs_at` with `StepAt::Post`, `StepAt::Pre` or `StepAt::Mid` |
 
-Bars that compare series side by side or stack them are separate series placed by the `bars` helper, so that each series keeps its own label, colour and legend entry, as [bar charts](../guides/getting-started.md#bar-charts) describes. The positions are always numbers: categorical bars stand at 0, 1, …, N − 1 and are named by text tick labels.
+Bars that compare series side by side or stack them are separate series placed by the `bars` helper, so that each series keeps its own label, colour and legend entry, as [bar charts](../guides/getting-started.md#bar-charts) describes. The positions are always numbers: categorical bars stand at 0, 1, …, N − 1 and are named by text tick labels. The [grouped bar chart](../gallery/bar_chart.md), [stacked, horizontal, floating and highlighted bars](../gallery/bar_variants.md) and [stairs](../gallery/stairs.md) gallery entries show each row of the table.
 
 ## Histograms
 
@@ -145,7 +145,7 @@ Bars that compare series side by side or stack them are separate series placed b
 | Two-dimensional histogram without its sparse bins | no equivalent | `hist2d` with `cmin=` | no equivalent | `hist2d` with `min_count` |
 | Contours of the density of pairs of samples | no equivalent | no equivalent; `contour` of the counts of `numpy.histogram2d` | `Histogram2dContour` | `density_contour` |
 
-IronLAB bins every histogram when the figure is built and stores the binned values with a record of how they were binned, rather than the sample, so a datatip reports the count and the density of each bin but the viewer cannot rebin, as [histograms](../guides/getting-started.md#histograms) describes. The binning follows `numpy.histogram`, and the normalisations take MATLAB's names.
+IronLAB bins every histogram when the figure is built and stores the binned values with a record of how they were binned, rather than the sample, so a datatip reports the count and the density of each bin but the viewer cannot rebin, as [histograms](../guides/getting-started.md#histograms) describes. The binning follows `numpy.histogram`, and the normalisations take MATLAB's names. The [histograms](../gallery/histogram.md) and [two-dimensional histogram and density contour](../gallery/histogram_2d.md) gallery entries show overlaid, stacked and two-dimensional histograms and a density contour.
 
 ## Axes
 

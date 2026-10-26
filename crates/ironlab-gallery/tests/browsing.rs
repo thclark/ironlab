@@ -354,11 +354,14 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
     let values: Vec<String> = tags.values.iter().map(FacetValue::text).collect();
 
     for wanted in [
+        "bar",
+        "cells",
         "contour",
         "image",
         "line",
         "quiver",
         "scatter",
+        "stairs",
         "surface",
         "subplots",
         "legend",
@@ -659,6 +662,8 @@ fn the_gallery_can_be_put_in_order_of_how_much_data_each_figure_holds() {
 /// The list is written out because the test has to tell a structural word an entry left out from a feature word it
 /// never claimed: without it, an entry that forgot "legend" would look the same as one that simply has no legend.
 const STRUCTURAL: &[&str] = &[
+    "bar",
+    "cells",
     "color-scale",
     "colorbar",
     "contour",
@@ -668,6 +673,7 @@ const STRUCTURAL: &[&str] = &[
     "log",
     "quiver",
     "scatter",
+    "stairs",
     "subplots",
     "surface",
 ];

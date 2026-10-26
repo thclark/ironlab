@@ -6,9 +6,9 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorSpec,
-    ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter, Limits,
-    MarkerShape, NodeId, OutOfRange, Projection, Scale,
+    Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter,
+    Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar, Projection, Scale, TickLabels,
 };
 use ironlab_gallery::{all, find};
 
@@ -55,6 +55,22 @@ fn has_a_non_default_policy(scale: &ColorScale) -> bool {
     ranged || differs(scale.non_finite.policy, OutOfRange::Transparent)
 }
 
+/// Returns the bar series of an axes other than the given one.
+fn other_bars<'a>(axes: &'a Axes, bar: &'a Bar) -> impl Iterator<Item = &'a Bar> {
+    axes.artists.iter().filter_map(move |a| match a {
+        Artist::Bar(other) if other.id != bar.id => Some(other),
+        _ => None,
+    })
+}
+
+/// Returns the offset of a bar series in multiples of its width, when it is given so.
+fn offset_in_widths(bar: &Bar) -> Option<f64> {
+    match bar.offset {
+        BarOffset::Widths(k) => Some(k),
+        BarOffset::Absolute(_) => None,
+    }
+}
+
 fn figures() -> Vec<(&'static str, Figure)> {
     all()
         .into_iter()
@@ -65,7 +81,7 @@ fn figures() -> Vec<(&'static str, Figure)> {
 /// WHY: each row names a MATLAB chart type from the plan and the IR shape that implements it.
 #[test]
 fn every_required_chart_type_is_present() {
-    let requirements: [(&str, Predicate); 27] = [
+    let requirements: [(&str, Predicate); 37] = [
         ("plot with lines and markers", |_, axes, artist| {
             is_2d(axes)
                 && matches!(artist, Artist::Series(l) if l.z.is_none() && l.draws_line() && l.marker.shape != MarkerShape::None)
@@ -246,6 +262,72 @@ fn every_required_chart_type_is_present() {
                     })
             },
         ),
+        // WHY: bars are a primitive (ADR 0026), so each layout of bars is a different stored geometry rather than a
+        // property of a group: upright and flat bars differ in orientation, grouped columns in their offsets in
+        // widths, and stacked parts in bases that come from data beneath a part that shares their positions and
+        // offset. A histogram is bars that carry a binning record, and the gallery must show bars without one too,
+        // so that the record is not mistaken for a requirement of bars.
+        (
+            "bar (vertical)",
+            |_, _, artist| matches!(artist, Artist::Bar(b) if b.orientation == Orientation::Vertical && b.binning.is_none()),
+        ),
+        (
+            "barh",
+            |_, _, artist| matches!(artist, Artist::Bar(b) if b.orientation == Orientation::Horizontal && b.binning.is_none()),
+        ),
+        ("grouped bars", |_, axes, artist| {
+            let Artist::Bar(bar) = artist else {
+                return false;
+            };
+            offset_in_widths(bar).is_some_and(|k| {
+                k != 0.0
+                    && other_bars(axes, bar).any(|other| {
+                        other.positions == bar.positions
+                            && offset_in_widths(other).is_some_and(|j| j != k)
+                    })
+            })
+        }),
+        ("stacked bars", |_, axes, artist| {
+            let Artist::Bar(bar) = artist else {
+                return false;
+            };
+            bar.binning.is_none()
+                && matches!(bar.base, PerBar::Data(_))
+                && other_bars(axes, bar)
+                    .any(|other| other.positions == bar.positions && other.offset == bar.offset)
+        }),
+        (
+            "histogram (bars from hist)",
+            |_, _, artist| matches!(artist, Artist::Bar(b) if b.binning.is_some()),
+        ),
+        (
+            "two-dimensional histogram (cells from hist2d)",
+            |_, _, artist| matches!(artist, Artist::Cells(c) if c.binning.is_some()),
+        ),
+        (
+            "stairs",
+            |_, _, artist| matches!(artist, Artist::Stairs(s) if s.binning.is_none()),
+        ),
+        ("cells", |_, axes, artist| {
+            is_2d(axes) && matches!(artist, Artist::Cells(c) if c.binning.is_none())
+        }),
+        // WHY: an occupancy matrix is cells whose x axis names nothing and is hidden, beside rows named by a
+        // categorical y axis read from the top; the hidden axis and the reversed text-labelled axis are the layout
+        // branches that ordinary cells never reach.
+        (
+            "occupancy (cells with a hidden x axis and categorical rows)",
+            |_, axes, artist| {
+                matches!(artist, Artist::Cells(_))
+                    && !axes.x.visible
+                    && axes.y.reverse
+                    && matches!(axes.y.tick_labels, TickLabels::Text(_))
+            },
+        ),
+        // WHY: turned tick labels change how the layout reserves space beneath an axes, which level labels never
+        // exercise.
+        ("turned tick labels", |_, axes, _| {
+            is_2d(axes) && (axes.x.tick_label_angle != 0.0 || axes.y.tick_label_angle != 0.0)
+        }),
     ];
 
     let figures = figures();
