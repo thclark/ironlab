@@ -530,6 +530,10 @@ Isolines or filled bands of a scalar field sampled on a grid (MATLAB's `contour`
 | `line_opacity` | The [opacity](#alpha-and-opacity) of the isolines, a number from 0 to 1, which multiplies the alpha of their colour. The default is 1. |
 | `fill_opacity` | The [opacity](#alpha-and-opacity) of the filled bands, a number from 0 to 1, which multiplies the alpha of their colour. The default is 1, and it has no effect when `fill` is `false`. |
 
+Automatic levels lie strictly inside the range of the field, because a level at the minimum or the maximum would draw a degenerate contour. Through a colour scale with a linear norm, or through no scale, they are equally spaced at 1, 2 or 5 times a power of ten. Through a continuous or discrete scale with a logarithmic norm, they are spaced logarithmically inside the range of the positive values of the field, as Matplotlib's `LogLocator` places them under a `LogNorm`, so that a field spanning several decades has isolines in each decade rather than all in its top decade. When at least two decades lie inside that range, the levels are the decades, thinned to every second, third or further decade by the smallest stride that leaves at most `count` of them. Otherwise the levels are the first of these choices that gives at least two levels: 1, 2 and 5 times each decade; 1 to 9 times each decade; and equally spaced levels as under a linear norm. A field of no positive values has no automatic levels under a logarithmic norm. The band edges of a discrete scale, when a contour takes its levels from them, are used as they stand under either norm.
+
+A filled band is coloured by the middle of the part of its range that the field covers. Under a logarithmic norm, the middle of a band of positive values is its geometric middle, the square root of the product of its ends, which is the middle of its span along the bar of the scale.
+
 ### `quiver`
 
 Arrows representing a vector field (MATLAB's `quiver` and `quiver3`).

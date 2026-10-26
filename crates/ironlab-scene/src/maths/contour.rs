@@ -612,6 +612,52 @@ pub fn auto_levels(zmin: f64, zmax: f64, count: usize) -> Vec<f64> {
         .collect()
 }
 
+/// Chooses contour levels strictly inside `(lo, hi)`, spaced logarithmically, as Matplotlib's `LogLocator` places
+/// them under a `LogNorm`.
+///
+/// When at least two decades `10^n` lie strictly inside the range, the levels are those decades whose exponent `n` is
+/// a multiple of the smallest stride that leaves at most `count` of them. Otherwise the levels are 1, 2 and 5 times
+/// each decade if at least two of those lie inside the range, failing that 1 to 9 times each decade if at least two
+/// of those do, and failing that the levels of [`auto_levels`] over the range.
+///
+/// A level within a relative 1e-9 of either bound is excluded, because a level at the data extreme would draw a
+/// degenerate contour. Returns no levels if either bound is not finite or not positive, or `lo >= hi`.
+pub fn auto_log_levels(lo: f64, hi: f64, count: usize) -> Vec<f64> {
+    if !(lo.is_finite() && hi.is_finite() && lo > 0.0 && lo < hi) {
+        return Vec::new();
+    }
+    let inside = |level: &f64| *level > lo * (1.0 + 1e-9) && *level < hi * (1.0 - 1e-9);
+    let first = lo.log10().floor() as i64;
+    let last = hi.log10().ceil() as i64;
+    let multiples = |digits: &[i128]| -> Vec<f64> {
+        (first..=last)
+            .flat_map(|n| digits.iter().map(move |d| super::ticks::decimal(*d, n)))
+            .filter(inside)
+            .collect()
+    };
+    let decades: Vec<i64> = (first..=last)
+        .filter(|n| inside(&super::ticks::decimal(1, *n)))
+        .collect();
+    if decades.len() >= 2 {
+        let limit = count.max(1);
+        let stride = (1..)
+            .find(|stride| decades.iter().filter(|n| *n % stride == 0).count() <= limit)
+            .unwrap_or(1);
+        return decades
+            .iter()
+            .filter(|n| *n % stride == 0)
+            .map(|n| super::ticks::decimal(1, *n))
+            .collect();
+    }
+    [
+        multiples(&[1, 2, 5]),
+        multiples(&[1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    ]
+    .into_iter()
+    .find(|levels| levels.len() >= 2)
+    .unwrap_or_else(|| auto_levels(lo, hi, count))
+}
+
 /// Builds the half-open bands `[lo, hi)` that a filled contour plot paints.
 ///
 /// The non-finite values in `levels` are discarded and the rest are sorted and de-duplicated.

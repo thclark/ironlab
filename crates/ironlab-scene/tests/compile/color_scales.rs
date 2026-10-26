@@ -944,6 +944,126 @@ fn a_contour_with_no_levels_on_a_continuous_scale_draws_ten_automatic_levels() {
     assert_eq!(absent, levels_of(Some(Levels::Auto { count: 10 })));
 }
 
+/// Adds a contour of the field `z = x` over `x` from 0.01 to 1000, placed so that the isolines, which interpolate `z`
+/// linearly between nodes, cross exactly at their levels, through a continuous logarithmic viridis scale with
+/// automatic limits.
+fn log_contour(fx: &mut Fx, ax: NodeId, edit: impl FnOnce(&mut ironlab_ir::Contour)) -> NodeId {
+    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+        norm: ColorScaleNorm::Log,
+        ..ContinuousColorScale::default()
+    }));
+    let x: Vec<f64> = linspace(-2.0, 3.0, 21)
+        .into_iter()
+        .map(|e| 10f64.powf(e))
+        .collect();
+    fx.contour(
+        ax,
+        &x,
+        &[0.0, 1.0],
+        |x, _| x,
+        |c| {
+            c.color_scale = Some(scale);
+            edit(c);
+        },
+    )
+}
+
+// WHY: a field spanning five decades seen through a logarithmic scale must have isolines in every decade, at the
+// decades themselves, each in the colour the bar shows for its level; linear levels would crowd them all into the top
+// decade in nearly one colour.
+#[test]
+fn automatic_contour_levels_under_a_log_norm_are_the_decades_inside_the_field() {
+    for levels in [None, Some(Levels::Auto { count: 10 })] {
+        let mut fx = Fx::new();
+        let ax = fx.axes2d(0, 0);
+        let contour = log_contour(&mut fx, ax, |c| c.levels = levels.clone());
+        let scene = compile_figure(&fx.build());
+        let drawn = isoline_levels(&scene, ax, contour);
+        let expected = [0.1, 1.0, 10.0, 100.0];
+        assert_eq!(drawn.len(), expected.len(), "{levels:?}: {drawn:?}");
+        for (level, decade) in drawn.iter().zip(expected) {
+            assert!((level / decade - 1.0).abs() < 1e-6, "{levels:?}: {drawn:?}");
+        }
+        // Each isoline takes the colour at the logarithmic position of its level between the limits 0.01 and 1000.
+        let (xmap, _) = axis_maps(&scene, ax);
+        for leaf in from_source(&leaves(&scene), contour) {
+            let Some(stroke) = leaf.path().and_then(|p| p.stroke.clone()) else {
+                continue;
+            };
+            let level = xmap.to_data(leaf.subpaths()[0][0].x);
+            let t = (level.log10() + 2.0) / 5.0;
+            let actual = nearest_lut_index(&VIRIDIS, stroke.color);
+            assert!(
+                actual.abs_diff(entry(t)) <= 1,
+                "the isoline at {level} takes entry {actual}, expected {}",
+                entry(t)
+            );
+        }
+    }
+}
+
+// WHY: under a logarithmic scale the middle of a band is its geometric middle, so a filled band takes the colour the
+// bar shows halfway across it rather than one near its top.
+#[test]
+fn a_filled_band_under_a_log_norm_takes_the_colour_of_its_geometric_middle() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let contour = log_contour(&mut fx, ax, |c| {
+        c.levels = Some(Levels::Explicit {
+            values: vec![1.0, 100.0],
+        });
+        c.fill = true;
+    });
+    let scene = compile_figure(&fx.build());
+    let (xmap, _) = axis_maps(&scene, ax);
+    let mut checked = false;
+    for leaf in from_source(&leaves(&scene), contour) {
+        let Some(fill) = leaf.path().and_then(|p| p.fill) else {
+            continue;
+        };
+        let piece = &leaf.subpaths()[0];
+        let mean = piece.iter().map(|p| xmap.to_data(p.x)).sum::<f64>() / piece.len() as f64;
+        if !(1.0..100.0).contains(&mean) {
+            continue;
+        }
+        // The band [1, 100) has its geometric middle at 10, midway between the limits 0.01 and 1000.
+        let actual = nearest_lut_index(&VIRIDIS, fill.color);
+        assert!(
+            actual.abs_diff(entry(0.6)) <= 1,
+            "the band [1, 100) takes entry {actual}, expected {}",
+            entry(0.6)
+        );
+        checked = true;
+    }
+    assert!(checked, "the band [1, 100) is filled");
+}
+
+// WHY: band edges that a discrete logarithmic scale supplies are the levels its bar shows, so the automatic choice of
+// levels must not replace them.
+#[test]
+fn a_contour_with_no_levels_on_a_discrete_log_scale_keeps_the_band_edges() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let edges = [0.05, 3.0, 70.0, 500.0];
+    let scale = fx.color_scale(ColorScaleKind::Discrete(DiscreteColorScale {
+        levels: ColorScaleLevels::Explicit {
+            values: edges.to_vec(),
+        },
+        norm: ColorScaleNorm::Log,
+        ..DiscreteColorScale::default()
+    }));
+    let contour = log_contour(&mut fx, ax, |c| {
+        c.levels = None;
+        c.color_scale = Some(scale);
+    });
+    let scene = compile_figure(&fx.build());
+    let drawn = isoline_levels(&scene, ax, contour);
+    assert_eq!(drawn.len(), edges.len(), "{drawn:?}");
+    for (level, edge) in drawn.iter().zip(edges) {
+        assert!((level / edge - 1.0).abs() < 1e-6, "{drawn:?}");
+    }
+}
+
 // WHY: a contour through an indexed scale colours each isoline by the entry its level names, so class boundaries take their class colours.
 #[test]
 fn a_contour_through_an_indexed_scale_colours_each_isoline_by_the_entry_its_level_names() {

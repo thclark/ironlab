@@ -392,7 +392,7 @@ const EXACT_POWERS_OF_TEN: [f64; 23] = [
 /// When both the integer and the power of ten are exactly representable, one IEEE multiplication
 /// or division is correctly rounded and gives the nearest value. Otherwise the decimal literal is
 /// parsed, which is also correctly rounded.
-fn decimal(digits: i128, exponent: i64) -> f64 {
+pub(crate) fn decimal(digits: i128, exponent: i64) -> f64 {
     if digits == 0 {
         return 0.0;
     }
