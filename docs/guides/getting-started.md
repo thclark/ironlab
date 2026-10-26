@@ -212,13 +212,13 @@ fig.axes(0, 0)
     .colors([grey, grey, red, grey]);   // the third bar stands out
 ```
 
-A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the segment it spans from its base to its end, and the name of its category when the axis names it with a text tick label. The [figure schema](../reference/figure-schema.md#bar) states the rules of bars in full.
+A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the segment it spans from its base to its end, and the name of its category when the axis names it with a text tick label. The [figure schema](../reference/figure-schema.md#bar) states the rules of bars in full. The [grouped bar chart](../gallery/bar_chart.md) in the gallery compares three series across four categories, and [stacked, horizontal, floating and highlighted bars](../gallery/bar_variants.md) shows a stack with negative parts, bars lying flat beside long names, floating ranges and per-bar colours.
 
 ### Stairs
 
 `stairs(edges, values)` draws a stepped outline that holds each value between two neighbouring edges, of which there is one more than values, as the outline of a histogram is drawn (matplotlib's `stairs`). `stairs_at(x, values, step)` holds each value at a sample instead (MATLAB's `stairs` and matplotlib's `step`), and `step` says where each step occurs: `StepAt::Post` holds a value from its sample up to the next, `StepAt::Pre` from the previous sample up to its own, and `StepAt::Mid` changes value midway between the samples. Both return a `StairsMut`.
 
-The outline is open by default: it starts at the first value and ends at the last, in the next colour of the colour order. `base(b)` drops the outline to `b` at both ends, without drawing a line along the base, and `fill(color)` then fills the area between the outline and the base. A value that is not finite breaks the outline, and each unbroken piece of a based outline drops to the base at both of its ends.
+The outline is open by default: it starts at the first value and ends at the last, in the next colour of the colour order. `base(b)` drops the outline to `b` at both ends, without drawing a line along the base, and `fill(color)` then fills the area between the outline and the base. Stairs are a line that may shade an area, so their colours are set by `color` and `fill`, whereas bars and cells, whose mark is a closed shape, have a face and an edge, as [ADR 0028](../adrs/0028-closed-shapes-have-faces-and-lines-have-fills.md) records. A value that is not finite breaks the outline, and each unbroken piece of a based outline drops to the base at both of its ends.
 
 ```rust
 let edges = [0.0, 1.0, 2.0, 4.0, 5.0];
@@ -236,11 +236,11 @@ ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
     .dash(Dash::Dashed);
 ```
 
-`orientation(Orientation::Horizontal)` places the edges along y and the values along x, which draws a profile against height. A datatip on stairs names the two edges of the step under the pointer and the value it holds.
+`orientation(Orientation::Horizontal)` places the edges along y and the values along x, which draws a profile against height. A datatip on stairs names the two edges of the step under the pointer and the value it holds. The [stairs](../gallery/stairs.md) entry of the gallery draws both kinds: a sampled signal held between samples, and an octave-band spectrum held between the edges of its bands, based and filled.
 
 ### Cells and categorical rows
 
-`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a [two-dimensional histogram](#histograms) of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`.
+`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a [two-dimensional histogram](#histograms) of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`. Cells are an artist of their own rather than a form of scalar image or surface, because their values belong to the cells rather than to the nodes between them, and their edges may be uneven, lie along a logarithmic axis and be set apart by gaps, as [ADR 0027](../adrs/0027-cells-are-an-artist-of-their-own.md) records.
 
 ```rust
 let counts = Matrix::from_rows(&[[1.0, 4.0, 2.0], [3.0, 9.0, 5.0]]);
@@ -277,7 +277,7 @@ ax.occupancy(rows.place(&branches))
 fig.panel(1, 0).legend().item(status); // a key of the statuses under the plot
 ```
 
-A datatip in the [viewer](viewer.md#datatips) names the cell under the pointer by its row and column in the array, its value in the words of its scale (the label of its category, through a categorical scale), and the names of its row and column when the axes name them with text tick labels. A cell that its scale leaves transparent, such as the padding of a short row, has no datatip, and neither has the gap between cells. The [figure schema](../reference/figure-schema.md#cells) states the rules of cells in full.
+A datatip in the [viewer](viewer.md#datatips) names the cell under the pointer by its row and column in the array, its value in the words of its scale (the label of its category, through a categorical scale), and the names of its row and column when the axes name them with text tick labels. A cell that its scale leaves transparent, such as the padding of a short row, has no datatip, and neither has the gap between cells. The [figure schema](../reference/figure-schema.md#cells) states the rules of cells in full. The gallery shows both figures of a coverage study: the [branch coverage occupancy matrix](../gallery/branch_coverage.md), with grouped rows and a key of statuses under the plot, and the [case by subroutine coverage matrix](../gallery/coverage_matrix.md), with turned column names, a discrete colourbar with a key for the cells not entered, and a dot overlay.
 
 ### Histograms
 
@@ -340,6 +340,8 @@ fig.axes(0, 2)
 ```
 
 `density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
+
+The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density.
 
 ### Contours
 
@@ -678,7 +680,7 @@ bottom.plot(ticks, [12.0, 31.0, 7.0, 19.0]);
 bottom.xticks(ticks).xtick_labels(names).xtick_label_angle(45.0);
 ```
 
-A three-dimensional axes draws its tick labels along the projected edges of its box, where a turn in the page has no agreed meaning, so it ignores the angle and [`validate`](#validating-a-figure) warns of it with `TickLabelAngleIgnored`; an angle that is not finite is the error `InvalidTickLabelAngle`. A hidden axis of a three-dimensional axes draws no ticks, tick labels or label, and the box is drawn as before. The [equivalent functions](../reference/equivalent-functions.md#axes) map both settings to MATLAB, matplotlib and Plotly, and the [figure schema](../reference/figure-schema.md#axis) gives the exact rules.
+A three-dimensional axes draws its tick labels along the projected edges of its box, where a turn in the page has no agreed meaning, so it ignores the angle and [`validate`](#validating-a-figure) warns of it with `TickLabelAngleIgnored`; an angle that is not finite is the error `InvalidTickLabelAngle`. A hidden axis of a three-dimensional axes draws no ticks, tick labels or label, and the box is drawn as before. The [equivalent functions](../reference/equivalent-functions.md#axes) map both settings to MATLAB, matplotlib and Plotly, and the [figure schema](../reference/figure-schema.md#axis) gives the exact rules. In the gallery, the [case by subroutine coverage matrix](../gallery/coverage_matrix.md) stands its column names vertically, the lower axes of [stacked, horizontal, floating and highlighted bars](../gallery/bar_variants.md) turn theirs by 30 degrees, and the [branch coverage occupancy matrix](../gallery/branch_coverage.md) hides its x axis.
 
 ## Legends
 
