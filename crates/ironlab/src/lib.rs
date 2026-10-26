@@ -71,9 +71,10 @@ mod pixels;
 pub use ironlab_ir as ir;
 
 pub use artists::{
-    BarMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut, SurfaceMut,
+    BarMut, CellsMut, ContourMut, ImageMut, QuiverMut, ScalarImageMut, SeriesMut, StairsMut,
+    SurfaceMut,
 };
-pub use axes::AxesMut;
+pub use axes::{AxesMut, CategoryRows};
 pub use color::IntoColorSpec;
 pub use color_scale::{ColorScaleMut, ColormapSample};
 pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
@@ -185,14 +186,14 @@ pub struct ExportReport {
 pub mod prelude {
     pub use crate::AxesMut;
     pub use crate::{
-        Aspect, AspectAdjust, BarLayout, BarMut, ByteMatrix, Color, ColorScaleKey, ColorScaleMut,
-        ColorScaleNorm, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
-        ColormapSample, ContourMut, Coords, Dash, DataArrayMut, DataSource, Dim, Error, Figure,
-        ImageMut, ImagePlane, ImageValues, InsideColorbarMut, InsideColorbarSide, IntoColorSpec,
-        LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendLocation,
-        LegendSample, Marker, Matrix, NodeId, Orientation, OutOfRange, PanelColorbarMut,
-        PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut, RasterOptions,
-        RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt, SurfaceMut, Text,
-        TitleAlign, TrackSize, linspace, logspace, meshgrid,
+        Aspect, AspectAdjust, BarLayout, BarMut, ByteMatrix, CategoryRows, CellsMut, Color,
+        ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,
+        ColorbarTitlePlacement, Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut,
+        DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues, InsideColorbarMut,
+        InsideColorbarSide, IntoColorSpec, LegendEntries, LegendEntryColumns, LegendEntryOrder,
+        LegendItem, LegendLocation, LegendSample, Marker, Matrix, NodeId, Orientation, OutOfRange,
+        PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut,
+        RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt,
+        SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
     };
 }

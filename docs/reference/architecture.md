@@ -142,8 +142,8 @@ Because the composed figure is the only state that drawing depends on, exporting
 
 The figure model stores every piece of text as its source string with an interpreter, never as typeset glyphs. Text is resolved only when the scene compiler lays out a figure, by the text engine in `ironlab-text`:
 
-1. With the LaTeX interpreter, the source is split into plain segments, mathematics segments delimited by `$…$`, and monospace segments written `\texttt{…}` outside mathematics. With no interpreter, the whole source is one plain segment.
-2. Plain segments are shaped with HarfRust against STIX Two Text. Monospace segments are set in the Mathematical Monospace letters and digits of STIX Two Math, one character to a cell of fixed width, because no monospace font is bundled.
+1. With the LaTeX interpreter, the source is split into plain segments, mathematics segments delimited by `$…$`, monospace segments written `\texttt{…}` and bold segments written `\textbf{…}` outside mathematics. With no interpreter, the whole source is one plain segment.
+2. Plain segments are shaped with HarfRust against STIX Two Text Regular, and bold segments against STIX Two Text Bold. Monospace segments are set in the Mathematical Monospace letters and digits of STIX Two Math, one character to a cell of fixed width, because no monospace font is bundled.
 3. Mathematics segments are parsed and laid out by latex-rust against STIX Two Math, which applies TeX's conventions itself: hyphens become minus signs, unstyled letters are set in mathematical italic, and scripts are drawn at the font's script sizes. latex-rust rejects input nested more deeply than its nesting limit with an error, and layout runs on a helper thread with a stack of known size (in the browser, which has one thread, the linker gives that thread a large stack instead), so that no input can overflow a stack.
 4. The resulting box tree is converted into positioned glyphs and rules in points, and the segments are placed on a shared baseline.
 

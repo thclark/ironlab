@@ -495,6 +495,7 @@ pub(crate) fn replace_scale(
         Some(Artist::Surface(a)) => a.color_scale.replace(scale),
         Some(Artist::Series(a)) => a.color_scale.replace(scale),
         Some(Artist::Bar(a)) => a.color_scale.replace(scale),
+        Some(Artist::Cells(a)) => a.color_scale.replace(scale),
         _ => unreachable!("only an artist that takes a colour scale is given one"),
     };
     let Some(created) = created.filter(|&created| Some(created) == previous && created != scale)

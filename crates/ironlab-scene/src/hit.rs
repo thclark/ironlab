@@ -210,6 +210,30 @@ pub struct BarHit {
     pub segment: Option<(f64, f64)>,
 }
 
+/// One cell drawn in a two-dimensional axes, from which the cell under a pointer is found.
+///
+/// The row and column index the artist's own array of values, and the edges and the value are those its data holds,
+/// so that a front end reports what the user's data holds rather than anything read back from the page. A cell that
+/// was not drawn, because its scale leaves it transparent (as the NaN padding of a ragged row is), its alpha is 0,
+/// one of its edges cannot be placed on a logarithmic axis, it lies outside the plot area or its artist is hidden,
+/// has no entry.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellHit {
+    pub axes: NodeId,
+    pub artist: NodeId,
+    /// The row of the cell in the artist's array of values.
+    pub row: usize,
+    /// The column of the cell in the artist's array of values.
+    pub column: usize,
+    /// The part of the rectangle of the cell, as drawn inside its gap, that lies inside the plot area, in figure
+    /// space.
+    pub rect: Rect,
+    /// The edges of the cell's column, edges `column` and `column + 1`, in the order of the data.
+    pub column_edges: (f64, f64),
+    /// The edges of the cell's row, edges `row` and `row + 1`, in the order of the data.
+    pub row_edges: (f64, f64),
+}
+
 /// One step of stairs drawn in a two-dimensional axes: the run of the outline at the level of one value, from which
 /// the step under a pointer is found.
 #[derive(Clone, Debug, PartialEq)]
@@ -261,6 +285,14 @@ pub struct HitMap {
     pub bars: Vec<BarHit>,
     /// Every step of stairs drawn in a two-dimensional axes, in paint order.
     pub steps: Vec<StepHit>,
+    /// Every cell drawn in a two-dimensional axes, in paint order.
+    pub cells: Vec<CellHit>,
+}
+
+/// Returns the item drawn last whose rectangle contains `p`, which is the one the reader sees on top where
+/// rectangles overlap.
+fn last_containing<T>(items: &[T], p: Point, rect: impl Fn(&T) -> Rect) -> Option<&T> {
+    items.iter().rev().find(|item| rect(item).contains(p))
 }
 
 impl HitMap {
@@ -300,7 +332,13 @@ impl HitMap {
     /// Returns the bar drawn last whose rectangle contains `p`, which is the one the reader sees on top where bars
     /// overlap.
     pub fn bar_at(&self, p: Point) -> Option<&BarHit> {
-        self.bars.iter().rev().find(|bar| bar.rect.contains(p))
+        last_containing(&self.bars, p, |bar| bar.rect)
+    }
+
+    /// Returns the cell drawn last whose rectangle contains `p`, which is the one the reader sees on top where cells
+    /// overlap. A point in the gap between two cells lies in neither.
+    pub fn cell_at(&self, p: Point) -> Option<&CellHit> {
+        last_containing(&self.cells, p, |cell| cell.rect)
     }
 
     /// Returns the step of stairs whose run lies nearest to `p` within `radius` points, measured in figure space;

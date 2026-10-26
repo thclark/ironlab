@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use ironlab_ir::{
-    Artist, Color, ColorScaleKind, ColorSpec, DashStyle, Interpreter, Legend, LegendEntries,
+    Artist, Cells, Color, ColorScaleKind, ColorSpec, DashStyle, Interpreter, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
     LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Panel, PanelLegend,
     PanelLocation, ScalarImage, Series, Text, TitleAlign,
@@ -1514,8 +1514,13 @@ fn sample(
             },
             edge: None,
         },
-        // A sweep of the scale, which takes the image's opacity but not its alpha, which varies over the image.
-        Artist::ScalarImage(ScalarImage { opacity, .. }) => match scale {
+        // A sweep of the scale, which takes the opacity of an image or of the faces of cells but not their alpha,
+        // which varies over the image or the cells; cells are keyed exactly as a scalar image is.
+        Artist::ScalarImage(ScalarImage { opacity, .. })
+        | Artist::Cells(Cells {
+            face_opacity: opacity,
+            ..
+        }) => match scale {
             Some(scale) => SampleLook::Sweep {
                 sweep: Sweep::of(scale, *opacity),
                 edge: None,
@@ -1576,11 +1581,6 @@ fn sample(
                 },
             }
         }
-        // Cells are not drawn yet, so their sample is an empty patch.
-        Artist::Cells(_) => SampleLook::Patch {
-            fill: None,
-            edge: None,
-        },
     }
 }
 

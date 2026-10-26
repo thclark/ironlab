@@ -24,6 +24,7 @@ mod aspect;
 mod axes2d;
 mod axes3d;
 mod bars;
+mod cells;
 mod colorbar;
 mod data;
 mod decor;
@@ -33,6 +34,7 @@ mod legend;
 mod limits;
 mod panel;
 mod paths;
+mod rects;
 mod style;
 mod text;
 

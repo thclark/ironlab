@@ -135,11 +135,12 @@ impl Extents {
 
 /// Returns whether an artist's data along `dim` takes tight limits: the x and y values of contours and surfaces,
 /// the pixel edges of an image along the x or y axis of its plane (never its offset along the third axis), the
-/// edges of the slots of bars and the edges of stairs along their category axis.
+/// edges of the slots of bars and the edges of stairs along their category axis, and the edges of cells along x
+/// and y.
 fn is_tight(data: &ArtistData, dim: usize) -> bool {
     dim < 2
         && match data {
-            ArtistData::Contour(_) | ArtistData::Surface { .. } => true,
+            ArtistData::Contour(_) | ArtistData::Surface { .. } | ArtistData::Cells(_) => true,
             ArtistData::Image(image) => image.plane_dims().contains(&dim),
             ArtistData::Bars(bars) => bars.category == dim,
             ArtistData::Stairs(stairs) => stairs.category == dim,

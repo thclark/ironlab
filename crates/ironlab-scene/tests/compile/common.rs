@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Artist, Axes, Bar, Cell, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
+    Artist, Axes, Bar, Cell, Cells, Color, ColorScale, ColorScaleKind, ColorScaleOutOfRange,
     ContinuousColorScale, Contour, DashStyle, DataArray, Figure, Grid, Image, ImagePlacement,
     ImagePlane, IndexedColorScale, Legend, LineStyle, MarkerShape, MarkerStyle, NdArray, NodeId,
     OutOfRange, Panel, PanelContent, PanelLegend, PixelRange, Projection, Quiver, ScalarImage,
@@ -468,6 +468,29 @@ impl Fx {
         };
         edit(&mut stairs);
         self.push(axes, Artist::Stairs(stairs));
+        id
+    }
+
+    /// Adds cells of `values` with the given shape (`[ny, nx]` when it is valid), mapped through `color_scale`, with the
+    /// defaults of `Cells` (seamless cells on unit edges, without outlines), customised by `edit`, which may store
+    /// further arrays, such as explicit edges or an alpha, through the fixture it is given.
+    pub fn cells(
+        &mut self,
+        axes: NodeId,
+        shape: Vec<usize>,
+        values: impl Into<Samples>,
+        color_scale: Option<NodeId>,
+        edit: impl FnOnce(&mut Cells, &mut Self),
+    ) -> NodeId {
+        let id = self.node();
+        let mut cells = Cells {
+            id,
+            values: self.samples(shape, values),
+            color_scale,
+            ..Cells::default()
+        };
+        edit(&mut cells, self);
+        self.push(axes, Artist::Cells(cells));
         id
     }
 
