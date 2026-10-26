@@ -18,7 +18,7 @@ use ironlab_ir::{
 use crate::artists::{BarColumns, BarMut, BarsColumn, data_ids, release_data};
 use crate::binning::{
     BinRange, BinningError, Bins, HistNorm, HistStyle, Histogram, Histogram2d, HistogramSummary,
-    bin_edges, histogram, histogram2d,
+    bin_edges, histogram, histogram2d, normalise_1d,
 };
 use crate::color::IntoColorSpec;
 use crate::color_scale;
@@ -440,8 +440,8 @@ impl HistMut<'_> {
 /// compare bin by bin: explicit edges are used as given, and any other specification is
 /// applied to the pooled sample of all the members, as Matplotlib does when it is given
 /// several samples. Each member is an ordinary bar series with its own label, its colour
-/// from the colour order, its own values and its own binning record, whose total and
-/// exclusions are those of its own sample. A member added by [`series`](Self::series)
+/// from the colour order, its own values and its own binning record, whose exclusions are
+/// those of its own sample. A member added by [`series`](Self::series)
 /// stands in a column of its own, the columns splitting each bin into equal parts in the
 /// order they first appear, the first at the low end; a member added by
 /// [`stacked`](Self::stacked) spans its whole bin in the column of the name it is given and
@@ -449,8 +449,18 @@ impl HistMut<'_> {
 /// the code that places the series of [`BarsMut`](crate::BarsMut), with no gap between
 /// clusters or columns, and with one width per bar, because bins may differ in width.
 ///
-/// The normalisation and the range apply to every member, each normalised by its own
-/// total, and may be set before or after the members are added; every call bins every
+/// The normalisation and the range apply to every member. The members of a stacked column
+/// are normalised by the pooled total of that column, as Matplotlib's
+/// `hist(stacked=True, density=True)` and seaborn's default `common_norm=True` normalise
+/// them, so that the top of the stack is the normalised histogram of the pooled sample and
+/// each layer is the member's share of it: a stack of densities encloses unit area, and a
+/// stack of probabilities, percentages or a CDF reaches 1, 100 or 1. A member standing in a
+/// column of its own is normalised by its own total, because members side by side are
+/// compared by shape. [`common_norm`](Self::common_norm) overrides either rule. Each
+/// member's record holds the total its values were normalised by, so that a datatip
+/// recovers the member's own count.
+///
+/// The settings may be given before or after the members are added; every call bins every
 /// sample again and lays every member out again, releasing the arrays it replaces. A
 /// specification that cannot be applied never panics: every member is stored with no bars
 /// and no record, and [`error`](Self::error) returns the reason.
@@ -461,10 +471,26 @@ impl HistMut<'_> {
 /// let control = [0.2, 0.8, 1.1, 1.4, 1.9, 2.3, 2.6, 3.1];
 /// let treated = [1.2, 1.7, 2.1, 2.4, 2.8, 3.3, 3.6, 3.9];
 /// let mut fig = Figure::new();
-/// fig.axes(0, 0)
-///     .hists(Bins::Count(8))
+/// let mut ax = fig.axes(0, 0);
+/// let mut hists = ax.hists(Bins::Count(8));
+/// hists
+///     .normalize(HistNorm::Density)
 ///     .stacked("all", "Control", control)
 ///     .stacked("all", "Treated", treated);
+/// let ids = hists.ids();
+/// // The stack, not each layer, encloses unit area.
+/// let width = 3.7 / 8.0;
+/// let area: f64 = ids
+///     .iter()
+///     .map(|id| match fig.ir().artist(*id) {
+///         Some((_, ironlab::ir::Artist::Bar(bar))) => {
+///             let values = fig.ir().data_array(bar.values).unwrap();
+///             values.array.as_f64().unwrap().iter().sum::<f64>() * width
+///         }
+///         _ => unreachable!(),
+///     })
+///     .sum();
+/// assert!((area - 1.0).abs() < 1e-9);
 /// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
@@ -474,6 +500,9 @@ pub struct HistsMut<'a> {
     bins: Bins,
     range: Option<BinRange>,
     norm: HistNorm,
+    /// Whether every member is normalised by the pooled total of all the members (`true`)
+    /// or each by its own (`false`), or `None` for the default that follows the layout.
+    common_norm: Option<bool>,
     /// The orientation of every member.
     orientation: Orientation,
     /// The members, in the order they were added, with the column each belongs to.
@@ -493,6 +522,7 @@ impl<'a> HistsMut<'a> {
             bins,
             range: None,
             norm: HistNorm::default(),
+            common_norm: None,
             orientation: Orientation::Vertical,
             columns: BarColumns::default(),
             samples: Vec::new(),
@@ -523,10 +553,46 @@ impl HistsMut<'_> {
         self.add(column, label.into(), sample.into())
     }
 
-    /// Sets what the value of each bin of every member represents (see [`HistNorm`]), each
-    /// member normalised by its own total.
+    /// Sets what the value of each bin of every member represents (see [`HistNorm`]). The
+    /// members of a stacked column are normalised by the pooled total of the column, so
+    /// that the top of the stack is the normalised histogram of the pooled sample, and a
+    /// member in a column of its own by its own total, unless
+    /// [`common_norm`](Self::common_norm) says otherwise. Counts and count densities are
+    /// not divided by a total, and are the same either way.
     pub fn normalize(&mut self, norm: HistNorm) -> &mut Self {
         self.norm = norm;
+        self.update()
+    }
+
+    /// Normalises every member by the pooled total of all the members (`true`), or each
+    /// member by its own total (`false`), in place of the default, under which the members
+    /// of a stacked column share the total of their column and every other member has its
+    /// own (seaborn's `common_norm`). The result is the same whether this is called before
+    /// or after the members are added.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// let mut hists = ax.hists(Bins::Edges(vec![0.0, 1.0, 2.0]));
+    /// hists
+    ///     .normalize(HistNorm::Probability)
+    ///     .common_norm(false)
+    ///     .stacked("all", "Small", [0.5])
+    ///     .stacked("all", "Large", [0.5, 1.5, 1.5]);
+    /// // Each layer is a distribution of its own, summing to 1, so the stack sums to 2.
+    /// for id in hists.ids() {
+    ///     let Some((_, ironlab::ir::Artist::Bar(bar))) = fig.ir().artist(id) else {
+    ///         unreachable!()
+    ///     };
+    ///     let values = fig.ir().data_array(bar.values).unwrap();
+    ///     let sum: f64 = values.array.as_f64().unwrap().iter().sum();
+    ///     assert!((sum - 1.0).abs() < 1e-12);
+    /// }
+    /// ```
+    pub fn common_norm(&mut self, common: bool) -> &mut Self {
+        self.common_norm = Some(common);
         self.update()
     }
 
@@ -609,7 +675,7 @@ impl HistsMut<'_> {
     /// stacked column. The arrays it replaces are released.
     fn update(&mut self) -> &mut Self {
         let pooled = self.samples.concat();
-        let (edges, binned): (Vec<f64>, Vec<Option<Histogram>>) =
+        let (edges, binned): (Vec<f64>, Vec<Option<(Histogram, f64)>>) =
             match bin_edges(&pooled, &self.bins, self.range) {
                 Ok(edges) => {
                     self.error = None;
@@ -620,12 +686,14 @@ impl HistsMut<'_> {
                     } else {
                         Bins::Edges(edges.clone())
                     };
-                    let binned = self
+                    let counts = self
                         .samples
                         .iter()
-                        .map(|sample| histogram(sample, None, &shared, self.range, self.norm).ok())
+                        .map(|sample| {
+                            histogram(sample, None, &shared, self.range, HistNorm::Count).ok()
+                        })
                         .collect();
-                    (edges, binned)
+                    (edges, self.normalised(counts))
                 }
                 Err(error) => {
                     self.error = Some(error);
@@ -642,9 +710,9 @@ impl HistsMut<'_> {
         let mut replaced = Vec::new();
         for ((id, offset), h) in placed.into_iter().zip(binned) {
             let (values, binning) = match h {
-                Some(h) => {
-                    let binning =
-                        record(&self.bins, shared_edges, self.range, self.norm, h.summary);
+                Some((h, total)) => {
+                    let summary = HistogramSummary { total, ..h.summary };
+                    let binning = record(&self.bins, shared_edges, self.range, self.norm, summary);
                     (h.values, binning)
                 }
                 None => (Vec::new(), None),
@@ -673,6 +741,44 @@ impl HistsMut<'_> {
         }
         self.columns.stack(self.fig, edges.len().saturating_sub(1));
         self
+    }
+
+    /// Normalises the counts of every member, binned on the shared edges, and returns each
+    /// member's histogram with the total it was normalised by: the pooled total of all the
+    /// members under common normalisation, the pooled total of the member's stacked column
+    /// by default, and otherwise the member's own total. A member that could not be binned
+    /// stays `None` and adds nothing to a pooled total.
+    fn normalised(&self, counts: Vec<Option<Histogram>>) -> Vec<Option<(Histogram, f64)>> {
+        let own = |h: &Option<Histogram>| h.as_ref().map_or(0.0, |h| h.summary.total);
+        let all: f64 = counts.iter().map(own).sum();
+        let pooled = |column: &BarsColumn| -> f64 {
+            self.columns
+                .columns()
+                .zip(&counts)
+                .filter(|(c, _)| *c == column)
+                .map(|(_, h)| own(h))
+                .sum()
+        };
+        let totals: Vec<f64> = self
+            .columns
+            .columns()
+            .zip(&counts)
+            .map(|(column, h)| match (self.common_norm, column) {
+                (Some(true), _) => all,
+                (None, BarsColumn::Stacked(_)) => pooled(column),
+                _ => own(h),
+            })
+            .collect();
+        counts
+            .into_iter()
+            .zip(totals)
+            .map(|(h, total)| {
+                h.map(|h| {
+                    let values = normalise_1d(&h.values, &widths(&h.edges), total, self.norm);
+                    (Histogram { values, ..h }, total)
+                })
+            })
+            .collect()
     }
 }
 
