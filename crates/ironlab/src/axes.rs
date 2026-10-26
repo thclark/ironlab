@@ -198,7 +198,7 @@ impl AxesMut<'_> {
     /// and Matplotlib's `bar`).
     ///
     /// The bars stand upright in the next colour of the axes colour order, outlined by a
-    /// thin black line, each four fifths of the pitch wide, the pitch being the smallest
+    /// thin black line, each 0.55 of the pitch wide, the pitch being the smallest
     /// distance between neighbouring positions, and centred on its position. A negative
     /// value hangs down from the base. The automatic limits leave a margin of 0.05 of the
     /// span of the bars beyond their ends. The returned [`BarMut`] sets the width, the
@@ -238,7 +238,9 @@ impl AxesMut<'_> {
     /// Returns the helper that draws grouped and stacked bars at the given positions
     /// (MATLAB's `bar(x, Y)` and `bar(x, Y, 'stacked')`, Matplotlib's grouped and stacked
     /// bars), each series an ordinary bar series whose width, offset and base the helper
-    /// writes; see [`BarsMut`].
+    /// writes; see [`BarsMut`]. By default the clusters fill 0.55 of the pitch, leaving a gap
+    /// of 0.45 between them, so that a lone series is as wide as one drawn by
+    /// [`bar`](Self::bar).
     pub fn bars(&mut self, positions: impl Into<DataSource>) -> BarsMut<'_> {
         BarsMut::new(self.fig, self.id, positions.into())
     }

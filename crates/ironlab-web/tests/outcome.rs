@@ -374,7 +374,7 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_from_its_base_and_naming_its
         ..Bar::default()
     })];
     let mut canvas = fitted(figure);
-    // The positions 2, 5 and 8 have a pitch of 3, so the bar at 5 spans 3.8 to 6.2 and runs from 1 to 1 + 2.5.
+    // The positions 2, 5 and 8 have a pitch of 3, so the bar at 5 spans 4.175 to 5.825 and runs from 1 to 1 + 2.5.
     let at = data_point(&mut canvas, 5.0, 2.25);
     canvas.hover(Some(at));
     let Datatip { text, marker, .. } = outcome_of(&mut canvas, false)
@@ -390,7 +390,7 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_from_its_base_and_naming_its
         panic!("a bar is outlined, not {marker:?}");
     };
     let mut corners = Vec::new();
-    for (x, y) in [(3.8, 1.0), (6.2, 1.0), (6.2, 3.5), (3.8, 3.5)] {
+    for (x, y) in [(4.175, 1.0), (5.825, 1.0), (5.825, 3.5), (4.175, 3.5)] {
         corners.push(data_point(&mut canvas, x, y));
     }
     for corner in corners {
