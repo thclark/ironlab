@@ -1,21 +1,22 @@
 //! Resolution and checking of artist data.
 //!
 //! Every artist's data identifiers are looked up once, and the element types and shapes of its arrays are checked,
-//! before limits are computed or anything is drawn. Every artist but the two image kinds requires floating-point
-//! values, so an array of 8-bit values cannot be used for it; an image accepts either element type. An image is
-//! also checked here for a placement that can be drawn and a plane that its axes can show. An artist that maps
-//! numbers to colours is checked for a colour scale to map them through, and its numbers against the strict
-//! policies of that scale. An artist whose data cannot be used, an artist whose colours cannot be mapped, and an
-//! artist whose data gives it nothing to draw (a series or quiver of no points, bars or stairs of no values, an
-//! image with no rows or no columns, or a field with no cell between its nodes), is reported with one warning naming
-//! it and is then ignored by every later stage, so that the problems indicator of the viewer and the validation of
-//! the figure agree about which artists are absent. Bars and stairs are drawn only in a two-dimensional axes, and the
-//! bars of an axes are laid out with their groups once they are all resolved.
+//! before limits are computed or anything is drawn. Every artist but the two image kinds and cells requires
+//! floating-point values, so an array of 8-bit values cannot be used for it; an image accepts either element type,
+//! and cells accept either in their values and their alpha. An image is also checked here for a placement that can be
+//! drawn and a plane that its axes can show. An artist that maps numbers to colours is checked for a colour scale to
+//! map them through, and its numbers against the strict policies of that scale. An artist whose data cannot be used,
+//! an artist whose colours cannot be mapped, and an artist whose data gives it nothing to draw (a series or quiver of
+//! no points, bars or stairs of no values, an image or cells with no rows or no columns, or a field with no cell
+//! between its nodes), is reported with one warning naming it and is then ignored by every later stage, so that the
+//! problems indicator of the viewer and the validation of the figure agree about which artists are absent. Bars,
+//! stairs and cells are drawn only in a two-dimensional axes, and the bars of an axes are laid out with their groups
+//! once they are all resolved.
 
 use ironlab_ir::{
-    Artist, Axes, BarBase, BarSlot, ColorSpec, ContourPlacement, Coords as ArtistCoords, Dimension,
-    Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId, PixelRange, QuiverScale, Scale,
-    Series, Stairs, StairsData, StepAt, Values,
+    Artist, Axes, BarBase, BarSlot, CellEdges, Cells, ColorSpec, ContourPlacement,
+    Coords as ArtistCoords, Dimension, Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId,
+    PixelRange, QuiverScale, Scale, Series, Stairs, StairsData, StepAt, Values,
 };
 
 use crate::maths::contour::{Coords, GridRef, GridShapeError};
@@ -163,6 +164,22 @@ pub(crate) struct StairsGeometry<'a> {
     pub category: usize,
 }
 
+/// The resolved data of cells, which have at least one row and one column.
+#[derive(Clone)]
+pub(crate) struct CellsData<'a> {
+    /// The values, of either element type, an array of `ny` rows and `nx` columns, one row per row of cells.
+    pub values: &'a NdArray,
+    /// The number of columns.
+    pub nx: usize,
+    /// The `nx + 1` edges of the columns along x, finite and strictly monotonic.
+    pub columns: Vec<f64>,
+    /// The `ny + 1` edges of the rows along y, finite and strictly monotonic.
+    pub rows: Vec<f64>,
+    /// The alpha of every cell, an array of the shape of the values of either element type, or `None` when the
+    /// cells have none.
+    pub alpha: Option<&'a NdArray>,
+}
+
 /// The resolved arrays of an artist.
 #[derive(Clone)]
 pub(crate) enum ArtistData<'a> {
@@ -193,6 +210,8 @@ pub(crate) enum ArtistData<'a> {
     Bars(BarsData<'a>),
     /// Stairs.
     Stairs(StairsGeometry<'a>),
+    /// Cells.
+    Cells(CellsData<'a>),
 }
 
 /// Resolves and checks the data of every artist of an axes, and the colour scale of every artist that maps numbers
@@ -480,8 +499,10 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
             only_2d(axes, "stairs")?;
             ArtistData::Stairs(stairs_geometry(figure, stairs)?)
         }
-        // The scene compiler does not draw cells yet, so they are left out with the reason as their warning.
-        Artist::Cells(_) => return Err("cells artists are not drawn yet".to_owned()),
+        Artist::Cells(cells) => {
+            only_2d(axes, "cells")?;
+            ArtistData::Cells(cells_data(figure, cells)?)
+        }
     })
 }
 
@@ -493,6 +514,81 @@ fn only_2d(axes: &Axes, what: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Resolves the values of cells, their edges and their alpha. The values must be two-dimensional, explicit edges
+/// must be one more than the columns or rows they bound and finite and strictly monotonic, and the alpha must have
+/// the shape of the values. Cells with no rows or no columns draw nothing, so they are left out with a warning that
+/// names the case.
+fn cells_data<'a>(figure: &'a Figure, cells: &Cells) -> Result<CellsData<'a>, String> {
+    let values = array(figure, cells.values)?;
+    let [ny, nx] = values.shape[..] else {
+        return Err(format!(
+            "its values {} have shape {:?}, but they must be two-dimensional",
+            cells.values, values.shape
+        ));
+    };
+    let edges = |spec: CellEdges, n: usize, what: &str| -> Result<Vec<f64>, String> {
+        match spec {
+            CellEdges::Unit => Ok((0..=n).map(|k| k as f64 - 0.5).collect()),
+            CellEdges::Edges(id) => {
+                let edges = f64_values(figure, id, what)?;
+                if edges.len() != n + 1 {
+                    return Err(format!(
+                        "its {what} array {id} holds {} edges, but {n} {what} need {}",
+                        edges.len(),
+                        n + 1
+                    ));
+                }
+                let finite = edges.iter().all(|v| v.is_finite());
+                let increasing = edges.windows(2).all(|pair| pair[0] < pair[1]);
+                let decreasing = edges.windows(2).all(|pair| pair[0] > pair[1]);
+                if !(finite && (increasing || decreasing)) {
+                    return Err(format!(
+                        "its {what} edges {id} are not finite and strictly monotonic"
+                    ));
+                }
+                Ok(edges.to_vec())
+            }
+        }
+    };
+    let columns = edges(cells.columns, nx, "columns")?;
+    let rows = edges(cells.rows, ny, "rows")?;
+    let alpha = cells
+        .alpha
+        .map(|id| {
+            let alpha = array(figure, id)?;
+            if alpha.shape == [ny, nx] {
+                Ok(alpha)
+            } else {
+                Err(format!(
+                    "its alpha {id} has shape {:?}, but its values {} have shape {:?}",
+                    alpha.shape,
+                    cells.values,
+                    [ny, nx]
+                ))
+            }
+        })
+        .transpose()?;
+    let empty = match (ny, nx) {
+        (0, 0) => Some("no rows and no columns"),
+        (0, _) => Some("no rows"),
+        (_, 0) => Some("no columns"),
+        _ => None,
+    };
+    if let Some(case) = empty {
+        return Err(format!(
+            "its values {} have shape {:?}, so it has {case} of cells",
+            cells.values, values.shape
+        ));
+    }
+    Ok(CellsData {
+        values,
+        nx,
+        columns,
+        rows,
+        alpha,
+    })
 }
 
 /// Resolves the steps of stairs, converting samples to the edges of the steps that `step` places: stepping after
@@ -702,6 +798,11 @@ fn check_colour_mapping(
                 "the pixel in row {} and column {}",
                 k / image.nx,
                 k % image.nx
+            ),
+            ArtistData::Cells(cells) => format!(
+                "the cell in row {} and column {}",
+                k / cells.nx,
+                k % cells.nx
             ),
             _ => format!("the value at index {k} of {}", mapping.values),
         };
@@ -921,7 +1022,15 @@ pub(crate) fn values_along(
                 }
             }
         }
-        ArtistData::Bars(_) | ArtistData::Stairs(_) => {}
+        ArtistData::Cells(cells) if dim < 2 => {
+            let edges = if dim == 0 {
+                &cells.columns
+            } else {
+                &cells.rows
+            };
+            edges.iter().for_each(|v| visit(*v));
+        }
+        ArtistData::Bars(_) | ArtistData::Stairs(_) | ArtistData::Cells(_) => {}
         ArtistData::Image(image) => {
             let [columns, rows] = image.plane_dims();
             let edges = if dim == columns {

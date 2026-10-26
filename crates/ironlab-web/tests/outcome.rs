@@ -13,7 +13,9 @@ use std::sync::LazyLock;
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, Bar, DataArray, Figure, FigureSize, Limits, NdArray, NodeId, Series, Text,
+    Artist, Axes, Axis, Bar, CategoricalColorScale, CellEdges, CellGap, Cells, Color,
+    ColorCategory, ColorScale, ColorScaleKind, DataArray, Figure, FigureSize, Limits, NdArray,
+    NodeId, Series, Text, TickLabels, Ticks,
 };
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::AxesHitKind;
@@ -388,6 +390,92 @@ fn hovering_a_bar_gives_a_datatip_outlining_the_bar_and_naming_its_value() {
                 .iter()
                 .any(|p| (p[0] - corner.x).abs() <= 1e-2 && (p[1] - corner.y).abs() <= 1e-2),
             "the outline has the bar's corner {corner:?}: {points:?}"
+        );
+    }
+}
+
+// Why: a page shows a datatip for a cell as it does for a bar: it outlines the cell that was read, as drawn, inside
+// the gap that sets it apart, so that the reader sees which cell of the matrix the text is about, and the text names
+// the status of the cell and the names of its row and column. The page draws only what the outcome carries, so a
+// cell the canvas reads but the outcome drops would show the reader nothing.
+#[test]
+fn hovering_a_cell_gives_a_datatip_outlining_the_cell_and_naming_its_category_row_and_column() {
+    let mut figure = figure();
+    let (values, columns, rows, scale) = (NodeId(12), NodeId(13), NodeId(14), NodeId(15));
+    for (id, array) in [
+        (
+            values,
+            NdArray::from_shape(vec![1, 3], vec![0.0, 1.0, 0.0]).expect("shape"),
+        ),
+        (columns, NdArray::vector(vec![1.0, 4.0, 7.0, 10.0])),
+        (rows, NdArray::vector(vec![1.0, 4.0])),
+    ] {
+        figure.data.push(DataArray {
+            id,
+            name: None,
+            array,
+        });
+    }
+    figure.color_scales.push(ColorScale {
+        id: scale,
+        kind: ColorScaleKind::Categorical(CategoricalColorScale {
+            categories: [
+                (Color::rgb(0.0, 0.6, 0.3), "taken"),
+                (Color::rgb(0.8, 0.2, 0.1), "not taken"),
+            ]
+            .into_iter()
+            .map(|(color, label)| ColorCategory {
+                color,
+                label: Text::plain(label),
+            })
+            .collect(),
+            ..CategoricalColorScale::default()
+        }),
+        ..ColorScale::default()
+    });
+    let axes = &mut figure.axes[0];
+    axes.x.ticks = Ticks::Values(vec![2.5, 5.5, 8.5]);
+    axes.x.tick_labels = TickLabels::Text(
+        ["case_a", "case_b", "case_c"]
+            .into_iter()
+            .map(Text::plain)
+            .collect(),
+    );
+    axes.y.ticks = Ticks::Values(vec![2.5]);
+    axes.y.tick_labels = TickLabels::Text(vec![Text::plain("psilin")]);
+    axes.artists = vec![Artist::Cells(Cells {
+        id: NodeId(3),
+        label: Some(Text::plain("Branches")),
+        values,
+        columns: CellEdges::Edges(columns),
+        rows: CellEdges::Edges(rows),
+        gap: CellGap { x: 0.2, y: 0.2 },
+        color_scale: Some(scale),
+        ..Cells::default()
+    })];
+    let mut canvas = fitted(figure);
+    // The middle cell spans x 4 to 7 and y 1 to 4; a gap of 0.2 insets it by 0.3 on every side.
+    let at = data_point(&mut canvas, 5.5, 2.5);
+    canvas.hover(Some(at));
+    let Datatip { text, marker, .. } = outcome_of(&mut canvas, false)
+        .datatip
+        .expect("hovering over a cell gives a datatip");
+    for name in ["Branches", "not taken", "psilin", "case_b"] {
+        assert!(text.contains(name), "the text names {name:?}: {text:?}");
+    }
+    let Marker::Outline { points } = marker else {
+        panic!("a cell is outlined, not {marker:?}");
+    };
+    let mut corners = Vec::new();
+    for (x, y) in [(4.3, 1.3), (6.7, 1.3), (6.7, 3.7), (4.3, 3.7)] {
+        corners.push(data_point(&mut canvas, x, y));
+    }
+    for corner in corners {
+        assert!(
+            points
+                .iter()
+                .any(|p| (p[0] - corner.x).abs() <= 1e-2 && (p[1] - corner.y).abs() <= 1e-2),
+            "the outline has the drawn cell's corner {corner:?}: {points:?}"
         );
     }
 }

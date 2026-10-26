@@ -1050,8 +1050,8 @@ pub struct Cells {
     pub rows: CellEdges,
     /// The fraction of each cell's extent left empty, along x and along y.
     pub gap: CellGap,
-    /// The style of the outline of every cell; a colour of none draws no outline, and a
-    /// colormapped colour gives each outline the colour of its cell.
+    /// The style of the outline of every cell; a colour of none draws no outline, and an
+    /// automatic or colormapped colour gives each outline the colour of its cell.
     pub edge: LineStyle,
     /// The colour scale through which the values are mapped. Cells always map their
     /// values, so a figure in which they name no scale is invalid.

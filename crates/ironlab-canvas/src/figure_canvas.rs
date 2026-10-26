@@ -23,15 +23,15 @@ use std::sync::Arc;
 use emath::{Pos2, Rect, vec2};
 use ironlab_ir::Figure;
 use ironlab_scene::Scene;
-use ironlab_scene::display::Point;
+use ironlab_scene::display::{Point, Rect as SceneRect};
 use ironlab_scene::hit::ImageHit;
 use ironlab_text::TextEngine;
 
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::DrawList;
 use crate::interaction::{
-    BarDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip, PixelValue,
-    StepDatatip, Tip, Tool,
+    BarDatatip, CellDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState, PixelDatatip,
+    PixelValue, StepDatatip, Tip, Tool,
 };
 use crate::problems::Problem;
 
@@ -122,7 +122,14 @@ pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
     lines.push(format!("row {}, column {}", tip.row, tip.column));
     lines.push(format!("x = {}", datatip_value(tip.x)));
     lines.push(format!("y = {}", datatip_value(tip.y)));
-    lines.push(match &tip.value {
+    lines.push(value_line(&tip.value));
+    lines.join("\n")
+}
+
+/// Returns the line of a datatip that names what an array holds for a pixel or a cell, in the words of the kind of
+/// its image or of its scale.
+fn value_line(value: &PixelValue) -> String {
+    match value {
         PixelValue::Value(value) => format!("value = {}", datatip_value(*value)),
         PixelValue::Index(index) | PixelValue::Category { index, label: None } => {
             format!("index = {}", datatip_value(*index))
@@ -140,8 +147,7 @@ pub fn pixel_datatip_text(tip: &PixelDatatip) -> String {
             let listed: Vec<String> = components.iter().copied().map(datatip_value).collect();
             format!("{label} = {}", listed.join(", "))
         }
-    });
-    lines.join("\n")
+    }
 }
 
 /// The text of the callout that names the bar under the pointer, one item per line: the label of the series when it
@@ -170,6 +176,28 @@ pub fn bar_datatip_text(tip: &BarDatatip) -> String {
         ));
     }
     lines.push(format!("index {}", tip.index));
+    lines.join("\n")
+}
+
+/// The text of the callout that names the cell under the pointer, one item per line: the label of the cells when they
+/// have one, the names of the cell's row and column when the axes name them by text tick labels, the value in the
+/// words a pixel of a scalar image uses for it (`category = … (index …)`, `index = …` or `value = …`), and the row
+/// and column of the cell in the artist's own array, every number formatted as the point datatip formats its
+/// coordinates, so that the callouts read as one.
+#[must_use]
+pub fn cell_datatip_text(tip: &CellDatatip) -> String {
+    let mut lines = Vec::new();
+    if let Some(label) = &tip.label {
+        lines.push(label.clone());
+    }
+    if let Some(row) = &tip.row_name {
+        lines.push(format!("row = {row}"));
+    }
+    if let Some(column) = &tip.column_name {
+        lines.push(format!("column = {column}"));
+    }
+    lines.push(value_line(&tip.value));
+    lines.push(format!("row {}, column {}", tip.row, tip.column));
     lines.join("\n")
 }
 
@@ -598,7 +626,7 @@ impl FigureCanvas {
     }
 
     /// What lies under the pointer — a colourbar, a drawn data point or, where none is within reach, a step of
-    /// stairs, a bar or the pixel of an image — as a mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the
+    /// stairs, a bar, a cell or the pixel of an image — as a mark and a text, or `None` while dragging, when the pointer is not over the canvas, or where the
     /// figure draws nothing.
     ///
     /// All come from the hit map of the current compilation, so a point names the index and the values of the
@@ -606,8 +634,8 @@ impl FigureCanvas {
     /// the user's own array. A point is ringed. A pixel is outlined, so that the reader sees the extent that was
     /// read, or ringed at its centre when it is smaller on screen than the ring, so that the mark is never too small
     /// to see. A colourbar's reading is ringed where it was taken on a continuous bar, which has no pieces, and the
-    /// piece read (a band, an entry's block, a square or a key) is outlined on every other bar. A bar is outlined,
-    /// so that the reader sees which bar the numbers belong to, and a step is ringed at the point of it nearest the
+    /// piece read (a band, an entry's block, a square or a key) is outlined on every other bar. A bar or a cell is
+    /// outlined, so that the reader sees which bar or cell the numbers belong to, and a step is ringed at the point of it nearest the
     /// pointer.
     pub fn callout(&mut self, text: &TextEngine) -> Option<Callout> {
         if self.dragging {
@@ -621,6 +649,17 @@ impl FigureCanvas {
         let ring = |position: Point| Marker::Ring {
             centre: to_screen.apply(position),
             radius: DATATIP_RING_POINTS,
+        };
+        let outline = |r: SceneRect| {
+            Marker::Outline(
+                [
+                    (r.x, r.y),
+                    (r.right(), r.y),
+                    (r.right(), r.bottom()),
+                    (r.x, r.bottom()),
+                ]
+                .map(|(x, y)| to_screen.apply(Point::new(x, y))),
+            )
         };
         Some(match self.state.tip_at(hit, at)? {
             Tip::Point(tip) => Callout {
@@ -636,40 +675,20 @@ impl FigureCanvas {
                     text: pixel_datatip_text(&tip),
                 }
             }
-            Tip::Bar(tip) => {
-                let r = tip.rect;
-                Callout {
-                    marker: Marker::Outline(
-                        [
-                            (r.x, r.y),
-                            (r.right(), r.y),
-                            (r.right(), r.bottom()),
-                            (r.x, r.bottom()),
-                        ]
-                        .map(|(x, y)| to_screen.apply(Point::new(x, y))),
-                    ),
-                    text: bar_datatip_text(&tip),
-                }
-            }
+            Tip::Bar(tip) => Callout {
+                marker: outline(tip.rect),
+                text: bar_datatip_text(&tip),
+            },
+            Tip::Cell(tip) => Callout {
+                marker: outline(tip.rect),
+                text: cell_datatip_text(&tip),
+            },
             Tip::Step(tip) => Callout {
                 marker: ring(tip.position),
                 text: step_datatip_text(&tip),
             },
             Tip::Colorbar(tip) => Callout {
-                marker: tip.piece.map_or_else(
-                    || ring(tip.position),
-                    |r| {
-                        Marker::Outline(
-                            [
-                                (r.x, r.y),
-                                (r.right(), r.y),
-                                (r.right(), r.bottom()),
-                                (r.x, r.bottom()),
-                            ]
-                            .map(|(x, y)| to_screen.apply(Point::new(x, y))),
-                        )
-                    },
-                ),
+                marker: tip.piece.map_or_else(|| ring(tip.position), outline),
                 text: colorbar_tip_text(&tip),
             },
         })

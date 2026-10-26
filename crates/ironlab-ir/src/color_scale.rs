@@ -763,9 +763,9 @@ impl Artist {
     /// (or its field) when its faces or its edges are colour-mapped, and a series and bars
     /// map their colour data whenever they have some (a series per point or per segment,
     /// bars per bar), whatever their colours.
-    /// On a contour's isolines and a surface's faces and edges, an automatic colour is
-    /// colour-mapped as an explicit `Colormapped` colour is, because neither artist has a
-    /// colour of its own for `Auto` to stand for. A series or bars without colour data, a
+    /// On a contour's isolines, a surface's faces and edges and the outlines of cells, an
+    /// automatic colour is colour-mapped as an explicit `Colormapped` colour is, because none
+    /// of these artists has a colour of its own for `Auto` to stand for. A series or bars without colour data, a
     /// quiver and a true-colour image map nothing, even when a colour is colormapped: such
     /// a colour has no number to map and is drawn in the middle colour of viridis (or, on
     /// markers and bars, as an automatic colour). Stairs map nothing either: they take

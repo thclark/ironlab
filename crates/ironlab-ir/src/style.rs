@@ -130,9 +130,9 @@ impl JsonSchema for Color {
 pub enum ColorSpec {
     /// The renderer chooses the colour: for series this is the next colour of the
     /// axes colour order (Okabe–Ito), inside a marker of a series it is the colour of
-    /// the series' line, and on the isolines of a contour and the faces and edges of a surface, which
-    /// have no colour of their own, it is the colour mapped through the artist's colour
-    /// scale, as for `colormapped`.
+    /// the series' line, and on the isolines of a contour, the faces and edges of a surface
+    /// and the outlines of cells, which have no colour of their own, it is the colour mapped
+    /// through the artist's colour scale, as for `colormapped`.
     #[default]
     Auto,
     /// A fixed colour.

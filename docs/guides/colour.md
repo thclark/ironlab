@@ -150,6 +150,8 @@ let status = fig
 fig.axes(0, 0).scalar_image(&outcome).color_scale(status);
 ```
 
+[Cells](getting-started.md#cells-and-categorical-rows) take a categorical scale in the same way, which is how an occupancy matrix colours each cell by its status: `occupancy` stores one row of cells per row of statuses, padding short rows with NaN, which the default non-finite policy draws as nothing, and a legend panel that lists the scale gives a key of the statuses as swatches. A cell holding a status is read in the [viewer](viewer.md#datatips) by the label of its category.
+
 Only a whole number from 0 to the number of entries less one names an entry. Any other value, a fractional one such as 2.7 included, lies outside the entries, and by default it is a validation error, because a fractional index is almost always a mistake in the data that a lenient rule would hide. An 8-bit value is always a whole number, so a `ByteMatrix` never falls outside a palette of 256 entries. When indices are computed as floating-point numbers, `.outside(OutOfRange::Clamp)` truncates each toward zero and clamps it to the first or last entry instead.
 
 Through an indexed or categorical scale, a surface face takes the value of its first corner, because the mean of four indices is not an index, and a contour without levels of its own places its levels halfway between whole numbers, so that each band holds exactly one entry.

@@ -206,6 +206,47 @@ ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
 
 `orientation(Orientation::Horizontal)` places the edges along y and the values along x, which draws a profile against height. A datatip on stairs names the two edges of the step under the pointer and the value it holds.
 
+### Cells and categorical rows
+
+`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a two-dimensional histogram of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`.
+
+```rust
+let counts = Matrix::from_rows(&[[1.0, 4.0, 2.0], [3.0, 9.0, 5.0]]);
+fig.axes(0, 0)
+    .cells(&counts)
+    .column_edges([0.0, 1.0, 3.0, 7.0])
+    .row_edges([0.0, 0.5, 2.0])
+    .edge_color(Color::WHITE)
+    .label("Counts");
+```
+
+A categorical axis places its categories at 0, 1, …, N − 1 and names them with text tick labels, which is where cells on unit edges lie. `xcategories(names)` writes those ticks and labels on the x axis, and `ycategories(names)` writes them on the y axis and reverses it, so that the first category is at the top, as the rows of a table are read. `ycategory_groups(groups)` lays the rows out in groups: from the top, each group takes a header row named by the group in bold, then one row per member, and one blank row without a tick separates consecutive groups. It returns a `CategoryRows`, whose `row(group, member)` and `header(group)` give where each row lies and whose `len()` counts the rows, header and blank rows included. The names are LaTeX source, like every other text of the figure, so a header is written `\textbf{group}` around the name as given, and a character that LaTeX reserves must be escaped by the caller.
+
+`occupancy(rows)` draws a matrix whose rows may be of different lengths, such as the branches of each subroutine of a program, each coloured by its status. It pads every row with NaN at its end to the length of the longest, which the default out-of-range policy draws as nothing, so that a short row ends where its data ends; it places the cells on unit edges with a gap of 0.2 along both axes, and hides the x axis, because the position of a cell within its row names nothing. Together with `ycategory_groups`, `CategoryRows::place` arranges the data of each member, given in the order the members were laid out, in that member's row, leaving every header and blank row empty, so that each row of cells lies beside its own name:
+
+```rust
+let mut fig = Figure::new().tiles(2, 1).fit_row(1);
+let status = fig
+    .categorical_scale([
+        (Color::rgb(0.0, 0.6, 0.3), "taken"),
+        (Color::rgb(0.8, 0.2, 0.1), "not taken"),
+        (Color::rgb(0.6, 0.6, 0.6), "not reachable"),
+    ])
+    .id();
+let mut ax = fig.axes(0, 0);
+let rows = ax.ycategory_groups([
+    ("xpanel.f", vec![r"\texttt{psilin}", r"\texttt{ggcalc}"]),
+    ("xbl.f", vec![r"\texttt{blsolv}"]),
+]);
+let branches = [vec![0.0, 1.0, 0.0, 2.0], vec![1.0, 1.0], vec![0.0, 0.0, 0.0]];
+ax.occupancy(rows.place(&branches))
+    .color_scale(status)
+    .label("Branches");
+fig.panel(1, 0).legend().item(status); // a key of the statuses under the plot
+```
+
+A datatip in the [viewer](viewer.md#datatips) names the cell under the pointer by its row and column in the array, its value in the words of its scale (the label of its category, through a categorical scale), and the names of its row and column when the axes name them with text tick labels. A cell that its scale leaves transparent, such as the padding of a short row, has no datatip, and neither has the gap between cells. The [figure schema](../reference/figure-schema.md#cells) states the rules of cells in full.
+
 ### Contours
 
 `contour(x, y, z)` draws isolines of the field `z`, `contourf(x, y, z)` fills the bands between levels, and `contour3(x, y, z)` draws each isoline at the height of its level in a three-dimensional axes. Each isoline and band is coloured by its level through the [colour scale](colour.md) of the axes. A contour without levels of its own takes them from its scale: ten levels at round values through a continuous scale, and the band edges of a discrete scale, as [discrete scales and filled contours](colour.md#discrete-scales-and-filled-contours) shows.
@@ -467,6 +508,8 @@ Outside mathematics, `\texttt{…}` sets its argument in monospace, which suits 
 ```rust
 let fig = Figure::new().title(r"Polars of \texttt{naca4412_n160_polar30_re1e6_iter100}");
 ```
+
+Outside mathematics, `\textbf{…}` sets its argument in STIX Two Text Bold, which is how the header rows of [grouped categorical rows](#cells-and-categorical-rows) are told apart from the rows beneath them. Its argument follows the same rules as that of `\texttt`: braces nested inside it group and are not printed, and the same escapes produce the character after the backslash. A `\texttt{` or `\textbf{` whose argument is never closed is drawn as written, and a warning says why.
 
 Mathematics is typeset in STIX Two Math and plain text in STIX Two Text. Within mathematics, a hyphen is set as a minus sign and single letters are set in italic, as in TeX. A mathematical expression that the typesetter does not support does not prevent the figure from being built: its raw source is drawn in the text font, and the problem is reported as a warning, which the viewer shows in its [problems indicator](viewer.md#problems). Rust raw strings (`r"…"`) avoid doubling every backslash in LaTeX source.
 

@@ -560,7 +560,7 @@ pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
                     ColorSpec::Auto
                 }
                 Artist::Stairs(stairs) => stairs.line.color,
-                // Cells are not drawn yet, so they take no colour from the order.
+                // Artists coloured through a colour scale take no colour from the order.
                 Artist::Contour(_)
                 | Artist::Surface(_)
                 | Artist::Image(_)

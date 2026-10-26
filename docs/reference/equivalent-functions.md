@@ -35,8 +35,14 @@ A line or a set of markers placed in data coordinates along one axis and in frac
 | Surface in three dimensions | `surf` | `Axes3D.plot_surface` | `Surface` | `surf` |
 | Wireframe in three dimensions | `mesh` | `Axes3D.plot_wireframe` | no equivalent trace | `mesh` |
 | Pseudocolour plot: a field on the vertices of a rectilinear or curvilinear grid | `pcolor` | `pcolormesh`, `pcolor` | `Heatmap` with `x` and `y` coordinates, on a rectilinear grid only | `surface` in a two-dimensional axes |
+| Heatmap of tiles: one value per cell, centred on whole numbers | `heatmap` | `pcolormesh` with one value per cell, or `imshow` | `Heatmap` | `cells` |
+| Tiles between uneven edges, such as the bins of a two-dimensional histogram | `histogram2` with `DisplayStyle` set to `tile`, from its counts | `pcolormesh(x_edges, y_edges, c)`, with one more edge than cells along each axis | `Heatmap` with `x` and `y` holding the edges | `cells` with `column_edges` and `row_edges` |
+| Tiles set apart by a gap | no equivalent; `heatmap` draws seamless tiles | no equivalent; `pcolormesh` with `edgecolors="w"` and `linewidth=` draws lines over the tiles instead | `Heatmap` with `xgap` and `ygap` | `cells` with `gap(x, y)` |
+| Ragged rows of tiles coloured by a status (an occupancy matrix) | `heatmap` of rows padded with NaN | `pcolormesh` of rows padded with NaN | `Heatmap` of rows padded with `None`, with `xgap` and `ygap` | `occupancy`, through a categorical scale |
 
 `surface` adds the same object as `surf` and leaves the projection of the axes as it is, so it draws a pseudocolour plot in a two-dimensional axes and a surface in a three-dimensional one. [Surfaces in two-dimensional axes](../guides/getting-started.md#surfaces-in-two-dimensional-axes) explains how such a plot differs from a scalar image and from MATLAB's `pcolor`, and the [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry shows one on a polar mesh.
+
+A value that belongs to a cell between edges, rather than to a vertex of a grid, is drawn by `cells`, which is what matplotlib's `pcolormesh` draws when it is given one more edge than values along each axis. `occupancy` pads ragged rows with NaN and sets the cells apart by a gap, as [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows) describes.
 
 ## Images
 
@@ -126,16 +132,19 @@ Bars that compare series side by side or stack them are separate series in one n
 
 ## Axes
 
-These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks).
+These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks) and, for categorical axes, in [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows).
 
 | Setting | MATLAB | matplotlib | Plotly | IronLAB |
 | --- | --- | --- | --- | --- |
 | Turn the tick labels of an axis | `xtickangle(a)`, `ytickangle(a)` | `tick_params(axis="x", labelrotation=a)`, or `rotation=a` with `ha="right"` and `rotation_mode="anchor"` for labels that end at their ticks | `xaxis=dict(tickangle=-a)` | `xtick_label_angle(a)`, `ytick_label_angle(a)` |
 | Hide an axis with its spine, ticks, tick labels and label | `ax.XAxis.Visible = 'off'` | `ax.xaxis.set_visible(False)` together with `ax.spines["bottom"].set_visible(False)` | `xaxis=dict(visible=False)` | `xaxis_visible(false)`, `yaxis_visible(false)` |
 | Hide the tick labels and keep the ticks | `xticklabels({})` | `tick_params(labelbottom=False)` | `xaxis=dict(showticklabels=False)` | `xtick_labels_hidden()` |
+| Name the positions 0, 1, …, N − 1 of an axis (a categorical axis) | `xticks(0:n-1)` with `xticklabels(names)`, or a `categorical` array | `set_xticks(range(n), labels=names)` | `xaxis=dict(type="category")` | `xcategories(names)` |
+| Name the rows from the top | `yticks` and `yticklabels` with `set(gca, 'YDir', 'reverse')` | `set_yticks(range(n), labels=names)` with `invert_yaxis()` | `yaxis=dict(type="category", autorange="reversed")` | `ycategories(names)` |
+| Rows in groups under bold headers | no equivalent | no equivalent | no equivalent | `ycategory_groups(groups)`, with `CategoryRows::place` to arrange the data |
 
 Every angle is in degrees anticlockwise from horizontal, as in MATLAB, so 45 gives labels that rise to the right; Plotly measures `tickangle` clockwise, so its angle has the opposite sign. IronLAB turns every label about its end nearest its tick, which matplotlib does only with the alignment options in the table, and reserves the space the turned labels take, so that no label is clipped by the page. A hidden axis also gives its space to the plot area, and its grid lines still follow `grid`.
 
 ## Plots without an equivalent
 
-IronLAB does not yet draw histograms from samples, two-dimensional histograms, heatmaps of cells, stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.
+IronLAB does not yet bin samples into histograms of one or two dimensions, although it draws binned counts as bars, stairs or cells; nor does it draw stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.

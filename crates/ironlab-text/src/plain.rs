@@ -3,7 +3,7 @@
 use crate::fonts::Faces;
 use crate::{FontId, GlyphRun, PositionedGlyph, SegmentLayout, TextItem};
 
-/// Shapes `text` in STIX Two Text Regular at `size_pt` points.
+/// Shapes `text` in `font`, one of the STIX Two Text faces, at `size_pt` points.
 ///
 /// Glyphs are positioned from HarfRust's advances and offsets, so kerning and
 /// ligatures are applied. Each glyph's text range starts at its cluster and
@@ -16,10 +16,11 @@ use crate::{FontId, GlyphRun, PositionedGlyph, SegmentLayout, TextItem};
 pub(crate) fn shape(
     shaper_data: &harfrust::ShaperData,
     faces: &Faces,
+    font: FontId,
     text: &str,
     size_pt: f64,
 ) -> SegmentLayout {
-    let face = faces.get(FontId::TextRegular);
+    let face = faces.get(font);
     let scale = size_pt / f64::from(face.units_per_em());
     let height = (f64::from(face.ascender()) * scale).max(0.0);
     let depth = (-f64::from(face.descender()) * scale).max(0.0);
@@ -32,7 +33,7 @@ pub(crate) fn shape(
         };
     }
 
-    let bytes = crate::fonts::bytes(FontId::TextRegular);
+    let bytes = crate::fonts::bytes(font);
     let Ok(font_ref) = harfrust::FontRef::new(bytes) else {
         // The bundled face is verified by tests; an unreadable face yields
         // nothing to draw rather than a panic.
@@ -80,7 +81,7 @@ pub(crate) fn shape(
 
     SegmentLayout {
         items: vec![TextItem::Glyphs(GlyphRun {
-            font: FontId::TextRegular,
+            font,
             size_pt,
             text: text.to_owned(),
             glyphs,

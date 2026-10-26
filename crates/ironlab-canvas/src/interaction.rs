@@ -206,6 +206,42 @@ pub struct BarDatatip {
     pub tick_label: Option<String>,
 }
 
+/// The cell under the pointer, as the viewer reports it.
+///
+/// `row` and `column` index the artist's own array of values, and the edges and the value are those its data holds,
+/// so that a datatip names what the user plotted rather than anything read back from the page. The value is reported
+/// in the words of the scale of the cells, as a pixel of a scalar image reports it, so that a status of an occupancy
+/// matrix names its category.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellDatatip {
+    /// The axes the cells were drawn in.
+    pub axes: NodeId,
+    /// The cells the cell belongs to.
+    pub artist: NodeId,
+    /// The label of the cells, when they have one.
+    pub label: Option<String>,
+    /// The row of the cell in the artist's array of values.
+    pub row: usize,
+    /// The column of the cell in the artist's array of values.
+    pub column: usize,
+    /// Where a callout is anchored, in figure space: the centre of the drawn cell.
+    pub position: Point,
+    /// The rectangle of the cell as drawn, in figure space, the gap excluded, which the canvas outlines.
+    pub rect: Rect,
+    /// The edges of the cell's column, edges `column` and `column + 1`, in the order of the data.
+    pub column_edges: (f64, f64),
+    /// The edges of the cell's row, edges `row` and `row + 1`, in the order of the data.
+    pub row_edges: (f64, f64),
+    /// What the artist's array holds for the cell, in the words of its scale: `Index` through an indexed scale,
+    /// `Category` (with its label) through a categorical one, and `Value` otherwise.
+    pub value: PixelValue,
+    /// The text tick label of the y axis at the centre of the cell's row, when the axis is labelled with text and a
+    /// tick falls exactly there: the name of the row.
+    pub row_name: Option<String>,
+    /// The text tick label of the x axis at the centre of the cell's column, likewise: the name of the column.
+    pub column_name: Option<String>,
+}
+
 /// The step of stairs under the pointer, as the viewer reports it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StepDatatip {
@@ -226,7 +262,7 @@ pub struct StepDatatip {
 }
 
 /// What lies under the pointer: a colourbar, a drawn data point, or, where none is within reach, a step of stairs, a
-/// bar or a pixel of an image.
+/// bar, a cell or a pixel of an image.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tip {
     /// A point of a series.
@@ -239,6 +275,8 @@ pub enum Tip {
     Bar(BarDatatip),
     /// A step of stairs.
     Step(StepDatatip),
+    /// A cell of cells.
+    Cell(CellDatatip),
 }
 
 /// What a colourbar says under the pointer.
@@ -967,18 +1005,11 @@ impl FigureState {
         let (_, artist) = self.composed.artist(drawn.artist)?;
         let (data, placement, kind) = match artist {
             Artist::Image(image) => (image.pixels, image.placement, PixelKind::Components),
-            Artist::ScalarImage(image) => {
-                let kind = match image
-                    .color_scale
-                    .and_then(|scale| self.composed.color_scale(scale))
-                    .map(|scale| &scale.kind)
-                {
-                    Some(ColorScaleKind::Indexed(_)) => PixelKind::Index,
-                    Some(ColorScaleKind::Categorical(scale)) => PixelKind::Category(scale),
-                    _ => PixelKind::Value,
-                };
-                (image.values, image.placement, kind)
-            }
+            Artist::ScalarImage(image) => (
+                image.values,
+                image.placement,
+                self.mapped_kind(image.color_scale),
+            ),
             _ => return None,
         };
         let value = pixel_value(&self.composed.data_array(data)?.array, kind, row, column)?;
@@ -996,17 +1027,69 @@ impl FigureState {
         })
     }
 
+    /// Returns the kind of value that an array mapped through the colour scale `scale` holds: indices through an
+    /// indexed scale, the indices of categories through a categorical one, and values otherwise.
+    fn mapped_kind(&self, scale: Option<NodeId>) -> PixelKind<'_> {
+        match scale
+            .and_then(|scale| self.composed.color_scale(scale))
+            .map(|scale| &scale.kind)
+        {
+            Some(ColorScaleKind::Indexed(_)) => PixelKind::Index,
+            Some(ColorScaleKind::Categorical(scale)) => PixelKind::Category(scale),
+            _ => PixelKind::Value,
+        }
+    }
+
+    /// Returns the cell drawn last under the pointer, or `None` where no cell lies, which includes the gap between
+    /// cells and a cell that its scale leaves transparent, because neither is drawn.
+    ///
+    /// The cell comes from the hit map of the most recent compilation, which records each cell drawn with its row and
+    /// column in the artist's array and its edges. The value is read from the array in the words of the scale of the
+    /// cells, as [`FigureState::pixel_datatip`] reads the value of a pixel. When the y axis has explicit ticks
+    /// labelled with text and one of them falls exactly at the centre of the cell's row, midway between its edges,
+    /// the tip carries that label as the name of the row; the name of the column is found on the x axis in the same
+    /// way.
+    #[must_use]
+    pub fn cell_datatip(&self, hit: &HitMap, at: Point) -> Option<CellDatatip> {
+        let drawn = hit.cell_at(at)?;
+        let (axes, artist) = self.composed.artist(drawn.artist)?;
+        let Artist::Cells(cells) = artist else {
+            return None;
+        };
+        let kind = self.mapped_kind(cells.color_scale);
+        let array = &self.composed.data_array(cells.values)?.array;
+        let value = pixel_value(array, kind, drawn.row, drawn.column)?;
+        let centre = |(a, b): (f64, f64)| (a + b) / 2.0;
+        let r = drawn.rect;
+        Some(CellDatatip {
+            axes: drawn.axes,
+            artist: drawn.artist,
+            label: artist.label().map(|text| text.content.clone()),
+            row: drawn.row,
+            column: drawn.column,
+            position: Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0),
+            rect: r,
+            column_edges: drawn.column_edges,
+            row_edges: drawn.row_edges,
+            value,
+            row_name: category_name(&axes.y, centre(drawn.row_edges)),
+            column_name: category_name(&axes.x, centre(drawn.column_edges)),
+        })
+    }
+
     /// Returns what lies under the pointer: the drawn data point nearest it within [`DATATIP_RADIUS_POINTS`], as
     /// [`FigureState::datatip`] finds it, or, when there is none, the step of stairs within the same reach, as
     /// [`FigureState::step_datatip`] finds it, the bar under the pointer, as [`FigureState::bar_datatip`] finds it,
-    /// or the pixel of the image under it, as [`FigureState::pixel_datatip`] finds it, in that order.
+    /// the cell under it, as [`FigureState::cell_datatip`] finds it, or the pixel of the image under it, as
+    /// [`FigureState::pixel_datatip`] finds it, in that order.
     ///
-    /// A point wins over the bar or the pixel beneath it because it is small, so that the bar or the pixel is read
-    /// everywhere the pointer is not within reach of a point, and because a series drawn over bars or an image is
-    /// usually painted on top of them, so that a pointer within reach of one of its points means the point rather
-    /// than what it covers. A step is a thin line, read within reach as a point is, so it wins over a bar it is
-    /// drawn over, as the outline of a histogram over its bars is; a bar wins over an image, over which bars are
-    /// drawn.
+    /// A point wins over the bar, the cell or the pixel beneath it because it is small, so that the bar, the cell or
+    /// the pixel is read everywhere the pointer is not within reach of a point, and because a series drawn over bars,
+    /// cells or an image is usually painted on top of them, so that a pointer within reach of one of its points means
+    /// the point rather than what it covers; the dots marking some cells of a matrix are read as dots. A step is a
+    /// thin line, read within reach as a point is, so it wins over a bar it is drawn over, as the outline of a
+    /// histogram over its bars is; a bar wins over a cell and a cell over an image, which are areas that bars and
+    /// cells are usually drawn over.
     ///
     /// A colourbar is asked first, because a bar inside a plot area is drawn over the artists: over a bar, one of
     /// its squares or one of its keys the tip is what the bar reads, as [`FigureState::colorbar_tip`] finds it, and
@@ -1020,6 +1103,7 @@ impl FigureState {
             .map(Tip::Point)
             .or_else(|| self.step_datatip(hit, at).map(Tip::Step))
             .or_else(|| self.bar_datatip(hit, at).map(Tip::Bar))
+            .or_else(|| self.cell_datatip(hit, at).map(Tip::Cell))
             .or_else(|| self.pixel_datatip(hit, at).map(Tip::Pixel))
     }
 
@@ -1433,7 +1517,8 @@ fn path(segments: &[&str]) -> PropertyPath {
     PropertyPath::new(segments.iter().copied()).expect("the segments name a property")
 }
 
-/// The kind of image a pixel is read from, which decides the shape of its array and the form of its value.
+/// The kind of image a pixel, or of artist a cell, is read from, which decides the shape of its array and the form
+/// of its value.
 #[derive(Clone, Copy)]
 enum PixelKind<'a> {
     /// A true-colour image, whose array has a third dimension of components.
