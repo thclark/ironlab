@@ -312,7 +312,7 @@ Each setter that changes the binning bins the sample again and replaces what the
 
 `hist_counts(edges, counts)` draws counts binned elsewhere, by MATLAB's `histcounts`, numpy or an instrument, as the touching bars that `hist` would draw, one fewer than the edges. It returns the `BarMut` of ordinary bars, which carry no record, because the figure cannot know how many samples the counts hold or how they were binned; `stairs(edges, counts)` draws the same counts as an outline.
 
-`hists(bins)` draws several samples as stacked or grouped histograms, the counterpart of [`bars`](#bar-charts), and returns a `HistsMut`. `series(label, sample)` adds a histogram as a column of its own, and `stacked(column, label, sample)` adds one to the stacked column of that name. Every sample is binned on one shared set of edges, so that the samples compare bin by bin: explicit edges are used as given, and any other specification is applied to all the samples pooled together. The histograms are placed by the same code that places the series of `bars`: grouped histograms split each bin into equal parts in the order they were added, the first at the low end, and each stacked histogram spans its bin and rests on those added to its column before it. `normalize(norm)` and `range(min, max)` apply to every histogram, each normalised by its own total, and each histogram keeps a record of its own sample's total and exclusions. A stacked density histogram is therefore a stack of densities that each enclose unit area, which differs from Matplotlib's `stacked=True, density=True`, which scales the whole stack to unit area. `horizontal()` lays every histogram flat, with the bins along y. `ids()`, `last()` and `get(index)` return the histograms for styling, and `error()` returns the reason when the specification cannot be applied. A datatip on a member of a grouped histogram reports the count and density of the whole bin, although the member draws only its share of it.
+`hists(bins)` draws several samples as stacked or grouped histograms, the counterpart of [`bars`](#bar-charts), and returns a `HistsMut`. `series(label, sample)` adds a histogram as a column of its own, and `stacked(column, label, sample)` adds one to the stacked column of that name. Every sample is binned on one shared set of edges, so that the samples compare bin by bin: explicit edges are used as given, and any other specification is applied to all the samples pooled together. The histograms are placed by the same code that places the series of `bars`: grouped histograms split each bin into equal parts in the order they were added, the first at the low end, and each stacked histogram spans its bin and rests on those added to its column before it. `normalize(norm)` and `range(min, max)` apply to every histogram, and how each is normalised depends on how it is placed, as [normalising stacked and side-by-side histograms](#normalising-stacked-and-side-by-side-histograms) describes. `horizontal()` lays every histogram flat, with the bins along y. `ids()`, `last()` and `get(index)` return the histograms for styling, and `error()` returns the reason when the specification cannot be applied. A datatip on a member of a grouped histogram reports the count and density of the whole bin, although the member draws only its share of it.
 
 ```rust
 fig.axes(0, 0)
@@ -342,6 +342,33 @@ fig.axes(0, 2)
 `density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
 
 The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density.
+
+#### Normalising stacked and side-by-side histograms
+
+The histograms of a stacked column are normalised together, by the pooled total of every sample in the column, as Matplotlib's `hist(stacked=True, density=True)` and seaborn's `histplot(multiple="stack")` with its default `common_norm=True` normalise them. The top of the stack is therefore the normalised histogram of the pooled sample, and each layer is its member's share of it: a stack of densities encloses unit area, a stack of probabilities sums to 1, a stack of percentages sums to 100, and a cumulative stack ends at the pooled total, or at 1 for a CDF. Counts and count densities are not divided by a total, so they are the same however the histograms are normalised.
+
+Histograms that stand side by side, each in a column of its own, are normalised each by its own total, because they are placed side by side to compare their shapes: each density histogram encloses unit area, whatever the size of its sample.
+
+`common_norm(true)` normalises every histogram of the helper by the pooled total of all its samples, whether they are stacked or side by side, so that side-by-side histograms show how the pooled sample divides among them. `common_norm(false)` normalises every histogram by its own total, so that each layer of a stack is a distribution of its own and the stack shows the sum of their shapes. The setter gives the same result whether it is called before or after the histograms are added.
+
+```rust
+// The outline of the stack is the density of the pooled sample.
+fig.axes(0, 0)
+    .hists(Bins::Count(20))
+    .normalize(HistNorm::Density)
+    .stacked("all", "Control", &control)
+    .stacked("all", "Treated", &treated);
+
+// Each layer encloses unit area of its own, so the stack encloses an area of 2.
+fig.axes(0, 1)
+    .hists(Bins::Count(20))
+    .normalize(HistNorm::Density)
+    .common_norm(false)
+    .stacked("all", "Control", &control)
+    .stacked("all", "Treated", &treated);
+```
+
+Each histogram keeps a record of the total its values were normalised by, which for a histogram normalised with others is their pooled total, and of the samples its own sample lost because they were not finite or lay outside the range. From that record, a datatip on a layer of a stack reports the count of the member's own samples in the bin, and as its density the member's contribution to the density of the stack, so that the densities of the layers of a bin add up to the density of the stack there.
 
 ### Contours
 

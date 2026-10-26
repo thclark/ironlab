@@ -668,9 +668,11 @@ Bars and stairs carry a record of one dimension, `Binning`:
 | `edges` | The `NodeId` of the data array of the edges that the specification resolved to: one more than the bars or the values of the stairs, finite and strictly increasing. The record of stairs refers to the stairs' own edges; the record of bars refers to an array of its own. |
 | `range` | The range of sample values that was binned, as `[low, high]`, or `null` when the range of the samples was used. A range must be finite and increasing. |
 | `normalization` | How the counts of the bins were normalised into the values drawn, as described below. |
-| `total` | The number of samples counted into the bins, a finite number from 0. |
+| `total` | The total the values were normalised by, a finite number from 0: the number of samples counted into the bins or, for one of several histograms normalised together, as the members of a stack are, the number counted into the bins of all of them. A datatip divides by it to recover the histogram's own count. |
 | `excluded_non_finite` | The number of samples left out because they were not finite, a whole number from 0. |
 | `excluded_out_of_range` | The number of samples left out because they lay outside the range, a whole number from 0. |
+
+The `total` is the total the values were normalised by, so that the count recovered from a value is the histogram's own count, whichever total divided it: a member of a stacked histogram, normalised by the pooled total of its stack as [histograms](../guides/getting-started.md#normalising-stacked-and-side-by-side-histograms) describes, records that pooled total, while its `excluded_non_finite` and `excluded_out_of_range` count only the samples its own sample lost.
 
 Cells carry a record of two dimensions, `Binning2d`, whose `x_bins` and `y_bins` specify the bins along x and along y, whose `x_edges` and `y_edges` are the `NodeId`s of the resolved edges along x and along y in the form of `edges`, one more than the columns and one more than the rows (the record of cells on explicit edges refers to the cells' own column and row edges), whose `x_range` and `y_range` are the ranges along x and along y in the form of `range`, and whose `normalization`, `total`, `excluded_non_finite` and `excluded_out_of_range` are those of a record of one dimension. Its `min_count` is the count below which a bin was left empty, a finite number from 0, or `null` when every bin was drawn.
 

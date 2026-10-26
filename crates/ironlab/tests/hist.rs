@@ -15,7 +15,9 @@
 //! - `AxesMut::hists(bins: Bins) -> HistsMut`, the histogram counterpart of `bars`, whose `series(label, sample)` adds
 //!   a histogram as a column of its own and `stacked(column, label, sample)` adds one to the named stacked column.
 //!   Every sample is binned on one shared set of edges: explicit edges as given, and any other specification applied
-//!   to the pooled sample of all the members. The getters are `ids() -> Vec<NodeId>` and
+//!   to the pooled sample of all the members. The members of a stacked column are normalised by the pooled total of
+//!   the column and every other member by its own total, unless `common_norm(bool)` normalises every member by the
+//!   pooled total of all the members (`true`) or each by its own (`false`). The getters are `ids() -> Vec<NodeId>` and
 //!   `error() -> Option<&BinningError>`.
 //! - `AxesMut::hist_counts(edges, counts) -> BarMut`, which draws counts binned beforehand as touching bars.
 //!
@@ -1441,12 +1443,12 @@ fn hists_of_a_bad_specification_draw_nothing_and_the_helper_reports_why() {
     assert!(has_warning(&report, IssueKind::NothingToDraw), "{report:?}");
 }
 
-// WHY: stacked and grouped density histograms compare the shapes of samples of different sizes, so the helper's
-// normalisation and range must apply to every member, whether they are set before the members are added or after.
-// Each member is normalised by its own total, so that its own bins enclose unit area and its record holds the total
-// that a datatip needs; the range bounds the shared edges, whatever the pooled sample spans, and excludes from each
-// member the values outside it, which that member's record counts. A stacked member rests on the values of the member
-// below it, so that the column's height is the sum of the values drawn.
+// WHY: the helper's normalisation and range must apply to every member, whether they are set before the members are
+// added or after. Members side by side are compared by shape, so each is normalised by its own total and its own bins
+// enclose unit area; members of one stack are normalised by the pooled total of the stack, so that the stack encloses
+// unit area and each layer is its share of it. Either way each record holds the total its values were normalised by,
+// which a datatip needs, and its own exclusions. The range bounds the shared edges, whatever the pooled sample spans,
+// and excludes from each member the values outside it. A stacked member rests on the values of the member below it.
 #[test]
 fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
     let first = [0.5, 1.5, 1.5, 2.5, -2.0, f64::NAN];
@@ -1477,22 +1479,21 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
                 (ids[0], first.as_slice(), 4.0, 1, 1),
                 (ids[1], second.as_slice(), 3.0, 0, 1),
             ];
-            for (id, sample, total, non_finite, out_of_range) in members {
-                let expected = histogram(
+            let mut areas = Vec::new();
+            for (id, sample, own_total, non_finite, out_of_range) in members {
+                let total = if stacked { 7.0 } else { own_total };
+                let counts = histogram(
                     sample,
                     None,
                     &Bins::Edges(edges.clone()),
                     Some((0.0, 4.0)),
-                    HistNorm::Density,
+                    HistNorm::Count,
                 )
                 .unwrap();
+                let expected: Vec<f64> = counts.values.iter().map(|c| c / total).collect();
                 let values = vector(&fig, bar(&fig, id).values);
-                assert_close(&values, &expected.values, &format!("{what}: densities"));
-                let area: f64 = values.iter().sum();
-                assert!(
-                    (area - 1.0).abs() < 1e-12,
-                    "{what}: the member's own bins enclose unit area, not {area}"
-                );
+                assert_close(&values, &expected, &format!("{what}: densities"));
+                areas.push(values.iter().sum::<f64>());
                 assert_eq!(
                     record(&fig, id),
                     Some(Binning {
@@ -1504,13 +1505,27 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
                         excluded_non_finite: non_finite,
                         excluded_out_of_range: out_of_range,
                     }),
-                    "{what}"
+                    "{what}: the total normalised by, and the member's own exclusions"
                 );
                 let extents = bar_extents(&fig, id);
                 for (k, e) in extents.iter().enumerate() {
                     assert!(
                         e.low >= edges[k] - TOL && e.high <= edges[k + 1] + TOL,
                         "{what}: bar {k} lies inside its bin, {e:?}"
+                    );
+                }
+            }
+            if stacked {
+                let area: f64 = areas.iter().sum();
+                assert!(
+                    (area - 1.0).abs() < 1e-12,
+                    "{what}: the stack encloses unit area, not {area}"
+                );
+            } else {
+                for area in areas {
+                    assert!(
+                        (area - 1.0).abs() < 1e-12,
+                        "{what}: each member encloses unit area, not {area}"
                     );
                 }
             }
@@ -1521,6 +1536,257 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
             let report = fig.validate();
             assert!(report.is_valid(), "{what}: {report:?}");
             assert!(report.warnings.is_empty(), "{what}: {report:?}");
+        }
+    }
+}
+
+/// The value of each bin at the top of the stack of the given members: the sum of their values.
+fn stack_top(fig: &Figure, ids: &[NodeId]) -> Vec<f64> {
+    let mut top = vec![0.0; bar_count(fig, ids[0])];
+    for id in ids {
+        for (t, v) in top.iter_mut().zip(vector(fig, bar(fig, *id).values)) {
+            *t += v;
+        }
+    }
+    top
+}
+
+// WHY: a stacked histogram shows how the pooled sample divides among its members, so the top of the stack must be the
+// histogram of the pooled sample under every normalisation, as Matplotlib's `hist(stacked=True, density=True)` and
+// seaborn's `histplot(multiple="stack")` draw it: a density stack encloses unit area, a probability stack sums to 1,
+// a percentage stack to 100, and a cumulative stack ends at the pooled total, or at 1 for a CDF. Each layer is the
+// member's share of that: its own counts normalised by the pooled total. Counts and count densities need no total and
+// are unchanged. Bins of unequal width check that a density is divided by the width of its own bin.
+#[test]
+fn the_top_of_a_stack_is_the_normalised_histogram_of_the_pooled_sample() {
+    let edges = vec![0.0, 1.0, 2.0, 3.0, 4.5];
+    let widths = [1.0, 1.0, 1.0, 1.5];
+    let pooled: Vec<f64> = STEPPED.iter().chain(&OTHER).copied().collect();
+    let pooled_total = 15.0;
+    for norm in [
+        HistNorm::Count,
+        HistNorm::CountDensity,
+        HistNorm::Density,
+        HistNorm::Probability,
+        HistNorm::Percentage,
+        HistNorm::CumulativeCount,
+        HistNorm::Cdf,
+    ] {
+        let mut fig = Figure::new();
+        let ids = fig
+            .axes(0, 0)
+            .hists(Bins::Edges(edges.clone()))
+            .normalize(norm)
+            .stacked("both", "first", STEPPED)
+            .stacked("both", "second", OTHER)
+            .ids();
+        let top = stack_top(&fig, &ids);
+        let expected = histogram(&pooled, None, &Bins::Edges(edges.clone()), None, norm).unwrap();
+        assert_close(
+            &top,
+            &expected.values,
+            &format!("{norm:?}: the pooled histogram"),
+        );
+        let what = format!("{norm:?}: the top of the stack");
+        match norm {
+            HistNorm::Density => {
+                let area: f64 = top.iter().zip(widths).map(|(v, w)| v * w).sum();
+                assert!((area - 1.0).abs() < 1e-12, "{what} encloses {area}");
+            }
+            HistNorm::Probability => {
+                assert!((top.iter().sum::<f64>() - 1.0).abs() < 1e-12, "{what}")
+            }
+            HistNorm::Percentage => {
+                assert!((top.iter().sum::<f64>() - 100.0).abs() < 1e-10, "{what}")
+            }
+            HistNorm::CumulativeCount => assert_eq!(top.last(), Some(&pooled_total), "{what}"),
+            HistNorm::Cdf => assert!((top[3] - 1.0).abs() < 1e-12, "{what} ends at {}", top[3]),
+            _ => {}
+        }
+        for (id, sample) in ids.iter().zip([STEPPED.as_slice(), OTHER.as_slice()]) {
+            let counts = histogram(
+                sample,
+                None,
+                &Bins::Edges(edges.clone()),
+                None,
+                HistNorm::Count,
+            )
+            .unwrap()
+            .values;
+            let cumulative: Vec<f64> = counts
+                .iter()
+                .scan(0.0, |sum, c| {
+                    *sum += c;
+                    Some(*sum)
+                })
+                .collect();
+            let share: Vec<f64> = match norm {
+                HistNorm::Count => counts,
+                HistNorm::CountDensity => counts.iter().zip(widths).map(|(c, w)| c / w).collect(),
+                HistNorm::Density => counts
+                    .iter()
+                    .zip(widths)
+                    .map(|(c, w)| c / (pooled_total * w))
+                    .collect(),
+                HistNorm::Probability => counts.iter().map(|c| c / pooled_total).collect(),
+                HistNorm::Percentage => counts.iter().map(|c| 100.0 * c / pooled_total).collect(),
+                HistNorm::CumulativeCount => cumulative,
+                HistNorm::Cdf => cumulative.iter().map(|c| c / pooled_total).collect(),
+            };
+            assert_close(
+                &vector(&fig, bar(&fig, *id).values),
+                &share,
+                &format!("{norm:?}: the layer is the member's share of the pooled histogram"),
+            );
+        }
+    }
+}
+
+// WHY: the default follows the layout, because stacked members are read as parts of a whole and side-by-side members
+// are compared by shape, but some comparisons want the other: members side by side whose heights show their shares of
+// the pooled sample (seaborn's `common_norm=True` with `multiple="dodge"`), or a stack of shapes normalised each on
+// its own (seaborn's `common_norm=False` with `multiple="stack"`). `common_norm(true)` must normalise every member by
+// the pooled total of all the members, and `common_norm(false)` each by its own, in either layout; and because the
+// helper may be configured before or after its members are added, the result must not depend on when it is called.
+// The record of each member holds the total its values were normalised by.
+#[test]
+fn common_norm_overrides_the_layout_whenever_it_is_set() {
+    let edges = vec![0.0, 1.0, 2.0, 3.0, 4.5];
+    let samples = [STEPPED.as_slice(), OTHER.as_slice()];
+    let own_totals = [10.0, 5.0];
+    for stacked in [false, true] {
+        for common in [None, Some(true), Some(false)] {
+            for setter_first in [true, false] {
+                let what =
+                    format!("stacked {stacked}, common {common:?}, setter first {setter_first}");
+                let mut fig = Figure::new();
+                let mut ax = fig.axes(0, 0);
+                let mut hists = ax.hists(Bins::Edges(edges.clone()));
+                hists.normalize(HistNorm::Probability);
+                if let (Some(common), true) = (common, setter_first) {
+                    hists.common_norm(common);
+                }
+                for (k, sample) in samples.iter().enumerate() {
+                    if stacked {
+                        hists.stacked("both", format!("m{k}"), sample.to_vec());
+                    } else {
+                        hists.series(format!("m{k}"), sample.to_vec());
+                    }
+                }
+                if let (Some(common), false) = (common, setter_first) {
+                    hists.common_norm(common);
+                }
+                let pooled = common.unwrap_or(stacked);
+                for ((id, sample), own_total) in hists.ids().iter().zip(samples).zip(own_totals) {
+                    let total = if pooled { 15.0 } else { own_total };
+                    let counts = histogram(
+                        sample,
+                        None,
+                        &Bins::Edges(edges.clone()),
+                        None,
+                        HistNorm::Count,
+                    )
+                    .unwrap()
+                    .values;
+                    let expected: Vec<f64> = counts.iter().map(|c| c / total).collect();
+                    assert_close(&vector(&fig, bar(&fig, *id).values), &expected, &what);
+                    assert_eq!(
+                        record(&fig, *id).map(|r| r.total),
+                        Some(total),
+                        "{what}: the record holds the total normalised by"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// WHY: each stacked column is a whole of its own, so the members of one stack are normalised by the pooled total of
+// that stack alone, not of every member of the helper, and a member in a column of its own beside the stack keeps its
+// own total. Each record holds the total its values were normalised by, so that a datatip recovers the member's own
+// count, while the exclusions stay the member's own, because they describe what its own sample lost.
+#[test]
+fn the_members_of_a_stack_record_the_pooled_total_of_their_stack_and_their_own_exclusions() {
+    let edges = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+    let alone = [0.5, 1.5, 2.5];
+    let lower = [0.5, 1.5, 1.5, f64::NAN];
+    let upper = [2.5, 3.5, 9.0];
+    let mut fig = Figure::new();
+    let ids = fig
+        .axes(0, 0)
+        .hists(Bins::Edges(edges.clone()))
+        .normalize(HistNorm::Density)
+        .series("alone", alone)
+        .stacked("s", "lower", lower)
+        .stacked("s", "upper", upper)
+        .ids();
+    let expected = [(3.0, 0, 0), (5.0, 1, 0), (5.0, 0, 1)];
+    for (id, (total, non_finite, out_of_range)) in ids.iter().zip(expected) {
+        assert_eq!(
+            record(&fig, *id),
+            Some(Binning {
+                edges: NodeId::default(),
+                bins: Bins::Edges(edges.clone()),
+                range: None,
+                normalization: HistNorm::Density,
+                total,
+                excluded_non_finite: non_finite,
+                excluded_out_of_range: out_of_range,
+            })
+        );
+    }
+    let area: f64 = stack_top(&fig, &ids[1..]).iter().sum();
+    assert!(
+        (area - 1.0).abs() < 1e-12,
+        "the stack encloses unit area, not {area}"
+    );
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(report.warnings.is_empty(), "{report:?}");
+}
+
+// WHY: a layer of a stacked density histogram draws the member's share of the pooled density, but a reader pointing
+// at it wants to know how many of the member's own samples lie in the bin. Because the record holds the pooled total,
+// the datatip must recover the member's own count, and report as its density the member's contribution to the pooled
+// density, the count divided by the pooled total and the width of the bin, so that the densities of the layers of a
+// bin add up to the density of the stack there.
+#[test]
+fn the_datatip_of_a_stacked_member_reports_its_own_count_and_its_share_of_the_density() {
+    let edges = vec![0.0, 1.0, 2.0, 3.0, 4.5];
+    let widths = [1.0, 1.0, 1.0, 1.5];
+    let members = [
+        (STEPPED.as_slice(), [1.0, 2.0, 3.0, 4.0]),
+        (OTHER.as_slice(), [2.0, 1.0, 1.0, 1.0]),
+    ];
+    for norm in [HistNorm::Density, HistNorm::Probability, HistNorm::Cdf] {
+        let mut fig = Figure::new();
+        let mut ax = fig.axes(0, 0);
+        let mut hists = ax.hists(Bins::Edges(edges.clone()));
+        hists.normalize(norm);
+        for (k, (sample, _)) in members.iter().enumerate() {
+            hists.stacked("both", format!("m{k}"), sample.to_vec());
+        }
+        let ids = hists.ids();
+        let scene = compile(&fig);
+        for (id, (_, counts)) in ids.iter().zip(members) {
+            let mut hits: Vec<_> = scene
+                .hit_map
+                .bars
+                .iter()
+                .filter(|b| b.artist == *id)
+                .collect();
+            hits.sort_by_key(|b| b.index);
+            assert_eq!(hits.len(), 4, "{norm:?}: one datatip per bin");
+            for (k, hit) in hits.iter().enumerate() {
+                let reading = hit.bin.expect("a stacked member records its binning");
+                let density = counts[k] / (15.0 * widths[k]);
+                assert!(
+                    (reading.count - counts[k]).abs() < 1e-9
+                        && (reading.density - density).abs() < 1e-9,
+                    "{norm:?}, bin {k}: read {reading:?}, not a count of {} and a density of {density}",
+                    counts[k]
+                );
+            }
         }
     }
 }

@@ -325,6 +325,33 @@ impl AxesMut<'_> {
     /// samples, Matplotlib's `hist` with `stacked=True` or a list of samples), each an
     /// ordinary bar series placed as [`bars`](Self::bars) places its series; see
     /// [`HistsMut`].
+    ///
+    /// The members of a stacked column are normalised by the pooled total of the column, so
+    /// that the top of the stack is the normalised histogram of the pooled sample and each
+    /// layer is the member's share of it, as Matplotlib's `hist(stacked=True,
+    /// density=True)` and seaborn's default `common_norm=True` draw it. Members side by side
+    /// are normalised each by its own total, so that their shapes compare.
+    /// [`HistsMut::common_norm`] overrides either rule.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let control = [0.2, 0.8, 1.1, 1.4, 1.9, 2.3, 2.6, 3.1];
+    /// let treated = [1.2, 1.7, 2.1, 2.4, 2.8, 3.3, 3.6, 3.9];
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// // A stack whose outline is the density of the pooled sample.
+    /// ax.hists(Bins::Count(8))
+    ///     .normalize(HistNorm::Density)
+    ///     .stacked("all", "Control", control)
+    ///     .stacked("all", "Treated", treated);
+    /// // Densities side by side, each enclosing unit area.
+    /// ax.hists(Bins::Count(8))
+    ///     .normalize(HistNorm::Density)
+    ///     .series("Control", control)
+    ///     .series("Treated", treated);
+    /// assert!(fig.validate().is_valid());
+    /// ```
     pub fn hists(&mut self, bins: Bins) -> HistsMut<'_> {
         HistsMut::new(self.fig, self.id, bins)
     }
