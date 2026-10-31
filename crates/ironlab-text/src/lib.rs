@@ -36,10 +36,72 @@ pub enum FontId {
     TextRegular,
     /// STIX Two Text Italic.
     TextItalic,
+    /// STIX Two Text Medium, used for plain text emboldened to [`Embolden::Medium`].
+    TextMedium,
+    /// STIX Two Text SemiBold, used for plain text emboldened to [`Embolden::Semibold`].
+    TextSemibold,
     /// STIX Two Text Bold.
     TextBold,
     /// STIX Two Math, as embedded by `latex-rust` (`latex_rust::STIX_TWO_MATH_OTF`).
     Math,
+}
+
+/// How much heavier than designed text is drawn.
+///
+/// Plain text is set in the designed face of the step's weight. Bold, monospace and
+/// mathematics, whose faces have no heavier weight, keep their faces and are drawn with a
+/// stroke along their outlines (see [`GlyphRun::stroke_em`]) that thickens their stems by
+/// as much as the step thickens the stems of plain text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Embolden {
+    /// Drawn as designed.
+    #[default]
+    Regular,
+    /// As heavy as STIX Two Text Medium.
+    Medium,
+    /// As heavy as STIX Two Text SemiBold.
+    Semibold,
+}
+
+impl Embolden {
+    /// The factor by which the step multiplies the width of every line and edge of a figure.
+    ///
+    /// It is the ratio of the stem of the lowercase "l" in the step's face to its stem in the
+    /// regular face: 83, 102 and 121 units per 1000 in Regular, Medium and SemiBold, so that
+    /// lines thicken in proportion to the plain text beside them.
+    #[must_use]
+    pub fn line_scale(self) -> f64 {
+        match self {
+            Self::Regular => 1.0,
+            Self::Medium => 102.0 / 83.0,
+            Self::Semibold => 121.0 / 83.0,
+        }
+    }
+
+    /// The width, in ems, of the stroke drawn along the outlines of bold, monospace and
+    /// mathematical glyphs at this step.
+    ///
+    /// A stroke adds its whole width to a stem, so the width is the amount by which the step
+    /// thickens the stem of "l" over the regular face: (102 − 83) and (121 − 83) units per 1000
+    /// for Medium and SemiBold. Bold (whose stem is 143 units) is thickened by the same amount,
+    /// so that it still stands out from the plain text beside it.
+    #[must_use]
+    pub fn stroke_em(self) -> f64 {
+        match self {
+            Self::Regular => 0.0,
+            Self::Medium => 0.019,
+            Self::Semibold => 0.038,
+        }
+    }
+
+    /// The face in which the step sets plain text.
+    fn plain_font(self) -> FontId {
+        match self {
+            Self::Regular => FontId::TextRegular,
+            Self::Medium => FontId::TextMedium,
+            Self::Semibold => FontId::TextSemibold,
+        }
+    }
 }
 
 /// Returns the complete OpenType file of a bundled face.
@@ -52,9 +114,9 @@ pub fn font_bytes(font: FontId) -> &'static [u8] {
     fonts::bytes(font)
 }
 
-/// Key of the layout memo: source text, math parsing flag and the bit pattern
-/// of the requested size in points.
-type LayoutKey = (String, bool, u64);
+/// Key of the layout memo: source text, math parsing flag, the bit pattern
+/// of the requested size in points and the step of emboldening.
+type LayoutKey = (String, bool, u64, Embolden);
 
 /// Key of the outline cache: face and glyph identifier.
 type OutlineKey = (FontId, u16);
@@ -70,6 +132,12 @@ pub struct TextEngine {
     /// HarfRust shaping cache for STIX Two Text Regular, the face used for
     /// all plain text.
     shaper_data: harfrust::ShaperData,
+    /// HarfRust shaping cache for STIX Two Text Medium, the face of plain text
+    /// emboldened to [`Embolden::Medium`].
+    medium_shaper_data: harfrust::ShaperData,
+    /// HarfRust shaping cache for STIX Two Text SemiBold, the face of plain text
+    /// emboldened to [`Embolden::Semibold`].
+    semibold_shaper_data: harfrust::ShaperData,
     /// HarfRust shaping cache for STIX Two Text Bold, the face of `\textbf{…}`.
     bold_shaper_data: harfrust::ShaperData,
     /// Parsed faces of the whole font set, for metrics and outlines.
@@ -100,12 +168,18 @@ impl TextEngine {
             latex_rust::MathFont::stix_two_math().expect("the embedded STIX Two Math face parses");
         let regular = harfrust::FontRef::new(fonts::bytes(FontId::TextRegular))
             .expect("the bundled STIX Two Text Regular face parses");
+        let medium = harfrust::FontRef::new(fonts::bytes(FontId::TextMedium))
+            .expect("the bundled STIX Two Text Medium face parses");
+        let semibold = harfrust::FontRef::new(fonts::bytes(FontId::TextSemibold))
+            .expect("the bundled STIX Two Text SemiBold face parses");
         let bold = harfrust::FontRef::new(fonts::bytes(FontId::TextBold))
             .expect("the bundled STIX Two Text Bold face parses");
         Self {
             faces: fonts::Faces::parse(&math_font),
             math_font,
             shaper_data: harfrust::ShaperData::new(&regular),
+            medium_shaper_data: harfrust::ShaperData::new(&medium),
+            semibold_shaper_data: harfrust::ShaperData::new(&semibold),
             bold_shaper_data: harfrust::ShaperData::new(&bold),
             layouts: Mutex::new(HashMap::new()),
             outlines: Mutex::new(HashMap::new()),
@@ -164,14 +238,34 @@ impl TextEngine {
     /// Results are memoised on `(content, parse_math, size_pt)`, so repeated
     /// calls with identical arguments return the same [`Arc`].
     pub fn layout(&self, content: &str, parse_math: bool, size_pt: f64) -> Arc<TextLayout> {
-        let key = (content.to_owned(), parse_math, size_pt.to_bits());
+        self.layout_emboldened(content, parse_math, size_pt, Embolden::Regular)
+    }
+
+    /// Lays out `content` at `size_pt` points as [`TextEngine::layout`] does, drawn
+    /// `embolden` heavier than designed.
+    ///
+    /// Plain text, including the raw source of math that cannot be typeset, is set in the
+    /// face of the step's weight. Bold, monospace and mathematical runs keep their faces and
+    /// carry a stroke of [`Embolden::stroke_em`]; the rules of mathematics are thickened by the
+    /// same stroke about their centres, and the height and depth of a stroked segment include
+    /// the half of the stroke that lies outside its outlines.
+    ///
+    /// Results are memoised on `(content, parse_math, size_pt, embolden)`.
+    pub fn layout_emboldened(
+        &self,
+        content: &str,
+        parse_math: bool,
+        size_pt: f64,
+        embolden: Embolden,
+    ) -> Arc<TextLayout> {
+        let key = (content.to_owned(), parse_math, size_pt.to_bits(), embolden);
         if let Some(layout) = lock(&self.layouts).get(&key) {
             return Arc::clone(layout);
         }
         // Typeset without holding the lock, so that concurrent callers with
         // different labels do not wait on each other. If two callers race on
         // the same label, the first result inserted is the one both return.
-        let computed = Arc::new(self.compute_layout(content, parse_math, size_pt));
+        let computed = Arc::new(self.compute_layout(content, parse_math, size_pt, embolden));
         Arc::clone(lock(&self.layouts).entry(key).or_insert(computed))
     }
 
@@ -192,7 +286,14 @@ impl TextEngine {
     }
 
     /// Lays out `content` without consulting the memo.
-    fn compute_layout(&self, content: &str, parse_math: bool, size_pt: f64) -> TextLayout {
+    fn compute_layout(
+        &self,
+        content: &str,
+        parse_math: bool,
+        size_pt: f64,
+        embolden: Embolden,
+    ) -> TextLayout {
+        let stroke_em = embolden.stroke_em();
         let mut builder = LayoutBuilder::default();
         if !(size_pt.is_finite() && size_pt > 0.0) {
             builder.warnings.push(TextWarning {
@@ -208,9 +309,9 @@ impl TextEngine {
         }
         if !parse_math {
             builder.append(plain::shape(
-                &self.shaper_data,
+                self.plain_shaper_data(embolden),
                 &self.faces,
-                FontId::TextRegular,
+                embolden.plain_font(),
                 content,
                 size_pt,
             ));
@@ -226,24 +327,28 @@ impl TextEngine {
             match segment {
                 Segment::Plain(text) => plain.push_str(&text),
                 Segment::Bold(text) => {
-                    self.flush_plain(&mut builder, &mut plain, size_pt);
-                    builder.append(plain::shape(
-                        &self.bold_shaper_data,
-                        &self.faces,
-                        FontId::TextBold,
-                        &text,
+                    self.flush_plain(&mut builder, &mut plain, size_pt, embolden);
+                    builder.append(stroked(
+                        plain::shape(
+                            &self.bold_shaper_data,
+                            &self.faces,
+                            FontId::TextBold,
+                            &text,
+                            size_pt,
+                        ),
+                        stroke_em,
                         size_pt,
                     ));
                 }
                 Segment::Mono(text) => {
-                    self.flush_plain(&mut builder, &mut plain, size_pt);
+                    self.flush_plain(&mut builder, &mut plain, size_pt, embolden);
                     let (layout, warnings) = mono::shape(&self.faces, &text, size_pt);
-                    builder.append(layout);
+                    builder.append(stroked(layout, stroke_em, size_pt));
                     builder.warnings.extend(warnings);
                 }
                 Segment::Math(inner) => match math::typeset(&inner, size_pt, &self.math_font) {
                     Ok(output) => {
-                        self.flush_plain(&mut builder, &mut plain, size_pt);
+                        self.flush_plain(&mut builder, &mut plain, size_pt, embolden);
                         if output.ignored_colour {
                             builder.warnings.push(TextWarning {
                                 source: format!("${inner}$"),
@@ -252,7 +357,7 @@ impl TextEngine {
                                     .to_owned(),
                             });
                         }
-                        builder.append(output.layout);
+                        builder.append(stroked(output.layout, stroke_em, size_pt));
                     }
                     Err(message) => {
                         let source = format!("${inner}$");
@@ -262,23 +367,68 @@ impl TextEngine {
                 },
             }
         }
-        self.flush_plain(&mut builder, &mut plain, size_pt);
+        self.flush_plain(&mut builder, &mut plain, size_pt, embolden);
         builder.finish()
     }
 
+    /// Returns the shaping cache of the face in which `embolden` sets plain text.
+    fn plain_shaper_data(&self, embolden: Embolden) -> &harfrust::ShaperData {
+        match embolden {
+            Embolden::Regular => &self.shaper_data,
+            Embolden::Medium => &self.medium_shaper_data,
+            Embolden::Semibold => &self.semibold_shaper_data,
+        }
+    }
+
     /// Shapes and appends any accumulated plain text.
-    fn flush_plain(&self, builder: &mut LayoutBuilder, plain: &mut String, size_pt: f64) {
+    fn flush_plain(
+        &self,
+        builder: &mut LayoutBuilder,
+        plain: &mut String,
+        size_pt: f64,
+        embolden: Embolden,
+    ) {
         if !plain.is_empty() {
             builder.append(plain::shape(
-                &self.shaper_data,
+                self.plain_shaper_data(embolden),
                 &self.faces,
-                FontId::TextRegular,
+                embolden.plain_font(),
                 plain,
                 size_pt,
             ));
             plain.clear();
         }
     }
+}
+
+/// Strokes every glyph run of `segment` with a stroke `stroke_em` ems wide, thickens its
+/// rules by the same stroke about their centres, and grows its height and depth by the half
+/// of the stroke that lies outside the outlines. A zero stroke leaves the segment unchanged.
+fn stroked(mut segment: SegmentLayout, stroke_em: f64, size_pt: f64) -> SegmentLayout {
+    if stroke_em <= 0.0 {
+        return segment;
+    }
+    let stroke = stroke_em * size_pt;
+    let half = stroke / 2.0;
+    for item in &mut segment.items {
+        match item {
+            TextItem::Glyphs(run) => run.stroke_em = stroke_em,
+            TextItem::Rule {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                *x -= half;
+                *y -= half;
+                *width += stroke;
+                *height += stroke;
+            }
+        }
+    }
+    segment.height += half;
+    segment.depth += half;
+    segment
 }
 
 /// Locks `mutex`, recovering the data if another thread panicked while
@@ -423,6 +573,9 @@ pub struct GlyphRun {
     pub text: String,
     /// Positioned glyphs.
     pub glyphs: Vec<PositionedGlyph>,
+    /// The width of a stroke drawn along the outline of every glyph of the run, in the
+    /// colour of its fill, in ems of the run's size; zero for none.
+    pub stroke_em: f64,
 }
 
 /// A glyph placed relative to the layout origin.

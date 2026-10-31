@@ -665,7 +665,7 @@ async fn exporting_a_vector_only_figure_needs_no_gpu_and_yields_a_pdf() {
     let before = problems(&handle);
     assert!(before.is_empty(), "{before:?}");
 
-    let value = JsFuture::from(handle.export_pdf())
+    let value = JsFuture::from(handle.export_pdf(None))
         .await
         .expect("a vector-only figure exports without a GPU");
     let Export { bytes, warnings } = export(value);
@@ -695,6 +695,31 @@ async fn exporting_a_vector_only_figure_needs_no_gpu_and_yields_a_pdf() {
     );
 }
 
+// Why: a reader preparing slides exports the figure drawn heavier without changing the figure the page shows, so a
+// named step must reach the PDF, the figure must be exported at its own step again afterwards, and a misspelt step
+// must be refused with a message rather than ignored.
+#[wasm_bindgen_test]
+async fn exporting_at_a_step_of_emboldening_draws_the_pdf_heavier_and_leaves_the_figure_as_it_was()
+{
+    let handle = headless(LINE_MARKERS_FIG, "fig");
+    let plain = |handle: &FigureHandle| JsFuture::from(handle.export_pdf(None));
+    let Export { bytes: before, .. } = export(plain(&handle).await.expect("the figure exports"));
+    let Export { bytes: heavier, .. } = export(
+        JsFuture::from(handle.export_pdf(Some("semibold".to_owned())))
+            .await
+            .expect("the figure exports at a named step"),
+    );
+    let Export { bytes: after, .. } = export(plain(&handle).await.expect("the figure exports"));
+    assert_ne!(heavier, before, "the step is drawn");
+    assert_eq!(after, before, "the figure shown keeps its own step");
+    assert!(
+        JsFuture::from(handle.export_pdf(Some("bold".to_owned())))
+            .await
+            .is_err(),
+        "a name that is no step is refused"
+    );
+}
+
 // Why: headless and no-GPU are first class: a three-dimensional figure needs an adapter only to verify its painter's
 // order, and without one it is still exported, back to front with a warning, rather than refused. A page without
 // WebGPU or WebGL2 must therefore still hand the user a PDF of a surface, and the warning that says the axes went
@@ -702,7 +727,7 @@ async fn exporting_a_vector_only_figure_needs_no_gpu_and_yields_a_pdf() {
 #[wasm_bindgen_test]
 async fn a_three_dimensional_figure_exports_without_a_gpu_rather_than_failing() {
     let handle = headless(SURF_FIG, "fig");
-    let value = JsFuture::from(handle.export_pdf())
+    let value = JsFuture::from(handle.export_pdf(None))
         .await
         .expect("a surface exports without a GPU, unverified");
     let Export { bytes, warnings } = export(value);

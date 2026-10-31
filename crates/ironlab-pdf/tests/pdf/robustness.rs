@@ -222,6 +222,7 @@ fn glyph_run(edit: impl FnOnce(&mut GlyphsItem)) -> Item {
         panic!("\"Time\" did not lay out to a glyph run: {layout:?}");
     };
     let mut glyphs = GlyphsItem {
+        stroke_em: 0.0,
         font: run.font,
         size_pt: run.size_pt,
         color: Rgba::BLACK,

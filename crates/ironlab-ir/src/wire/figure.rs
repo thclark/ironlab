@@ -44,6 +44,8 @@ proto_file! {
         /// The colour scales of the figure, which colour-mapped artists refer to by node
         /// identifier.
         repeated message ColorScale color_scales = 16;
+        /// How much heavier than designed the figure is drawn; unspecified means regular.
+        enum Embolden embolden = 17;
     }
 
     /// The physical size of a figure.
@@ -58,6 +60,18 @@ proto_file! {
     enum FontSetId {
         /// STIX Two Text for text and STIX Two Math for mathematics.
         StixTwo = 1;
+    }
+
+    /// How much heavier than designed a figure is drawn.
+    enum Embolden {
+        /// Drawn as designed.
+        Regular = 1;
+        /// Text drawn as heavy as STIX Two Text Medium, and lines and edges thickened in
+        /// proportion.
+        Medium = 2;
+        /// Text drawn as heavy as STIX Two Text SemiBold, and lines and edges thickened in
+        /// proportion.
+        Semibold = 3;
     }
 
     /// A record of the software that produced a figure.

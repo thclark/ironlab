@@ -108,7 +108,7 @@ pub use edit::{
 };
 pub use error::{IrError, ProtobufError};
 pub use figure::{
-    Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
+    Embolden, Figure, FigureSize, FontSetId, NodeIdAllocator, Parameter, Provenance, SCHEMA_VERSION,
 };
 pub use ids::NodeId;
 pub use layout::{Cell, TileLayout, TrackSize};

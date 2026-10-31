@@ -340,9 +340,12 @@ fn export_pdf_with_returns_the_same_report_as_export_pdf() {
     let chosen = fig
         .export_pdf_with(
             &chosen_path,
-            RasterOptions {
-                policy: RasterPolicy::Never,
-                ..RasterOptions::default()
+            PdfExport {
+                raster: RasterOptions {
+                    policy: RasterPolicy::Never,
+                    ..RasterOptions::default()
+                },
+                ..PdfExport::default()
             },
         )
         .unwrap();
@@ -391,10 +394,13 @@ fn reported(warnings: &[ExportWarning]) -> Vec<(Option<NodeId>, ExportWarningKin
 }
 
 /// The raster options that keep every three-dimensional axes vector.
-fn vector_depth() -> RasterOptions {
-    RasterOptions {
-        depth: DepthPolicy::Vector,
-        ..RasterOptions::default()
+fn vector_depth() -> PdfExport {
+    PdfExport {
+        raster: RasterOptions {
+            depth: DepthPolicy::Vector,
+            ..RasterOptions::default()
+        },
+        ..PdfExport::default()
     }
 }
 
@@ -632,7 +638,15 @@ fn export_png_writes_an_image_of_the_figure_s_size_at_the_resolution_asked() {
     let fig = sample_figure().size_mm(160.0, 100.0);
 
     let path = fresh("size_72.png");
-    if png_or_skip(fig.export_png_with(&path, 72.0)).is_none() {
+    if png_or_skip(fig.export_png_with(
+        &path,
+        PngExport {
+            dpi: 72.0,
+            ..PngExport::default()
+        },
+    ))
+    .is_none()
+    {
         return;
     }
     // 160 mm is 453.54 pt and 100 mm is 283.46 pt.
@@ -640,7 +654,14 @@ fn export_png_writes_an_image_of_the_figure_s_size_at_the_resolution_asked() {
     assert_eq!(png_size(&path), pixels(160.0, 100.0, 72.0));
 
     let path = fresh("size_150.png");
-    fig.export_png_with(&path, 150.0).unwrap();
+    fig.export_png_with(
+        &path,
+        PngExport {
+            dpi: 150.0,
+            ..PngExport::default()
+        },
+    )
+    .unwrap();
     assert_eq!(png_size(&path), pixels(160.0, 100.0, 150.0));
 
     let path = fresh("size_default.png");
@@ -723,7 +744,15 @@ fn export_png_reports_validation_and_scene_warnings_and_no_export_warnings() {
 fn export_png_draws_what_the_offscreen_renderer_draws() {
     let fig = sample_figure();
     let path = fresh("as_rendered.png");
-    if png_or_skip(fig.export_png_with(&path, 96.0)).is_none() {
+    if png_or_skip(fig.export_png_with(
+        &path,
+        PngExport {
+            dpi: 96.0,
+            ..PngExport::default()
+        },
+    ))
+    .is_none()
+    {
         return;
     }
     let text = ironlab_text::TextEngine::new();

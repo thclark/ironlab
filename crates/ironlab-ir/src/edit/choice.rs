@@ -37,7 +37,7 @@ use crate::color_scale::{
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::properties;
 use crate::edit::value::{Value, ValueType};
-use crate::figure::{Figure, FontSetId};
+use crate::figure::{Embolden, Figure, FontSetId};
 use crate::ids::NodeId;
 use crate::legend::{
     InsideLegend, Legend, LegendEntryColumns, LegendEntryOrder, LegendLocation, PanelLegend,
@@ -203,6 +203,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Coords => coords_choices(),
         ValueType::Interpreter => interpreter_choices(),
         ValueType::FontSetId => font_set_id_choices(),
+        ValueType::Embolden => embolden_choices(),
         ValueType::Orientation => orientation_choices(),
         ValueType::PerBar => per_bar_choices(replacing),
         ValueType::BarWidth => bar_width_choices(replacing),
@@ -661,6 +662,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Coords(v) => coords_label(v),
         Value::Interpreter(v) => interpreter_label(v),
         Value::FontSetId(v) => font_set_id_label(v),
+        Value::Embolden(v) => embolden_label(v),
         Value::Orientation(v) => orientation_label(v),
         Value::PerBar(v) => per_bar_label(v),
         Value::BarWidth(v) => bar_width_label(v),
@@ -1277,6 +1279,12 @@ plain_choices! {
 
     FontSetId as FontSetId (font_set_id_choices, font_set_id_label) {
         FontSetId::StixTwo => "STIX Two";
+    }
+
+    Embolden as Embolden (embolden_choices, embolden_label) {
+        Embolden::Regular => "Regular";
+        Embolden::Medium => "Medium";
+        Embolden::Semibold => "Semibold";
     }
 }
 

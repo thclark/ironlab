@@ -7,9 +7,11 @@ use std::path::Path;
 use ironlab_text::{FontId, TextEngine};
 use sha2::{Digest, Sha256};
 
-const ALL_FONTS: [FontId; 4] = [
+const ALL_FONTS: [FontId; 6] = [
     FontId::TextRegular,
     FontId::TextItalic,
+    FontId::TextMedium,
+    FontId::TextSemibold,
     FontId::TextBold,
     FontId::Math,
 ];
@@ -33,7 +35,7 @@ fn sha256sums_match_bundled_font_files() {
         assert_eq!(hex_sha256(&bytes), expected, "checksum mismatch for {name}");
         checked += 1;
     }
-    assert_eq!(checked, 3, "SHA256SUMS must cover all three text faces");
+    assert_eq!(checked, 5, "SHA256SUMS must cover all five text faces");
     assert!(
         dir.join("OFL.txt").is_file(),
         "the OFL licence must ship with the fonts"
@@ -48,6 +50,8 @@ fn embedded_text_faces_are_the_checksummed_files() {
     for (font, name) in [
         (FontId::TextRegular, "STIXTwoText-Regular.otf"),
         (FontId::TextItalic, "STIXTwoText-Italic.otf"),
+        (FontId::TextMedium, "STIXTwoText-Medium.otf"),
+        (FontId::TextSemibold, "STIXTwoText-SemiBold.otf"),
         (FontId::TextBold, "STIXTwoText-Bold.otf"),
     ] {
         let on_disk = std::fs::read(dir.join(name)).expect("font file exists");

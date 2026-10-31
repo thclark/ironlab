@@ -76,6 +76,8 @@ pub fn reference_face(font: FontId) -> ttf_parser::Face<'static> {
     let bytes: &'static [u8] = match font {
         FontId::TextRegular => include_bytes!("../../fonts/STIXTwoText-Regular.otf"),
         FontId::TextItalic => include_bytes!("../../fonts/STIXTwoText-Italic.otf"),
+        FontId::TextMedium => include_bytes!("../../fonts/STIXTwoText-Medium.otf"),
+        FontId::TextSemibold => include_bytes!("../../fonts/STIXTwoText-SemiBold.otf"),
         FontId::TextBold => include_bytes!("../../fonts/STIXTwoText-Bold.otf"),
         FontId::Math => latex_rust::STIX_TWO_MATH_OTF,
     };

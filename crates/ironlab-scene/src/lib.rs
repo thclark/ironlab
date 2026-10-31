@@ -5,4 +5,4 @@ pub mod display;
 pub mod hit;
 pub mod maths;
 
-pub use compile::{Scene, SceneWarning, SceneWarningKind, compile};
+pub use compile::{CompileOptions, Scene, SceneWarning, SceneWarningKind, compile, compile_with};

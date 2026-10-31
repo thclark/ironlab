@@ -15,15 +15,15 @@ use crate::{
     ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec,
     ColorbarOrientation, ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale,
     Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS, DashStyle, DataArray, Dimension,
-    DiscreteColorScale, Edit, Figure, FigureSize, FontSetId, Grid, HistNorm, Image, ImagePlacement,
-    ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter,
-    Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
-    LegendItemContent, LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape,
-    MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel,
-    PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PerBar, PixelRange,
-    Projection, Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs, StairsData,
-    StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
-    Value, Values, View3d,
+    DiscreteColorScale, Edit, Embolden, Figure, FigureSize, FontSetId, Grid, HistNorm, Image,
+    ImagePlacement, ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide,
+    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
+    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation,
+    OutOfRange, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PerBar,
+    PixelRange, Projection, Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs,
+    StairsData, StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize,
+    Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -98,6 +98,7 @@ macro_rules! wire_enum {
 
 wire_enum! {
     FontSetId => FontSetId { StixTwo }
+    Embolden => Embolden { Regular, Medium, Semibold }
     Interpreter => Interpreter { Latex, None }
     Scale => Scale { Linear, Log }
     ColormapName => ColormapName { Viridis, Cividis, Magma, Inferno, Plasma, Coolwarm, Gray }
@@ -142,6 +143,7 @@ impl From<&Figure> for w::Figure {
             size: Some(encode_figure_size(figure.size)),
             font_set: figure.font_set.to_wire(),
             font_size_pt: Some(figure.font_size_pt),
+            embolden: figure.embolden.to_wire(),
             background: Some(encode_color(figure.background)),
             layout: Some(encode_tile_layout(&figure.layout)),
             data: figure.data.iter().map(DataArray::encode).collect(),
@@ -1182,6 +1184,7 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         size: wire.size.map_or(default.size, decode_figure_size),
         font_set: decode_enum(wire.font_set, Some(default.font_set), "", "font_set")?,
         font_size_pt: wire.font_size_pt.unwrap_or(default.font_size_pt),
+        embolden: decode_enum(wire.embolden, Some(default.embolden), "", "embolden")?,
         background: wire.background.map_or(default.background, decode_color),
         layout: wire
             .layout
@@ -2558,6 +2561,7 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_figure_size(*v)),
         }),
         Value::FontSetId(v) => w::ValueKind::FontSetId(w::ValueFontSetId { value: v.to_wire() }),
+        Value::Embolden(v) => w::ValueKind::Embolden(w::ValueEmbolden { value: v.to_wire() }),
         Value::Color(v) => w::ValueKind::Color(w::ValueColor {
             value: Some(encode_color(*v)),
         }),
@@ -2905,6 +2909,12 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "font_set_id_value"),
+            "value",
+        )?),
+        w::ValueKind::Embolden(v) => Value::Embolden(decode_enum(
+            v.value,
+            None,
+            &join(at, "embolden_value"),
             "value",
         )?),
         w::ValueKind::Color(v) => {

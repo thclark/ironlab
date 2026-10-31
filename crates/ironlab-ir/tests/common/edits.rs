@@ -556,6 +556,8 @@ pub fn perturb(value: &Value) -> Value {
         }),
         // There is only one font set.
         Value::FontSetId(id) => Value::FontSetId(*id),
+        Value::Embolden(Embolden::Semibold) => Value::Embolden(Embolden::Regular),
+        Value::Embolden(_) => Value::Embolden(Embolden::Semibold),
         Value::Color(color) => {
             let other = Color::rgb(0.25, 0.5, 0.75);
             Value::Color(if *color == other { Color::BLACK } else { other })
@@ -920,7 +922,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 82;
+pub const VALUE_VARIANTS: usize = 83;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -1011,6 +1013,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::BinRule(_) => 79,
         Value::HistNorm(_) => 80,
         Value::UInt64(_) => 81,
+        Value::Embolden(_) => 82,
     }
 }
 
@@ -1057,6 +1060,7 @@ pub fn sample_values() -> Vec<Value> {
             height_mm: 60.25,
         }),
         Value::FontSetId(FontSetId::StixTwo),
+        Value::Embolden(Embolden::Medium),
         Value::Color(Color::rgba(1.0, 0.0, 128.0 / 255.0, 64.0 / 255.0)),
         Value::TileLayout(TileLayout::new(2, 3)),
         Value::Links(vec![AxisLink {
