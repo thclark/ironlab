@@ -190,10 +190,12 @@ fn each_font_id_embeds_its_own_face() {
     let (math_font, math_glyph) = single_glyph(&text, "$a$", true);
     assert_eq!(math_font, FontId::Math);
 
-    let mut list = page(200.0, 120.0);
+    let mut list = page(200.0, 180.0);
     for (i, (font, id)) in [
         (FontId::TextRegular, text_glyph),
         (FontId::TextItalic, text_glyph),
+        (FontId::TextMedium, text_glyph),
+        (FontId::TextSemibold, text_glyph),
         (FontId::TextBold, text_glyph),
         (FontId::Math, math_glyph),
     ]
@@ -201,6 +203,7 @@ fn each_font_id_embeds_its_own_face() {
     .enumerate()
     {
         list.items.push(item(ItemKind::Glyphs(GlyphsItem {
+            stroke_em: 0.0,
             font,
             size_pt: 12.0,
             color: ironlab_scene::display::Rgba::BLACK,
@@ -218,6 +221,8 @@ fn each_font_id_embeds_its_own_face() {
     for expected in [
         "STIXTwoText-Regular",
         "STIXTwoText-Italic",
+        "STIXTwoText-Medium",
+        "STIXTwoText-SemiBold",
         "STIXTwoText-Bold",
         "STIXTwoMath",
     ] {
@@ -239,6 +244,7 @@ fn glyphs_are_drawn_at_their_placed_positions_in_their_colour() {
     let size = 36.0;
     let mut list = page(200.0, 120.0);
     list.items.push(item(ItemKind::Glyphs(GlyphsItem {
+        stroke_em: 0.0,
         font,
         size_pt: size,
         color: RED,

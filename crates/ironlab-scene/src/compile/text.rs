@@ -219,6 +219,7 @@ impl TextBlock {
                             color,
                             text: run.text.clone(),
                             glyphs,
+                            stroke_em: run.stroke_em,
                         }),
                     });
                 }
@@ -282,7 +283,9 @@ pub(super) fn measure_str(
     size: f64,
     owner: NodeId,
 ) -> TextBlock {
-    let layout = ctx.text.layout(content, math, size);
+    let layout = ctx
+        .text
+        .layout_emboldened(content, math, size, ctx.embolden);
     for warning in &layout.warnings {
         ctx.warn(
             Some(owner),

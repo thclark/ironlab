@@ -12,6 +12,7 @@ mod common;
 mod dense;
 mod depth;
 mod document;
+mod embolden;
 mod export;
 mod images;
 mod markers;

@@ -13,7 +13,7 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 44] = [
+const WITH_CHOICES: [ValueType; 45] = [
     ValueType::Projection,
     ValueType::Scale,
     ValueType::Limits,
@@ -48,6 +48,7 @@ const WITH_CHOICES: [ValueType; 44] = [
     ValueType::ColorScaleLevels,
     ValueType::Interpreter,
     ValueType::FontSetId,
+    ValueType::Embolden,
     ValueType::Orientation,
     ValueType::PerBar,
     ValueType::BarWidth,
@@ -781,6 +782,14 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
     covered(
         ValueType::FontSetId,
         vec![Value::FontSetId(FontSetId::StixTwo)],
+    );
+    covered(
+        ValueType::Embolden,
+        vec![
+            Value::Embolden(Embolden::Regular),
+            Value::Embolden(Embolden::Medium),
+            Value::Embolden(Embolden::Semibold),
+        ],
     );
 }
 

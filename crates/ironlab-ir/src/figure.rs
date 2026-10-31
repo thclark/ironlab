@@ -42,6 +42,12 @@ pub struct Figure {
     pub font_set: FontSetId,
     /// The base font size in points; titles and tick labels are scaled from it.
     pub font_size_pt: f64,
+    /// How much heavier than designed the figure is drawn: the rendering of its text and the
+    /// thickness of its lines and edges.
+    ///
+    /// The property is omitted from JSON when it is [`Embolden::Regular`].
+    #[serde(default, skip_serializing_if = "Embolden::is_regular")]
+    pub embolden: Embolden,
     /// The colour of the figure background.
     pub background: Color,
     /// The grid of cells in which axes and panels are placed.
@@ -103,6 +109,7 @@ impl Default for Figure {
             size: FigureSize::default(),
             font_set: FontSetId::StixTwo,
             font_size_pt: 9.0,
+            embolden: Embolden::Regular,
             background: Color::WHITE,
             layout: TileLayout::default(),
             data: Vec::new(),
@@ -216,6 +223,35 @@ pub enum FontSetId {
     /// STIX Two Text for text and STIX Two Math for mathematics.
     #[default]
     StixTwo,
+}
+
+/// How much heavier than designed a figure is drawn.
+///
+/// Emboldening changes how the figure is rendered, not what it says: text written in the
+/// regular weight stays regular and bold text stays bold relative to it, while every
+/// step draws text heavier and multiplies the thickness of every line and edge. Marker
+/// sizes, tick lengths and spacing are unchanged, because a marker's size can represent
+/// data. Heavier steps suit projection; the default suits print.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Embolden {
+    /// Drawn as designed.
+    #[default]
+    Regular,
+    /// Text drawn as heavy as STIX Two Text Medium, and lines and edges thickened in
+    /// proportion.
+    Medium,
+    /// Text drawn as heavy as STIX Two Text SemiBold, and lines and edges thickened in
+    /// proportion.
+    Semibold,
+}
+
+impl Embolden {
+    /// Whether this is [`Embolden::Regular`], the default, which is omitted from JSON.
+    #[must_use]
+    pub fn is_regular(&self) -> bool {
+        *self == Embolden::Regular
+    }
 }
 
 /// A record of the software that produced a figure.

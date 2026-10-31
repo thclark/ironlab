@@ -90,6 +90,7 @@ macro_rules! gallery {
 
 gallery!(
     line_markers,
+    emboldened_for_slides,
     scatter_2d,
     coloured_trajectory,
     decimated_timeseries,

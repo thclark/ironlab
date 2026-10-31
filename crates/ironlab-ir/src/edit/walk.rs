@@ -35,7 +35,7 @@ use crate::data::DataArray;
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::Property;
 use crate::edit::value::{Value, ValueType};
-use crate::figure::{Figure, FigureSize, FontSetId, Parameter};
+use crate::figure::{Embolden, Figure, FigureSize, FontSetId, Parameter};
 use crate::ids::NodeId;
 use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
@@ -548,6 +548,7 @@ ir_leaf! {
     BTreeMap<String, Parameter> => Parameters;
     Interpreter => Interpreter;
     FontSetId => FontSetId;
+    Embolden => Embolden;
     Scale => Scale;
     ColormapName => ColormapName;
     ColorScaleNorm => ColorScaleNorm;
@@ -635,6 +636,8 @@ ir_node! {
         plain "font_set" => font_set: FontSetId = "The font set used for all text.";
         plain "font_size_pt" => font_size_pt: f64 =
             "The base font size in points; titles and tick labels are scaled from it.";
+        plain "embolden" => embolden: Embolden =
+            "How much heavier than designed the figure is drawn, for projection: the weight of its text and the thickness of its lines and edges, but not the size of its markers.";
         plain "background" => background: Color = "The colour of the figure background.";
         plain "layout" => layout: TileLayout =
             "The grid of cells in which axes and panels are placed.";

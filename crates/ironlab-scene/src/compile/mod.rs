@@ -39,9 +39,9 @@ mod style;
 mod text;
 
 use ironlab_ir::{AspectAdjust, Figure, NodeId, Projection};
-use ironlab_text::TextEngine;
+use ironlab_text::{Embolden, TextEngine};
 
-use crate::display::{DisplayList, Item, Rect};
+use crate::display::{DisplayList, Item, ItemKind, Rect};
 use crate::hit::{HitMap, LegendOwner};
 
 /// The largest number of passes that thin x ticks to fit their labels; each pass lowers a target of at most ten.
@@ -106,6 +106,8 @@ pub(crate) struct Ctx<'a> {
     pub font_size: f64,
     /// The page, in points, which text must not extend beyond.
     pub page: Rect,
+    /// The step of emboldening the figure is drawn at, after any override.
+    pub embolden: Embolden,
     pub warnings: Vec<SceneWarning>,
 }
 
@@ -118,6 +120,7 @@ impl<'a> Ctx<'a> {
             text: self.text,
             font_size: self.font_size,
             page: self.page,
+            embolden: self.embolden,
             warnings: Vec::new(),
         }
     }
@@ -549,11 +552,30 @@ fn arrange(
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
+    compile_with(figure, text, &CompileOptions::default())
+}
+
+/// Options that change how a figure is drawn without changing the figure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompileOptions {
+    /// The step of emboldening to draw the figure at, in place of the figure's own
+    /// [`Figure::embolden`]; `None` draws it at its own.
+    pub embolden: Option<ironlab_ir::Embolden>,
+}
+
+/// Compiles a figure as [`compile`] does, with `options` overriding how it is drawn.
+///
+/// The figure is drawn at the step of emboldening of the options, or at its own when they give none. Text is laid
+/// out emboldened to the step, and once the display list is complete every stroke width, dash length and marker edge
+/// width in it is multiplied by the step's line scale; marker sizes, glyphs, images and geometry are not changed.
+pub fn compile_with(figure: &Figure, text: &TextEngine, options: &CompileOptions) -> Scene {
+    let embolden = text_embolden(options.embolden.unwrap_or(figure.embolden));
     let mut ctx = Ctx {
         figure,
         text,
         font_size: layout::font_size(figure),
         page: Rect::new(0.0, 0.0, 0.0, 0.0),
+        embolden,
         warnings: Vec::new(),
     };
     let (width, height) = layout::page_size(&mut ctx);
@@ -692,6 +714,11 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         &mut hit_map,
     );
 
+    // The line scale is applied once, to the finished list, so that no line drawn by any stage can escape it.
+    if embolden != Embolden::Regular {
+        scale_lines(&mut items, embolden.line_scale());
+    }
+
     Scene {
         display_list: DisplayList {
             width_pt: width,
@@ -701,6 +728,37 @@ pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
         },
         hit_map,
         warnings: ctx.warnings,
+    }
+}
+
+/// Returns the step of the text engine that corresponds to a step of the IR.
+fn text_embolden(step: ironlab_ir::Embolden) -> Embolden {
+    match step {
+        ironlab_ir::Embolden::Regular => Embolden::Regular,
+        ironlab_ir::Embolden::Medium => Embolden::Medium,
+        ironlab_ir::Embolden::Semibold => Embolden::Semibold,
+    }
+}
+
+/// Multiplies the width, dash lengths and dash offset of every stroke, and the edge width of every set of markers,
+/// by `scale`, through every group. A stroke inside a transformed group is scaled in the group's space, which scales
+/// it in figure space by the same factor.
+fn scale_lines(items: &mut [Item], scale: f64) {
+    for item in items {
+        match &mut item.kind {
+            ItemKind::Path(path) => {
+                if let Some(stroke) = &mut path.stroke {
+                    stroke.width *= scale;
+                    stroke.dash.iter_mut().for_each(|length| *length *= scale);
+                    stroke.dash_offset *= scale;
+                }
+            }
+            ItemKind::Markers(markers) => markers.edge_width *= scale,
+            ItemKind::Group { items, .. }
+            | ItemKind::Dense { items, .. }
+            | ItemKind::Depth { items } => scale_lines(items, scale),
+            ItemKind::Glyphs(_) | ItemKind::Image(_) => {}
+        }
     }
 }
 

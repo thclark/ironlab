@@ -89,6 +89,7 @@ The figure is the root of the model: a page of a fixed physical size holding the
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
 | `font_set` | string | The font set used for all text. The only font set is `"stix_two"`: STIX Two Text for text and STIX Two Math for mathematics. |
 | `font_size_pt` | number | The base font size, from which titles and tick labels are scaled. The default is 9 pt. |
+| `embolden` | string | How much heavier than designed the figure is drawn: `"regular"`, `"medium"` or `"semibold"`; see [emboldening](#emboldening). The default is `"regular"`, which is omitted from JSON. |
 | `background` | Color | The colour of the page. The default is white. |
 | `layout` | TileLayout | The grid of tiles in which axes and panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
 | `data` | array of DataArray | The [data arrays](#data-arrays) of the figure, which artists refer to by NodeId. |
@@ -103,6 +104,16 @@ The figure is the root of the model: a page of a fixed physical size holding the
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
 Every property of this table and of the tables below can be read in the viewer's [property editor](../guides/viewer.md#the-property-editor), and most of them can be changed there; the editor leaves the structure of a figure and its data to the program that builds it.
+
+### Emboldening
+
+Emboldening draws a figure heavier for projection without changing what it says: regular text stays regular, and bold text stays bold relative to it. The three steps are `regular`, `medium` and `semibold`. At each step:
+
+- plain text is set in the STIX Two Text face of the step's weight (Regular, Medium or SemiBold), which is slightly wider, so margins and positions of text can move a little between steps;
+- bold text, monospace text and mathematics, whose faces have no heavier weight, are drawn with a stroke along their glyph outlines, which thickens their stems by as much as the step thickens the stems of plain text (0.019 em at `medium` and 0.038 em at `semibold`), and the rules of mathematics, such as fraction bars, are thickened by the same amount;
+- every line and edge, including the axes box, ticks, grid, the lines of artists, the edges of markers, bars and cells, the outline of colourbars and the samples of legends, is drawn thicker by the ratio of the step's stem width to the Regular stem width (about 1.23 at `medium` and 1.46 at `semibold`).
+
+Marker sizes, tick lengths and spacing are unchanged, because a marker's size can represent data. A PDF or PNG export may draw the figure at another step without changing it. The choices are recorded in [ADR 0030](../adrs/0030-embolden-steps.md).
 
 ### Tile layout
 

@@ -92,6 +92,7 @@ pub fn glyph_h(origin: Point, size: f64, color: Rgba) -> Item {
     Item {
         source: None,
         kind: ItemKind::Glyphs(GlyphsItem {
+            stroke_em: 0.0,
             font: run.font,
             size_pt: run.size_pt,
             color,

@@ -314,6 +314,7 @@ impl Walker {
             _ => {
                 self.flush();
                 self.run.insert(GlyphRun {
+                    stroke_em: 0.0,
                     font: FontId::Math,
                     size_pt,
                     text: String::new(),

@@ -39,6 +39,7 @@ fn decay_figure() -> Figure {
         },
         font_set: FontSetId::StixTwo,
         font_size_pt: 9.0,
+        embolden: Embolden::Regular,
         background: Color::WHITE,
         layout: TileLayout::new(1, 1),
         data,

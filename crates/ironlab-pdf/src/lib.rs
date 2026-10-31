@@ -160,6 +160,9 @@ pub struct PdfOptions {
     pub subject: Option<String>,
     /// How dense content is drawn, and at what resolution it is rasterised.
     pub raster: RasterOptions,
+    /// The step of emboldening to draw the figure at, in place of the figure's own; `None` draws it at its own.
+    /// It applies when a figure is exported, not when a display list already compiled is rendered.
+    pub embolden: Option<ironlab_ir::Embolden>,
 }
 
 impl Default for PdfOptions {
@@ -169,6 +172,7 @@ impl Default for PdfOptions {
             creator: format!("IronLAB {}", env!("CARGO_PKG_VERSION")),
             subject: None,
             raster: RasterOptions::default(),
+            embolden: None,
         }
     }
 }
@@ -320,13 +324,15 @@ pub fn export_pdf(
     text: &TextEngine,
     raster: Option<&mut dyn Rasteriser>,
 ) -> Result<Exported, PdfError> {
-    let scene = ironlab_scene::compile(figure, text);
-    let rendered = render_display_list(
-        &scene.display_list,
+    let options = PdfOptions::for_figure(figure);
+    let scene = ironlab_scene::compile_with(
+        figure,
         text,
-        &PdfOptions::for_figure(figure),
-        raster,
-    )?;
+        &ironlab_scene::CompileOptions {
+            embolden: options.embolden,
+        },
+    );
+    let rendered = render_display_list(&scene.display_list, text, &options, raster)?;
     Ok(Exported {
         bytes: rendered.bytes,
         warnings: scene.warnings,
@@ -759,8 +765,30 @@ impl Painter<'_, '_> {
             .iter()
             .all(|g| text_range_is_valid(&run.text, &g.text_range));
 
-        surface.set_fill(Some(fill(color, FillRule::NonZero)));
-        surface.set_stroke(None);
+        let stroke_width = (run.stroke_em * em) as f32;
+        let stroked = stroke_width.is_finite() && stroke_width > 0.0;
+        // A stroked run is filled and stroked in one text object, so that it stays selectable. A translucent one is
+        // drawn opaque inside a group of the colour's opacity, so that the run composites as one shape and is not
+        // darker where the stroke overlaps the fill.
+        let grouped = stroked && color.a < 1.0;
+        let paint_color = if grouped {
+            Rgba { a: 1.0, ..color }
+        } else {
+            color
+        };
+        if grouped {
+            surface.push_opacity(opacity(color.a));
+        }
+        surface.set_fill(Some(fill(paint_color, FillRule::NonZero)));
+        surface.set_stroke(stroked.then(|| Stroke {
+            paint: rgb_color(paint_color).into(),
+            width: stroke_width,
+            miter_limit: MITER_LIMIT,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            opacity: opacity(paint_color.a),
+            dash: None,
+        }));
         surface.draw_glyphs(
             KrillaPoint::from_xy(x0 as f32, y0 as f32),
             &glyphs,
@@ -769,6 +797,10 @@ impl Painter<'_, '_> {
             size,
             !ranges_valid,
         );
+        surface.set_stroke(None);
+        if grouped {
+            surface.pop();
+        }
         Ok(())
     }
 

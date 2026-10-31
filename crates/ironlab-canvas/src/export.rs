@@ -68,7 +68,13 @@ pub fn export_pdf(
     text: &TextEngine,
     options: &PdfOptions,
 ) -> Result<Exported, ExportError> {
-    let scene = ironlab_scene::compile(figure, text);
+    let scene = ironlab_scene::compile_with(
+        figure,
+        text,
+        &ironlab_scene::CompileOptions {
+            embolden: options.embolden,
+        },
+    );
     let rendered = render_display_list(&scene.display_list, text, options)?;
     Ok(Exported {
         bytes: rendered.bytes,

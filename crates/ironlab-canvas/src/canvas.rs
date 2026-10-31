@@ -23,8 +23,9 @@
 //!   offset of half the edge width along the stroke's normal, so that the edge is exactly as wide as the item says
 //!   whatever an instance's size; every instance carries its centre, size, depth and colours.
 //! - **Glyph runs** use [`TextEngine::glyph_outline`], which is em-normalised with y pointing down. Each outline is
-//!   tessellated once per `(font, glyph, size bucket)` and cached, scaled by the run's `size_pt` and translated to
-//!   the glyph origin.
+//!   tessellated once per `(font, glyph, size bucket, stroke)` and cached, scaled by the run's `size_pt` and
+//!   translated to the glyph origin. A run with a stroke tessellates the union of each glyph's fill and of a stroke
+//!   along its outline as one fill, so that a translucent glyph is blended once where the two overlap.
 //! - **Images** are drawn as textured quads. A valid image item is cut into tiles of at most
 //!   [`Resolution::max_tile_side`] pixels on a side, numbered in row-major order, because a graphics device has a
 //!   largest texture side and a data image can exceed it. Each tile is one quad: four white vertices at the corners
@@ -1130,7 +1131,8 @@ fn size_bucket(em_in_screen_units: f64) -> i32 {
     em_in_screen_units.log2().ceil().clamp(-8.0, 16.0) as i32
 }
 
-type GlyphKey = (FontId, u16, i32);
+/// The key of a cached glyph tessellation: face, glyph, size bucket and the bit pattern of the stroke in ems.
+type GlyphKey = (FontId, u16, i32, u64);
 
 /// Triangles in em space (y down, origin at the glyph origin) produced by lyon.
 type GlyphTriangles = VertexBuffers<lyon::math::Point, u32>;
@@ -1147,9 +1149,10 @@ fn glyph_tessellation(
     font: FontId,
     glyph: u16,
     bucket: i32,
+    stroke_em: f64,
     tessellator: &mut FillTessellator,
 ) -> Option<Arc<GlyphTriangles>> {
-    let key = (font, glyph, bucket);
+    let key = (font, glyph, bucket, stroke_em.to_bits());
     if let Some(cached) = GLYPH_CACHE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1157,7 +1160,13 @@ fn glyph_tessellation(
     {
         return Some(Arc::clone(cached));
     }
+    let tolerance = SCREEN_TOLERANCE / 2f64.powi(bucket);
     let outline = text.glyph_outline(font, glyph)?;
+    let outline = if stroke_em > 0.0 {
+        Arc::new(stroked_outline(&outline, stroke_em, tolerance))
+    } else {
+        outline
+    };
     let mut builder = Path::builder();
     let mut open = false;
     for element in outline.elements() {
@@ -1190,7 +1199,7 @@ fn glyph_tessellation(
         builder.end(true);
     }
     let path = builder.build();
-    let tolerance = (SCREEN_TOLERANCE / 2f64.powi(bucket)) as f32;
+    let tolerance = tolerance as f32;
     let mut buffers: VertexBuffers<lyon::math::Point, u32> = VertexBuffers::new();
     tessellator
         .tessellate_path(
@@ -1210,7 +1219,32 @@ fn glyph_tessellation(
     Some(buffers)
 }
 
-/// Adds a glyph run to the list as one draw of every glyph's triangles.
+/// Returns a path whose non-zero fill is the union of the fill of `outline` and of a stroke `width` wide along it,
+/// with round joins.
+///
+/// The union is filled as one shape, rather than as a fill and a stroke drawn one after the other, so that a
+/// translucent glyph is blended once where the stroke overlaps the fill. The band of a stroke expanded by kurbo winds
+/// the same way whichever way its outline runs, so the outline is reversed when it winds the other way; the windings
+/// then add up without cancelling, inside the counters of the glyph as well as on its ink.
+fn stroked_outline(outline: &kurbo::BezPath, width: f64, tolerance: f64) -> kurbo::BezPath {
+    let style = kurbo::Stroke::new(width).with_join(kurbo::Join::Round);
+    let band = kurbo::stroke(
+        outline.iter(),
+        &style,
+        &kurbo::StrokeOpts::default(),
+        tolerance,
+    );
+    let mut union = if kurbo::Shape::area(outline) * kurbo::Shape::area(&band) < 0.0 {
+        outline.reverse_subpaths()
+    } else {
+        outline.clone()
+    };
+    union.extend(band.iter());
+    union
+}
+
+/// Adds a glyph run to the list as one draw of every glyph's triangles. A run with a stroke draws each glyph as the
+/// union of its fill and its stroke (see [`stroked_outline`]).
 fn tessellate_glyphs(
     item: &GlyphsItem,
     text: &TextEngine,
@@ -1231,13 +1265,19 @@ fn tessellate_glyphs(
     }
     let bucket = size_bucket(em);
     let size = item.size_pt;
+    let stroke_em = if item.stroke_em.is_finite() {
+        item.stroke_em.max(0.0)
+    } else {
+        0.0
+    };
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for glyph in &item.glyphs {
         if !(glyph.x.is_finite() && glyph.y.is_finite()) {
             continue;
         }
-        let Some(buffers) = glyph_tessellation(text, item.font, glyph.id, bucket, tessellator)
+        let Some(buffers) =
+            glyph_tessellation(text, item.font, glyph.id, bucket, stroke_em, tessellator)
         else {
             continue;
         };

@@ -879,6 +879,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         }),
         font_set: wire::FontSetId::StixTwo as i32,
         font_size_pt: Some(7.5),
+        embolden: wire::Embolden::Semibold as i32,
         background: Some(wire_color(0.125, 0.25, 0.375, 0.5)),
         // A weight and a fitted size in each list, in different positions, so that the
         // two lists or the two kinds of size exchanged are caught.
@@ -1491,6 +1492,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         },
         font_set: FontSetId::StixTwo,
         font_size_pt: 7.5,
+        embolden: Embolden::Semibold,
         background: Color::rgba(0.125, 0.25, 0.375, 0.5),
         layout: TileLayout {
             rows: 2,
@@ -2145,6 +2147,7 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
 
     let checked: BTreeSet<String> = [
         check::<wire::FontSetId>(|w, v| w.font_set = v, |f| format!("{:?}", f.font_set)),
+        check::<wire::Embolden>(|w, v| w.embolden = v, |f| format!("{:?}", f.embolden)),
         check::<wire::Interpreter>(
             |w, v| w.title.as_mut().unwrap().interpreter = v,
             |f| format!("{:?}", f.title.as_ref().unwrap().interpreter),
@@ -4644,6 +4647,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
         },
         font_set: FontSetId::StixTwo,
         font_size_pt: 9.5,
+        embolden: Embolden::Regular,
         background: Color::rgba(1.0, 1.0, 0.5, 1.0),
         layout: TileLayout {
             rows: 2,
