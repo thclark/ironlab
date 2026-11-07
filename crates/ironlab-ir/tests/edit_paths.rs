@@ -603,23 +603,6 @@ fn setting_a_field_of_the_active_variant_changes_only_that_field() {
     assert_eq!(edited, expected);
 }
 
-// Why: the property editor offers `grid_below` as a checkbox on the axes, so it must be
-// read and set at its wire name like the other booleans of the axes, and setting it must
-// change nothing else.
-#[test]
-fn grid_below_is_read_and_set_at_its_wire_name() {
-    let fig = kitchen_sink_figure();
-    let two_d = fig.axes[0].id; // grid_below off
-    assert_eq!(
-        fig.get(two_d, &path("grid_below")).unwrap(),
-        Value::Bool(false)
-    );
-    let (edited, _) = applied(&fig, &tx([set(two_d, "grid_below", Value::Bool(true))])).unwrap();
-    let mut expected = fig.clone();
-    expected.axes[0].grid_below = true;
-    assert_eq!(edited, expected);
-}
-
 // Why: segments are Protocol Buffers field names, which clients in other languages see;
 // the Rust spelling of a field (`box_`) and the name of a wire variant message
 // (`three_d`) are not part of a path.

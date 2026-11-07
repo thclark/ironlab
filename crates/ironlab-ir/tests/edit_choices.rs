@@ -13,13 +13,10 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 50] = [
+const WITH_CHOICES: [ValueType; 47] = [
     ValueType::Projection,
     ValueType::AngleUnits,
     ValueType::PolarAngle,
-    ValueType::RadialAxis,
-    ValueType::RadialAxisSpokeSide,
-    ValueType::RadialAxisEdge,
     ValueType::Scale,
     ValueType::Limits,
     ValueType::Ticks,
@@ -450,7 +447,6 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             }),
             Value::Projection(Projection::Polar {
                 polar: PolarView::default(),
-                view: View2d::default(),
             }),
             Value::Projection(Projection::Cylindrical {
                 view3d: View3d::default(),
@@ -475,35 +471,6 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         vec![
             Value::PolarAngle(PolarAngle::Elevation),
             Value::PolarAngle(PolarAngle::Inclination),
-        ],
-    );
-    covered(
-        ValueType::RadialAxis,
-        vec![
-            Value::RadialAxis(RadialAxis::Spoke { angle: Some(1.0) }),
-            Value::RadialAxis(RadialAxis::AlongSpoke {
-                angle: None,
-                side: RadialAxisSpokeSide::Clockwise,
-            }),
-            Value::RadialAxis(RadialAxis::Edge {
-                edge: RadialAxisEdge::Top,
-            }),
-        ],
-    );
-    covered(
-        ValueType::RadialAxisSpokeSide,
-        vec![
-            Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Anticlockwise),
-            Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Clockwise),
-        ],
-    );
-    covered(
-        ValueType::RadialAxisEdge,
-        vec![
-            Value::RadialAxisEdge(RadialAxisEdge::Bottom),
-            Value::RadialAxisEdge(RadialAxisEdge::Top),
-            Value::RadialAxisEdge(RadialAxisEdge::Left),
-            Value::RadialAxisEdge(RadialAxisEdge::Right),
         ],
     );
     covered(

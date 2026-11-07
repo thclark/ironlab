@@ -104,7 +104,7 @@ pub(super) fn measure(
             let name = ["x", "y", "z"][dim];
             let angle = |sweep: Sweep, units: AngleUnits| (sweep, units);
             let angular = match (axes.projection, dim) {
-                (Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. }, 0) => {
+                (Projection::Polar { polar } | Projection::Cylindrical { polar, .. }, 0) => {
                     Some(angle(Sweep::Turn, polar.angle_units))
                 }
                 (Projection::Spherical { spherical, .. }, 0) => {

@@ -6,11 +6,8 @@ pub const DESCRIPTION: &str = "Three design candidates for a small electric airc
      spoke and one radial scale serves them all. The axes are polar, with one angle unit per criterion, so that \
      spoke k lies at angle k; the first spoke points north and the others follow clockwise. Each candidate is an \
      ordinary series through its five scores with the first score repeated at the end, so that the outline closes \
-     with a straight edge, filled translucently in its own colour down to the centre. The grid is drawn over the \
-     fills, so that the spokes and rings stay visible through them. The edges between spokes are straight chords, \
-     because a radar outline joins data points and does not follow the circles of the grid. The radial scale is a \
-     ruler under the disc, running from level with the centre to level with the rim, so that no label covers the \
-     outlines.";
+     with a straight edge, filled translucently in its own colour down to the centre. The edges between spokes are \
+     straight chords, because a radar outline joins data points and does not follow the circles of the grid.";
 
 /// The criteria, one per spoke, in clockwise order from the north.
 const CRITERIA: [&str; 5] = ["Mass", "Cost", "Efficiency", "Noise", "Range"];
@@ -40,12 +37,7 @@ pub fn figure() -> Figure {
     let mut ax = fig.polar_axes(0, 0);
     ax.spokes(&CRITERIA)
         .rlim(0.0, 1.0)
-        .ytick_step(0.25)
-        .radial_axis(RadialAxis::Edge {
-            edge: RadialAxisEdge::Bottom,
-        })
-        .ylabel("Normalised score")
-        .grid_below(false);
+        .ytick_step(0.25);
     for (name, scores) in CANDIDATES {
         ax.radar(scores).label(name);
     }

@@ -112,7 +112,7 @@ A PDF has no depth buffer, so a depth item is handled by the same rasteriser in 
 The viewer has no view state of its own that affects drawing. Each gesture is converted into a transaction of typed edits of the figure model, in the same way that setting a property from the API edits it:
 
 - panning and zooming a two-dimensional Cartesian axes set its axis limits to manual values;
-- zooming a polar axes sets its radial limits to manual values, and panning it sets `projection.view`, the offset of the drawn axes within its plot area;
+- panning and zooming a polar axes set its radial limits to manual values, and panning it also sets `projection.polar.zero_deg`, the direction of its angle 0;
 - panning, zooming and rotating a three-dimensional axes, Cartesian, cylindrical or spherical, set the properties of its `projection.view3d`;
 - clicking a legend entry sets the `visible` property of every artist the entry stands for;
 - changing a property in the property editor sets that property.

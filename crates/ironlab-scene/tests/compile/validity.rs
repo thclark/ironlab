@@ -398,7 +398,6 @@ fn polar_like() -> ironlab_ir::Figure {
             hole,
             ..PolarView::default()
         },
-        view: ironlab_ir::View2d::default(),
     };
 
     let lines = fx.axes_in(cell(0, 0, 1, 1), polar(0.0, 0.0));

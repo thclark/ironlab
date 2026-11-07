@@ -518,14 +518,12 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
 /// properties cannot even be read: the camera of a two-dimensional axes belongs to a
 /// variant that is not set, and [`property_groups`] leaves it out for that reason alone.
 ///
-/// Two properties of an axes must be hidden by rules of their own, because they can be
-/// read and set whatever the projection. An axes holds an x, a y and a z axis whatever its
-/// projection, so the label, the scale, the limits and the grid lines of the z axis can all
-/// be read and set, and a two-dimensional axes draws none of them. Conversely, a
-/// three-dimensional axes tests its grid for depth with the artists, so it ignores
-/// `grid_below`. The rules therefore read the projection of the node rather than the path
-/// alone. They are asked afresh for every frame the panel draws, so changing the projection
-/// of an axes brings the rows back or hides them at once.
+/// The z axis of a two-dimensional axes is the one property that must be hidden by a rule
+/// of its own. An axes holds an x, a y and a z axis whatever its projection, so the label,
+/// the scale, the limits and the grid lines of the z axis can all be read and set, and a
+/// two-dimensional axes draws none of them. The rule therefore reads the projection of the
+/// node rather than the path alone. It is asked afresh for every frame the panel draws, so
+/// promoting an axes to three dimensions brings the rows back at once.
 #[must_use]
 pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPath) -> bool {
     if kind != NodeKind::Axes {
@@ -537,7 +535,6 @@ pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPa
     let three_d = |figure: &Figure| figure.axes(node).is_none_or(|axes| axes.projection.is_3d());
     match first.as_str() {
         "z" => three_d(figure),
-        "grid_below" => !three_d(figure),
         _ => true,
     }
 }
@@ -716,7 +713,6 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
-        | ValueType::View2d
         | ValueType::PolarView
         | ValueType::SphericalView
         | ValueType::Axis
@@ -757,9 +753,6 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Projection
         | ValueType::AngleUnits
         | ValueType::PolarAngle
-        | ValueType::RadialAxis
-        | ValueType::RadialAxisSpokeSide
-        | ValueType::RadialAxisEdge
         | ValueType::Scale
         | ValueType::Limits
         | ValueType::Ticks
@@ -857,9 +850,6 @@ fn editor_for(
         ValueType::Projection
         | ValueType::AngleUnits
         | ValueType::PolarAngle
-        | ValueType::RadialAxis
-        | ValueType::RadialAxisSpokeSide
-        | ValueType::RadialAxisEdge
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels
@@ -913,7 +903,6 @@ fn editor_for(
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
-        | ValueType::View2d
         | ValueType::PolarView
         | ValueType::SphericalView
         | ValueType::Axis

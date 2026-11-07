@@ -3,16 +3,15 @@
 //! [`FigureCanvas`] owns what showing a figure needs whatever toolkit the window is built with: the [`FigureState`]
 //! the gestures edit, the compilation of the displayed figure that every gesture is hit-tested against, the fit of
 //! the page into the area the host gives it, the draw list kept for that fit, and what the host draws around the
-//! figure: the cursor, the rubber band or ring of a Zoom-tool drag and the callout of the data under the pointer. A
-//! host
+//! figure: the cursor, the rubber band of a Zoom-tool drag and the callout of the data under the pointer. A host
 //! forwards the gestures its toolkit has decided (a hover, a wheel notch, the start, moves and end of a drag, a click
 //! and a double click), all in screen points, and the canvas converts each through the fit into a figure-space call
 //! on the state, recompiling the scene after every change so that the next gesture and the same frame's drawing see
 //! the figure as it now is. The host then draws in this order: its surround and the page
 //! [`background`](FigureCanvas::background) inside the [`fit`](FigureCanvas::fit), the
 //! [`draw_list`](FigureCanvas::draw_list) through the pipelines of [`crate::gpu`], and the chrome reported by
-//! [`cursor`](FigureCanvas::cursor), [`callout`](FigureCanvas::callout),
-//! [`rubber_band`](FigureCanvas::rubber_band) and [`rubber_ring`](FigureCanvas::rubber_ring).
+//! [`cursor`](FigureCanvas::cursor), [`callout`](FigureCanvas::callout) and
+//! [`rubber_band`](FigureCanvas::rubber_band).
 //!
 //! The figure pane of the egui viewer, `ironlab-viewer`, is the egui host: it forwards the gestures egui decides
 //! from its response and draws the reported chrome with egui's painter. A host without egui, such as a browser page,
@@ -312,18 +311,6 @@ pub enum Marker {
     /// The four corners of a pixel, or of the piece of a colourbar read, on screen, in the order they are joined, so
     /// that the reader sees the extent that was read.
     Outline([Pos2; 4]),
-}
-
-/// The ring of a Zoom-tool drag in polar axes, on screen: the annulus between two circles about one centre, which
-/// shows the radii that the release makes the radial limits.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ScreenRing {
-    /// The centre of the polar axes, in screen points.
-    pub centre: Pos2,
-    /// The radius of the inner circle, in screen points.
-    pub inner: f32,
-    /// The radius of the outer circle, in screen points.
-    pub outer: f32,
 }
 
 /// What a host shows for the data under the pointer: a mark on the canvas and the text of a tooltip.
@@ -657,18 +644,6 @@ impl FigureCanvas {
             fit.to_screen.apply(Point::new(band.x, band.y)),
             fit.to_screen.apply(Point::new(band.right(), band.bottom())),
         ))
-    }
-
-    /// The ring of a Zoom-tool drag in progress over polar axes, in screen points, or `None` when there is none.
-    pub fn rubber_ring(&mut self, text: &TextEngine) -> Option<ScreenRing> {
-        let ring = self.state.rubber_ring()?;
-        let fit = self.fit(text)?;
-        let scale = fit.to_screen.scale;
-        Some(ScreenRing {
-            centre: fit.to_screen.apply(ring.centre),
-            inner: scale * ring.inner as f32,
-            outer: scale * ring.outer as f32,
-        })
     }
 
     /// What lies under the pointer — a colourbar, a drawn data point or, where none is within reach, a step of

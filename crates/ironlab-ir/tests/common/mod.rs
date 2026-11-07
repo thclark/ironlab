@@ -22,7 +22,7 @@ use ironlab_ir::*;
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 54] = [
+pub const OPTIONAL_IN_IR: [&str; 53] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -75,8 +75,7 @@ pub const OPTIONAL_IN_IR: [&str; 54] = [
     "ironlab.ir.v0.ImagePlaneXy.z",
     "ironlab.ir.v0.ImagePlaneXz.y",
     "ironlab.ir.v0.ImagePlaneYz.x",
-    "ironlab.ir.v0.RadialAxisSpoke.angle",
-    "ironlab.ir.v0.RadialAxisAlongSpoke.angle",
+    "ironlab.ir.v0.PolarView.radial_labels_at",
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.
@@ -1244,7 +1243,6 @@ pub fn kitchen_sink_figure() -> Figure {
         a.y.tick_labels = TickLabels::Hidden;
         a.y.scale = Scale::Log;
         a.box_ = false;
-        a.grid_below = false;
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::NorthEast,
             boxed: false,

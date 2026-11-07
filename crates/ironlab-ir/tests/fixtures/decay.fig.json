@@ -56,7 +56,6 @@
       "aspect_adjust": "limits",
       "colorbar": null,
       "box": true,
-      "grid_below": true,
       "legend": {
         "type": "inside",
         "value": {

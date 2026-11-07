@@ -610,19 +610,6 @@ impl FigurePane {
                 egui::StrokeKind::Middle,
             );
         }
-        // The ring of a radial zoom is filled by a stroke as wide as the annulus along its middle circle, and edged
-        // by its two circles.
-        if let Some(ring) = self.canvas.rubber_ring(text) {
-            let selection = ui.visuals().selection;
-            let width = ring.outer - ring.inner;
-            painter.circle_stroke(
-                ring.centre,
-                ring.inner + width / 2.0,
-                egui::Stroke::new(width, selection.bg_fill.gamma_multiply(0.25)),
-            );
-            painter.circle_stroke(ring.centre, ring.inner, selection.stroke);
-            painter.circle_stroke(ring.centre, ring.outer, selection.stroke);
-        }
     }
 }
 

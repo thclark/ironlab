@@ -10,13 +10,12 @@
 //!   existing polar axes keeps its view, as `axes3` keeps a 3D view.
 //! - `AxesMut::make_polar()`, which converts a 2D axes to polar axes and keeps its artists.
 //! - The view setters `theta_zero(ThetaZero)`, `clockwise(bool)`, `angle_units(AngleUnits)`,
-//!   `hole(f64)` and `radial_axis(RadialAxis)`, which convert a 2D axes to polar axes and keep
+//!   `hole(f64)` and `radial_labels_at(f64)`, which convert a 2D axes to polar axes and keep
 //!   a cylindrical axes cylindrical; `thetalim`, `rlim` and `rscale`, aliases of `xlim`, `ylim`
 //!   and `yscale`.
 //! - `AxesMut::polarplot(theta, r)` and `AxesMut::polarscatter(theta, r)`, which make the axes
 //!   polar and add the series that `plot` and `scatter` add.
-//! - `ThetaZero`, `AngleUnits`, `PolarView` and `RadialAxis` with its side and edge in the
-//!   prelude.
+//! - `ThetaZero`, `AngleUnits` and `PolarView` in the prelude.
 
 mod common;
 
@@ -27,7 +26,7 @@ use ironlab::prelude::*;
 /// Returns the polar view of an axes, panicking if the axes is not polar.
 fn polar_view(fig: &Figure, id: NodeId) -> PolarView {
     match axes(fig, id).projection {
-        Projection::Polar { polar, .. } => polar,
+        Projection::Polar { polar } => polar,
         other => panic!("expected polar axes, found {other:?}"),
     }
 }
@@ -96,7 +95,7 @@ fn the_default_polar_view_is_east_degrees_without_a_hole() {
     assert_eq!(view.zero_deg, 0.0);
     assert_eq!(view.hole, 0.0);
     assert_eq!(view.angle_units, AngleUnits::Degrees);
-    assert_eq!(view.radial_axis, RadialAxis::default());
+    assert_eq!(view.radial_labels_at, None);
 }
 
 // WHY: calling `polar_axes` again for the same tile returns the same axes, as `axes3` does; it
@@ -168,21 +167,12 @@ fn view_setters_reach_their_own_fields() {
         .polar_axes(0, 0)
         .angle_units(AngleUnits::Radians)
         .hole(0.3)
-        .radial_axis(RadialAxis::AlongSpoke {
-            angle: Some(1.25),
-            side: RadialAxisSpokeSide::Clockwise,
-        })
+        .radial_labels_at(1.25)
         .id();
     let view = polar_view(&fig, id);
     assert_eq!(view.angle_units, AngleUnits::Radians);
     assert_eq!(view.hole, 0.3);
-    assert_eq!(
-        view.radial_axis,
-        RadialAxis::AlongSpoke {
-            angle: Some(1.25),
-            side: RadialAxisSpokeSide::Clockwise,
-        }
-    );
+    assert_eq!(view.radial_labels_at, Some(1.25));
     assert_eq!(view.zero_deg, 0.0);
 
     fig.polar_axes(0, 0).angle_units(AngleUnits::PerTurn(12.0));

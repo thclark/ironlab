@@ -93,8 +93,8 @@ pub use artist::{
 };
 pub use axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
-    Limits, PolarAngle, PolarView, Projection, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide,
-    Scale, SphericalView, TickLabels, Ticks, TitleAlign, View2d, View3d,
+    Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
+    View3d,
 };
 pub use color_scale::{
     CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,

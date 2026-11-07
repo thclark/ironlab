@@ -978,7 +978,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: wire_axis(None, wire::Scale::Log, wire_auto_limits(), true),
                 colorbar: None,
                 r#box: Some(false),
-                grid_below: Some(true),
                 legend: wire_inside(
                     wire::LegendLocation::SouthWest,
                     Some(false),
@@ -1250,7 +1249,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 colorbar: None,
                 r#box: Some(true),
-                grid_below: Some(false),
                 legend: None,
                 artists: vec![],
             },
@@ -1611,7 +1609,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 },
                 colorbar: None,
                 box_: false,
-                grid_below: true,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::SouthWest,
                     boxed: false,
@@ -1931,7 +1928,6 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: auto_axis,
                 colorbar: None,
                 box_: true,
-                grid_below: false,
                 legend: None,
                 artists: vec![],
             },
@@ -2429,65 +2425,6 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             |f| match f.axes[0].projection {
                 Projection::Spherical { spherical, .. } => format!("{:?}", spherical.polar_angle),
                 other => panic!("the carrier's spherical axes decoded as {other:?}"),
-            },
-        ),
-        check::<wire::RadialAxisSpokeSide>(
-            |w, v| {
-                w.axes[0].projection = Some(wire::Projection {
-                    kind: Some(wire::ProjectionKind::Polar(wire::ProjectionPolar {
-                        polar: Some(wire::PolarView {
-                            radial_axis: Some(wire::RadialAxis {
-                                kind: Some(wire::RadialAxisKind::AlongSpoke(
-                                    wire::RadialAxisAlongSpoke {
-                                        angle: None,
-                                        side: v,
-                                    },
-                                )),
-                            }),
-                            ..wire::PolarView::default()
-                        }),
-                        view: None,
-                    })),
-                });
-            },
-            |f| match f.axes[0].projection {
-                Projection::Polar {
-                    polar:
-                        PolarView {
-                            radial_axis: RadialAxis::AlongSpoke { side, .. },
-                            ..
-                        },
-                    ..
-                } => format!("{side:?}"),
-                other => panic!("the carrier's polar axes decoded as {other:?}"),
-            },
-        ),
-        check::<wire::RadialAxisEdge>(
-            |w, v| {
-                w.axes[0].projection = Some(wire::Projection {
-                    kind: Some(wire::ProjectionKind::Polar(wire::ProjectionPolar {
-                        polar: Some(wire::PolarView {
-                            radial_axis: Some(wire::RadialAxis {
-                                kind: Some(wire::RadialAxisKind::Edge(wire::RadialAxisEdgeAxis {
-                                    edge: v,
-                                })),
-                            }),
-                            ..wire::PolarView::default()
-                        }),
-                        view: None,
-                    })),
-                });
-            },
-            |f| match f.axes[0].projection {
-                Projection::Polar {
-                    polar:
-                        PolarView {
-                            radial_axis: RadialAxis::Edge { edge },
-                            ..
-                        },
-                    ..
-                } => format!("{edge:?}"),
-                other => panic!("the carrier's polar axes decoded as {other:?}"),
             },
         ),
     ]
@@ -4867,7 +4804,6 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 },
                 colorbar: None,
                 box_: false,
-                grid_below: true,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::Best,
                     boxed: false,

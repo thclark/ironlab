@@ -24,8 +24,8 @@ use crate::artist::{
 };
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
-    Limits, PolarAngle, PolarView, Projection, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide,
-    Scale, SphericalView, TickLabels, Ticks, TitleAlign, View2d, View3d,
+    Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
+    View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
@@ -551,8 +551,6 @@ ir_leaf! {
     FontSetId => FontSetId;
     Embolden => Embolden;
     PolarAngle => PolarAngle;
-    RadialAxisSpokeSide => RadialAxisSpokeSide;
-    RadialAxisEdge => RadialAxisEdge;
     Scale => Scale;
     ColormapName => ColormapName;
     ColorScaleNorm => ColorScaleNorm;
@@ -697,8 +695,6 @@ ir_node! {
             "The colourbar drawn inside the plot area along one of its edges, over the artists, or absent when the axes shows none.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
-        plain "grid_below" => grid_below: bool =
-            "Whether the grid is drawn below the artists rather than over them; three-dimensional axes ignore it.";
         optional "legend" => legend: Legend =
             "Where the legend entries of the axes are listed, or absent when they are not listed.";
         hidden "artists" => artists: () = "";
@@ -964,8 +960,8 @@ ir_value! {
             "The direction on the page in which angle 0 points, in degrees anticlockwise from east in polar axes, or from the +X edge of the box in cylindrical axes; any finite number.";
         plain "hole" => hole: f64 =
             "The fraction of the rim radius left empty at the centre, at least 0 and less than 1. The lower radial limit lies on the edge of the hole.";
-        plain "radial_axis" => radial_axis: RadialAxis =
-            "Where the radial axis, its tick labels and its axis label are drawn.";
+        optional "radial_labels_at" => radial_labels_at: f64 =
+            "The angle, in the data units of x, of the spoke along which the radial tick labels are drawn; when absent, they are drawn halfway between the first two angular ticks.";
     }
 
     SphericalView as SphericalView {
@@ -986,13 +982,6 @@ ir_value! {
             "The horizontal offset of the projected box as a fraction of the plot area's width, increasing to the right.";
         plain "pan_y" => pan_y: f64 =
             "The vertical offset of the projected box as a fraction of the plot area's height, increasing downwards.";
-    }
-
-    View2d as View2d {
-        plain "pan_x" => pan_x: f64 =
-            "The horizontal offset of the drawn axes as a fraction of the plot area's width, increasing to the right.";
-        plain "pan_y" => pan_y: f64 =
-            "The vertical offset of the drawn axes as a fraction of the plot area's height, increasing downwards.";
     }
 
     Axis as Axis {
@@ -1269,7 +1258,6 @@ ir_tagged! {
         Polar {
             plain "polar" => polar: PolarView =
                 "How angles are measured and where the sector and the hole lie on the page.";
-            plain "view" => view: View2d = "Where the drawn axes lie within the plot area.";
         }
         Cylindrical {
             plain "view3d" => view3d: View3d = "The camera view.";
@@ -1287,23 +1275,6 @@ ir_tagged! {
         Radians {}
         PerTurn {
             plain "per_turn" => 0: f64 = "The number of units in one turn; finite and positive.";
-        }
-    }
-
-    RadialAxis as RadialAxis {
-        Spoke {
-            optional "angle" => angle: f64 =
-                "The angle of the spoke on which the tick labels are centred, in the data units of x; when absent, the spoke halfway between the first two angular ticks.";
-        }
-        AlongSpoke {
-            optional "angle" => angle: f64 =
-                "The angle of the spoke along which the axis line runs, in the data units of x; when absent, the spoke halfway between the first two angular ticks.";
-            plain "side" => side: RadialAxisSpokeSide =
-                "The side of the spoke, seen from the centre looking out, on which the tick marks and labels lie.";
-        }
-        Edge {
-            plain "edge" => edge: RadialAxisEdge =
-                "The edge of the plot along which the axis lies, outside the disc.";
         }
     }
 

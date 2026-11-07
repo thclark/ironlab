@@ -5,22 +5,17 @@
 //! clockwise, and the radius runs from its lower limit at the centre (or at the edge of the hole) to its upper limit at
 //! the rim, the other way round when `y.reverse` is set. The sector, between its edge angles and including the centre,
 //! is scaled uniformly to fit the plot rectangle and centred in it, so a polar axes is always drawn round.
-//!
-//! The pan of the view then moves the drawn axes, its centre and everything placed from it (the grid, the frame, the
-//! tick labels, the artists and their sector clip), across the plot rectangle by fractions of its width and height,
-//! without changing the margins. A panned axes is clipped to its outer rectangle, as a 3D axes is; the axis labels and
-//! the title stay where the unpanned axes places them.
 
 use std::f64::consts::TAU;
 
-use ironlab_ir::{NodeId, PolarView, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide, View2d};
+use ironlab_ir::{NodeId, PolarView};
 
 use crate::display::{Item, ItemKind, Point, Rect};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
 
 use super::Ctx;
 use super::artists::{AxesInput, Placement, Space, coalesce_markers, draw_artists, group_dense};
-use super::axes2d::{clip_groups, frame_stroke, tick_length, title_left};
+use super::axes2d::{clip_groups, frame_stroke, title_left};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::limits::Range;
@@ -34,8 +29,7 @@ use super::{colorbar, legend};
 struct Spacing {
     /// Between the rim and the angular tick labels.
     tick_pad: f64,
-    /// Between the outermost radial tick label, or the end of a radial axis on an edge, and the common exponent
-    /// beyond it.
+    /// Between the outermost radial tick label and the common exponent beyond it.
     radial_pad: f64,
     /// Between the angular tick labels and an axis label.
     label_gap: f64,
@@ -73,13 +67,9 @@ fn label_band(ticks: &AxisTicks, s: &Spacing) -> (f64, f64) {
 /// Computes the space a polar axes needs around its plot rectangle.
 ///
 /// The angular tick labels may lie on any side of the circle, so the room they take is reserved on all four sides;
-/// radial tick labels on a spoke lie inside the circle and take none. The x (angle) label lies below and the title
-/// above, as in a 2D axes. The y (radius) label lies to the left when the radial tick labels are centred on a spoke, and
-/// along the spoke when the radial axis is drawn along it, which takes room beyond the angular tick labels only where
-/// the spoke lies on an edge of the box that bounds the sector, with its labels on the outside. A radial axis on an
-/// edge takes the room of a Cartesian axis on that side, beyond the angular tick labels, and carries the y label with
-/// it; on the bottom edge it lies between the angular tick labels and the x label.
-pub(super) fn margins(ctx: &Ctx, decor: &Decor, polar: PolarView, x: Range) -> Margins {
+/// the radial tick labels lie inside the circle and take none. The y (radius) label lies to the left, the x (angle)
+/// label below and the title above, as in a 2D axes.
+pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
     let s = Spacing::new(ctx);
     let (across, along) = label_band(&decor.ticks[0], &s);
     let label = |dim: usize| {
@@ -91,183 +81,12 @@ pub(super) fn margins(ctx: &Ctx, decor: &Decor, polar: PolarView, x: Range) -> M
         .title
         .as_ref()
         .map_or(0.0, |t| t.total_height() + s.title_gap);
-    let mut m = Margins {
-        left: s.outer + across,
+    Margins {
+        left: s.outer + across + label(1),
         right: s.outer + across,
         top: s.outer + along + title,
         bottom: s.outer + along + label(0),
-    };
-    match polar.radial_axis {
-        RadialAxis::Spoke { .. } => m.left += label(1),
-        RadialAxis::AlongSpoke { .. } => {
-            let [left, right, top, bottom] =
-                spoke_overhang(ctx, decor, polar, x, longest_tick(ctx));
-            m.left = m.left.max(s.outer + left);
-            m.right = m.right.max(s.outer + right);
-            m.top = m.top.max(s.outer + top + title);
-            m.bottom = m.bottom.max(s.outer + bottom + label(0));
-        }
-        RadialAxis::Edge { edge } => {
-            let yt = &decor.ticks[1];
-            let longest = longest_tick(ctx);
-            let bands = RulerBands::new(&s, yt, decor.labels[1].as_ref(), edge, longest);
-            let ruler = s.label_gap + bands.total();
-            let exponent = yt.exponent.as_ref();
-            match edge {
-                RadialAxisEdge::Bottom => m.bottom += ruler,
-                RadialAxisEdge::Top => m.top += ruler,
-                RadialAxisEdge::Left => m.left += ruler,
-                RadialAxisEdge::Right => m.right += ruler,
-            }
-            // The tick label at the rim may overhang the end of the ruler by half its length along it, and the common
-            // exponent lies beyond that end.
-            match edge {
-                RadialAxisEdge::Bottom | RadialAxisEdge::Top => {
-                    let over = yt.labels.last().map_or(0.0, |l| l.width() / 2.0);
-                    let beyond = exponent.map_or(0.0, |e| s.radial_pad + e.width());
-                    m.right = m.right.max(s.outer + over.max(beyond));
-                }
-                RadialAxisEdge::Left | RadialAxisEdge::Right => {
-                    let over = yt.labels.last().map_or(0.0, |l| l.total_height() / 2.0);
-                    let beyond = exponent.map_or(0.0, |e| s.radial_pad + e.total_height());
-                    m.top = m.top.max(s.outer + over.max(beyond) + title);
-                }
-            }
-        }
     }
-    m
-}
-
-/// Returns the longest that a tick mark of a radial axis can be, which the margins reserve because the plot rectangle,
-/// on which the length depends, is not yet known.
-fn longest_tick(ctx: &Ctx) -> f64 {
-    0.5 * ctx.font_size
-}
-
-/// The depths across a radial axis on an edge of the parts that lie beyond its line, in points: the tick marks, the
-/// tick labels with their pad, and the axis label with its gap. Each is 0 when the part is absent.
-struct RulerBands {
-    marks: f64,
-    labels: f64,
-    label: f64,
-}
-
-impl RulerBands {
-    fn new(
-        s: &Spacing,
-        ticks: &AxisTicks,
-        label: Option<&TextBlock>,
-        edge: RadialAxisEdge,
-        marks: f64,
-    ) -> Self {
-        let upright = matches!(edge, RadialAxisEdge::Left | RadialAxisEdge::Right);
-        let labels = if ticks.labels.is_empty() {
-            0.0
-        } else if upright {
-            s.tick_pad + ticks.max_width()
-        } else {
-            s.tick_pad + ticks.max_height() + ticks.max_depth()
-        };
-        Self {
-            marks,
-            labels,
-            label: label.map_or(0.0, |l| s.label_gap + l.total_height()),
-        }
-    }
-
-    /// The depth of the whole axis beyond its line.
-    fn total(&self) -> f64 {
-        self.marks + self.labels + self.label
-    }
-}
-
-/// Returns the map from an angle in the data units of x to its page angle, in radians anticlockwise from east, for a
-/// polar axes whose x axis is reversed when `reverse` is set.
-fn page_angle(polar: PolarView, reverse: bool) -> impl Fn(f64) -> f64 {
-    let turn = polar.angle_units.turn();
-    let turn = if turn.is_finite() && turn > 0.0 {
-        turn
-    } else {
-        360.0
-    };
-    let zero = if polar.zero_deg.is_finite() {
-        polar.zero_deg.to_radians()
-    } else {
-        0.0
-    };
-    let sign = if reverse { -1.0 } else { 1.0 };
-    move |theta: f64| zero + sign * theta * TAU / turn
-}
-
-/// Returns the page angles of the edges of the sector of a polar axes whose angular limits are `x`: the angle of the
-/// lower limit and the angle of the upper limit, no more than a turn apart.
-fn sector_angles(polar: PolarView, x: Range) -> (f64, f64) {
-    let page_angle = page_angle(polar, x.reverse);
-    let start = page_angle(x.min);
-    let mut end = page_angle(x.max);
-    // Limits spanning more than a turn, which validation refuses, are drawn as one turn.
-    if (end - start).abs() > TAU {
-        end = start + (end - start).signum() * TAU;
-    }
-    (start, end)
-}
-
-/// Returns the angle, in the data units of x, of the spoke on which the radial axis lies: the spoke the view names, or
-/// the one halfway between the first two angular ticks, or, without two ticks, the one a sixteenth of the sector from
-/// its lower limit.
-fn spoke_angle(polar: PolarView, (min, max): (f64, f64), ticks: &AxisTicks) -> f64 {
-    match (polar.radial_axis.angle(), ticks.major.as_slice()) {
-        (Some(theta), _) if theta.is_finite() => theta,
-        (_, [a, b, ..]) => (a + b) / 2.0,
-        _ => min + (max - min) / 16.0,
-    }
-}
-
-/// Returns the room, beyond the angular tick labels, that a radial axis along a spoke needs on each side of the plot,
-/// as `[left, right, top, bottom]`, in points, when its tick marks are `length` long.
-///
-/// The axis needs room only where its spoke lies along an edge of the box that bounds the sector with its labels on
-/// the outside, as along the diameter of a half disc or a straight edge of a quarter; elsewhere its labels lie over the
-/// disc. The room is the depth of its tick marks, tick labels and axis label across the spoke.
-fn spoke_overhang(ctx: &Ctx, decor: &Decor, polar: PolarView, x: Range, length: f64) -> [f64; 4] {
-    let RadialAxis::AlongSpoke { side, .. } = polar.radial_axis else {
-        return [0.0; 4];
-    };
-    let s = Spacing::new(ctx);
-    let (start, end) = sector_angles(polar, x);
-    let (bx0, bx1, by0, by1) = unit_sector_box(start.min(end), start.max(end));
-    let psi = page_angle(polar, x.reverse)(spoke_angle(polar, (x.min, x.max), &decor.ticks[0]));
-    // The direction of the spoke and the normal on its labelled side, with y upwards.
-    let u = (psi.cos(), psi.sin());
-    let n = match side {
-        RadialAxisSpokeSide::Anticlockwise => (-psi.sin(), psi.cos()),
-        RadialAxisSpokeSide::Clockwise => (psi.sin(), -psi.cos()),
-    };
-    let yt = &decor.ticks[1];
-    let label = decor.labels[1]
-        .as_ref()
-        .map_or(0.0, |l| s.label_gap + l.total_height());
-    // Each edge of the box: its outward direction, how far it lies from the centre in units of the rim, and the extent
-    // of the tick labels across it.
-    let edges = [
-        ((-1.0, 0.0), -bx0, yt.max_width()),
-        ((1.0, 0.0), bx1, yt.max_width()),
-        ((0.0, 1.0), by1, yt.max_height() + yt.max_depth()),
-        ((0.0, -1.0), -by0, yt.max_height() + yt.max_depth()),
-    ];
-    edges.map(|(e, b, extent): ((f64, f64), f64, f64)| {
-        let along_edge = (u.0 * e.0 + u.1 * e.1).abs() < 1e-9 && b.abs() < 1e-9;
-        let outwards = n.0 * e.0 + n.1 * e.1 > 0.5;
-        if !(along_edge && outwards) {
-            return 0.0;
-        }
-        let labels = if yt.labels.is_empty() {
-            0.0
-        } else {
-            s.tick_pad + extent
-        };
-        length + labels + label
-    })
 }
 
 /// The geometry of a polar axes on the page.
@@ -280,11 +99,8 @@ struct Geometry {
     angles: (f64, f64),
     /// Whether the sector is a full turn.
     full: bool,
-    /// The bounding box of the unpanned sector on the page, centre included, from which the axis labels and the title
-    /// are placed.
+    /// The bounding box of the sector on the page, centre included.
     fitted: Rect,
-    /// The page offset by which the pan of the view moves the sector from its fitted place.
-    pan: (f64, f64),
 }
 
 impl Geometry {
@@ -300,19 +116,27 @@ impl Geometry {
     }
 }
 
-/// Returns the page offset by which the pan of a view moves a polar axes drawn in `plot`; a pan that is not finite
-/// is taken as zero.
-fn pan_offset(view: View2d, plot: Rect) -> (f64, f64) {
-    let finite_or_zero = |p: f64| if p.is_finite() { p } else { 0.0 };
-    (
-        finite_or_zero(view.pan_x) * plot.width,
-        finite_or_zero(view.pan_y) * plot.height,
-    )
-}
-
-/// Fits the sector of a polar axes into its plot rectangle, moves it by the pan of the view and builds its maps.
-fn geometry(polar: PolarView, view: View2d, x: Range, y: Range, plot: Rect) -> Geometry {
-    let (start, end) = sector_angles(polar, x);
+/// Fits the sector of a polar axes into its plot rectangle and builds its maps.
+fn geometry(polar: PolarView, x: Range, y: Range, plot: Rect) -> Geometry {
+    let turn = polar.angle_units.turn();
+    let turn = if turn.is_finite() && turn > 0.0 {
+        turn
+    } else {
+        360.0
+    };
+    let zero = if polar.zero_deg.is_finite() {
+        polar.zero_deg.to_radians()
+    } else {
+        0.0
+    };
+    let sign = if x.reverse { -1.0 } else { 1.0 };
+    let page_angle = |theta: f64| zero + sign * theta * TAU / turn;
+    let start = page_angle(x.min);
+    let mut end = page_angle(x.max);
+    // Limits spanning more than a turn, which validation refuses, are drawn as one turn.
+    if (end - start).abs() > TAU {
+        end = start + sign * TAU;
+    }
     let full = (end - start).abs() >= TAU - 1e-9;
     let angles = (start.min(end), start.max(end));
     let (bx0, bx1, by0, by1) = unit_sector_box(angles.0, angles.1);
@@ -323,12 +147,10 @@ fn geometry(polar: PolarView, view: View2d, x: Range, y: Range, plot: Rect) -> G
         0.0
     };
     let middle = Point::new(plot.x + plot.width / 2.0, plot.y + plot.height / 2.0);
-    let home = Point::new(
+    let centre = Point::new(
         middle.x - rim * (bx0 + bx1) / 2.0,
         middle.y + rim * (by0 + by1) / 2.0,
     );
-    let (dx, dy) = pan_offset(view, plot);
-    let centre = Point::new(home.x + dx, home.y + dy);
     let fraction = if polar.hole.is_finite() {
         polar.hole.clamp(0.0, 0.99)
     } else {
@@ -354,8 +176,8 @@ fn geometry(polar: PolarView, view: View2d, x: Range, y: Range, plot: Rect) -> G
         warp: Warp::Polar { centre },
     };
     let fitted = Rect::new(
-        home.x + rim * bx0,
-        home.y - rim * by1,
+        centre.x + rim * bx0,
+        centre.y - rim * by1,
         rim * (bx1 - bx0),
         rim * (by1 - by0),
     );
@@ -367,7 +189,6 @@ fn geometry(polar: PolarView, view: View2d, x: Range, y: Range, plot: Rect) -> G
         angles,
         full,
         fitted,
-        pan: (dx, dy),
     }
 }
 
@@ -376,25 +197,14 @@ pub(super) fn emit(
     ctx: &mut Ctx,
     input: &AxesInput,
     polar: PolarView,
-    view: View2d,
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
     let axes = input.axes;
     let plot = input.plot;
     let [xr, yr, _] = *input.ranges;
-    let g = geometry(polar, view, xr, yr, plot);
+    let g = geometry(polar, xr, yr, plot);
     let space = Space::TwoD(g.plane);
-    // A panned axes is drawn into its own list and clipped to the outer rectangle, so that nothing it moves escapes its
-    // cell; an unpanned one is drawn straight into the display list.
-    let panned = pan_offset(view, plot) != (0.0, 0.0);
-    let mut drawn_axes = Vec::new();
-    let target = if panned { &mut drawn_axes } else { &mut *out };
-
-    // The grid is drawn under the artists unless the axes asks for it over them.
-    if axes.grid_below {
-        draw_grid(input, &g, target);
-    }
 
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
@@ -419,23 +229,13 @@ pub(super) fn emit(
         .filter(|(_, clip)| *clip != plot)
         .collect();
     let groups = clip_groups(axes.id, plot, data, &released);
-    target.extend(sector_clipped(axes.id, &g, plot, groups));
-    if !axes.grid_below {
-        draw_grid(input, &g, target);
-    }
+    out.extend(sector_clipped(axes.id, &g, plot, groups));
 
-    draw_frame(input, &g, target);
-    draw_labels(ctx, input, polar, &g, target);
-    if panned {
-        out.push(Item {
-            source: Some(axes.id),
-            kind: ItemKind::Group {
-                clip: Some(input.outer),
-                transform: None,
-                items: drawn_axes,
-            },
-        });
-    }
+    // The grid is painted over the artists, as MATLAB's polar axes paint it, so that the angle and radius of a filled
+    // field, an image or a wedge can be read wherever there is data.
+    draw_grid(input, &g, out);
+    draw_frame(input, &g, out);
+    draw_labels(ctx, input, &g, out);
     colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
@@ -502,7 +302,7 @@ fn arc(g: &Geometry, rho: f64) -> Vec<Point> {
         .outline(&[Point::new(a0, rho), Point::new(a1, rho)], false)
 }
 
-/// Draws the grid, under the artists: a spoke from the edge of the hole to the rim at every interior angular tick when the x grid is on,
+/// Draws the grid, over the artists: a spoke from the edge of the hole to the rim at every interior angular tick when the x grid is on,
 /// and an arc across the sector at every radial tick strictly between the hole and the rim when the y grid is on, with
 /// the stroke of the grid of a 2D axes.
 fn draw_grid(input: &AxesInput, g: &Geometry, out: &mut Vec<Item>) {
@@ -622,41 +422,30 @@ fn angular_label_centres(g: &Geometry, ticks: &AxisTicks, pad: f64) -> (Vec<Poin
     (centres, (0..n).map(|k| k == 0).collect())
 }
 
-/// Returns the page angle of the spoke on which the radial axis lies, as [`spoke_angle`] chooses it.
+/// Returns the page angle of the spoke along which the radial tick labels are drawn: the spoke the view names, or the
+/// one halfway between the first two angular ticks, or, without two ticks, the one a sixteenth of the sector from its
+/// lower limit.
 fn radial_spoke(polar: PolarView, g: &Geometry, x: &AxisTicks) -> f64 {
-    g.plane
-        .x
-        .to_figure(spoke_angle(polar, (g.plane.x.min, g.plane.x.max), x))
+    let theta = match (polar.radial_labels_at, x.major.as_slice()) {
+        (Some(theta), _) if theta.is_finite() => theta,
+        (_, [a, b, ..]) => (a + b) / 2.0,
+        _ => g.plane.x.min + (g.plane.x.max - g.plane.x.min) / 16.0,
+    };
+    g.plane.x.to_figure(theta)
 }
 
-/// Returns the radius of each tick of `values` that lies between the edge of the hole and the rim, by more than a
-/// rounding error, in points from the centre.
-fn ruled_radii<'a>(g: &'a Geometry, values: &'a [f64]) -> impl Iterator<Item = f64> + 'a {
-    values
-        .iter()
-        .map(|v| g.plane.y.to_figure(*v))
-        .filter(|rho| rho.is_finite() && *rho >= g.hole - 1e-6 && *rho <= g.rim + 1e-6)
-}
-
-/// Returns how far a level box of the given width and height reaches across a line from its centre, in the direction
-/// of the unit normal `n`.
-fn half_across(n: Point, width: f64, height: f64) -> f64 {
-    width / 2.0 * n.x.abs() + height / 2.0 * n.y.abs()
-}
-
-/// Draws the angular tick labels round the rim, the radial axis where the view puts it, the axis labels and the title.
-fn draw_labels(
-    ctx: &mut Ctx,
-    input: &AxesInput,
-    polar: PolarView,
-    g: &Geometry,
-    out: &mut Vec<Item>,
-) {
+/// Draws the angular tick labels round the rim, the radial tick labels along their spoke, the axis labels and the
+/// title.
+fn draw_labels(ctx: &mut Ctx, input: &AxesInput, g: &Geometry, out: &mut Vec<Item>) {
     let s = Spacing::new(ctx);
     let axes = input.axes;
     let id = axes.id;
     let decor = input.decor;
-    let xt = &decor.ticks[0];
+    let [xt, yt, _] = &decor.ticks;
+    let polar = match axes.projection {
+        ironlab_ir::Projection::Polar { polar } => polar,
+        _ => PolarView::default(),
+    };
 
     let (centres, drawn) = angular_label_centres(g, xt, s.tick_pad);
     let mut taken: Vec<Rect> = Vec::new();
@@ -667,75 +456,12 @@ fn draw_labels(
         }
     }
 
-    let (across, along) = label_band(xt, &s);
-    let f = g.fitted;
-    // How far below the fitted sector the x label starts, and how far above it the title ends.
-    let mut below = along;
-    let mut above = along;
-    match polar.radial_axis {
-        RadialAxis::Spoke { .. } => {
-            draw_spoke_labels(ctx, input, polar, g, &taken, out);
-            if let Some(label) = &decor.labels[1] {
-                let right = f.x - across - s.label_gap;
-                let origin = Point::new(
-                    right - label.depth(),
-                    f.y + (f.height + label.width()) / 2.0,
-                );
-                label.draw_upwards_on_page(ctx, origin, INK, id, out);
-            }
-        }
-        RadialAxis::AlongSpoke { side, .. } => {
-            draw_along_spoke(ctx, input, polar, side, g, &taken, out);
-            let [_, _, top, bottom] =
-                spoke_overhang(ctx, decor, polar, input.ranges[0], longest_tick(ctx));
-            below = below.max(bottom);
-            above = above.max(top);
-        }
-        RadialAxis::Edge { edge } => {
-            let depth = draw_edge(ctx, input, edge, g, (across, along), out);
-            match edge {
-                RadialAxisEdge::Bottom => below = depth,
-                RadialAxisEdge::Top => above = depth,
-                RadialAxisEdge::Left | RadialAxisEdge::Right => {}
-            }
-        }
-    }
-
-    if let Some(label) = &decor.labels[0] {
-        let origin = Point::new(
-            f.x + (f.width - label.width()) / 2.0,
-            f.bottom() + below + s.label_gap + label.height(),
-        );
-        label.draw_on_page(ctx, origin, INK, id, out);
-    }
-    if let Some(title) = &decor.title {
-        let bottom = f.y - above - s.title_gap;
-        let origin = Point::new(
-            title_left(axes.title_align, f, title.width()),
-            bottom - title.depth(),
-        );
-        title.draw_on_page(ctx, origin, INK, id, out);
-    }
-}
-
-/// Draws the radial tick labels centred on their spoke, with the common exponent beyond the outermost of them.
-///
-/// The labels are centred on the spoke, so that the figure writer chooses where they lie by choosing the spoke, for
-/// example in a gap between bars, as matplotlib's `set_rlabel_position` does.
-fn draw_spoke_labels(
-    ctx: &mut Ctx,
-    input: &AxesInput,
-    polar: PolarView,
-    g: &Geometry,
-    taken: &[Rect],
-    out: &mut Vec<Item>,
-) {
-    let s = Spacing::new(ctx);
-    let id = input.axes.id;
-    let [xt, yt, _] = &input.decor.ticks;
+    // The radial labels are centred on their spoke, so that the figure writer chooses where they lie by choosing the
+    // spoke, for example in a gap between bars, as matplotlib's `set_rlabel_position` does.
     let psi = radial_spoke(polar, g, xt);
     let (ux, uy) = (psi.cos(), -psi.sin());
-    let place = |rho: f64| Point::new(g.centre.x + rho * ux, g.centre.y + rho * uy);
+    let place =
+        |_label: &TextBlock, rho: f64| Point::new(g.centre.x + rho * ux, g.centre.y + rho * uy);
     let mut outermost: Option<f64> = None;
     for (v, label) in yt.major.iter().zip(&yt.labels) {
         let rho = g.plane.y.to_figure(*v);
@@ -743,7 +469,7 @@ fn draw_spoke_labels(
             continue;
         }
         // A radial label that would cover an angular label, as one at the rim may, is left out.
-        let centre = place(rho);
+        let centre = place(label, rho);
         let bounds = centred_box(label, centre);
         if taken.iter().any(|t| overlap(*t, bounds)) {
             continue;
@@ -755,232 +481,33 @@ fn draw_spoke_labels(
     }
     if let (Some(e), Some(rho)) = (&yt.exponent, outermost) {
         let along = rho + e.total_height().max(e.width()) * 0.75 + s.radial_pad;
-        let centre = place(along);
-        e.draw_on_page(ctx, e.origin_for_centre(centre), INK, id, out);
-    }
-}
-
-/// Draws a radial axis along its spoke: the axis line from the edge of the hole to the rim, a tick mark across it at
-/// every radial tick pointing to `side`, the tick labels beyond the tick marks on that side, the common exponent beyond
-/// the outermost label, and the y label beyond the tick labels, parallel to the spoke and turned so that it is never
-/// upside down.
-fn draw_along_spoke(
-    ctx: &mut Ctx,
-    input: &AxesInput,
-    polar: PolarView,
-    side: RadialAxisSpokeSide,
-    g: &Geometry,
-    taken: &[Rect],
-    out: &mut Vec<Item>,
-) {
-    let s = Spacing::new(ctx);
-    let id = input.axes.id;
-    let [xt, yt, _] = &input.decor.ticks;
-    let psi = radial_spoke(polar, g, xt);
-    let u = Point::new(psi.cos(), -psi.sin());
-    // A quarter turn of the page direction (cos ψ, −sin ψ) anticlockwise on the page is (−sin ψ, −cos ψ).
-    let n = match side {
-        RadialAxisSpokeSide::Anticlockwise => Point::new(-psi.sin(), -psi.cos()),
-        RadialAxisSpokeSide::Clockwise => Point::new(psi.sin(), psi.cos()),
-    };
-    let at = |rho: f64, off: f64| {
-        Point::new(
-            g.centre.x + rho * u.x + off * n.x,
-            g.centre.y + rho * u.y + off * n.y,
-        )
-    };
-    let length = tick_length(ctx, input.plot);
-
-    let mut b = PathBuilder::new();
-    b.polyline(&[at(g.hole, 0.0), at(g.rim, 0.0)], false);
-    for rho in ruled_radii(g, &yt.major) {
-        b.polyline(&[at(rho, 0.0), at(rho, length)], false);
-    }
-    for rho in ruled_radii(g, &yt.minor) {
-        b.polyline(&[at(rho, 0.0), at(rho, 0.6 * length)], false);
-    }
-    out.extend(paths::item(id, b.finish(), None, Some(frame_stroke())));
-
-    let near = length + s.tick_pad;
-    let mut outermost: Option<f64> = None;
-    let mut farthest = near;
-    for (v, label) in yt.major.iter().zip(&yt.labels) {
-        let rho = g.plane.y.to_figure(*v);
-        if !(rho.is_finite() && rho >= g.hole - 1e-6 && rho <= g.rim + 1e-6) {
-            continue;
-        }
-        let half = half_across(n, label.width(), label.total_height());
-        let centre = at(rho, near + half);
-        // A radial label that would cover an angular label, as one at the rim may, is left out.
-        let bounds = centred_box(label, centre);
-        if taken.iter().any(|t| overlap(*t, bounds)) {
-            continue;
-        }
-        label.draw_on_page(ctx, label.origin_for_centre(centre), INK, id, out);
-        farthest = farthest.max(near + 2.0 * half);
-        if outermost.is_none_or(|r| rho > r) {
-            outermost = Some(rho);
-        }
-    }
-    if let (Some(e), Some(rho)) = (&yt.exponent, outermost) {
-        let along = rho + e.total_height().max(e.width()) * 0.75 + s.radial_pad;
-        let centre = at(along, near + half_across(n, e.width(), e.total_height()));
+        let centre = place(e, along);
         e.draw_on_page(ctx, e.origin_for_centre(centre), INK, id, out);
     }
 
-    if let Some(label) = &input.decor.labels[1] {
-        let mut degrees = psi.to_degrees().rem_euclid(360.0);
-        if degrees > 90.0 && degrees <= 270.0 {
-            degrees -= 180.0;
-        } else if degrees > 270.0 {
-            degrees -= 360.0;
-        }
-        let offset = farthest + s.label_gap + label.total_height() / 2.0;
-        let centre = at((g.hole + g.rim) / 2.0, offset);
-        let local = Point::new(label.width() / 2.0, (label.depth() - label.height()) / 2.0);
-        let turned = TextBlock::turned_point(degrees, local);
-        let origin = Point::new(centre.x - turned.x, centre.y - turned.y);
-        label.draw_turned_on_page(ctx, origin, degrees, INK, id, out);
-    }
-}
-
-/// Draws a radial axis on an edge of the plot, outside the disc and its angular tick labels, as a Cartesian axis on that
-/// edge is drawn: the axis line from level with the edge of the hole to level with the rim, tick marks pointing away
-/// from the disc, level tick labels beyond them, the common exponent beyond the end at the rim, and the y label beyond
-/// the tick labels, level along a horizontal axis and reading upwards along a vertical one.
-///
-/// Returns how far beyond the fitted sector the axis reaches on its edge, so that the x label or the title can be set
-/// beyond it.
-fn draw_edge(
-    ctx: &mut Ctx,
-    input: &AxesInput,
-    edge: RadialAxisEdge,
-    g: &Geometry,
-    (across, along): (f64, f64),
-    out: &mut Vec<Item>,
-) -> f64 {
-    let s = Spacing::new(ctx);
-    let id = input.axes.id;
-    let yt = &input.decor.ticks[1];
-    let length = tick_length(ctx, input.plot);
-    let bands = RulerBands::new(&s, yt, input.decor.labels[1].as_ref(), edge, length);
-    // The ruler moves with the panned sector, as the angular tick labels round the rim do, so that it stays level with
-    // the disc it measures.
-    let f = Rect::new(
-        g.fitted.x + g.pan.0,
-        g.fitted.y + g.pan.1,
-        g.fitted.width,
-        g.fitted.height,
-    );
-    // The start of the line, level with the edge of the hole; the direction in which the line runs out from it; and
-    // the direction away from the disc.
-    let (start, run, outward, band) = match edge {
-        RadialAxisEdge::Bottom => (
-            Point::new(g.centre.x + g.hole, f.bottom() + along + s.label_gap),
-            Point::new(1.0, 0.0),
-            Point::new(0.0, 1.0),
-            along,
-        ),
-        RadialAxisEdge::Top => (
-            Point::new(g.centre.x + g.hole, f.y - along - s.label_gap),
-            Point::new(1.0, 0.0),
-            Point::new(0.0, -1.0),
-            along,
-        ),
-        RadialAxisEdge::Left => (
-            Point::new(f.x - across - s.label_gap, g.centre.y - g.hole),
-            Point::new(0.0, -1.0),
-            Point::new(-1.0, 0.0),
-            across,
-        ),
-        RadialAxisEdge::Right => (
-            Point::new(f.right() + across + s.label_gap, g.centre.y - g.hole),
-            Point::new(0.0, -1.0),
-            Point::new(1.0, 0.0),
-            across,
-        ),
-    };
-    let at = |rho: f64, off: f64| {
-        let d = rho - g.hole;
-        Point::new(
-            start.x + d * run.x + off * outward.x,
-            start.y + d * run.y + off * outward.y,
-        )
-    };
-
-    let mut b = PathBuilder::new();
-    b.polyline(&[at(g.hole, 0.0), at(g.rim, 0.0)], false);
-    for rho in ruled_radii(g, &yt.major) {
-        b.polyline(&[at(rho, 0.0), at(rho, length)], false);
-    }
-    for rho in ruled_radii(g, &yt.minor) {
-        b.polyline(&[at(rho, 0.0), at(rho, 0.6 * length)], false);
-    }
-    out.extend(paths::item(id, b.finish(), None, Some(frame_stroke())));
-
-    // Level tick labels: a horizontal axis sets them on one baseline, as the x axis of a 2D axes does, and a vertical
-    // axis aligns their edges nearer the line, as the y axis does.
-    let near = length + s.tick_pad;
-    for (v, label) in yt.major.iter().zip(&yt.labels) {
-        let rho = g.plane.y.to_figure(*v);
-        if !(rho.is_finite() && rho >= g.hole - 1e-6 && rho <= g.rim + 1e-6) {
-            continue;
-        }
-        let tick = at(rho, near);
-        let origin = match edge {
-            RadialAxisEdge::Bottom => {
-                Point::new(tick.x - label.width() / 2.0, tick.y + yt.max_height())
-            }
-            RadialAxisEdge::Top => {
-                Point::new(tick.x - label.width() / 2.0, tick.y - yt.max_depth())
-            }
-            RadialAxisEdge::Left => {
-                label.origin_for_centre(Point::new(tick.x - label.width() / 2.0, tick.y))
-            }
-            RadialAxisEdge::Right => {
-                label.origin_for_centre(Point::new(tick.x + label.width() / 2.0, tick.y))
-            }
-        };
+    let (across, along) = label_band(xt, &s);
+    let f = g.fitted;
+    if let Some(label) = &decor.labels[0] {
+        let origin = Point::new(
+            f.x + (f.width - label.width()) / 2.0,
+            f.bottom() + along + s.label_gap + label.height(),
+        );
         label.draw_on_page(ctx, origin, INK, id, out);
     }
-    if let Some(e) = &yt.exponent {
-        let end = at(g.rim, 0.0);
-        let centre = match edge {
-            RadialAxisEdge::Bottom | RadialAxisEdge::Top => {
-                let row = at(g.rim, near + bands.labels.max(e.total_height()) / 2.0);
-                Point::new(end.x + s.radial_pad + e.width() / 2.0, row.y)
-            }
-            RadialAxisEdge::Left | RadialAxisEdge::Right => Point::new(
-                at(g.rim, near + e.width() / 2.0).x,
-                end.y - s.radial_pad - e.total_height() / 2.0,
-            ),
-        };
-        e.draw_on_page(ctx, e.origin_for_centre(centre), INK, id, out);
-    }
-
-    if let Some(label) = &input.decor.labels[1] {
-        let middle = at(
-            (g.hole + g.rim) / 2.0,
-            bands.marks + bands.labels + s.label_gap,
+    if let Some(label) = &decor.labels[1] {
+        let right = f.x - across - s.label_gap;
+        let origin = Point::new(
+            right - label.depth(),
+            f.y + (f.height + label.width()) / 2.0,
         );
-        match edge {
-            RadialAxisEdge::Bottom => {
-                let origin = Point::new(middle.x - label.width() / 2.0, middle.y + label.height());
-                label.draw_on_page(ctx, origin, INK, id, out);
-            }
-            RadialAxisEdge::Top => {
-                let origin = Point::new(middle.x - label.width() / 2.0, middle.y - label.depth());
-                label.draw_on_page(ctx, origin, INK, id, out);
-            }
-            RadialAxisEdge::Left => {
-                let origin = Point::new(middle.x - label.depth(), middle.y + label.width() / 2.0);
-                label.draw_upwards_on_page(ctx, origin, INK, id, out);
-            }
-            RadialAxisEdge::Right => {
-                let origin = Point::new(middle.x + label.height(), middle.y + label.width() / 2.0);
-                label.draw_upwards_on_page(ctx, origin, INK, id, out);
-            }
-        }
+        label.draw_upwards_on_page(ctx, origin, INK, id, out);
     }
-    band + s.label_gap + bands.total()
+    if let Some(title) = &decor.title {
+        let bottom = f.y - along - s.title_gap;
+        let origin = Point::new(
+            title_left(axes.title_align, f, title.width()),
+            bottom - title.depth(),
+        );
+        title.draw_on_page(ctx, origin, INK, id, out);
+    }
 }

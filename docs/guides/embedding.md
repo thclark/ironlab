@@ -90,7 +90,7 @@ The embedded figure behaves as the desktop viewer does, with the differences bel
 
 Above the figure, unless `toolbar="hidden"`, a bar holds the following controls.
 
-- **Pan**, **Zoom** and **Rotate** choose what dragging does, as the viewer's [tools](viewer.md#tools) do. Rotate appears only for a figure with a three-dimensional axes, Cartesian, cylindrical or spherical; dragging on a [polar axes](viewer.md#panning) with Pan moves the whole axes, and with Zoom draws a ring that zooms its radius.
+- **Pan**, **Zoom** and **Rotate** choose what dragging does, as the viewer's [tools](viewer.md#tools) do. Rotate appears only for a figure with a three-dimensional axes, Cartesian, cylindrical or spherical; dragging on a [polar axes](viewer.md#panning) turns it and slides its radial limits.
 - **Refit** discards the limit and view changes of every axes, restoring the views the file was saved with, as the viewer's [Refit](viewer.md#restoring-views) does.
 - **Undo** and **Redo** step through the reader's gestures, as in the viewer's [undo and redo](viewer.md#undo-and-redo).
 - A **problems** indicator appears at the right when the figure has something to report, exactly as the viewer's [problems indicator](viewer.md#problems) does, and lists the problems when clicked.
@@ -155,9 +155,9 @@ The element colours its chrome, meaning the figurebar, the datatips, the rubber 
 | `--ironlab-widget` | The face of a button. |
 | `--ironlab-widget-hover` | The face of a button under the pointer. |
 | `--ironlab-stroke` | The borders of buttons and panels, and the separator between the figurebar's tools. |
-| `--ironlab-accent` | The face of the pressed tool button, and the wash of the rubber band and of the ring of a radial zoom. |
+| `--ironlab-accent` | The face of the pressed tool button, and the wash of the rubber band. |
 | `--ironlab-accent-text` | The text of the pressed tool button. |
-| `--ironlab-selection` | The edges of the rubber band and of the ring of a radial zoom, the datatip's marker and the focus ring. |
+| `--ironlab-selection` | The edge of the rubber band, the datatip's marker and the focus ring. |
 | `--ironlab-problem` | The problems indicator. |
 | `--ironlab-canvas-bg` | The backdrop behind a figure whose background is transparent. |
 | `--ironlab-frame` | The line around the whole element, figurebar and figure together. Transparent unless a page sets it. |

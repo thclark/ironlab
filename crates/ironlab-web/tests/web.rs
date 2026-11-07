@@ -38,11 +38,10 @@ const SURF_FIG: &[u8] = include_bytes!("fixtures/surf.fig");
 const LATEX_LABELS_FIG: &[u8] = include_bytes!("fixtures/latex_labels.fig");
 
 /// The keys of an outcome, in the order the contract documents them.
-const OUTCOME_KEYS: [&str; 8] = [
+const OUTCOME_KEYS: [&str; 7] = [
     "redraw",
     "cursor",
     "rubber_band",
-    "rubber_ring",
     "datatip",
     "can_undo",
     "can_redo",
@@ -65,7 +64,6 @@ struct Outcome {
     redraw: bool,
     cursor: String,
     rubber_band: Option<[f32; 4]>,
-    rubber_ring: Option<[f32; 4]>,
     datatip: Option<Datatip>,
     can_undo: bool,
     can_redo: bool,

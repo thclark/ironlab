@@ -70,7 +70,7 @@ fn assert_all_close(actual: &[f64], expected: &[f64], what: &str) {
 /// Returns the polar view of an axes, panicking if the axes is not polar.
 fn polar_view(fig: &Figure, id: NodeId) -> PolarView {
     match axes(fig, id).projection {
-        Projection::Polar { polar, .. } => polar,
+        Projection::Polar { polar } => polar,
         other => panic!("expected polar axes, found {other:?}"),
     }
 }

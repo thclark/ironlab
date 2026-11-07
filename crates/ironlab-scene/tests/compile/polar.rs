@@ -15,15 +15,15 @@ use std::f64::consts::{PI, TAU};
 
 use ironlab_ir::{
     AngleUnits, BarWidth, CellEdges, CellGap, Color, ColorScaleKind, IndexedColorScale, Limits,
-    NodeId, Orientation, PerBar, PolarView, Projection, RadialAxis, RadialAxisEdge, Scale, View2d,
+    NodeId, Orientation, PerBar, PolarView, Projection, Scale,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Point, Rect, Sector};
 use ironlab_scene::hit::{AxesHitKind, AxisMap, HitArea};
 
-use crate::common::{Fx, cell, compile_figure, range, rgb8, rgba, text, xy};
+use crate::common::{Fx, cell, compile_figure, range, rgb8, rgba, xy};
 use crate::probe::{
-    Leaf, assert_close, axes_hit, axis_maps, centre, from_source, inside, leaves, points_close,
+    Leaf, assert_close, axes_hit, axis_maps, centre, from_source, leaves, points_close,
 };
 
 /// Agreement expected of a point placed on the page from data, in points.
@@ -74,13 +74,7 @@ impl Frame {
 
 /// Adds polar axes with the given view in the one tile of the figure.
 fn polar_axes(fx: &mut Fx, polar: PolarView) -> NodeId {
-    fx.axes_in(
-        cell(0, 0, 1, 1),
-        Projection::Polar {
-            polar,
-            view: ironlab_ir::View2d::default(),
-        },
-    )
+    fx.axes_in(cell(0, 0, 1, 1), Projection::Polar { polar })
 }
 
 /// Sets manual limits on the angular (x) and radial (y) axes.
@@ -1529,201 +1523,4 @@ fn a_line_across_the_sector_in_axes_fractions_follows_its_circle() {
             pair[1] - pair[0]
         );
     }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Pan
-// ---------------------------------------------------------------------------------------------------------------
-
-/// A polar axes with a grid on both axes, the box, a line and markers, an angle label, a radius label and a title,
-/// panned by `view`: everything a pan may move or must leave alone. Returns the scene, the axes and the line.
-fn panned_polar(view: View2d) -> (Scene, NodeId, NodeId) {
-    panned_polar_with(PolarView::default(), view)
-}
-
-/// As [`panned_polar`], with the polar view `polar`.
-fn panned_polar_with(polar: PolarView, view: View2d) -> (Scene, NodeId, NodeId) {
-    let mut fx = Fx::new();
-    let ax = fx.axes_in(cell(0, 0, 1, 1), Projection::Polar { polar, view });
-    let line = fx.line(ax, &[0.0, 90.0, 200.0], &[1.0, 2.0, 1.5], None, |_| {});
-    fx.scatter(ax, &[45.0, 300.0], &[0.5, 1.8], None, |_, _| {});
-    limits(&mut fx, ax, None, Some((0.0, 2.0)));
-    let axes = fx.ax(ax);
-    axes.x.grid = true;
-    axes.y.grid = true;
-    axes.x.label = text("Bearing");
-    axes.y.label = text("Range");
-    axes.title = text("Pattern");
-    (compile_figure(&fx.build()), ax, line)
-}
-
-/// Returns `p` moved by `(dx, dy)`.
-fn moved(p: Point, (dx, dy): (f64, f64)) -> Point {
-    Point::new(p.x + dx, p.y + dy)
-}
-
-// Why: panning moves the drawn polar axes across its plot area as a camera offset, so that a reader who zoomed the
-// radius can bring a part of the disc back into view. The whole axes must move together: the centre the hit map
-// publishes (through which the pointer is read), the grid, the frame, the tick labels, every artist and the sector
-// that clips them, each by exactly the pan's fraction of the plot area's width and height. The plot area itself, and
-// so the margins, must not change, and the axis labels and the title, which annotate the cell rather than the disc,
-// stay where they were; a pan that also moved the layout would make the axes jump as it is dragged.
-#[test]
-fn a_pan_moves_the_centre_grid_frame_tick_labels_and_artists_by_the_fraction_of_the_plot_area() {
-    let (home, ax, line) = panned_polar(View2d::default());
-    let pan = View2d {
-        pan_x: 0.1,
-        pan_y: -0.05,
-    };
-    let (shifted, _, _) = panned_polar(pan);
-
-    let plot = axes_hit(&home, ax).plot_rect;
-    assert_eq!(
-        axes_hit(&shifted, ax).plot_rect,
-        plot,
-        "the plot area does not change"
-    );
-    let offset = (pan.pan_x * plot.width, pan.pan_y * plot.height);
-    let (home_frame, panned_frame) = (published_frame(&home, ax), published_frame(&shifted, ax));
-    assert_at(
-        panned_frame.centre,
-        moved(home_frame.centre, offset),
-        "the published centre",
-    );
-    assert_close(panned_frame.rim, home_frame.rim, TOL);
-
-    let (before, after) = (leaves(&home), leaves(&shifted));
-    assert_eq!(before.len(), after.len(), "the same items are drawn");
-    let fixed = ["Bearing", "Range", "Pattern"];
-    for (b, a) in before.iter().zip(&after) {
-        let (Some(bb), Some(ab)) = (b.bbox(), a.bbox()) else {
-            continue;
-        };
-        let annotation = a.glyphs().is_some_and(|g| fixed.contains(&g.text.as_str()));
-        let expected = if annotation {
-            Point::new(bb.x, bb.y)
-        } else {
-            moved(Point::new(bb.x, bb.y), offset)
-        };
-        assert!(
-            points_close(Point::new(ab.x, ab.y), expected, TOL)
-                && (ab.width - bb.width).abs() < TOL
-                && (ab.height - bb.height).abs() < TOL,
-            "{:?} of {:?}: {bb:?} becomes {ab:?}, expected at {expected:?}",
-            a.glyphs().map(|g| g.text.clone()),
-            a.source,
-        );
-    }
-
-    assert_clipped_to(
-        &shifted,
-        line,
-        Sector {
-            centre: panned_frame.centre,
-            inner: 0.0,
-            outer: panned_frame.rim,
-            start: 0.0,
-            sweep: TAU,
-        },
-    );
-}
-
-// Why: a radial axis on an edge measures the disc, so its zero must stay level with the edge of the hole and its end
-// level with the rim; a ruler that stayed put while the disc moved would read the wrong radius. The pan must therefore
-// move the ruler, with its tick labels and the radius label beyond them, by exactly the pan's offset, as it moves the
-// grid and the artists, while the angle label and the title, which annotate the cell, stay where they were.
-#[test]
-fn a_pan_moves_a_radial_axis_on_the_bottom_edge_with_the_disc() {
-    let polar = PolarView {
-        radial_axis: RadialAxis::Edge {
-            edge: RadialAxisEdge::Bottom,
-        },
-        ..PolarView::default()
-    };
-    let (home, ax, _) = panned_polar_with(polar, View2d::default());
-    let pan = View2d {
-        pan_x: -0.08,
-        pan_y: 0.06,
-    };
-    let (shifted, _, _) = panned_polar_with(polar, pan);
-    let plot = axes_hit(&home, ax).plot_rect;
-    let offset = (pan.pan_x * plot.width, pan.pan_y * plot.height);
-
-    let (before, after) = (leaves(&home), leaves(&shifted));
-    assert_eq!(before.len(), after.len(), "the same items are drawn");
-    // The radius label is drawn beyond the ruler, so it moves with it.
-    let fixed = ["Bearing", "Pattern"];
-    let home_frame = published_frame(&home, ax);
-    let below_disc = home_frame.centre.y + home_frame.rim;
-    let mut ruler_labels = 0;
-    for (b, a) in before.iter().zip(&after) {
-        let (Some(bb), Some(ab)) = (b.bbox(), a.bbox()) else {
-            continue;
-        };
-        let annotation = a.glyphs().is_some_and(|g| fixed.contains(&g.text.as_str()));
-        // A label below the disc's fitted box, other than the angle label, belongs to the ruler.
-        if !annotation && a.glyphs().is_some() && bb.y > below_disc {
-            ruler_labels += 1;
-        }
-        let expected = if annotation {
-            Point::new(bb.x, bb.y)
-        } else {
-            moved(Point::new(bb.x, bb.y), offset)
-        };
-        assert!(
-            points_close(Point::new(ab.x, ab.y), expected, TOL),
-            "{:?} of {:?}: {bb:?} becomes {ab:?}, expected at {expected:?}",
-            a.glyphs().map(|g| g.text.clone()),
-            a.source,
-        );
-    }
-    assert!(
-        ruler_labels >= 3,
-        "the ruler's tick labels and the radius label are drawn below the disc and were checked: {ruler_labels}"
-    );
-}
-
-// Why: a panned axes may be moved partly out of its plot area, and what is moved out must not paint over the
-// neighbouring tiles, the colourbars or the margins of other axes, just as a panned 3D axes is clipped. Every artist
-// stays clipped to the plot area, and everything the pan moves is clipped to the axes' own cell.
-#[test]
-fn a_panned_polar_axes_stays_clipped_to_its_plot_area_and_its_cell() {
-    let (scene, ax, line) = panned_polar(View2d {
-        pan_x: 0.4,
-        pan_y: 0.3,
-    });
-    let plot = axes_hit(&scene, ax).plot_rect;
-    let page = Rect::new(
-        0.0,
-        0.0,
-        scene.display_list.width_pt,
-        scene.display_list.height_pt,
-    );
-    for leaf in from_source(&leaves(&scene), line) {
-        let clip = leaf.clip.expect("every leaf of the line is clipped");
-        assert!(
-            inside(clip, plot, TOL),
-            "the line is clipped within the plot area: {clip:?} against {plot:?}"
-        );
-    }
-    for leaf in from_source(&leaves(&scene), ax) {
-        let clip = leaf.clip.expect("every leaf the axes draws is clipped");
-        assert!(
-            inside(plot, clip, TOL) && inside(clip, page, TOL),
-            "the axes is clipped to its cell, which holds the plot area: {clip:?}"
-        );
-    }
-}
-
-// Why: a pan that is not finite cannot place the axes; as in 3D axes, it is drawn as no pan rather than failing or
-// drawing nothing, so a figure carrying one from a faulty writer still shows its data where the reader expects it.
-#[test]
-fn a_pan_that_is_not_finite_draws_the_axes_unpanned() {
-    let (home, _, _) = panned_polar(View2d::default());
-    let (odd, _, _) = panned_polar(View2d {
-        pan_x: f64::NAN,
-        pan_y: f64::INFINITY,
-    });
-    assert_eq!(odd.display_list, home.display_list);
-    assert_eq!(odd.hit_map, home.hit_map);
 }

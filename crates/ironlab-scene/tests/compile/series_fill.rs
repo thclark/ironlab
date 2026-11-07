@@ -159,7 +159,6 @@ fn polar_axes(fx: &mut Fx, r: (f64, f64)) -> NodeId {
         cell(0, 0, 1, 1),
         Projection::Polar {
             polar: PolarView::default(),
-            view: ironlab_ir::View2d::default(),
         },
     );
     fx.ax(ax).y.limits = Limits::Manual { min: r.0, max: r.1 };

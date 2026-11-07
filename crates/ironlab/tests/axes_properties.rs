@@ -209,18 +209,3 @@ fn box_on_sets_its_field() {
     fig.axes(0, 0).box_on(true);
     assert!(axes(&fig, id).box_);
 }
-
-// WHY: the layer of the grid is an axes-wide appearance property that must map to its IR
-// field, below the artists by default, over them when turned off, and below again.
-#[test]
-fn grid_below_sets_its_field() {
-    let mut fig = Figure::new();
-    let id = fig.axes(0, 0).id();
-    assert!(axes(&fig, id).grid_below, "the grid is below by default");
-
-    fig.axes(0, 0).grid_below(false);
-    assert!(!axes(&fig, id).grid_below);
-
-    fig.axes(0, 0).grid_below(true);
-    assert!(axes(&fig, id).grid_below);
-}

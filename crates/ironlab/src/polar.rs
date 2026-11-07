@@ -8,8 +8,8 @@
 //! the charts that are drawn with series, histograms and stacked bars.
 
 use ironlab_ir::{
-    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, RadialAxis,
-    Scale, SphericalView, Text, Ticks, View2d, View3d,
+    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, Scale,
+    SphericalView, Text, Ticks, View3d,
 };
 
 use crate::artists::{BarsMut, SeriesMut};
@@ -72,7 +72,6 @@ impl AxesMut<'_> {
         axes.projection = match axes.projection {
             Projection::TwoD => Projection::Polar {
                 polar: PolarView::default(),
-                view: View2d::default(),
             },
             Projection::ThreeD { view3d } => Projection::Cylindrical {
                 view3d,
@@ -98,7 +97,7 @@ impl AxesMut<'_> {
                 view3d: View3d::default(),
                 polar: PolarView::default(),
             },
-            Projection::Polar { polar, .. } => Projection::Cylindrical {
+            Projection::Polar { polar } => Projection::Cylindrical {
                 view3d: View3d::default(),
                 polar,
             },
@@ -131,7 +130,7 @@ impl AxesMut<'_> {
                 view3d: View3d::default(),
                 spherical: SphericalView::default(),
             },
-            Projection::Polar { polar, .. } => Projection::Spherical {
+            Projection::Polar { polar } => Projection::Spherical {
                 view3d: View3d::default(),
                 spherical: spherical(polar.angle_units),
             },
@@ -166,7 +165,7 @@ impl AxesMut<'_> {
     fn edit_polar(&mut self, edit: impl FnOnce(&mut PolarView)) -> &mut Self {
         self.make_polar();
         match &mut self.axes().projection {
-            Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => edit(polar),
+            Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => edit(polar),
             _ => {}
         }
         self
@@ -207,12 +206,11 @@ impl AxesMut<'_> {
         self.edit_polar(|polar| polar.hole = fraction)
     }
 
-    /// Sets where the radial axis, its tick labels and its axis label are drawn, converting
-    /// the axes to polar axes: tick labels centred on a spoke (the default), an axis line
-    /// with tick marks along a spoke, or a ruler outside the disc on one edge of the plot
-    /// (matplotlib's `set_rlabel_position`, MATLAB's `RAxisLocation`).
-    pub fn radial_axis(&mut self, axis: RadialAxis) -> &mut Self {
-        self.edit_polar(|polar| polar.radial_axis = axis)
+    /// Sets the angle, in the units of the data, of the spoke along which the radial tick
+    /// labels are drawn, converting the axes to polar axes (matplotlib's
+    /// `set_rlabel_position`, MATLAB's `RAxisLocation`).
+    pub fn radial_labels_at(&mut self, angle: f64) -> &mut Self {
+        self.edit_polar(|polar| polar.radial_labels_at = Some(angle))
     }
 
     /// Fixes the angular limits, which are the sector the axes shows; an alias of
@@ -265,7 +263,7 @@ impl AxesMut<'_> {
     /// the number of units to a turn.
     fn turn(&mut self) -> f64 {
         match self.axes().projection {
-            Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => {
+            Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => {
                 polar.angle_units.turn()
             }
             Projection::Spherical { spherical, .. } => spherical.angle_units.turn(),
@@ -317,7 +315,6 @@ impl AxesMut<'_> {
                         angle_units: AngleUnits::PerTurn(n),
                         ..
                     },
-                ..
             } if n.is_finite() && n >= 1.0 && n.fract() == 0.0 => n as usize,
             _ => values.len(),
         };

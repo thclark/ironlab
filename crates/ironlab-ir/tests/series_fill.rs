@@ -290,7 +290,6 @@ fn a_filled_series_in_cartesian_or_polar_axes_and_a_base_alone_raise_no_issue() 
     let (fig, _) = series_in(
         Projection::Polar {
             polar: PolarView::default(),
-            view: View2d::default(),
         },
         |s| {
             filled(s);

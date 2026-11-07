@@ -23,10 +23,7 @@ use serde_json::{Value as JsonValue, json};
 // ---------------------------------------------------------------------------------
 
 fn polar(polar: PolarView) -> Projection {
-    Projection::Polar {
-        polar,
-        view: View2d::default(),
-    }
+    Projection::Polar { polar }
 }
 
 fn cylindrical(polar: PolarView) -> Projection {
@@ -63,7 +60,7 @@ fn line_in(projection: Projection) -> (Figure, NodeId, NodeId) {
 /// Returns the polar view of a projection that has one, so that a test can change it.
 fn polar_view_mut(projection: &mut Projection) -> &mut PolarView {
     match projection {
-        Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => polar,
+        Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => polar,
         other => panic!("{other:?} has no polar view"),
     }
 }
@@ -71,7 +68,7 @@ fn polar_view_mut(projection: &mut Projection) -> &mut PolarView {
 /// Returns the angle units of any projection that measures angles.
 fn angle_units_mut(projection: &mut Projection) -> &mut AngleUnits {
     match projection {
-        Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => {
+        Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => {
             &mut polar.angle_units
         }
         Projection::Spherical { spherical, .. } => &mut spherical.angle_units,
@@ -131,7 +128,7 @@ fn the_views_default_to_degrees_east_no_hole_and_elevation() {
             angle_units: AngleUnits::Degrees,
             zero_deg: 0.0,
             hole: 0.0,
-            radial_axis: RadialAxis::Spoke { angle: None },
+            radial_labels_at: None,
         }
     );
     assert_eq!(
@@ -187,16 +184,15 @@ fn projection_json(fig: &Figure) -> JsonValue {
 // Why: the JSON form is a public contract that hand-written files and other languages
 // follow; the projection is tagged by `type` in snake case with its views as named
 // fields, the angle units are tagged as the aspect is (a `type`, and the count of a
-// custom unit as `value`), the polar angle is a plain snake-case name, the radial axis
-// is tagged by `type` with its fields named, an automatic spoke is written as null, and
-// the pan of polar axes is written in full as the camera of 3D axes is.
+// custom unit as `value`), the polar angle is a plain snake-case name, and an automatic
+// radial label spoke is written as null.
 #[test]
 fn the_angular_projections_are_written_in_the_documented_json_form() {
     let (fig, _, _) = line_in(polar(PolarView {
         angle_units: AngleUnits::PerTurn(12.0),
         zero_deg: 90.0,
         hole: 0.25,
-        radial_axis: RadialAxis::default(),
+        radial_labels_at: None,
     }));
     assert_eq!(
         projection_json(&fig),
@@ -206,9 +202,8 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
                 "angle_units": { "type": "per_turn", "value": 12.0 },
                 "zero_deg": 90.0,
                 "hole": 0.25,
-                "radial_axis": { "type": "spoke", "angle": null }
-            },
-            "view": { "pan_x": 0.0, "pan_y": 0.0 }
+                "radial_labels_at": null
+            }
         })
     );
 
@@ -219,10 +214,7 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
         },
         polar: PolarView {
             angle_units: AngleUnits::Radians,
-            radial_axis: RadialAxis::AlongSpoke {
-                angle: Some(0.5),
-                side: RadialAxisSpokeSide::Clockwise,
-            },
+            radial_labels_at: Some(0.5),
             ..PolarView::default()
         },
     });
@@ -235,20 +227,9 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
                 "angle_units": { "type": "radians" },
                 "zero_deg": 0.0,
                 "hole": 0.0,
-                "radial_axis": { "type": "along_spoke", "angle": 0.5, "side": "clockwise" }
+                "radial_labels_at": 0.5
             }
         })
-    );
-
-    let (fig, _, _) = line_in(polar(PolarView {
-        radial_axis: RadialAxis::Edge {
-            edge: RadialAxisEdge::Bottom,
-        },
-        ..PolarView::default()
-    }));
-    assert_eq!(
-        projection_json(&fig)["polar"]["radial_axis"],
-        json!({ "type": "edge", "edge": "bottom" })
     );
 
     let (fig, _, _) = line_in(spherical(SphericalView {
@@ -296,25 +277,14 @@ fn every_angular_projection() -> Vec<Projection> {
             angle_units: AngleUnits::Radians,
             zero_deg: -90.0,
             hole: 0.5,
-            radial_axis: RadialAxis::Spoke {
-                angle: Some(PI / 8.0),
-            },
+            radial_labels_at: Some(PI / 8.0),
         }),
         polar(PolarView {
             angle_units: AngleUnits::PerTurn(5.0),
             zero_deg: 90.0,
             hole: 0.0,
-            radial_axis: RadialAxis::Edge {
-                edge: RadialAxisEdge::Left,
-            },
+            radial_labels_at: Some(2.5),
         }),
-        Projection::Polar {
-            polar: PolarView::default(),
-            view: View2d {
-                pan_x: 0.375,
-                pan_y: -0.125,
-            },
-        },
         Projection::Cylindrical {
             view3d: View3d {
                 azimuth_deg: 10.0,
@@ -327,10 +297,7 @@ fn every_angular_projection() -> Vec<Projection> {
                 angle_units: AngleUnits::PerTurn(24.0),
                 zero_deg: 45.0,
                 hole: 0.125,
-                radial_axis: RadialAxis::AlongSpoke {
-                    angle: None,
-                    side: RadialAxisSpokeSide::Anticlockwise,
-                },
+                radial_labels_at: None,
             },
         },
         spherical(SphericalView::default()),
@@ -688,94 +655,6 @@ fn a_count_per_turn_that_is_not_finite_and_positive_is_an_error() {
     }
 }
 
-// Why: the radial axis names its spoke by an angle, and a spoke at an infinite or NaN
-// angle has no direction on the page, so it is refused in both projections that carry a
-// polar view, whichever kind of axis names it; a finite angle, however large, is a spoke.
-#[test]
-fn a_radial_axis_on_a_spoke_at_an_angle_that_is_not_finite_is_an_error() {
-    for (name, wrap) in [
-        ("polar", polar as fn(PolarView) -> Projection),
-        ("cylindrical", cylindrical),
-    ] {
-        for angle in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
-            for axis in [
-                RadialAxis::Spoke { angle: Some(angle) },
-                RadialAxis::AlongSpoke {
-                    angle: Some(angle),
-                    side: RadialAxisSpokeSide::Clockwise,
-                },
-            ] {
-                let (fig, axes, _) = line_in(wrap(PolarView {
-                    radial_axis: axis,
-                    ..PolarView::default()
-                }));
-                let at = format!("{axis:?} in {name}");
-                assert_only_error(
-                    &fig.validate(),
-                    IssueKind::InvalidRadialAxisAngle,
-                    axes,
-                    &at,
-                );
-            }
-        }
-        let (fig, _, _) = line_in(wrap(PolarView {
-            radial_axis: RadialAxis::AlongSpoke {
-                angle: Some(-725.0),
-                side: RadialAxisSpokeSide::Anticlockwise,
-            },
-            ..PolarView::default()
-        }));
-        assert_eq!(fig.validate().errors, vec![], "a finite angle in {name}");
-    }
-}
-
-// Why: a radial axis on an edge is a ruler beside a flat disc; a cylindrical axes has no
-// flat edge beside its floor, so it draws the radial labels on the default spoke instead.
-// The user who asked for an edge must be told, but the figure still draws, so it is a
-// warning; in a polar axes the same choice is honoured and raises nothing.
-#[test]
-fn a_radial_axis_on_an_edge_of_a_cylindrical_axes_is_drawn_on_a_spoke_with_a_warning() {
-    for edge in [
-        RadialAxisEdge::Bottom,
-        RadialAxisEdge::Top,
-        RadialAxisEdge::Left,
-        RadialAxisEdge::Right,
-    ] {
-        let view = PolarView {
-            radial_axis: RadialAxis::Edge { edge },
-            ..PolarView::default()
-        };
-        let (fig, axes, _) = line_in(cylindrical(view));
-        let report = fig.validate();
-        assert_eq!(report.errors, vec![], "{edge:?}");
-        assert!(
-            has_warning(&report, IssueKind::RadialAxisEdgeInThreeDAxes, axes),
-            "{edge:?} in cylindrical axes: {report:?}"
-        );
-        let (fig, _, _) = line_in(polar(view));
-        assert!(
-            !reports(&fig.validate(), IssueKind::RadialAxisEdgeInThreeDAxes),
-            "{edge:?} in polar axes"
-        );
-    }
-    for axis in [
-        RadialAxis::default(),
-        RadialAxis::AlongSpoke {
-            angle: None,
-            side: RadialAxisSpokeSide::Clockwise,
-        },
-    ] {
-        let (fig, _, _) = line_in(cylindrical(PolarView {
-            radial_axis: axis,
-            ..PolarView::default()
-        }));
-        assert!(
-            !reports(&fig.validate(), IssueKind::RadialAxisEdgeInThreeDAxes),
-            "{axis:?} in cylindrical axes"
-        );
-    }
-}
-
 // Why: polar axes are always drawn round, and a spherical axes is a sphere, so an aspect
 // other than automatic is not honoured there; the user who set one must be told, but the
 // figure still draws, so it is a warning against the axes. A cylindrical axes keeps its
@@ -1045,10 +924,10 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
             },
         ),
         (
-            "projection.polar.radial_axis",
-            Value::RadialAxis(RadialAxis::Spoke { angle: Some(22.5) }),
+            "projection.polar.radial_labels_at",
+            Value::Double(22.5),
             PolarView {
-                radial_axis: RadialAxis::Spoke { angle: Some(22.5) },
+                radial_labels_at: Some(22.5),
                 ..PolarView::default()
             },
         ),
@@ -1073,89 +952,15 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
 
     // An automatic radial label spoke is set by unsetting the optional value.
     let (mut fig, axes, _) = line_in(polar(PolarView {
-        radial_axis: RadialAxis::Spoke { angle: Some(45.0) },
+        radial_labels_at: Some(45.0),
         ..PolarView::default()
     }));
     let (edited, _) = applied(
         &fig,
-        &tx([set(
-            axes,
-            "projection.polar.radial_axis.angle",
-            Value::Unset,
-        )]),
+        &tx([set(axes, "projection.polar.radial_labels_at", Value::Unset)]),
     )
     .unwrap();
     assert_eq!(edited.axes[0].projection, polar(PolarView::default()));
-
-    // The side of an axis along a spoke and the edge of an axis on an edge are reached
-    // through their variants, and the angle of either spoke kind through its own.
-    let (along, axes, _) = line_in(polar(PolarView {
-        radial_axis: RadialAxis::AlongSpoke {
-            angle: None,
-            side: RadialAxisSpokeSide::Anticlockwise,
-        },
-        ..PolarView::default()
-    }));
-    let (edited, inverse) = applied(
-        &along,
-        &tx([
-            set(
-                axes,
-                "projection.polar.radial_axis.side",
-                Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Clockwise),
-            ),
-            set(
-                axes,
-                "projection.polar.radial_axis.angle",
-                Value::Double(30.0),
-            ),
-        ]),
-    )
-    .unwrap();
-    assert_eq!(
-        edited.axes[0].projection,
-        polar(PolarView {
-            radial_axis: RadialAxis::AlongSpoke {
-                angle: Some(30.0),
-                side: RadialAxisSpokeSide::Clockwise,
-            },
-            ..PolarView::default()
-        })
-    );
-    assert_eq!(applied(&edited, &inverse).unwrap().0, along, "the inverse");
-    let (on_edge, axes, _) = line_in(polar(PolarView {
-        radial_axis: RadialAxis::Edge {
-            edge: RadialAxisEdge::Bottom,
-        },
-        ..PolarView::default()
-    }));
-    let (edited, _) = applied(
-        &on_edge,
-        &tx([set(
-            axes,
-            "projection.polar.radial_axis.edge",
-            Value::RadialAxisEdge(RadialAxisEdge::Left),
-        )]),
-    )
-    .unwrap();
-    assert_eq!(
-        edited.axes[0].projection.polar().unwrap().radial_axis,
-        RadialAxis::Edge {
-            edge: RadialAxisEdge::Left
-        }
-    );
-    // An axis on an edge names no spoke, so it has no angle to set.
-    assert!(
-        applied(
-            &on_edge,
-            &tx([set(
-                axes,
-                "projection.polar.radial_axis.angle",
-                Value::Double(1.0)
-            )]),
-        )
-        .is_err()
-    );
 
     // The count of a custom unit is reached through its variant, as other tuple variants are.
     polar_view_mut(&mut fig.axes[0].projection).angle_units = AngleUnits::PerTurn(12.0);
@@ -1172,66 +977,6 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
         polar_view_mut(&mut edited.axes[0].projection.clone()).angle_units,
         AngleUnits::PerTurn(24.0)
     );
-}
-
-// Why: the pan of polar axes is a view property that the pan gesture sets and the property
-// editor shows, so it is read and set at `projection.view`, beside `projection.polar`, as
-// the camera of 3D axes is at `projection.view3d`; each field must change exactly that
-// field and leave the polar view alone, and the inverse must restore the figure.
-#[test]
-fn the_pan_of_polar_axes_is_set_by_flattened_paths() {
-    let (fig, axes, _) = line_in(polar(PolarView::default()));
-    assert_eq!(
-        fig.get(axes, &path("projection.view")).unwrap(),
-        Value::View2d(View2d::default())
-    );
-    let panned = |pan_x: f64, pan_y: f64| Projection::Polar {
-        polar: PolarView::default(),
-        view: View2d { pan_x, pan_y },
-    };
-    let cases: [(&str, Value, Projection); 3] = [
-        (
-            "projection.view.pan_x",
-            Value::Double(0.25),
-            panned(0.25, 0.0),
-        ),
-        (
-            "projection.view.pan_y",
-            Value::Double(-0.5),
-            panned(0.0, -0.5),
-        ),
-        (
-            "projection.view",
-            Value::View2d(View2d {
-                pan_x: 0.125,
-                pan_y: 0.375,
-            }),
-            panned(0.125, 0.375),
-        ),
-    ];
-    for (at, value, expected) in cases {
-        let (edited, inverse) = applied(&fig, &tx([set(axes, at, value)])).unwrap();
-        assert_eq!(edited.axes[0].projection, expected, "{at}");
-        assert_eq!(
-            edited.get(axes, &path(at)).unwrap(),
-            value_at(&expected, at),
-            "{at}: read back"
-        );
-        let (restored, _) = applied(&edited, &inverse).unwrap();
-        assert_eq!(restored, fig, "{at}: the inverse");
-    }
-}
-
-/// The value at a path of the pan of a polar projection.
-fn value_at(projection: &Projection, at: &str) -> Value {
-    let Projection::Polar { view, .. } = projection else {
-        panic!("the projection is polar");
-    };
-    match at {
-        "projection.view.pan_x" => Value::Double(view.pan_x),
-        "projection.view.pan_y" => Value::Double(view.pan_y),
-        _ => Value::View2d(*view),
-    }
 }
 
 // Why: cylindrical axes carry both a camera and a polar view, and spherical axes a camera
@@ -1377,7 +1122,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
             angle_units: AngleUnits::PerTurn(7.5),
             zero_deg: -0.0,
             hole: 0.125,
-            radial_axis: RadialAxis::default(),
+            radial_labels_at: None,
         })),
         Value::Projection(Projection::Cylindrical {
             view3d: View3d {
@@ -1385,9 +1130,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
                 ..View3d::default()
             },
             polar: PolarView {
-                radial_axis: RadialAxis::Edge {
-                    edge: RadialAxisEdge::Top,
-                },
+                radial_labels_at: Some(1.0),
                 ..PolarView::default()
             },
         }),
@@ -1399,10 +1142,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
             angle_units: AngleUnits::Radians,
             zero_deg: 270.0,
             hole: 0.0,
-            radial_axis: RadialAxis::AlongSpoke {
-                angle: Some(-PI),
-                side: RadialAxisSpokeSide::Clockwise,
-            },
+            radial_labels_at: Some(-PI),
         }),
         Value::SphericalView(SphericalView::default()),
         Value::AngleUnits(AngleUnits::Degrees),
@@ -1410,17 +1150,6 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
         Value::AngleUnits(AngleUnits::PerTurn(24.0)),
         Value::PolarAngle(PolarAngle::Elevation),
         Value::PolarAngle(PolarAngle::Inclination),
-        Value::RadialAxis(RadialAxis::default()),
-        Value::RadialAxis(RadialAxis::Spoke { angle: Some(-0.0) }),
-        Value::RadialAxis(RadialAxis::AlongSpoke {
-            angle: None,
-            side: RadialAxisSpokeSide::Clockwise,
-        }),
-        Value::RadialAxis(RadialAxis::Edge {
-            edge: RadialAxisEdge::Right,
-        }),
-        Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Anticlockwise),
-        Value::RadialAxisEdge(RadialAxisEdge::Top),
     ];
     let transaction = tx(values
         .iter()
@@ -1429,7 +1158,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
     let decoded = Transaction::from_protobuf(&transaction.to_protobuf()).unwrap();
     assert_eq!(decoded, transaction);
     let Edit::Set {
-        value: Value::Projection(Projection::Polar { polar, .. }),
+        value: Value::Projection(Projection::Polar { polar }),
         ..
     } = &decoded.edits[0]
     else {
@@ -1456,64 +1185,6 @@ fn choose(value_type: ValueType, replaced: Option<&Value>, label: &str) -> Value
         .find(|choice| choice.label == label)
         .unwrap_or_else(|| panic!("{value_type:?} offers {label:?}"))
         .value
-}
-
-// Why: the property editor offers the radial axis as a combo box of its three kinds, and
-// a switch between the two kinds drawn on a spoke must keep the spoke the user chose, so
-// that drawing an axis line under the labels does not move them; an edge names no spoke,
-// so a switch from it starts on the default spoke.
-#[test]
-fn a_radial_axis_choice_keeps_its_spoke_between_the_kinds_drawn_on_a_spoke() {
-    let labels: Vec<_> = choices(ValueType::RadialAxis, None)
-        .into_iter()
-        .map(|choice| choice.label)
-        .collect();
-    assert_eq!(labels, ["On a spoke", "Along a spoke", "On an edge"]);
-
-    let spoke = Value::RadialAxis(RadialAxis::Spoke { angle: Some(94.0) });
-    assert_eq!(
-        choose(ValueType::RadialAxis, Some(&spoke), "Along a spoke"),
-        Value::RadialAxis(RadialAxis::AlongSpoke {
-            angle: Some(94.0),
-            side: RadialAxisSpokeSide::Anticlockwise,
-        })
-    );
-    let along = Value::RadialAxis(RadialAxis::AlongSpoke {
-        angle: Some(10.0),
-        side: RadialAxisSpokeSide::Clockwise,
-    });
-    assert_eq!(
-        choose(ValueType::RadialAxis, Some(&along), "On a spoke"),
-        Value::RadialAxis(RadialAxis::Spoke { angle: Some(10.0) })
-    );
-    assert_eq!(
-        choose(ValueType::RadialAxis, Some(&along), "On an edge"),
-        Value::RadialAxis(RadialAxis::Edge {
-            edge: RadialAxisEdge::Bottom
-        })
-    );
-    let edge = Value::RadialAxis(RadialAxis::Edge {
-        edge: RadialAxisEdge::Right,
-    });
-    assert_eq!(
-        choose(ValueType::RadialAxis, Some(&edge), "On a spoke"),
-        Value::RadialAxis(RadialAxis::default())
-    );
-    assert_eq!(
-        choose(ValueType::RadialAxis, Some(&edge), "On an edge"),
-        edge,
-        "the edge is kept when the kind is chosen again"
-    );
-    let sides: Vec<_> = choices(ValueType::RadialAxisSpokeSide, None)
-        .into_iter()
-        .map(|choice| choice.label)
-        .collect();
-    assert_eq!(sides, ["Anticlockwise", "Clockwise"]);
-    let edges: Vec<_> = choices(ValueType::RadialAxisEdge, None)
-        .into_iter()
-        .map(|choice| choice.label)
-        .collect();
-    assert_eq!(edges, ["Bottom", "Top", "Left", "Right"]);
 }
 
 // Why: the property editor offers the projection as a combo box; the user must find all
@@ -1566,10 +1237,7 @@ fn a_projection_choice_carries_the_camera_and_the_polar_view_across() {
         angle_units: AngleUnits::Radians,
         zero_deg: 90.0,
         hole: 0.25,
-        radial_axis: RadialAxis::AlongSpoke {
-            angle: Some(1.0),
-            side: RadialAxisSpokeSide::Clockwise,
-        },
+        radial_labels_at: Some(1.0),
     };
 
     let three_d = Value::Projection(Projection::ThreeD { view3d: camera });
@@ -1606,25 +1274,6 @@ fn a_projection_choice_carries_the_camera_and_the_polar_view_across() {
         panic!("the choice is spherical");
     };
     assert_eq!(view3d, camera);
-
-    // The pan of polar axes is kept when polar axes are chosen again, and a projection
-    // without one gives polar axes centred in the plot area.
-    let pan = View2d {
-        pan_x: 0.25,
-        pan_y: -0.125,
-    };
-    let panned = Value::Projection(Projection::Polar {
-        polar: view,
-        view: pan,
-    });
-    assert_eq!(
-        choose(ValueType::Projection, Some(&panned), "Polar"),
-        panned
-    );
-    assert_eq!(
-        choose(ValueType::Projection, Some(&three_d), "Polar"),
-        Value::Projection(polar(PolarView::default()))
-    );
 
     let flat = Value::Projection(polar(view));
     assert_eq!(
@@ -1688,10 +1337,10 @@ fn keys(overlay: &Overlay) -> Vec<(NodeId, String)> {
 }
 
 // Why: turning a polar plot by dragging changes its zero direction, and orbiting a
-// cylindrical or spherical axes changes its camera, and panning a polar axes moves it;
-// all are changes of view, so a double-click must reset them, restoring the zero direction
-// the figure was written with and centring the polar axes again. The hole, the units and
-// the other properties are choices about content and must survive the reset.
+// cylindrical or spherical axes changes its camera; both are changes of view, so a
+// double-click must reset them, restoring the zero direction the figure was written
+// with. The hole, the units and the other properties are choices about content and must
+// survive the reset.
 #[test]
 fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_rest() {
     let (source, p, c) = overlay_fixture();
@@ -1704,12 +1353,6 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
     );
     record(&mut overlay, p, "projection.polar.hole", Value::Double(0.5));
     record(&mut overlay, p, "y.limits", Value::Limits(manual(0.0, 5.0)));
-    record(
-        &mut overlay,
-        p,
-        "projection.view.pan_x",
-        Value::Double(0.25),
-    );
     record(
         &mut overlay,
         c,
@@ -1731,14 +1374,10 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
 
     let composed = overlay.compose(&source);
     assert_eq!(composed.dropped, vec![]);
-    let Projection::Polar { polar: shown, .. } = find_axes(&composed.figure, p).projection else {
+    let Projection::Polar { polar: shown } = find_axes(&composed.figure, p).projection else {
         panic!("the axes stays polar");
     };
     assert_eq!(shown.zero_deg, 10.0);
-    let Projection::Polar { view: moved, .. } = find_axes(&composed.figure, p).projection else {
-        panic!("the axes stays polar");
-    };
-    assert_eq!(moved.pan_x, 0.25);
 
     overlay.reset_view(p);
     assert_eq!(
@@ -1751,7 +1390,7 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
         ]
     );
     let composed = overlay.compose(&source);
-    let Projection::Polar { polar: shown, .. } = find_axes(&composed.figure, p).projection else {
+    let Projection::Polar { polar: shown } = find_axes(&composed.figure, p).projection else {
         panic!("the axes stays polar");
     };
     assert_eq!(
@@ -1759,10 +1398,6 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
         "the written zero direction is restored"
     );
     assert_eq!(shown.hole, 0.5, "the hole is kept");
-    let Projection::Polar { view: moved, .. } = find_axes(&composed.figure, p).projection else {
-        panic!("the axes stays polar");
-    };
-    assert_eq!(moved, View2d::default(), "the pan is reset");
 
     overlay.reset_view(c);
     assert_eq!(
