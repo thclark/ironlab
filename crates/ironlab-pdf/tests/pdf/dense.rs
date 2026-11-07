@@ -576,3 +576,75 @@ fn the_furniture_around_a_raster_stays_vector_and_selectable() {
         "its font is still embedded"
     );
 }
+
+// WHY: a mesh image is drawn as one path per pixel, so a large one is dense content like a fine surface and the raster
+// policy decides how it is written. When the threshold rasterises it, the report must say why in terms the user
+// recognises, which is not that a surface had many cells but that an image was warped through its axes and has so
+// many pixels: `RasterisedForWarp` carries the pixel count. A user's request for rasters stays a request, and
+// without a rasteriser, or under `RasterPolicy::Never`, the pixels are written as paths, drawn exactly as a small
+// mesh image is.
+#[test]
+fn a_mesh_image_above_the_threshold_is_rasterised_and_reported_as_warped() {
+    require_tools!(IMAGE_TOOL, RASTER_TOOLS[0], RASTER_TOOLS[1]);
+    let ws = Workspace::new("dense-mesh");
+    let list = crate::images::mesh_page();
+    let auto = PdfOptions {
+        raster: RasterOptions {
+            policy: RasterPolicy::Auto { cells: 4 },
+            dpi: 72.0,
+            ..RasterOptions::default()
+        },
+        ..PdfOptions::default()
+    };
+
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+    let rendered = render_reporting(&list, &auto, Some(&mut stub));
+    let pdf = ws.write_pdf("auto", &rendered.bytes);
+    assert_eq!(
+        calls.borrow().len(),
+        1,
+        "six pixels against a threshold of four are rasterised"
+    );
+    assert_eq!(pdfimages(&pdf).len(), 1, "the raster is embedded");
+    assert_warnings(
+        &rendered.warnings,
+        &[(SURFACE, ExportWarningKind::RasterisedForWarp { pixels: 6 })],
+        "a warped image is reported with its pixel count",
+    );
+    let message = &rendered.warnings[0].message;
+    assert!(
+        message.contains("warped") && message.contains('6'),
+        "the message says the image is warped and how many pixels it has: {message}"
+    );
+
+    let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+    let rendered = render_reporting(&list, &always(72.0), Some(&mut stub));
+    assert_eq!(calls.borrow().len(), 1, "the user asked for a raster");
+    assert_warnings(
+        &rendered.warnings,
+        &[(SURFACE, ExportWarningKind::RasterisedByRequest)],
+        "a requested raster is reported as the request",
+    );
+
+    let mut never = auto.clone();
+    never.raster.policy = RasterPolicy::Never;
+    for (name, options, rasteriser) in [
+        ("without a rasteriser", &auto, false),
+        ("under RasterPolicy::Never", &never, true),
+    ] {
+        let (mut stub, calls) = Stub::flat([255, 0, 0, 255]);
+        let raster: Option<&mut dyn Rasteriser> = if rasteriser { Some(&mut stub) } else { None };
+        let rendered = render_reporting(&list, options, raster);
+        let pdf = ws.write_pdf(&format!("vector-{}", rasteriser), &rendered.bytes);
+        assert!(calls.borrow().is_empty(), "{name}: no raster is requested");
+        assert!(pdfimages(&pdf).is_empty(), "{name}: nothing is embedded");
+        assert!(
+            rendered.warnings.is_empty(),
+            "{name}: nothing to report: {:?}",
+            rendered.warnings
+        );
+        for engine in ENGINES {
+            crate::images::assert_mesh_drawn(engine, &rasterise(&pdf, engine));
+        }
+    }
+}

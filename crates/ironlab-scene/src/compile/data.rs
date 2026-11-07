@@ -770,7 +770,7 @@ fn image_data<'a>(
         })
         .transpose()?;
     check_placement(placement, nx, ny)?;
-    check_plane(axes, placement.plane)?;
+    check_plane(axes, placement, nx, ny)?;
     let empty = match (ny, nx) {
         (0, 0) => Some("no rows and no columns"),
         (0, _) => Some("no rows"),
@@ -892,11 +892,12 @@ fn plane_name(plane: ImagePlane) -> &'static str {
     }
 }
 
-/// Checks that an axes can show the plane of an image: a two-dimensional axes shows only the xy plane, and a raster
-/// of flat pixels, whose pitch is one distance everywhere, cannot be placed along a logarithmic axis of its plane.
-/// The third axis, along which the plane is only offset, may be logarithmic, but then the offset must be positive
-/// to be placed on it; a two-dimensional axes ignores the offset.
-fn check_plane(axes: &Axes, plane: ImagePlane) -> Result<(), String> {
+/// Checks that an axes can show the plane of an image: a two-dimensional axes shows only the xy plane, and along a
+/// logarithmic axis of the plane the first and last pixel edges of the placement must both be positive to have a
+/// place on the axis. The third axis, along which the plane is only offset, may be logarithmic, but then the offset
+/// must be positive to be placed on it; a two-dimensional axes ignores the offset.
+fn check_plane(axes: &Axes, placement: ImagePlacement, nx: usize, ny: usize) -> Result<(), String> {
+    let plane = placement.plane;
     let three_d = is_3d(axes);
     let name = plane_name(plane);
     if !three_d && !matches!(plane, ImagePlane::Xy { .. }) {
@@ -904,26 +905,26 @@ fn check_plane(axes: &Axes, plane: ImagePlane) -> Result<(), String> {
             "it lies in the {name} plane, which only a three-dimensional axes has"
         ));
     }
-    let logarithmic: Vec<&str> = plane
-        .axes()
-        .into_iter()
-        .filter(|&dimension| axes_axis(axes, dimension_index(dimension)).scale == Scale::Log)
-        .map(|dimension| DIMENSION_NAMES[dimension_index(dimension)])
-        .collect();
-    if !logarithmic.is_empty() {
-        let (noun, verb) = if logarithmic.len() == 1 {
-            ("axis", "is")
-        } else {
-            ("axes", "are")
-        };
-        return Err(format!(
-            "it lies in the {name} plane, whose {} {noun} {verb} logarithmic, and a raster of flat pixels \
-             cannot be placed along a logarithmic axis",
-            logarithmic.join(" and ")
-        ));
+    let [columns, rows] = plane.axes().map(dimension_index);
+    let along = [
+        (columns, "column", image::edges(placement.columns, nx)),
+        (rows, "row", image::edges(placement.rows, ny)),
+    ];
+    for (dimension, what, (first, last)) in along {
+        if axes_axis(axes, dimension).scale != Scale::Log {
+            continue;
+        }
+        if let Some(edge) = [first, last]
+            .into_iter()
+            .find(|edge| edge.is_nan() || *edge <= 0.0)
+        {
+            return Err(format!(
+                "its {what} edges run from {first} to {last} along the logarithmic {} axis, which has no place                  for the edge at {edge}",
+                DIMENSION_NAMES[dimension]
+            ));
+        }
     }
     if three_d && let Some(offset) = plane.offset() {
-        let [columns, rows] = plane.axes().map(dimension_index);
         let third = 3 - columns - rows;
         if axes_axis(axes, third).scale == Scale::Log && offset <= 0.0 {
             return Err(format!(

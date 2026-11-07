@@ -29,7 +29,7 @@ use ironlab_ir::{
     Scale, Text, Ticks, TitleAlign,
 };
 
-use crate::display::{ImageItem, Item, ItemKind, Point, Rect, Rgba};
+use crate::display::{ImageGeometry, ImageItem, Item, ItemKind, Point, Rect, Rgba};
 use crate::hit::{AxisMap, ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner};
 use crate::maths::ticks;
 
@@ -1098,7 +1098,7 @@ impl<'a> Colorbar<'a> {
         Some(Item {
             source: Some(self.source),
             kind: ItemKind::Image(ImageItem {
-                rect: r,
+                geometry: ImageGeometry::Rect(r),
                 width,
                 height,
                 channels: raster.channels,
@@ -1182,7 +1182,7 @@ pub(super) fn colour_row(source: NodeId, r: Rect, colours: &[Option<Rgba>]) -> O
     Some(Item {
         source: Some(source),
         kind: ItemKind::Image(ImageItem {
-            rect: r,
+            geometry: ImageGeometry::Rect(r),
             width,
             height: 1,
             channels: raster.channels,

@@ -1215,39 +1215,60 @@ fn warnings_do_not_reject_a_transaction() {
     assert_eq!(find_axes(&edited, s.axes).x.scale, Scale::Log);
 }
 
-// Why: switching an axis to a logarithmic scale is how a user of the viewer would put an
-// image on a logarithmic axis, which validation refuses because a raster of evenly spaced
-// pixels has no placement there. The edit must be refused with that error, whose message
-// tells the user to draw a surface instead and is what the property editor shows, and
-// the figure must be left exactly as it was.
+// Why: switching an axis to a logarithmic scale is how a user of the viewer puts an image
+// on a logarithmic axis. Each pixel is then drawn between its pixel edges mapped through
+// the axis, which is possible exactly when those edges are positive: an image whose
+// columns are centred on 1, 2 and 3 (edges 0.5 and 3.5) must be accepted, while one at
+// the default placement, whose first edge is at -0.5, has no place on the axis and must be
+// refused with an invalid placement naming the image, leaving the figure exactly as it
+// was. Testing both halves of one edit pins that the refusal follows from the edges and
+// not from the scale alone, which is what the old rule refused.
 #[test]
-fn switching_the_axis_of_an_image_to_a_logarithmic_scale_is_refused() {
-    let mut b = FigureBuilder::new();
-    let axes = b.axes2d(0, 0);
-    let values = b.matrix(2, 3, |j, i| (j + i) as f64);
-    let image = b.node();
-    let scale = b.color_scale(ColorScaleKind::default());
-    b.push(
-        axes,
-        Artist::ScalarImage(ScalarImage {
-            id: image,
-            values,
-            color_scale: Some(scale),
-            ..ScalarImage::default()
-        }),
-    );
-    let fig = b.build();
-    let mut edited = fig.clone();
+fn switching_the_axis_of_an_image_to_a_logarithmic_scale_depends_on_its_pixel_edges() {
+    let figure = |columns: Option<PixelRange>| {
+        let mut b = FigureBuilder::new();
+        let axes = b.axes2d(0, 0);
+        let values = b.matrix(2, 3, |j, i| (j + i) as f64);
+        let image = b.node();
+        let scale = b.color_scale(ColorScaleKind::default());
+        b.push(
+            axes,
+            Artist::ScalarImage(ScalarImage {
+                id: image,
+                values,
+                color_scale: Some(scale),
+                placement: ImagePlacement {
+                    columns,
+                    ..ImagePlacement::default()
+                },
+                ..ScalarImage::default()
+            }),
+        );
+        (b.build(), axes, image)
+    };
+
+    let (positive, axes, _) = figure(Some(PixelRange {
+        first: 1.0,
+        last: 3.0,
+    }));
+    let (edited, _) = applied(
+        &positive,
+        &tx([set(axes, "x.scale", Value::Scale(Scale::Log))]),
+    )
+    .expect("an image whose pixel edges are positive may lie on a logarithmic axis");
+    assert_eq!(find_axes(&edited, axes).x.scale, Scale::Log);
+    assert_eq!(edited.validate().errors, vec![]);
+
+    let (default, axes, image) = figure(None);
+    let mut edited = default.clone();
     let result = edited.apply(&tx([set(axes, "x.scale", Value::Scale(Scale::Log))]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues)) if issues.iter().any(|issue| {
-            issue.kind == IssueKind::ImageOnLogAxis
-                && issue.node == Some(image)
-                && issue.message.contains("surface")
+            issue.kind == IssueKind::InvalidImagePlacement && issue.node == Some(image)
         })),
         "{result:?}"
     );
-    assert_eq!(edited, fig);
+    assert_eq!(edited, default);
 }
 
 // Why: ADR 0012 exists for the stream that grows an artist from nothing. A field passes

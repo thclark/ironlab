@@ -131,6 +131,7 @@ gallery!(
     coverage_matrix,
     cylinder_flow,
     sweep_spectrogram,
+    fft_spectrogram,
     piv_confidence,
     surf,
     mesh,

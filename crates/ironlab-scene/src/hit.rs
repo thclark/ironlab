@@ -167,22 +167,85 @@ pub struct ArtistHit {
 
 /// The placement of one image drawn in a two-dimensional axes, from which the pixel under a pointer is found.
 ///
-/// Only images drawn in two-dimensional axes have an entry: there the placement of an image is an affine map of
-/// pixel space into figure space, so a pointer position maps back into pixel space by its inverse. A hidden image,
-/// an image the compiler skipped, and an image drawn on the floor or a wall of a three-dimensional axes, which has
-/// no such inverse, have none.
+/// Only images drawn in two-dimensional axes have an entry: there a pointer position maps back into pixel space
+/// through [`ImageHit::to_pixel`]. A hidden image, an image the compiler skipped, and an image drawn on the floor or
+/// a wall of a three-dimensional axes, which has no such inverse, have none.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImageHit {
     pub axes: NodeId,
     pub artist: NodeId,
     /// Maps figure space into the pixel space of the image, in which the pixel in row `j` and column `i` of the
-    /// artist's array covers `[i, i + 1] × [j, j + 1]`; it is the inverse of the transform of the group that holds
-    /// the image item.
-    pub to_pixel: Transform,
+    /// artist's array covers `[i, i + 1] × [j, j + 1]`.
+    pub to_pixel: PixelMap,
     /// The number of columns of pixels.
     pub columns: usize,
     /// The number of rows of pixels.
     pub rows: usize,
+}
+
+/// How figure space maps into the pixel space of an image drawn in a two-dimensional axes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PixelMap {
+    /// The inverse of the affine placement of the image (the transform of its group, inverted).
+    Affine(Transform),
+    /// Through the axes: a figure-space point is mapped to data by the two axis maps, then linearly from the data
+    /// coordinates of the first and last pixel edge (`columns` along x, `rows` along y) to pixel space, which spans
+    /// `pixels` (the number of columns and of rows).
+    Axes {
+        x: AxisMap,
+        y: AxisMap,
+        columns: [f64; 2],
+        rows: [f64; 2],
+        pixels: [usize; 2],
+    },
+}
+
+impl PixelMap {
+    /// Maps a figure-space point into pixel space.
+    pub fn to_pixel(&self, p: Point) -> Point {
+        match self {
+            Self::Affine(transform) => transform.apply(p),
+            Self::Axes {
+                x,
+                y,
+                columns,
+                rows,
+                pixels,
+            } => {
+                let along = |edges: [f64; 2], value: f64, n: usize| {
+                    n as f64 * (value - edges[0]) / (edges[1] - edges[0])
+                };
+                Point::new(
+                    along(*columns, x.to_data(p.x), pixels[0]),
+                    along(*rows, y.to_data(p.y), pixels[1]),
+                )
+            }
+        }
+    }
+
+    /// Maps a pixel-space point forward into figure space, or returns `None` when it has no place there (an affine
+    /// map that cannot be inverted, or a data coordinate that a logarithmic axis cannot place).
+    pub fn from_pixel(&self, p: Point) -> Option<Point> {
+        let q = match self {
+            Self::Affine(transform) => transform.inverse()?.apply(p),
+            Self::Axes {
+                x,
+                y,
+                columns,
+                rows,
+                pixels,
+            } => {
+                let data = |edges: [f64; 2], value: f64, n: usize| {
+                    edges[0] + value / n as f64 * (edges[1] - edges[0])
+                };
+                Point::new(
+                    x.to_figure(data(*columns, p.x, pixels[0])),
+                    y.to_figure(data(*rows, p.y, pixels[1])),
+                )
+            }
+        };
+        (q.x.is_finite() && q.y.is_finite()).then_some(q)
+    }
 }
 
 /// One bar drawn in a two-dimensional axes, from which the bar under a pointer is found.
@@ -411,7 +474,7 @@ impl HitMap {
     /// overlap, the one painted last is the one the reader sees on top, so it is the one returned.
     pub fn pixel_at(&self, p: Point) -> Option<(&ImageHit, usize, usize)> {
         self.images.iter().rev().find_map(|hit| {
-            let q = hit.to_pixel.apply(p);
+            let q = hit.to_pixel.to_pixel(p);
             let (column, row) = (q.x.floor(), q.y.floor());
             let inside =
                 column >= 0.0 && row >= 0.0 && column < hit.columns as f64 && row < hit.rows as f64;

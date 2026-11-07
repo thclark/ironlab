@@ -13,7 +13,7 @@ use ironlab_ir::{
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
-    Depth, DepthPlane, Item, ItemKind, MarkerInstance, PathSegment, Point,
+    Depth, DepthPlane, ImageGeometry, ImageItem, Item, ItemKind, MarkerInstance, PathSegment, Point,
 };
 use ironlab_scene::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, depth_plane, fit_to_rect, normalise_box,
@@ -522,7 +522,7 @@ fn a_two_dimensional_axes_has_no_depth_group_and_its_leaves_carry_no_depth() {
             }
             if let Some(image) = leaf.image() {
                 assert!(
-                    image.depth.is_none(),
+                    image.depth.is_none() && mesh_depths(image).is_none(),
                     "an image of node {id} carries no depth"
                 );
             }
@@ -565,11 +565,34 @@ fn a_three_dimensional_axes_whose_artists_draw_nothing_emits_no_depth_group() {
     }
 }
 
+/// The node depths of an image drawn through a mesh, `None` for a rectangle or a mesh without depths.
+fn mesh_depths(image: &ImageItem) -> Option<&Vec<f64>> {
+    match &image.geometry {
+        ImageGeometry::Mesh(mesh) => mesh.depths.as_ref(),
+        ImageGeometry::Rect(_) => None,
+    }
+}
+
+/// Whether an image inside a depth group carries a depth a backend can use: a rectangle a finite plane over its pixel
+/// space, and a mesh one finite depth per node and no plane.
+fn image_depth_is_usable(image: &ImageItem) -> bool {
+    match &image.geometry {
+        ImageGeometry::Rect(_) => image.depth.is_some_and(|plane| plane.is_finite()),
+        ImageGeometry::Mesh(mesh) => {
+            image.depth.is_none()
+                && mesh.depths.as_ref().is_some_and(|depths| {
+                    depths.len() == mesh.points.len() && depths.iter().all(|d| d.is_finite())
+                })
+        }
+    }
+}
+
 // WHY: a backend with a depth buffer reads the depth of every leaf of the group without checking it, so every path
 // inside must carry a depth a backend can use (a finite plane, or one finite depth per endpoint), every image a
-// finite plane and every marker instance a finite depth of its own, whatever kind of artist drew it; a line, a band
-// or an arrow whose depth count did not match its vertices would be drawn at garbage depths, and a glyph run inside
-// the group would have no depth at all.
+// finite plane over its pixel space or, when drawn through a mesh, one finite depth per node, and every marker
+// instance a finite depth of its own, whatever kind of artist drew it; a line, a band or an arrow whose depth count
+// did not match its vertices would be drawn at garbage depths, and a glyph run inside the group would have no depth
+// at all.
 #[test]
 fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
     let (scene, _, _) = axes_with_every_artist(true);
@@ -595,10 +618,9 @@ fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
                 );
             }
             ItemKind::Image(image) => assert!(
-                image.depth.is_some_and(|plane| plane.is_finite()),
-                "an image of {:?} inside the depth group carries a finite plane: {:?}",
-                leaf.source,
-                image.depth
+                image_depth_is_usable(image),
+                "an image of {:?} inside the depth group carries a usable depth: {image:?}",
+                leaf.source
             ),
             ItemKind::Markers(markers) => {
                 assert!(
@@ -624,10 +646,75 @@ fn every_leaf_inside_a_depth_group_carries_a_usable_depth() {
     for (leaf, _) in grouped.iter().filter(|(_, group)| group.is_none()) {
         assert!(
             leaf.path().is_none_or(|p| p.depth.is_none())
-                && leaf.image().is_none_or(|i| i.depth.is_none()),
+                && leaf
+                    .image()
+                    .is_none_or(|i| i.depth.is_none() && mesh_depths(i).is_none()),
             "a leaf of {:?} outside every depth group carries no depth",
             leaf.source
         );
+    }
+}
+
+// WHY: an image on a logarithmic axis of a 3D axes is drawn through a mesh whose depths a backend interpolates
+// between its nodes, so inside the depth group it must carry node depths a backend can use, and no plane beside
+// them, whether it lies inside the box or on its floor; and a 2D axes with the same logarithmic axis draws the same
+// image through a mesh that carries no depth at all, since there is nothing to test it against.
+#[test]
+fn an_image_drawn_through_a_mesh_carries_node_depths_inside_a_depth_group_and_none_outside() {
+    let compile = |three_d: bool| {
+        let mut fx = Fx::new();
+        let ax = if three_d {
+            fx.axes3d(0, 0, View3d::default())
+        } else {
+            fx.axes2d(0, 0)
+        };
+        let mut images = Vec::new();
+        for plane in [ImagePlane::Xy { z: Some(0.5) }, ImagePlane::Xy { z: None }] {
+            images.push(fx.imagesc(
+                ax,
+                vec![2, 4],
+                (0..8).map(|v| v as f64).collect::<Vec<_>>(),
+                placement(plane, range(2.0, 8.0), range(-0.5, 0.5)),
+                |_| {},
+            ));
+        }
+        manual_unit_limits(&mut fx, ax);
+        let axes = fx.ax(ax);
+        axes.x.scale = ironlab_ir::Scale::Log;
+        axes.x.limits = ironlab_ir::Limits::Manual {
+            min: 1.0,
+            max: 100.0,
+        };
+        let scene = compile_figure(&fx.build());
+        assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+        (scene, images)
+    };
+    for three_d in [true, false] {
+        let (scene, images) = compile(three_d);
+        let grouped = grouped_leaves(&scene);
+        for id in images {
+            let drawn: Vec<&(Leaf, Option<usize>)> = grouped
+                .iter()
+                .filter(|(l, _)| l.source == Some(id))
+                .collect();
+            assert_eq!(drawn.len(), 1, "the image is one leaf");
+            let (leaf, group) = drawn[0];
+            let image = leaf.image().expect("an image item");
+            assert!(
+                matches!(image.geometry, ImageGeometry::Mesh(_)),
+                "an image on a logarithmic axis is drawn through a mesh: {image:?}"
+            );
+            if three_d {
+                assert!(group.is_some(), "a 3D image lies in the depth group");
+                assert!(image_depth_is_usable(image), "{image:?}");
+            } else {
+                assert!(group.is_none(), "a 2D image lies in no depth group");
+                assert!(
+                    image.depth.is_none() && mesh_depths(image).is_none(),
+                    "a 2D mesh carries no depth: {image:?}"
+                );
+            }
+        }
     }
 }
 
