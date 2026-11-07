@@ -3402,6 +3402,66 @@ fn a_rotate_drag_on_cylindrical_or_spherical_axes_turns_their_camera() {
     }
 }
 
+// Why: the wheel in polar axes scales the radial limits, but cylindrical and spherical axes are navigated through their
+// camera like Cartesian 3D axes, so the wheel must magnify the view (`view3d.zoom`) and a pan drag move it
+// (`view3d.pan_x`, `pan_y`) without touching any limit or the polar view: scaling the radius of a cylinder on the wheel
+// would rescale the box under the reader instead of bringing it nearer.
+#[test]
+fn the_wheel_and_a_pan_drag_on_cylindrical_or_spherical_axes_move_their_camera_not_their_limits() {
+    for projection in [
+        Projection::Cylindrical {
+            view3d: View3d::default(),
+            polar: PolarView::default(),
+        },
+        Projection::Spherical {
+            view3d: View3d::default(),
+            spherical: SphericalView::default(),
+        },
+    ] {
+        let mut state = FigureState::new(figure_with(
+            vec![Axes {
+                projection,
+                ..axes_3d(2)
+            }],
+            vec![],
+        ));
+        let hit = hit_of(vec![hit_3d(2, PLOT)]);
+        let before = state.figure().axes(NodeId(2)).unwrap().clone();
+
+        assert!(state.scroll(&hit, Point::new(150.0, 70.0), 2.0));
+        assert_close(
+            view_of(state.figure(), 2).zoom,
+            2.0,
+            EPS,
+            "the wheel doubles the zoom",
+        );
+
+        state.drag_start(&hit, Point::new(100.0, 50.0));
+        assert!(state.drag_update(Point::new(120.0, 60.0)));
+        let view = view_of(state.figure(), 2);
+        assert_close(view.pan_x, 20.0 / PLOT.width, EPS, "pan x");
+        assert_close(view.pan_y, 10.0 / PLOT.height, EPS, "pan y");
+
+        let after = state.figure().axes(NodeId(2)).unwrap();
+        assert_eq!(
+            (&after.x, &after.y, &after.z),
+            (&before.x, &before.y, &before.z),
+            "{projection:?}: no limit changes"
+        );
+        match (after.projection, before.projection) {
+            (
+                Projection::Cylindrical { polar: a, .. },
+                Projection::Cylindrical { polar: b, .. },
+            ) => assert_eq!(a, b, "the polar view is not touched"),
+            (
+                Projection::Spherical { spherical: a, .. },
+                Projection::Spherical { spherical: b, .. },
+            ) => assert_eq!(a, b, "the spherical view is not touched"),
+            (after, before) => panic!("the projection changed kind from {before:?} to {after:?}"),
+        }
+    }
+}
+
 // Why: the datatip of a point in a polar axes must name the angle and radius the user supplied, read at the point the
 // compiler drew. The expected page position of each point is computed here from the compiled polar hit geometry (the
 // centre, and the angle and radius maps), not from the compiler's placement of markers, so that the test checks that

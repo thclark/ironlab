@@ -455,6 +455,43 @@ impl Figure {
         self.polar(id)
     }
 
+    /// Returns the axes that occupies the tile at a zero-based row and column as a
+    /// cylindrical axes, creating one if no axes occupies the tile.
+    ///
+    /// In a cylindrical axes x is the angle about the z axis, y the distance from it and z
+    /// the height. An axes that is not yet cylindrical is converted as
+    /// [`AxesMut::make_cylindrical`] converts it, keeping its artists; an existing
+    /// cylindrical axes keeps its camera and its polar view.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let t = linspace(0.0, 720.0, 145);
+    /// let r = vec![1.0; t.len()];
+    /// let z: Vec<f64> = t.iter().map(|t| t / 360.0).collect();
+    /// let mut fig = Figure::new();
+    /// fig.cylindrical_axes(0, 0).plot3(&t, &r, &z);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn cylindrical_axes(&mut self, row: u32, col: u32) -> AxesMut<'_> {
+        let mut axes = self.axes(row, col);
+        axes.make_cylindrical();
+        axes
+    }
+
+    /// Returns the axes that occupies the tile at a zero-based row and column as a
+    /// spherical axes, creating one if no axes occupies the tile.
+    ///
+    /// In a spherical axes x is the azimuth, y the polar angle and z the distance from the
+    /// centre. An axes that is not yet spherical is converted as
+    /// [`AxesMut::make_spherical`] converts it, keeping its artists; an existing spherical
+    /// axes keeps its camera and its spherical view.
+    pub fn spherical_axes(&mut self, row: u32, col: u32) -> AxesMut<'_> {
+        let mut axes = self.axes(row, col);
+        axes.make_spherical();
+        axes
+    }
+
     /// Returns the axes whose top-left tile is at a zero-based row and column as a polar axes
     /// spanning the given numbers of rows and columns, as [`Figure::axes_span`] places it and
     /// [`Figure::polar_axes`] converts it.

@@ -5676,3 +5676,184 @@ fn a_sector_clip_that_crosses_angle_zero_keeps_both_sides_of_it() {
         );
     }
 }
+
+// Why: a globe is an image wrapped round the sphere of spherical axes, drawn as one mesh whose nodes carry their own
+// depths, so the GPU depth test must show the near side of the sphere and hide the far side, which projects onto the
+// same pixels. An image of eight by four pixels of distinct colours (45° each in azimuth and in elevation) is drawn at
+// the outer radius, and the device pixel at the projected centre of the nearest image pixel must take that pixel's
+// colour, not the colour of the far-side pixel behind it, nor any colour of a mesh placed in the wrong cell.
+//
+// The projected centre is computed from the definition of spherical axes (azimuth φ and elevation ε at radial fraction
+// 1 give the box point `0.5·(cos ε cos φ, cos ε sin φ, sin ε)`), the public camera at the default view, and the
+// documented fit, by which the sphere of unit diameter is fitted to the plot rectangle as its own circumscribing
+// sphere. Image pixels whose projected centre lies within a few points of a frame line (the equator, the meridian of
+// azimuth 0, or the radial axis along azimuth 0) are passed over, so that the sample sees the image alone.
+#[test]
+fn a_globe_image_shows_the_colour_of_its_near_side_at_the_projected_pixel_centre() {
+    use ironlab_ir::{
+        Image, ImagePlacement, ImagePlane, PixelRange, Projection, SphericalView, TickLabels,
+        View3d,
+    };
+    use ironlab_scene::maths::camera::{Camera, fit_to_rect};
+
+    let (nx, ny) = (8usize, 4usize);
+    let colour = |i: usize, j: usize| [20 + 30 * i as u8, 40 + 60 * j as u8, 128];
+    let mut samples = Vec::with_capacity(nx * ny * 3);
+    for j in 0..ny {
+        for i in 0..nx {
+            samples.extend_from_slice(&colour(i, j));
+        }
+    }
+    let manual = |min: f64, max: f64| Axis {
+        limits: Limits::Manual { min, max },
+        ..Axis::default()
+    };
+    let figure = Figure {
+        id: NodeId(1),
+        size: FigureSize {
+            width_mm: 120.0,
+            height_mm: 120.0,
+        },
+        data: common::data_arrays([(
+            array_id(0),
+            NdArray::from_shape_u8(vec![ny, nx, 3], samples)
+                .expect("the shape matches the samples"),
+        )]),
+        axes: vec![Axes {
+            id: NodeId(2),
+            projection: Projection::Spherical {
+                view3d: View3d::default(),
+                spherical: SphericalView::default(),
+            },
+            // The angle tick labels lie outside the frame circles and would take room from the fit; hidden, they leave
+            // the sphere fitted to the plot rectangle as its own circumscribing sphere.
+            x: Axis {
+                tick_labels: TickLabels::Hidden,
+                ..manual(0.0, 360.0)
+            },
+            y: Axis {
+                tick_labels: TickLabels::Hidden,
+                ..manual(-90.0, 90.0)
+            },
+            z: manual(0.0, 1.0),
+            artists: vec![Artist::Image(Image {
+                id: NodeId(3),
+                pixels: array_id(0),
+                placement: ImagePlacement {
+                    plane: ImagePlane::Xy { z: Some(1.0) },
+                    columns: Some(PixelRange {
+                        first: 22.5,
+                        last: 337.5,
+                    }),
+                    rows: Some(PixelRange {
+                        first: -67.5,
+                        last: 67.5,
+                    }),
+                },
+                ..Image::default()
+            })],
+            ..Axes::default()
+        }],
+        ..Figure::new()
+    };
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let camera = Camera::default();
+    let plot = scene.hit_map.axes[0].plot_rect;
+    // `fit_to_rect` fits the sphere of radius √3/2 about the unit cube; spherical axes fit their own sphere, of
+    // radius 0.5, so the scale is √3 times larger.
+    let (fit, offset) = fit_to_rect(plot.width, plot.height);
+    let scale = fit * 3f64.sqrt();
+    let page = |n: [f64; 3]| {
+        let p = camera.project(n);
+        (
+            Point::new(
+                plot.x + offset[0] + scale * p.screen[0],
+                plot.y + offset[1] - scale * p.screen[1],
+            ),
+            p.depth,
+        )
+    };
+    let on_sphere = |az: f64, el: f64| {
+        let (az, el) = (az.to_radians(), el.to_radians());
+        [
+            0.5 * el.cos() * az.cos(),
+            0.5 * el.cos() * az.sin(),
+            0.5 * el.sin(),
+        ]
+    };
+    let centre_of = |i: usize, j: usize| on_sphere(22.5 + 45.0 * i as f64, -67.5 + 45.0 * j as f64);
+    // The frame lines drawn over the artists, as figure-space polylines.
+    let frame: Vec<Vec<Point>> = vec![
+        (0..=720)
+            .map(|k| page(on_sphere(0.5 * f64::from(k), 0.0)).0)
+            .collect(),
+        (0..=720)
+            .map(|k| {
+                let t = (0.5 * f64::from(k)).to_radians();
+                page([0.5 * t.cos(), 0.0, 0.5 * t.sin()]).0
+            })
+            .collect(),
+        vec![page([0.0; 3]).0, page([0.5, 0.0, 0.0]).0],
+    ];
+    let clear_of_frame = |p: Point| {
+        frame.iter().all(|line| {
+            line.windows(2).all(|w| {
+                let (a, b) = (w[0], w[1]);
+                let (dx, dy) = (b.x - a.x, b.y - a.y);
+                let t = (((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy).max(1e-12))
+                    .clamp(0.0, 1.0);
+                (p.x - a.x - t * dx).hypot(p.y - a.y - t * dy) > 4.0
+            })
+        })
+    };
+    let mut candidates: Vec<(usize, usize, f64)> = (0..ny)
+        .flat_map(|j| (0..nx).map(move |i| (i, j)))
+        .map(|(i, j)| (i, j, page(centre_of(i, j)).1))
+        .collect();
+    candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
+    let &(i, j, _) = candidates
+        .iter()
+        .find(|(i, j, _)| clear_of_frame(page(centre_of(*i, *j)).0))
+        .expect("some near pixel centre is clear of the frame");
+    let near = centre_of(i, j);
+    let (at, depth) = page(near);
+    assert!(
+        depth > 0.0,
+        "precondition: the chosen pixel faces the viewer"
+    );
+
+    // The point of the far side that projects onto the same place: the near point reflected through the plane of the
+    // screen.
+    let [_, _, toward] = camera.view_matrix();
+    let along = near[0] * toward[0] + near[1] * toward[1] + near[2] * toward[2];
+    let far: [f64; 3] = std::array::from_fn(|k| near[k] - 2.0 * along * toward[k]);
+    let far_az = far[1].atan2(far[0]).to_degrees().rem_euclid(360.0);
+    let far_el = (far[2] / 0.5).asin().to_degrees();
+    let (fi, fj) = (
+        ((far_az / 45.0) as usize).min(nx - 1),
+        (((far_el + 90.0) / 45.0) as usize).min(ny - 1),
+    );
+    let (expected, hidden) = (colour(i, j), colour(fi, fj));
+    assert_ne!(
+        expected, hidden,
+        "precondition: the near and far pixels differ in colour"
+    );
+
+    let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
+        return;
+    };
+    // At 72 dpi one point is one device pixel.
+    assert_pixel(
+        &image,
+        at.x as u32,
+        at.y as u32,
+        [expected[0], expected[1], expected[2], 255],
+        2,
+        &format!(
+            "the near image pixel ({j}, {i}) at ({:.1}, {:.1}) pt, in front of the far pixel ({fj}, {fi})",
+            at.x, at.y
+        ),
+    );
+}

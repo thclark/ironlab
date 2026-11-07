@@ -102,16 +102,24 @@ pub(super) fn measure(
                 MIN_TICKS
             };
             let name = ["x", "y", "z"][dim];
-            let mut ticks = match axes.projection {
-                Projection::Polar { polar } if dim == 0 => angular_ticks(
-                    ctx,
-                    axes.id,
-                    axis,
-                    ranges[dim],
-                    targets[dim],
-                    polar.angle_units,
-                ),
-                _ => axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest),
+            let angle = |sweep: Sweep, units: AngleUnits| (sweep, units);
+            let angular = match (axes.projection, dim) {
+                (Projection::Polar { polar } | Projection::Cylindrical { polar, .. }, 0) => {
+                    Some(angle(Sweep::Turn, polar.angle_units))
+                }
+                (Projection::Spherical { spherical, .. }, 0) => {
+                    Some(angle(Sweep::Turn, spherical.angle_units))
+                }
+                (Projection::Spherical { spherical, .. }, 1) => {
+                    Some(angle(Sweep::HalfTurn, spherical.angle_units))
+                }
+                _ => None,
+            };
+            let mut ticks = match angular {
+                Some((sweep, units)) => {
+                    angular_ticks(ctx, axes.id, axis, ranges[dim], targets[dim], units, sweep)
+                }
+                None => axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest),
             };
             // A hidden axis keeps its ticks, which place its grid lines, but draws no tick labels or exponent, so
             // that no space is reserved for them.
@@ -337,13 +345,23 @@ pub(super) fn axis_ticks(
     }
 }
 
-/// Computes the ticks of the angular axis of a polar axes and typesets their labels.
+/// The whole range of an angle: a full turn for an angle about an axis, half a turn for the polar angle of spherical
+/// axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Sweep {
+    /// A periodic angle, whose whole range is a turn and whose ends coincide.
+    Turn,
+    /// The polar angle of spherical axes, whose whole range is half a turn from pole to pole.
+    HalfTurn,
+}
+
+/// Computes the ticks of an axis that carries an angle and typesets their labels.
 ///
-/// Automatic ticks of a full turn in degrees or radians are its eight equal divisions; every other angular axis takes
-/// the ticks [`axis_ticks`] gives a linear axis. When the limits span a full turn, a tick at the upper limit is
-/// dropped, because it lies on the tick at the lower limit. Formatted labels are written in the units of the angle: a
-/// number of degrees with a degree sign, a number of radians as a multiple of π, and any other unit as a plain
-/// number; explicit texts are kept.
+/// Automatic ticks of a whole range in degrees or radians are its equal divisions: eighths of a full turn, and sixths
+/// of the half turn of a polar angle (every 30°); every other angular axis takes the ticks [`axis_ticks`] gives a
+/// linear axis. When the limits span a full turn, a tick at the upper limit is dropped, because it lies on the tick at
+/// the lower limit. Formatted labels are written in the units of the angle: a number of degrees with a degree sign, a
+/// number of radians as a multiple of π, and any other unit as a plain number; explicit texts are kept.
 pub(super) fn angular_ticks(
     ctx: &mut Ctx,
     owner: NodeId,
@@ -351,18 +369,24 @@ pub(super) fn angular_ticks(
     range: Range,
     target: usize,
     units: AngleUnits,
+    sweep: Sweep,
 ) -> AxisTicks {
     let size = TICK_SCALE * ctx.font_size;
     let turn = units.turn();
+    let (whole, divisions) = match sweep {
+        Sweep::Turn => (turn, 8.0),
+        Sweep::HalfTurn => (turn / 2.0, 6.0),
+    };
     let span = range.max - range.min;
-    let full = turn.is_finite() && turn > 0.0 && (span - turn).abs() <= 1e-9 * turn;
-    let eighths = full
+    let full_range = turn.is_finite() && turn > 0.0 && (span - whole).abs() <= 1e-9 * turn;
+    let full = full_range && sweep == Sweep::Turn;
+    let eighths = full_range
         && axis.ticks == Ticks::Auto
         && matches!(units, AngleUnits::Degrees | AngleUnits::Radians);
     let mut ticks = if eighths {
-        let step = turn / 8.0;
+        let step = whole / divisions;
         let first = (range.min / step).ceil() as i64;
-        let major: Vec<f64> = (first..first + 9)
+        let major: Vec<f64> = (first..first + divisions as i64 + 1)
             .map(|k| k as f64 * step)
             .filter(|v| *v <= range.max + 1e-9 * turn)
             .collect();

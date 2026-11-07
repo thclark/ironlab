@@ -8,7 +8,8 @@
 //! the charts that are drawn with series, histograms and stacked bars.
 
 use ironlab_ir::{
-    AngleUnits, ColorSpec, Limits, MarkerShape, PolarView, Projection, Scale, Text, Ticks,
+    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, Scale,
+    SphericalView, Text, Ticks, View3d,
 };
 
 use crate::artists::{BarsMut, SeriesMut};
@@ -78,6 +79,83 @@ impl AxesMut<'_> {
             },
             other => other,
         };
+        self
+    }
+
+    /// Converts the axes to cylindrical axes, in which x is the angle about the z axis, y the
+    /// distance from it and z the height, keeping its artists and properties.
+    ///
+    /// A two-dimensional or spherical axes becomes cylindrical with the default polar view
+    /// (angles in degrees, angle 0 along +X, increasing anticlockwise seen from above, and no
+    /// hole); a polar axes keeps its polar view. A three-dimensional or spherical axes keeps
+    /// its camera, and any other axes takes the default camera. A cylindrical axes is left as
+    /// it is.
+    pub fn make_cylindrical(&mut self) -> &mut Self {
+        let axes = self.axes();
+        axes.projection = match axes.projection {
+            Projection::TwoD => Projection::Cylindrical {
+                view3d: View3d::default(),
+                polar: PolarView::default(),
+            },
+            Projection::Polar { polar } => Projection::Cylindrical {
+                view3d: View3d::default(),
+                polar,
+            },
+            Projection::ThreeD { view3d } | Projection::Spherical { view3d, .. } => {
+                Projection::Cylindrical {
+                    view3d,
+                    polar: PolarView::default(),
+                }
+            }
+            cylindrical @ Projection::Cylindrical { .. } => cylindrical,
+        };
+        self
+    }
+
+    /// Converts the axes to spherical axes, in which x is the azimuth, y the polar angle and
+    /// z the distance from the centre, keeping its artists and properties.
+    ///
+    /// The axes takes the default spherical view (angles in degrees, the polar angle measured
+    /// as an elevation above the X–Y plane), keeping the angle units of a polar or cylindrical
+    /// axes. A three-dimensional or cylindrical axes keeps its camera, and any other axes
+    /// takes the default camera. A spherical axes is left as it is.
+    pub fn make_spherical(&mut self) -> &mut Self {
+        let axes = self.axes();
+        let spherical = |units: AngleUnits| SphericalView {
+            angle_units: units,
+            ..SphericalView::default()
+        };
+        axes.projection = match axes.projection {
+            Projection::TwoD => Projection::Spherical {
+                view3d: View3d::default(),
+                spherical: SphericalView::default(),
+            },
+            Projection::Polar { polar } => Projection::Spherical {
+                view3d: View3d::default(),
+                spherical: spherical(polar.angle_units),
+            },
+            Projection::ThreeD { view3d } => Projection::Spherical {
+                view3d,
+                spherical: SphericalView::default(),
+            },
+            Projection::Cylindrical { view3d, polar } => Projection::Spherical {
+                view3d,
+                spherical: spherical(polar.angle_units),
+            },
+            existing @ Projection::Spherical { .. } => existing,
+        };
+        self
+    }
+
+    /// Sets how the polar angle (y) of a spherical axes is measured: up from the X–Y plane
+    /// (elevation, the default, as in antenna patterns and geography) or down from +Z
+    /// (inclination, as in physics), converting the axes to spherical axes as
+    /// [`make_spherical`](AxesMut::make_spherical) does.
+    pub fn polar_angle(&mut self, polar_angle: PolarAngle) -> &mut Self {
+        self.make_spherical();
+        if let Projection::Spherical { spherical, .. } = &mut self.axes().projection {
+            spherical.polar_angle = polar_angle;
+        }
         self
     }
 

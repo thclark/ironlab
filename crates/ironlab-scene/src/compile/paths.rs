@@ -29,6 +29,10 @@ impl PathBuilder {
         self.segments.push(PathSegment::LineTo(p));
     }
 
+    pub fn cubic_to(&mut self, b: Point, c: Point, p: Point) {
+        self.segments.push(PathSegment::CubicTo(b, c, p));
+    }
+
     pub fn close(&mut self) {
         self.segments.push(PathSegment::Close);
     }
@@ -81,6 +85,11 @@ impl PathBuilder {
             ));
         }
         self.close();
+    }
+
+    /// Appends every segment of another path.
+    pub fn extend(&mut self, other: PathBuilder) {
+        self.segments.extend(other.segments);
     }
 
     pub fn is_empty(&self) -> bool {

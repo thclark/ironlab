@@ -18,6 +18,7 @@ mod color_scales;
 mod colorbar_hits;
 mod colorbar_layout;
 mod colorbars;
+mod curved3d;
 mod decimation;
 mod dense;
 mod depth;
