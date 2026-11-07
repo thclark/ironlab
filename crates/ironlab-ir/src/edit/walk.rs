@@ -697,6 +697,8 @@ ir_node! {
             "The colourbar drawn inside the plot area along one of its edges, over the artists, or absent when the axes shows none.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
+        plain "grid_below" => grid_below: bool =
+            "Whether the grid is drawn below the artists rather than over them; three-dimensional axes ignore it.";
         optional "legend" => legend: Legend =
             "Where the legend entries of the axes are listed, or absent when they are not listed.";
         hidden "artists" => artists: () = "";

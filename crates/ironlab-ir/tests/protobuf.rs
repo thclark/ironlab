@@ -978,6 +978,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: wire_axis(None, wire::Scale::Log, wire_auto_limits(), true),
                 colorbar: None,
                 r#box: Some(false),
+                grid_below: Some(true),
                 legend: wire_inside(
                     wire::LegendLocation::SouthWest,
                     Some(false),
@@ -1249,6 +1250,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: wire_axis(None, wire::Scale::Linear, wire_auto_limits(), false),
                 colorbar: None,
                 r#box: Some(true),
+                grid_below: Some(false),
                 legend: None,
                 artists: vec![],
             },
@@ -1609,6 +1611,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 },
                 colorbar: None,
                 box_: false,
+                grid_below: true,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::SouthWest,
                     boxed: false,
@@ -1928,6 +1931,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 z: auto_axis,
                 colorbar: None,
                 box_: true,
+                grid_below: false,
                 legend: None,
                 artists: vec![],
             },
@@ -4863,6 +4867,7 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                 },
                 colorbar: None,
                 box_: false,
+                grid_below: true,
                 legend: Some(Legend::Inside(InsideLegend {
                     location: LegendLocation::Best,
                     boxed: false,

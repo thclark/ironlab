@@ -681,6 +681,7 @@ The remaining axes properties are also set on the axes handle.
 | `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
+| `grid_below(on)` | Draws the grid below the artists, as by default, or over them, so that the grid stays visible through translucent fills (matplotlib's `set_axisbelow`, MATLAB's `Layer`). A three-dimensional axes tests its grid for depth with the artists and ignores this setting with a warning. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. A three-dimensional axes with the box off keeps only the three edges that carry the ticks of x, y and z, and a cylindrical axes keeps only its floor. |
 | `color_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colormap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |

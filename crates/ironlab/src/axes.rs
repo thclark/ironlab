@@ -1418,6 +1418,16 @@ impl AxesMut<'_> {
         self
     }
 
+    /// Draws the grid below the artists, as it is by default, or over them
+    /// (matplotlib's `ax.set_axisbelow`, MATLAB's `ax.Layer`). A grid over translucent
+    /// fills keeps its lines readable through them. It applies to two-dimensional
+    /// Cartesian and polar axes; a three-dimensional axes tests its grid for depth with
+    /// the artists, ignores it and raises the warning `GridBelowInThreeDAxes`.
+    pub fn grid_below(&mut self, on: bool) -> &mut Self {
+        self.axes().grid_below = on;
+        self
+    }
+
     /// Shows a boxed legend of every artist that has a label, at the given
     /// location.
     pub fn legend(&mut self, location: LegendLocation) -> &mut Self {

@@ -271,7 +271,10 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let space = Space::TwoD(Plane::cartesian(x, y));
     let decor = input.decor;
 
-    draw_grid(input, &x, &y, out);
+    // The grid is drawn under the artists unless the axes asks for it over them.
+    if axes.grid_below {
+        draw_grid(input, &x, &y, out);
+    }
 
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
@@ -298,6 +301,9 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
         .filter(|(_, clip)| *clip != plot)
         .collect();
     out.extend(clip_groups(axes.id, plot, data, &released));
+    if !axes.grid_below {
+        draw_grid(input, &x, &y, out);
+    }
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);

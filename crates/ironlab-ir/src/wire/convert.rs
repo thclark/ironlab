@@ -593,6 +593,7 @@ impl Encode for Axes {
             y: Some(encode_axis(&self.y)),
             z: Some(encode_axis(&self.z)),
             r#box: Some(self.box_),
+            grid_below: Some(self.grid_below),
             legend: self.legend.as_ref().map(encode_legend),
             artists: self.artists.iter().map(Artist::encode).collect(),
             title_align: self.title_align.to_wire(),
@@ -1927,6 +1928,7 @@ impl Decode for Axes {
                 .map(|colorbar| decode_inside_colorbar(colorbar, &join(at, "colorbar")))
                 .transpose()?,
             box_: wire.r#box.unwrap_or(default.box_),
+            grid_below: wire.grid_below.unwrap_or(default.grid_below),
             legend,
             artists,
         })

@@ -1244,6 +1244,7 @@ pub fn kitchen_sink_figure() -> Figure {
         a.y.tick_labels = TickLabels::Hidden;
         a.y.scale = Scale::Log;
         a.box_ = false;
+        a.grid_below = false;
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::NorthEast,
             boxed: false,

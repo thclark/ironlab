@@ -1107,26 +1107,123 @@ fn a_cartesian_axes_still_publishes_two_dimensional_maps() {
     ));
 }
 
-// WHY: a polar axes paints its grid under its artists, as a Cartesian axes does, so that the light spokes and circles
-// never cross a bar, a filled outline or a line, and the two kinds of axes layer their grids the same way.
+/// The paint order of the grid and of the artists of an axes: the indices, among every leaf of the scene, of the first
+/// and the last leaf of the grid and of the first and the last path leaf drawn by an artist.
+struct GridLayer {
+    grid: (usize, usize),
+    artists: (usize, usize),
+}
+
+/// Returns the paint order of the grid and of the artists of the axes `ax`, the grid being told from the other paths of
+/// the axes by the stroke of the Cartesian grid.
+fn grid_layer(scene: &Scene, ax: NodeId) -> GridLayer {
+    let (_, grid) = cartesian_strokes();
+    let all = leaves(scene);
+    let is_grid = |l: &Leaf| {
+        l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
+    };
+    let is_artist = |l: &Leaf| l.source.is_some() && l.source != Some(ax) && l.path().is_some();
+    GridLayer {
+        grid: (
+            all.iter().position(is_grid).expect("the grid is drawn"),
+            all.iter().rposition(is_grid).expect("the grid is drawn"),
+        ),
+        artists: (
+            all.iter()
+                .position(is_artist)
+                .expect("the artists are drawn"),
+            all.iter()
+                .rposition(is_artist)
+                .expect("the artists are drawn"),
+        ),
+    }
+}
+
+/// A gridded Cartesian axes with a line and a filled bar, with `grid_below` as given.
+fn gridded_cartesian(grid_below: bool) -> (Scene, NodeId) {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.5], None, |_| {});
+    fx.bar(ax, &[1.0], &[0.8], |_, _| {});
+    let axes = fx.ax(ax);
+    axes.x.grid = true;
+    axes.y.grid = true;
+    axes.grid_below = grid_below;
+    (compile_figure(&fx.build()), ax)
+}
+
+/// The polar axes of [`gridded`], with both grids on, no hole and `grid_below` as given.
+fn gridded_polar(grid_below: bool) -> (Scene, NodeId) {
+    polar_scene(PolarView::default(), |a| {
+        a.x.grid = true;
+        a.y.grid = true;
+        a.x.ticks = Ticks::Values(vec![0.0, 90.0, 180.0, 270.0]);
+        a.y.ticks = Ticks::Values(vec![0.25, 0.5, 0.75]);
+        a.grid_below = grid_below;
+    })
+}
+
+// WHY: by default a polar axes paints its grid under its artists, as a Cartesian axes does, so that the light spokes
+// and circles never cross a bar, a filled outline or a line, and the two kinds of axes layer their grids the same way.
 #[test]
 fn the_grid_is_painted_under_the_artists() {
-    let (scene, ax) = gridded(true, true, 0.0);
-    let (_, grid) = cartesian_strokes();
-    let all = leaves(&scene);
-    let first_artist = all
-        .iter()
-        .position(|l| l.source.is_some() && l.source != Some(ax) && l.path().is_some())
-        .expect("the series is drawn");
-    let last_grid = all
-        .iter()
-        .rposition(|l| {
-            l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
-        })
-        .expect("the grid is drawn");
+    let (scene, ax) = gridded_polar(true);
+    let layer = grid_layer(&scene, ax);
     assert!(
-        last_grid < first_artist,
-        "the grid (leaf {last_grid}) is painted before the first artist leaf ({first_artist})"
+        layer.grid.1 < layer.artists.0,
+        "the grid (last leaf {}) is painted before the first artist leaf ({})",
+        layer.grid.1,
+        layer.artists.0
+    );
+}
+
+// WHY: a figure writer who fills translucent areas, as a radar chart does, may want the spokes and rings to read over
+// the fills (matplotlib's `set_axisbelow(False)`, MATLAB's `Layer = 'top'`); with `grid_below` off the whole grid must
+// therefore be painted after every artist, so that no fill covers any part of it.
+#[test]
+fn with_grid_below_off_the_polar_grid_is_painted_over_the_artists() {
+    let (scene, ax) = gridded_polar(false);
+    let layer = grid_layer(&scene, ax);
+    assert!(
+        layer.grid.0 > layer.artists.1,
+        "the grid (first leaf {}) is painted after the last artist leaf ({})",
+        layer.grid.0,
+        layer.artists.1
+    );
+}
+
+// WHY: the Cartesian grid lies under the artists by default, so that grid lines never cross a bar or a line; this is
+// the layering that `grid_below` keeps when it is on, and the default output must not change.
+#[test]
+fn by_default_the_cartesian_grid_is_painted_under_the_artists() {
+    let (scene, ax) = gridded_cartesian(true);
+    let layer = grid_layer(&scene, ax);
+    assert!(
+        layer.grid.1 < layer.artists.0,
+        "the grid (last leaf {}) is painted before the first artist leaf ({})",
+        layer.grid.1,
+        layer.artists.0
+    );
+}
+
+// WHY: with `grid_below` off a Cartesian axes paints its grid over its artists, as a polar axes does, so that the one
+// property means the same in both kinds of two-dimensional axes; and only the layering changes, not the grid lines.
+#[test]
+fn with_grid_below_off_the_cartesian_grid_is_painted_over_the_artists_unchanged() {
+    let (over, ax) = gridded_cartesian(false);
+    let layer = grid_layer(&over, ax);
+    assert!(
+        layer.grid.0 > layer.artists.1,
+        "the grid (first leaf {}) is painted after the last artist leaf ({})",
+        layer.grid.0,
+        layer.artists.1
+    );
+    let (under, _) = gridded_cartesian(true);
+    let (_, grid) = cartesian_strokes();
+    assert_eq!(
+        subpaths_with_stroke(&over, ax, &grid),
+        subpaths_with_stroke(&under, ax, &grid),
+        "the grid lines are the same whichever way they are layered"
     );
 }
 

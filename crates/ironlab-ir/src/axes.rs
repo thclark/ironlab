@@ -45,6 +45,11 @@ pub struct Axes {
     /// cylindrical axes, rather than only its floor.
     #[serde(rename = "box")]
     pub box_: bool,
+    /// Whether the grid is drawn below the artists, as it is by default, rather than over
+    /// them (matplotlib's `set_axisbelow`, MATLAB's `Layer`). It applies to
+    /// two-dimensional Cartesian and polar axes; three-dimensional axes test the grid for
+    /// depth with the artists and ignore it.
+    pub grid_below: bool,
     /// The legend, or `null` when no legend is shown.
     pub legend: Option<Legend>,
     /// The artists drawn in this axes, in drawing order.
@@ -66,6 +71,7 @@ impl Default for Axes {
             aspect_adjust: AspectAdjust::Box,
             colorbar: None,
             box_: true,
+            grid_below: true,
             legend: None,
             artists: Vec::new(),
         }

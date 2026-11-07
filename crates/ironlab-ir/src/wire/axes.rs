@@ -33,6 +33,9 @@ proto_file! {
         enum AspectAdjust aspect_adjust = 15;
         /// The colourbar drawn inside the plot area; absent when the axes shows none.
         message InsideColorbar colorbar = 16;
+        /// Whether the grid is drawn below the artists rather than over them; absent
+        /// means below.
+        optional bool grid_below = 17;
         /// The numbers and names of the colormap and colour limits of the axes, which
         /// colour scales replaced.
         reserved 9, 10, colormap, clim;

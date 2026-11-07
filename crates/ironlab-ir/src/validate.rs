@@ -338,6 +338,11 @@ pub enum IssueKind {
     /// radial tick labels centred on the default spoke instead. This is a warning, not an
     /// error, because the figure is drawn. It is reported against the axes.
     RadialAxisEdgeInThreeDAxes,
+    /// A three-dimensional, cylindrical or spherical axes has `grid_below` off, which it
+    /// ignores because a three-dimensional axes tests its grid for depth with the artists.
+    /// This is a warning, not an error, because the figure is drawn. It is reported
+    /// against the axes.
+    GridBelowInThreeDAxes,
 }
 
 impl Figure {
@@ -919,6 +924,15 @@ impl<'a> Validator<'a> {
     fn check_axes(&mut self, axes: &Axes) {
         self.check_cell(axes.id, axes.cell);
         self.check_fitted_tracks(axes);
+        if axes.projection.is_3d() && !axes.grid_below {
+            self.warning(
+                Some(axes.id),
+                IssueKind::GridBelowInThreeDAxes,
+                "grid_below is ignored, because a three-dimensional axes tests its grid for depth \
+                 with the artists"
+                    .to_owned(),
+            );
+        }
 
         match &axes.legend {
             Some(Legend::Inside(inside)) => {

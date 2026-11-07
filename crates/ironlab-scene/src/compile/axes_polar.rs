@@ -391,7 +391,10 @@ pub(super) fn emit(
     let mut drawn_axes = Vec::new();
     let target = if panned { &mut drawn_axes } else { &mut *out };
 
-    draw_grid(input, &g, target);
+    // The grid is drawn under the artists unless the axes asks for it over them.
+    if axes.grid_below {
+        draw_grid(input, &g, target);
+    }
 
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
@@ -417,6 +420,9 @@ pub(super) fn emit(
         .collect();
     let groups = clip_groups(axes.id, plot, data, &released);
     target.extend(sector_clipped(axes.id, &g, plot, groups));
+    if !axes.grid_below {
+        draw_grid(input, &g, target);
+    }
 
     draw_frame(input, &g, target);
     draw_labels(ctx, input, polar, &g, target);

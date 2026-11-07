@@ -210,6 +210,7 @@ These are settings of an axis rather than plots, and in IronLAB they are methods
 | --- | --- | --- | --- | --- |
 | Turn the tick labels of an axis | `xtickangle(a)`, `ytickangle(a)` | `tick_params(axis="x", labelrotation=a)`, or `rotation=a` with `ha="right"` and `rotation_mode="anchor"` for labels that end at their ticks | `xaxis=dict(tickangle=-a)` | `xtick_label_angle(a)`, `ytick_label_angle(a)` |
 | Hide an axis with its spine, ticks, tick labels and label | `ax.XAxis.Visible = 'off'` | `ax.xaxis.set_visible(False)` together with `ax.spines["bottom"].set_visible(False)` | `xaxis=dict(visible=False)` | `xaxis_visible(false)`, `yaxis_visible(false)` |
+| Draw the grid over the plots rather than under them | `ax.Layer = 'top'` | `ax.set_axisbelow(False)` | `xaxis=dict(layer="above traces")` | `grid_below(false)` |
 | Hide the tick labels and keep the ticks | `xticklabels({})` | `tick_params(labelbottom=False)` | `xaxis=dict(showticklabels=False)` | `xtick_labels_hidden()` |
 | Name the positions 0, 1, …, N − 1 of an axis (a categorical axis) | `xticks(0:n-1)` with `xticklabels(names)`, or a `categorical` array | `set_xticks(range(n), labels=names)` | `xaxis=dict(type="category")` | `xcategories(names)` |
 | Name the rows from the top | `yticks` and `yticklabels` with `set(gca, 'YDir', 'reverse')` | `set_yticks(range(n), labels=names)` with `invert_yaxis()` | `yaxis=dict(type="category", autorange="reversed")` | `ycategories(names)` |
