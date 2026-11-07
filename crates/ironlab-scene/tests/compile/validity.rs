@@ -2,13 +2,13 @@
 
 use ironlab_ir::{ColorSpec, DashStyle, ImagePlane, Legend, Levels, MarkerShape, Scale, View3d};
 use ironlab_scene::display::Item;
-use ironlab_scene::display::{ItemKind, PathSegment, Point, Rect, Rgba, Transform};
+use ironlab_scene::display::{ImageGeometry, ItemKind, PathSegment, Point, Rect, Rgba, Transform};
 
 use crate::common::{Fx, compile_figure, linspace, placement, range, text, xy};
 
 /// A 2×3 figure resembling the gallery: every artist type, log axes, legends, LaTeX text, NaN
 /// data, dashes, markers, a 3D surface, and the three image kinds, one of them on a wall of the
-/// 3D axes.
+/// 3D axes and one on log-log axes, drawn through a mesh.
 fn gallery_like() -> ironlab_ir::Figure {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
@@ -103,6 +103,14 @@ fn gallery_like() -> ironlab_ir::Figure {
     let log = fx.axes2d(1, 0);
     let lx = [0.01, 0.1, 1.0, 10.0, 100.0];
     fx.line(log, &lx, &lx, None, |l| l.marker.shape = MarkerShape::Plus);
+    // An image on the log-log axes, drawn through a mesh of its pixel edges (1 to 9 along both axes).
+    fx.imagesc(
+        log,
+        vec![4, 4],
+        (0..16).map(|v| v as f64).collect::<Vec<_>>(),
+        xy(range(2.0, 8.0), range(2.0, 8.0)),
+        |_| {},
+    );
     fx.ax(log).x.scale = Scale::Log;
     fx.ax(log).y.scale = Scale::Log;
 
@@ -279,8 +287,15 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                 if !image.is_valid() {
                     problems.push(format!("{at}: invalid image {image:?}"));
                 }
-                if in_depth && image.depth.is_none() {
+                let mesh_depths = match &image.geometry {
+                    ImageGeometry::Mesh(mesh) => mesh.depths.is_some(),
+                    ImageGeometry::Rect(_) => false,
+                };
+                if in_depth && image.depth.is_none() && !mesh_depths {
                     problems.push(format!("{at}: image without a depth inside a depth group"));
+                }
+                if !in_depth && (image.depth.is_some() || mesh_depths) {
+                    problems.push(format!("{at}: image with a depth outside a depth group"));
                 }
             }
             ItemKind::Markers(markers) => {

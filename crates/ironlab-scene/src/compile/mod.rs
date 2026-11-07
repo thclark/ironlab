@@ -264,7 +264,8 @@ fn arrange(
 ///   colour between the face's outline and that outline moved half the edge width inwards, so that it never spills
 ///   over the neighbouring faces (see **3D**); a face whose outline has no such inset is stroked instead. Each
 ///   filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
-///   artist is one image item beneath one group that carries its placement (see **Images**).
+///   artist is one image item, beneath one group that carries its placement on linear axes and drawn through a mesh
+///   on a logarithmic axis (see **Images**).
 /// - **Decimation.** A series with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
 ///   largest-triangle-three-buckets rule, applied to each run of placeable points separately so that a break in the
@@ -290,8 +291,9 @@ fn arrange(
 ///   width held to 0.5–1.5 pt, and one that draws no line at 0.5 pt.
 /// - **Picking.** The hit map records the points every series drew, each naming the index it has in the
 ///   artist's own data arrays, so a front end reports the index and the values of the user's data whether or not the
-///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the inverse
-///   of the image's placement with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
+///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the map of
+///   figure space into the image's pixel space (the inverse of its placement on linear axes, and the inverse of the
+///   axis maps followed by the linear map from its pixel edges on a logarithmic axis) with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
 ///   and column of the artist's array under a pointer, the pixel coordinates being floored so that the image is the
 ///   half-open extent `[0, nx) × [0, ny)` and a boundary shared by two pixels belongs to the higher index. A hidden
 ///   image, a skipped image and an image drawn in a 3D axes record nothing.
@@ -304,8 +306,9 @@ fn arrange(
 ///   interleaves with the geometry of other artists — including a line thinned by the decimation above — yields
 ///   several groups, each recording the artist's total face count. A dense group has
 ///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture. An
-///   image artist is already a raster and is never wrapped in a dense group, so that no backend resamples the pixels
-///   the user supplied.
+///   image drawn over a rectangle is already a raster and is never wrapped in a dense group, so that no backend
+///   resamples the pixels the user supplied; an image drawn through a mesh is wrapped in one that counts its pixels,
+///   because a backend that cannot draw a warped raster writes it as one path per pixel.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
 ///   Within each axes, every series and quiver whose primary colour, its `line.color`, is `ColorSpec::Auto` takes
@@ -373,7 +376,12 @@ fn arrange(
 ///   columns run along the first axis of the plane and the rows along the second; the coordinate along the third
 ///   axis is the offset of the plane, or the low end of that axis when it has none, and a 2D axes ignores it. In a
 ///   3D axes the image is one primitive sorted at the mean depth of its four corners, unless its plane lies on a
-///   face of the box, when it is painted before or after every other primitive (see **3D**). The pixels are resolved to
+///   face of the box, when it is painted before or after every other primitive (see **3D**). When an axis of its
+///   plane is logarithmic the image is instead drawn through an [`crate::display::ImageMesh`] in figure space whose
+///   lattice lines along that axis are the pixel edges, each node mapped through the axes (and projected, with its
+///   depth, in 3D), so that every pixel lies between its own mapped edges; edges that would lie less than a point
+///   apart on the page are dropped, keeping the first and the last, and along a linear axis only the outer edges are
+///   lattice lines. The pixels are resolved to
 ///   eight-bit sRGB by kind. A true-colour image clamps floating-point components into `[0, 1]` and quantises them
 ///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A scalar
 ///   image maps each number, an 8-bit value as the whole number it denotes, through its colour scale (see **Colour
@@ -383,8 +391,9 @@ fn arrange(
 ///   warning naming it when its array is missing or has the wrong shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels,
 ///   `[ny, nx]` for values), when it names no colour scale, when a pixel centre or
 ///   the plane offset is not finite or the centres of the first and last pixels coincide along an axis of more
-///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when an axis of its plane is logarithmic (the
-///   third axis may be, but then the offset must be positive), when it has no rows or no columns, or when a corner
+///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when its first or last pixel edge along a
+///   logarithmic axis of its plane is not positive, when its plane is offset to a coordinate that is not positive
+///   along a logarithmic third axis, when it has no rows or no columns, or when a corner
 ///   cannot be placed. A skipped image contributes nothing to the axis limits, while its numbers still count
 ///   towards the automatic limits of the colour scale it names, as those of a hidden image do.
 /// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below

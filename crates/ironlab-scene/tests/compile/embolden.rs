@@ -20,7 +20,7 @@ use ironlab_scene::{CompileOptions, Scene, compile, compile_with};
 use ironlab_text::FontId;
 
 use crate::common::{Fx, engine, linspace, text, xy};
-use crate::probe::{Leaf, from_source, glyph_runs, leaves};
+use crate::probe::{ImageRect, Leaf, from_source, glyph_runs, leaves};
 
 /// Relative tolerance for comparing a scaled width with the width it was scaled from.
 const REL: f64 = 1e-9;
@@ -448,8 +448,8 @@ fn images_are_unchanged() {
             .filter_map(|leaf| leaf.image().cloned())
             .map(|image| {
                 (
-                    image.rect.width,
-                    image.rect.height,
+                    image.rect().width,
+                    image.rect().height,
                     image.width,
                     image.height,
                     image.samples,

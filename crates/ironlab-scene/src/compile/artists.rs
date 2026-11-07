@@ -13,9 +13,10 @@ use ironlab_ir::{
 };
 
 use crate::display::{
-    Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DepthPlane, ImageGeometry, ImageItem, ImageMesh, Item, ItemKind, Point, Rect, Rgba,
+    Stroke, Transform,
 };
-use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, StepHit};
+use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, PixelMap, StepHit};
 use crate::maths::camera::{
     Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
     fit_to_rect, normalise_box, wrap_azimuth,
@@ -1460,28 +1461,171 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64, Option
     Some((transform, key, plane))
 }
 
-/// Draws an image of any kind as one image item in pixel space beneath one group whose transform places it in the
-/// axes, pushed as one primitive at the key [`place_image`] gives and carrying the plane of its depth in 3D, and
-/// records the placement in the hit map when the axes is two-dimensional.
+/// The shortest distance on the page, in points, between two lattice lines of an image drawn through a mesh.
+const MIN_LATTICE_CELL_PT: f64 = 1.0;
+
+/// Returns whether each axis of a space is logarithmic; a 2D axes draws nothing along z.
+fn logarithmic_axes(space: &Space) -> [bool; 3] {
+    match space {
+        Space::TwoD { x, y } => [x.log, y.log, false],
+        Space::ThreeD(projector) => projector.log,
+    }
+}
+
+/// Returns whether an axis of the plane of an image is logarithmic, so that the image cannot be placed affinely and
+/// is drawn through a mesh.
+fn plane_is_logarithmic(space: &Space, image: &ImageData) -> bool {
+    let log = logarithmic_axes(space);
+    image.plane_dims().iter().any(|&dim| log[dim])
+}
+
+/// Chooses the pixel edges at which the lattice of an image has lines along one axis of its plane.
+///
+/// `page` gives the page position of every pixel edge `0..=n`. Along a linear axis (`log` false) only the outer edges
+/// are needed. Along a logarithmic axis every edge is kept, except that an edge lying less than
+/// [`MIN_LATTICE_CELL_PT`] from the last edge kept is dropped, and the last edge is always kept (in place of the edge
+/// before it when the two lie too close), so that no lattice cell is shorter than a point and the number of lines is
+/// bounded by the page rather than by the image.
+fn lattice_edges(n: usize, log: bool, page: impl Fn(usize) -> Point) -> Vec<f64> {
+    if !log || n < 2 {
+        return vec![0.0, n as f64];
+    }
+    let apart = |a: Point, b: Point| (b.x - a.x).hypot(b.y - a.y);
+    let mut kept = vec![0usize];
+    let mut last = page(0);
+    for k in 1..n {
+        let at = page(k);
+        if apart(last, at) >= MIN_LATTICE_CELL_PT {
+            kept.push(k);
+            last = at;
+        }
+    }
+    if kept.len() > 1 && apart(last, page(n)) < MIN_LATTICE_CELL_PT {
+        kept.pop();
+    }
+    kept.push(n);
+    kept.into_iter().map(|k| k as f64).collect()
+}
+
+/// Builds the lattice of an image whose plane has a logarithmic axis, in figure space, with one depth per node in 3D.
+///
+/// Along a logarithmic axis the lattice lines are the pixel edges, thinned by [`lattice_edges`]; along a linear one
+/// they are the two outer edges. Every node is the data point at its pixel edges, on the plane's offset, mapped
+/// through the axes, so each kept pixel edge is placed exactly. In 3D the depth of each node is its projected depth,
+/// pushed back by `bias` (see [`place_image`]). Returns `None` when a node cannot be placed.
+fn image_mesh(draw: &Draw, image: &ImageData, bias: f64) -> Option<ImageMesh> {
+    let [columns, rows] = image.plane_dims();
+    let third = image.offset_dim();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let offset = image.placement.plane.offset().unwrap_or(draw.low[third]);
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    let data = |u: f64, v: f64| {
+        let mut p = [0.0; 3];
+        p[columns] = x0 + (x1 - x0) * u / nx;
+        p[rows] = y0 + (y1 - y0) * v / ny;
+        p[third] = offset;
+        p
+    };
+    let log = logarithmic_axes(&draw.space);
+    // Distances along one axis are measured with the other at its first edge; the projection of either kind of axes
+    // is affine in the normalised coordinates, so they are the same at any other.
+    let page = |p: [f64; 3]| {
+        draw.space
+            .map(p)
+            .map_or(Point::new(f64::NAN, f64::NAN), |m| m.0)
+    };
+    let u = lattice_edges(image.nx, log[columns], |k| page(data(k as f64, 0.0)));
+    let v = lattice_edges(image.ny, log[rows], |k| page(data(0.0, k as f64)));
+    let mut points = Vec::with_capacity(u.len() * v.len());
+    let mut depths = Vec::with_capacity(u.len() * v.len());
+    for vj in &v {
+        for ui in &u {
+            let (point, depth) = draw.space.map(data(*ui, *vj))?;
+            points.push(point);
+            depths.push(depth - bias);
+        }
+    }
+    Some(ImageMesh {
+        u,
+        v,
+        points,
+        depths: draw.space.is_3d().then_some(depths),
+    })
+}
+
+/// Draws an image of any kind as one image item, pushed as one primitive at the key [`place_image`] gives, and
+/// records its placement in the hit map when the axes is two-dimensional.
+///
+/// When the axes of the plane of the image are linear, the image is drawn in pixel space beneath one group whose
+/// transform places it in the axes, carrying the plane of its depth in 3D. When an axis of its plane is logarithmic,
+/// it is drawn through the mesh of [`image_mesh`] in figure space, carrying a depth per node in 3D, and counts its
+/// pixels as dense content, because a backend that cannot draw a warped raster (the PDF exporter) writes it as one
+/// path per pixel. An image drawn over a rectangle is never wrapped in a dense group, since it is already a raster.
 ///
 /// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
-/// through the transform alone, so the row and column that a hit resolves to index the artist's array. The image is
-/// never wrapped in a dense group, since it is already a raster. A scalar image is coloured through `scale`, its
-/// colour scale. An image whose corners cannot be placed is skipped with a warning naming it.
+/// through its placement alone, so the row and column that a hit resolves to index the artist's array. A scalar
+/// image is coloured through `scale`, its colour scale. An image whose corners or lattice nodes cannot be placed is
+/// skipped with a warning naming it.
 fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&ResolvedScale>) {
-    let Some((transform, key, plane)) = place_image(draw, image) else {
+    let skip = |draw: &mut Draw| {
         draw.ctx.warn(
             Some(id),
             "The artist is not drawn because the corners of the image cannot be placed in the axes.",
         );
-        return;
     };
-    let raster = image::resolve(image, scale);
+    let Some((transform, key, plane)) = place_image(draw, image) else {
+        return skip(draw);
+    };
     let (nx, ny) = (image.nx, image.ny);
+    if plane_is_logarithmic(&draw.space, image) {
+        // An image inside the box is sorted, and its depths pushed back, by the face bias; one on a face is not.
+        let bias = if draw.space.is_3d() && key.is_finite() {
+            FACE_DEPTH_BIAS
+        } else {
+            0.0
+        };
+        let Some(mesh) = image_mesh(draw, image, bias) else {
+            return skip(draw);
+        };
+        let raster = image::resolve(image, scale);
+        draw.out.push((
+            key,
+            Item {
+                source: Some(id),
+                kind: ItemKind::Image(ImageItem {
+                    geometry: ImageGeometry::Mesh(mesh),
+                    width: nx as u32,
+                    height: ny as u32,
+                    channels: raster.channels,
+                    samples: raster.samples,
+                    depth: None,
+                }),
+            },
+        ));
+        *draw.dense.entry(id).or_default() += (nx as u64) * (ny as u64);
+        if let Space::TwoD { x, y } = draw.space {
+            draw.images.push(ImageHit {
+                axes: draw.axes,
+                artist: id,
+                to_pixel: PixelMap::Axes {
+                    x,
+                    y,
+                    columns: <[f64; 2]>::from(image::edges(image.placement.columns, nx)),
+                    rows: <[f64; 2]>::from(image::edges(image.placement.rows, ny)),
+                    pixels: [nx, ny],
+                },
+                columns: nx,
+                rows: ny,
+            });
+        }
+        return;
+    }
+    let raster = image::resolve(image, scale);
     let item = Item {
         source: Some(id),
         kind: ItemKind::Image(ImageItem {
-            rect: Rect::new(0.0, 0.0, nx as f64, ny as f64),
+            geometry: ImageGeometry::Rect(Rect::new(0.0, 0.0, nx as f64, ny as f64)),
             // The data stage refuses an image with more pixels along an axis than fit in 32 bits.
             width: nx as u32,
             height: ny as u32,
@@ -1507,7 +1651,7 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&Res
         draw.images.push(ImageHit {
             axes: draw.axes,
             artist: id,
-            to_pixel,
+            to_pixel: PixelMap::Affine(to_pixel),
             columns: nx,
             rows: ny,
         });

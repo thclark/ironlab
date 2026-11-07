@@ -264,17 +264,26 @@ pub fn colorbar_tip_text(tip: &ColorbarTip) -> String {
 
 /// The corners of the pixel in `row` and `column` of a drawn image, on screen and in the order they are joined, or
 /// `None` when the pixel is smaller on screen than the ring drawn around a point, so that it is ringed instead and
-/// the mark is never too small to see, or when its placement cannot be inverted.
+/// the mark is never too small to see, or when a corner has no place on the page.
+///
+/// The corners are mapped forward through the hit entry's map, so on a logarithmic axis they lie at the pixel's edges
+/// mapped through the axis. The axes of a 2D axes map an axis-aligned edge of pixel space to an axis-aligned line,
+/// so the four corners joined by straight lines are the outline of the pixel as drawn.
 fn pixel_outline(
     image: &ImageHit,
     row: usize,
     column: usize,
     to_screen: ScreenTransform,
 ) -> Option<[Pos2; 4]> {
-    let to_figure = image.to_pixel.inverse()?;
     let (c, r) = (column as f64, row as f64);
-    let corners = [(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)]
-        .map(|(x, y)| to_screen.apply(to_figure.apply(Point::new(x, y))));
+    let mut corners = [Pos2::ZERO; 4];
+    for (corner, (x, y)) in
+        corners
+            .iter_mut()
+            .zip([(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)])
+    {
+        *corner = to_screen.apply(image.to_pixel.from_pixel(Point::new(x, y))?);
+    }
     let bounds = Rect::from_points(&corners);
     let diameter = 2.0 * DATATIP_RING_POINTS;
     (bounds.width() >= diameter && bounds.height() >= diameter).then_some(corners)

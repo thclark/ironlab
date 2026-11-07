@@ -2153,21 +2153,18 @@ fn a_non_positive_offset_along_a_logarithmic_third_axis_is_an_invalid_placement(
     }
 }
 
-// Why: an image is a raster of evenly spaced pixels, drawn as one rectangle mapped
-// affinely through the two axes of its plane, and a logarithmic axis has no such
-// mapping, so an image whose plane has a logarithmic axis cannot be drawn as what it is.
-// Rather than quietly leaving it out, validation refuses the figure, because the user has
-// chosen the wrong artist: values sampled along a logarithmic axis belong on a surface,
-// whose every node is placed through the logarithmic scale. The error must name the
-// image, its plane and the logarithmic axis, and must say what to use instead, so that a
-// person or an agent can act on it without reading the documentation. Only an axis of the
-// image's plane counts: the axis it is offset along may be logarithmic, and the z axis of
-// a 2D axes, which is never drawn, is ignored.
-#[test]
-fn an_image_on_a_logarithmic_plane_axis_is_an_error_that_points_to_a_surface() {
-    // Whether the axes is 3D, the plane, the dimensions made logarithmic, and the
-    // logarithmic axes of the plane, which the error must name.
-    let cases: [(bool, ImagePlane, &[Dimension], &[&str]); 12] = [
+/// The cases of an image whose plane may have a logarithmic axis: whether the axes is 3D,
+/// the plane, the dimensions made logarithmic, and the logarithmic axes of the plane, along
+/// which the pixel edges must be positive. Only an axis of the image's plane counts: the
+/// axis it is offset along may be logarithmic, and the z axis of a 2D axes, which is never
+/// drawn, is ignored.
+fn logarithmic_plane_cases() -> [(
+    bool,
+    ImagePlane,
+    &'static [Dimension],
+    &'static [&'static str],
+); 12] {
+    [
         (false, ImagePlane::Xy { z: None }, &[Dimension::X], &["x"]),
         (
             false,
@@ -2190,19 +2187,85 @@ fn an_image_on_a_logarithmic_plane_axis_is_an_error_that_points_to_a_surface() {
         (true, ImagePlane::Yz { x: None }, &[Dimension::Y], &["y"]),
         (true, ImagePlane::Yz { x: None }, &[Dimension::Z], &["z"]),
         (true, ImagePlane::Yz { x: Some(1.0) }, &[Dimension::X], &[]),
-    ];
-    for (three_d, plane, dimensions, named) in cases {
+    ]
+}
+
+/// Makes the given dimensions of the single axes of a fixture logarithmic.
+fn make_logarithmic(fx: &mut GridFixture, dimensions: &[Dimension]) {
+    let axes = &mut fx.fig.axes[0];
+    for dimension in dimensions {
+        let axis = match dimension {
+            Dimension::X => &mut axes.x,
+            Dimension::Y => &mut axes.y,
+            Dimension::Z => &mut axes.z,
+        };
+        axis.scale = Scale::Log;
+    }
+}
+
+// Why: an image on a logarithmic axis is drawn with every pixel between its pixel edges
+// mapped through the axis, so it is a sound figure whenever those edges have a place on
+// the axis. The 3 by 4 images of the fixture, with columns centred on 1 to 4 and rows on
+// 1 to 3 (edges 0.5 to 4.5 and 0.5 to 3.5), must therefore validate cleanly on every plane
+// whatever axes are logarithmic, as must the same image mirrored by backwards ranges,
+// which is how a user flips an image and keeps the edges positive.
+#[test]
+fn an_image_whose_pixel_edges_are_positive_is_valid_on_a_logarithmic_plane_axis() {
+    let forwards = |plane| ImagePlacement {
+        plane,
+        columns: Some(PixelRange {
+            first: 1.0,
+            last: 4.0,
+        }),
+        rows: Some(PixelRange {
+            first: 1.0,
+            last: 3.0,
+        }),
+    };
+    let backwards = |plane| ImagePlacement {
+        plane,
+        columns: Some(PixelRange {
+            first: 4.0,
+            last: 1.0,
+        }),
+        rows: Some(PixelRange {
+            first: 3.0,
+            last: 1.0,
+        }),
+    };
+    for (three_d, plane, dimensions, _) in logarithmic_plane_cases() {
+        for (direction, place) in [
+            ("forwards", forwards as fn(ImagePlane) -> ImagePlacement),
+            ("backwards", backwards),
+        ] {
+            for (name, make, data) in image_kinds() {
+                let mut fx = grid_fixture(three_d, |id, d| make(id, data(d), place(plane)));
+                make_logarithmic(&mut fx, dimensions);
+                let report = fx.fig.validate();
+                let at = format!("{name} {direction} on {plane:?} with logarithmic {dimensions:?}");
+                assert_eq!(report.errors, vec![], "{at}: {report:?}");
+                assert_eq!(report.warnings, vec![], "{at}: {report:?}");
+            }
+        }
+    }
+}
+
+// Why: a logarithmic axis has no place for zero or a negative coordinate, so an image whose
+// first or last pixel edge along a logarithmic axis of its plane is not positive cannot be
+// placed, and the scene compiler leaves it out. That is a fault of placement, like a
+// non-finite centre, and must be reported against the image as `InvalidImagePlacement`.
+// The default placement centres pixels on 0, 1, 2, ..., so its first edge is at -0.5 and
+// every default image on a logarithmic axis is such a fault. The message must name the
+// image, the axis and the offending edge and say how to mend it (a pixel range whose
+// edges are positive), so that a person or an agent can act on it without reading the
+// documentation. The axis an image is offset along, and the z axis of a 2D axes, impose
+// nothing on the pixel edges.
+#[test]
+fn a_pixel_edge_that_is_not_positive_on_a_logarithmic_plane_axis_is_an_invalid_placement() {
+    for (three_d, plane, dimensions, named) in logarithmic_plane_cases() {
         for (name, make, data) in image_kinds() {
             let mut fx = grid_fixture(three_d, |id, d| make(id, data(d), on(plane)));
-            let axes = &mut fx.fig.axes[0];
-            for dimension in dimensions {
-                let axis = match dimension {
-                    Dimension::X => &mut axes.x,
-                    Dimension::Y => &mut axes.y,
-                    Dimension::Z => &mut axes.z,
-                };
-                axis.scale = Scale::Log;
-            }
+            make_logarithmic(&mut fx, dimensions);
             let report = fx.fig.validate();
             let at = format!("{name} on {plane:?} with logarithmic {dimensions:?}");
             assert_eq!(report.warnings, vec![], "{at}: {report:?}");
@@ -2210,51 +2273,154 @@ fn an_image_on_a_logarithmic_plane_axis_is_an_error_that_points_to_a_surface() {
                 assert_eq!(report.errors, vec![], "{at}: {report:?}");
                 continue;
             }
-            assert_eq!(
-                error_kinds(&report),
-                vec![IssueKind::ImageOnLogAxis],
-                "{at}: {report:?}"
+            let kinds = error_kinds(&report);
+            assert!(
+                !kinds.is_empty() && kinds.iter().all(|k| *k == IssueKind::InvalidImagePlacement),
+                "{at}: only invalid placements are reported: {report:?}"
             );
             assert!(
-                has_error(&report, IssueKind::ImageOnLogAxis, Some(fx.artist)),
-                "{at}: the error must be reported against the image: {report:?}"
+                report.errors.iter().all(|e| e.node == Some(fx.artist)),
+                "{at}: the errors are reported against the image: {report:?}"
             );
-            let message = &report.errors[0].message;
-            let plane_name = match plane {
-                ImagePlane::Xy { .. } => "xy plane",
-                ImagePlane::Xz { .. } => "xz plane",
-                ImagePlane::Yz { .. } => "yz plane",
-            };
-            let axes_named = if named.len() == 1 {
-                format!("{} axis is logarithmic", named[0])
-            } else {
-                format!("{} axes are logarithmic", named.join(" and "))
-            };
-            for needed in [
-                fx.artist.to_string(),
-                plane_name.to_owned(),
-                axes_named,
-                "evenly spaced pixels".to_owned(),
-                "surface".to_owned(),
-                "colour data".to_owned(),
-            ] {
-                assert!(message.contains(&needed), "{at}: {needed:?} in {message}");
-            }
-            if !three_d {
-                assert!(
-                    message.contains("pseudocolour"),
-                    "{at}: in a 2D axes the surface is a pseudocolour plot: {message}"
-                );
+            for axis in named {
+                let message = report
+                    .errors
+                    .iter()
+                    .map(|e| e.message.as_str())
+                    .find(|m| m.contains(&format!("{axis} axis")))
+                    .unwrap_or_else(|| panic!("{at}: an error names the {axis} axis: {report:?}"));
+                for needed in [
+                    fx.artist.to_string(),
+                    "logarithmic".to_owned(),
+                    "-0.5".to_owned(),
+                    "positive".to_owned(),
+                ] {
+                    assert!(message.contains(&needed), "{at}: {needed:?} in {message}");
+                }
             }
         }
     }
 }
 
-// Why: an error is what must be fixed, so it stands alone: an image with no pixels on a
-// logarithmic axis is reported for its logarithmic axis and not also as having nothing
-// to draw, which would suggest that adding pixels is the remedy.
+// Why: both ends of the pixel range count. A range that runs backwards from a positive
+// centre to a negative one mirrors the image with its first edge positive and its last
+// edge not, and that last edge has no more place on a logarithmic axis than a first one
+// would; a check of the first edge alone would pass it and the compiler would then leave
+// the image out without validation having said why.
 #[test]
-fn an_empty_image_on_a_logarithmic_axis_is_reported_for_the_axis_alone() {
+fn a_mirrored_image_whose_last_pixel_edge_is_not_positive_is_an_invalid_placement() {
+    // Columns centred on 3, 2, 1 and 0: the first edge is at 3.5 and the last at -0.5.
+    let placement = ImagePlacement {
+        columns: Some(PixelRange {
+            first: 3.0,
+            last: 0.0,
+        }),
+        rows: Some(PixelRange {
+            first: 1.0,
+            last: 3.0,
+        }),
+        ..ImagePlacement::default()
+    };
+    for (name, make, data) in image_kinds() {
+        let mut fx = grid_fixture(false, |id, d| make(id, data(d), placement));
+        make_logarithmic(&mut fx, &[Dimension::X]);
+        let report = fx.fig.validate();
+        assert_eq!(
+            error_kinds(&report),
+            vec![IssueKind::InvalidImagePlacement],
+            "{name}: {report:?}"
+        );
+        assert!(
+            has_error(&report, IssueKind::InvalidImagePlacement, Some(fx.artist)),
+            "{name}: {report:?}"
+        );
+    }
+}
+
+// Why: the rule is that the edges must be positive, not merely non-negative, and the edges
+// are those the compiler places, not the pixel centres. Zero has no place on a logarithmic
+// axis, so columns centred on 0.5 to 3.5 (first edge exactly 0) are refused, while centres
+// from 0.6 (first edge 0.1) are accepted. A single pixel has no pitch to take from its
+// range and is one unit wide about its centre, so a single pixel centred on 0.4 has an
+// edge at -0.1 and is refused although its centre is positive, while one centred on 0.6
+// is accepted: a check of the centres, or of a pitch computed by dividing by the number
+// of pixels less one, would decide both wrongly.
+#[test]
+fn a_pixel_edge_on_a_logarithmic_axis_must_be_strictly_positive_as_the_compiler_places_it() {
+    let columns = |first: f64, last: f64| ImagePlacement {
+        columns: Some(PixelRange { first, last }),
+        rows: Some(PixelRange {
+            first: 1.0,
+            last: 3.0,
+        }),
+        ..ImagePlacement::default()
+    };
+    for (what, placement, valid) in [
+        ("a first edge at exactly 0", columns(0.5, 3.5), false),
+        ("a first edge at 0.1", columns(0.6, 3.6), true),
+    ] {
+        for (name, make, data) in image_kinds() {
+            let mut fx = grid_fixture(false, |id, d| make(id, data(d), placement));
+            make_logarithmic(&mut fx, &[Dimension::X]);
+            let report = fx.fig.validate();
+            let expected = if valid {
+                vec![]
+            } else {
+                vec![IssueKind::InvalidImagePlacement]
+            };
+            assert_eq!(
+                error_kinds(&report),
+                expected,
+                "{name} with {what}: {report:?}"
+            );
+        }
+    }
+    let kinds: [(&str, MakeImage, Vec<usize>, bool); 3] = [
+        ("an image", image_at, vec![1, 1, 3], false),
+        ("an indexed image", indexed_at, vec![1, 1], true),
+        ("a mapped image", mapped_at, vec![1, 1], false),
+    ];
+    for (centre, valid) in [(0.4, false), (0.6, true)] {
+        for (name, make, shape, bytes) in kinds.clone() {
+            let mut fx = image_fixture(false, shape, bytes, |id, data| {
+                make(
+                    id,
+                    data,
+                    ImagePlacement {
+                        columns: Some(PixelRange {
+                            first: centre,
+                            last: centre,
+                        }),
+                        rows: Some(PixelRange {
+                            first: 1.0,
+                            last: 1.0,
+                        }),
+                        ..ImagePlacement::default()
+                    },
+                )
+            });
+            fx.fig.axes[0].x.scale = Scale::Log;
+            let report = fx.fig.validate();
+            let expected = if valid {
+                vec![]
+            } else {
+                vec![IssueKind::InvalidImagePlacement]
+            };
+            assert_eq!(
+                error_kinds(&report),
+                expected,
+                "{name} of one pixel centred on {centre}: {report:?}"
+            );
+        }
+    }
+}
+
+// Why: an error is what must be fixed, so it stands alone: an image with no rows at the
+// default placement on a logarithmic x axis is reported for its column edge at -0.5 and
+// not also as having nothing to draw, which would suggest that adding pixels is the
+// remedy.
+#[test]
+fn an_empty_image_with_a_pixel_edge_off_a_logarithmic_axis_is_reported_for_the_placement_alone() {
     let kinds: [(&str, MakeImage, Vec<usize>, bool); 3] = [
         ("an image", image_at, vec![0, 4, 3], false),
         ("an indexed image", indexed_at, vec![0, 4], true),
@@ -2268,7 +2434,7 @@ fn an_empty_image_on_a_logarithmic_axis_is_reported_for_the_axis_alone() {
         let report = fx.fig.validate();
         assert_eq!(
             error_kinds(&report),
-            vec![IssueKind::ImageOnLogAxis],
+            vec![IssueKind::InvalidImagePlacement],
             "{name}: {report:?}"
         );
         assert_eq!(report.warnings, vec![], "{name}: {report:?}");

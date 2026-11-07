@@ -74,7 +74,7 @@ Non-finite values (such as `f64::NAN`) break a line into separate pieces.
 
 ### Logarithmic axes
 
-`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image cannot be drawn on a logarithmic axis at all, and data sampled along one is drawn as a surface instead, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
+`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image on a logarithmic axis is drawn with each pixel between its pixel edges mapped through the axis, provided that those edges are positive, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
 
 ```rust
 let f = logspace(0.0, 4.0, 200);
@@ -438,10 +438,10 @@ Out of the box, a surface in a two-dimensional axes and a [scalar image](#images
 | A value belongs to | the centre of a pixel | a vertex of the grid |
 | A field of n rows and m columns draws | n × m pixels, each in the colour of its own value | (n − 1) × (m − 1) faces, each in the colour of the mean of its four corner values |
 | Placement | evenly spaced pixel centres, given by the first and last centre along each axis | any rectilinear grid (two coordinate vectors) or curvilinear grid (two coordinate matrices) |
-| Logarithmic axes | refused by validation with an `ImageOnLogAxis` error | drawn, because every vertex is placed through the scale of its axis |
+| Logarithmic axes | drawn with each pixel between its pixel edges mapped through the axis, so pixels of equal pitch in the data are of unequal widths on the page | drawn, because every vertex is placed through the scale of its axis |
 | Drawn as | one flat raster at its own resolution | one quadrilateral per face, with optional edges |
 
-An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
+An image therefore suits evenly sampled data such as a camera frame, a matrix or the bins of a Fourier transform, and a surface suits data on an uneven, polar or otherwise mapped mesh, including data sampled at points spaced evenly in their logarithm. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
 
 A surface added with `surface` is an ordinary surface, so a later `surf` or `mesh` in the same axes converts that axes to three dimensions and the earlier surface is drawn there with `z` as its height. The [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry draws a field on a polar mesh in this way, and the [figure schema](../reference/figure-schema.md#surface) states how a surface is stored.
 
@@ -490,13 +490,29 @@ In a three-dimensional axes an image lies in one of the three coordinate planes,
 
 #### Images on logarithmic axes
 
-An image is a raster of evenly spaced pixels, and a logarithmic axis has no place for one: equal steps in the data are unequal distances on the page, so the pixels of one image would have to be of different widths, and the width of each would span an interval of the data that the image does not describe. An image whose plane has a logarithmic axis is therefore a validation error, `ImageOnLogAxis`, and the figure is neither exported nor shown. Only the two axes of the image's plane count. The third axis of a three-dimensional axes, along which the plane is only offset, may be logarithmic, provided that an explicit offset along it is positive; a plane offset to zero or to a negative coordinate along a logarithmic third axis has no position and is an `InvalidImagePlacement` error. The z axis of a two-dimensional axes is never drawn, so its scale does not matter. Why such an image is refused rather than drawn one path per pixel is recorded in [ADR 0021](../adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md).
+An image whose plane has a logarithmic axis is drawn with every pixel between its own pixel edges mapped through that axis. The pixels keep an equal pitch in the data, as the placement defines them, so on the page they are of unequal widths: along a logarithmic axis a pixel near the low end of a decade is wider than one of the same pitch near its high end. This is what a spectrogram computed with a Fourier transform needs, because the transform resolves frequency in bins of equal width, and those bins are what the reader should see against a logarithmic frequency axis.
 
-Data sampled along a logarithmic axis, such as a spectrogram with a logarithmic frequency axis, is drawn as a [surface](#surfaces-in-two-dimensional-axes) instead. A surface is made of vertices, each of which is placed through the scale of its axis, so its faces stretch and shrink with the logarithmic axis exactly as the data does. The values that would have been the pixels become the field of a surface whose grid holds the coordinates of the pixel centres:
+A logarithmic axis has no place for zero or a negative coordinate, so the first and last pixel edges along a logarithmic axis of the image's plane must both be positive. The default placement centres the pixels on 0, 1, …, n − 1, which puts the first edge at −0.5, so an image on a logarithmic axis is placed with `pixel_columns` or `pixel_rows`. An image whose edge along such an axis is not positive is an `InvalidImagePlacement` error, whose message names the image, the axis and the edge. Only the two axes of the image's plane count. The third axis of a three-dimensional axes, along which the plane is only offset, may be logarithmic, provided that an explicit offset along it is positive; a plane offset to zero or to a negative coordinate along a logarithmic third axis has no position and is also an `InvalidImagePlacement` error. The z axis of a two-dimensional axes is never drawn, so its scale does not matter.
 
 ```rust
-let time = linspace(0.0, 8.0, 241);                            // the centres of the columns
-let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the centres of the rows
+let bin_hz = 48_000.0 / 1024.0;                    // the width of one bin of the transform
+// `stft` stands for the power of the 511 bins above the mean in each of 120 frames.
+let power = Matrix::from_fn(511, 120, |row, col| stft(col, row + 1));
+
+let mut ax = fig.axes(0, 0);
+ax.scalar_image(&power)
+    .pixel_columns(0.5 / 15.0, 8.0 - 0.5 / 15.0)   // the centres of the frames, in seconds
+    .pixel_rows(bin_hz, 511.0 * bin_hz);           // bins 1 to 511, whose edges are all positive
+ax.yscale(Scale::Log);
+```
+
+The [Image on a logarithmic frequency axis](../gallery/fft_spectrogram.md) gallery entry draws such a spectrogram. On screen and in a PNG the image is drawn as a warped raster. A PDF has no warped raster, so an exported image on a logarithmic axis is written as one filled path per pixel, which keeps every pixel edge exact; an image with as many pixels as the [raster threshold](#dense-surfaces) of the export is embedded as a raster instead, and the export report says so with a `RasterisedForWarp` warning that gives the number of pixels.
+
+Values that belong to the nodes of a grid rather than to pixels, such as the output of a constant-Q analysis sampled at frequencies spaced evenly in their logarithm, are drawn as a [surface](#surfaces-in-two-dimensional-axes) instead. A surface is made of vertices, each of which is placed through the scale of its axis, so its faces stretch and shrink with the logarithmic axis exactly as the data does, and the values become the field of a surface whose grid holds the coordinates of the samples:
+
+```rust
+let time = linspace(0.0, 8.0, 241);                            // the times of the samples
+let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the frequencies of the samples
 // `psd` stands for whatever computes the power spectral density at one time and frequency.
 let power = Matrix::from_fn(frequency.len(), time.len(), |row, col| psd(time[col], frequency[row]));
 
@@ -505,9 +521,9 @@ ax.surface(&time, &frequency, &power).edge_color(None);
 ax.yscale(Scale::Log);
 ```
 
-The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. A true-colour image has no values for a colour scale to colour, so its colours must be given as the values from which they were made. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
+The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
 
-An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
+An exported PDF embeds every image on linear axes at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
 In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show a true-colour image and a scalar image through a continuous and through an indexed scale, [Image orientation](../gallery/image_orientation.md) shows one photograph with three placements, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the image artists are recorded in [ADR 0011](../adrs/0011-image-artists.md), and the replacement of its colour-indexed and colour-mapped kinds by the scalar image in [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md).
 
@@ -899,7 +915,7 @@ for warning in &report.export {
 }
 ```
 
-The first two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. The third list, `export`, says what the exporter drew as an image and why (`RasterisedForSize`, `RasterisedForDepth` or `RasterisedByRequest`, see the two sections below) and which three-dimensional axes it could not verify (`Unverified`, with its cause). Every raster on the page is explained there, so a page that a program expects to be wholly vector can be checked by testing that the list is empty. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
+The first two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. The third list, `export`, says what the exporter drew as an image and why (`RasterisedForSize`, `RasterisedForWarp`, `RasterisedForDepth` or `RasterisedByRequest`, see the two sections below) and which three-dimensional axes it could not verify (`Unverified`, with its cause). Every raster on the page is explained there, so a page that a program expects to be wholly vector can be checked by testing that the list is empty. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
 
 ### Dense surfaces
 
@@ -942,6 +958,8 @@ fig.export_pdf_with("pressure.pdf", PdfExport {
 ```
 
 Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else. A dense artist drawn as an image is reported in the `export` list of the report as `RasterisedForSize`, with its cell count.
+
+An image on a [logarithmic axis](#images-on-logarithmic-axes) is dense content of the same kind, because a PDF writes it as one filled path per pixel; its pixels count as cells against the same threshold, and an image drawn as a raster for that reason is reported as `RasterisedForWarp`, with its pixel count.
 
 ### Three-dimensional axes in PDF
 

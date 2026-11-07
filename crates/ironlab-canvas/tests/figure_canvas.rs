@@ -674,10 +674,15 @@ fn a_callout_rings_a_point_and_outlines_a_large_pixel_but_rings_a_small_one() {
     let Callout { marker, text } = canvas
         .callout(&TEXT)
         .expect("hovering over an image gives a callout");
-    let to_figure = image.to_pixel.inverse().expect("the placement inverts");
+    let to_figure = |p: Point| {
+        image
+            .to_pixel
+            .from_pixel(p)
+            .expect("pixel space has a place on the page")
+    };
     let (c, r) = (column as f64, row as f64);
     let expected = [(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)]
-        .map(|(x, y)| fit.to_screen.apply(to_figure.apply(Point::new(x, y))));
+        .map(|(x, y)| fit.to_screen.apply(to_figure(Point::new(x, y))));
     let bounds = Rect::from_points(&expected);
     assert!(
         bounds.width() >= 2.0 * DATATIP_RING_POINTS && bounds.height() >= 2.0 * DATATIP_RING_POINTS,
@@ -715,11 +720,16 @@ fn a_callout_rings_a_point_and_outlines_a_large_pixel_but_rings_a_small_one() {
     let Some(Tip::Pixel(tip)) = canvas.state().tip_at(&hit, at) else {
         panic!("the state reads a pixel where no point is drawn");
     };
-    let to_figure = image.to_pixel.inverse().expect("the placement inverts");
+    let to_figure = |p: Point| {
+        image
+            .to_pixel
+            .from_pixel(p)
+            .expect("pixel space has a place on the page")
+    };
     let (c, r) = (column as f64, row as f64);
     let bounds = Rect::from_points(
         &[(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)]
-            .map(|(x, y)| fit.to_screen.apply(to_figure.apply(Point::new(x, y)))),
+            .map(|(x, y)| fit.to_screen.apply(to_figure(Point::new(x, y)))),
     );
     assert!(
         bounds.width() < 2.0 * DATATIP_RING_POINTS || bounds.height() < 2.0 * DATATIP_RING_POINTS,
@@ -742,6 +752,66 @@ fn a_callout_rings_a_point_and_outlines_a_large_pixel_but_rings_a_small_one() {
         other => panic!("a small pixel is ringed, not {other:?}"),
     }
     assert_eq!(text, pixel_datatip_text(&tip));
+}
+
+// Why: on a logarithmic axis a pixel is drawn between its edges mapped through the axis, so the outline that shows
+// the reader which pixel was read must be drawn there too, through the forward map of the hit entry, and not where
+// an affine placement of the whole image would put it. Four columns centred on 1 to 4 (edges 0.5 to 4.5) fill an x
+// axis from 0.5 to 4.5, on which the first column covers half the plot although it is a quarter of the image; the
+// expected corners are computed from the definition of a logarithmic axis, not from the canvas or the hit map.
+#[test]
+fn a_callout_outlines_a_pixel_between_its_edges_mapped_through_a_logarithmic_axis() {
+    use ironlab_ir::{Artist, Limits, PixelRange, Scale};
+
+    let mut figure = figure_with_named_image(4, 4);
+    match figure.artist_mut(NodeId(3)) {
+        Some(Artist::ScalarImage(image)) => {
+            image.placement.columns = Some(PixelRange {
+                first: 1.0,
+                last: 4.0,
+            });
+        }
+        other => panic!("node 3 is the scalar image, not {other:?}"),
+    }
+    figure.axes[0].x.scale = Scale::Log;
+    figure.axes[0].x.limits = Limits::Manual { min: 0.5, max: 4.5 };
+    let (mut canvas, fit) = fitted(figure);
+    let hit = hit_map_of(&mut canvas);
+    let plot = hit.axes[0].plot_rect;
+    let (_, y) = maps_of(&hit);
+    // The page x of a data value on the logarithmic x axis from 0.5 to 4.5.
+    let page_x = |value: f64| plot.x + (value / 0.5).log10() / 9f64.log10() * plot.width;
+    // At 0.3 of the plot width the data is 0.5 · 9^0.3 = 0.97, in column 0, whose page extent [0, 0.5] of the plot
+    // an affine placement would shrink to [0, 0.25].
+    let pos = plot_point(&hit, &fit, 0.3, 0.6);
+    let at = fit.to_screen.invert(pos);
+    let (_, row, column) = hit.pixel_at(at).expect("the image fills the axes");
+    assert_eq!(
+        column, 0,
+        "the data under the pointer lies in the first column"
+    );
+    canvas.hover(Some(pos));
+    let Callout { marker, .. } = canvas
+        .callout(&TEXT)
+        .expect("hovering over an image gives a callout");
+    let (c, r) = (column as f64, row as f64);
+    let expected = [(c, r), (c + 1.0, r), (c + 1.0, r + 1.0), (c, r + 1.0)].map(|(u, v)| {
+        fit.to_screen
+            .apply(Point::new(page_x(0.5 + u), y.to_figure(v - 0.5)))
+    });
+    match marker {
+        Marker::Outline(corners) => {
+            for (got, want) in corners.iter().zip(expected) {
+                assert_pos_close(
+                    *got,
+                    want,
+                    1e-3,
+                    "an outline corner is the pixel's corner mapped through the logarithmic axis",
+                );
+            }
+        }
+        other => panic!("a large pixel is outlined, not {other:?}"),
+    }
 }
 
 // Why: the cursor is the only sign of which tool is active before the user drags, and it must follow the tool and

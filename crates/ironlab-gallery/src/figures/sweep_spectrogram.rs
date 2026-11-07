@@ -5,8 +5,10 @@ pub const DESCRIPTION: &str = "The spectrogram of an exponential sine sweep from
      loudspeaker that adds harmonic distortion, as in an acoustic measurement. The sweep rises by the same number \
      of decades every second, so on a logarithmic frequency axis it is a straight line, and its second, third and \
      fourth harmonics are parallel lines above it. The power is drawn as a surface in a two-dimensional axes, whose \
-     nodes are placed through the logarithmic scale. An image could not be drawn here: a raster of evenly spaced \
-     pixels has no placement on a logarithmic axis, and validation refuses an image whose plane has one.";
+     nodes are placed through the logarithmic scale. A surface suits a constant-Q analysis, whose values are \
+     sampled at frequencies spaced evenly in their logarithm and so belong to nodes; the \
+     [image on a logarithmic frequency axis](fft_spectrogram.md) shows a Fourier transform, whose bins are evenly \
+     spaced in frequency, drawn as an image instead.";
 
 /// The duration of the sweep in seconds.
 const DURATION_S: f64 = 8.0;

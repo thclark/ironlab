@@ -87,8 +87,8 @@ use ironlab_text::FontId;
 
 use crate::common::{Fx, cell, compile_figure, out_of_range, palette_colors, rgb8, rgb8_close, xy};
 use crate::probe::{
-    Leaf, assert_close, axes_hit, from_source, glyph_runs, leaves, panel_rect, parse_number, pixel,
-    union,
+    ImageRect, Leaf, assert_close, axes_hit, from_source, glyph_runs, leaves, panel_rect,
+    parse_number, pixel, union,
 };
 
 const RED: Color = Color::rgb(1.0, 0.0, 0.0);
@@ -446,8 +446,8 @@ fn sample_at(leaf: &Leaf, p: Point) -> [u8; 4] {
         .inverse()
         .expect("an invertible transform")
         .apply(p);
-    let fx = (local.x - image.rect.x) / image.rect.width;
-    let fy = (local.y - image.rect.y) / image.rect.height;
+    let fx = (local.x - image.rect().x) / image.rect().width;
+    let fy = (local.y - image.rect().y) / image.rect().height;
     let column = ((fx * f64::from(image.width)).floor() as usize).min(image.width as usize - 1);
     let row = ((fy * f64::from(image.height)).floor() as usize).min(image.height as usize - 1);
     pixel(image, row, column)

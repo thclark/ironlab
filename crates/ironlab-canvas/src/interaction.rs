@@ -1000,7 +1000,7 @@ impl FigureState {
     ///
     /// The pixel comes from the hit map of the most recent compilation, which records the placement of every image
     /// drawn in a two-dimensional axes and finds the row and column of the artist's own array under a point through
-    /// its inverse; an image on the floor or a wall of a three-dimensional axes has no entry, so it has no datatip.
+    /// the map of figure space into its pixel space; an image on the floor or a wall of a three-dimensional axes has no entry, so it has no datatip.
     /// The value is read from that array at that row and column, in the units the array stores it in and whatever
     /// colour the pixel was painted: a pixel that a policy left transparent still reports what it holds. The
     /// coordinates are those of the centre of the pixel as the placement puts it — the index along an axis without
@@ -1030,7 +1030,7 @@ impl FigureState {
             column,
             x: pixel_centre(placement.columns, drawn.columns, column),
             y: pixel_centre(placement.rows, drawn.rows, row),
-            position: drawn.to_pixel.inverse()?.apply(centre),
+            position: drawn.to_pixel.from_pixel(centre)?,
             value,
         })
     }

@@ -44,8 +44,13 @@
 //!   appearance and loses only its copyable text.
 //! - A group with a non-finite clip, or a non-finite or singular transform, is skipped with all of its items; a
 //!   singular transform collapses its content to a line or a point, so nothing visible is lost.
-//! - An image whose rectangle is not finite and positive, whose grid of samples is empty, whose channel count is
-//!   neither three nor four, or whose samples are not exactly `width · height · channels` bytes, is skipped.
+//! - An image whose rectangle is not finite and positive, whose mesh is not valid, whose grid of samples is empty,
+//!   whose channel count is neither three nor four, or whose samples are not exactly `width · height · channels`
+//!   bytes, is skipped.
+//!
+//! An image drawn through a mesh, as the scene compiler draws an image on a logarithmic axis, is written as one filled
+//! path per pixel, since PDF has no warped image; it comes inside a dense group counting its pixels, so a large one is
+//! drawn as a raster under the raster policy and reported with [`ExportWarningKind::RasterisedForWarp`].
 //! - A dense group that encloses no finite geometry within its clips, or that lies beneath a transform whose inverse
 //!   would not be finite, is drawn as vector geometry, because there is nowhere to place an image for it.
 //! - Colour channels are clamped to `[0, 1]`, with NaN treated as 0.
@@ -101,6 +106,9 @@ pub enum ExportWarningKind {
     /// A dense artist was drawn as an image, because it drew `cells` data cells, at or beyond the threshold of the
     /// raster policy.
     RasterisedForSize { cells: u64 },
+    /// An image warped through its axes (drawn through a mesh, which is written as one path per pixel) was drawn as
+    /// a raster, because its `pixels` pixels reach the threshold of the raster policy.
+    RasterisedForWarp { pixels: u64 },
     /// Content was drawn as an image because the export options asked for it ([`RasterPolicy::Always`] or
     /// [`DepthPolicy::Raster`]).
     RasterisedByRequest,
@@ -516,6 +524,17 @@ impl Painter<'_, '_> {
                      cells, at or beyond the threshold of {threshold}; `RasterPolicy::Never` keeps it vector."
                 )
             }
+            ExportWarningKind::RasterisedForWarp { pixels } => {
+                let threshold = match self.options.policy {
+                    RasterPolicy::Auto { cells } => cells,
+                    RasterPolicy::Never | RasterPolicy::Always => *pixels,
+                };
+                format!(
+                    "The {subject} is drawn as a raster image at {dpi} dots per inch, because it is an image warped \
+                     through its axes, which is otherwise written as one path per pixel, and it has {pixels} pixels, \
+                     at or beyond the threshold of {threshold}; `RasterPolicy::Never` writes the pixels as paths."
+                )
+            }
             ExportWarningKind::RasterisedByRequest => format!(
                 "The {subject} is drawn as an image at {dpi} dots per inch, because the export options ask for a \
                  raster ({request})."
@@ -587,6 +606,9 @@ impl Painter<'_, '_> {
         };
         let kind = match self.options.policy {
             RasterPolicy::Always => ExportWarningKind::RasterisedByRequest,
+            RasterPolicy::Auto { .. } | RasterPolicy::Never if holds_mesh_image(items) => {
+                ExportWarningKind::RasterisedForWarp { pixels: cells }
+            }
             RasterPolicy::Auto { .. } | RasterPolicy::Never => {
                 ExportWarningKind::RasterisedForSize { cells }
             }
@@ -926,7 +948,20 @@ fn convert_path(segments: &[PathSegment]) -> Option<KrillaPath> {
     builder.finish()
 }
 
-/// Draws an image item as a deflated image XObject, or nothing when the item is invalid.
+/// Reports whether any of `items`, at any depth of grouping, is an image drawn through a mesh, whose dense count is a
+/// count of pixels rather than of data cells.
+fn holds_mesh_image(items: &[Item]) -> bool {
+    items.iter().any(|item| match &item.kind {
+        ItemKind::Image(image) => matches!(image.geometry, display::ImageGeometry::Mesh(_)),
+        ItemKind::Group { items, .. }
+        | ItemKind::Dense { items, .. }
+        | ItemKind::Depth { items } => holds_mesh_image(items),
+        ItemKind::Path(_) | ItemKind::Glyphs(_) | ItemKind::Markers(_) => false,
+    })
+}
+
+/// Draws an image item, or nothing when the item is invalid: over a rectangle as a deflated image XObject, and
+/// through a mesh as one filled path per pixel.
 ///
 /// krilla deflates the samples and, for an image with alpha, its soft mask, so both streams carry `/FlateDecode`.
 /// It writes `/Interpolate` only when interpolation is asked for, and the key defaults to false, so omitting it is
@@ -940,9 +975,13 @@ fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
     if !item.is_valid() {
         return;
     }
+    let rect = match &item.geometry {
+        display::ImageGeometry::Rect(rect) => *rect,
+        display::ImageGeometry::Mesh(mesh) => return draw_mesh_image(surface, item, mesh),
+    };
     let (Some(size), Some(origin)) = (
-        KrillaSize::from_wh(item.rect.width as f32, item.rect.height as f32),
-        point(display::Point::new(item.rect.x, item.rect.y)),
+        KrillaSize::from_wh(rect.width as f32, rect.height as f32),
+        point(display::Point::new(rect.x, rect.y)),
     ) else {
         return;
     };
@@ -952,6 +991,44 @@ fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
     surface.push_transform(&KrillaTransform::from_translate(origin.0, origin.1));
     surface.draw_image(image, size);
     surface.pop();
+}
+
+/// Draws an image through a mesh as one path per pixel, the outline [`display::ImageMesh::pixel_outline`] gives,
+/// filled with the pixel's colour and with its alpha as the fill's opacity, without a stroke. A fully transparent
+/// pixel draws nothing. PDF has no warped image, and a path per pixel places every pixel exactly where the mesh does.
+fn draw_mesh_image(
+    surface: &mut Surface<'_>,
+    item: &display::ImageItem,
+    mesh: &display::ImageMesh,
+) {
+    let channels = usize::from(item.channels);
+    surface.set_stroke(None);
+    for (k, sample) in item.samples.chunks_exact(channels).enumerate() {
+        let alpha = sample.get(3).copied().unwrap_or(u8::MAX);
+        if alpha == 0 {
+            continue;
+        }
+        let (row, column) = (k / item.width as usize, k % item.width as usize);
+        let outline = mesh.pixel_outline(column as u32, row as u32);
+        let Some((first, rest)) = outline.split_first() else {
+            continue;
+        };
+        let segments: Vec<PathSegment> = std::iter::once(PathSegment::MoveTo(*first))
+            .chain(rest.iter().map(|p| PathSegment::LineTo(*p)))
+            .chain(std::iter::once(PathSegment::Close))
+            .collect();
+        let Some(path) = convert_path(&segments) else {
+            continue;
+        };
+        let colour = Rgba::new(
+            f32::from(sample[0]) / 255.0,
+            f32::from(sample[1]) / 255.0,
+            f32::from(sample[2]) / 255.0,
+            f32::from(alpha) / 255.0,
+        );
+        surface.set_fill(Some(fill(colour, FillRule::NonZero)));
+        surface.draw_path(&path);
+    }
 }
 
 /// The samples of an [`display::ImageItem`] presented to krilla as a custom image.

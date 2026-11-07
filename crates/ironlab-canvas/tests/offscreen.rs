@@ -36,8 +36,9 @@ use ironlab_canvas::{
 use ironlab_ir::{Artist, Axes, Axis, Figure, FigureSize, Limits, NdArray, NodeId, Series};
 use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
-    Depth, DepthPlane, DisplayList, Fill, FillRule, ImageItem, Item, ItemKind, LineCap, LineJoin,
-    MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DepthPlane, DisplayList, Fill, FillRule, ImageGeometry, ImageItem, ImageMesh, Item,
+    ItemKind, LineCap, LineJoin, MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect,
+    Rgba, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 
@@ -499,7 +500,7 @@ fn placed_image(
             items: vec![Item {
                 source: None,
                 kind: ItemKind::Image(ImageItem {
-                    rect,
+                    geometry: ImageGeometry::Rect(rect),
                     width,
                     height,
                     channels,
@@ -860,6 +861,125 @@ fn a_compiled_figure_draws_a_mapped_image_over_its_axes_with_the_compilers_colou
     }
 }
 
+// Why: an image on a logarithmic axis is drawn through a mesh of its pixel edges, and the viewer and every exported
+// PNG must show each pixel between its own edges mapped through the axis, not an equal division of the image. Two
+// columns centred on 4 and 8 have edges at 2, 6 and 10; on an x axis from 1 to 100 the middle edge lies at
+// log 6 / 2 = 0.389 of the plot width, while an equal division of the drawn extent would put it at 0.325, some
+// twenty-five points to the left. Sampling one device pixel either side of the log-mapped edge pins the boundary
+// where the axis says, with the colours the compiler resolved.
+#[test]
+fn a_compiled_image_on_a_logarithmic_axis_splits_its_columns_at_the_mapped_pixel_edge() {
+    use ironlab_ir::{Artist, PixelRange, Scale};
+
+    let mut figure = figure_with_scalar_image(1, 2);
+    match figure.artist_mut(NodeId(3)) {
+        Some(Artist::ScalarImage(image)) => {
+            image.placement.columns = Some(PixelRange {
+                first: 4.0,
+                last: 8.0,
+            });
+        }
+        other => panic!("node 3 is the scalar image, not {other:?}"),
+    }
+    figure.axes[0].x.scale = Scale::Log;
+    figure.axes[0].x.limits = Limits::Manual {
+        min: 1.0,
+        max: 100.0,
+    };
+    let scene = ironlab_scene::compile(&figure, &TEXT);
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let item = find_image(&scene.display_list.items).expect("the image is drawn");
+    assert!(
+        matches!(item.geometry, ImageGeometry::Mesh(_)),
+        "an image on a logarithmic axis is drawn through a mesh"
+    );
+    let (left, right) = (image_sample(item, 0, 0), image_sample(item, 0, 1));
+    assert_ne!(
+        left, right,
+        "precondition: the two columns differ in colour"
+    );
+    let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
+        return;
+    };
+
+    let plot = scene.hit_map.axes[0].plot_rect;
+    let edge = plot.x + 6f64.log10() / 2.0 * plot.width;
+    let y = (plot.y + 0.5 * plot.height) as u32;
+    for (x, expected, what) in [
+        (edge - 2.0, left, "just left of the mapped middle edge"),
+        (edge + 2.0, right, "just right of the mapped middle edge"),
+        (
+            plot.x + 0.36 * plot.width,
+            left,
+            "between the equal division and the mapped edge, still the first column",
+        ),
+    ] {
+        assert_pixel(&image, x as u32, y, expected, 1, what);
+    }
+}
+
+// Why: a mesh image is drawn as textured triangles, two per lattice cell, and a raster wider than one texture is
+// split into tiles; a lattice cell that crosses a tile boundary must be cut there by interpolating within its
+// triangles, or the part of the cell beyond the boundary would sample the wrong texture or none. The lattice here has
+// a wide cell of 8190 red columns and a cell of three columns (blue, green and yellow, the last being column 8192,
+// a tile of its own when the renderer tiles at 8192) drawn 100 points each, so a cell cut wrongly shows the wrong
+// colour or the background over a whole column. The cells are drawn at unequal scales, so the samples also pin that
+// each cell is placed by its own nodes. The side at which the renderer tiles is not pinned here.
+#[test]
+fn a_mesh_image_wider_than_one_texture_is_cut_at_the_tile_boundary_inside_its_cells() {
+    const WIDTH: u32 = 8193;
+    let samples: Vec<u8> = (0..WIDTH)
+        .flat_map(|i| match i {
+            8190 => [0u8, 0, 255],
+            8191 => [0, 255, 0],
+            8192 => [255, 255, 0],
+            _ => [255, 0, 0],
+        })
+        .collect();
+    let xs = [0.0, 100.0, 400.0];
+    let points = [0.0, 20.0]
+        .iter()
+        .flat_map(|y| xs.iter().map(move |x| Point::new(*x, *y)))
+        .collect();
+    let mesh = Item {
+        source: None,
+        kind: ItemKind::Image(ImageItem {
+            geometry: ImageGeometry::Mesh(ImageMesh {
+                u: vec![0.0, 8190.0, f64::from(WIDTH)],
+                v: vec![0.0, 1.0],
+                points,
+                depths: None,
+            }),
+            width: WIDTH,
+            height: 1,
+            channels: ImageItem::RGB,
+            samples: Arc::from(samples),
+            depth: None,
+        }),
+    };
+    let list = page(
+        400.0,
+        20.0,
+        Rgba::WHITE,
+        vec![clipped(Rect::new(0.0, 0.0, 400.0, 20.0), mesh)],
+    );
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+    for (x, expected, what) in [
+        (50, RED_PX, "the wide cell of red columns"),
+        (98, RED_PX, "just left of the second cell"),
+        (150, BLUE_PX, "column 8190"),
+        (250, GREEN_PX, "column 8191"),
+        (298, GREEN_PX, "just left of column 8192"),
+        (302, YELLOW_PX, "just right of the start of column 8192"),
+        (350, YELLOW_PX, "column 8192, beyond the tile boundary"),
+        (399, YELLOW_PX, "the last device pixel"),
+    ] {
+        assert_pixel(&image, x, 10, expected, 1, what);
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Depth groups, drawn through the depth-tested pipelines. The pages are 100 by 100 points rendered at 72 dpi, so
 // that one point is one pixel and the sampled pixels lie well inside the shapes, away from anti-aliased edges.
@@ -907,7 +1027,7 @@ fn floor(rect: Rect, rgb: [u8; 3], plane: DepthPlane) -> Item {
     Item {
         source: None,
         kind: ItemKind::Image(ImageItem {
-            rect,
+            geometry: ImageGeometry::Rect(rect),
             width: 2,
             height: 2,
             channels: ImageItem::RGB,
@@ -923,7 +1043,7 @@ fn translucent_floor(rect: Rect, rgba: [u8; 4], plane: DepthPlane) -> Item {
     Item {
         source: None,
         kind: ItemKind::Image(ImageItem {
-            rect,
+            geometry: ImageGeometry::Rect(rect),
             width: 2,
             height: 2,
             channels: ImageItem::RGBA,
@@ -1509,7 +1629,7 @@ fn loose_items_with_depths() -> Vec<Item> {
         Item {
             source: None,
             kind: ItemKind::Image(ImageItem {
-                rect: Rect::new(55.0, 55.0, 30.0, 30.0),
+                geometry: ImageGeometry::Rect(Rect::new(55.0, 55.0, 30.0, 30.0)),
                 width: 2,
                 height: 2,
                 channels: ImageItem::RGB,

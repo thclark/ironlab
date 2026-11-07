@@ -3,8 +3,8 @@
 use ironlab_ir::NodeId;
 
 use crate::display::{
-    Depth, Fill, FillRule, Item, ItemKind, LineCap, LineJoin, PathItem, PathSegment, Point, Rect,
-    Rgba, Stroke, Transform,
+    Depth, Fill, FillRule, ImageGeometry, Item, ItemKind, LineCap, LineJoin, PathItem, PathSegment,
+    Point, Rect, Rgba, Stroke, Transform,
 };
 
 /// The distance of the Bézier control points from the ends of a quarter circle of unit radius.
@@ -154,9 +154,9 @@ pub(super) fn finite(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite()
 }
 
-/// Visits the end point of every segment of the path items among `items`, the four corners of every image item and
-/// the position of every marker, including those inside groups, in the coordinate space of `items`: a vertex beneath
-/// a group that carries a transform is mapped through it.
+/// Visits the end point of every segment of the path items among `items`, the four corners or lattice nodes of every
+/// image item and the position of every marker, including those inside groups, in the coordinate space of `items`: a
+/// vertex beneath a group that carries a transform is mapped through it.
 pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
     fn walk(items: &[Item], transform: Transform, visit: &mut dyn FnMut(Point)) {
         for item in items {
@@ -185,17 +185,24 @@ pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
                 ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
                     walk(items, transform, visit);
                 }
-                ItemKind::Image(image) => {
-                    let r = image.rect;
-                    for corner in [
-                        Point::new(r.x, r.y),
-                        Point::new(r.right(), r.y),
-                        Point::new(r.x, r.bottom()),
-                        Point::new(r.right(), r.bottom()),
-                    ] {
-                        visit(transform.apply(corner));
+                ItemKind::Image(image) => match &image.geometry {
+                    ImageGeometry::Rect(r) => {
+                        for corner in [
+                            Point::new(r.x, r.y),
+                            Point::new(r.right(), r.y),
+                            Point::new(r.x, r.bottom()),
+                            Point::new(r.right(), r.bottom()),
+                        ] {
+                            visit(transform.apply(corner));
+                        }
                     }
-                }
+                    // The mesh is drawn piecewise affinely between its nodes, so the nodes bound it.
+                    ImageGeometry::Mesh(mesh) => {
+                        for point in &mesh.points {
+                            visit(transform.apply(*point));
+                        }
+                    }
+                },
                 ItemKind::Markers(markers) => {
                     for instance in &markers.instances {
                         visit(transform.apply(instance.position));

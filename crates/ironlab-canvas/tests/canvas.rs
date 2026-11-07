@@ -26,9 +26,9 @@ use ironlab_canvas::gpu::{
 };
 use ironlab_ir::NodeId;
 use ironlab_scene::display::{
-    Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageItem, Item, ItemKind, LineCap,
-    LineJoin, MarkerInstance, MarkersItem, PathItem, PathSegment, PlacedGlyph, Point, Rect, Rgba,
-    Stroke, Transform,
+    Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageGeometry, ImageItem,
+    ImageMesh, Item, ItemKind, LineCap, LineJoin, MarkerInstance, MarkersItem, PathItem,
+    PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
 };
 use ironlab_text::TextItem;
 
@@ -359,7 +359,7 @@ fn image_of(rect: Rect, width: u32, height: u32, channels: u8, samples: Arc<[u8]
     Item {
         source: None,
         kind: ItemKind::Image(ImageItem {
-            rect,
+            geometry: ImageGeometry::Rect(rect),
             width,
             height,
             channels,
@@ -4986,7 +4986,7 @@ fn an_image_in_a_depth_group_is_one_textured_tile_whose_corners_take_the_plane_o
     let floor = Item {
         source: Some(NodeId(9)),
         kind: ItemKind::Image(ImageItem {
-            rect,
+            geometry: ImageGeometry::Rect(rect),
             width: 2,
             height: 1,
             channels: ImageItem::RGB,
@@ -5033,6 +5033,232 @@ fn an_image_in_a_depth_group_is_one_textured_tile_whose_corners_take_the_plane_o
             "the {corner} corner lies at z = {z}, the plane 0.5·x over the pixel columns 0..2 normalised with \
              the nearest at 0: {vertex:?}"
         );
+    }
+}
+
+/// An image item of `width` by `height` pixels sharing `samples`, drawn through the lattice of nodes at `u` and `v`
+/// placed at `points` (row by row), with `depths` at the nodes when given.
+fn mesh_image_of(
+    width: u32,
+    height: u32,
+    channels: u8,
+    samples: Arc<[u8]>,
+    (u, v): (&[f64], &[f64]),
+    points: &[(f64, f64)],
+    depths: Option<Vec<f64>>,
+) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::Image(ImageItem {
+            geometry: ImageGeometry::Mesh(ImageMesh {
+                u: u.to_vec(),
+                v: v.to_vec(),
+                points: points.iter().map(|(x, y)| Point::new(*x, *y)).collect(),
+                depths,
+            }),
+            width,
+            height,
+            channels,
+            samples,
+            depth: None,
+        }),
+    }
+}
+
+/// The pixel-space position a vertex of an image draw samples: its texture coordinate scaled into the columns and
+/// rows of the draw's tile.
+fn pixel_of(key: &TileKey, vertex: &Vertex) -> (f64, f64) {
+    let (c, r) = (&key.columns, &key.rows);
+    (
+        f64::from(c.start) + f64::from(vertex.uv[0]) * f64::from(c.end - c.start),
+        f64::from(r.start) + f64::from(vertex.uv[1]) * f64::from(r.end - r.start),
+    )
+}
+
+// Why: a mesh image is drawn as textured triangles under the piecewise affine rule of `ImageMesh`, and a raster wider
+// than one texture is cut into tiles, so a lattice cell that crosses a tile boundary must be cut there inside its
+// triangles. The contract is checked on what any correct triangulation shares, not on a vertex list: every vertex
+// samples its own tile (a texture coordinate outside [0, 1] would sample a neighbour's pixels, or none) and lies where
+// `locate` places the pixel-space position it samples; every triangle lies inside one affine piece, which its
+// centroid shows (a triangle that spanned two pieces would place its centroid off the map); the tiles together cover
+// all five columns once; and the triangles cover the lattice exactly, without gaps or overlaps. The lattice has a
+// cell of three columns and one of two over tiles of two columns, so both of its cells cross a tile boundary, and its
+// drawn quadrilaterals are not parallelograms, so a cell drawn as a quad of its corners would fail.
+#[test]
+fn a_mesh_image_is_textured_triangles_on_its_piecewise_affine_map_cut_at_tile_boundaries() {
+    let samples: Arc<[u8]> = Arc::from(tagged_rgb(5, 2));
+    let (u, v) = ([0.0, 3.0, 5.0], [0.0, 2.0]);
+    let points = [
+        (0.0, 0.0),
+        (30.0, 0.0),
+        (60.0, 5.0),
+        (0.0, 20.0),
+        (25.0, 30.0),
+        (70.0, 40.0),
+    ];
+    let item = sourced(
+        mesh_image_of(
+            5,
+            2,
+            ImageItem::RGB,
+            Arc::clone(&samples),
+            (&u, &v),
+            &points,
+            None,
+        ),
+        7,
+    );
+    let ItemKind::Image(image) = &item.kind else {
+        unreachable!()
+    };
+    let ImageGeometry::Mesh(mesh) = image.geometry.clone() else {
+        unreachable!()
+    };
+    let drawn = draw_list_at(&list(vec![item]), with_tiles(2));
+
+    let draws: Vec<&Draw> = drawn
+        .draws
+        .iter()
+        .filter(|d| d.source == Some(NodeId(7)))
+        .collect();
+    let mut columns: Vec<Range<u32>> = Vec::new();
+    for draw in &draws {
+        let key = draw
+            .texture
+            .as_ref()
+            .unwrap_or_else(|| panic!("every draw of the image samples a tile: {draw:?}"));
+        assert!(
+            Arc::ptr_eq(&key.samples, &samples),
+            "the tile shares the item's samples"
+        );
+        assert_eq!(key.rows, 0..2, "both rows fit in one tile: {key:?}");
+        columns.push(key.columns.clone());
+        for vertex in vertices_of_draw(&drawn, draw) {
+            assert!(
+                (-1e-5..=1.0 + 1e-5).contains(&vertex.uv[0])
+                    && (-1e-5..=1.0 + 1e-5).contains(&vertex.uv[1]),
+                "a vertex samples inside its own tile {key:?}: {vertex:?}"
+            );
+            let (pu, pv) = pixel_of(key, vertex);
+            let expected = mesh
+                .locate(pu, pv)
+                .unwrap_or_else(|| panic!("the vertex samples pixel space at ({pu}, {pv})"));
+            assert!(
+                (f64::from(vertex.pos[0]) - expected.x).abs() <= 1e-3
+                    && (f64::from(vertex.pos[1]) - expected.y).abs() <= 1e-3,
+                "the vertex sampling ({pu}, {pv}) lies at {expected:?}: {vertex:?}"
+            );
+            assert_eq!(
+                vertex.color,
+                [255, 255, 255, 255],
+                "the texture is drawn unmodulated"
+            );
+        }
+        for triangle in triangles_in(&drawn, draw) {
+            let third = |pick: fn(&Vertex) -> f64| triangle.iter().map(pick).sum::<f64>() / 3.0;
+            let centroid = Point::new(
+                third(|t| f64::from(t.pos[0])),
+                third(|t| f64::from(t.pos[1])),
+            );
+            let (pu, pv) = (third(|t| f64::from(t.uv[0])), third(|t| f64::from(t.uv[1])));
+            let (pu, pv) = (
+                f64::from(key.columns.start) + pu * f64::from(key.columns.end - key.columns.start),
+                f64::from(key.rows.start) + pv * f64::from(key.rows.end - key.rows.start),
+            );
+            let expected = mesh.locate(pu, pv).expect("inside pixel space");
+            assert!(
+                (centroid.x - expected.x).abs() <= 1e-3 && (centroid.y - expected.y).abs() <= 1e-3,
+                "the triangle {triangle:?} lies inside one affine piece: its centroid samples ({pu}, {pv}), which \
+                 the mesh places at {expected:?}, not {centroid:?}"
+            );
+        }
+    }
+    columns.sort_by_key(|c| c.start);
+    assert_eq!(
+        columns,
+        vec![0..2, 2..4, 4..5],
+        "the tiles cover the five columns once, in tiles of two"
+    );
+    // The two triangles of each lattice cell, split along its diagonal from (u[i], v[0]) to (u[i + 1], v[1]).
+    let p = |k: usize| points[k];
+    let triangle = |a: (f64, f64), b: (f64, f64), c: (f64, f64)| {
+        0.5 * ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs()
+    };
+    let lattice = triangle(p(0), p(1), p(4))
+        + triangle(p(0), p(4), p(3))
+        + triangle(p(1), p(2), p(5))
+        + triangle(p(1), p(5), p(4));
+    let covered: f64 = draws.iter().map(|d| draw_area(&drawn, d)).sum();
+    assert_close(
+        covered,
+        lattice,
+        1e-2,
+        "the triangles cover the lattice without gaps or overlaps",
+    );
+}
+
+// Why: inside a depth group a backend depth-tests every fragment of a mesh image at the depth interpolated between
+// its nodes as the points are, so the z of every vertex must follow the node depths, normalised over the group as
+// every other depth is (the pins fix the range to [0, 1], so z is 1 − depth). The depths here fall linearly from 1
+// to 0 across pixel space, which any triangulation interpolates exactly, so the z of a vertex is half the pixel
+// column it samples wherever the tessellation puts it. A translucent pixel must mark the draw translucent, so that
+// the painter draws it after the opaque draws without recording its depth, exactly as for a rectangle image, while
+// an opaque image of four channels stays opaque.
+#[test]
+fn a_mesh_image_in_a_depth_group_takes_z_from_its_node_depths_and_records_its_translucency() {
+    let (u, v) = ([0.0, 1.0, 2.0], [0.0, 1.0]);
+    let points = [
+        (10.0, 10.0),
+        (20.0, 12.0),
+        (35.0, 10.0),
+        (10.0, 20.0),
+        (22.0, 25.0),
+        (30.0, 30.0),
+    ];
+    let depths = Some(vec![1.0, 0.5, 0.0, 1.0, 0.5, 0.0]);
+    let mesh = |alpha: u8, id: u64| {
+        sourced(
+            mesh_image_of(
+                2,
+                1,
+                ImageItem::RGBA,
+                Arc::from(vec![255, 0, 0, 255, 0, 0, 255, alpha]),
+                (&u, &v),
+                &points,
+                depths.clone(),
+            ),
+            id,
+        )
+    };
+    let [pin0, pin1] = range_pins(60.0, 60.0);
+    let drawn = draw_list(&list(vec![depth_group(vec![
+        pin0,
+        pin1,
+        mesh(255, 8),
+        mesh(254, 9),
+    ])]));
+
+    for (id, translucent) in [(8, false), (9, true)] {
+        let draw = draw_of(&drawn, id);
+        assert_eq!(
+            draw.depth_group,
+            Some(0),
+            "the mesh lies in the depth group"
+        );
+        assert_eq!(
+            draw.translucent, translucent,
+            "the draw of node {id} records whether a pixel is translucent"
+        );
+        let key = draw.texture.as_ref().expect("the draw samples a tile");
+        for vertex in vertices_of_draw(&drawn, draw) {
+            let (pu, _) = pixel_of(key, vertex);
+            assert!(
+                (f64::from(vertex.z) - pu / 2.0).abs() <= 1e-5,
+                "the vertex sampling column {pu} lies at z = {}, 1 − depth for the depth 1 − {pu}/2 interpolated \
+                 between the nodes: {vertex:?}",
+                pu / 2.0
+            );
+        }
     }
 }
 

@@ -743,3 +743,43 @@ fn one_image_of_each_kind_built_through_the_facade_validates_with_no_issues() {
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");
 }
+
+// WHY: an image on a logarithmic axis is drawn with each pixel between its pixel edges
+// mapped through the axis, so a user who measures a quantity over decades can show it
+// as an image on `loglog` axes. The facade must let them do so with nothing more than
+// pixel centres whose edges are positive (here columns centred on 1 to 3 and rows on 1
+// and 2, so edges from 0.5), and the figure must validate cleanly; at the default
+// centres the first edge is at -0.5, which has no place on a logarithmic axis, and that
+// is reported as an invalid placement against the handle's identifier, so that the user
+// learns which image to move and that `pixel_columns` and `pixel_rows` are the remedy.
+#[test]
+fn a_scalar_image_with_positive_pixel_edges_validates_on_loglog_axes() {
+    let mut fig = Figure::new();
+    let mut ax = fig.axes(0, 0);
+    ax.loglog([0.5, 3.5], [0.5, 2.5]);
+    let placed = ax
+        .scalar_image(sample_floats())
+        .pixel_columns(1.0, 3.0)
+        .pixel_rows(1.0, 2.0)
+        .id();
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(report.warnings.is_empty(), "{report:?}");
+    assert_eq!(
+        placement(&fig, placed).columns,
+        Some(PixelRange {
+            first: 1.0,
+            last: 3.0
+        })
+    );
+
+    let mut fig = Figure::new();
+    let mut ax = fig.axes(0, 0);
+    ax.loglog([0.5, 3.5], [0.5, 2.5]);
+    let unplaced = ax.scalar_image(sample_floats()).id();
+    let report = fig.validate();
+    assert!(
+        has_error_at(&report, IssueKind::InvalidImagePlacement, unplaced),
+        "{report:?}"
+    );
+}
