@@ -73,6 +73,15 @@ ax.plot(&x, &y)
 
 Non-finite values (such as `f64::NAN`) break a line into separate pieces.
 
+A series can fill the area between its line and a constant value of y, its base. `base(y)` sets the base and `fill(colour)` the colour of the fill, which `ColorSpec::Auto` makes the colour of the series; `fill_opacity(a)` fades the fill without fading the line. The fill of each unbroken piece of the line is the polygon of its points closed straight down to the base at its first and last points, drawn beneath the line and the markers. The facade does not choose a base, because 0 is the wrong base for data far from 0 and has no place on a logarithmic axis, so a fill set without a base is reported by [`validate`](#validating-a-figure) as `FillWithoutBase`. A fill is drawn only in two-dimensional axes, Cartesian or [polar](#polar-axes).
+
+```rust
+ax.plot(&t, &power)
+    .base(0.0)
+    .fill(ColorSpec::Auto)  // the colour of the series
+    .fill_opacity(0.3);
+```
+
 ### Logarithmic axes
 
 `loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image on a logarithmic axis is drawn with each pixel between its pixel edges mapped through the axis, provided that those edges are positive, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
@@ -342,7 +351,7 @@ fig.axes(0, 2)
 
 `density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
 
-The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density.
+The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density. A histogram of angles, which wraps round a turn, is drawn by [`polar_hist`](#polar-histograms-and-wind-roses) in a polar axes.
 
 #### Normalising stacked and side-by-side histograms
 
@@ -817,6 +826,40 @@ Automatic angular limits are always the full turn, whatever the data, and automa
 One rule decides how an artist is drawn in polar axes. **Direct artists**, which draw the data points themselves (series, contours, surfaces and quivers), join consecutive points with straight lines on the page, exactly as they do in Cartesian axes; they never interpolate between points, so a curve is drawn smoothly by sampling it finely, and a closed curve repeats its first point at its end, as the pattern above does at 360°. **Representing shapes**, which draw outlines made of edges at constant coordinates (bars, stairs, cells and the pixels of images), follow the axes: an edge at constant radius is an arc and an edge at constant angle is a spoke, so an upright bar becomes a wedge, a bar lying flat sweeps round the centre, and a cell or a pixel becomes an annular sector. A point whose radius lies below the lower radial limit, and so would lie beyond the centre, has no position and breaks a line, as a non-finite value does; nothing is reflected through the centre. A point beyond the rim is cut away at the rim.
 
 Cylindrical and spherical axes, which carry an azimuth, a radius and a height, or an azimuth, a polar angle and a radius, on x, y and z, are part of the figure model and can be saved, edited and validated, but the scene compiler does not yet draw them in their own coordinates. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule of angular axes exactly, and the [artists in polar axes](../reference/figure-schema.md#artists-in-polar-axes) section describes each artist. In the gallery, [Antenna directivity](../gallery/polar_directivity.md) draws a pattern with angle 0 at the north and clockwise angles, [Polar scatter](../gallery/polar_scatter.md) colours markers by data, [Fields on an angle–radius grid](../gallery/polar_field.md) draws a filled contour and a surface, [Sonar sweep in a polar sector](../gallery/polar_image.md) draws an image in a partial sector, [Radial and polar bars](../gallery/radial_bars.md) draws both orientations of bars, the second with a hole, and [Logarithmic radius](../gallery/log_radius.md) draws a line on a logarithmic radius. The viewer's gestures in polar axes are described under [panning](viewer.md#panning) and [zooming](viewer.md#zooming).
+
+### Radar charts
+
+A radar chart compares several items against the same criteria, one spoke per criterion. `spokes(labels)` prepares a polar axes for it: the angle is measured in one unit per spoke, so that spoke `k` lies at angle `k` and the data needs no conversion to degrees; the angular limits are fixed at the full turn; each spoke is labelled; spoke 0 points north and the others follow clockwise; and both grids are drawn. `radar(values)` then adds one item as an ordinary series through one value per spoke, with the first value repeated a turn later so that the outline closes, drawn with circle markers and filled translucently in its own colour down to the centre. The edges of the outline are straight, because a series is a direct artist.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.spokes(&["Mass", "Cost", "Efficiency", "Noise", "Range"])
+    .rlim(0.0, 1.0)
+    .radial_labels_at(0.5); // the radial labels lie between the first two spokes
+ax.radar([0.55, 0.85, 0.60, 0.50, 0.55]).label("Baseline");
+ax.radar([0.95, 0.45, 0.75, 0.70, 0.40]).label("Lightweight");
+```
+
+The axes has one radial scale, which every outline shares, so criteria measured in different units, or on which a lower value is better, are normalised before they are plotted, for example to the range from 0 for the worst item to 1 for the best. The fill of an outline goes down to the lower radial limit when it is fixed before `radar` is called, and to 0 otherwise. Values of the wrong number for the spokes are stored as given, and `validate` reports the mismatch as `ShapeMismatch`. The [Radar chart](../gallery/radar_chart.md) gallery entry compares three design candidates in this way.
+
+### Polar histograms and wind roses
+
+`polar_hist(angles)` draws a histogram of angles over one turn, converting the axes to polar axes. It wraps each finite angle into one turn of the angle units of the axes, so that −10° counts as 350° and 370° as 10°, and then bins the wrapped angles exactly as [`hist`](#histograms) does, with the range fixed to the whole turn, so that the last bin adjoins the first, and sixteen bins unless `bins` sets others. It returns the same `HistMut`, so `style(HistStyle::Step)` draws the outline of the bins, whose runs are arcs, and the record of the binning describes the wrapped angles.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.theta_zero(ThetaZero::North).clockwise(true);
+ax.polar_hist(&headings).bins(Bins::Count(24));
+```
+
+`wind_rose(directions, speeds, class_edges)` draws a wind rose: it converts the axes to polar axes in degrees with north up and bearings clockwise, bins the directions into sixteen sectors centred on the compass points, so that the sector of north spans north itself, and bins the speeds into the classes between consecutive edges. A class holds the speeds from its lower edge up to, but not including, its upper edge, and the last class is open above its edge. Each class is a series of bars stacked on the classes below it, labelled by its range of speeds, such as `2–4`, and its values are the percentages of all the observations whose direction and speed are both finite. A speed below the first edge is a calm: it counts towards the total but is drawn in no class, so the petals then sum to less than 100. The function returns the [`bars`](#bar-charts) helper of the classes, through which the gap between petals and the style of each class are set.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.wind_rose(&directions, &speeds, [0.5, 2.0, 4.0, 6.0, 8.0]);
+```
+
+The [Polar histograms](../gallery/polar_histogram.md) gallery entry draws the headings of waves both as bars and as steps, and the [Wind rose](../gallery/wind_rose.md) entry draws a year of hourly wind.
 
 ## Parameters
 

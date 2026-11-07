@@ -6,10 +6,10 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter,
-    Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar, PolarView, Projection, Scale,
-    TickLabels,
+    AngleUnits, Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels,
+    ColorScaleNorm, ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement,
+    ImagePlane, Interpreter, Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar,
+    PolarView, Projection, Scale, TickLabels,
 };
 use ironlab_gallery::{all, find};
 
@@ -424,6 +424,78 @@ fn polar_axes_are_covered() {
         missing.is_empty(),
         "no gallery figure demonstrates: {missing:?}"
     );
+}
+
+/// WHY: radar charts, polar histograms and wind roses (#123, #124) are built by facade helpers from the series fill,
+/// histograms and stacked bars in polar axes, and each reaches a branch of the compiler that the other polar figures
+/// do not: a series filled down to the centre in angle units of one per spoke, bars binned over a turn as wedges and
+/// as stairs whose runs are arcs, and stacked wedges in clockwise axes with north up. Each row names one of those
+/// branches, so that the PDF, viewer and documentation tests that iterate the gallery exercise it.
+#[test]
+fn radar_charts_polar_histograms_and_wind_roses_are_covered() {
+    let requirements: [(&str, Predicate); 4] = [
+        ("radar chart filled down to its base", |_, axes, artist| {
+            polar_view(axes).is_some_and(|view| matches!(view.angle_units, AngleUnits::PerTurn(_)))
+                && matches!(axes.x.tick_labels, TickLabels::Text(_))
+                && matches!(artist, Artist::Series(s)
+                    if s.base.is_some() && s.fill != ColorSpec::None && s.draws_markers())
+        }),
+        ("polar histogram drawn as bars", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Bar(b) if b.binning.is_some())
+        }),
+        ("polar histogram drawn as stairs", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Stairs(s) if s.binning.is_some())
+        }),
+        ("wind rose of stacked classes", |_, axes, artist| {
+            let stacked =
+                |a: &Artist| matches!(a, Artist::Bar(b) if matches!(b.base, PerBar::Data(_)));
+            polar_view(axes).is_some_and(|view| view.zero_deg == 90.0)
+                && axes.x.reverse
+                && stacked(artist)
+                && axes.artists.iter().filter(|a| stacked(a)).count() >= 4
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+}
+
+/// WHY: a reader browsing the gallery for a radar chart, a wind rose or a polar histogram searches by the name of the
+/// chart, which no structural tag read from the IR can supply; each of the three entries must therefore exist under
+/// its slug and carry the tag of its chart kind as well as `polar`.
+#[test]
+fn the_radar_wind_rose_and_polar_histogram_entries_carry_their_chart_tags() {
+    for (slug, tag) in [
+        ("radar_chart", "radar"),
+        ("wind_rose", "wind-rose"),
+        ("polar_histogram", "polar-histogram"),
+    ] {
+        let entry = find(slug).unwrap_or_else(|| panic!("the gallery has no entry {slug}"));
+        let figure = (entry.build)();
+        let tags = figure.tags();
+        for wanted in [tag, "polar"] {
+            assert!(
+                tags.iter().any(|t| t == wanted),
+                "{slug} is not tagged {wanted}: {tags:?}"
+            );
+        }
+    }
 }
 
 /// WHY: axes titles and figure titles are laid out differently, and both must be exercised.

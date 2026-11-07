@@ -74,11 +74,13 @@ const NO_COLOUR: Rgba = Rgba::new(0.0, 0.0, 0.0, 0.0);
 enum SampleLook {
     /// A horizontal line across the sample, with a marker at its centre (a series that draws a line, or contour
     /// isolines). A line that colour data colours draws a sweep of its scale, in segments from the low end at the
-    /// left, and its stroke then gives only its width and dashes.
+    /// left, and its stroke then gives only its width and dashes. A filled series draws a band of its fill across
+    /// the middle of the sample (`area`) behind the line and the marker.
     Line {
         stroke: Option<Stroke>,
         sweep: Option<Sweep>,
         marker: Option<MarkerSample>,
+        area: Option<Rgba>,
     },
     /// A single marker at the centre of the sample (a series that draws no line), or a row of markers across it
     /// when the marker follows a sweep.
@@ -1349,6 +1351,7 @@ fn custom_sample(sample: &LegendSample) -> SampleLook {
                     style::width_or(line.width_pt, 0.75).clamp(0.5, 1.5),
                     None,
                 ),
+                area: None,
             }
         }
         LegendSample::Swatch { color } => SampleLook::Swatch {
@@ -1440,16 +1443,19 @@ fn sample(
                         stroke: None,
                         sweep: None,
                         marker: None,
+                        area: None,
                     },
                     (ColorSpec::Rgba { .. }, _) => SampleLook::Line {
                         stroke: sample_stroke(&c.line, explicit),
                         sweep: None,
                         marker: None,
+                        area: None,
                     },
                     (ColorSpec::Auto | ColorSpec::Colormapped, Some(scale)) => SampleLook::Line {
                         stroke: sample_stroke(&c.line, Some(NO_COLOUR)),
                         sweep: Some(Sweep::of(scale, c.line_opacity)),
                         marker: None,
+                        area: None,
                     },
                     (ColorSpec::Auto | ColorSpec::Colormapped, None) => SampleLook::Line {
                         stroke: sample_stroke(
@@ -1458,6 +1464,7 @@ fn sample(
                         ),
                         sweep: None,
                         marker: None,
+                        area: None,
                     },
                 }
             }
@@ -1496,6 +1503,7 @@ fn sample(
                     ),
                     sweep: Some(Sweep::of(scale, s.edge_opacity)),
                     marker: None,
+                    area: None,
                 },
                 (Paint::Fixed(fill), _, _) => SampleLook::Swatch {
                     fill: fade(fill, s.face_opacity),
@@ -1578,6 +1586,7 @@ fn sample(
                     stroke: sample_stroke(&s.line, line),
                     sweep: None,
                     marker: None,
+                    area: None,
                 },
             }
         }
@@ -1585,7 +1594,7 @@ fn sample(
 }
 
 /// Returns the sample of a series: a line sample, with the marker at its centre, when the series draws a line, and
-/// a single marker otherwise; the marker is of the marker size, not of any size data, and its edge is as wide as
+/// a single marker otherwise, each over a band of the fill when the series is filled; the marker is of the marker size, not of any size data, and its edge is as wide as
 /// the series strokes its marker edges.
 ///
 /// `colour` is the resolved primary colour of the series and `scale` the scale of its colour data, if it has any.
@@ -1630,6 +1639,16 @@ fn series_sample(
     };
     let marker_sweep = sweep
         .filter(|_| marker.face == ColorSpec::Colormapped || marker.edge == ColorSpec::Colormapped);
+    // A filled series is an area under its line, so its sample is a band of the fill behind the line, as filled
+    // stairs are keyed by a patch of their fill. A colormapped fill is invalid and drawn as an automatic one.
+    let area = series.fill_base().and_then(|_| {
+        let fill = match series.fill {
+            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+            ColorSpec::None => None,
+            ColorSpec::Auto | ColorSpec::Colormapped => colour,
+        };
+        fill.map(|c| c.with_alpha_factor(style::unit_opacity(series.fill_opacity) as f32))
+    });
     if series.draws_line() {
         let stroke_colour = if line_sweep.is_some() {
             Some(NO_COLOUR)
@@ -1646,6 +1665,14 @@ fn series_sample(
                 style::width_or(series.line.width_pt, 0.75).clamp(0.5, 1.5),
                 marker_sweep,
             ),
+            area,
+        }
+    } else if area.is_some() {
+        SampleLook::Line {
+            stroke: None,
+            sweep: None,
+            marker: marker_sample(marker, series.marker.size_pt, None, 0.5, marker_sweep),
+            area,
         }
     } else {
         SampleLook::Marker(marker_sample(
@@ -1750,7 +1777,18 @@ fn draw_sample(
             stroke,
             sweep,
             marker: m,
+            area,
         } => {
+            if let Some(area) = area {
+                let mut b = PathBuilder::new();
+                b.rect(band);
+                out.extend(paths::item(
+                    source,
+                    b.finish(),
+                    Some(paths::fill(fade(*area))),
+                    None,
+                ));
+            }
             match (stroke, sweep) {
                 (Some(stroke), Some(sweep)) => {
                     let n = sweep.0.len().clamp(1, LINE_SWEEP_SEGMENTS);

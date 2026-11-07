@@ -1008,6 +1008,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::Data as i32,
                         clip: Some(false),
+                        base: None,
+                        fill: wire_no_color(),
+                        fill_opacity: Some(1.0),
                     })),
                     wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(31),
@@ -1029,6 +1032,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::Data as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(true),
+                        base: None,
+                        fill: wire_no_color(),
+                        fill_opacity: Some(1.0),
                     })),
                     wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(32),
@@ -1050,6 +1056,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(false),
+                        base: Some(2.25),
+                        fill: wire_rgba(0.125, 0.375, 0.625, 0.8125),
+                        fill_opacity: Some(0.375),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -1645,6 +1654,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::Data,
                         clip: false,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Series(Series {
                         id: NodeId(31),
@@ -1670,6 +1682,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::Data,
                         y_coords: Coords::AxesFraction,
                         clip: true,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Series(Series {
                         id: NodeId(32),
@@ -1697,6 +1712,11 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::AxesFraction,
                         clip: false,
+                        base: Some(2.25),
+                        fill: ColorSpec::Rgba {
+                            color: Color::rgba(0.125, 0.375, 0.625, 0.8125),
+                        },
+                        fill_opacity: 0.375,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -4826,6 +4846,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         x_coords: Coords::Data,
                         y_coords: Coords::Data,
                         clip: true,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Image(Image {
                         id: NodeId(4),

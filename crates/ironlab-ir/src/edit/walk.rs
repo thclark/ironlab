@@ -736,6 +736,12 @@ ir_node! {
             "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
         plain "clip" => clip: bool =
             "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
+        optional "base" => base: f64 =
+            "The value of y, read in the coordinates of y, down to which the area under the line is filled, or absent for no base.";
+        plain "fill" => fill: ColorSpec =
+            "The colour of the area between the line and the base, or none; a fill needs a base, is invalid in three-dimensional axes and cannot be colormapped, and an automatic fill takes the colour of the series.";
+        plain "fill_opacity" => fill_opacity: f64 =
+            "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
     }
 
     Contour {

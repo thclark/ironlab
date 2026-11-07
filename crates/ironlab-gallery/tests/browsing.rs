@@ -432,6 +432,7 @@ fn each_kind_of_bar_and_cell_chart_is_found_by_its_name() {
         "tag:histogram",
         &[
             "Histograms",
+            "Polar histograms",
             "Two-dimensional histogram and density contour",
         ],
     );

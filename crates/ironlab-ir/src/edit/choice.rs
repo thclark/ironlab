@@ -395,6 +395,13 @@ const COLORMAPPED_ON_STAIRS: &str = colormapped_unavailable!(
      data instead."
 );
 
+/// Why a colormapped colour is unavailable at the fill of a series.
+const COLORMAPPED_SERIES_FILL: &str = colormapped_unavailable!(
+    "The colour data of a series colours its points and the segments between them, and the \
+     area under the line has no value of its own to look a colour up by, so a colormapped \
+     fill makes the figure invalid. A fill takes a solid colour, or the colour of the series."
+);
+
 /// Why a colormapped colour is unavailable anywhere else.
 const COLORMAPPED_ELSEWHERE: &str = colormapped_unavailable!(
     "This property provides no value to look a colour up by, so a colormapped colour \
@@ -466,14 +473,18 @@ fn colormapped_without_a_value_to_index_by(
 }
 
 /// Returns why a colormapped colour is unavailable at a colour property of a series, or
-/// `None` when it is available: the series must have colour data and name a colour scale
-/// of the figure, and a marker colour needs one value per point.
+/// `None` when it is available: the fill never is, and otherwise the series must have
+/// colour data and name a colour scale of the figure, and a marker colour needs one value
+/// per point.
 fn series_colormapped(
     figure: &Figure,
     series: &Series,
     path: &PropertyPath,
     names_a_scale: bool,
 ) -> Option<&'static str> {
+    if path.segments() == ["fill"] {
+        return Some(COLORMAPPED_SERIES_FILL);
+    }
     let Some(colors) = series.color_data else {
         return Some(COLORMAPPED_WITHOUT_COLOUR_DATA);
     };

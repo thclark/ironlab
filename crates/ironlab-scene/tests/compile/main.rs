@@ -38,6 +38,7 @@ mod polar_decor;
 mod robustness;
 mod scales;
 mod series;
+mod series_fill;
 mod stairs;
 mod surfaces_2d;
 mod three_d;

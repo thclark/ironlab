@@ -20,6 +20,7 @@ Every IronLAB function in the plot tables is a method of `AxesMut` and is descri
 | Markers along named rows (a categorical strip chart) | `scatter` with `yticks` and `yticklabels`, or `swarmchart` | `scatter` with `set_yticks` and `set_yticklabels` | `px.strip` | `scatter` with `yticks`, `ytick_labels` and `yreverse` on the axes |
 | Horizontal reference line across the axes | `yline` | `axhline` | `add_hline` | `hline` |
 | Vertical reference line across the axes | `xline` | `axvline` | `add_vline` | `vline` |
+| Area between a line and a constant value | `area` with `BaseValue`, for a single series | `fill_between(x, y, base)` | `Scatter` with `fill="tozeroy"`, for a base of 0 | `plot` with `base` and `fill` |
 
 Every function in this table adds the same kind of object, a series, and returns the same handle, so that the functions differ only in the defaults they set: a line drawn by `plot` can be given markers sized and coloured by data, and markers drawn by `scatter` can be joined by a line. [Colouring a series by data](../guides/colour.md#colouring-a-series-by-data) describes colour data per point and per segment.
 
@@ -159,7 +160,10 @@ In IronLAB a polar axes is an axes whose x carries the angle and y the radius, s
 | --- | --- | --- | --- | --- |
 | Line in polar axes | `polarplot` | `plot` | `Scatterpolar` with `mode="lines"` | `polarplot`, or `plot` in a polar axes |
 | Markers in polar axes | `polarscatter` | `scatter` | `Scatterpolar` with `mode="markers"` | `polarscatter`, or `scatter` in a polar axes |
-| Wedges at angles (a polar bar chart or wind rose) | `polarhistogram`, from a sample | `bar` | `Barpolar` | `bar` in a polar axes |
+| Wedges of given lengths at angles (a polar bar chart) | `polarhistogram` with `BinEdges` and `BinCounts` | `bar` | `Barpolar` | `bar` in a polar axes |
+| Histogram of angles over one turn | `polarhistogram` | `hist` of angles wrapped by hand, then `bar` in a polar axes | `Barpolar` of counts binned by hand | `polar_hist` |
+| Wind rose of directions and speeds | no equivalent | python-windrose's `WindroseAxes.bar` | `px.bar_polar` of frequencies binned by hand | `wind_rose` |
+| Radar chart | no equivalent; `polarplot` with the first value repeated | `plot` and `fill` in a polar axes with the first value repeated | `Scatterpolar` with `fill="toself"`; Chart.js draws it as the `radar` chart type | `spokes` and `radar` |
 | Rings that sweep through angles (a radial bar chart) | no equivalent | `barh` | no equivalent trace | `barh` in a polar axes |
 | A field on an angle–radius grid | no equivalent in polar axes | `contourf` or `pcolormesh` | no equivalent trace | `contourf` or `surface` in a polar axes |
 
@@ -178,6 +182,8 @@ In IronLAB a polar axes is an axes whose x carries the angle and y the radius, s
 
 MATLAB's `polarplot` and matplotlib take the angles of the data in radians, whereas IronLAB, like Plotly, takes them in degrees unless the axes is given other angle units. The hole is a fraction of the rim radius, as Plotly's `hole` is; matplotlib's `set_rorigin` gives the radius that the centre would stand for instead.
 
+Radar charts, polar histograms and wind roses are drawn with ordinary artists rather than with artists of their own: a radar outline is a filled series, a polar histogram is a histogram of wrapped angles, and a wind rose is a set of stacked bars. [Radar charts](../guides/getting-started.md#radar-charts) and [polar histograms and wind roses](../guides/getting-started.md#polar-histograms-and-wind-roses) describe the functions, and the [Radar chart](../gallery/radar_chart.md), [Polar histograms](../gallery/polar_histogram.md) and [Wind rose](../gallery/wind_rose.md) gallery entries show them.
+
 ## Axes
 
 These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks) and, for categorical axes, in [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows).
@@ -195,4 +201,4 @@ Every angle is in degrees anticlockwise from horizontal, as in MATLAB, so 45 giv
 
 ## Plots without an equivalent
 
-IronLAB does not yet draw stem, area or error-bar plots, patches or streamlines. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.
+IronLAB does not yet draw stem or error-bar plots, stacked area plots, patches or streamlines; the area under a single line is a series with a fill, as the table of lines and markers shows. The [figure schema](figure-schema.md#extending-the-model-with-new-plot-types) describes how such plot types are added.

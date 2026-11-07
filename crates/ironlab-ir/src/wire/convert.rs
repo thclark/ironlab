@@ -713,6 +713,9 @@ impl Encode for Series {
             x_coords: self.x_coords.to_wire(),
             y_coords: self.y_coords.to_wire(),
             clip: Some(self.clip),
+            base: self.base,
+            fill: Some(encode_color_spec(self.fill)),
+            fill_opacity: Some(self.fill_opacity),
         }
     }
 }
@@ -1889,6 +1892,9 @@ impl Decode for Series {
             x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
             y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
             clip: wire.clip.unwrap_or(default.clip),
+            base: wire.base,
+            fill: decode_color_spec(wire.fill, default.fill),
+            fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
         })
     }
 }
