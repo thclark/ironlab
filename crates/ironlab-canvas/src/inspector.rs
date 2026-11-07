@@ -713,6 +713,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::View2d
         | ValueType::PolarView
         | ValueType::SphericalView
         | ValueType::Axis
@@ -903,6 +904,7 @@ fn editor_for(
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::View2d
         | ValueType::PolarView
         | ValueType::SphericalView
         | ValueType::Axis

@@ -25,7 +25,7 @@ use crate::artist::{
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
     Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    View2d, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
@@ -984,6 +984,13 @@ ir_value! {
             "The vertical offset of the projected box as a fraction of the plot area's height, increasing downwards.";
     }
 
+    View2d as View2d {
+        plain "pan_x" => pan_x: f64 =
+            "The horizontal offset of the drawn axes as a fraction of the plot area's width, increasing to the right.";
+        plain "pan_y" => pan_y: f64 =
+            "The vertical offset of the drawn axes as a fraction of the plot area's height, increasing downwards.";
+    }
+
     Axis as Axis {
         optional "label" => label: Text = "The axis label.";
         plain "scale" => scale: Scale =
@@ -1258,6 +1265,7 @@ ir_tagged! {
         Polar {
             plain "polar" => polar: PolarView =
                 "How angles are measured and where the sector and the hole lie on the page.";
+            plain "view" => view: View2d = "Where the drawn axes lie within the plot area.";
         }
         Cylindrical {
             plain "view3d" => view3d: View3d = "The camera view.";

@@ -36,7 +36,7 @@ use ironlab_ir::{
     ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
     InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
     Parameter, PixelRange, PolarView, PropertyPath, SphericalView, Text, TileLayout, TrackSize,
-    Value, ValueType, View3d, choices,
+    Value, ValueType, View2d, View3d, choices,
 };
 
 use crate::widgets::{
@@ -904,6 +904,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Parameters => Some(Value::Parameters(BTreeMap::new())),
         ValueType::Cell => Some(Value::Cell(IrCell::default())),
         ValueType::View3d => Some(Value::View3d(View3d::default())),
+        ValueType::View2d => Some(Value::View2d(View2d::default())),
         ValueType::PolarView => Some(Value::PolarView(PolarView::default())),
         ValueType::SphericalView => Some(Value::SphericalView(SphericalView::default())),
         ValueType::Axis => Some(Value::Axis(Axis::default())),

@@ -24,7 +24,7 @@ use crate::{
     PanelLegend, PanelLocation, Parameter, PerBar, PixelRange, PolarAngle, PolarView, Projection,
     Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, SphericalView, Stairs, StairsData,
     StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
-    Value, Values, View3d,
+    Value, Values, View2d, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -367,14 +367,22 @@ fn encode_view3d(view: View3d) -> w::View3d {
     }
 }
 
+fn encode_view2d(view: View2d) -> w::View2d {
+    w::View2d {
+        pan_x: Some(view.pan_x),
+        pan_y: Some(view.pan_y),
+    }
+}
+
 fn encode_projection(projection: Projection) -> w::Projection {
     let kind = match projection {
         Projection::TwoD => w::ProjectionKind::TwoD(w::ProjectionTwoD {}),
         Projection::ThreeD { view3d } => w::ProjectionKind::ThreeD(w::ProjectionThreeD {
             view3d: Some(encode_view3d(view3d)),
         }),
-        Projection::Polar { polar } => w::ProjectionKind::Polar(w::ProjectionPolar {
+        Projection::Polar { polar, view } => w::ProjectionKind::Polar(w::ProjectionPolar {
             polar: Some(encode_polar_view(polar)),
+            view: Some(encode_view2d(view)),
         }),
         Projection::Cylindrical { view3d, polar } => {
             w::ProjectionKind::Cylindrical(w::ProjectionCylindrical {
@@ -1384,6 +1392,14 @@ fn decode_view3d(wire: w::View3d) -> View3d {
     }
 }
 
+fn decode_view2d(wire: w::View2d) -> View2d {
+    let default = View2d::default();
+    View2d {
+        pan_x: wire.pan_x.unwrap_or(default.pan_x),
+        pan_y: wire.pan_y.unwrap_or(default.pan_y),
+    }
+}
+
 fn decode_legend(wire: w::Legend, at: &str) -> Result<Legend> {
     Ok(match wire.kind {
         None => Legend::default(),
@@ -1764,6 +1780,7 @@ fn decode_projection(
         },
         Some(w::ProjectionKind::Polar(polar)) => Projection::Polar {
             polar: decode_polar_view(polar.polar.unwrap_or_default(), &join(at, "polar.polar"))?,
+            view: decode_view2d(polar.view.unwrap_or_default()),
         },
         Some(w::ProjectionKind::Cylindrical(cylindrical)) => Projection::Cylindrical {
             view3d: decode_view3d(cylindrical.view3d.unwrap_or_default()),
@@ -2697,6 +2714,9 @@ fn encode_value(value: &Value) -> w::Value {
         Value::View3d(v) => w::ValueKind::View3d(w::ValueView3d {
             value: Some(encode_view3d(*v)),
         }),
+        Value::View2d(v) => w::ValueKind::View2d(w::ValueView2d {
+            value: Some(encode_view2d(*v)),
+        }),
         Value::PolarView(v) => w::ValueKind::PolarView(w::ValuePolarView {
             value: Some(encode_polar_view(*v)),
         }),
@@ -3095,6 +3115,10 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         w::ValueKind::View3d(v) => {
             let (view, _) = value_message(v.value, at, "view3d_value")?;
             Value::View3d(decode_view3d(view))
+        }
+        w::ValueKind::View2d(v) => {
+            let (view, _) = value_message(v.value, at, "view2d_value")?;
+            Value::View2d(decode_view2d(view))
         }
         w::ValueKind::Axis(v) => {
             let (axis, at) = value_message(v.value, at, "axis_value")?;

@@ -94,7 +94,7 @@ pub use artist::{
 pub use axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
     Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    View2d, View3d,
 };
 pub use color_scale::{
     CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,

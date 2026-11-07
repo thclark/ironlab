@@ -5,10 +5,15 @@
 //! clockwise, and the radius runs from its lower limit at the centre (or at the edge of the hole) to its upper limit at
 //! the rim, the other way round when `y.reverse` is set. The sector, between its edge angles and including the centre,
 //! is scaled uniformly to fit the plot rectangle and centred in it, so a polar axes is always drawn round.
+//!
+//! The pan of the view then moves the drawn axes, its centre and everything placed from it (the grid, the frame, the
+//! tick labels, the artists and their sector clip), across the plot rectangle by fractions of its width and height,
+//! without changing the margins. A panned axes is clipped to its outer rectangle, as a 3D axes is; the axis labels and
+//! the title stay where the unpanned axes places them.
 
 use std::f64::consts::TAU;
 
-use ironlab_ir::{NodeId, PolarView};
+use ironlab_ir::{NodeId, PolarView, View2d};
 
 use crate::display::{Item, ItemKind, Point, Rect};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
@@ -99,7 +104,8 @@ struct Geometry {
     angles: (f64, f64),
     /// Whether the sector is a full turn.
     full: bool,
-    /// The bounding box of the sector on the page, centre included.
+    /// The bounding box of the unpanned sector on the page, centre included, from which the axis labels and the title
+    /// are placed.
     fitted: Rect,
 }
 
@@ -116,8 +122,18 @@ impl Geometry {
     }
 }
 
-/// Fits the sector of a polar axes into its plot rectangle and builds its maps.
-fn geometry(polar: PolarView, x: Range, y: Range, plot: Rect) -> Geometry {
+/// Returns the page offset by which the pan of a view moves a polar axes drawn in `plot`; a pan that is not finite
+/// is taken as zero.
+fn pan_offset(view: View2d, plot: Rect) -> (f64, f64) {
+    let finite_or_zero = |p: f64| if p.is_finite() { p } else { 0.0 };
+    (
+        finite_or_zero(view.pan_x) * plot.width,
+        finite_or_zero(view.pan_y) * plot.height,
+    )
+}
+
+/// Fits the sector of a polar axes into its plot rectangle, moves it by the pan of the view and builds its maps.
+fn geometry(polar: PolarView, view: View2d, x: Range, y: Range, plot: Rect) -> Geometry {
     let turn = polar.angle_units.turn();
     let turn = if turn.is_finite() && turn > 0.0 {
         turn
@@ -147,10 +163,12 @@ fn geometry(polar: PolarView, x: Range, y: Range, plot: Rect) -> Geometry {
         0.0
     };
     let middle = Point::new(plot.x + plot.width / 2.0, plot.y + plot.height / 2.0);
-    let centre = Point::new(
+    let home = Point::new(
         middle.x - rim * (bx0 + bx1) / 2.0,
         middle.y + rim * (by0 + by1) / 2.0,
     );
+    let (dx, dy) = pan_offset(view, plot);
+    let centre = Point::new(home.x + dx, home.y + dy);
     let fraction = if polar.hole.is_finite() {
         polar.hole.clamp(0.0, 0.99)
     } else {
@@ -176,8 +194,8 @@ fn geometry(polar: PolarView, x: Range, y: Range, plot: Rect) -> Geometry {
         warp: Warp::Polar { centre },
     };
     let fitted = Rect::new(
-        centre.x + rim * bx0,
-        centre.y - rim * by1,
+        home.x + rim * bx0,
+        home.y - rim * by1,
         rim * (bx1 - bx0),
         rim * (by1 - by0),
     );
@@ -197,16 +215,22 @@ pub(super) fn emit(
     ctx: &mut Ctx,
     input: &AxesInput,
     polar: PolarView,
+    view: View2d,
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
     let axes = input.axes;
     let plot = input.plot;
     let [xr, yr, _] = *input.ranges;
-    let g = geometry(polar, xr, yr, plot);
+    let g = geometry(polar, view, xr, yr, plot);
     let space = Space::TwoD(g.plane);
+    // A panned axes is drawn into its own list and clipped to the outer rectangle, so that nothing it moves escapes its
+    // cell; an unpanned one is drawn straight into the display list.
+    let panned = pan_offset(view, plot) != (0.0, 0.0);
+    let mut drawn_axes = Vec::new();
+    let target = if panned { &mut drawn_axes } else { &mut *out };
 
-    draw_grid(input, &g, out);
+    draw_grid(input, &g, target);
 
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
@@ -231,10 +255,20 @@ pub(super) fn emit(
         .filter(|(_, clip)| *clip != plot)
         .collect();
     let groups = clip_groups(axes.id, plot, data, &released);
-    out.extend(sector_clipped(axes.id, &g, plot, groups));
+    target.extend(sector_clipped(axes.id, &g, plot, groups));
 
-    draw_frame(input, &g, out);
-    draw_labels(ctx, input, &g, out);
+    draw_frame(input, &g, target);
+    draw_labels(ctx, input, &g, target);
+    if panned {
+        out.push(Item {
+            source: Some(axes.id),
+            kind: ItemKind::Group {
+                clip: Some(input.outer),
+                transform: None,
+                items: drawn_axes,
+            },
+        });
+    }
     colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
@@ -442,7 +476,7 @@ fn draw_labels(ctx: &mut Ctx, input: &AxesInput, g: &Geometry, out: &mut Vec<Ite
     let decor = input.decor;
     let [xt, yt, _] = &decor.ticks;
     let polar = match axes.projection {
-        ironlab_ir::Projection::Polar { polar } => polar,
+        ironlab_ir::Projection::Polar { polar, .. } => polar,
         _ => PolarView::default(),
     };
 

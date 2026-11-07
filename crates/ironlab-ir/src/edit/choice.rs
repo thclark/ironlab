@@ -28,7 +28,7 @@ use crate::artist::{
 };
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, PolarAngle,
-    PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
+    PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View2d, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -240,6 +240,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Parameters
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::View2d
         | ValueType::PolarView
         | ValueType::SphericalView
         | ValueType::Axis
@@ -715,6 +716,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Parameters(_)
         | Value::Cell(_)
         | Value::View3d(_)
+        | Value::View2d(_)
         | Value::PolarView(_)
         | Value::SphericalView(_)
         | Value::Axis(_)
@@ -811,6 +813,15 @@ fn replaced_polar_view(replacing: Option<&Value>) -> PolarView {
     .unwrap_or_default()
 }
 
+/// Returns the view of the polar axes being replaced, when the projection being replaced is
+/// polar, so that its pan is kept; otherwise the default, which centres the axes.
+fn replaced_view2d(replacing: Option<&Value>) -> View2d {
+    match replacing {
+        Some(Value::Projection(Projection::Polar { view, .. })) => *view,
+        _ => View2d::default(),
+    }
+}
+
 tagged_choices! {
     Projection as Projection (projection_choices, projection_label) replacing replacing {
         Projection::TwoD => "Two-dimensional" = Projection::TwoD;
@@ -819,6 +830,7 @@ tagged_choices! {
         };
         Projection::Polar { .. } => "Polar" = Projection::Polar {
             polar: replaced_polar_view(replacing),
+            view: replaced_view2d(replacing),
         };
         Projection::Cylindrical { .. } => "Cylindrical" = Projection::Cylindrical {
             view3d: replaced_view3d(replacing),

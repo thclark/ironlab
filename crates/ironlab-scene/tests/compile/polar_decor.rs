@@ -41,7 +41,13 @@ fn view(angle_units: AngleUnits) -> PolarView {
 /// which are fixed so that the radial map is known; `edit` adjusts the axes before the figure is built.
 fn polar_figure(polar: PolarView, edit: impl FnOnce(&mut ironlab_ir::Axes)) -> (Figure, NodeId) {
     let mut fx = Fx::new();
-    let ax = fx.axes_in(crate::common::cell(0, 0, 1, 1), Projection::Polar { polar });
+    let ax = fx.axes_in(
+        crate::common::cell(0, 0, 1, 1),
+        Projection::Polar {
+            polar,
+            view: ironlab_ir::View2d::default(),
+        },
+    );
     let turn = polar.angle_units.turn();
     fx.line(
         ax,

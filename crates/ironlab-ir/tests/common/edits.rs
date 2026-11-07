@@ -442,6 +442,10 @@ pub fn projections_figure() -> Figure {
                 hole: 0.25,
                 radial_labels_at: Some(3.0),
             },
+            view: View2d {
+                pan_x: 0.125,
+                pan_y: -0.25,
+            },
         },
         Projection::Cylindrical {
             view3d: View3d {
@@ -651,6 +655,10 @@ pub fn perturb(value: &Value) -> Value {
         Value::PolarAngle(PolarAngle::Inclination) => Value::PolarAngle(PolarAngle::Elevation),
         Value::View3d(view) => Value::View3d(View3d {
             zoom: view.zoom + 0.5,
+            ..*view
+        }),
+        Value::View2d(view) => Value::View2d(View2d {
+            pan_x: view.pan_x + 0.25,
             ..*view
         }),
         Value::Axis(axis) => Value::Axis(Axis {
@@ -991,7 +999,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 87;
+pub const VALUE_VARIANTS: usize = 88;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -1087,6 +1095,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::SphericalView(_) => 84,
         Value::AngleUnits(_) => 85,
         Value::PolarAngle(_) => 86,
+        Value::View2d(_) => 87,
     }
 }
 
@@ -1160,6 +1169,10 @@ pub fn sample_values() -> Vec<Value> {
             },
         }),
         Value::View3d(View3d::default()),
+        Value::View2d(View2d {
+            pan_x: -0.375,
+            pan_y: 0.5,
+        }),
         Value::PolarView(PolarView {
             angle_units: AngleUnits::PerTurn(24.0),
             zero_deg: 90.0,

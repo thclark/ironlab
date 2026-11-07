@@ -14,7 +14,7 @@ use std::f64::consts::TAU;
 use ironlab_ir::{
     Artist, Aspect, AspectAdjust, Axes, Color, ColorScaleKind, Coords, Dimension, Figure, Image,
     ImagePlacement, Limits, NdArray, NodeId, OutOfRange, PixelRange, PolarView, Projection,
-    ScalarImage, Scale, Series, SphericalView, Text, Value, View3d,
+    ScalarImage, Scale, Series, SphericalView, Text, Value, View2d, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap, HitMap, LegendHit, LegendOwner};
@@ -3047,11 +3047,13 @@ fn rotating_zooming_and_panning_a_3d_axes_never_changes_its_box_proportions() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Polar axes: the radius zooms and pans, the angle turns
+// Polar axes: the radius zooms and the whole axes pans
 // ---------------------------------------------------------------------------------------------------------------
 //
 // A polar axes has no rectangle of data for a band to select, and its angular limits are a sector rather than a
-// window, so its gestures act on the radial limits and on the direction of angle 0 (`projection.polar.zero_deg`).
+// window, so its zoom gestures act on the radial limits alone, and a pan moves the whole drawn axes through
+// `projection.view.pan_x` and `pan_y`, as a pan moves the camera of a 3D axes. Angle 0 is turned only through its
+// property.
 // The hit maps are built by hand: the plot rectangle is `PLOT`, so the circle that fits it has its centre at
 // (150, 70) and a rim radius of 50 points. The angle map produces the page angle in radians, anticlockwise from east,
 // and the radius map the page radius in points, as the scene compiler records them; a point at page angle `a` and
@@ -3067,6 +3069,7 @@ fn axes_polar(id: u64, radius: (f64, f64), log: bool) -> Axes {
         id: NodeId(id),
         projection: Projection::Polar {
             polar: PolarView::default(),
+            view: View2d::default(),
         },
         x: ironlab_ir::Axis {
             limits: manual(0.0, 360.0),
@@ -3139,26 +3142,62 @@ fn single_polar(clockwise: bool, radius: (f64, f64), log: bool) -> (FigureState,
 
 fn polar_of(figure: &Figure, id: u64) -> PolarView {
     match figure.axes(NodeId(id)).expect("axes exists").projection {
-        Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => polar,
+        Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => polar,
         other => panic!("axes {id} is not polar: {other:?}"),
     }
 }
 
-// Why: zooming a polar plot means magnifying the radius: the centre (the lower radial limit) stays the centre, as in
-// MATLAB and matplotlib, because zooming about the pointer would move the origin off the centre, which a polar axes
-// cannot draw. The wheel therefore scales the radial span about the lower limit, by the same factor as a 2D wheel
-// zoom, wherever the pointer is in the disc, and leaves the sector and the direction of angle 0 alone.
+fn view2d_of(figure: &Figure, id: u64) -> View2d {
+    match figure.axes(NodeId(id)).expect("axes exists").projection {
+        Projection::Polar { view, .. } => view,
+        other => panic!("axes {id} is not a 2D polar axes: {other:?}"),
+    }
+}
+
+/// The hit geometry of a polar axes like [`hit_polar`], with its centre moved to `centre`, as the compiler publishes
+/// it for a panned axes, and its radius running from the rim to the centre when `reverse` is set.
+fn hit_polar_at(id: u64, centre: Point, radius: (f64, f64), log: bool, reverse: bool) -> AxesHit {
+    let mut hit = hit_polar(id, 0.0, false, radius, log);
+    if let AxesHitKind::Polar {
+        centre: c, y: map, ..
+    } = &mut hit.kind
+    {
+        *c = centre;
+        if reverse {
+            (map.start, map.end) = (map.end, map.start);
+        }
+    }
+    hit
+}
+
+/// Returns the data radius drawn `r` points from the centre of a polar axes whose radial limits are `limits`, on a
+/// linear radius from the centre to the rim.
+fn radius_at(limits: (f64, f64), r: f64) -> f64 {
+    let AxesHitKind::Polar { y, .. } = hit_polar(2, 0.0, false, limits, false).kind else {
+        unreachable!("the hit map is polar")
+    };
+    y.to_data(r)
+}
+
+// Why: zooming a polar plot magnifies the radius about the feature the reader points at: the radius under the pointer
+// must stay under it, as the data point under the pointer does in a 2D wheel zoom, so that a ring of interest grows
+// in place instead of sliding away. The pointer at 30 points reads radius 3.4 of (1, 5); after zooming in by 2 and
+// redrawing with the new limits, 30 points must still read 3.4. The sector, angle 0 and the pan are left alone.
 #[test]
-fn the_wheel_in_polar_axes_scales_the_radial_span_about_the_lower_limit_wherever_the_pointer_is() {
-    for at in [on_page(30.0, 20.0), on_page(200.0, 45.0)] {
+fn the_wheel_in_polar_axes_zooms_the_radial_limits_about_the_radius_under_the_pointer() {
+    for at in [on_page(30.0, 30.0), on_page(200.0, 30.0)] {
         let (mut state, hit) = single_polar(false, (1.0, 5.0), false);
 
         assert!(state.scroll(&hit, at, 2.0), "the wheel zooms at {at:?}");
 
-        assert_eq!(
-            manual_of(state.figure(), 2, Dimension::Y),
-            (1.0, 3.0),
-            "the span of 4 halves about the lower limit 1"
+        let y = manual_of(state.figure(), 2, Dimension::Y);
+        assert_close(y.0, 2.2, EPS, "the lower limit");
+        assert_close(y.1, 4.2, EPS, "the upper limit");
+        assert_close(
+            radius_at(y, 30.0),
+            3.4,
+            EPS,
+            "the radius under the pointer stays under it",
         );
         assert_eq!(
             manual_of(state.figure(), 2, Dimension::X),
@@ -3170,27 +3209,36 @@ fn the_wheel_in_polar_axes_scales_the_radial_span_about_the_lower_limit_wherever
             0.0,
             "angle 0 is not turned"
         );
-
-        let zoomed = hit_of(vec![hit_polar(2, 0.0, false, (1.0, 3.0), false)]);
-        assert!(state.scroll(&zoomed, at, 0.5));
-        let y = manual_of(state.figure(), 2, Dimension::Y);
-        assert_close(y.0, 1.0, EPS, "zooming back out keeps the lower limit");
-        assert_close(y.1, 5.0, EPS, "and restores the upper limit");
+        assert_eq!(
+            view2d_of(state.figure(), 2),
+            View2d::default(),
+            "the axes is not moved"
+        );
     }
 }
 
-// Why: on a logarithmic radius the lower limit is still at the centre, and the zoom must act on decades, as a wheel
-// zoom does on any logarithmic axis: halving the decades shown from four to two, never producing a non-positive
-// limit.
+// Why: on a logarithmic radius the zoom must act on decades, as a wheel zoom does on any logarithmic axis, and never
+// produce a non-positive limit: the pointer halfway out on four decades from 1 reads 100, and zooming in by 2 shows
+// the two decades about it.
 #[test]
-fn the_wheel_on_a_logarithmic_radius_scales_the_decades_shown_about_the_lower_limit() {
+fn the_wheel_on_a_logarithmic_radius_zooms_the_decades_about_the_radius_under_the_pointer() {
     let (mut state, hit) = single_polar(false, (1.0, 1e4), true);
 
     assert!(state.scroll(&hit, on_page(60.0, 25.0), 2.0));
 
     let y = manual_of(state.figure(), 2, Dimension::Y);
-    assert_close(y.0, 1.0, EPS, "the lower limit stays at the centre");
-    assert_close(y.1, 100.0, 1e-9 * 100.0, "four decades become two");
+    assert_close(
+        y.0,
+        10.0,
+        1e-9 * 10.0,
+        "the lower limit is a decade below 100",
+    );
+    assert_close(
+        y.1,
+        1000.0,
+        1e-9 * 1000.0,
+        "the upper limit is a decade above it",
+    );
 }
 
 // Why: a polar axes is a disc, not its plot rectangle, so a pointer in a corner of the rectangle, outside the rim, is
@@ -3205,110 +3253,232 @@ fn the_wheel_outside_the_rim_of_a_polar_axes_does_nothing() {
     assert_eq!(state.figure(), &before);
 }
 
-// Why: dragging around the centre with the pan tool turns the plot, as grabbing a dial does: the angle under the
-// pointer must follow the pointer. `zero_deg` is the page direction of angle 0, anticlockwise from east, whatever the
-// direction in which the angles increase, so moving the pointer 30° anticlockwise on the page turns `zero_deg` by
-// +30 for clockwise angles as well as anticlockwise ones; a turn whose sign followed the data direction instead
-// would make the plot spin against the pointer in a clockwise compass plot. The pointer stays on one radius, so the
-// radial limits do not move. The data angle under the pointer is checked against the turned hit map, which is how
-// the compiler would redraw it.
+// Why: a panned polar axes is drawn about a moved centre, and the pointer must be read against the centre the reader
+// sees, which the compiler publishes in the hit map. With the centre moved 20 points right and 10 down, a pointer 30
+// points from the moved centre must zoom exactly as a pointer 30 points from the centre of an unpanned axes does.
 #[test]
-fn a_pan_drag_around_the_centre_turns_angle_zero_so_that_the_grabbed_angle_follows_the_pointer() {
+fn the_wheel_in_panned_polar_axes_reads_the_pointer_against_the_moved_centre() {
+    let (mut state, _) = single_polar(false, (1.0, 5.0), false);
+    let centre = Point::new(POLAR_CENTRE.x + 20.0, POLAR_CENTRE.y + 10.0);
+    let hit = hit_of(vec![hit_polar_at(2, centre, (1.0, 5.0), false, false)]);
+
+    assert!(state.scroll(&hit, Point::new(centre.x, centre.y - 30.0), 2.0));
+
+    let y = manual_of(state.figure(), 2, Dimension::Y);
+    assert_close(y.0, 2.2, EPS, "the lower limit");
+    assert_close(y.1, 4.2, EPS, "the upper limit");
+}
+
+// Why: panning a polar axes moves the whole drawn axes with the pointer, as panning a 3D axes moves its camera, so
+// that the reader can bring a part of the disc that a radial zoom pushed out of the plot area back into view. The
+// pan is the pointer displacement as fractions of the plot rectangle (`pan_x` to the right, `pan_y` downwards), and it
+// neither turns angle 0 nor slides the radial limits, which a pan drag used to do. Whatever the direction of the
+// angles, a drag round the centre is a displacement like any other.
+#[test]
+fn a_pan_drag_in_polar_axes_moves_the_axes_with_the_pointer_and_changes_no_limit_or_angle() {
     for clockwise in [false, true] {
         let (mut state, hit) = single_polar(clockwise, (0.0, 5.0), false);
-        let (from, to) = (on_page(10.0, 30.0), on_page(40.0, 30.0));
+        let (from, to) = (on_page(10.0, 30.0), on_page(40.0, 20.0));
 
         assert!(drag(&mut state, &hit, from, to), "clockwise {clockwise}");
 
-        let zero = polar_of(state.figure(), 2).zero_deg;
-        assert_close(zero, 30.0, 1e-9, "angle 0 turns with the pointer");
+        let view = view2d_of(state.figure(), 2);
+        assert_close(view.pan_x, (to.x - from.x) / PLOT.width, EPS, "pan x");
+        assert_close(view.pan_y, (to.y - from.y) / PLOT.height, EPS, "pan y");
         assert_eq!(
-            manual_of(state.figure(), 2, Dimension::Y),
-            (0.0, 5.0),
-            "a drag along a circle leaves the radial limits alone"
+            polar_of(state.figure(), 2).zero_deg,
+            0.0,
+            "angle 0 is not turned"
         );
-        let (AxesHitKind::Polar { x: before, .. }, AxesHitKind::Polar { x: after, .. }) = (
-            hit.axes[0].kind.clone(),
-            hit_polar(2, zero, clockwise, (0.0, 5.0), false).kind,
-        ) else {
-            unreachable!("both hit maps are polar")
-        };
-        assert_close(
-            after.to_data(40f64.to_radians()),
-            before.to_data(10f64.to_radians()),
-            1e-9,
-            "the data angle grabbed at 10° on the page is under the pointer at 40°",
-        );
-        assert_eq!(
-            manual_of(state.figure(), 2, Dimension::X),
-            (0.0, 360.0),
-            "turning moves angle 0, not the sector's limits"
-        );
+        assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 360.0));
+        assert_eq!(manual_of(state.figure(), 2, Dimension::Y), (0.0, 5.0));
     }
 }
 
-// Why: dragging along a radius with the pan tool slides the radial window, as a pan slides a 2D axis: the radius
-// grabbed under the pointer stays under it, so both limits move by the same data distance and the span is kept. The
-// pointer moves inward from 40 to 30 points along one spoke, so the grabbed radius 4 must end at 30 points, which
-// makes the limits (1, 6); and angle 0 is not turned.
+// Why: a second pan drag continues from where the first left the axes rather than snapping back, and the whole drag
+// is one undo step, as a 3D pan drag is.
 #[test]
-fn a_pan_drag_along_a_radius_moves_both_radial_limits_by_the_grabbed_distance() {
+fn a_pan_drag_in_polar_axes_adds_to_the_existing_pan_in_one_undo_step() {
+    let (mut state, _) = single_polar(false, (0.0, 5.0), false);
+    assert!(state.record(&set(2, "projection.view.pan_x", Value::Double(0.1))));
+    assert!(state.record(&set(2, "projection.view.pan_y", Value::Double(-0.05))));
+    let centre = Point::new(
+        POLAR_CENTRE.x + 0.1 * PLOT.width,
+        POLAR_CENTRE.y - 0.05 * PLOT.height,
+    );
+    let hit = hit_of(vec![hit_polar_at(2, centre, (0.0, 5.0), false, false)]);
+
+    state.drag_start(&hit, centre);
+    assert!(state.drag_update(Point::new(centre.x - 10.0, centre.y + 5.0)));
+    assert!(state.drag_update(Point::new(centre.x - 20.0, centre.y + 10.0)));
+    state.drag_end(Point::new(centre.x - 20.0, centre.y + 10.0));
+
+    let view = view2d_of(state.figure(), 2);
+    assert_close(view.pan_x, 0.1 - 20.0 / PLOT.width, EPS, "pan x");
+    assert_close(view.pan_y, -0.05 + 10.0 / PLOT.height, EPS, "pan y");
+    assert!(state.undo());
+    let view = view2d_of(state.figure(), 2);
+    assert_eq!(
+        (view.pan_x, view.pan_y),
+        (0.1, -0.05),
+        "one undo restores the pan before the drag"
+    );
+}
+
+// Why: zooming a polar axes to a range of radii is the radial counterpart of box zoom: the reader drags along a
+// radius, and on release the radial limits become the radii between the press and the release, in either order.
+// While dragging, the canvas shows the ring that will be shown, between the two radii, rather than a box, which would
+// suggest a rectangle of data that a polar axes does not have.
+#[test]
+fn a_zoom_drag_in_polar_axes_sets_the_radial_limits_to_the_dragged_radii_and_shows_a_ring() {
+    for (from, to) in [(10.0, 40.0), (40.0, 10.0)] {
+        let (mut state, hit) = single_polar(false, (0.0, 5.0), false);
+        state.tool = Tool::Zoom;
+
+        state.drag_start(&hit, on_page(20.0, from));
+        assert!(
+            !state.drag_update(on_page(25.0, to)),
+            "the drag only moves the ring"
+        );
+        assert_eq!(state.rubber_band(), None, "no box is drawn over polar axes");
+        let ring = state.rubber_ring().expect("a ring is drawn while dragging");
+        assert_eq!(ring.centre, POLAR_CENTRE);
+        assert_close(ring.inner, 10.0, 1e-9, "the inner radius of the ring");
+        assert_close(ring.outer, 40.0, 1e-9, "the outer radius of the ring");
+        assert!(state.drag_end(on_page(25.0, to)), "{from} to {to}");
+
+        let y = manual_of(state.figure(), 2, Dimension::Y);
+        assert_close(y.0, 1.0, 1e-9, "the lower limit is the radius at 10 points");
+        assert_close(y.1, 4.0, 1e-9, "the upper limit is the radius at 40 points");
+        assert_eq!(manual_of(state.figure(), 2, Dimension::X), (0.0, 360.0));
+        assert_eq!(state.rubber_ring(), None, "the ring disappears on release");
+    }
+}
+
+// Why: the radii are read through the radial map the axes is drawn with, so a reversed radius (the upper limit at the
+// centre) selects the values drawn under the dragged ring, not their mirror, and a logarithmic radius selects decades.
+#[test]
+fn a_zoom_drag_reads_the_dragged_radii_on_a_reversed_or_logarithmic_radius() {
+    let (mut state, _) = single_polar(false, (0.0, 5.0), false);
+    state.tool = Tool::Zoom;
+    let hit = hit_of(vec![hit_polar_at(2, POLAR_CENTRE, (0.0, 5.0), false, true)]);
+    assert!(drag(
+        &mut state,
+        &hit,
+        on_page(0.0, 10.0),
+        on_page(0.0, 20.0)
+    ));
+    let y = manual_of(state.figure(), 2, Dimension::Y);
+    assert_close(
+        y.0,
+        3.0,
+        1e-9,
+        "20 points from the centre of a reversed radius is 3",
+    );
+    assert_close(
+        y.1,
+        4.0,
+        1e-9,
+        "10 points from the centre of a reversed radius is 4",
+    );
+
+    let (mut state, hit) = single_polar(false, (1.0, 1e4), true);
+    state.tool = Tool::Zoom;
+    assert!(drag(
+        &mut state,
+        &hit,
+        on_page(0.0, 12.5),
+        on_page(0.0, 37.5)
+    ));
+    let y = manual_of(state.figure(), 2, Dimension::Y);
+    assert_close(
+        y.0,
+        10.0,
+        1e-9 * 10.0,
+        "a quarter of the way out on four decades",
+    );
+    assert_close(y.1, 1000.0, 1e-9 * 1000.0, "three quarters of the way out");
+}
+
+// Why: as a box zoom stops at the plot rectangle, a radial zoom stops at the radii the axes draws: a release beyond the
+// rim selects up to the upper limit rather than zooming out to radii that are not shown.
+#[test]
+fn a_zoom_drag_released_beyond_the_rim_stops_at_the_upper_radial_limit() {
     let (mut state, hit) = single_polar(false, (0.0, 5.0), false);
+    state.tool = Tool::Zoom;
 
     assert!(drag(
         &mut state,
         &hit,
-        on_page(25.0, 40.0),
-        on_page(25.0, 30.0)
+        on_page(0.0, 20.0),
+        on_page(0.0, 90.0)
     ));
 
     let y = manual_of(state.figure(), 2, Dimension::Y);
-    assert_close(y.0, 1.0, 1e-9, "the lower limit");
-    assert_close(y.1, 6.0, 1e-9, "the upper limit");
-    assert_close(
-        polar_of(state.figure(), 2).zero_deg,
-        0.0,
-        1e-9,
-        "a drag along a spoke does not turn the plot",
-    );
+    assert_close(y.0, 2.0, 1e-9, "the lower limit");
+    assert_close(y.1, 5.0, 1e-9, "the upper limit is the rim");
 }
 
-// Why: box zoom selects a rectangle of data, which a polar axes does not have; the Zoom tool must neither draw a band
-// that suggests it will zoom nor edit the figure, and the Rotate tool has no camera to turn in 2D polar axes.
+// Why: a click, or a drag round a circle, selects a ring of no width; zooming to it would show a sliver, so it must
+// change nothing and spend no undo step, as a box narrower than the minimum does.
 #[test]
-fn the_zoom_and_rotate_tools_do_not_drag_in_polar_axes() {
-    for tool in [Tool::Zoom, Tool::Rotate] {
+fn a_zoom_drag_with_negligible_radial_extent_does_nothing() {
+    for (from, to) in [
+        (on_page(20.0, 30.0), on_page(120.0, 30.0)),
+        (on_page(20.0, 30.0), on_page(20.0, 31.0)),
+    ] {
         let (mut state, hit) = single_polar(false, (0.0, 5.0), false);
-        state.tool = tool;
+        state.tool = Tool::Zoom;
         let before = state.figure().clone();
 
-        state.drag_start(&hit, on_page(10.0, 10.0));
-        assert!(!state.drag_update(on_page(80.0, 40.0)), "{tool:?}");
-        assert_eq!(
-            state.rubber_band(),
-            None,
-            "{tool:?}: no band over polar axes"
-        );
-        assert!(!state.drag_end(on_page(80.0, 40.0)), "{tool:?}");
-        assert_eq!(state.figure(), &before, "{tool:?}");
-        assert!(!state.can_undo(), "{tool:?}");
+        assert!(!drag(&mut state, &hit, from, to));
+
+        assert_eq!(state.figure(), &before);
+        assert!(!state.can_undo());
     }
 }
 
-// Why: double-click is the local reset of one axes; in a polar axes the navigation it must undo is the radial zoom
-// and pan and the turn of angle 0, which are view properties of the overlay, while the direction and the rest of the
+// Why: the Rotate tool turns a camera, which a 2D polar axes does not have; angle 0 is turned through its property
+// alone, so a Rotate drag must change nothing.
+#[test]
+fn the_rotate_tool_does_not_drag_in_polar_axes() {
+    let (mut state, hit) = single_polar(false, (0.0, 5.0), false);
+    state.tool = Tool::Rotate;
+    let before = state.figure().clone();
+
+    assert!(!drag(
+        &mut state,
+        &hit,
+        on_page(10.0, 10.0),
+        on_page(80.0, 40.0)
+    ));
+
+    assert_eq!(state.rubber_band(), None);
+    assert_eq!(state.rubber_ring(), None);
+    assert_eq!(state.figure(), &before);
+    assert!(!state.can_undo());
+}
+
+// Why: double-click is the local reset of one axes; in a polar axes the navigation it must undo is the radial zoom,
+// the pan and the turn of angle 0, which are view properties of the overlay, while the direction and the rest of the
 // polar view are content and stay as the figure set them.
 #[test]
-fn double_click_in_polar_axes_restores_the_radial_limits_and_the_direction_of_angle_zero() {
+fn double_click_in_polar_axes_restores_the_radial_limits_the_pan_and_the_direction_of_angle_zero() {
     let (mut state, hit) = single_polar(true, (0.0, 5.0), false);
     record_limits(&mut state, 2, Dimension::Y, manual(2.0, 3.0));
     assert!(state.record(&set(2, "projection.polar.zero_deg", Value::Double(75.0))));
+    assert!(state.record(&set(2, "projection.view.pan_x", Value::Double(0.2))));
     assert_eq!(polar_of(state.figure(), 2).zero_deg, 75.0);
 
     assert!(state.double_click(&hit, on_page(45.0, 20.0)));
 
     assert_eq!(manual_of(state.figure(), 2, Dimension::Y), (0.0, 5.0));
     assert_eq!(polar_of(state.figure(), 2), polar_of(state.source(), 2));
+    assert_eq!(
+        view2d_of(state.figure(), 2),
+        View2d::default(),
+        "the pan is reset"
+    );
     assert!(
         state.figure().axes(NodeId(2)).unwrap().x.reverse,
         "the clockwise direction is content, not navigation, and is kept"
@@ -3339,6 +3509,7 @@ fn rotate_is_offered_for_cylindrical_and_spherical_axes_but_not_for_polar_axes()
     }));
     assert!(!with(Projection::Polar {
         polar: PolarView::default(),
+        view: View2d::default(),
     }));
 }
 

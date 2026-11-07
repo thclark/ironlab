@@ -1631,7 +1631,7 @@ impl AxesMut<'_> {
                     view3d: View3d::default(),
                 };
             }
-            Projection::Polar { polar } => {
+            Projection::Polar { polar, .. } => {
                 axes.projection = Projection::Cylindrical {
                     view3d: View3d::default(),
                     polar,

@@ -298,6 +298,8 @@ proto_file! {
             AngleUnits(ValueAngleUnits) angle_units_value = 93;
             /// How the polar angle of a spherical axes is measured.
             PolarAngle(ValuePolarAngle) polar_angle_value = 94;
+            /// The view of a two-dimensional polar axes.
+            View2d(ValueView2d) view2d_value = 95;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -433,6 +435,12 @@ proto_file! {
     message ValueView3d {
         /// The view; it must be present.
         message View3d value = 1;
+    }
+
+    /// A two-dimensional view value.
+    message ValueView2d {
+        /// The view; it must be present.
+        message View2d value = 1;
     }
 
     /// A polar view value.

@@ -23,7 +23,10 @@ use serde_json::{Value as JsonValue, json};
 // ---------------------------------------------------------------------------------
 
 fn polar(polar: PolarView) -> Projection {
-    Projection::Polar { polar }
+    Projection::Polar {
+        polar,
+        view: View2d::default(),
+    }
 }
 
 fn cylindrical(polar: PolarView) -> Projection {
@@ -60,7 +63,7 @@ fn line_in(projection: Projection) -> (Figure, NodeId, NodeId) {
 /// Returns the polar view of a projection that has one, so that a test can change it.
 fn polar_view_mut(projection: &mut Projection) -> &mut PolarView {
     match projection {
-        Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => polar,
+        Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => polar,
         other => panic!("{other:?} has no polar view"),
     }
 }
@@ -68,7 +71,7 @@ fn polar_view_mut(projection: &mut Projection) -> &mut PolarView {
 /// Returns the angle units of any projection that measures angles.
 fn angle_units_mut(projection: &mut Projection) -> &mut AngleUnits {
     match projection {
-        Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => {
+        Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => {
             &mut polar.angle_units
         }
         Projection::Spherical { spherical, .. } => &mut spherical.angle_units,
@@ -184,8 +187,9 @@ fn projection_json(fig: &Figure) -> JsonValue {
 // Why: the JSON form is a public contract that hand-written files and other languages
 // follow; the projection is tagged by `type` in snake case with its views as named
 // fields, the angle units are tagged as the aspect is (a `type`, and the count of a
-// custom unit as `value`), the polar angle is a plain snake-case name, and an automatic
-// radial label spoke is written as null.
+// custom unit as `value`), the polar angle is a plain snake-case name, an automatic
+// radial label spoke is written as null, and the pan of polar axes is written in full as
+// the camera of 3D axes is.
 #[test]
 fn the_angular_projections_are_written_in_the_documented_json_form() {
     let (fig, _, _) = line_in(polar(PolarView {
@@ -203,7 +207,8 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
                 "zero_deg": 90.0,
                 "hole": 0.25,
                 "radial_labels_at": null
-            }
+            },
+            "view": { "pan_x": 0.0, "pan_y": 0.0 }
         })
     );
 
@@ -285,6 +290,13 @@ fn every_angular_projection() -> Vec<Projection> {
             hole: 0.0,
             radial_labels_at: Some(2.5),
         }),
+        Projection::Polar {
+            polar: PolarView::default(),
+            view: View2d {
+                pan_x: 0.375,
+                pan_y: -0.125,
+            },
+        },
         Projection::Cylindrical {
             view3d: View3d {
                 azimuth_deg: 10.0,
@@ -979,6 +991,66 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
     );
 }
 
+// Why: the pan of polar axes is a view property that the pan gesture sets and the property
+// editor shows, so it is read and set at `projection.view`, beside `projection.polar`, as
+// the camera of 3D axes is at `projection.view3d`; each field must change exactly that
+// field and leave the polar view alone, and the inverse must restore the figure.
+#[test]
+fn the_pan_of_polar_axes_is_set_by_flattened_paths() {
+    let (fig, axes, _) = line_in(polar(PolarView::default()));
+    assert_eq!(
+        fig.get(axes, &path("projection.view")).unwrap(),
+        Value::View2d(View2d::default())
+    );
+    let panned = |pan_x: f64, pan_y: f64| Projection::Polar {
+        polar: PolarView::default(),
+        view: View2d { pan_x, pan_y },
+    };
+    let cases: [(&str, Value, Projection); 3] = [
+        (
+            "projection.view.pan_x",
+            Value::Double(0.25),
+            panned(0.25, 0.0),
+        ),
+        (
+            "projection.view.pan_y",
+            Value::Double(-0.5),
+            panned(0.0, -0.5),
+        ),
+        (
+            "projection.view",
+            Value::View2d(View2d {
+                pan_x: 0.125,
+                pan_y: 0.375,
+            }),
+            panned(0.125, 0.375),
+        ),
+    ];
+    for (at, value, expected) in cases {
+        let (edited, inverse) = applied(&fig, &tx([set(axes, at, value)])).unwrap();
+        assert_eq!(edited.axes[0].projection, expected, "{at}");
+        assert_eq!(
+            edited.get(axes, &path(at)).unwrap(),
+            value_at(&expected, at),
+            "{at}: read back"
+        );
+        let (restored, _) = applied(&edited, &inverse).unwrap();
+        assert_eq!(restored, fig, "{at}: the inverse");
+    }
+}
+
+/// The value at a path of the pan of a polar projection.
+fn value_at(projection: &Projection, at: &str) -> Value {
+    let Projection::Polar { view, .. } = projection else {
+        panic!("the projection is polar");
+    };
+    match at {
+        "projection.view.pan_x" => Value::Double(view.pan_x),
+        "projection.view.pan_y" => Value::Double(view.pan_y),
+        _ => Value::View2d(*view),
+    }
+}
+
 // Why: cylindrical axes carry both a camera and a polar view, and spherical axes a camera
 // and a spherical view; each must be reachable at the same flattened paths as in the
 // projections they combine, so that one editor row and one drag serve every projection.
@@ -1158,7 +1230,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
     let decoded = Transaction::from_protobuf(&transaction.to_protobuf()).unwrap();
     assert_eq!(decoded, transaction);
     let Edit::Set {
-        value: Value::Projection(Projection::Polar { polar }),
+        value: Value::Projection(Projection::Polar { polar, .. }),
         ..
     } = &decoded.edits[0]
     else {
@@ -1275,6 +1347,25 @@ fn a_projection_choice_carries_the_camera_and_the_polar_view_across() {
     };
     assert_eq!(view3d, camera);
 
+    // The pan of polar axes is kept when polar axes are chosen again, and a projection
+    // without one gives polar axes centred in the plot area.
+    let pan = View2d {
+        pan_x: 0.25,
+        pan_y: -0.125,
+    };
+    let panned = Value::Projection(Projection::Polar {
+        polar: view,
+        view: pan,
+    });
+    assert_eq!(
+        choose(ValueType::Projection, Some(&panned), "Polar"),
+        panned
+    );
+    assert_eq!(
+        choose(ValueType::Projection, Some(&three_d), "Polar"),
+        Value::Projection(polar(PolarView::default()))
+    );
+
     let flat = Value::Projection(polar(view));
     assert_eq!(
         choose(ValueType::Projection, Some(&flat), "Cylindrical"),
@@ -1337,10 +1428,10 @@ fn keys(overlay: &Overlay) -> Vec<(NodeId, String)> {
 }
 
 // Why: turning a polar plot by dragging changes its zero direction, and orbiting a
-// cylindrical or spherical axes changes its camera; both are changes of view, so a
-// double-click must reset them, restoring the zero direction the figure was written
-// with. The hole, the units and the other properties are choices about content and must
-// survive the reset.
+// cylindrical or spherical axes changes its camera, and panning a polar axes moves it;
+// all are changes of view, so a double-click must reset them, restoring the zero direction
+// the figure was written with and centring the polar axes again. The hole, the units and
+// the other properties are choices about content and must survive the reset.
 #[test]
 fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_rest() {
     let (source, p, c) = overlay_fixture();
@@ -1353,6 +1444,12 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
     );
     record(&mut overlay, p, "projection.polar.hole", Value::Double(0.5));
     record(&mut overlay, p, "y.limits", Value::Limits(manual(0.0, 5.0)));
+    record(
+        &mut overlay,
+        p,
+        "projection.view.pan_x",
+        Value::Double(0.25),
+    );
     record(
         &mut overlay,
         c,
@@ -1374,10 +1471,14 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
 
     let composed = overlay.compose(&source);
     assert_eq!(composed.dropped, vec![]);
-    let Projection::Polar { polar: shown } = find_axes(&composed.figure, p).projection else {
+    let Projection::Polar { polar: shown, .. } = find_axes(&composed.figure, p).projection else {
         panic!("the axes stays polar");
     };
     assert_eq!(shown.zero_deg, 10.0);
+    let Projection::Polar { view: moved, .. } = find_axes(&composed.figure, p).projection else {
+        panic!("the axes stays polar");
+    };
+    assert_eq!(moved.pan_x, 0.25);
 
     overlay.reset_view(p);
     assert_eq!(
@@ -1390,7 +1491,7 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
         ]
     );
     let composed = overlay.compose(&source);
-    let Projection::Polar { polar: shown } = find_axes(&composed.figure, p).projection else {
+    let Projection::Polar { polar: shown, .. } = find_axes(&composed.figure, p).projection else {
         panic!("the axes stays polar");
     };
     assert_eq!(
@@ -1398,6 +1499,10 @@ fn resetting_the_view_restores_the_zero_direction_and_the_camera_and_keeps_the_r
         "the written zero direction is restored"
     );
     assert_eq!(shown.hole, 0.5, "the hole is kept");
+    let Projection::Polar { view: moved, .. } = find_axes(&composed.figure, p).projection else {
+        panic!("the axes stays polar");
+    };
+    assert_eq!(moved, View2d::default(), "the pan is reset");
 
     overlay.reset_view(c);
     assert_eq!(

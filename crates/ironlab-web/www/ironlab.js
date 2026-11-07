@@ -727,10 +727,23 @@ export class IronlabFigure extends HTMLElement {
     canvas.style.cursor = outcome.cursor || "";
     if (outcome.rubber_band) {
       const [x, y, w, h] = outcome.rubber_band;
+      delete band.dataset.shape;
+      band.style.borderWidth = "";
       band.style.left = `${x}px`;
       band.style.top = `${y}px`;
       band.style.width = `${w}px`;
       band.style.height = `${h}px`;
+      band.hidden = false;
+    } else if (outcome.rubber_ring) {
+      // The ring is the band drawn round: a circle of the outer radius whose border, as wide as the ring, is the
+      // wash, edged by two shadows on the outer and inner circles.
+      const [cx, cy, inner, outer] = outcome.rubber_ring;
+      band.dataset.shape = "ring";
+      band.style.borderWidth = `${outer - inner}px`;
+      band.style.left = `${cx - outer}px`;
+      band.style.top = `${cy - outer}px`;
+      band.style.width = `${2 * outer}px`;
+      band.style.height = `${2 * outer}px`;
       band.hidden = false;
     } else {
       band.hidden = true;
