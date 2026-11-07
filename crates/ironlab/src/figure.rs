@@ -433,6 +433,55 @@ impl Figure {
         axes
     }
 
+    /// Returns the axes that occupies the tile at a zero-based row and column as a polar
+    /// axes, creating one if no axes occupies the tile (MATLAB's `polaraxes`).
+    ///
+    /// An axes that is not yet polar is converted as [`AxesMut::make_polar`] converts it,
+    /// keeping its artists, and both of its grids are turned on, so that the spokes and the
+    /// circles that a polar plot is read by are drawn; an existing polar axes keeps its view
+    /// and its grids.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let theta = linspace(0.0, 360.0, 73);
+    /// let r: Vec<f64> = theta.iter().map(|t| 1.0 + t.to_radians().cos()).collect();
+    /// let mut fig = Figure::new();
+    /// fig.polar_axes(0, 0).theta_zero(ThetaZero::North).clockwise(true).plot(&theta, &r);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn polar_axes(&mut self, row: u32, col: u32) -> AxesMut<'_> {
+        let id = self.axes(row, col).id();
+        self.polar(id)
+    }
+
+    /// Returns the axes whose top-left tile is at a zero-based row and column as a polar axes
+    /// spanning the given numbers of rows and columns, as [`Figure::axes_span`] places it and
+    /// [`Figure::polar_axes`] converts it.
+    pub fn polar_axes_span(
+        &mut self,
+        row: u32,
+        col: u32,
+        row_span: u32,
+        col_span: u32,
+    ) -> AxesMut<'_> {
+        let id = self.axes_span(row, col, row_span, col_span).id();
+        self.polar(id)
+    }
+
+    /// Converts the axes `id` to polar axes with both grids on, unless it is already polar.
+    fn polar(&mut self, id: NodeId) -> AxesMut<'_> {
+        let mut axes = AxesMut::new(&mut self.ir, id);
+        let was_polar = matches!(axes.axes().projection, Projection::Polar { .. });
+        axes.make_polar();
+        if !was_polar && matches!(axes.axes().projection, Projection::Polar { .. }) {
+            let ir = axes.axes();
+            ir.x.grid = true;
+            ir.y.grid = true;
+        }
+        axes
+    }
+
     /// Returns the axes whose top-left tile is at a zero-based row and column, and
     /// makes it span the given numbers of rows and columns.
     ///

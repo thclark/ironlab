@@ -18,5 +18,6 @@ mod images;
 mod markers;
 mod raster;
 mod robustness;
+mod sector_clip;
 mod text;
 mod twophase;

@@ -33,6 +33,7 @@ Axes are placed in tiles, numbered from zero starting at the top-left tile.
 
 - `fig.axes(row, col)` returns the axes in that tile, creating a two-dimensional axes if the tile is empty. Calling it again with the same tile returns the same axes.
 - `fig.axes3(row, col)` does the same but makes the axes three-dimensional.
+- `fig.polar_axes(row, col)` does the same but makes the axes polar, as [polar axes](#polar-axes) describes.
 - `fig.axes_span(row, col, row_span, col_span)` returns an axes whose top-left tile is `(row, col)` and makes it cover the given numbers of rows and columns.
 
 Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans, and `fit_row` and `fit_col` make a row or column as large as the [legend panels it holds](legends.md#fitting-rows-and-columns-to-their-legends).
@@ -777,6 +778,45 @@ ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
 A series or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, line segments, markers and images are drawn from back to front for the current view, except that an image on a face of the axes box is painted behind or in front of all of them, and each surface face has a single flat colour. Each segment of a line is placed by its own depth, so that a line passing through a surface is drawn behind it and in front of it where it should be. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md), those for images in [ADR 0011](../adrs/0011-image-artists.md), and those for lines drawn by segment in [ADR 0025](../adrs/0025-series-replaces-line-and-scatter.md).
+
+## Polar axes
+
+A polar axes places each point by an angle and a radius. It has no axes of its own for them: x carries the angle and y the radius, so the limits, scale, direction, ticks and labels of those two axes apply to the angle and the radius, and every plotting function of a two-dimensional axes draws in it. `fig.polar_axes(row, col)` returns a polar axes with both grids on, so that the spokes and circles a polar plot is read by are drawn, and `make_polar` converts an existing axes. `polarplot` and `polarscatter` add exactly the series that `plot` and `scatter` add, converting the axes to polar first.
+
+```rust
+use ironlab::prelude::*;
+
+// A cardioid microphone pattern, in decibels relative to the front.
+let theta = linspace(0.0, 360.0, 361); // degrees, the default units
+let gain: Vec<f64> = theta
+    .iter()
+    .map(|t| (20.0 * (0.5 + 0.5 * t.to_radians().cos()).abs().max(1e-6).log10()).max(-30.0))
+    .collect();
+
+let mut fig = Figure::new().size_mm(100.0, 100.0);
+let mut ax = fig.polar_axes(0, 0);
+ax.theta_zero(ThetaZero::North) // angle 0 points up the page, as on a compass
+    .clockwise(true)            // angles increase clockwise
+    .rlim(-30.0, 0.0);          // -30 dB at the centre, 0 dB at the rim
+ax.polarplot(&theta, &gain).label("cardioid");
+```
+
+| Method | Effect |
+| --- | --- |
+| `theta_zero(zero)` | Sets the direction on the page in which angle 0 points: `ThetaZero::East` (the default), `North`, `West`, `South`, or `ThetaZero::Degrees(d)` for any angle anticlockwise from east. |
+| `clockwise(on)` | Makes angles increase clockwise rather than anticlockwise. The direction is the direction of the x axis, so `clockwise(true)` is `xreverse(true)`. |
+| `angle_units(units)` | Sets the units of the angles of the data: `AngleUnits::Degrees` (the default), `AngleUnits::Radians`, or `AngleUnits::PerTurn(n)` for `n` units to a turn, such as 24 hours or the number of categories of a radar chart. |
+| `thetalim(min, max)` | Fixes the angular limits, which draw a sector rather than the full turn; it is `xlim` under a name that says what it does. |
+| `rlim(min, max)` | Fixes the radial limits: the lower limit lies at the centre and the upper limit at the rim. It is `ylim`. |
+| `rscale(scale)` | Makes the radius linear or logarithmic. It is `yscale`; the angle cannot be logarithmic. |
+| `hole(fraction)` | Leaves the given fraction of the rim radius empty at the centre, and puts the lower radial limit on the edge of the hole. |
+| `radial_labels_at(angle)` | Draws the radial tick labels along the spoke at the given angle, in the units of the data, rather than halfway between the first two angular ticks. |
+
+Automatic angular limits are always the full turn, whatever the data, and automatic radial limits start at the centre for a linear radius whose data holds no negative value. Angular tick labels are written in the units of the angle: `45°` for degrees, multiples of π such as `π/4` for radians, and plain numbers for other units. A polar axes is always drawn round, so it ignores [`aspect`](#equal-aspect), and [`validate`](#validating-a-figure) warns of an aspect other than automatic with `AspectIgnored`.
+
+One rule decides how an artist is drawn in polar axes. **Direct artists**, which draw the data points themselves (series, contours, surfaces and quivers), join consecutive points with straight lines on the page, exactly as they do in Cartesian axes; they never interpolate between points, so a curve is drawn smoothly by sampling it finely, and a closed curve repeats its first point at its end, as the pattern above does at 360°. **Representing shapes**, which draw outlines made of edges at constant coordinates (bars, stairs, cells and the pixels of images), follow the axes: an edge at constant radius is an arc and an edge at constant angle is a spoke, so an upright bar becomes a wedge, a bar lying flat sweeps round the centre, and a cell or a pixel becomes an annular sector. A point whose radius lies below the lower radial limit, and so would lie beyond the centre, has no position and breaks a line, as a non-finite value does; nothing is reflected through the centre. A point beyond the rim is cut away at the rim.
+
+Cylindrical and spherical axes, which carry an azimuth, a radius and a height, or an azimuth, a polar angle and a radius, on x, y and z, are part of the figure model and can be saved, edited and validated, but the scene compiler does not yet draw them in their own coordinates. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule of angular axes exactly, and the [artists in polar axes](../reference/figure-schema.md#artists-in-polar-axes) section describes each artist. In the gallery, [Antenna directivity](../gallery/polar_directivity.md) draws a pattern with angle 0 at the north and clockwise angles, [Polar scatter](../gallery/polar_scatter.md) colours markers by data, [Fields on an angle–radius grid](../gallery/polar_field.md) draws a filled contour and a surface, [Sonar sweep in a polar sector](../gallery/polar_image.md) draws an image in a partial sector, [Radial and polar bars](../gallery/radial_bars.md) draws both orientations of bars, the second with a hole, and [Logarithmic radius](../gallery/log_radius.md) draws a line on a logarithmic radius. The viewer's gestures in polar axes are described under [panning](viewer.md#panning) and [zooming](viewer.md#zooming).
 
 ## Parameters
 

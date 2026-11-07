@@ -8,7 +8,8 @@
 use ironlab::ir::{
     Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
     ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter,
-    Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar, Projection, Scale, TickLabels,
+    Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar, PolarView, Projection, Scale,
+    TickLabels,
 };
 use ironlab_gallery::{all, find};
 
@@ -327,6 +328,81 @@ fn every_required_chart_type_is_present() {
         // exercise.
         ("turned tick labels", |_, axes, _| {
             is_2d(axes) && (axes.x.tick_label_angle != 0.0 || axes.y.tick_label_angle != 0.0)
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+}
+
+/// Returns the polar view of an axes, when the axes is polar.
+fn polar_view(axes: &Axes) -> Option<PolarView> {
+    match axes.projection {
+        Projection::Polar { polar } => Some(polar),
+        _ => None,
+    }
+}
+
+/// WHY: polar axes (#122) are drawn by a separate layout and decoration path, a sector clip in every backend, and a
+/// mapping that bends representing shapes (bar wedges, cell and pixel sectors) while joining data points with chords.
+/// Each row names a branch of that path that the defaults never reach, so that the PDF, viewer and documentation
+/// tests that iterate the gallery exercise it: a direct artist, a bar wedge, an image warped into a partial sector
+/// (manual angular limits, so the radial edges of the frame and the clamp to the sector are drawn), a logarithmic
+/// radius, a hole, a clockwise direction with a zero direction other than east, and the two direct 2D-field artists.
+#[test]
+fn polar_axes_are_covered() {
+    let requirements: [(&str, Predicate); 9] = [
+        ("polar line", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Series(l) if l.draws_line())
+        }),
+        ("polar scatter coloured by data", |_, axes, artist| {
+            polar_view(axes).is_some()
+                && matches!(artist, Artist::Series(s) if !s.draws_line() && s.draws_markers() && s.color_data.is_some())
+        }),
+        ("bars in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Bar(_))
+        }),
+        (
+            "scalar image in a partial polar sector",
+            |_, axes, artist| {
+                polar_view(axes).is_some()
+                    && matches!(axes.x.limits, Limits::Manual { .. })
+                    && matches!(artist, Artist::ScalarImage(_))
+            },
+        ),
+        ("logarithmic radius", |_, axes, _| {
+            polar_view(axes).is_some() && axes.y.scale == Scale::Log
+        }),
+        ("polar axes with a hole", |_, axes, _| {
+            polar_view(axes).is_some_and(|view| view.hole > 0.0)
+        }),
+        (
+            "clockwise polar axes with angle 0 away from east",
+            |_, axes, _| {
+                polar_view(axes).is_some_and(|view| view.zero_deg != 0.0) && axes.x.reverse
+            },
+        ),
+        ("filled contour in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Contour(c) if c.fill)
+        }),
+        ("surface in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Surface(_))
         }),
     ];
 

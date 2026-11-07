@@ -10,6 +10,7 @@ use super::artists::{AxesInput, Placement, Space, coalesce_markers, draw_artists
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
+use super::plane::Plane;
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
 use super::{colorbar, legend, limits::Range};
@@ -261,7 +262,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let [xr, yr, _] = *input.ranges;
     let x = axis_map(xr, plot.x, plot.right());
     let y = axis_map(yr, plot.bottom(), plot.y);
-    let space = Space::TwoD { x, y };
+    let space = Space::TwoD(Plane::cartesian(x, y));
     let decor = input.decor;
 
     draw_grid(input, &x, &y, out);
@@ -308,7 +309,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 /// group with that clip. An artist listed in `released` takes the clip listed with it, which extends beyond the plot
 /// area along the dimensions it places as fractions of the plot area; every other artist is clipped to the plot area.
 /// Grouping by runs keeps what covers what.
-fn clip_groups(
+pub(super) fn clip_groups(
     axes: NodeId,
     plot: Rect,
     items: Vec<Item>,

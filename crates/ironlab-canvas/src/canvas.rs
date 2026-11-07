@@ -2,8 +2,9 @@
 //!
 //! # Approach
 //!
-//! Every leaf of the display list is visited with [`DisplayList::visit_leaves_grouped`], which supplies the
-//! accumulated group transform, the effective clip rectangle in figure space and the enclosing depth group. Fills,
+//! Every leaf of the display list is visited with [`DisplayList::visit_leaves_sectored`], which supplies the
+//! accumulated group transform, the effective clip rectangle in figure space, the enclosing depth group and the
+//! enclosing sector clip. Fills,
 //! glyphs and images become triangles in figure points, with the group transform applied and nothing else; strokes
 //! become segments in the item space of their path, with the group transform carried in the draw's parameters. The
 //! mapping from figure points to the screen is a uniform of the painter, so that a list built once serves every
@@ -38,7 +39,9 @@
 //!   quad: the two triangles of every lattice cell, cut to the tile in pixel space and placed by their affine maps,
 //!   each vertex carrying the texture coordinate of its pixel-space position within the tile.
 //! - **Clips** are recorded, not applied: every draw of a clipped leaf carries the leaf's clip in figure points, and
-//!   the painter cuts the draw at the scissor rectangle of it. Nothing is clipped geometrically.
+//!   the painter cuts the draw at the scissor rectangle of it. A leaf beneath an [`ItemKind::SectorClip`] is visited
+//!   with [`DisplayList::visit_leaves_sectored`], and every draw of it carries the sector of the innermost such clip
+//!   in figure points as well, which the fragment shaders cut it to. Nothing is clipped geometrically.
 //! - **Colours** are straight alpha in the display list and are converted to premultiplied sRGB bytes as
 //!   [`ecolor::Color32::from_rgba_unmultiplied`] converts them.
 //! - **The background** of the list is not in the draw list: it is the colour of the page beneath every item, so
@@ -68,7 +71,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use ironlab_scene::display::{
     Depth, DisplayList, FillRule, GlyphsItem, ImageGeometry, ImageItem, ImageMesh, ItemKind,
-    LineCap, LineJoin, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
+    LineCap, LineJoin, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Sector, Stroke,
+    Transform,
 };
 use ironlab_text::{FontId, TextEngine};
 use kurbo::PathEl;
@@ -163,9 +167,10 @@ pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution)
     }
     let max_tile_side = resolution.max_tile_side.min(MAX_TILE_SIDE);
     let mut tessellator = FillTessellator::new();
-    list.visit_leaves_grouped(|item, transform, clip, group| {
+    list.visit_leaves_sectored(|item, transform, clip, group, sector| {
         builder.enter(group);
-        let Some(context) = LeafContext::new(transform, scale, clip) else {
+        builder.sector = sector;
+        let Some(context) = LeafContext::new(transform, scale, clip, sector) else {
             return;
         };
         match &item.kind {
@@ -199,6 +204,7 @@ pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution)
             ItemKind::Glyphs(_)
             | ItemKind::Group { .. }
             | ItemKind::Dense { .. }
+            | ItemKind::SectorClip { .. }
             | ItemKind::Depth { .. } => {}
         }
     });
@@ -226,6 +232,8 @@ struct ListBuilder {
     group: Option<(u32, usize, usize, usize)>,
     /// The number of strokes drawn outside every group since the list or the last group began.
     flat_strokes: u32,
+    /// The sector clip of the leaf being built, which every draw of it carries.
+    sector: Option<Sector>,
 }
 
 impl ListBuilder {
@@ -347,6 +355,7 @@ impl ListBuilder {
             texture: None,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -402,6 +411,7 @@ impl ListBuilder {
             texture,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -446,6 +456,7 @@ impl ListBuilder {
             texture: None,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -476,12 +487,19 @@ struct LeafContext {
     scale: f64,
     /// The clip rectangle in figure space.
     clip: Option<Rect>,
+    /// The bounds of the enclosing sector clip in figure space, which a polygon must overlap to show.
+    sector_bounds: Option<Rect>,
 }
 
 impl LeafContext {
-    /// Returns `None` when the transform or clip is not finite, when the transform is degenerate, or when the clip is
-    /// empty, in all of which cases the item draws nothing.
-    fn new(transform: Transform, scale: f64, clip: Option<Rect>) -> Option<Self> {
+    /// Returns `None` when the transform or clip is not finite, when the transform is degenerate, when the clip is
+    /// empty, or when the sector clip is invalid, in all of which cases the item draws nothing.
+    fn new(
+        transform: Transform,
+        scale: f64,
+        clip: Option<Rect>,
+        sector: Option<Sector>,
+    ) -> Option<Self> {
         let t = transform;
         if ![t.a, t.b, t.c, t.d, t.e, t.f].iter().all(|v| v.is_finite()) {
             return None;
@@ -499,11 +517,15 @@ impl LeafContext {
         {
             return None;
         }
+        if sector.is_some_and(|s| !s.is_valid()) {
+            return None;
+        }
         Some(Self {
             to_figure: t,
             max_stretch,
             scale,
             clip,
+            sector_bounds: sector.map(|s| s.bounds()),
         })
     }
 
@@ -519,11 +541,12 @@ impl LeafContext {
     }
 
     /// Whether a polygon with the given figure-space corners can show through the clip: its bounding box overlaps
-    /// the clip rectangle. Conservative for a sheared quad, which is drawn and cut by the scissor.
+    /// the clip rectangle and the bounds of the sector clip. Conservative for a sheared quad, which is drawn and cut
+    /// by the scissor, and for a sector, which the fragment shaders cut.
     fn may_show(&self, corners: &[[f32; 2]]) -> bool {
-        let Some(clip) = self.clip else {
+        if self.clip.is_none() && self.sector_bounds.is_none() {
             return true;
-        };
+        }
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (
             f64::INFINITY,
             f64::INFINITY,
@@ -537,7 +560,10 @@ impl LeafContext {
             max_x = max_x.max(x);
             max_y = max_y.max(y);
         }
-        max_x > clip.x && min_x < clip.right() && max_y > clip.y && min_y < clip.bottom()
+        let overlaps = |clip: Rect| {
+            max_x > clip.x && min_x < clip.right() && max_y > clip.y && min_y < clip.bottom()
+        };
+        self.clip.is_none_or(overlaps) && self.sector_bounds.is_none_or(overlaps)
     }
 }
 

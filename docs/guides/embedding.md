@@ -90,7 +90,7 @@ The embedded figure behaves as the desktop viewer does, with the differences bel
 
 Above the figure, unless `toolbar="hidden"`, a bar holds the following controls.
 
-- **Pan**, **Zoom** and **Rotate** choose what dragging does, as the viewer's [tools](viewer.md#tools) do. Rotate appears only for a figure with a three-dimensional axes.
+- **Pan**, **Zoom** and **Rotate** choose what dragging does, as the viewer's [tools](viewer.md#tools) do. Rotate appears only for a figure with a three-dimensional axes, Cartesian, cylindrical or spherical; dragging on a [polar axes](viewer.md#panning) turns it and slides its radial limits.
 - **Refit** discards the limit and view changes of every axes, restoring the views the file was saved with, as the viewer's [Refit](viewer.md#restoring-views) does.
 - **Undo** and **Redo** step through the reader's gestures, as in the viewer's [undo and redo](viewer.md#undo-and-redo).
 - A **problems** indicator appears at the right when the figure has something to report, exactly as the viewer's [problems indicator](viewer.md#problems) does, and lists the problems when clicked.

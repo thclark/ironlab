@@ -205,7 +205,7 @@ fn axis_maps(scene: &ironlab_scene::Scene, axes_id: NodeId) -> (AxisMap, AxisMap
         .expect("the axes is drawn");
     match hit.kind {
         AxesHitKind::TwoD { x, y } => (x, y),
-        AxesHitKind::ThreeD => panic!("a 2D axes"),
+        ref other => panic!("a 2D axes, not {other:?}"),
     }
 }
 
@@ -946,7 +946,7 @@ fn a_horizontal_histogram_beside_a_scatter_lines_its_bins_up_with_the_shared_y_a
     let near = |a: f64, b: f64| (a - b).abs() < 0.5;
     for (k, b) in bars.iter().enumerate() {
         let (low, high) = (bin_y.to_figure(k as f64), bin_y.to_figure(k as f64 + 1.0));
-        let r = &b.rect;
+        let r = &b.area.bounds();
         assert!(
             near(r.y, low.min(high)) && near(r.bottom(), low.max(high)),
             "bin {k}: the bar spans its bin along y, {r:?} against {low}..{high}"
@@ -1168,7 +1168,7 @@ fn hists_on_unequal_bins_split_or_stack_each_bin_in_the_drawn_figure() {
         let near = |a: f64, b: f64| (a - b).abs() < 0.5;
         for k in 0..4 {
             let (left, right) = (x.to_figure(edges[k]), x.to_figure(edges[k + 1]));
-            let (l, u) = (&lower[k].rect, &upper[k].rect);
+            let (l, u) = (&lower[k].area.bounds(), &upper[k].area.bounds());
             if stacked {
                 assert_eq!(
                     upper[k].segment,

@@ -888,10 +888,11 @@ fn a_2d_histogram_on_logarithmic_edges_draws_cells_of_equal_size_on_logarithmic_
         .filter(|c| c.artist == id)
         .collect();
     assert_eq!(drawn.len(), 6, "every bin is drawn");
-    let (width, height) = (drawn[0].rect.width, drawn[0].rect.height);
+    let (width, height) = (drawn[0].area.bounds().width, drawn[0].area.bounds().height);
     for cell in &drawn {
         assert!(
-            (cell.rect.width - width).abs() < 0.5 && (cell.rect.height - height).abs() < 0.5,
+            (cell.area.bounds().width - width).abs() < 0.5
+                && (cell.area.bounds().height - height).abs() < 0.5,
             "each decade is the same size on the page: {cell:?} against {width} × {height}"
         );
     }

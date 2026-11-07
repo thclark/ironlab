@@ -153,7 +153,7 @@ fn compiled(figure: Figure) -> (FigureState, HitMap) {
 fn at_data(hit: &HitMap, x: f64, y: f64) -> Point {
     match &hit.axes[0].kind {
         AxesHitKind::TwoD { x: xm, y: ym } => Point::new(xm.to_figure(x), ym.to_figure(y)),
-        AxesHitKind::ThreeD => panic!("the axes is three-dimensional"),
+        other => panic!("the axes is not two-dimensional: {other:?}"),
     }
 }
 

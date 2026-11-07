@@ -67,8 +67,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
     Artist, Cell, Choice, ColorScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
-    NodeKind, Panel, PanelContent, Parameter, Projection, Property, PropertyPath, Transaction,
-    Value, ValueType, choices, command, properties_of, property_choices,
+    NodeKind, Panel, PanelContent, Parameter, Property, PropertyPath, Transaction, Value,
+    ValueType, choices, command, properties_of, property_choices,
 };
 
 // ---------------------------------------------------------------------------------
@@ -532,11 +532,7 @@ pub fn is_shown(figure: &Figure, node: NodeId, kind: NodeKind, path: &PropertyPa
     let Some(first) = path.segments().first() else {
         return true;
     };
-    let three_d = |figure: &Figure| {
-        figure
-            .axes(node)
-            .is_none_or(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
-    };
+    let three_d = |figure: &Figure| figure.axes(node).is_none_or(|axes| axes.projection.is_3d());
     match first.as_str() {
         "z" => three_d(figure),
         _ => true,
@@ -717,6 +713,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::PolarView
+        | ValueType::SphericalView
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
@@ -753,6 +751,8 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Links
         | ValueType::Parameters
         | ValueType::Projection
+        | ValueType::AngleUnits
+        | ValueType::PolarAngle
         | ValueType::Scale
         | ValueType::Limits
         | ValueType::Ticks
@@ -848,6 +848,8 @@ fn editor_for(
                 .map(|data| data.array.shape.clone()),
         },
         ValueType::Projection
+        | ValueType::AngleUnits
+        | ValueType::PolarAngle
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels
@@ -901,6 +903,8 @@ fn editor_for(
         | ValueType::TileLayout
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::PolarView
+        | ValueType::SphericalView
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
@@ -934,6 +938,7 @@ fn number_editor(path: &PropertyPath, value: &Value, integer: bool) -> Editor {
     let last = path.segments().last().map_or("", String::as_str);
     let range = match last {
         "elevation_deg" => Some((-90.0, 90.0)),
+        "hole" => Some((0.0, 0.99)),
         "opacity" | "face_opacity" | "edge_opacity" | "line_opacity" | "fill_opacity" => {
             Some((0.0, 1.0))
         }

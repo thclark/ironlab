@@ -182,7 +182,9 @@ pub(super) fn for_each_vertex(items: &[Item], visit: &mut dyn FnMut(Point)) {
                     };
                     walk(items, transform, visit);
                 }
-                ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
+                ItemKind::Dense { items, .. }
+                | ItemKind::Depth { items }
+                | ItemKind::SectorClip { items, .. } => {
                     walk(items, transform, visit);
                 }
                 ItemKind::Image(image) => match &image.geometry {

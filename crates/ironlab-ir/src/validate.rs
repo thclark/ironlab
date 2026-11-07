@@ -7,7 +7,7 @@ use crate::artist::{
     ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PerBar, PixelRange,
     Quiver, ScalarImage, Series, Stairs, StairsData, Surface,
 };
-use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
+use crate::axes::{Aspect, Axes, Axis, Limits, PolarAngle, Projection, Scale, TickLabels, Ticks};
 use crate::color_scale::{
     ColorMapping, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind, ColorScaleLevels,
     ColorScaleNorm, Colormap, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
@@ -112,11 +112,11 @@ pub enum IssueKind {
     /// alpha of cells, whose edges must hold 64-bit floating-point values.
     ElementTypeMismatch,
     /// An artist or placement that needs the z axis (z or w data, contours at their
-    /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
+    /// level, an image on a wall) is used in a two-dimensional axes, Cartesian or polar. A surface is not
     /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
     /// A series places a dimension in axes-fraction coordinates in a
-    /// three-dimensional axes, which has no plot area along its dimensions to take a
+    /// three-dimensional axes (Cartesian, cylindrical or spherical), which has no plot area along its dimensions to take a
     /// fraction of.
     AxesFractionInThreeDAxes,
     /// A series releases its clip (`clip` is false) although it places no
@@ -287,17 +287,41 @@ pub enum IssueKind {
     /// Stairs have a fill other than none but no base, so there is nothing to fill down
     /// to.
     StairsFillWithoutBase,
-    /// Bars, stairs or cells are placed in a three-dimensional axes; they are drawn only
-    /// in the plane of a two-dimensional axes.
+    /// Bars, stairs or cells are placed in a three-dimensional axes (Cartesian, cylindrical
+    /// or spherical); they are drawn only in the plane of a two-dimensional axes, Cartesian
+    /// or polar.
     TwoDArtistInThreeDAxes,
     /// The tick label angle of an axis that is drawn is not finite. It is reported against
     /// the axes; the z axis of a two-dimensional axes is ignored.
     InvalidTickLabelAngle,
-    /// An axis of a three-dimensional axes has a tick label angle other than 0, which a
-    /// three-dimensional axes ignores because its tick labels lie along projected edges.
-    /// This is a warning, not an error, because the figure is drawn with level labels. It is
+    /// An axis has a tick label angle other than 0 that is ignored: any axis of a
+    /// three-dimensional axes, whose tick labels lie along projected edges, or the angular
+    /// x axis of a polar axes, whose tick labels are placed around the rim. This is a
+    /// warning, not an error, because the figure is drawn with level labels. It is
     /// reported against the axes.
     TickLabelAngleIgnored,
+    /// An axis that carries an angle is logarithmic: x of a polar, cylindrical or
+    /// spherical axes, or y (the polar angle) of a spherical axes. An angle wraps around a
+    /// turn and has no origin for a logarithm. It is reported against the axes.
+    LogAngleAxis,
+    /// The manual limits of an angle span more than its convention allows: limits of the
+    /// angular x axis of a polar, cylindrical or spherical axes that span more than one
+    /// turn, or limits of the polar angle (y) of a spherical axes that lie outside a
+    /// quarter turn either side of the X–Y plane for an elevation, or outside 0 to half a
+    /// turn for an inclination. It is reported against the axes.
+    SectorExceedsTurn,
+    /// The hole of a polar or cylindrical axes is not a finite number from 0 up to, but not
+    /// including, 1. It is reported against the axes.
+    InvalidHole,
+    /// The custom angle units of a polar, cylindrical or spherical axes do not give a finite
+    /// positive number of units to a turn. It is reported against the axes.
+    InvalidAngleUnits,
+    /// A polar or spherical axes has an aspect other than automatic, which it ignores
+    /// because a polar axes is always drawn round and a spherical axes is a sphere. This
+    /// is a warning, not an error, because the figure is drawn. It is reported against the
+    /// axes. A cylindrical axes keeps the ratio of its height to its radius, so its aspect
+    /// is honoured.
+    AspectIgnored,
 }
 
 impl Figure {
@@ -930,7 +954,8 @@ impl<'a> Validator<'a> {
             }
         }
 
-        let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+        let three_d = axes.projection.is_3d();
+        self.check_projection(axes);
         if let Aspect::Ratio { y, z } = axes.aspect {
             for (name, ratio) in [("y", y), ("z", z)] {
                 if !(ratio.is_finite() && ratio > 0.0) {
@@ -972,6 +997,18 @@ impl<'a> Validator<'a> {
                          three-dimensional axes draws its tick labels along projected edges"
                     ),
                 );
+            } else if name == "x"
+                && matches!(axes.projection, Projection::Polar { .. })
+                && angle != 0.0
+            {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::TickLabelAngleIgnored,
+                    format!(
+                        "the tick label angle {angle} of the x axis is ignored, because a polar \
+                         axes places its angular tick labels around the rim"
+                    ),
+                );
             }
         }
         for (name, axis) in axes_drawn {
@@ -992,9 +1029,108 @@ impl<'a> Validator<'a> {
         }
     }
 
+    /// Checks the views of an angular projection and how the axes carry its angles: the
+    /// angle units, the hole, the scales and manual limits of the angles, and the aspect.
+    fn check_projection(&mut self, axes: &Axes) {
+        let Some(units) = axes.projection.angle_units() else {
+            return;
+        };
+        let turn = units.turn();
+        let units_valid = turn.is_finite() && turn > 0.0;
+        if !units_valid {
+            self.error(
+                Some(axes.id),
+                IssueKind::InvalidAngleUnits,
+                format!("the count of {turn} angle units per turn is not a finite positive number"),
+            );
+        }
+        if let Some(polar) = axes.projection.polar() {
+            let hole = polar.hole;
+            if !(hole.is_finite() && (0.0..1.0).contains(&hole)) {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::InvalidHole,
+                    format!(
+                        "the hole {hole} is not a finite fraction of the rim radius from 0 up \
+                         to, but not including, 1"
+                    ),
+                );
+            }
+        }
+        let spherical = match axes.projection {
+            Projection::Spherical { spherical, .. } => Some(spherical),
+            _ => None,
+        };
+        let mut angles = vec![("x", &axes.x)];
+        if spherical.is_some() {
+            angles.push(("y", &axes.y));
+        }
+        for (name, axis) in angles {
+            if axis.scale == Scale::Log {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::LogAngleAxis,
+                    format!(
+                        "the {name} axis carries an angle, which cannot be logarithmic because \
+                         an angle wraps around a turn"
+                    ),
+                );
+            }
+        }
+        // A tolerance of a millionth of a millionth of a turn accepts limits computed in
+        // floating point, such as a quarter of 2π, that land a rounding error beyond the
+        // bound.
+        let slack = turn * 1e-12;
+        if units_valid && let Limits::Manual { min, max } = axes.x.limits {
+            let span = (max - min).abs();
+            if span > turn + slack {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::SectorExceedsTurn,
+                    format!(
+                        "the angular limits from {min} to {max} span more than one turn of \
+                         {turn} units"
+                    ),
+                );
+            }
+        }
+        if units_valid
+            && let Some(spherical) = spherical
+            && let Limits::Manual { min, max } = axes.y.limits
+        {
+            let (low, high, convention) = match spherical.polar_angle {
+                PolarAngle::Elevation => (-turn / 4.0, turn / 4.0, "an elevation"),
+                PolarAngle::Inclination => (0.0, turn / 2.0, "an inclination"),
+            };
+            if min.min(max) < low - slack || min.max(max) > high + slack {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::SectorExceedsTurn,
+                    format!(
+                        "the polar angle limits from {min} to {max} lie outside the range from \
+                         {low} to {high} of {convention}"
+                    ),
+                );
+            }
+        }
+        if matches!(
+            axes.projection,
+            Projection::Polar { .. } | Projection::Spherical { .. }
+        ) && axes.aspect != Aspect::Auto
+        {
+            self.warning(
+                Some(axes.id),
+                IssueKind::AspectIgnored,
+                "the aspect is ignored, because polar axes are always drawn round and spherical \
+                 axes are drawn as a sphere"
+                    .to_owned(),
+            );
+        }
+    }
+
     /// Checks one artist of an axes, as its usage describes it.
     fn check_artist(&mut self, axes: &Axes, id: NodeId, usage: ArtistUsage<'_>) {
-        let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+        let three_d = axes.projection.is_3d();
 
         if !three_d && usage.three_d {
             self.error(

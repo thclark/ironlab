@@ -290,6 +290,14 @@ proto_file! {
             Uint64(ValueUint64) uint64_value = 89;
             /// How much heavier than designed a figure is drawn.
             Embolden(ValueEmbolden) embolden_value = 90;
+            /// How the angles of a polar or cylindrical axes are measured and placed.
+            PolarView(ValuePolarView) polar_view_value = 91;
+            /// How the two angles of a spherical axes are measured.
+            SphericalView(ValueSphericalView) spherical_view_value = 92;
+            /// The data units of an angle.
+            AngleUnits(ValueAngleUnits) angle_units_value = 93;
+            /// How the polar angle of a spherical axes is measured.
+            PolarAngle(ValuePolarAngle) polar_angle_value = 94;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -425,6 +433,30 @@ proto_file! {
     message ValueView3d {
         /// The view; it must be present.
         message View3d value = 1;
+    }
+
+    /// A polar view value.
+    message ValuePolarView {
+        /// The view; it must be present.
+        message PolarView value = 1;
+    }
+
+    /// A spherical view value.
+    message ValueSphericalView {
+        /// The view; it must be present.
+        message SphericalView value = 1;
+    }
+
+    /// An angle units value.
+    message ValueAngleUnits {
+        /// The units; it must be present.
+        message AngleUnits value = 1;
+    }
+
+    /// A polar angle convention value.
+    message ValuePolarAngle {
+        /// The convention; it must be specified.
+        enum PolarAngle value = 1;
     }
 
     /// A coordinate axis value.

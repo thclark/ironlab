@@ -151,6 +151,33 @@ The members of a stacked column are normalised by the pooled total of the column
 
 IronLAB bins every histogram when the figure is built and stores the binned values with a record of how they were binned, rather than the sample, so a datatip reports the count and the density of each bin but the viewer cannot rebin, as [histograms](../guides/getting-started.md#histograms) describes. The binning follows `numpy.histogram`, and the normalisations take MATLAB's names. The [histograms](../gallery/histogram.md) and [two-dimensional histogram and density contour](../gallery/histogram_2d.md) gallery entries show overlaid, stacked and two-dimensional histograms and a density contour.
 
+## Polar axes
+
+In IronLAB a polar axes is an axes whose x carries the angle and y the radius, so every plotting function of a two-dimensional axes draws in it, and `polarplot` and `polarscatter` add exactly the series that `plot` and `scatter` add. The matplotlib names are methods of an axes made with `projection="polar"`, and the Plotly names are trace types or properties of `layout.polar`. [Polar axes](../guides/getting-started.md#polar-axes) describes the functions and the settings below.
+
+| Plot | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Line in polar axes | `polarplot` | `plot` | `Scatterpolar` with `mode="lines"` | `polarplot`, or `plot` in a polar axes |
+| Markers in polar axes | `polarscatter` | `scatter` | `Scatterpolar` with `mode="markers"` | `polarscatter`, or `scatter` in a polar axes |
+| Wedges at angles (a polar bar chart or wind rose) | `polarhistogram`, from a sample | `bar` | `Barpolar` | `bar` in a polar axes |
+| Rings that sweep through angles (a radial bar chart) | no equivalent | `barh` | no equivalent trace | `barh` in a polar axes |
+| A field on an angle–radius grid | no equivalent in polar axes | `contourf` or `pcolormesh` | no equivalent trace | `contourf` or `surface` in a polar axes |
+
+| Setting | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Make an axes polar | `polaraxes` | `fig.add_subplot(projection="polar")` | `layout.polar`, which a polar trace uses | `fig.polar_axes(row, col)`, or `make_polar` on an axes |
+| Draw a sector rather than the full turn | `thetalim` | `set_thetalim`, or `set_thetamin` and `set_thetamax` | `polar=dict(sector=[a, b])` | `thetalim` |
+| Fix the radial limits | `rlim` | `set_rlim` | `polar=dict(radialaxis=dict(range=[a, b]))` | `rlim` |
+| Make the radius logarithmic | no option; the radii are transformed first | `set_rscale("log")` | `polar=dict(radialaxis=dict(type="log"))` | `rscale(Scale::Log)` |
+| Point angle 0 in a chosen direction | `ThetaZeroLocation` | `set_theta_zero_location("N")`, or `set_theta_offset` | `polar=dict(angularaxis=dict(rotation=90))` | `theta_zero(ThetaZero::North)`, or `ThetaZero::Degrees(d)` |
+| Make angles increase clockwise | `ThetaDir` set to `clockwise` | `set_theta_direction(-1)` | `polar=dict(angularaxis=dict(direction="clockwise"))` | `clockwise(true)` |
+| Give the data's angles in radians | the default of `polarplot` | the default | `polar=dict(angularaxis=dict(thetaunit="radians"))`, which changes only the labels | `angle_units(AngleUnits::Radians)` |
+| Divide the turn into a given number of units, such as the categories of a radar chart | no option | no option | `polar=dict(angularaxis=dict(period=n))` for categorical angles | `angle_units(AngleUnits::PerTurn(n))` |
+| Leave a hole at the centre | no option | `set_rorigin`, as a radius below the lower limit | `polar=dict(hole=f)` | `hole(f)` |
+| Move the radial tick labels to another spoke | `RAxisLocation` | `set_rlabel_position` | `polar=dict(radialaxis=dict(angle=a))` | `radial_labels_at(a)` |
+
+MATLAB's `polarplot` and matplotlib take the angles of the data in radians, whereas IronLAB, like Plotly, takes them in degrees unless the axes is given other angle units. The hole is a fraction of the rim radius, as Plotly's `hole` is; matplotlib's `set_rorigin` gives the radius that the centre would stand for instead.
+
 ## Axes
 
 These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks) and, for categorical axes, in [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows).

@@ -280,7 +280,10 @@ impl Leaf {
             },
             // Groups, dense and depth ones included, are descended into by `visit_leaves` and never become
             // leaves.
-            ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => None,
+            ItemKind::Group { .. }
+            | ItemKind::Dense { .. }
+            | ItemKind::Depth { .. }
+            | ItemKind::SectorClip { .. } => None,
         }
     }
 
@@ -312,7 +315,8 @@ impl Leaf {
             ItemKind::Image(_)
             | ItemKind::Group { .. }
             | ItemKind::Dense { .. }
-            | ItemKind::Depth { .. } => Vec::new(),
+            | ItemKind::Depth { .. }
+            | ItemKind::SectorClip { .. } => Vec::new(),
         }
     }
 
@@ -495,6 +499,7 @@ pub fn axis_maps(scene: &Scene, id: NodeId) -> (AxisMap, AxisMap) {
     match axes_hit(scene, id).kind {
         AxesHitKind::TwoD { x, y } => (x, y),
         AxesHitKind::ThreeD => panic!("axes {id} is three-dimensional"),
+        AxesHitKind::Polar { .. } => panic!("axes {id} is polar"),
     }
 }
 

@@ -346,7 +346,7 @@ fn hovering_a_drawn_point_gives_a_datatip_ringed_and_anchored_where_it_was_drawn
 fn data_point(canvas: &mut FigureCanvas, x: f64, y: f64) -> Pos2 {
     let position = match canvas.scene(&TEXT).hit_map.axes[0].kind {
         AxesHitKind::TwoD { x: xm, y: ym } => Point::new(xm.to_figure(x), ym.to_figure(y)),
-        AxesHitKind::ThreeD => panic!("the axes is two-dimensional"),
+        ref other => panic!("the axes is two-dimensional, not {other:?}"),
     };
     let fit = canvas.fit(&TEXT).expect("the canvas is fitted");
     fit.to_screen.apply(position)
