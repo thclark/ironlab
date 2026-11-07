@@ -266,3 +266,76 @@ fn the_prelude_names_the_spherical_vocabulary() {
     let _angle: PolarAngle = PolarAngle::Inclination;
     let _view: SphericalView = SphericalView::default();
 }
+
+/// Returns whether the x, y and z grids of an axes are on.
+fn grids(fig: &Figure, id: NodeId) -> [bool; 3] {
+    let a = axes(fig, id);
+    [a.x.grid, a.y.grid, a.z.grid]
+}
+
+// WHY: cylindrical and spherical axes are read by their grids, as polar axes are: the spokes and
+// circles on the floor of a cylinder give the angle and radius of a point, and the spokes and
+// constant-radius circles of a sphere give its azimuth, polar angle and radius. The IR keeps
+// every grid off by default, so the facade constructors must turn on the grids each kind is read
+// by: x and y for a cylinder (its z grid would ring the wall and is left to the user), and all
+// three for a sphere.
+#[test]
+fn cylindrical_and_spherical_axes_turn_on_the_grids_they_are_read_by() {
+    let mut fig = Figure::new().tiles(1, 2);
+    let c = fig.cylindrical_axes(0, 0).id();
+    let s = fig.spherical_axes(0, 1).id();
+    assert_eq!(
+        grids(&fig, c),
+        [true, true, false],
+        "spokes and circles on the floor"
+    );
+    assert_eq!(grids(&fig, s), [true, true, true], "every grid of a sphere");
+    let plain = ironlab::ir::Axes::default();
+    assert!(
+        !plain.x.grid && !plain.y.grid && !plain.z.grid,
+        "the IR default keeps grids off"
+    );
+}
+
+// WHY: the grids are a default, not a rule: `grid(false)` must remove them, and calling the
+// constructor again for the same tile, which returns the same axes, must not turn them back on,
+// or the order of calls would matter.
+#[test]
+fn grid_false_removes_the_default_grids_of_cylindrical_and_spherical_axes() {
+    let mut fig = Figure::new().tiles(1, 2);
+    let c = fig.cylindrical_axes(0, 0).grid(false).id();
+    let s = fig.spherical_axes(0, 1).grid(false).id();
+    assert_eq!(grids(&fig, c), [false; 3]);
+    assert_eq!(grids(&fig, s), [false; 3]);
+    fig.cylindrical_axes(0, 0);
+    fig.spherical_axes(0, 1);
+    assert_eq!(
+        grids(&fig, c),
+        [false; 3],
+        "an existing cylinder keeps its grids"
+    );
+    assert_eq!(
+        grids(&fig, s),
+        [false; 3],
+        "an existing sphere keeps its grids"
+    );
+}
+
+// WHY: a 3D axes asked for as polar axes becomes cylindrical, and a polar axes given to
+// `spherical_axes` becomes spherical; either way the axes newly takes a kind that is read by its
+// grids, so it must get the grids that the constructor of that kind gives it.
+#[test]
+fn an_axes_converted_to_cylindrical_or_spherical_gets_their_grids() {
+    let mut fig = Figure::new().tiles(1, 2);
+    let a = fig.axes3(0, 0).id();
+    fig.polar_axes(0, 0);
+    assert!(matches!(
+        axes(&fig, a).projection,
+        Projection::Cylindrical { .. }
+    ));
+    assert_eq!(grids(&fig, a), [true, true, false]);
+
+    let b = fig.polar_axes(0, 1).grid(false).id();
+    fig.spherical_axes(0, 1);
+    assert_eq!(grids(&fig, b), [true, true, true]);
+}
