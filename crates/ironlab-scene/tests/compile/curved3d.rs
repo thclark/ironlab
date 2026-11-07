@@ -27,7 +27,8 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use ironlab_ir::{
     AngleUnits, Artist, Aspect, Axes, ImagePlane, Limits, NodeId, PolarAngle, PolarView,
-    Projection, QuiverScale, Scale, SphericalView, TickLabels, View3d,
+    Projection, QuiverScale, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide, Scale, SphericalView,
+    TickLabels, View3d,
 };
 use ironlab_scene::display::{Depth, ImageGeometry, ImageMesh, PathSegment, Point};
 use ironlab_scene::hit::AxesHitKind;
@@ -1978,5 +1979,59 @@ fn the_polar_angle_ticks_of_spherical_axes_go_all_the_way_round_the_meridian() {
                 );
             }
         }
+    }
+}
+
+// Why: an axis along a spoke of cylindrical axes is the ruler of the radius laid on the floor, where the radius is
+// measured: it runs from the edge of the hole to the rim along the spoke the view names, placed by the same polar view
+// as the data, and lies among the artists, as the spokes of the grid do, so that an artist standing over it hides it.
+#[test]
+fn an_axis_along_a_spoke_of_cylindrical_axes_runs_on_the_floor_from_the_hole_to_the_rim() {
+    let along = RadialAxis::AlongSpoke {
+        angle: Some(135.0),
+        side: RadialAxisSpokeSide::Clockwise,
+    };
+    let (scene, ax, lens, mut c) = decorated_cylinder(|axes| {
+        if let Projection::Cylindrical { polar, .. } = &mut axes.projection {
+            polar.hole = 0.25;
+            polar.radial_axis = along;
+        }
+    });
+    c.polar.hole = 0.25;
+    assert_interior_line(
+        &scene,
+        ax,
+        &lens,
+        c.normalise([135.0, 0.0, -1.0]),
+        c.normalise([135.0, 2.0, -1.0]),
+        "the radial axis along the spoke at 135°",
+    );
+}
+
+// Why: a three-dimensional axes has no flat edge beside its disc to set a ruler on, so a radial axis on an edge is drawn
+// exactly as the radial labels centred on the default spoke are (validation warns of it), rather than in some place the
+// user did not ask for.
+#[test]
+fn a_radial_axis_on_an_edge_of_cylindrical_axes_is_drawn_as_labels_on_the_default_spoke() {
+    let draw = |radial_axis: RadialAxis| {
+        let (scene, _, _, _) = decorated_cylinder(|axes| {
+            axes.y.label = Some(ironlab_ir::Text::plain("Radius"));
+            if let Projection::Cylindrical { polar, .. } = &mut axes.projection {
+                polar.radial_axis = radial_axis;
+            }
+        });
+        scene.display_list
+    };
+    let spoke = draw(RadialAxis::default());
+    for edge in [
+        RadialAxisEdge::Bottom,
+        RadialAxisEdge::Top,
+        RadialAxisEdge::Left,
+        RadialAxisEdge::Right,
+    ] {
+        assert!(
+            draw(RadialAxis::Edge { edge }) == spoke,
+            "{edge:?} is drawn as the default spoke"
+        );
     }
 }

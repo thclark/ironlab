@@ -207,9 +207,10 @@ fn arrange(
         .axes
         .iter()
         .zip(&decorations)
-        .map(|(axes, d)| match axes.projection {
+        .enumerate()
+        .map(|(i, (axes, d))| match axes.projection {
             Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::Polar { polar, .. } => axes_polar::margins(ctx, d, polar, ranges[i][0]),
             Projection::ThreeD { .. }
             | Projection::Cylindrical { .. }
             | Projection::Spherical { .. } => axes3d::margins(ctx, d),
@@ -877,9 +878,10 @@ fn lay_out(
         .axes
         .iter()
         .zip(&decorations)
-        .map(|(axes, d)| match axes.projection {
+        .enumerate()
+        .map(|(i, (axes, d))| match axes.projection {
             Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::Polar { polar, .. } => axes_polar::margins(ctx, d, polar, ranges[i][0]),
             Projection::ThreeD { .. }
             | Projection::Cylindrical { .. }
             | Projection::Spherical { .. } => axes3d::margins(ctx, d),

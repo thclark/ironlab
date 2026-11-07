@@ -423,15 +423,16 @@ pub fn representative_figures() -> Vec<Figure> {
     vec![base, full, projections_figure()]
 }
 
-/// A valid figure of three axes, one of each projection that measures angles, each holding a
-/// line of three points: polar axes in twelve units per turn with every field of the polar
-/// view away from its default; cylindrical axes in radians, drawn clockwise, whose polar view
-/// places the radial labels automatically; and spherical axes in four hundred units per turn
-/// (gradians) measuring inclination. Between them every variant of the angle units and both
-/// polar angles are set, and the line data lie within every automatic sector.
+/// A valid figure of four axes, each holding a line of three points: polar axes in twelve
+/// units per turn with every field of the polar view away from its default and its radial
+/// axis along a spoke; cylindrical axes in radians, drawn clockwise, whose polar view places
+/// the radial labels automatically; spherical axes in four hundred units per turn (gradians)
+/// measuring inclination; and polar axes with their radial axis on the left edge. Between
+/// them every variant of the angle units, of the radial axis and both polar angles are set,
+/// and the line data lie within every automatic sector.
 pub fn projections_figure() -> Figure {
     let mut b = FigureBuilder::new();
-    b.fig.layout = TileLayout::new(1, 3);
+    b.fig.layout = TileLayout::new(1, 4);
     let x = b.vector(&[1.0, 2.0, 3.0]);
     let y = b.vector(&[1.0, 4.0, 9.0]);
     let projections = [
@@ -440,7 +441,10 @@ pub fn projections_figure() -> Figure {
                 angle_units: AngleUnits::PerTurn(12.0),
                 zero_deg: 90.0,
                 hole: 0.25,
-                radial_labels_at: Some(3.0),
+                radial_axis: RadialAxis::AlongSpoke {
+                    angle: Some(3.0),
+                    side: RadialAxisSpokeSide::Clockwise,
+                },
             },
         },
         Projection::Cylindrical {
@@ -458,6 +462,14 @@ pub fn projections_figure() -> Figure {
             spherical: SphericalView {
                 angle_units: AngleUnits::PerTurn(400.0),
                 polar_angle: PolarAngle::Inclination,
+            },
+        },
+        Projection::Polar {
+            polar: PolarView {
+                radial_axis: RadialAxis::Edge {
+                    edge: RadialAxisEdge::Left,
+                },
+                ..PolarView::default()
             },
         },
     ];
@@ -649,6 +661,28 @@ pub fn perturb(value: &Value) -> Value {
         Value::AngleUnits(AngleUnits::PerTurn(_)) => Value::AngleUnits(AngleUnits::Degrees),
         Value::PolarAngle(PolarAngle::Elevation) => Value::PolarAngle(PolarAngle::Inclination),
         Value::PolarAngle(PolarAngle::Inclination) => Value::PolarAngle(PolarAngle::Elevation),
+        Value::RadialAxis(RadialAxis::Spoke { angle }) => {
+            Value::RadialAxis(RadialAxis::AlongSpoke {
+                angle: *angle,
+                side: RadialAxisSpokeSide::Clockwise,
+            })
+        }
+        Value::RadialAxis(RadialAxis::AlongSpoke { .. }) => Value::RadialAxis(RadialAxis::Edge {
+            edge: RadialAxisEdge::Bottom,
+        }),
+        Value::RadialAxis(RadialAxis::Edge { .. }) => Value::RadialAxis(RadialAxis::default()),
+        Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Anticlockwise) => {
+            Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Clockwise)
+        }
+        Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Clockwise) => {
+            Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Anticlockwise)
+        }
+        Value::RadialAxisEdge(edge) => Value::RadialAxisEdge(match edge {
+            RadialAxisEdge::Bottom => RadialAxisEdge::Top,
+            RadialAxisEdge::Top => RadialAxisEdge::Left,
+            RadialAxisEdge::Left => RadialAxisEdge::Right,
+            RadialAxisEdge::Right => RadialAxisEdge::Bottom,
+        }),
         Value::View3d(view) => Value::View3d(View3d {
             zoom: view.zoom + 0.5,
             ..*view
@@ -991,7 +1025,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 87;
+pub const VALUE_VARIANTS: usize = 90;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -1087,6 +1121,9 @@ pub fn value_variant(value: &Value) -> usize {
         Value::SphericalView(_) => 84,
         Value::AngleUnits(_) => 85,
         Value::PolarAngle(_) => 86,
+        Value::RadialAxis(_) => 87,
+        Value::RadialAxisSpokeSide(_) => 88,
+        Value::RadialAxisEdge(_) => 89,
     }
 }
 
@@ -1164,7 +1201,9 @@ pub fn sample_values() -> Vec<Value> {
             angle_units: AngleUnits::PerTurn(24.0),
             zero_deg: 90.0,
             hole: 0.25,
-            radial_labels_at: Some(7.5),
+            radial_axis: RadialAxis::Edge {
+                edge: RadialAxisEdge::Right,
+            },
         }),
         Value::SphericalView(SphericalView {
             angle_units: AngleUnits::Radians,
@@ -1172,6 +1211,12 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::AngleUnits(AngleUnits::PerTurn(12.0)),
         Value::PolarAngle(PolarAngle::Inclination),
+        Value::RadialAxis(RadialAxis::AlongSpoke {
+            angle: Some(-30.0),
+            side: RadialAxisSpokeSide::Clockwise,
+        }),
+        Value::RadialAxisSpokeSide(RadialAxisSpokeSide::Clockwise),
+        Value::RadialAxisEdge(RadialAxisEdge::Left),
         Value::Axis(Axis {
             label: Some(Text::new("$t$")),
             scale: Scale::Log,

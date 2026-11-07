@@ -2427,6 +2427,61 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                 other => panic!("the carrier's spherical axes decoded as {other:?}"),
             },
         ),
+        check::<wire::RadialAxisSpokeSide>(
+            |w, v| {
+                w.axes[0].projection = Some(wire::Projection {
+                    kind: Some(wire::ProjectionKind::Polar(wire::ProjectionPolar {
+                        polar: Some(wire::PolarView {
+                            radial_axis: Some(wire::RadialAxis {
+                                kind: Some(wire::RadialAxisKind::AlongSpoke(
+                                    wire::RadialAxisAlongSpoke {
+                                        angle: None,
+                                        side: v,
+                                    },
+                                )),
+                            }),
+                            ..wire::PolarView::default()
+                        }),
+                    })),
+                });
+            },
+            |f| match f.axes[0].projection {
+                Projection::Polar {
+                    polar:
+                        PolarView {
+                            radial_axis: RadialAxis::AlongSpoke { side, .. },
+                            ..
+                        },
+                } => format!("{side:?}"),
+                other => panic!("the carrier's polar axes decoded as {other:?}"),
+            },
+        ),
+        check::<wire::RadialAxisEdge>(
+            |w, v| {
+                w.axes[0].projection = Some(wire::Projection {
+                    kind: Some(wire::ProjectionKind::Polar(wire::ProjectionPolar {
+                        polar: Some(wire::PolarView {
+                            radial_axis: Some(wire::RadialAxis {
+                                kind: Some(wire::RadialAxisKind::Edge(wire::RadialAxisEdgeAxis {
+                                    edge: v,
+                                })),
+                            }),
+                            ..wire::PolarView::default()
+                        }),
+                    })),
+                });
+            },
+            |f| match f.axes[0].projection {
+                Projection::Polar {
+                    polar:
+                        PolarView {
+                            radial_axis: RadialAxis::Edge { edge },
+                            ..
+                        },
+                } => format!("{edge:?}"),
+                other => panic!("the carrier's polar axes decoded as {other:?}"),
+            },
+        ),
     ]
     .into_iter()
     .collect();

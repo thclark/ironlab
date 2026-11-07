@@ -7,7 +7,9 @@ use crate::artist::{
     ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PerBar, PixelRange,
     Quiver, ScalarImage, Series, Stairs, StairsData, Surface,
 };
-use crate::axes::{Aspect, Axes, Axis, Limits, PolarAngle, Projection, Scale, TickLabels, Ticks};
+use crate::axes::{
+    Aspect, Axes, Axis, Limits, PolarAngle, Projection, RadialAxis, Scale, TickLabels, Ticks,
+};
 use crate::color_scale::{
     ColorMapping, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind, ColorScaleLevels,
     ColorScaleNorm, Colormap, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
@@ -328,6 +330,14 @@ pub enum IssueKind {
     /// axes. A cylindrical axes keeps the ratio of its height to its radius, so its aspect
     /// is honoured.
     AspectIgnored,
+    /// The radial axis of a polar or cylindrical axes names a spoke whose angle is not
+    /// finite. It is reported against the axes.
+    InvalidRadialAxisAngle,
+    /// A cylindrical axes has a radial axis on an edge of the plot, which it ignores
+    /// because a three-dimensional axes has no flat edge beside its disc; it draws the
+    /// radial tick labels centred on the default spoke instead. This is a warning, not an
+    /// error, because the figure is drawn. It is reported against the axes.
+    RadialAxisEdgeInThreeDAxes,
 }
 
 impl Figure {
@@ -1060,6 +1070,24 @@ impl<'a> Validator<'a> {
                         "the hole {hole} is not a finite fraction of the rim radius from 0 up \
                          to, but not including, 1"
                     ),
+                );
+            }
+            if let Some(angle) = polar.radial_axis.angle()
+                && !angle.is_finite()
+            {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::InvalidRadialAxisAngle,
+                    format!("the radial axis names the spoke at {angle}, which is not finite"),
+                );
+            }
+            if axes.projection.is_3d() && matches!(polar.radial_axis, RadialAxis::Edge { .. }) {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::RadialAxisEdgeInThreeDAxes,
+                    "the radial axis is drawn on its default spoke rather than on an edge, \
+                     because a cylindrical axes has no flat edge beside its disc"
+                        .to_owned(),
                 );
             }
         }

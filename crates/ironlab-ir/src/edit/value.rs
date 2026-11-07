@@ -12,8 +12,8 @@ use crate::artist::{
 };
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
-    Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    Limits, PolarAngle, PolarView, Projection, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide,
+    Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
@@ -106,6 +106,12 @@ pub enum Value {
     AngleUnits(AngleUnits),
     /// How the polar angle of a spherical axes is measured.
     PolarAngle(PolarAngle),
+    /// Where the radial axis of a polar or cylindrical axes is drawn.
+    RadialAxis(RadialAxis),
+    /// The side of its spoke on which a radial axis along a spoke is labelled.
+    RadialAxisSpokeSide(RadialAxisSpokeSide),
+    /// The edge of the plot along which a radial axis outside the disc lies.
+    RadialAxisEdge(RadialAxisEdge),
     /// A coordinate axis of an axes.
     Axis(Axis),
     /// The scale of a coordinate axis.
@@ -284,6 +290,12 @@ pub enum ValueType {
     AngleUnits,
     /// See [`Value::PolarAngle`].
     PolarAngle,
+    /// See [`Value::RadialAxis`].
+    RadialAxis,
+    /// See [`Value::RadialAxisSpokeSide`].
+    RadialAxisSpokeSide,
+    /// See [`Value::RadialAxisEdge`].
+    RadialAxisEdge,
     /// See [`Value::Axis`].
     Axis,
     /// See [`Value::Scale`].
@@ -441,6 +453,9 @@ impl Value {
             Value::SphericalView(_) => ValueType::SphericalView,
             Value::AngleUnits(_) => ValueType::AngleUnits,
             Value::PolarAngle(_) => ValueType::PolarAngle,
+            Value::RadialAxis(_) => ValueType::RadialAxis,
+            Value::RadialAxisSpokeSide(_) => ValueType::RadialAxisSpokeSide,
+            Value::RadialAxisEdge(_) => ValueType::RadialAxisEdge,
             Value::Axis(_) => ValueType::Axis,
             Value::Scale(_) => ValueType::Scale,
             Value::Limits(_) => ValueType::Limits,

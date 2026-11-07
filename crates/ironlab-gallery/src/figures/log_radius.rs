@@ -5,7 +5,8 @@ pub const DESCRIPTION: &str = "The intensity of light diffracted by a single sli
      the angle from the axis of the slit, drawn in polar axes with a logarithmic radius. The intensity falls by four \
      decades from the central maximum to the faintest side lobes drawn, so on a linear radius every side lobe would \
      be a speck at the centre; on a logarithmic radius each decade takes an equal step from the lower limit at the \
-     centre to the rim.";
+     centre to the rim. The radial axis is a ruler along the right half of the diameter, labelled below it, so that \
+     its labels lie clear of the pattern.";
 
 /// The width of the slit, in wavelengths.
 const WIDTH: f64 = 8.0;
@@ -45,7 +46,12 @@ pub fn figure() -> Figure {
         .thetalim(-90.0, 90.0)
         .rscale(Scale::Log)
         .rlim(FLOOR, 1.0)
-        .xtick_step(30.0);
+        .xtick_step(30.0)
+        .radial_axis(RadialAxis::AlongSpoke {
+            angle: Some(90.0),
+            side: RadialAxisSpokeSide::Clockwise,
+        })
+        .ylabel("Relative intensity");
     ax.polarplot(&theta, &relative).line_width(1.0);
     fig
 }

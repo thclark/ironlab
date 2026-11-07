@@ -28,7 +28,8 @@ use crate::artist::{
 };
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, PolarAngle,
-    PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
+    PolarView, Projection, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -178,6 +179,9 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Projection => projection_choices(replacing),
         ValueType::AngleUnits => angle_units_choices(replacing),
         ValueType::PolarAngle => polar_angle_choices(),
+        ValueType::RadialAxis => radial_axis_choices(replacing),
+        ValueType::RadialAxisSpokeSide => radial_axis_spoke_side_choices(),
+        ValueType::RadialAxisEdge => radial_axis_edge_choices(),
         ValueType::Limits => limits_choices(replacing),
         ValueType::Ticks => ticks_choices(replacing),
         ValueType::TickLabels => tick_labels_choices(replacing),
@@ -652,6 +656,9 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Projection(v) => projection_label(v),
         Value::AngleUnits(v) => angle_units_label(v),
         Value::PolarAngle(v) => polar_angle_label(v),
+        Value::RadialAxis(v) => radial_axis_label(v),
+        Value::RadialAxisSpokeSide(v) => radial_axis_spoke_side_label(v),
+        Value::RadialAxisEdge(v) => radial_axis_edge_label(v),
         Value::Limits(v) => limits_label(v),
         Value::Ticks(v) => ticks_label(v),
         Value::TickLabels(v) => tick_labels_label(v),
@@ -811,6 +818,16 @@ fn replaced_polar_view(replacing: Option<&Value>) -> PolarView {
     .unwrap_or_default()
 }
 
+/// Returns the angle of the spoke of the radial axis being replaced, when it lies on a
+/// spoke, so that a switch between the two kinds of axis drawn on a spoke keeps it;
+/// otherwise the default spoke.
+fn replaced_spoke_angle(replacing: Option<&Value>) -> Option<f64> {
+    match replacing {
+        Some(Value::RadialAxis(axis)) => axis.angle(),
+        _ => None,
+    }
+}
+
 tagged_choices! {
     Projection as Projection (projection_choices, projection_label) replacing replacing {
         Projection::TwoD => "Two-dimensional" = Projection::TwoD;
@@ -840,6 +857,27 @@ tagged_choices! {
             Some(Value::AngleUnits(AngleUnits::PerTurn(count))) => *count,
             _ => FALLBACK_COUNT_PER_TURN,
         });
+    }
+
+    // A spoke keeps its angle when the axis switches between the two kinds drawn on a
+    // spoke, so that moving the labels onto an axis line leaves them where they were.
+    RadialAxis as RadialAxis (radial_axis_choices, radial_axis_label) replacing replacing {
+        RadialAxis::Spoke { .. } => "On a spoke" = RadialAxis::Spoke {
+            angle: replaced_spoke_angle(replacing),
+        };
+        RadialAxis::AlongSpoke { .. } => "Along a spoke" = RadialAxis::AlongSpoke {
+            angle: replaced_spoke_angle(replacing),
+            side: match replacing {
+                Some(Value::RadialAxis(RadialAxis::AlongSpoke { side, .. })) => *side,
+                _ => RadialAxisSpokeSide::default(),
+            },
+        };
+        RadialAxis::Edge { .. } => "On an edge" = RadialAxis::Edge {
+            edge: match replacing {
+                Some(Value::RadialAxis(RadialAxis::Edge { edge })) => *edge,
+                _ => RadialAxisEdge::default(),
+            },
+        };
     }
 
     Limits as Limits (limits_choices, limits_label) replacing replacing {
@@ -1329,6 +1367,21 @@ plain_choices! {
     PolarAngle as PolarAngle (polar_angle_choices, polar_angle_label) {
         PolarAngle::Elevation => "Elevation";
         PolarAngle::Inclination => "Inclination";
+    }
+
+    RadialAxisSpokeSide as RadialAxisSpokeSide (
+        radial_axis_spoke_side_choices,
+        radial_axis_spoke_side_label
+    ) {
+        RadialAxisSpokeSide::Anticlockwise => "Anticlockwise";
+        RadialAxisSpokeSide::Clockwise => "Clockwise";
+    }
+
+    RadialAxisEdge as RadialAxisEdge (radial_axis_edge_choices, radial_axis_edge_label) {
+        RadialAxisEdge::Bottom => "Bottom";
+        RadialAxisEdge::Top => "Top";
+        RadialAxisEdge::Left => "Left";
+        RadialAxisEdge::Right => "Right";
     }
 
     AspectAdjust as AspectAdjust (aspect_adjust_choices, aspect_adjust_label) {

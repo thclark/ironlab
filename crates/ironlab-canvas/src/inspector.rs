@@ -753,6 +753,9 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Projection
         | ValueType::AngleUnits
         | ValueType::PolarAngle
+        | ValueType::RadialAxis
+        | ValueType::RadialAxisSpokeSide
+        | ValueType::RadialAxisEdge
         | ValueType::Scale
         | ValueType::Limits
         | ValueType::Ticks
@@ -850,6 +853,9 @@ fn editor_for(
         ValueType::Projection
         | ValueType::AngleUnits
         | ValueType::PolarAngle
+        | ValueType::RadialAxis
+        | ValueType::RadialAxisSpokeSide
+        | ValueType::RadialAxisEdge
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels

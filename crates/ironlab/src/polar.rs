@@ -8,8 +8,8 @@
 //! the charts that are drawn with series, histograms and stacked bars.
 
 use ironlab_ir::{
-    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, Scale,
-    SphericalView, Text, Ticks, View3d,
+    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, RadialAxis,
+    Scale, SphericalView, Text, Ticks, View3d,
 };
 
 use crate::artists::{BarsMut, SeriesMut};
@@ -206,11 +206,12 @@ impl AxesMut<'_> {
         self.edit_polar(|polar| polar.hole = fraction)
     }
 
-    /// Sets the angle, in the units of the data, of the spoke along which the radial tick
-    /// labels are drawn, converting the axes to polar axes (matplotlib's
-    /// `set_rlabel_position`, MATLAB's `RAxisLocation`).
-    pub fn radial_labels_at(&mut self, angle: f64) -> &mut Self {
-        self.edit_polar(|polar| polar.radial_labels_at = Some(angle))
+    /// Sets where the radial axis, its tick labels and its axis label are drawn, converting
+    /// the axes to polar axes: tick labels centred on a spoke (the default), an axis line
+    /// with tick marks along a spoke, or a ruler outside the disc on one edge of the plot
+    /// (matplotlib's `set_rlabel_position`, MATLAB's `RAxisLocation`).
+    pub fn radial_axis(&mut self, axis: RadialAxis) -> &mut Self {
+        self.edit_polar(|polar| polar.radial_axis = axis)
     }
 
     /// Fixes the angular limits, which are the sector the axes shows; an alias of
