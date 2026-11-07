@@ -104,11 +104,24 @@ pub(super) fn emit(
             .any(|&(k, value)| a[k] == value && b[k] == value)
     };
 
+    // With the box off, only the three edges that carry the tick marks and labels are drawn.
+    let labelled: Vec<(usize, [f64; 3])> = (0..3)
+        .filter_map(|dim| label_edge(&projector, dim).map(|edge| (dim, edge.at)))
+        .collect();
+    let carries_ticks = |a: &[f64; 3], b: &[f64; 3]| {
+        labelled.iter().any(|(dim, at)| {
+            a[*dim] != b[*dim] && (0..3).all(|k| k == *dim || (a[k] == at[k] && b[k] == at[k]))
+        })
+    };
+
     let mut content = Vec::new();
     draw_grid(input, &projector, &back, &mut content);
     let mut back_edges = PathBuilder::new();
     let mut front_edges = PathBuilder::new();
     for (a, b) in box_edges() {
+        if !axes.box_ && !carries_ticks(&a, &b) {
+            continue;
+        }
         let (Some((p, _)), Some((q, _))) = (projector.project(a), projector.project(b)) else {
             continue;
         };
@@ -146,14 +159,12 @@ pub(super) fn emit(
         });
     }
 
-    if axes.box_ {
-        content.extend(paths::item(
-            axes.id,
-            front_edges.finish(),
-            None,
-            Some(paths::solid(INK, 0.5)),
-        ));
-    }
+    content.extend(paths::item(
+        axes.id,
+        front_edges.finish(),
+        None,
+        Some(paths::solid(INK, 0.5)),
+    ));
     out.push(Item {
         source: Some(axes.id),
         kind: ItemKind::Group {

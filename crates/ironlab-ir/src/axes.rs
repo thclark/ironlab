@@ -40,7 +40,9 @@ pub struct Axes {
     /// axes shows none.
     pub colorbar: Option<InsideColorbar>,
     /// Whether the full outline of the plot box is drawn, rather than only the
-    /// edges that carry tick labels.
+    /// edges that carry tick labels: all twelve edges of a three-dimensional box,
+    /// rather than the three that carry its ticks, and the top and wall of a
+    /// cylindrical axes, rather than only its floor.
     #[serde(rename = "box")]
     pub box_: bool,
     /// The legend, or `null` when no legend is shown.
