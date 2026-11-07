@@ -901,6 +901,46 @@ fn draw_series(
         _ => points.get(i),
     };
 
+    if let Some(base) = series.fill_base() {
+        let fill = match series.fill {
+            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+            // A colormapped fill is invalid, because the area under the line has no value to look a colour up by;
+            // it is drawn as an automatic one, in the colour of the series.
+            ColorSpec::Auto | ColorSpec::Colormapped => own,
+            ColorSpec::None => None,
+        };
+        let fill =
+            fill.map(|c| c.with_alpha_factor(style::unit_opacity(series.fill_opacity) as f32));
+        if let (Some(fill), Space::TwoD(plane)) = (fill, &draw.space) {
+            let runs = fill_runs(plane, &points, at, base, draw.target, draw.clip);
+            let runs = follow_fraction_angle(&draw.space, series, &points, runs);
+            let mut b = PathBuilder::new();
+            for run in &runs {
+                let (Some(first), Some(last)) = (run.first(), run.last()) else {
+                    continue;
+                };
+                let mut polygon = positions(run);
+                polygon.push(base_point(
+                    plane,
+                    points.get(last.source_index)[0],
+                    base,
+                    draw.clip,
+                ));
+                polygon.push(base_point(
+                    plane,
+                    points.get(first.source_index)[0],
+                    base,
+                    draw.clip,
+                ));
+                b.polyline(&polygon, true);
+            }
+            draw.push(
+                0.0,
+                paths::item(series.id, b.finish(), Some(paths::fill(fill)), None),
+            );
+        }
+    }
+
     let mut drawn: Vec<Sample> = Vec::new();
     let template = series
         .draws_line()
@@ -991,6 +1031,79 @@ fn draw_series(
         drawn.extend(samples);
     }
     draw.record(series.id, drawn);
+}
+
+/// Returns the runs of a filled series through which its fill is drawn: the runs of its line, thinned exactly as the
+/// line thins them when the plot area is not too dense for them, so that the fill and the line share their points.
+///
+/// A run too dense for the plot area is cut into the stretches whose fill can paint inside `clip` (judged by the
+/// bounding box of each segment together with its two points on the base) and each stretch is thinned as the line
+/// is. The line cuts a dense run only where its segments leave the clip, which would leave the fill beneath a part
+/// of the line above the plot area undrawn; the fill keeps every segment whose strip down to the base is seen.
+fn fill_runs(
+    plane: &Plane,
+    points: &Points,
+    at: impl Fn(usize) -> [f64; 3],
+    base: f64,
+    target: usize,
+    clip: Rect,
+) -> Vec<Vec<Sample>> {
+    let space = Space::TwoD(*plane);
+    mapped_runs(&space, (0..points.len()).map(at))
+        .into_iter()
+        .flat_map(|run| {
+            if run.len() <= target {
+                return vec![run];
+            }
+            let foot = |s: &Sample| base_point(plane, points.get(s.source_index)[0], base, clip);
+            let mut stretches: Vec<Vec<Sample>> = Vec::new();
+            let mut current: Vec<Sample> = Vec::new();
+            for pair in run.windows(2) {
+                let (a, b) = (pair[0].position, pair[1].position);
+                let (fa, fb) = (foot(&pair[0]), foot(&pair[1]));
+                let meets = segment_meets(clip, a, b)
+                    || segment_meets(clip, fa, fb)
+                    || segment_meets(clip, a, fb)
+                    || segment_meets(clip, fa, b);
+                if meets {
+                    if current.is_empty() {
+                        current.push(pair[0]);
+                    }
+                    current.push(pair[1]);
+                } else if !current.is_empty() {
+                    stretches.push(std::mem::take(&mut current));
+                }
+            }
+            if !current.is_empty() {
+                stretches.push(current);
+            }
+            stretches
+                .into_iter()
+                .map(|stretch| decimate::largest_triangle_three_buckets(&stretch, target))
+                .collect()
+        })
+        .collect()
+}
+
+/// Returns the page point of the base of a fill at the data value `x`: the point (x, base), with a base that a
+/// logarithmic y axis cannot place at the low edge of the plot area, as the base of bars and stairs is. In polar axes
+/// a base on the centre side of the radial limits lies at the edge of the plot region nearest the centre, so that a
+/// base at or below the lower limit closes the fill at the centre rather than reflecting through it; in Cartesian
+/// axes the base is held within the clamping bounds of the plane, so that a distant base stays a reasonable number.
+fn base_point(plane: &Plane, x: f64, base: f64, clip: Rect) -> Point {
+    let along = plane.x.to_figure(x);
+    let level = if plane.y.log && base <= 0.0 {
+        plane.y.to_figure(plane.y.min)
+    } else {
+        plane.y.to_figure(base)
+    };
+    let bounds = plane.bounds(clip);
+    let level = if plane.is_polar() {
+        level.max(bounds.y)
+    } else {
+        level.clamp(bounds.y, bounds.bottom())
+    };
+    plane.place(Point::new(along, level))
 }
 
 /// Returns the runs of a series in polar axes whose x values are fractions of the sector, with every segment

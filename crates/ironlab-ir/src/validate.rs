@@ -281,12 +281,18 @@ pub enum IssueKind {
     /// does not increase. Bin edges that are not finite and strictly increasing are
     /// [`InvalidEdges`](IssueKind::InvalidEdges) instead.
     InvalidBinning,
-    /// A colour of stairs (their line or fill) is colormapped, but stairs have no colour
-    /// data to map and no colour scale to look the colour up in.
+    /// A colour that cannot take its colour from a colour scale is colormapped: a colour of
+    /// stairs (their line or fill), which have no colour data to map and no colour scale to
+    /// look the colour up in, or the fill of a series, whose colour data colours its points
+    /// and segments and not the area beneath them.
     ColormapNotSupported,
-    /// Stairs have a fill other than none but no base, so there is nothing to fill down
-    /// to.
-    StairsFillWithoutBase,
+    /// Stairs or a series have a fill other than none but no base, so there is nothing to
+    /// fill down to.
+    FillWithoutBase,
+    /// A series with a fill other than none is placed in a three-dimensional axes
+    /// (Cartesian, cylindrical or spherical), where the area under a line has no plane to
+    /// lie in and is not drawn.
+    SeriesFillInThreeDAxes,
     /// Bars, stairs or cells are placed in a three-dimensional axes (Cartesian, cylindrical
     /// or spherical); they are drawn only in the plane of a two-dimensional axes, Cartesian
     /// or polar.
@@ -1179,6 +1185,16 @@ impl<'a> Validator<'a> {
                     .to_owned(),
             );
         }
+        if three_d && usage.filled {
+            self.error(
+                Some(id),
+                IssueKind::SeriesFillInThreeDAxes,
+                "the series is filled, but the area under a line is drawn only in a \
+                 two-dimensional axes, Cartesian or polar, and this series is placed in a \
+                 three-dimensional axes"
+                    .to_owned(),
+            );
+        }
         for (kind, message) in &usage.problems {
             self.error(Some(id), *kind, message.clone());
         }
@@ -1207,6 +1223,22 @@ impl<'a> Validator<'a> {
         }
         if !three_d && references_are_valid {
             self.check_log_extents(axes, id, &usage.shape);
+        }
+        if !three_d
+            && let Some(base) = usage.fill_base
+            && base <= 0.0
+            && !usage.is_fraction(Dimension::Y)
+            && axes.y.scale == Scale::Log
+        {
+            self.warning(
+                Some(id),
+                IssueKind::NonPositiveOnLogAxis,
+                format!(
+                    "the base {base} of the fill of the series is not positive along the \
+                     logarithmic y axis, which has no place for it, so the fill drops to the \
+                     low edge of the plot area"
+                ),
+            );
         }
 
         for &(dimension, data) in &usage.positions {
@@ -2341,6 +2373,10 @@ pub(crate) struct ArtistUsage<'a> {
     fraction: [bool; 2],
     /// Whether the artist releases its clip, as only a series can.
     clip_released: bool,
+    /// The base of the fill of a series, when the series is filled and has a base.
+    fill_base: Option<f64>,
+    /// Whether a series has a fill other than none, with or without a base.
+    filled: bool,
     /// Each opacity of the artist, with its name for messages.
     opacities: Vec<(&'static str, f64)>,
     /// The levels of a contour, when it has levels of its own.
@@ -2437,6 +2473,8 @@ impl<'a> ArtistUsage<'a> {
             problems: Vec::new(),
             fraction: [false; 2],
             clip_released: false,
+            fill_base: None,
+            filled: false,
             opacities: Vec::new(),
             levels: None,
             color_scale: None,
@@ -2506,9 +2544,30 @@ impl Usage for Series {
             x: self.x,
             colors,
         };
+        let mut problems = Vec::new();
+        if self.fill == ColorSpec::Colormapped {
+            problems.push((
+                IssueKind::ColormapNotSupported,
+                "the fill colour of the series is colormapped, but the colour data of a series \
+                 colours its points and segments, and the area under the line has no value of \
+                 its own to look a colour up by"
+                    .to_owned(),
+            ));
+        }
+        if self.fill != ColorSpec::None && self.base.is_none() {
+            problems.push((
+                IssueKind::FillWithoutBase,
+                "the series is filled but has no base, so there is nothing to fill down to"
+                    .to_owned(),
+            ));
+        }
         ArtistUsage {
             fraction: fractions(self.x_coords, self.y_coords),
             clip_released: !self.clip,
+            problems,
+            opacities: vec![("fill opacity", self.fill_opacity)],
+            fill_base: self.fill_base(),
+            filled: self.fill != ColorSpec::None,
             ..ArtistUsage::new(references, positions, self.z.is_some(), shape)
         }
     }
@@ -2699,7 +2758,7 @@ impl Usage for Stairs {
         }
         if self.fill != ColorSpec::None && self.base.is_none() {
             problems.push((
-                IssueKind::StairsFillWithoutBase,
+                IssueKind::FillWithoutBase,
                 "the stairs are filled but have no base, so there is nothing to fill down to"
                     .to_owned(),
             ));

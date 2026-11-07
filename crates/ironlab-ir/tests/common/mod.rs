@@ -14,7 +14,7 @@ use ironlab_ir::*;
 
 /// The fields of the wire schema whose IR values may be absent (an optional title, label,
 /// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
-/// scale reference, contour levels, pixel range or plane offset, the colour data and
+/// scale reference, the base of a series, contour levels, pixel range or plane offset, the colour data and
 /// binning record of a bar series, the base and binning record of stairs, the binning record
 /// of cells, the ranges and minimum count of a binning record, and the spoke of the radial
 /// tick labels of a polar view), by full Protocol Buffers name.
@@ -22,7 +22,7 @@ use ironlab_ir::*;
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 52] = [
+pub const OPTIONAL_IN_IR: [&str; 53] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -36,6 +36,7 @@ pub const OPTIONAL_IN_IR: [&str; 52] = [
     "ironlab.ir.v0.Series.size_data",
     "ironlab.ir.v0.Series.color_data",
     "ironlab.ir.v0.Series.color_scale",
+    "ironlab.ir.v0.Series.base",
     "ironlab.ir.v0.Contour.label",
     "ironlab.ir.v0.Contour.levels",
     "ironlab.ir.v0.Contour.color_scale",
@@ -1276,6 +1277,18 @@ pub fn kitchen_sink_figure() -> Figure {
                 x_coords: coords[k % coords.len()].0,
                 y_coords: coords[k % coords.len()].1,
                 clip: k % 2 == 0,
+                // One series is filled down to a positive base (the y axis is
+                // logarithmic), so that every fill property is written and read.
+                base: (k == 1).then_some(0.5),
+                fill: if k == 1 {
+                    ColorSpec::Rgba {
+                        // Eight-bit channels, which JSON writes exactly.
+                        color: Color::rgb(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0),
+                    }
+                } else {
+                    ColorSpec::None
+                },
+                fill_opacity: if k == 1 { 0.375 } else { 1.0 },
             }),
         );
     }
@@ -1318,6 +1331,7 @@ pub fn kitchen_sink_figure() -> Figure {
             x_coords: Coords::Data,
             y_coords: Coords::AxesFraction,
             clip: false,
+            ..Series::default()
         }),
     );
     let id = b.node();
@@ -2422,7 +2436,7 @@ fn visit_bins(visit: &mut dyn FnMut(String, &mut f64), at: &str, bins: &mut Bins
 /// and of colour scales), tick label angles, views, style widths and sizes (of artists and
 /// of the custom line samples of legends), artist parameters (the bases, widths, offsets,
 /// margins and opacities of bars, the gaps and opacities of cells, the bases and opacities of
-/// stairs, and every number of their binning records among them), explicit levels and band
+/// stairs, the base and fill opacity of series, and every number of their binning records among them), explicit levels and band
 /// edges, and
 /// every value of every `f64` data array. An array of 8-bit values
 /// holds no floats and is skipped.
@@ -2486,6 +2500,10 @@ pub fn visit_floats_mut(fig: &mut Figure, visit: &mut dyn FnMut(String, &mut f64
                 Artist::Series(series) => {
                     visit(at("line.width_pt"), &mut series.line.width_pt);
                     visit(at("marker.size_pt"), &mut series.marker.size_pt);
+                    if let Some(base) = &mut series.base {
+                        visit(at("base"), base);
+                    }
+                    visit(at("fill_opacity"), &mut series.fill_opacity);
                 }
                 Artist::Contour(contour) => {
                     if let Some(Levels::Explicit { values }) = &mut contour.levels {

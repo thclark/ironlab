@@ -1,15 +1,32 @@
 //! Polar axes: converting an axes to polar axes, the setters of its polar view, the
-//! readability aliases of its limits and scale, and `polarplot` and `polarscatter`.
+//! readability aliases of its limits and scale, `polarplot` and `polarscatter`, and the charts
+//! built from ordinary artists in polar axes: radar charts, polar histograms and wind roses.
 //!
 //! A polar axes is an ordinary axes whose projection is polar: x carries the angle and y the
 //! radius. Every builder draws into it unchanged, so these functions only set the projection
-//! and its view, and name the x and y setters in the words of polar plots.
+//! and its view, name the x and y setters in the words of polar plots, and prepare the data of
+//! the charts that are drawn with series, histograms and stacked bars.
 
-use ironlab_ir::{AngleUnits, PolarView, Projection, Scale};
+use ironlab_ir::{
+    AngleUnits, ColorSpec, Limits, MarkerShape, PolarView, Projection, Scale, Text, Ticks,
+};
 
-use crate::artists::SeriesMut;
+use crate::artists::{BarsMut, SeriesMut};
 use crate::axes::AxesMut;
+use crate::binning::Bins;
 use crate::data::DataSource;
+use crate::hist::HistMut;
+
+/// The number of bins of a polar histogram, and of sectors of a wind rose, over a full turn:
+/// the sixteen points of the compass.
+const COMPASS_POINTS: usize = 16;
+
+/// The fraction of its sector that each petal of a wind rose leaves empty, so that
+/// neighbouring petals read as separate sectors.
+const WIND_ROSE_GAP: f64 = 0.1;
+
+/// The opacity of the fill of a radar outline, low enough that overlaid outlines stay readable.
+const RADAR_FILL_OPACITY: f64 = 0.25;
 
 /// The direction on the page in which angle 0 points: a compass point, or any angle in
 /// degrees anticlockwise from east.
@@ -162,5 +179,178 @@ impl AxesMut<'_> {
     ) -> SeriesMut<'_> {
         self.make_polar();
         self.scatter(theta, r)
+    }
+
+    /// Returns one turn in the angle units of the axes: 360 for degrees, 2π for radians, or
+    /// the number of units to a turn.
+    fn turn(&mut self) -> f64 {
+        match self.axes().projection {
+            Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => {
+                polar.angle_units.turn()
+            }
+            Projection::Spherical { spherical, .. } => spherical.angle_units.turn(),
+            Projection::TwoD | Projection::ThreeD { .. } => AngleUnits::Degrees.turn(),
+        }
+    }
+
+    /// Converts the axes to the polar axes of a radar chart with one spoke for each label
+    /// (Plotly's `scatterpolar`, Chart.js's `radar`).
+    ///
+    /// The angle is measured in one unit per spoke, so that spoke `k` lies at angle `k`: the
+    /// angle units are `n` to a turn for `n` labels, the angular limits are fixed at `[0, n]`,
+    /// the angular ticks are `0, 1, …, n − 1` labelled with the labels, spoke 0 points north,
+    /// the spokes follow one another clockwise, and the spokes and rings of the grid are drawn.
+    /// The radial limits are shared by every outline, as in any axes, so criteria measured on
+    /// different scales are normalised before they are plotted.
+    pub fn spokes<T: Clone + Into<Text>>(&mut self, labels: &[T]) -> &mut Self {
+        let n = labels.len() as f64;
+        self.angle_units(AngleUnits::PerTurn(n))
+            .theta_zero(ThetaZero::North)
+            .clockwise(true);
+        let axes = self.axes();
+        axes.x.limits = Limits::Manual { min: 0.0, max: n };
+        axes.x.ticks = Ticks::Values((0..labels.len()).map(|k| k as f64).collect());
+        axes.x.grid = true;
+        axes.y.grid = true;
+        self.xtick_labels(labels.iter().cloned())
+    }
+
+    /// Adds the closed outline of a radar chart through one value per spoke, converting the
+    /// axes to polar axes. The axes are prepared by [`spokes`](Self::spokes), whose number of
+    /// labels is the number of spokes; without spokes there is one spoke per value.
+    ///
+    /// The outline is an ordinary series through the points `(k, values[k])`, with the first
+    /// value repeated at `x = n`, which is spoke 0 a turn later, so that the outline closes
+    /// with a straight edge back to the first spoke. It draws a line and circle markers, and is
+    /// filled in the colour of the series at an opacity of 0.25 down to its base: the lower
+    /// radial limit, when the radial limits are fixed before the outline is added, and 0
+    /// otherwise. Values of the
+    /// wrong number for the spokes are stored as given, and
+    /// [`Figure::validate`](crate::Figure::validate) reports the mismatch.
+    pub fn radar(&mut self, values: impl Into<DataSource>) -> SeriesMut<'_> {
+        self.make_polar();
+        let mut values = values.into().read(self.fig);
+        let spokes = match self.axes().projection {
+            Projection::Polar {
+                polar:
+                    PolarView {
+                        angle_units: AngleUnits::PerTurn(n),
+                        ..
+                    },
+            } if n.is_finite() && n >= 1.0 && n.fract() == 0.0 => n as usize,
+            _ => values.len(),
+        };
+        let base = match self.axes().y.limits {
+            Limits::Manual { min, .. } => min,
+            Limits::Auto => 0.0,
+        };
+        if let Some(&first) = values.first() {
+            values.push(first);
+        }
+        let x: Vec<f64> = (0..=spokes).map(|k| k as f64).collect();
+        let mut series = self.plot(x, values);
+        series
+            .marker(MarkerShape::Circle)
+            .base(base)
+            .fill(ColorSpec::Auto)
+            .fill_opacity(RADAR_FILL_OPACITY);
+        series
+    }
+
+    /// Draws a histogram of angles over one turn (MATLAB's `polarhistogram`), converting the
+    /// axes to polar axes.
+    ///
+    /// Each finite angle is wrapped into `[0, turn)` of the angle units of the axes, so that an
+    /// angle a whole number of turns away from another counts in the same bin: −10° counts as
+    /// 350°. The wrapped angles are then binned exactly as [`hist`](Self::hist) bins a sample,
+    /// with the range fixed to one turn, so that the last bin adjoins the first, and sixteen
+    /// bins unless [`HistMut::bins`] sets others. The bars are wedges of the polar axes, and the
+    /// step style draws stairs whose runs are arcs. The record of the binning describes the
+    /// wrapped sample.
+    pub fn polar_hist(&mut self, angles: impl Into<DataSource>) -> HistMut<'_> {
+        self.make_polar();
+        let turn = self.turn();
+        let wrapped: Vec<f64> = angles
+            .into()
+            .read(self.fig)
+            .into_iter()
+            .map(|angle| {
+                if angle.is_finite() {
+                    angle.rem_euclid(turn)
+                } else {
+                    angle
+                }
+            })
+            .collect();
+        let mut hist = HistMut::create(self.fig, self.id, wrapped.into());
+        hist.bins(Bins::Count(COMPASS_POINTS as u32))
+            .range(0.0, turn);
+        hist
+    }
+
+    /// Draws a wind rose of observations of the direction the wind blows from, in degrees
+    /// clockwise from north, and of its speed (python-windrose's `WindroseAxes.bar`),
+    /// converting the axes to polar axes in degrees with north up and bearings clockwise.
+    ///
+    /// The directions are binned into sixteen sectors centred on the compass points 0°, 22.5°,
+    /// …, 337.5°, each spanning half a sector either side of its centre, so that the sector of
+    /// north spans from 348.75° to 11.25°. The speeds are binned into the classes between
+    /// consecutive edges of `class_edges`, which increase: a class holds the speeds from its
+    /// lower edge up to, but not including, its upper edge, and the last class is open above
+    /// its edge. A speed below the first edge is a calm: it counts towards the total but is
+    /// drawn in no class. Each class is a stacked bar series at the sector centres, labelled by
+    /// its range of speeds without a unit (`"2–4"`, and `"≥ 8"`, set as `$\geq$ 8`, for the last), whose values
+    /// are the percentages of all the observations whose direction and speed are both finite;
+    /// the petals therefore sum to 100 less the percentage of calms. The returned helper sets
+    /// the gap between petals and styles the classes.
+    pub fn wind_rose(
+        &mut self,
+        directions: impl Into<DataSource>,
+        speeds: impl Into<DataSource>,
+        class_edges: impl AsRef<[f64]>,
+    ) -> BarsMut<'_> {
+        self.angle_units(AngleUnits::Degrees)
+            .theta_zero(ThetaZero::North)
+            .clockwise(true);
+        let directions = directions.into().read(self.fig);
+        let speeds = speeds.into().read(self.fig);
+        let edges = class_edges.as_ref();
+        let sector = 360.0 / COMPASS_POINTS as f64;
+        let mut counts = vec![vec![0.0; COMPASS_POINTS]; edges.len()];
+        let mut total = 0.0;
+        for (&direction, &speed) in directions.iter().zip(&speeds) {
+            if !(direction.is_finite() && speed.is_finite()) {
+                continue;
+            }
+            total += 1.0;
+            let Some(class) = edges.iter().rposition(|&edge| speed >= edge) else {
+                continue;
+            };
+            let k = ((direction.rem_euclid(360.0) + sector / 2.0) / sector).floor() as usize
+                % COMPASS_POINTS;
+            counts[class][k] += 1.0;
+        }
+        let centres: Vec<f64> = (0..COMPASS_POINTS).map(|k| sector * k as f64).collect();
+        let mut rose = self.bars(centres);
+        rose.gap(WIND_ROSE_GAP);
+        for (class, counts) in counts.into_iter().enumerate() {
+            let label = match edges.get(class + 1) {
+                Some(upper) => format!("{}–{upper}", edges[class]),
+                // The text font has no sign for "at least", so it is set as mathematics.
+                None => format!("$\\geq$ {}", edges[class]),
+            };
+            let percentages: Vec<f64> = counts
+                .into_iter()
+                .map(|count| {
+                    if total > 0.0 {
+                        100.0 * count / total
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            rose.stacked("wind rose", label, percentages);
+        }
+        rose
     }
 }

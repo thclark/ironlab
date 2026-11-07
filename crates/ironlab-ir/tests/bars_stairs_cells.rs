@@ -2435,7 +2435,7 @@ fn a_fill_on_stairs_without_a_base_is_an_error() {
         stairs_mut(&mut fx.fig).fill = fill;
         assert_only_error(
             &fx.fig.validate(),
-            IssueKind::StairsFillWithoutBase,
+            IssueKind::FillWithoutBase,
             fx.artist,
             &format!("{fill:?}"),
         );
@@ -3023,7 +3023,7 @@ fn an_empty_artist_with_an_error_is_reported_for_the_error_alone() {
     stairs_mut(&mut fx.fig).fill = ColorSpec::Auto;
     assert_only_error(
         &fx.fig.validate(),
-        IssueKind::StairsFillWithoutBase,
+        IssueKind::FillWithoutBase,
         fx.artist,
         "stairs",
     );

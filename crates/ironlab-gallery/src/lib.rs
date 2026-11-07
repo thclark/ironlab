@@ -151,6 +151,9 @@ gallery!(
     polar_image,
     radial_bars,
     log_radius,
+    radar_chart,
+    polar_histogram,
+    wind_rose,
 );
 
 /// Returns the gallery entry with the given slug, if there is one.

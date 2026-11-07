@@ -124,6 +124,10 @@ fn decay_figure() -> Figure {
                 x_coords: Coords::Data,
                 y_coords: Coords::Data,
                 clip: true,
+                // The fixture predates the fill of a series, so it reads as unfilled.
+                base: None,
+                fill: ColorSpec::None,
+                fill_opacity: 1.0,
             })],
         }],
         panels: vec![],

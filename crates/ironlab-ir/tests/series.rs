@@ -21,6 +21,9 @@
 //!     pub x_coords: Coords,
 //!     pub y_coords: Coords,
 //!     pub clip: bool,
+//!     pub base: Option<f64>,             // the fill and its base are tested in `series_fill`
+//!     pub fill: ColorSpec,
+//!     pub fill_opacity: f64,
 //! }
 //! ```
 //!
