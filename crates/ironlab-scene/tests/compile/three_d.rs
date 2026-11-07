@@ -704,6 +704,93 @@ fn three_d_labelled_edges_carry_outward_tick_marks() {
     }
 }
 
+/// A straight segment in figure space.
+type Segment = (Point, Point);
+
+/// The long straight segments (the box edges) and the short ones (the tick marks) that a 3D axes
+/// draws itself, in the given view with the box on or off and no grid.
+fn edges_and_marks(view3d: View3d, box_: bool) -> (Vec<Segment>, Vec<Segment>) {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, view3d);
+    let grid = linspace(-2.0, 2.0, 9);
+    fx.surface(ax, &grid, &grid, |x, y| x * x + y * y, |_| {});
+    fx.ax(ax).box_ = box_;
+    let font_size = fx.fig.font_size_pt;
+    let scene = compile_figure(&fx.build());
+    let segments: Vec<Segment> = from_source(&leaves(&scene), ax)
+        .iter()
+        .flat_map(|l| l.line_segments())
+        .collect();
+    let edges = segments
+        .iter()
+        .copied()
+        .filter(|s| segment_length(*s) > 5.0 * font_size)
+        .collect();
+    let marks = segments
+        .iter()
+        .copied()
+        .filter(|s| {
+            let len = segment_length(*s);
+            len > 0.1 * font_size && len < font_size
+        })
+        .collect();
+    (edges, marks)
+}
+
+const BOX_VIEWS: [(f64, f64); 4] = [(-37.5, 30.0), (45.0, 20.0), (130.0, 35.0), (-120.0, -25.0)];
+
+// Why: with the box on, a 3D axes is closed by all twelve edges of its box, as in MATLAB with
+// `box on`; the back edges frame the data from behind and the front edges close it in front.
+#[test]
+fn with_the_box_on_a_3d_axes_draws_all_twelve_edges_of_its_box() {
+    for (azimuth_deg, elevation_deg) in BOX_VIEWS {
+        let view = View3d {
+            azimuth_deg,
+            elevation_deg,
+            ..View3d::default()
+        };
+        let (edges, _) = edges_and_marks(view, true);
+        assert_eq!(
+            edges.len(),
+            12,
+            "view ({azimuth_deg}, {elevation_deg}): {edges:?}"
+        );
+    }
+}
+
+// Why: with the box off, a 3D axes keeps only the three axis lines that its tick marks and
+// labels are read from, one for each of x, y and z, so that the data is seen without a cage
+// round it but every value can still be read off an axis. Every tick mark therefore starts on
+// one of the three remaining lines, and each line carries tick marks.
+#[test]
+fn with_the_box_off_a_3d_axes_keeps_only_the_three_edges_that_carry_its_ticks() {
+    for (azimuth_deg, elevation_deg) in BOX_VIEWS {
+        let view = View3d {
+            azimuth_deg,
+            elevation_deg,
+            ..View3d::default()
+        };
+        let what = format!("view ({azimuth_deg}, {elevation_deg})");
+        let (edges, marks) = edges_and_marks(view, false);
+        assert_eq!(edges.len(), 3, "{what}: {edges:?}");
+        assert!(marks.len() >= 6, "{what}: tick marks are drawn: {marks:?}");
+        let mut carried = [0; 3];
+        for &(p, q) in &marks {
+            let edge = edges.iter().position(|e| {
+                distance_to_segment(p, *e) < 1e-6 || distance_to_segment(q, *e) < 1e-6
+            });
+            let edge = edge.unwrap_or_else(|| {
+                panic!("{what}: the tick mark {p:?}–{q:?} starts on a remaining edge")
+            });
+            carried[edge] += 1;
+        }
+        assert!(
+            carried.iter().all(|n| *n > 0),
+            "{what}: each remaining edge carries tick marks: {carried:?}"
+        );
+    }
+}
+
 /// Returns the figure-space centroid of every filled face of `surf`, in paint order.
 fn face_centroids(scene: &Scene, surf: NodeId) -> Vec<Point> {
     filled(&leaves(scene), surf)

@@ -438,8 +438,9 @@ impl Figure {
     ///
     /// An axes that is not yet polar is converted as [`AxesMut::make_polar`] converts it,
     /// keeping its artists, and both of its grids are turned on, so that the spokes and the
-    /// circles that a polar plot is read by are drawn; an existing polar axes keeps its view
-    /// and its grids.
+    /// circles that a polar plot is read by are drawn; a three-dimensional axes becomes
+    /// cylindrical, with the grids that [`Figure::cylindrical_axes`] turns on. An existing
+    /// polar axes keeps its view and its grids.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -460,8 +461,10 @@ impl Figure {
     ///
     /// In a cylindrical axes x is the angle about the z axis, y the distance from it and z
     /// the height. An axes that is not yet cylindrical is converted as
-    /// [`AxesMut::make_cylindrical`] converts it, keeping its artists; an existing
-    /// cylindrical axes keeps its camera and its polar view.
+    /// [`AxesMut::make_cylindrical`] converts it, keeping its artists, and its x and y grids
+    /// are turned on, so that the spokes and the circles on the floor, by which the angle and
+    /// the radius are read, are drawn. An existing cylindrical axes keeps its camera, its
+    /// polar view and its grids.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -474,9 +477,10 @@ impl Figure {
     /// assert!(fig.validate().is_valid());
     /// ```
     pub fn cylindrical_axes(&mut self, row: u32, col: u32) -> AxesMut<'_> {
-        let mut axes = self.axes(row, col);
-        axes.make_cylindrical();
-        axes
+        let id = self.axes(row, col).id();
+        self.curved(id, |axes| {
+            axes.make_cylindrical();
+        })
     }
 
     /// Returns the axes that occupies the tile at a zero-based row and column as a
@@ -484,12 +488,15 @@ impl Figure {
     ///
     /// In a spherical axes x is the azimuth, y the polar angle and z the distance from the
     /// centre. An axes that is not yet spherical is converted as
-    /// [`AxesMut::make_spherical`] converts it, keeping its artists; an existing spherical
-    /// axes keeps its camera and its spherical view.
+    /// [`AxesMut::make_spherical`] converts it, keeping its artists, and all three of its
+    /// grids are turned on, so that the spokes in the planes of the equator and the meridian,
+    /// by which the angles are read, and the circles of constant radius in both planes are
+    /// drawn. An existing spherical axes keeps its camera, its spherical view and its grids.
     pub fn spherical_axes(&mut self, row: u32, col: u32) -> AxesMut<'_> {
-        let mut axes = self.axes(row, col);
-        axes.make_spherical();
-        axes
+        let id = self.axes(row, col).id();
+        self.curved(id, |axes| {
+            axes.make_spherical();
+        })
     }
 
     /// Returns the axes whose top-left tile is at a zero-based row and column as a polar axes
@@ -506,15 +513,33 @@ impl Figure {
         self.polar(id)
     }
 
-    /// Converts the axes `id` to polar axes with both grids on, unless it is already polar.
+    /// Converts the axes `id` to polar axes, as [`curved`](Self::curved) converts it.
     fn polar(&mut self, id: NodeId) -> AxesMut<'_> {
+        self.curved(id, |axes| {
+            axes.make_polar();
+        })
+    }
+
+    /// Converts the axes `id` by `convert` and, when that changes its kind to polar, cylindrical
+    /// or spherical, turns on the grids by which that kind is read: the x and y grids of a polar
+    /// or cylindrical axes (the spokes and the circles), and every grid of a spherical axes (the
+    /// spokes in both planes and the circles of constant radius). An axes that keeps its kind
+    /// keeps its grids.
+    fn curved(&mut self, id: NodeId, convert: impl FnOnce(&mut AxesMut<'_>)) -> AxesMut<'_> {
         let mut axes = AxesMut::new(&mut self.ir, id);
-        let was_polar = matches!(axes.axes().projection, Projection::Polar { .. });
-        axes.make_polar();
-        if !was_polar && matches!(axes.axes().projection, Projection::Polar { .. }) {
-            let ir = axes.axes();
-            ir.x.grid = true;
-            ir.y.grid = true;
+        let kind = |p: &Projection| std::mem::discriminant(p);
+        let before = kind(&axes.axes().projection);
+        convert(&mut axes);
+        let ir = axes.axes();
+        if kind(&ir.projection) != before {
+            let grids = match ir.projection {
+                Projection::Polar { .. } | Projection::Cylindrical { .. } => [true, true, false],
+                Projection::Spherical { .. } => [true; 3],
+                Projection::TwoD | Projection::ThreeD { .. } => [false; 3],
+            };
+            for (axis, on) in [&mut ir.x, &mut ir.y, &mut ir.z].into_iter().zip(grids) {
+                axis.grid |= on;
+            }
         }
         axes
     }
