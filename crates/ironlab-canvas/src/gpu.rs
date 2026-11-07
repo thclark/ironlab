@@ -42,6 +42,14 @@
 //! PDF. The depth buffer is cleared at the start of every list and whenever the depth group changes. Every draw is
 //! clipped by the scissor rectangle of its clip, rounded to whole pixels as the interface rounds its own.
 //!
+//! A draw beneath a sector clip (the plot region of a polar axes) is cut to its sector in the fragment shaders: every
+//! vertex shader passes the figure position of its vertex on, and the fragment shaders scale the fragment's colour by
+//! the share of its pixel inside the sector, measured by the signed distance to the sector's boundary, discarding a
+//! fragment with no share. The sectors of a list are held in a uniform buffer, one slot per distinct sector bound with
+//! a dynamic offset per draw, and slot 0 is disabled: a draw outside every sector clip binds it and takes a branch that
+//! leaves its colour exactly as it would be without the test. Draws are never merged, so no draw takes another's
+//! sector.
+//!
 //! # Caches and uploads
 //!
 //! A list's buffers are uploaded once and kept for as long as the list is drawn, keyed by the address of its
@@ -57,7 +65,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use ironlab_ir::NodeId;
-use ironlab_scene::display::{Point, Rect};
+use ironlab_scene::display::{Point, Rect, Sector};
 use wgpu::util::DeviceExt;
 
 use crate::canvas::ScreenTransform;
@@ -169,6 +177,43 @@ pub struct StrokeParams {
 
 /// The stride of a [`StrokeParams`] slot in the uniform buffer, which every device accepts as a dynamic offset.
 const PARAMS_STRIDE: u64 = 256;
+
+/// The sector of a draw as the fragment shaders read it, held in a [`PARAMS_STRIDE`] slot of the list's sector
+/// buffer. Slot 0 of every list is disabled and serves every draw outside a sector clip.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct SectorGpu {
+    /// The centre in figure points.
+    centre: [f32; 2],
+    /// The inner and outer radii in figure points.
+    radii: [f32; 2],
+    /// The start angle and the sweep in radians, anticlockwise on the page from east.
+    angles: [f32; 2],
+    /// 1 when the draw is clipped to the sector, 0 when it is not clipped at all.
+    enabled: u32,
+    /// 1 when the sweep is a full turn, so that only the radii clip.
+    full_turn: u32,
+}
+
+impl SectorGpu {
+    const DISABLED: Self = Self {
+        centre: [0.0; 2],
+        radii: [0.0; 2],
+        angles: [0.0; 2],
+        enabled: 0,
+        full_turn: 0,
+    };
+
+    fn new(sector: &Sector) -> Self {
+        Self {
+            centre: [sector.centre.x as f32, sector.centre.y as f32],
+            radii: [sector.inner as f32, sector.outer as f32],
+            angles: [sector.start as f32, sector.sweep as f32],
+            enabled: 1,
+            full_turn: u32::from(sector.is_full_turn()),
+        }
+    }
+}
 
 /// One vertex of a marker outline's tessellation, in the unit space of the outline.
 #[repr(C)]
@@ -305,6 +350,9 @@ pub struct Draw {
     pub depth_group: Option<u32>,
     /// The clip rectangle of the draw in figure points, applied as a scissor, or `None` for an unclipped draw.
     pub clip: Option<Rect>,
+    /// The sector the draw is clipped to in figure points, in addition to `clip`, or `None` outside every sector
+    /// clip. The fragment shaders discard what lies outside it and anti-alias its boundary.
+    pub sector: Option<Sector>,
     pub source: Option<NodeId>,
     /// Whether any colour the draw paints has an alpha below 1. Inside a depth group a translucent draw is tested
     /// against the depth buffer without writing to it, so that it hides nothing behind it.
@@ -445,10 +493,11 @@ struct Pipelines {
 struct Layouts {
     mapping: wgpu::BindGroupLayout,
     params: wgpu::BindGroupLayout,
+    sector: wgpu::BindGroupLayout,
 }
 
-/// The size in bytes of the mapping uniform: the target's size in points and the mapping's origin and scale, each
-/// padded to a `vec4`.
+/// The size in bytes of the mapping uniform: the target's size in points with the pixels per point, and the mapping's
+/// origin and scale, each padded to a `vec4`.
 const MAPPING_SIZE: u64 = 32;
 
 /// The buffers of one list, kept while the list is drawn.
@@ -461,6 +510,10 @@ struct ListBuffers {
     markers: Option<wgpu::Buffer>,
     /// The stroke and marker params, one [`PARAMS_STRIDE`] slot each, and their bind group.
     params: Option<wgpu::BindGroup>,
+    /// The sectors of the list, one [`PARAMS_STRIDE`] slot each after the disabled slot 0, and their bind group.
+    sectors: wgpu::BindGroup,
+    /// The dynamic offset into `sectors` of each draw, in the order of the list's draws.
+    sector_offsets: Vec<u32>,
     /// The mapping uniform of the list and its bind group.
     mapping: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -534,7 +587,7 @@ impl GpuPainter {
             let contents: [f32; 8] = [
                 width,
                 height,
-                0.0,
+                viewport.pixels_per_point,
                 0.0,
                 origin.x,
                 origin.y,
@@ -619,11 +672,17 @@ impl GpuPainter {
             // The clearing pipeline shares the layout of the triangle pipelines, so it needs a texture bound even
             // though it never samples it.
             pass.set_bind_group(1, &pipelines.white, &[]);
+            pass.set_bind_group(2, &buffers.sectors, &[0]);
             pass.set_scissor_rect(0, 0, width, height);
             pass.set_pipeline(&pipelines.clear);
             pass.draw(0..3, 0..1);
         };
-        let paint_draw = |pass: &mut wgpu::RenderPass<'static>, draw: &Draw| {
+        let paint_draw = |pass: &mut wgpu::RenderPass<'static>, index: usize| {
+            let draw = &list.draws[index];
+            let Some(&sector_offset) = buffers.sector_offsets.get(index) else {
+                return;
+            };
+            pass.set_bind_group(2, &buffers.sectors, &[sector_offset]);
             let clip = match draw.clip {
                 Some(clip) => to_points(clip, viewport.to_screen).intersect(viewport.clip),
                 None => viewport.clip,
@@ -741,18 +800,18 @@ impl GpuPainter {
                 .iter()
                 .take_while(|draw| draw.depth_group == group)
                 .count();
-            let run = &list.draws[start..start + len];
+            let run = start..start + len;
             clear_depth(pass);
             if group.is_some() {
-                for draw in run.iter().filter(|draw| !draw.translucent) {
-                    paint_draw(pass, draw);
+                for index in run.clone().filter(|&i| !list.draws[i].translucent) {
+                    paint_draw(pass, index);
                 }
-                for draw in run.iter().filter(|draw| draw.translucent) {
-                    paint_draw(pass, draw);
+                for index in run.filter(|&i| list.draws[i].translucent) {
+                    paint_draw(pass, index);
                 }
             } else {
-                for draw in run {
-                    paint_draw(pass, draw);
+                for index in run {
+                    paint_draw(pass, index);
                 }
             }
             start += len;
@@ -825,6 +884,11 @@ impl Layouts {
                 true,
                 std::mem::size_of::<StrokeParams>() as u64,
             ),
+            sector: uniform(
+                "ironlab sector layout",
+                true,
+                std::mem::size_of::<SectorGpu>() as u64,
+            ),
         }
     }
 }
@@ -880,6 +944,48 @@ impl ListBuffers {
                 }],
             })
         });
+        // Slot 0 is disabled; every distinct sector of the list takes one slot after it, shared by its draws.
+        let mut slots = vec![SectorGpu::DISABLED];
+        let sector_offsets = list
+            .draws
+            .iter()
+            .map(|draw| {
+                let slot = match &draw.sector {
+                    None => 0,
+                    Some(sector) => {
+                        let gpu = SectorGpu::new(sector);
+                        slots.iter().position(|s| *s == gpu).unwrap_or_else(|| {
+                            slots.push(gpu);
+                            slots.len() - 1
+                        })
+                    }
+                };
+                u32::try_from(slot as u64 * PARAMS_STRIDE).unwrap_or(u32::MAX)
+            })
+            .collect();
+        let mut contents = vec![0u8; slots.len() * PARAMS_STRIDE as usize];
+        for (slot, sector) in slots.iter().enumerate() {
+            let bytes = bytemuck::bytes_of(sector);
+            let start = slot * PARAMS_STRIDE as usize;
+            contents[start..start + bytes.len()].copy_from_slice(bytes);
+        }
+        let sector_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ironlab sectors"),
+            contents: &contents,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let sectors = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ironlab sectors"),
+            layout: &layouts.sector,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &sector_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<SectorGpu>() as u64),
+                }),
+            }],
+        });
         Self {
             vertices: buffer(
                 "ironlab vertices",
@@ -912,6 +1018,8 @@ impl ListBuffers {
                 wgpu::BufferUsages::VERTEX,
             ),
             params,
+            sectors,
+            sector_offsets,
             mapping,
             bind_group,
             placement: None,
@@ -955,12 +1063,20 @@ impl Pipelines {
         });
         let triangle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ironlab triangle pipeline layout"),
-            bind_group_layouts: &[Some(&layouts.mapping), Some(&texture_layout)],
+            bind_group_layouts: &[
+                Some(&layouts.mapping),
+                Some(&texture_layout),
+                Some(&layouts.sector),
+            ],
             immediate_size: 0,
         });
         let stroke_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ironlab stroke pipeline layout"),
-            bind_group_layouts: &[Some(&layouts.mapping), Some(&layouts.params)],
+            bind_group_layouts: &[
+                Some(&layouts.mapping),
+                Some(&layouts.params),
+                Some(&layouts.sector),
+            ],
             immediate_size: 0,
         });
         let multisample = wgpu::MultisampleState {

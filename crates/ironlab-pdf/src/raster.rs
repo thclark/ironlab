@@ -251,7 +251,9 @@ pub fn rasterises_any(list: &DisplayList, options: &RasterOptions) -> bool {
             ItemKind::Dense { cells, items } => {
                 options.policy.rasterises(*cells) || walk(items, options)
             }
-            ItemKind::Group { items, .. } | ItemKind::Depth { items } => walk(items, options),
+            ItemKind::Group { items, .. }
+            | ItemKind::Depth { items }
+            | ItemKind::SectorClip { items, .. } => walk(items, options),
             _ => false,
         })
     }
@@ -268,7 +270,9 @@ pub fn needs_rasteriser(list: &DisplayList, options: &RasterOptions) -> Need {
     fn depth_groups(items: &[Item]) -> bool {
         items.iter().any(|item| match &item.kind {
             ItemKind::Depth { .. } => true,
-            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => depth_groups(items),
+            ItemKind::Group { items, .. }
+            | ItemKind::Dense { items, .. }
+            | ItemKind::SectorClip { items, .. } => depth_groups(items),
             _ => false,
         })
     }
@@ -537,7 +541,9 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
                 let inner = group.map_or(transform, |t| t.then(transform));
                 accumulate(items, inner, box_);
             }
-            ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
+            ItemKind::Dense { items, .. }
+            | ItemKind::Depth { items }
+            | ItemKind::SectorClip { items, .. } => {
                 accumulate(items, transform, box_);
             }
             ItemKind::Markers(markers) => {

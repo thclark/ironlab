@@ -18,8 +18,8 @@ use crate::display::{
 };
 use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, PixelMap, StepHit};
 use crate::maths::camera::{
-    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
-    fit_to_rect, normalise_box, wrap_azimuth,
+    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane as BoxFace, back_planes, clamp_elevation,
+    depth_plane, fit_to_rect, normalise_box, wrap_azimuth,
 };
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
@@ -31,6 +31,7 @@ use super::decor::Decor;
 use super::image;
 use super::limits::Range;
 use super::paths::{self, PathBuilder};
+use super::plane::{Plane, Warp};
 use super::style::{self, ColourScales, Paint, ResolvedScale};
 
 /// Everything needed to draw one axes.
@@ -131,7 +132,8 @@ impl Projector {
 /// The mapping from data space to figure space.
 #[derive(Clone, Copy)]
 pub(crate) enum Space<'a> {
-    TwoD { x: AxisMap, y: AxisMap },
+    /// A two-dimensional axes, Cartesian or polar.
+    TwoD(Plane),
     ThreeD(&'a Projector),
 }
 
@@ -149,13 +151,7 @@ impl Space<'_> {
     /// Maps a data point to figure space and depth, or returns `None` when it cannot be placed.
     pub fn map(&self, p: [f64; 3]) -> Option<(Point, f64)> {
         match self {
-            Space::TwoD { x, y } => {
-                if !(p[0].is_finite() && p[1].is_finite()) {
-                    return None;
-                }
-                let q = Point::new(x.to_figure(p[0]), y.to_figure(p[1]));
-                paths::finite(q).then_some((q, 0.0))
-            }
+            Space::TwoD(plane) => plane.map([p[0], p[1]]).map(|q| (q, 0.0)),
             Space::ThreeD(projector) => projector.project(projector.normalise(p)),
         }
     }
@@ -170,12 +166,15 @@ impl Space<'_> {
     /// A fraction maps 0 to the left or bottom edge of `plot` and 1 to its right or top edge, linearly, whatever the
     /// limits, scale or direction of the axis, so it is an [`AxisMap`] over `[0, 1]` laid on the physical extent of
     /// the plot area. A data dimension keeps the axis's own map, which is the single place where the limits, scale
-    /// and direction of the axis are applied. A 3D axes has no plot area to take a fraction of, so its space is
-    /// returned unchanged (validation reports such an artist as an error).
+    /// and direction of the axis are applied. In polar axes a fraction is a fraction of the sector or of the radial
+    /// span, from the lower limit to the upper limit, so that a horizontal line at a fraction is a circle and a
+    /// vertical one a spoke. A 3D axes has no plot area to take a fraction of, so its space is returned unchanged
+    /// (validation reports such an artist as an error).
     pub fn blended(self, coords: [ArtistCoords; 2], plot: Rect) -> Self {
-        let Space::TwoD { x, y } = self else {
+        let Space::TwoD(plane) = self else {
             return self;
         };
+        let Plane { x, y, warp } = plane;
         let fraction = |start: f64, end: f64| AxisMap {
             min: 0.0,
             max: 1.0,
@@ -183,7 +182,18 @@ impl Space<'_> {
             start,
             end,
         };
-        Space::TwoD {
+        if let Warp::Polar { .. } = warp {
+            let along = |map: AxisMap, coords: ArtistCoords| match coords {
+                ArtistCoords::Data => map,
+                ArtistCoords::AxesFraction => fraction(map.start, map.end),
+            };
+            return Space::TwoD(Plane {
+                x: along(x, coords[0]),
+                y: along(y, coords[1]),
+                warp,
+            });
+        }
+        Space::TwoD(Plane {
             x: match coords[0] {
                 ArtistCoords::Data => x,
                 ArtistCoords::AxesFraction => fraction(plot.x, plot.right()),
@@ -192,7 +202,8 @@ impl Space<'_> {
                 ArtistCoords::Data => y,
                 ArtistCoords::AxesFraction => fraction(plot.bottom(), plot.y),
             },
-        }
+            warp,
+        })
     }
 }
 
@@ -902,6 +913,7 @@ fn draw_series(
             .flat_map(|run| thin_polyline(run, draw.target, clip))
             .collect();
         drawn.extend(runs.iter().flatten().copied());
+        let runs = follow_fraction_angle(&draw.space, series, &points, runs);
         let solid = |colour: Option<Rgba>| {
             colour.map(|colour| SegmentPaint {
                 from: colour,
@@ -979,6 +991,50 @@ fn draw_series(
         drawn.extend(samples);
     }
     draw.record(series.id, drawn);
+}
+
+/// Returns the runs of a series in polar axes whose x values are fractions of the sector, with every segment
+/// followed round the centre, and any other runs as they are.
+///
+/// A fraction of the sector names a place in the plot region rather than a data point, so a horizontal reference line
+/// (`hline`), which runs from fraction 0 to fraction 1 at one radius, is the arc of that radius across the sector, as
+/// a horizontal line across a Cartesian plot area is, rather than the chord between its ends. The vertices added
+/// between two points carry the source index of the first, and are not recorded as drawn points.
+fn follow_fraction_angle(
+    space: &Space,
+    series: &Series,
+    points: &Points,
+    runs: Vec<Vec<Sample>>,
+) -> Vec<Vec<Sample>> {
+    let Space::TwoD(plane) = space else {
+        return runs;
+    };
+    if !plane.is_polar() || series.x_coords != ArtistCoords::AxesFraction {
+        return runs;
+    }
+    runs.into_iter()
+        .map(|run| {
+            let mut followed: Vec<Sample> = Vec::with_capacity(run.len());
+            for pair in run.windows(2) {
+                let ends = [pair[0], pair[1]].map(|s| {
+                    let p = points.get(s.source_index);
+                    plane.axis_coords([p[0], p[1]])
+                });
+                let [Some(a), Some(b)] = ends else {
+                    followed.push(pair[0]);
+                    continue;
+                };
+                let outline = plane.outline(&[a, b], false);
+                let last = outline.len().saturating_sub(1);
+                followed.extend(outline[..last].iter().map(|&position| Sample {
+                    position,
+                    ..pair[0]
+                }));
+            }
+            followed.extend(run.last().copied());
+            followed
+        })
+        .collect()
 }
 
 /// Returns the finite range of a field's values.
@@ -1186,7 +1242,7 @@ fn draw_quiver(
         }
         let tip = [0, 1, 2].map(|a| base[a] + scale * v[a]);
         let arrow = match draw.space {
-            Space::TwoD { .. } => {
+            Space::TwoD(_) => {
                 let (Some((b, _)), Some((t, _))) = (draw.space.map(base), draw.space.map(tip))
                 else {
                     continue;
@@ -1394,7 +1450,7 @@ fn face_depth(projector: &Projector, third: usize, offset: f64) -> Option<f64> {
     }
     let back_is_min = matches!(
         back_planes(&projector.camera)[third],
-        Plane::XMin | Plane::YMin | Plane::ZMin
+        BoxFace::XMin | BoxFace::YMin | BoxFace::ZMin
     );
     Some(if on_min == back_is_min {
         f64::NEG_INFINITY
@@ -1456,7 +1512,7 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64, Option
                 ),
             }
         }
-        Space::TwoD { .. } => (mean, None),
+        Space::TwoD(_) => (mean, None),
     };
     Some((transform, key, plane))
 }
@@ -1467,14 +1523,19 @@ const MIN_LATTICE_CELL_PT: f64 = 1.0;
 /// Returns whether each axis of a space is logarithmic; a 2D axes draws nothing along z.
 fn logarithmic_axes(space: &Space) -> [bool; 3] {
     match space {
-        Space::TwoD { x, y } => [x.log, y.log, false],
+        Space::TwoD(plane) => [plane.x.log, plane.y.log, false],
         Space::ThreeD(projector) => projector.log,
     }
 }
 
-/// Returns whether an axis of the plane of an image is logarithmic, so that the image cannot be placed affinely and
-/// is drawn through a mesh.
-fn plane_is_logarithmic(space: &Space, image: &ImageData) -> bool {
+/// Returns whether the plane of an image cannot be placed affinely, so that the image is drawn through a mesh: when
+/// an axis of its plane is logarithmic, or the axes is polar.
+fn plane_is_warped(space: &Space, image: &ImageData) -> bool {
+    if let Space::TwoD(plane) = space
+        && plane.is_polar()
+    {
+        return true;
+    }
     let log = logarithmic_axes(space);
     image.plane_dims().iter().any(|&dim| log[dim])
 }
@@ -1514,6 +1575,11 @@ fn lattice_edges(n: usize, log: bool, page: impl Fn(usize) -> Point) -> Vec<f64>
 /// through the axes, so each kept pixel edge is placed exactly. In 3D the depth of each node is its projected depth,
 /// pushed back by `bias` (see [`place_image`]). Returns `None` when a node cannot be placed.
 fn image_mesh(draw: &Draw, image: &ImageData, bias: f64) -> Option<ImageMesh> {
+    if let Space::TwoD(plane) = draw.space
+        && plane.is_polar()
+    {
+        return polar_image_mesh(&plane, image);
+    }
     let [columns, rows] = image.plane_dims();
     let third = image.offset_dim();
     let (x0, x1) = image::edges(image.placement.columns, image.nx);
@@ -1554,6 +1620,88 @@ fn image_mesh(draw: &Draw, image: &ImageData, bias: f64) -> Option<ImageMesh> {
     })
 }
 
+/// Builds the lattice of an image in polar axes, in figure space.
+///
+/// The angle depends on x alone and the radius on y alone, so the axis coordinates of every pixel edge are found along
+/// each axis separately. Along the radius the lattice lines are the pixel edges, thinned by [`lattice_edges`] so that
+/// no lattice cell is shorter than a point. Along the angle they are the pixel edges thinned likewise by their arc
+/// length at the outermost radius of the image, and then refined with lines between the pixel edges, evenly in angle,
+/// so that the chord of every lattice cell strays from its arc by at most [`super::plane::CHORD_ERROR_PT`] at that
+/// radius. A node below the radial lower limit lies at the edge of the hole or the centre rather than being reflected
+/// through it. Returns `None` when a pixel edge cannot be placed.
+fn polar_image_mesh(plane: &Plane, image: &ImageData) -> Option<ImageMesh> {
+    let [columns, rows] = image.plane_dims();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    // The data value of each lattice direction at a pixel-space coordinate, and the axis coordinate it maps to.
+    let value = |dim: usize, t: f64| {
+        if dim == columns {
+            x0 + (x1 - x0) * t / nx
+        } else {
+            y0 + (y1 - y0) * t / ny
+        }
+    };
+    let inner = plane.y.start.min(plane.y.end);
+    let coord = |dim: usize, t: f64| {
+        let v = value(dim, t);
+        let c = if dim == 0 {
+            plane.x.to_figure(v)
+        } else {
+            plane.y.to_figure(v).max(inner)
+        };
+        c.is_finite().then_some(c)
+    };
+    let edges_of = |dim: usize, n: usize| -> Option<Vec<f64>> {
+        (0..=n).map(|k| coord(dim, k as f64)).collect()
+    };
+    let column_coords = edges_of(columns, image.nx)?;
+    let row_coords = edges_of(rows, image.ny)?;
+    let radii = if columns == 0 {
+        &row_coords
+    } else {
+        &column_coords
+    };
+    let outer = radii.iter().copied().fold(0.0, f64::max);
+    let lattice = |dim: usize, n: usize, coords: &[f64]| {
+        let scale = if dim == 0 { outer } else { 1.0 };
+        let kept = lattice_edges(n, true, |k| Point::new(scale * coords[k], 0.0));
+        if dim != 0 {
+            return kept;
+        }
+        let mut refined = vec![kept[0]];
+        for pair in kept.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let swept = coords[b as usize] - coords[a as usize];
+            let pieces = super::plane::arc_pieces(swept, outer);
+            for j in 1..=pieces {
+                refined.push(if j == pieces {
+                    b
+                } else {
+                    a + (b - a) * j as f64 / pieces as f64
+                });
+            }
+        }
+        refined
+    };
+    let u = lattice(columns, image.nx, &column_coords);
+    let v = lattice(rows, image.ny, &row_coords);
+    let mut points = Vec::with_capacity(u.len() * v.len());
+    for vj in &v {
+        for ui in &u {
+            let (cu, cv) = (coord(columns, *ui)?, coord(rows, *vj)?);
+            let (phi, rho) = if columns == 0 { (cu, cv) } else { (cv, cu) };
+            points.push(plane.place(Point::new(phi, rho)));
+        }
+    }
+    Some(ImageMesh {
+        u,
+        v,
+        points,
+        depths: None,
+    })
+}
+
 /// Draws an image of any kind as one image item, pushed as one primitive at the key [`place_image`] gives, and
 /// records its placement in the hit map when the axes is two-dimensional.
 ///
@@ -1574,11 +1722,20 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&Res
             "The artist is not drawn because the corners of the image cannot be placed in the axes.",
         );
     };
-    let Some((transform, key, plane)) = place_image(draw, image) else {
+    let polar = match draw.space {
+        Space::TwoD(plane) if plane.is_polar() => Some(plane),
+        _ => None,
+    };
+    // A polar plane cannot be placed affinely, so only its mesh is placed, and it is sorted as a 2D artist.
+    let placed = match polar {
+        Some(_) => Some((Transform::IDENTITY, 0.0, None)),
+        None => place_image(draw, image),
+    };
+    let Some((transform, key, plane)) = placed else {
         return skip(draw);
     };
     let (nx, ny) = (image.nx, image.ny);
-    if plane_is_logarithmic(&draw.space, image) {
+    if plane_is_warped(&draw.space, image) {
         // An image inside the box is sorted, and its depths pushed back, by the face bias; one on a face is not.
         let bias = if draw.space.is_3d() && key.is_finite() {
             FACE_DEPTH_BIAS
@@ -1604,17 +1761,30 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&Res
             },
         ));
         *draw.dense.entry(id).or_default() += (nx as u64) * (ny as u64);
-        if let Space::TwoD { x, y } = draw.space {
+        if let Space::TwoD(Plane { x, y, warp }) = draw.space {
+            let columns = <[f64; 2]>::from(image::edges(image.placement.columns, nx));
+            let rows = <[f64; 2]>::from(image::edges(image.placement.rows, ny));
+            let to_pixel = match warp {
+                Warp::None => PixelMap::Axes {
+                    x,
+                    y,
+                    columns,
+                    rows,
+                    pixels: [nx, ny],
+                },
+                Warp::Polar { centre } => PixelMap::Polar {
+                    centre,
+                    x,
+                    y,
+                    columns,
+                    rows,
+                    pixels: [nx, ny],
+                },
+            };
             draw.images.push(ImageHit {
                 axes: draw.axes,
                 artist: id,
-                to_pixel: PixelMap::Axes {
-                    x,
-                    y,
-                    columns: <[f64; 2]>::from(image::edges(image.placement.columns, nx)),
-                    rows: <[f64; 2]>::from(image::edges(image.placement.rows, ny)),
-                    pixels: [nx, ny],
-                },
+                to_pixel,
                 columns: nx,
                 rows: ny,
             });

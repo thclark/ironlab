@@ -33,6 +33,8 @@ mod legend_color_keys;
 mod legend_items;
 mod markers;
 mod panel_legend;
+mod polar;
+mod polar_decor;
 mod robustness;
 mod scales;
 mod series;

@@ -356,9 +356,11 @@ impl Overlay {
     }
 
     /// Removes the view entries of one node: the entries of that node whose path is a view
-    /// property, or below one. The view properties are the limits and the
-    /// three-dimensional camera of an axes (`x.limits`, `y.limits`, `z.limits` and
-    /// `projection.view3d`) and the limits of a colour scale (`kind.continuous.limits` and
+    /// property, or below one. The view properties are the limits, the camera of every
+    /// three-dimensional projection and the direction of angle 0 of polar and cylindrical
+    /// axes (`x.limits`, `y.limits`, `z.limits`, `projection.view3d` and
+    /// `projection.polar.zero_deg`), which gestures on an axes pan, zoom, orbit and turn,
+    /// and the limits of a colour scale (`kind.continuous.limits` and
     /// `kind.discrete.levels.limits`), which a gesture on a colourbar pans and zooms as a
     /// gesture on an axes pans and zooms its limits.
     ///
@@ -439,14 +441,16 @@ impl Overlay {
 }
 
 /// Returns whether a path names a property of the view, or a property below one: the
-/// limits of an axes along a dimension, its three-dimensional camera view, or the limits
-/// of a continuous colour scale or of the automatic levels of a discrete one.
+/// limits of an axes along a dimension, the camera view of any three-dimensional
+/// projection, the direction of angle 0 of polar and cylindrical axes, or the limits of a
+/// continuous colour scale or of the automatic levels of a discrete one.
 fn is_view_property(path: &PropertyPath) -> bool {
     [
         PropertyPath::of(&["x", "limits"]),
         PropertyPath::of(&["y", "limits"]),
         PropertyPath::of(&["z", "limits"]),
         PropertyPath::of(&["projection", "view3d"]),
+        PropertyPath::of(&["projection", "polar", "zero_deg"]),
         PropertyPath::of(&["kind", "continuous", "limits"]),
         PropertyPath::of(&["kind", "discrete", "levels", "limits"]),
     ]

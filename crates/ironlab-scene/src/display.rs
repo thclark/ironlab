@@ -710,10 +710,102 @@ pub enum ItemKind {
     Depth {
         items: Vec<Item>,
     },
+    /// Items clipped to a sector of an annulus: the plot region of a polar axes. The sector is expressed in the
+    /// enclosing coordinate space, which the scene compiler always makes figure space, and is applied in addition to
+    /// any enclosing rectangular clip.
+    ///
+    /// Like a dense group it carries no transform, and it is never placed beneath a rotation nor inside a depth group.
+    /// A backend that cannot clip to a sector may clip to its [`bounds`](Sector::bounds) instead, which loosens the
+    /// clip but never cuts into the sector.
+    SectorClip {
+        sector: Sector,
+        items: Vec<Item>,
+    },
 }
 
-/// A visitor of leaves: the leaf, its accumulated transform, its clip in figure space, and its depth group.
-type LeafVisitor<'a> = dyn FnMut(&Item, Transform, Option<Rect>, Option<usize>) + 'a;
+/// A sector of an annulus: the points whose distance from `centre` lies between `inner` and `outer`, and whose
+/// direction from `centre` lies between the angles `start` and `start + sweep`.
+///
+/// Angles are in radians, measured anticlockwise on the page from the direction of increasing x (so towards
+/// decreasing y, because y grows downwards). A sector is valid when its centre and start are finite, its radii satisfy
+/// `0 ≤ inner < outer` with a finite outer radius, and its sweep lies in `(0, 2π]`; a sweep of a full turn describes a
+/// whole disc or annulus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sector {
+    pub centre: Point,
+    pub inner: f64,
+    pub outer: f64,
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl Sector {
+    /// Returns whether the sector satisfies the validity rules in the type's documentation.
+    pub fn is_valid(&self) -> bool {
+        self.centre.x.is_finite()
+            && self.centre.y.is_finite()
+            && self.start.is_finite()
+            && self.inner.is_finite()
+            && self.outer.is_finite()
+            && self.inner >= 0.0
+            && self.inner < self.outer
+            && self.sweep.is_finite()
+            && self.sweep > 0.0
+            && self.sweep <= std::f64::consts::TAU
+    }
+
+    /// Returns whether the sweep covers a full turn, so that the sector is a whole disc or annulus.
+    pub fn is_full_turn(&self) -> bool {
+        self.sweep >= std::f64::consts::TAU - 1e-12
+    }
+
+    /// Returns whether the point lies in the sector, boundary included.
+    pub fn contains(&self, p: Point) -> bool {
+        let dx = p.x - self.centre.x;
+        let dy = self.centre.y - p.y;
+        let r = dx.hypot(dy);
+        if r < self.inner || r > self.outer {
+            return false;
+        }
+        if self.is_full_turn() || r == 0.0 {
+            return true;
+        }
+        let angle = dy.atan2(dx);
+        (angle - self.start).rem_euclid(std::f64::consts::TAU) <= self.sweep
+    }
+
+    /// Returns the smallest axis-aligned rectangle that contains the sector.
+    pub fn bounds(&self) -> Rect {
+        use std::f64::consts::FRAC_PI_2;
+        let mut xs = Vec::with_capacity(12);
+        let mut ys = Vec::with_capacity(12);
+        let mut add = |angle: f64, r: f64| {
+            xs.push(self.centre.x + r * angle.cos());
+            ys.push(self.centre.y - r * angle.sin());
+        };
+        let end = self.start + self.sweep;
+        for r in [self.inner, self.outer] {
+            add(self.start, r);
+            add(end, r);
+        }
+        let first = (self.start / FRAC_PI_2).ceil() as i64;
+        let mut k = first;
+        while (k as f64) * FRAC_PI_2 <= end && k - first < 5 {
+            add(k as f64 * FRAC_PI_2, self.outer);
+            k += 1;
+        }
+        let x0 = xs.iter().copied().fold(f64::INFINITY, f64::min);
+        let x1 = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let y0 = ys.iter().copied().fold(f64::INFINITY, f64::min);
+        let y1 = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
+    }
+}
+
+/// A visitor of leaves: the leaf, its accumulated transform, its clip in figure space, its depth group, and the sector
+/// of the innermost sector clip enclosing it.
+type LeafVisitor<'a> =
+    dyn FnMut(&Item, Transform, Option<Rect>, Option<usize>, Option<Sector>) + 'a;
 
 /// The complete, ordered list of items to draw for a figure; later items paint over earlier ones.
 #[derive(Clone, Debug, PartialEq)]
@@ -732,9 +824,12 @@ impl DisplayList {
     /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and
     /// scalings; the scene compiler never places a clipped group beneath a rotation.
     ///
-    /// [`ItemKind::Dense`] and [`ItemKind::Depth`] groups are descended into like any other group, so a backend that
-    /// draws leaves through this method draws dense content as vector geometry, and the artists of a
-    /// three-dimensional axes in painter's order, without having to know about either marking.
+    /// [`ItemKind::Dense`], [`ItemKind::Depth`] and [`ItemKind::SectorClip`] groups are descended into like any other
+    /// group, so a backend that draws leaves through this method draws dense content as vector geometry, and the
+    /// artists of a three-dimensional axes in painter's order, without having to know about either marking. The
+    /// sector of a sector clip is not reported: the reported clip is only the enclosing rectangular clips, which
+    /// contain the sector; a backend that needs the sector visits the leaves with
+    /// [`visit_leaves_sectored`](Self::visit_leaves_sectored).
     pub fn visit_leaves(&self, mut visit: impl FnMut(&Item, Transform, Option<Rect>)) {
         self.visit_leaves_grouped(|item, transform, clip, _| visit(item, transform, clip));
     }
@@ -750,14 +845,30 @@ impl DisplayList {
         &self,
         mut visit: impl FnMut(&Item, Transform, Option<Rect>, Option<usize>),
     ) {
-        fn walk(
-            items: &[Item],
+        self.visit_leaves_sectored(|item, transform, clip, group, _| {
+            visit(item, transform, clip, group);
+        });
+    }
+
+    /// Visits every leaf item as [`visit_leaves_grouped`](Self::visit_leaves_grouped) does, reporting with each leaf
+    /// the sector of the innermost [`ItemKind::SectorClip`] enclosing it, or `None` outside every sector clip.
+    ///
+    /// The sector is reported as the sector clip holds it, in the coordinate space enclosing the clip, which the scene
+    /// compiler always makes figure space. It is applied in addition to the reported rectangular clip, which is the
+    /// intersection of the enclosing rectangular clips alone, exactly as the other visitors report it.
+    pub fn visit_leaves_sectored(
+        &self,
+        mut visit: impl FnMut(&Item, Transform, Option<Rect>, Option<usize>, Option<Sector>),
+    ) {
+        /// The state a leaf inherits from the groups enclosing it.
+        #[derive(Clone, Copy)]
+        struct Scope {
             transform: Transform,
             clip: Option<Rect>,
             group: Option<usize>,
-            next_group: &mut usize,
-            visit: &mut LeafVisitor<'_>,
-        ) {
+            sector: Option<Sector>,
+        }
+        fn walk(items: &[Item], scope: Scope, next_group: &mut usize, visit: &mut LeafVisitor<'_>) {
             for item in items {
                 match &item.kind {
                     ItemKind::Group {
@@ -765,6 +876,7 @@ impl DisplayList {
                         transform: group_transform,
                         items,
                     } => {
+                        let transform = scope.transform;
                         let clip = match group_clip {
                             Some(c) => {
                                 let a = transform.apply(Point::new(c.x, c.y));
@@ -775,28 +887,39 @@ impl DisplayList {
                                     (b.x - a.x).abs(),
                                     (b.y - a.y).abs(),
                                 );
-                                Some(match clip {
+                                Some(match scope.clip {
                                     Some(outer) => intersect(outer, local),
                                     None => local,
                                 })
                             }
-                            None => clip,
+                            None => scope.clip,
                         };
                         let transform = match group_transform {
                             Some(t) => t.then(transform),
                             None => transform,
                         };
-                        walk(items, transform, clip, group, next_group, visit);
+                        walk(
+                            items,
+                            Scope {
+                                transform,
+                                clip,
+                                ..scope
+                            },
+                            next_group,
+                            visit,
+                        );
                     }
-                    ItemKind::Dense { items, .. } => {
-                        walk(items, transform, clip, group, next_group, visit);
+                    ItemKind::Dense { items, .. } => walk(items, scope, next_group, visit),
+                    ItemKind::SectorClip { sector, items } => {
+                        let sector = Some(*sector);
+                        walk(items, Scope { sector, ..scope }, next_group, visit);
                     }
                     ItemKind::Depth { items } => {
-                        let index = *next_group;
+                        let group = Some(*next_group);
                         *next_group += 1;
-                        walk(items, transform, clip, Some(index), next_group, visit);
+                        walk(items, Scope { group, ..scope }, next_group, visit);
                     }
-                    _ => visit(item, transform, clip, group),
+                    _ => visit(item, scope.transform, scope.clip, scope.group, scope.sector),
                 }
             }
         }
@@ -810,9 +933,12 @@ impl DisplayList {
         let mut next_group = 0;
         walk(
             &self.items,
-            Transform::IDENTITY,
-            None,
-            None,
+            Scope {
+                transform: Transform::IDENTITY,
+                clip: None,
+                group: None,
+                sector: None,
+            },
             &mut next_group,
             &mut visit,
         );

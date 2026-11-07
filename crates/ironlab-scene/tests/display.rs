@@ -1,6 +1,7 @@
 //! The depth information the display list carries for three-dimensional artists, the validity of
-//! a markers item and of an image drawn through a mesh, the piecewise affine placement of such an
-//! image, and how the traversals present depth groups to backends.
+//! a markers item, of an image drawn through a mesh and of the sector of a sector clip, the
+//! piecewise affine placement of such an image, and how the traversals present depth groups and
+//! sector clips to backends.
 //!
 //! Display lists are built by hand here, because the contract under test belongs to the display
 //! list itself (which depths and markers are valid, and what a backend sees of a depth group), not
@@ -10,7 +11,8 @@ use std::sync::Arc;
 
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageGeometry, ImageItem, ImageMesh, Item,
-    ItemKind, MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Transform,
+    ItemKind, MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Sector,
+    Transform,
 };
 
 #[track_caller]
@@ -941,4 +943,114 @@ fn visit_leaves_grouped_agrees_with_visit_leaves_on_order_transform_and_clip() {
         .collect();
     assert_eq!(plain.len(), 7);
     assert_eq!(grouped, plain);
+}
+
+/// A sector centred at (50, 50) with the given radii, start and sweep.
+fn sector(inner: f64, outer: f64, start: f64, sweep: f64) -> Sector {
+    Sector {
+        centre: Point::new(50.0, 50.0),
+        inner,
+        outer,
+        start,
+        sweep,
+    }
+}
+
+// WHY: every backend clips to a sector by building its outline (the PDF exporter as a clip path,
+// the GPU as a test in the fragment shader), and both trust the compiler to emit only sectors that
+// describe a region: a finite centre, radii with 0 ≤ inner < outer, and a sweep of more than
+// nothing and at most a turn. A backend handed a sector with a NaN radius, an inner radius beyond
+// the outer one or a sweep of several turns would draw nothing, everything, or garbage.
+#[test]
+fn a_sector_is_valid_only_with_a_finite_centre_ordered_radii_and_a_sweep_of_at_most_a_turn() {
+    use std::f64::consts::{FRAC_PI_2, TAU};
+    let valid = [
+        ("a whole disc", sector(0.0, 40.0, 0.0, TAU)),
+        ("an annulus", sector(10.0, 40.0, 1.0, TAU)),
+        ("a quarter", sector(0.0, 40.0, FRAC_PI_2, FRAC_PI_2)),
+        ("a start beyond a turn", sector(0.0, 40.0, 7.0, 1.0)),
+        ("a negative start", sector(0.0, 40.0, -1.0, 1.0)),
+    ];
+    for (what, s) in valid {
+        assert!(s.is_valid(), "{what} is valid: {s:?}");
+    }
+    let mut nan_centre = sector(0.0, 40.0, 0.0, TAU);
+    nan_centre.centre = Point::new(f64::NAN, 50.0);
+    let mut infinite_centre = sector(0.0, 40.0, 0.0, TAU);
+    infinite_centre.centre = Point::new(50.0, f64::INFINITY);
+    let invalid = [
+        ("a centre that is not a number", nan_centre),
+        ("an infinite centre", infinite_centre),
+        ("a negative inner radius", sector(-1.0, 40.0, 0.0, TAU)),
+        (
+            "an inner radius equal to the outer",
+            sector(40.0, 40.0, 0.0, TAU),
+        ),
+        (
+            "an inner radius beyond the outer",
+            sector(50.0, 40.0, 0.0, TAU),
+        ),
+        (
+            "an infinite outer radius",
+            sector(0.0, f64::INFINITY, 0.0, TAU),
+        ),
+        (
+            "a radius that is not a number",
+            sector(0.0, f64::NAN, 0.0, TAU),
+        ),
+        (
+            "a start that is not finite",
+            sector(0.0, 40.0, f64::NAN, 1.0),
+        ),
+        ("a zero sweep", sector(0.0, 40.0, 0.0, 0.0)),
+        ("a negative sweep", sector(0.0, 40.0, 0.0, -1.0)),
+        (
+            "a sweep of more than a turn",
+            sector(0.0, 40.0, 0.0, TAU + 1e-6),
+        ),
+        (
+            "a sweep that is not a number",
+            sector(0.0, 40.0, 0.0, f64::NAN),
+        ),
+    ];
+    for (what, s) in invalid {
+        assert!(!s.is_valid(), "{what} is invalid: {s:?}");
+    }
+}
+
+// WHY: backends that draw through `visit_leaves` must still draw the artists of a polar axes, which
+// lie inside a sector clip, in their place in the paint order and under the enclosing transform;
+// a traversal that skipped the sector clip would leave every polar axes blank. Any rectangular
+// clip it reports for them may be loosened to the sector's bounding box for culling, but never
+// tightened inside it, or the backend would cut off part of the sector.
+#[test]
+fn visit_leaves_descends_into_a_sector_clip_without_cutting_into_the_sector() {
+    use std::f64::consts::TAU;
+    let s = sector(0.0, 30.0, 0.0, TAU);
+    let list = display_list(vec![
+        marker(1.0),
+        item(ItemKind::SectorClip {
+            sector: s,
+            items: vec![marker(2.0), group(None, None, vec![marker(3.0)])],
+        }),
+        marker(4.0),
+    ]);
+    let seen = visited(&list);
+    assert_eq!(
+        seen.iter().map(|v| v.0).collect::<Vec<_>>(),
+        [1.0, 2.0, 3.0, 4.0]
+    );
+    let bounds = Rect::new(20.0, 20.0, 60.0, 60.0);
+    for (m, transform, clip) in &seen {
+        assert_eq!(*transform, Transform::IDENTITY, "marker {m}");
+        if let Some(c) = clip {
+            assert!(
+                c.x <= bounds.x + 1e-9
+                    && c.y <= bounds.y + 1e-9
+                    && c.right() >= bounds.right() - 1e-9
+                    && c.bottom() >= bounds.bottom() - 1e-9,
+                "marker {m}: the clip {c:?} contains the sector's bounding box {bounds:?}"
+            );
+        }
+    }
 }

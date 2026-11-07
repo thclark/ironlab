@@ -27,8 +27,8 @@ use crate::artist::{
     ImagePlane, Levels, Orientation, PerBar, QuiverScale, Series, StairsData, StepAt,
 };
 use crate::axes::{
-    Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, Projection, Scale,
-    TickLabels, Ticks, TitleAlign, View3d,
+    AngleUnits, Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, PolarAngle,
+    PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -110,6 +110,10 @@ const FALLBACK_DATA: NodeId = NodeId(0);
 /// none.
 const FALLBACK_TICK_STEP: f64 = 1.0;
 
+/// The count per turn that custom angle units start from when the value they replace holds
+/// none: twelve, as of the hours of a clock face or the months of a year.
+const FALLBACK_COUNT_PER_TURN: f64 = 12.0;
+
 /// The number of levels that automatic levels start from, which is the count of
 /// [`Levels::default`].
 const FALLBACK_LEVEL_COUNT: u32 = 10;
@@ -150,7 +154,9 @@ const FALLBACK_SCALE: NodeId = NodeId(0);
 /// the property being edited. A choice takes from it everything that still applies, so
 /// that switching between the variants of a tagged value loses as little as possible:
 /// manual limits keep the bounds of the manual limits they replace, a three-dimensional
-/// projection keeps the camera of the projection it replaces, a fixed colour keeps the
+/// projection keeps the camera of the projection it replaces, polar and cylindrical
+/// projections keep the polar view of the projection they replace, custom angle units keep
+/// their count per turn, a fixed colour keeps the
 /// colour, a grid keeps its coordinate arrays, and explicit levels keep their values.
 /// What a choice cannot take it falls back on: manual limits run from 0 to 1, explicit
 /// levels hold the single level 0, and a choice that needs a data array refers to
@@ -170,6 +176,8 @@ const FALLBACK_SCALE: NodeId = NodeId(0);
 pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> {
     match value_type {
         ValueType::Projection => projection_choices(replacing),
+        ValueType::AngleUnits => angle_units_choices(replacing),
+        ValueType::PolarAngle => polar_angle_choices(),
         ValueType::Limits => limits_choices(replacing),
         ValueType::Ticks => ticks_choices(replacing),
         ValueType::TickLabels => tick_labels_choices(replacing),
@@ -232,6 +240,8 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Parameters
         | ValueType::Cell
         | ValueType::View3d
+        | ValueType::PolarView
+        | ValueType::SphericalView
         | ValueType::Axis
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
@@ -629,6 +639,8 @@ fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
 fn label_of(value: &Value) -> Option<&'static str> {
     Some(match value {
         Value::Projection(v) => projection_label(v),
+        Value::AngleUnits(v) => angle_units_label(v),
+        Value::PolarAngle(v) => polar_angle_label(v),
         Value::Limits(v) => limits_label(v),
         Value::Ticks(v) => ticks_label(v),
         Value::TickLabels(v) => tick_labels_label(v),
@@ -692,6 +704,8 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Parameters(_)
         | Value::Cell(_)
         | Value::View3d(_)
+        | Value::PolarView(_)
+        | Value::SphericalView(_)
         | Value::Axis(_)
         | Value::InsideLegend(_)
         | Value::LegendEntryLayout(_)
@@ -766,15 +780,55 @@ macro_rules! plain_choices {
     )*};
 }
 
+/// Returns the camera view of the projection being replaced, when it has one, so that a
+/// switch between three-dimensional projections keeps the camera; otherwise the default.
+fn replaced_view3d(replacing: Option<&Value>) -> View3d {
+    match replacing {
+        Some(Value::Projection(projection)) => projection.view3d(),
+        _ => None,
+    }
+    .unwrap_or_default()
+}
+
+/// Returns the polar view of the projection being replaced, when it has one, so that a
+/// switch between polar and cylindrical axes keeps it; otherwise the default.
+fn replaced_polar_view(replacing: Option<&Value>) -> PolarView {
+    match replacing {
+        Some(Value::Projection(projection)) => projection.polar(),
+        _ => None,
+    }
+    .unwrap_or_default()
+}
+
 tagged_choices! {
     Projection as Projection (projection_choices, projection_label) replacing replacing {
         Projection::TwoD => "Two-dimensional" = Projection::TwoD;
         Projection::ThreeD { .. } => "Three-dimensional" = Projection::ThreeD {
-            view3d: match replacing {
-                Some(Value::Projection(Projection::ThreeD { view3d })) => *view3d,
-                _ => View3d::default(),
+            view3d: replaced_view3d(replacing),
+        };
+        Projection::Polar { .. } => "Polar" = Projection::Polar {
+            polar: replaced_polar_view(replacing),
+        };
+        Projection::Cylindrical { .. } => "Cylindrical" = Projection::Cylindrical {
+            view3d: replaced_view3d(replacing),
+            polar: replaced_polar_view(replacing),
+        };
+        Projection::Spherical { .. } => "Spherical" = Projection::Spherical {
+            view3d: replaced_view3d(replacing),
+            spherical: match replacing {
+                Some(Value::Projection(Projection::Spherical { spherical, .. })) => *spherical,
+                _ => SphericalView::default(),
             },
         };
+    }
+
+    AngleUnits as AngleUnits (angle_units_choices, angle_units_label) replacing replacing {
+        AngleUnits::Degrees => "Degrees" = AngleUnits::Degrees;
+        AngleUnits::Radians => "Radians" = AngleUnits::Radians;
+        AngleUnits::PerTurn(_) => "Per turn" = AngleUnits::PerTurn(match replacing {
+            Some(Value::AngleUnits(AngleUnits::PerTurn(count))) => *count,
+            _ => FALLBACK_COUNT_PER_TURN,
+        });
     }
 
     Limits as Limits (limits_choices, limits_label) replacing replacing {
@@ -1259,6 +1313,11 @@ plain_choices! {
         DashStyle::DashDotDot => "Dash-dot-dot";
         DashStyle::LongDash => "Long dash";
         DashStyle::None => "None";
+    }
+
+    PolarAngle as PolarAngle (polar_angle_choices, polar_angle_label) {
+        PolarAngle::Elevation => "Elevation";
+        PolarAngle::Inclination => "Inclination";
     }
 
     AspectAdjust as AspectAdjust (aspect_adjust_choices, aspect_adjust_label) {

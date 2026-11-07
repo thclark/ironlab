@@ -23,6 +23,7 @@ mod artists;
 mod aspect;
 mod axes2d;
 mod axes3d;
+mod axes_polar;
 mod bars;
 mod cells;
 mod colorbar;
@@ -34,6 +35,7 @@ mod legend;
 mod limits;
 mod panel;
 mod paths;
+mod plane;
 mod rects;
 mod style;
 mod text;
@@ -205,7 +207,10 @@ fn arrange(
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
             Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => axes3d::margins(ctx, d),
         })
         .collect();
     let placement = layout::place(ctx, fits, grid_area, &margins, panel_tops);
@@ -706,7 +711,12 @@ pub fn compile_with(figure: &Figure, text: &TextEngine, options: &CompileOptions
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
-            Projection::ThreeD { view3d } => {
+            Projection::Polar { polar } => {
+                axes_polar::emit(&mut ctx, &input, polar, &mut items, &mut hit_map)
+            }
+            Projection::ThreeD { view3d }
+            | Projection::Cylindrical { view3d, .. }
+            | Projection::Spherical { view3d, .. } => {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
             }
         }
@@ -765,6 +775,7 @@ fn scale_lines(items: &mut [Item], scale: f64) {
             ItemKind::Markers(markers) => markers.edge_width *= scale,
             ItemKind::Group { items, .. }
             | ItemKind::Dense { items, .. }
+            | ItemKind::SectorClip { items, .. }
             | ItemKind::Depth { items } => scale_lines(items, scale),
             ItemKind::Glyphs(_) | ItemKind::Image(_) => {}
         }
@@ -839,7 +850,10 @@ fn lay_out(
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
             Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => axes3d::margins(ctx, d),
         })
         .collect();
     (outer, ranges, targets, decorations, margins)

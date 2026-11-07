@@ -29,9 +29,21 @@ impl Request {
     }
 }
 
+/// Returns whether an axes draws its data at a fixed shape whatever its aspect: a polar axes is always round and a
+/// spherical one always a sphere, so validation warns that their aspect is ignored.
+fn ignores_aspect(axes: &Axes) -> bool {
+    matches!(
+        axes.projection,
+        ironlab_ir::Projection::Polar { .. } | ironlab_ir::Projection::Spherical { .. }
+    )
+}
+
 /// Returns the fixed aspect of an axes, or `None` when its aspect is automatic or its ratios are not finite and
 /// positive.
 fn request_of(axes: &Axes) -> Option<Request> {
+    if ignores_aspect(axes) {
+        return None;
+    }
     let [y, z] = axes.aspect.ratios()?;
     let usable = |r: f64| r.is_finite() && r > 0.0;
     (usable(y) && usable(z)).then_some(Request {
@@ -52,6 +64,9 @@ pub(super) fn requests(ctx: &mut Ctx) -> Vec<Option<Request>> {
         .axes
         .iter()
         .map(|axes| {
+            if ignores_aspect(axes) {
+                return None;
+            }
             let [y, z] = axes.aspect.ratios()?;
             let request = request_of(axes);
             if request.is_none() {

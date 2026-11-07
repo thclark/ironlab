@@ -438,6 +438,9 @@ impl Painter<'_, '_> {
                     self.draw_dense(surface, item.source, *cells, items)?;
                 }
                 ItemKind::Depth { items } => self.draw_depth(surface, item.source, items)?,
+                ItemKind::SectorClip { sector, items } => {
+                    self.draw_sector_clip(surface, *sector, items)?;
+                }
             }
         }
         Ok(())
@@ -493,6 +496,39 @@ impl Painter<'_, '_> {
         if clip.is_some() {
             surface.pop();
         }
+        result
+    }
+
+    /// Draws items beneath a clip path of `sector`, in addition to the enclosing clips, or draws nothing when the
+    /// sector is invalid or cannot be placed under the current transform, as a group with such a clip draws nothing.
+    ///
+    /// The clip is pushed onto krilla's stack, so a raster that dense content inside is replaced by is drawn beneath
+    /// it as the vector geometry would be. The mirrored clip narrows to the sector's bounds, which only shrinks the
+    /// rasters planned inside to the region the sector can show.
+    fn draw_sector_clip(
+        &mut self,
+        surface: &mut Surface<'_>,
+        sector: display::Sector,
+        items: &[Item],
+    ) -> Result<(), PdfError> {
+        if !sector.is_valid() {
+            return Ok(());
+        }
+        let Some(path) = sector_path(surface, sector) else {
+            return Ok(());
+        };
+        surface.push_clip_path(&path, &FillRule::NonZero);
+        let outer_clip = self.clip;
+        let bounds = map_rect(self.to_figure, sector.bounds());
+        self.clip = Some(match self.clip {
+            Some(outer) => raster::intersect(outer, bounds),
+            None => bounds,
+        });
+
+        let result = self.draw_items(surface, items);
+
+        self.clip = outer_clip;
+        surface.pop();
         result
     }
 
@@ -955,6 +991,7 @@ fn holds_mesh_image(items: &[Item]) -> bool {
         ItemKind::Image(image) => matches!(image.geometry, display::ImageGeometry::Mesh(_)),
         ItemKind::Group { items, .. }
         | ItemKind::Dense { items, .. }
+        | ItemKind::SectorClip { items, .. }
         | ItemKind::Depth { items } => holds_mesh_image(items),
         ItemKind::Path(_) | ItemKind::Glyphs(_) | ItemKind::Markers(_) => false,
     })
@@ -1190,6 +1227,94 @@ fn clip_path(surface: &Surface<'_>, rect: display::Rect) -> Option<KrillaPath> {
         return None;
     }
     rect_path(x.min(right), y.min(bottom), x.max(right), y.max(bottom))
+}
+
+/// Builds the clip path of a sector, or `None` when it is not finite or cannot be placed under the current transform.
+///
+/// The outline runs anticlockwise on the page along the outer arc, then back along the inner arc, or through the
+/// centre when there is no hole. A full turn has no radial edges: the outer circle and the inner circle are separate
+/// subpaths wound in opposite directions, so that the nonzero rule leaves the hole unfilled.
+fn sector_path(surface: &Surface<'_>, sector: display::Sector) -> Option<KrillaPath> {
+    let bounds = sector.bounds();
+    let ctm = surface.ctm();
+    let maps_finitely = [
+        (bounds.x, bounds.y),
+        (bounds.right(), bounds.y),
+        (bounds.right(), bounds.bottom()),
+        (bounds.x, bounds.bottom()),
+    ]
+    .iter()
+    .all(|&(px, py)| {
+        let (px, py) = (px as f32, py as f32);
+        let tx = ctm.sx() * px + ctm.kx() * py + ctm.tx();
+        let ty = ctm.ky() * px + ctm.sy() * py + ctm.ty();
+        tx.is_finite() && ty.is_finite()
+    });
+    if !maps_finitely {
+        return None;
+    }
+    convert_path(&sector_outline(sector))
+}
+
+/// The outline of a valid sector as path segments, its arcs written as cubic Béziers of at most a quarter turn each.
+fn sector_outline(sector: display::Sector) -> Vec<PathSegment> {
+    let display::Sector {
+        centre,
+        inner,
+        outer,
+        start,
+        sweep,
+    } = sector;
+    let at = |angle: f64, r: f64| {
+        display::Point::new(centre.x + r * angle.cos(), centre.y - r * angle.sin())
+    };
+    // Appends the arc of radius `r` from angle `from` to angle `to` (either direction) to `segments`, assuming the
+    // current point is its start.
+    let arc = |segments: &mut Vec<PathSegment>, r: f64, from: f64, to: f64| {
+        let pieces = ((to - from).abs() / std::f64::consts::FRAC_PI_2)
+            .ceil()
+            .max(1.0);
+        let step = (to - from) / pieces;
+        let k = 4.0 / 3.0 * (step / 4.0).tan();
+        // The derivative of `at` with respect to the angle, scaled by `k`.
+        let tangent = |angle: f64| display::Point::new(-r * angle.sin() * k, -r * angle.cos() * k);
+        for i in 0..pieces as usize {
+            let a0 = from + step * i as f64;
+            let a1 = if i + 1 == pieces as usize {
+                to
+            } else {
+                a0 + step
+            };
+            let (p0, p1) = (at(a0, r), at(a1, r));
+            let (t0, t1) = (tangent(a0), tangent(a1));
+            segments.push(PathSegment::CubicTo(
+                display::Point::new(p0.x + t0.x, p0.y + t0.y),
+                display::Point::new(p1.x - t1.x, p1.y - t1.y),
+                p1,
+            ));
+        }
+    };
+    let end = start + sweep;
+    let mut segments = vec![PathSegment::MoveTo(at(start, outer))];
+    if sector.is_full_turn() {
+        arc(&mut segments, outer, start, start + std::f64::consts::TAU);
+        segments.push(PathSegment::Close);
+        if inner > 0.0 {
+            segments.push(PathSegment::MoveTo(at(start, inner)));
+            arc(&mut segments, inner, start + std::f64::consts::TAU, start);
+            segments.push(PathSegment::Close);
+        }
+    } else {
+        arc(&mut segments, outer, start, end);
+        if inner > 0.0 {
+            segments.push(PathSegment::LineTo(at(end, inner)));
+            arc(&mut segments, inner, end, start);
+        } else {
+            segments.push(PathSegment::LineTo(centre));
+        }
+        segments.push(PathSegment::Close);
+    }
+    segments
 }
 
 /// Converts a group transform, returning `None` when it is not finite or is singular.

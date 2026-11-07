@@ -10,20 +10,21 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarOffset, BarWidth, BinRule, Binning,
-    Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap, Cells, Color, ColorCategory,
-    ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorSpec,
-    ColorbarOrientation, ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale,
-    Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS, DashStyle, DataArray, Dimension,
-    DiscreteColorScale, Edit, Embolden, Figure, FigureSize, FontSetId, Grid, HistNorm, Image,
-    ImagePlacement, ImagePlane, IndexedColorScale, InsideColorbar, InsideColorbarSide,
-    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
-    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
-    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation,
-    OutOfRange, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Parameter, PerBar,
-    PixelRange, Projection, Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, Stairs,
-    StairsData, StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize,
-    Transaction, Value, Values, View3d,
+    AngleUnits, Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarOffset, BarWidth,
+    BinRule, Binning, Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap, Cells,
+    Color, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
+    ColormapName, ContinuousColorScale, Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS,
+    DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Embolden, Figure, FigureSize,
+    FontSetId, Grid, HistNorm, Image, ImagePlacement, ImagePlane, IndexedColorScale,
+    InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter, Legend, LegendEntries,
+    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
+    LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape, MarkerStyle, NdArray,
+    NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel, PanelColorbar, PanelContent,
+    PanelLegend, PanelLocation, Parameter, PerBar, PixelRange, PolarAngle, PolarView, Projection,
+    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, SphericalView, Stairs, StairsData,
+    StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
+    Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -116,6 +117,7 @@ wire_enum! {
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
     AspectAdjust => AspectAdjust { Box, Limits }
     TitleAlign => TitleAlign { Center, Left, Right }
+    PolarAngle => PolarAngle { Elevation, Inclination }
     MarkerShape => MarkerShape {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
@@ -371,8 +373,50 @@ fn encode_projection(projection: Projection) -> w::Projection {
         Projection::ThreeD { view3d } => w::ProjectionKind::ThreeD(w::ProjectionThreeD {
             view3d: Some(encode_view3d(view3d)),
         }),
+        Projection::Polar { polar } => w::ProjectionKind::Polar(w::ProjectionPolar {
+            polar: Some(encode_polar_view(polar)),
+        }),
+        Projection::Cylindrical { view3d, polar } => {
+            w::ProjectionKind::Cylindrical(w::ProjectionCylindrical {
+                view3d: Some(encode_view3d(view3d)),
+                polar: Some(encode_polar_view(polar)),
+            })
+        }
+        Projection::Spherical { view3d, spherical } => {
+            w::ProjectionKind::Spherical(w::ProjectionSpherical {
+                view3d: Some(encode_view3d(view3d)),
+                spherical: Some(encode_spherical_view(spherical)),
+            })
+        }
     };
     w::Projection { kind: Some(kind) }
+}
+
+fn encode_angle_units(units: AngleUnits) -> w::AngleUnits {
+    let kind = match units {
+        AngleUnits::Degrees => w::AngleUnitsKind::Degrees(w::AngleUnitsDegrees {}),
+        AngleUnits::Radians => w::AngleUnitsKind::Radians(w::AngleUnitsRadians {}),
+        AngleUnits::PerTurn(value) => w::AngleUnitsKind::PerTurn(w::AngleUnitsPerTurn {
+            per_turn: Some(value),
+        }),
+    };
+    w::AngleUnits { kind: Some(kind) }
+}
+
+fn encode_polar_view(view: PolarView) -> w::PolarView {
+    w::PolarView {
+        angle_units: Some(encode_angle_units(view.angle_units)),
+        zero_deg: Some(view.zero_deg),
+        hole: Some(view.hole),
+        radial_labels_at: view.radial_labels_at,
+    }
+}
+
+fn encode_spherical_view(view: SphericalView) -> w::SphericalView {
+    w::SphericalView {
+        angle_units: Some(encode_angle_units(view.angle_units)),
+        polar_angle: view.polar_angle.to_wire(),
+    }
 }
 
 fn encode_cell(cell: Cell) -> w::Cell {
@@ -1704,14 +1748,71 @@ fn decode_axis(wire: Option<w::Axis>, at: &str) -> Result<Axis> {
     })
 }
 
-fn decode_projection(wire: Option<w::Projection>, default: Projection) -> Projection {
-    match wire.and_then(|projection| projection.kind) {
+fn decode_projection(
+    wire: Option<w::Projection>,
+    default: Projection,
+    at: &str,
+) -> Result<Projection> {
+    Ok(match wire.and_then(|projection| projection.kind) {
         None => default,
         Some(w::ProjectionKind::TwoD(_)) => Projection::TwoD,
         Some(w::ProjectionKind::ThreeD(three_d)) => Projection::ThreeD {
             view3d: decode_view3d(three_d.view3d.unwrap_or_default()),
         },
-    }
+        Some(w::ProjectionKind::Polar(polar)) => Projection::Polar {
+            polar: decode_polar_view(polar.polar.unwrap_or_default(), &join(at, "polar.polar"))?,
+        },
+        Some(w::ProjectionKind::Cylindrical(cylindrical)) => Projection::Cylindrical {
+            view3d: decode_view3d(cylindrical.view3d.unwrap_or_default()),
+            polar: decode_polar_view(
+                cylindrical.polar.unwrap_or_default(),
+                &join(at, "cylindrical.polar"),
+            )?,
+        },
+        Some(w::ProjectionKind::Spherical(spherical)) => Projection::Spherical {
+            view3d: decode_view3d(spherical.view3d.unwrap_or_default()),
+            spherical: decode_spherical_view(
+                spherical.spherical.unwrap_or_default(),
+                &join(at, "spherical.spherical"),
+            )?,
+        },
+    })
+}
+
+fn decode_angle_units(wire: Option<w::AngleUnits>, at: &str) -> Result<AngleUnits> {
+    Ok(match wire.and_then(|units| units.kind) {
+        None => AngleUnits::default(),
+        Some(w::AngleUnitsKind::Degrees(_)) => AngleUnits::Degrees,
+        Some(w::AngleUnitsKind::Radians(_)) => AngleUnits::Radians,
+        Some(w::AngleUnitsKind::PerTurn(per_turn)) => AngleUnits::PerTurn(required(
+            per_turn.per_turn,
+            &join(at, "per_turn"),
+            "per_turn",
+        )?),
+    })
+}
+
+fn decode_polar_view(wire: w::PolarView, at: &str) -> Result<PolarView> {
+    let default = PolarView::default();
+    Ok(PolarView {
+        angle_units: decode_angle_units(wire.angle_units, &join(at, "angle_units"))?,
+        zero_deg: wire.zero_deg.unwrap_or(default.zero_deg),
+        hole: wire.hole.unwrap_or(default.hole),
+        radial_labels_at: wire.radial_labels_at,
+    })
+}
+
+fn decode_spherical_view(wire: w::SphericalView, at: &str) -> Result<SphericalView> {
+    let default = SphericalView::default();
+    Ok(SphericalView {
+        angle_units: decode_angle_units(wire.angle_units, &join(at, "angle_units"))?,
+        polar_angle: decode_enum(
+            wire.polar_angle,
+            Some(default.polar_angle),
+            at,
+            "polar_angle",
+        )?,
+    })
 }
 
 impl Decode for Axes {
@@ -1732,7 +1833,11 @@ impl Decode for Axes {
         Ok(Axes {
             id: node_id(wire.id, at)?,
             cell: wire.cell.map_or(default.cell, decode_cell),
-            projection: decode_projection(wire.projection, default.projection),
+            projection: decode_projection(
+                wire.projection,
+                default.projection,
+                &join(at, "projection"),
+            )?,
             title: wire
                 .title
                 .map(|t| decode_text(t, &join(at, "title")))
@@ -2586,6 +2691,16 @@ fn encode_value(value: &Value) -> w::Value {
         Value::View3d(v) => w::ValueKind::View3d(w::ValueView3d {
             value: Some(encode_view3d(*v)),
         }),
+        Value::PolarView(v) => w::ValueKind::PolarView(w::ValuePolarView {
+            value: Some(encode_polar_view(*v)),
+        }),
+        Value::SphericalView(v) => w::ValueKind::SphericalView(w::ValueSphericalView {
+            value: Some(encode_spherical_view(*v)),
+        }),
+        Value::AngleUnits(v) => w::ValueKind::AngleUnits(w::ValueAngleUnits {
+            value: Some(encode_angle_units(*v)),
+        }),
+        Value::PolarAngle(v) => w::ValueKind::PolarAngle(w::ValuePolarAngle { value: v.to_wire() }),
         Value::Axis(v) => w::ValueKind::Axis(w::ValueAxis {
             value: Some(encode_axis(v)),
         }),
@@ -2946,9 +3061,31 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             Value::Cell(decode_cell(cell))
         }
         w::ValueKind::Projection(v) => {
-            let (projection, _) = value_message(v.value, at, "projection_value")?;
-            Value::Projection(decode_projection(Some(projection), Projection::default()))
+            let (projection, at) = value_message(v.value, at, "projection_value")?;
+            Value::Projection(decode_projection(
+                Some(projection),
+                Projection::default(),
+                &at,
+            )?)
         }
+        w::ValueKind::PolarView(v) => {
+            let (view, at) = value_message(v.value, at, "polar_view_value")?;
+            Value::PolarView(decode_polar_view(view, &at)?)
+        }
+        w::ValueKind::SphericalView(v) => {
+            let (view, at) = value_message(v.value, at, "spherical_view_value")?;
+            Value::SphericalView(decode_spherical_view(view, &at)?)
+        }
+        w::ValueKind::AngleUnits(v) => {
+            let (units, at) = value_message(v.value, at, "angle_units_value")?;
+            Value::AngleUnits(decode_angle_units(Some(units), &at)?)
+        }
+        w::ValueKind::PolarAngle(v) => Value::PolarAngle(decode_enum(
+            v.value,
+            None,
+            &join(at, "polar_angle_value"),
+            "value",
+        )?),
         w::ValueKind::View3d(v) => {
             let (view, _) = value_message(v.value, at, "view3d_value")?;
             Value::View3d(decode_view3d(view))

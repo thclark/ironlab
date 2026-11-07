@@ -10,12 +10,13 @@
 use ironlab_ir::{Bar, BarOffset, BarWidth, ColorSpec, PerBar, Stairs};
 
 use crate::display::{Point, Rect, Rgba};
-use crate::hit::{AxisMap, BarHit, BinReading, StepHit};
+use crate::hit::{AxisMap, BarHit, BinReading, HitArea, StepHit};
 
 use super::artists::{Draw, Space};
 use super::data::{BarArrays, BarPiece, BarsData, StairsGeometry};
 use super::paths::{self, PathBuilder};
-use super::rects::{CLAMP_MARGIN, clamped_rect, expand, faded, intersection};
+use super::plane::Plane;
+use super::rects::{clamped_rect, faded, intersection};
 use super::style::{self, Paint};
 
 /// Returns the smallest distance between neighbouring distinct finite positions, taken in order of value, or 1 when
@@ -178,12 +179,52 @@ fn bin_of(
     )
 }
 
-/// Returns the two axis maps of a two-dimensional space, the category axis first.
-fn maps(space: &Space, category: usize) -> Option<(AxisMap, AxisMap)> {
+/// Returns the plane of a two-dimensional space and its two axis maps, the category axis first.
+fn maps(space: &Space, category: usize) -> Option<(Plane, AxisMap, AxisMap)> {
     match *space {
-        Space::TwoD { x, y } if category == 0 => Some((x, y)),
-        Space::TwoD { x, y } => Some((y, x)),
+        Space::TwoD(plane) if category == 0 => Some((plane, plane.x, plane.y)),
+        Space::TwoD(plane) => Some((plane, plane.y, plane.x)),
         Space::ThreeD(_) => None,
+    }
+}
+
+/// Adds the closed outline of a rectangle in axis coordinates to `path`, placed by `plane`: the rectangle itself in
+/// Cartesian axes, and in polar axes the annular sector it stands for, whose arcs follow the axes.
+pub(super) fn add_rect(path: &mut PathBuilder, plane: &Plane, rect: Rect) -> Option<Vec<Point>> {
+    if !plane.is_polar() {
+        path.rect(rect);
+        return None;
+    }
+    let corners = [
+        Point::new(rect.x, rect.y),
+        Point::new(rect.right(), rect.y),
+        Point::new(rect.right(), rect.bottom()),
+        Point::new(rect.x, rect.bottom()),
+    ];
+    let outline = plane.outline(&corners, true);
+    path.polyline(&outline, true);
+    Some(outline)
+}
+
+/// Returns the area a reader can point at of a rectangle in axis coordinates, drawn as `outline` (`None` in Cartesian
+/// axes), with the point at which a callout is anchored: in Cartesian axes the part of the rectangle inside `clip` and
+/// its centre, and in polar axes the outline, which is already clamped to the plot region, and the middle of the
+/// rectangle placed by `plane`; `None` when nothing of it is seen.
+pub(super) fn seen_area(
+    plane: &Plane,
+    rect: Rect,
+    outline: Option<Vec<Point>>,
+    clip: Rect,
+) -> Option<(HitArea, Point)> {
+    match outline {
+        None => intersection(rect, clip).map(|seen| {
+            let centre = Point::new(seen.x + seen.width / 2.0, seen.y + seen.height / 2.0);
+            (HitArea::Rect(seen), centre)
+        }),
+        Some(outline) => (rect.width > 0.0 && rect.height > 0.0).then(|| {
+            let middle = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+            (HitArea::Polygon(outline), plane.place(middle))
+        }),
     }
 }
 
@@ -212,15 +253,17 @@ fn series_colour(primary: Paint) -> Option<Rgba> {
     primary.single(style::viridis_middle())
 }
 
-/// Draws every bar of a bar series as a closed rectangle, filled with its face and outlined by its edge, records
+/// Draws every bar of a bar series as a closed outline, filled with its face and outlined by its edge, records
 /// each in the hit map, and counts the bars drawn as dense content, as the faces of a surface are counted.
 ///
-/// The extent of a bar along the category axis is mapped onto the page through the category axis, so that a bar on a
-/// logarithmic category axis covers exactly its extent in data units; a bar whose low edge such an axis cannot place
-/// is not drawn. Its ends are mapped through the value axis: a base that a logarithmic axis cannot place lies at the
-/// low edge of the plot, and a bar whose end such an axis cannot place is not drawn.
+/// The extent of a bar along the category axis is mapped to axis coordinates through the category axis, so that a bar
+/// on a logarithmic category axis covers exactly its extent in data units; a bar whose low edge such an axis cannot
+/// place is not drawn. Its ends are mapped through the value axis: a base that a logarithmic axis cannot place lies at
+/// the low edge of the plot, and a bar whose end such an axis cannot place is not drawn. The rectangle in axis
+/// coordinates is clamped to the bounds of the plane and placed by it: in Cartesian axes it is the rectangle drawn,
+/// and in polar axes the wedge of an annulus whose top and bottom are arcs.
 pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Paint) {
-    let Some((category, value)) = maps(&draw.space, data.category) else {
+    let Some((plane, category, value)) = maps(&draw.space, data.category) else {
         return;
     };
     let series = series_colour(primary);
@@ -230,7 +273,7 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
         .and_then(|id| draw.scales.get(id));
     let width = style::width_or(bar.edge.width_pt, 0.5);
     let dash = style::dash_array(bar.edge.dash, width);
-    let bounds = expand(draw.clip, CLAMP_MARGIN);
+    let bounds = plane.bounds(draw.clip);
     let mut drawn: u64 = 0;
     for piece in &data.pieces {
         if category.log && piece.span[0] <= 0.0 {
@@ -265,11 +308,11 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
         let stroke = faded(bar_colour(bar.edge.color, series, mapped), bar.edge_opacity)
             .and_then(|colour| Some(paths::stroke(colour, width, dash.clone()?)));
         let mut path = PathBuilder::new();
-        path.rect(rect);
+        let outline = add_rect(&mut path, &plane, rect);
         if draw.push(0.0, paths::item(bar.id, path.finish(), fill, stroke)) {
             drawn += 1;
             // Only the part of a bar inside the plot area is seen, so only that part is read.
-            let Some(rect) = intersection(rect, draw.clip) else {
+            let Some((area, anchor)) = seen_area(&plane, rect, outline, draw.clip) else {
                 continue;
             };
             let [start, end] = piece.ends;
@@ -277,7 +320,8 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
                 axes: draw.axes,
                 artist: bar.id,
                 index: piece.index,
-                rect,
+                area,
+                anchor,
                 position: piece.position,
                 value: data.arrays.values[piece.index],
                 base: piece.base,
@@ -305,8 +349,11 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
 /// drawn along the base itself, as Matplotlib's `stairs` draws none along its baseline, but the fill closes along
 /// it. Each step drawn whose level lies inside the plot area is recorded in the hit map, with the part of its run
 /// inside the plot area, because only that part is seen.
+///
+/// The outline is built in axis coordinates, clamped to the bounds of the plane and placed by it, so that in polar
+/// axes each run is an arc at the radius of its value and each riser is radial.
 pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometry, primary: Paint) {
-    let Some((category, value)) = maps(&draw.space, data.category) else {
+    let Some((plane, category, value)) = maps(&draw.space, data.category) else {
         return;
     };
     let series = series_colour(primary);
@@ -315,13 +362,17 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
         // A colormapped line or fill is invalid, because stairs have no colour data; it is drawn as an automatic one.
         Paint::Colormapped => series,
     };
-    let bounds = expand(draw.clip, CLAMP_MARGIN);
-    let page = |along: f64, level: f64| {
+    let bounds = plane.bounds(draw.clip);
+    let unclamped = |along: f64, level: f64| {
         let (c, v) = (category.to_figure(along), value_on_page(&value, level));
         let (x, y) = if data.category == 0 { (c, v) } else { (v, c) };
+        Point::new(x, y)
+    };
+    let page = |along: f64, level: f64| {
+        let p = unclamped(along, level);
         Point::new(
-            x.clamp(bounds.x, bounds.right()),
-            y.clamp(bounds.y, bounds.bottom()),
+            p.x.clamp(bounds.x, bounds.right()),
+            p.y.clamp(bounds.y, bounds.bottom()),
         )
     };
     let placeable = |k: usize| {
@@ -346,15 +397,19 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
             let (from, to) = (page(e0, v), page(e1, v));
             points.push(from);
             points.push(to);
-            if let Some((from, to)) = run_inside(from, to, draw.clip) {
+            let run = if plane.is_polar() {
+                polar_run(&plane, unclamped(e0, v), unclamped(e1, v), from, to)
+            } else {
+                run_inside(from, to, draw.clip).map(|(from, to)| vec![from, to])
+            };
+            if let Some(run) = run {
                 draw.steps.push(StepHit {
                     axes: draw.axes,
                     artist: stairs.id,
                     index: k,
                     edges: (e0, e1),
                     value: v,
-                    from,
-                    to,
+                    run,
                     bin: bin_of(
                         stairs.binning.as_ref(),
                         data.values,
@@ -367,9 +422,9 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
         }
         if let Some(base) = base {
             points.push(page(data.edges[k], base));
-            fill_region.polyline(&points, true);
+            fill_region.polyline(&plane.outline(&points, true), true);
         }
-        outline.polyline(&points, false);
+        outline.polyline(&plane.outline(&points, false), false);
     }
     if base.is_some() {
         let fill = faded(colour(stairs.fill), stairs.fill_opacity).map(paths::fill);
@@ -383,6 +438,30 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
         style::dash_array(stairs.line.dash, width).map(|dash| paths::stroke(colour, width, dash))
     });
     draw.push(0.0, paths::item(stairs.id, outline.finish(), None, stroke));
+}
+
+/// Returns the drawn run of a step in polar axes, placed from its ends in axis coordinates clamped to the plot region
+/// (`from` and `to`), or `None` when its level (from the unclamped ends `raw_from` and `raw_to`) lies outside the
+/// radial limits or no part of it lies inside the sector.
+fn polar_run(
+    plane: &Plane,
+    raw_from: Point,
+    raw_to: Point,
+    from: Point,
+    to: Point,
+) -> Option<Vec<Point>> {
+    let bounds = plane.bounds(Rect::new(0.0, 0.0, 0.0, 0.0));
+    let tol = 1e-9 * bounds.bottom().abs().max(1.0);
+    let level_inside = |p: Point, q: Point| {
+        // A run lies at constant radius when its value is along the radius, and at constant angle otherwise.
+        if (p.y - q.y).abs() <= tol {
+            p.y >= bounds.y - tol && p.y <= bounds.bottom() + tol
+        } else {
+            p.x >= bounds.x - tol && p.x <= bounds.right() + tol
+        }
+    };
+    let extent = (to.x - from.x).abs() + (to.y - from.y).abs();
+    (level_inside(raw_from, raw_to) && extent > 0.0).then(|| plane.outline(&[from, to], false))
 }
 
 /// Returns the part inside `clip` of the run of a step from `from` to `to`, which is horizontal or vertical, or

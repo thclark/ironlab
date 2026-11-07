@@ -48,7 +48,7 @@ fn hit_map_of(canvas: &mut FigureCanvas) -> HitMap {
 fn maps_of(hit: &HitMap) -> (AxisMap, AxisMap) {
     match &hit.axes.first().expect("the figure has an axes").kind {
         AxesHitKind::TwoD { x, y } => (*x, *y),
-        AxesHitKind::ThreeD => panic!("the first axes is two-dimensional"),
+        other => panic!("the first axes is two-dimensional, not {other:?}"),
     }
 }
 

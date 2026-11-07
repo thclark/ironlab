@@ -2390,6 +2390,23 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             },
             |f| format!("{:?}", f.data[0].array.element()),
         ),
+        check::<wire::PolarAngle>(
+            |w, v| {
+                w.axes[0].projection = Some(wire::Projection {
+                    kind: Some(wire::ProjectionKind::Spherical(wire::ProjectionSpherical {
+                        view3d: None,
+                        spherical: Some(wire::SphericalView {
+                            angle_units: None,
+                            polar_angle: v,
+                        }),
+                    })),
+                });
+            },
+            |f| match f.axes[0].projection {
+                Projection::Spherical { spherical, .. } => format!("{:?}", spherical.polar_angle),
+                other => panic!("the carrier's spherical axes decoded as {other:?}"),
+            },
+        ),
     ]
     .into_iter()
     .collect();

@@ -38,7 +38,7 @@ use ironlab_pdf::PdfOptions;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, ImageGeometry, ImageItem, ImageMesh, Item,
     ItemKind, LineCap, LineJoin, MarkerInstance, MarkersItem, PathItem, PathSegment, Point, Rect,
-    Rgba, Stroke, Transform,
+    Rgba, Sector, Stroke, Transform,
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 
@@ -1069,6 +1069,7 @@ fn without_depths(items: Vec<Item>) -> Vec<Item> {
                 }
                 ItemKind::Group { items, .. }
                 | ItemKind::Dense { items, .. }
+                | ItemKind::SectorClip { items, .. }
                 | ItemKind::Depth { items } => {
                     *items = without_depths(std::mem::take(items));
                 }
@@ -4026,6 +4027,7 @@ fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
             texture,
             depth_group: None,
             clip: None,
+            sector: None,
             source: None,
             translucent: false,
         }],
@@ -5391,6 +5393,286 @@ fn a_translucent_stroked_glyph_is_not_darker_where_the_stroke_overlaps_the_fill(
             fr > 240 && fg.abs_diff(128) <= 16 && fb.abs_diff(128) <= 16,
             "half-transparent red is {:?}",
             [fr, fg, fb]
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sector clips: the plot region of a polar axes
+// ---------------------------------------------------------------------------------------------------------------
+//
+// A polar axes draws its artists beneath an `ItemKind::SectorClip` of its plot region, an annular sector, and the
+// fragment shader discards every fragment outside it. These lists are 200 × 200 points rendered at 72 dpi, so that one
+// pixel is one point, and the sector is centred at (100, 100). Angles are on the page, in radians anticlockwise from
+// east, so the point at angle `a` and radius `r` is at `(100 + r cos a, 100 − r sin a)`. Samples are taken well away
+// from every edge of the sector, so that anti-aliasing does not affect them.
+
+const SECTOR_CENTRE: Point = Point::new(100.0, 100.0);
+
+/// The pixel containing the point at angle `a` (radians, anticlockwise from east) and radius `r` from
+/// [`SECTOR_CENTRE`].
+fn sector_pixel(a: f64, r: f64) -> (u32, u32) {
+    let x = SECTOR_CENTRE.x + r * a.cos();
+    let y = SECTOR_CENTRE.y - r * a.sin();
+    (x.floor() as u32, y.floor() as u32)
+}
+
+fn sector_clip(sector: Sector, items: Vec<Item>) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::SectorClip { sector, items },
+    }
+}
+
+/// A 200 × 200 point white list holding `items`.
+fn square_list(items: Vec<Item>) -> DisplayList {
+    DisplayList {
+        width_pt: 200.0,
+        height_pt: 200.0,
+        background: Rgba::WHITE,
+        items,
+    }
+}
+
+/// A red square covering the whole 200 × 200 point list.
+fn red_everywhere() -> Item {
+    filled_polygon(
+        &[(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)],
+        Rgba::new(1.0, 0.0, 0.0, 1.0),
+    )
+}
+
+// Why: on screen, a polar axes must clip its artists to the annulus between the hole and the rim, as the PDF does, so
+// that data beyond the radial limits does not paint over the angular tick labels around the rim and data inside the
+// hole does not fill it. The square covers the whole list, so every white sample is a pixel the clip discarded and
+// every red one a pixel it kept; the samples at 22.5° just inside the rim catch a clip that approximated the rim by a
+// coarse polygon or by its bounding box.
+#[test]
+fn a_fill_inside_an_annular_sector_clip_colours_only_the_annulus() {
+    let list = square_list(vec![sector_clip(
+        Sector {
+            centre: SECTOR_CENTRE,
+            inner: 30.0,
+            outer: 80.0,
+            start: 0.0,
+            sweep: std::f64::consts::TAU,
+        },
+        vec![red_everywhere()],
+    )]);
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+    let red = [255, 0, 0, 255];
+    let white = [255, 255, 255, 255];
+
+    for k in 0..8 {
+        let a = f64::from(k) * std::f64::consts::TAU / 8.0;
+        for (r, expected, what) in [
+            (55.0, red, "midway between the hole and the rim"),
+            (90.0, white, "beyond the rim, inside the square"),
+            (20.0, white, "inside the hole"),
+        ] {
+            let (x, y) = sector_pixel(a, r);
+            assert!(
+                close_to(image.pixel(x, y), expected, 2),
+                "{what} at angle {k}/8 of a turn, pixel ({x}, {y}): got {:?}",
+                image.pixel(x, y)
+            );
+        }
+    }
+    let (x, y) = sector_pixel(std::f64::consts::PI / 8.0, 77.0);
+    assert!(
+        close_to(image.pixel(x, y), red, 2),
+        "just inside the rim at 22.5°, pixel ({x}, {y}): got {:?}",
+        image.pixel(x, y)
+    );
+    for (x, y, what) in [(100, 100, "the centre"), (3, 3, "the corner of the list")] {
+        assert!(
+            close_to(image.pixel(x, y), white, 2),
+            "{what} at ({x}, {y}) is outside the sector: got {:?}",
+            image.pixel(x, y)
+        );
+    }
+}
+
+// Why: a partial sector (a sonar sweep, a compass quadrant) must show data only between its radial edges, with its
+// angles anticlockwise from east on the page. A shader that measured the angle with the figure's downward y as if it
+// grew upwards would keep the lower-left quadrant instead of the upper-left; one that kept the sector's bounding box
+// would keep the whole upper-left square, which the sample at 135° beyond the rim catches. A stroke is clipped like a
+// fill, because the stroke pipeline expands its segments on the GPU and must discard by the same test.
+#[test]
+fn fills_and_strokes_inside_a_partial_sector_clip_are_kept_only_between_its_radial_edges() {
+    let sector = Sector {
+        centre: SECTOR_CENTRE,
+        inner: 0.0,
+        outer: 80.0,
+        start: std::f64::consts::FRAC_PI_2,
+        sweep: std::f64::consts::FRAC_PI_2,
+    };
+    // A thick black horizontal stroke across the whole list at y = 60, drawn after the red fill.
+    let stroke = Item {
+        source: None,
+        kind: ItemKind::Path(PathItem {
+            segments: vec![
+                PathSegment::MoveTo(Point::new(0.0, 60.0)),
+                PathSegment::LineTo(Point::new(200.0, 60.0)),
+            ],
+            fill: None,
+            stroke: Some(pen(6.0)),
+            depth: None,
+        }),
+    };
+    let list = square_list(vec![sector_clip(sector, vec![red_everywhere(), stroke])]);
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+    let red = [255, 0, 0, 255];
+    let white = [255, 255, 255, 255];
+    let black = [0, 0, 0, 255];
+
+    for (degrees, r, expected, what) in [
+        (135.0, 30.0, red, "the middle of the sector"),
+        (100.0, 20.0, red, "near the start edge, inside"),
+        (170.0, 55.0, red, "near the end edge, inside"),
+        (135.0, 70.0, red, "beyond the chord of the outer arc"),
+        (
+            45.0,
+            40.0,
+            white,
+            "the upper-right quadrant, before the start",
+        ),
+        (225.0, 40.0, white, "the lower-left quadrant, after the end"),
+        (315.0, 40.0, white, "the opposite quadrant"),
+        (
+            135.0,
+            100.0,
+            white,
+            "beyond the rim within the angular range",
+        ),
+    ] {
+        let (x, y) = sector_pixel(f64::to_radians(degrees), r);
+        assert!(
+            close_to(image.pixel(x, y), expected, 2),
+            "{what}, pixel ({x}, {y}): got {:?}",
+            image.pixel(x, y)
+        );
+    }
+    // The stroke at y = 60 crosses the sector between x = 100 − √(80² − 40²) ≈ 30.7 and x = 100.
+    for (x, expected, what) in [
+        (60, black, "the stroke inside the sector"),
+        (
+            150,
+            white,
+            "the stroke right of the centre, outside the sector",
+        ),
+        (20, white, "the stroke beyond the rim"),
+    ] {
+        assert!(
+            close_to(image.pixel(x, 60), expected, 2),
+            "{what}, pixel ({x}, 60): got {:?}",
+            image.pixel(x, 60)
+        );
+    }
+}
+
+// Why: the sector test lives in the shader that every draw goes through, so a draw outside any sector clip (every
+// Cartesian figure, and the decorations of a polar one) must not be affected by it at all: the rasters of the gallery
+// and of every existing figure must stay bit-identical. The two lists differ only by a sector-clipped item far from
+// the blue square, so every pixel around the square must be exactly the same in both, and the item after the clip
+// must not inherit it.
+#[test]
+fn draws_outside_a_sector_clip_render_exactly_as_without_one() {
+    let blue = || {
+        filled_polygon(
+            &[(10.0, 10.0), (50.0, 10.0), (50.0, 50.0), (10.0, 50.0)],
+            Rgba::new(0.0, 0.0, 1.0, 1.0),
+        )
+    };
+    let after = || {
+        filled_polygon(
+            &[(150.0, 10.0), (190.0, 10.0), (190.0, 50.0), (150.0, 50.0)],
+            Rgba::new(0.0, 0.5, 0.0, 1.0),
+        )
+    };
+    let plain = square_list(vec![blue(), after()]);
+    let clipped = square_list(vec![
+        blue(),
+        sector_clip(
+            Sector {
+                centre: Point::new(100.0, 150.0),
+                inner: 0.0,
+                outer: 30.0,
+                start: 0.0,
+                sweep: std::f64::consts::TAU,
+            },
+            vec![red_everywhere()],
+        ),
+        after(),
+    ]);
+    let Some(without) = rendered_or_skip(render_display_list_offscreen(&plain, &TEXT, 72.0)) else {
+        return;
+    };
+    let Some(with) = rendered_or_skip(render_display_list_offscreen(&clipped, &TEXT, 72.0)) else {
+        return;
+    };
+
+    for y in 0..100 {
+        for x in 0..200 {
+            assert_eq!(
+                with.pixel(x, y),
+                without.pixel(x, y),
+                "pixel ({x}, {y}), far from the sector, is unchanged by it"
+            );
+        }
+    }
+    assert!(
+        close_to(with.pixel(100, 150), [255, 0, 0, 255], 2),
+        "the sector-clipped square is drawn inside its sector"
+    );
+    assert!(
+        close_to(with.pixel(100, 190), [255, 255, 255, 255], 2),
+        "and nowhere outside it"
+    );
+}
+
+// Why: a sweep about east (−60° to 60°) crosses page angle 0, where an angle measured with `atan2` jumps from −π to
+// π. A fragment test that compared the angle with `start` and `start + sweep` without reducing it modulo a turn would
+// keep only one half of such a sector, or none of it. The sector here has a hole as well, so the inner arc of a
+// partial annulus is tested too.
+#[test]
+fn a_sector_clip_that_crosses_angle_zero_keeps_both_sides_of_it() {
+    let list = square_list(vec![sector_clip(
+        Sector {
+            centre: SECTOR_CENTRE,
+            inner: 20.0,
+            outer: 80.0,
+            start: -std::f64::consts::FRAC_PI_3,
+            sweep: 2.0 * std::f64::consts::FRAC_PI_3,
+        },
+        vec![red_everywhere()],
+    )]);
+    let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0)) else {
+        return;
+    };
+    let red = [255, 0, 0, 255];
+    let white = [255, 255, 255, 255];
+    for (degrees, r, expected, what) in [
+        (0.0, 50.0, red, "on angle 0"),
+        (30.0, 50.0, red, "above angle 0"),
+        (330.0, 50.0, red, "below angle 0"),
+        (52.0, 50.0, red, "near the end edge, inside"),
+        (308.0, 50.0, red, "near the start edge, inside"),
+        (90.0, 50.0, white, "north, beyond the end"),
+        (180.0, 50.0, white, "west, opposite the sector"),
+        (270.0, 50.0, white, "south, before the start"),
+        (0.0, 10.0, white, "in the hole"),
+        (0.0, 90.0, white, "beyond the rim"),
+    ] {
+        let (x, y) = sector_pixel(f64::to_radians(degrees), r);
+        assert!(
+            close_to(image.pixel(x, y), expected, 2),
+            "{what}, pixel ({x}, {y}): got {:?}",
+            image.pixel(x, y)
         );
     }
 }

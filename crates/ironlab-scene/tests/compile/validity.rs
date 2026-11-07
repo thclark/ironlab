@@ -1,10 +1,13 @@
 //! The validity guarantees of the display list, checked on a figure that exercises every artist.
 
-use ironlab_ir::{ColorSpec, DashStyle, ImagePlane, Legend, Levels, MarkerShape, Scale, View3d};
+use ironlab_ir::{
+    ColorSpec, DashStyle, ImagePlane, Legend, Levels, Limits, MarkerShape, PolarView, Projection,
+    Scale, View3d,
+};
 use ironlab_scene::display::Item;
 use ironlab_scene::display::{ImageGeometry, ItemKind, PathSegment, Point, Rect, Rgba, Transform};
 
-use crate::common::{Fx, compile_figure, linspace, placement, range, text, xy};
+use crate::common::{Fx, cell, compile_figure, linspace, placement, range, text, xy};
 
 /// A 2×3 figure resembling the gallery: every artist type, log axes, legends, LaTeX text, NaN
 /// data, dashes, markers, a 3D surface, and the three image kinds, one of them on a wall of the
@@ -265,6 +268,18 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                 }
                 check(items, rotates, in_depth, problems);
             }
+            ItemKind::SectorClip { sector, items } => {
+                if !sector.is_valid() {
+                    problems.push(format!("{at}: invalid sector {sector:?}"));
+                }
+                if rotated {
+                    problems.push(format!("{at}: sector clip beneath a rotation"));
+                }
+                if in_depth {
+                    problems.push(format!("{at}: sector clip inside a depth group"));
+                }
+                check(items, rotated, in_depth, problems);
+            }
             ItemKind::Dense { cells, items } => {
                 if *cells == 0 {
                     problems.push(format!("{at}: dense group with no cells"));
@@ -368,5 +383,112 @@ fn compiled_display_list_satisfies_the_validity_contract() {
         "{} problems:\n{}",
         problems.len(),
         problems.join("\n")
+    );
+}
+
+/// A 1×3 figure of polar axes holding every artist a polar axes draws: a full turn with a series, a scatter, bars and
+/// stairs; a clockwise partial sector from north with a hole, holding a filled contour, a surface and cells; and a full
+/// turn with a logarithmic radius holding a scalar image.
+fn polar_like() -> ironlab_ir::Figure {
+    let mut fx = Fx::new();
+    fx.fig.layout.cols = 3;
+    let polar = |zero_deg: f64, hole: f64| Projection::Polar {
+        polar: PolarView {
+            zero_deg,
+            hole,
+            ..PolarView::default()
+        },
+    };
+
+    let lines = fx.axes_in(cell(0, 0, 1, 1), polar(0.0, 0.0));
+    let theta = linspace(0.0, 360.0, 37);
+    let r: Vec<f64> = theta.iter().map(|t| 1.0 + t.to_radians().cos()).collect();
+    fx.line(lines, &theta, &r, None, |s| {
+        s.marker.shape = MarkerShape::Circle
+    });
+    fx.scatter(
+        lines,
+        &[10.0, 100.0, 250.0],
+        &[0.5, 1.5, 3.0],
+        None,
+        |_, _| {},
+    );
+    fx.bar(
+        lines,
+        &[45.0, 135.0, 225.0, 315.0],
+        &[1.0, 2.0, 0.5, 1.5],
+        |_, _| {},
+    );
+    fx.stairs(
+        lines,
+        &[0.0, 90.0, 180.0, 270.0, 360.0],
+        &[0.8, 1.2, 0.4, 1.0],
+        |_| {},
+    );
+    let ax = fx.ax(lines);
+    ax.x.grid = true;
+    ax.y.grid = true;
+    ax.title = text("Full turn");
+
+    let fields = fx.axes_in(cell(0, 1, 1, 1), polar(90.0, 0.25));
+    let a = linspace(-60.0, 60.0, 13);
+    let rr = linspace(1.0, 5.0, 9);
+    let field = |t: f64, r: f64| (t.to_radians() * 3.0).sin() * r;
+    fx.contour(fields, &a, &rr, field, |c| {
+        c.fill = true;
+        c.levels = Some(Levels::Auto { count: 6 });
+    });
+    fx.surface(fields, &a, &rr, field, |_| {});
+    let scale = fx.axes_scale(fields);
+    fx.cells(
+        fields,
+        vec![2, 3],
+        (0..6).map(f64::from).collect::<Vec<_>>(),
+        Some(scale),
+        |_, _| {},
+    );
+    let ax = fx.ax(fields);
+    ax.x.reverse = true;
+    ax.x.limits = Limits::Manual {
+        min: -60.0,
+        max: 60.0,
+    };
+
+    let image = fx.axes_in(cell(0, 2, 1, 1), polar(0.0, 0.0));
+    fx.imagesc(
+        image,
+        vec![4, 6],
+        (0..24).map(f64::from).collect::<Vec<_>>(),
+        xy(range(30.0, 330.0), range(40.0, 100.0)),
+        |_| {},
+    );
+    let ax = fx.ax(image);
+    ax.y.scale = Scale::Log;
+    ax.y.limits = Limits::Manual {
+        min: 0.5,
+        max: 200.0,
+    };
+    fx.build()
+}
+
+// Why: polar axes add the sector clip to the display list and draw every artist through new geometry (wedges, arcs,
+// annular sectors and warped pixels); backends trust the same validity contract there as in Cartesian axes, and a
+// sector clip must describe a region and never lie beneath a rotation or inside a depth group.
+#[test]
+fn a_polar_display_list_satisfies_the_validity_contract() {
+    let scene = compile_figure(&polar_like());
+    let mut problems = Vec::new();
+    check(&scene.display_list.items, false, false, &mut problems);
+    assert!(
+        problems.is_empty(),
+        "{} problems:\n{}",
+        problems.len(),
+        problems.join("\n")
+    );
+    let report = polar_like().validate();
+    assert!(
+        report.is_valid(),
+        "the fixture is a valid figure: {:?}",
+        report.errors
     );
 }

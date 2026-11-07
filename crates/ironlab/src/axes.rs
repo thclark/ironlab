@@ -1593,20 +1593,14 @@ impl AxesMut<'_> {
     /// Sets the camera view of the axes by azimuth and elevation in degrees (MATLAB's
     /// `view`), converting the axes to three dimensions.
     ///
-    /// The zoom and pan of an existing three-dimensional view are kept.
+    /// The zoom and pan of an existing three-dimensional view are kept. A polar axes becomes
+    /// a cylindrical one with the same polar view.
     pub fn view(&mut self, azimuth_deg: f64, elevation_deg: f64) -> &mut Self {
-        let axes = self.axes();
-        let view3d = match axes.projection {
-            Projection::ThreeD { view3d } => view3d,
-            Projection::TwoD => View3d::default(),
-        };
-        axes.projection = Projection::ThreeD {
-            view3d: View3d {
-                azimuth_deg,
-                elevation_deg,
-                ..view3d
-            },
-        };
+        self.make_3d();
+        if let Some(view3d) = self.axes().projection.view3d_mut() {
+            view3d.azimuth_deg = azimuth_deg;
+            view3d.elevation_deg = elevation_deg;
+        }
         self
     }
 
@@ -1620,20 +1614,32 @@ impl AxesMut<'_> {
     // Helpers.
 
     /// Returns the axes in the figure IR.
-    fn axes(&mut self) -> &mut Axes {
+    pub(crate) fn axes(&mut self) -> &mut Axes {
         self.fig
             .axes_mut(self.id)
             .expect("an axes handle always refers to an axes of its figure")
     }
 
-    /// Converts a two-dimensional axes to three dimensions with the default view,
-    /// leaving a three-dimensional axes unchanged.
+    /// Converts a two-dimensional axes to three dimensions with the default view, a
+    /// polar axes becoming a cylindrical one with the same polar view, and leaves a
+    /// three-dimensional axes unchanged.
     pub(crate) fn make_3d(&mut self) {
         let axes = self.axes();
-        if axes.projection == Projection::TwoD {
-            axes.projection = Projection::ThreeD {
-                view3d: View3d::default(),
-            };
+        match axes.projection {
+            Projection::TwoD => {
+                axes.projection = Projection::ThreeD {
+                    view3d: View3d::default(),
+                };
+            }
+            Projection::Polar { polar } => {
+                axes.projection = Projection::Cylindrical {
+                    view3d: View3d::default(),
+                    polar,
+                };
+            }
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => {}
         }
     }
 

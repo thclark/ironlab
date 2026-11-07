@@ -30,7 +30,12 @@ pub(super) fn axes_axis(axes: &Axes, dim: usize) -> &Axis {
 
 /// Returns whether an axes is three-dimensional.
 pub(super) fn is_3d(axes: &Axes) -> bool {
-    matches!(axes.projection, Projection::ThreeD { .. })
+    axes.projection.is_3d()
+}
+
+/// Returns whether an axes is a two-dimensional polar axes.
+pub(super) fn is_polar(axes: &Axes) -> bool {
+    matches!(axes.projection, Projection::Polar { .. })
 }
 
 /// The fraction of a tile's width that a 2D x axis is estimated to span, before decorations are measured.
@@ -46,6 +51,9 @@ const X_TICK_SPACING: f64 = 3.0;
 const Y_TICK_SPACING: f64 = 2.5;
 /// The largest number of major tick intervals on a 2D axis.
 const MAX_INTERVALS_2D: usize = 10;
+/// The target number of automatic tick intervals along the angle of a polar axes whose ticks are not the eight
+/// divisions of a turn.
+const POLAR_ANGLE_TARGET: usize = 8;
 
 /// Returns the estimated length in points of the x axis of a 2D axes in the tile `outer`.
 pub(super) fn x_length_estimate(outer: Rect) -> f64 {
@@ -63,6 +71,15 @@ pub(super) fn tick_targets(ctx: &Ctx, axes: &Axes, outer: Rect) -> [usize; 3] {
     if is_3d(axes) {
         let n = count(outer.width.min(outer.height), 6.0 * fs, 3, 6);
         [n; 3]
+    } else if is_polar(axes) {
+        // The radius spans about half the shorter side of the plot, and the angle runs round the rim, where its
+        // labels are thinned only if they would overlap.
+        let radius = 0.5 * Y_LENGTH_FRACTION * outer.width.min(outer.height);
+        [
+            POLAR_ANGLE_TARGET,
+            count(radius, Y_TICK_SPACING * fs, 3, MAX_INTERVALS_2D),
+            5,
+        ]
     } else {
         [
             count(
@@ -258,6 +275,21 @@ fn auto_range(
         extents = extents.union(extent(&figure.axes[index], &prepared[index], dim, log));
     }
     let target = if target == usize::MAX { 5 } else { target };
+    // The angle of a polar axes is periodic, so its automatic limits are the full turn whatever the data.
+    if dim == 0
+        && let Some(units) = axes.projection.angle_units()
+        && matches!(axes.projection, ironlab_ir::Projection::Polar { .. })
+    {
+        let turn = units.turn();
+        if turn.is_finite() && turn > 0.0 {
+            return Range {
+                min: 0.0,
+                max: turn,
+                log: false,
+                reverse: false,
+            };
+        }
+    }
     let fallback = if log {
         Range {
             min: 1.0,
@@ -276,6 +308,9 @@ fn auto_range(
     let Some((lo, hi)) = union(extents.tight, extents.loose) else {
         return fallback;
     };
+    // A radius is a distance, so the automatic radial limits of non-negative data on a linear axis start at the
+    // centre.
+    let from_centre = dim == 1 && is_polar(axes) && !log && lo >= 0.0;
     let (nice_min, nice_max) = if log {
         ticks::nice_log_limits(lo, hi)
     } else {
@@ -301,6 +336,7 @@ fn auto_range(
         }
         _ => (nice_min, nice_max),
     };
+    let min = if from_centre { 0.0 } else { min };
     if min.is_finite() && max.is_finite() && min < max {
         Range {
             min,

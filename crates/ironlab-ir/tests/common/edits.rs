@@ -139,7 +139,7 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 /// has a base.
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
-/// both projections, both grids, both kinds of levels and of band edges, both colormaps,
+/// every projection, every kind of angle units and both polar angles, both grids, both kinds of levels and of band edges, both colormaps,
 /// every quiver scale, both contour placements, every kind of
 /// colour scale, and for each image kind every plane), so a path below any variant is
 /// reachable in one of them.
@@ -420,7 +420,56 @@ pub fn representative_figures() -> Vec<Figure> {
             };
         }
     }
-    vec![base, full]
+    vec![base, full, projections_figure()]
+}
+
+/// A valid figure of three axes, one of each projection that measures angles, each holding a
+/// line of three points: polar axes in twelve units per turn with every field of the polar
+/// view away from its default; cylindrical axes in radians, drawn clockwise, whose polar view
+/// places the radial labels automatically; and spherical axes in four hundred units per turn
+/// (gradians) measuring inclination. Between them every variant of the angle units and both
+/// polar angles are set, and the line data lie within every automatic sector.
+pub fn projections_figure() -> Figure {
+    let mut b = FigureBuilder::new();
+    b.fig.layout = TileLayout::new(1, 3);
+    let x = b.vector(&[1.0, 2.0, 3.0]);
+    let y = b.vector(&[1.0, 4.0, 9.0]);
+    let projections = [
+        Projection::Polar {
+            polar: PolarView {
+                angle_units: AngleUnits::PerTurn(12.0),
+                zero_deg: 90.0,
+                hole: 0.25,
+                radial_labels_at: Some(3.0),
+            },
+        },
+        Projection::Cylindrical {
+            view3d: View3d {
+                azimuth_deg: 20.0,
+                ..View3d::default()
+            },
+            polar: PolarView {
+                angle_units: AngleUnits::Radians,
+                ..PolarView::default()
+            },
+        },
+        Projection::Spherical {
+            view3d: View3d::default(),
+            spherical: SphericalView {
+                angle_units: AngleUnits::PerTurn(400.0),
+                polar_angle: PolarAngle::Inclination,
+            },
+        },
+    ];
+    for (col, projection) in (0u32..).zip(projections) {
+        let axes = b.axes2d(0, col);
+        b.axes(axes).projection = projection;
+        // The cylindrical axes runs clockwise.
+        b.axes(axes).x.reverse = col == 1;
+        let id = b.node();
+        b.push(axes, line(id, x, y));
+    }
+    b.build()
 }
 
 /// A figure of streamed data: a 2D axes holding a line on vectors of five values and a
@@ -580,6 +629,26 @@ pub fn perturb(value: &Value) -> Value {
             view3d: View3d::default(),
         }),
         Value::Projection(Projection::ThreeD { .. }) => Value::Projection(Projection::TwoD),
+        Value::Projection(Projection::Polar { .. }) => Value::Projection(Projection::TwoD),
+        Value::Projection(
+            Projection::Cylindrical { view3d, .. } | Projection::Spherical { view3d, .. },
+        ) => Value::Projection(Projection::ThreeD { view3d: *view3d }),
+        Value::PolarView(view) => Value::PolarView(PolarView {
+            zero_deg: view.zero_deg + 15.0,
+            ..*view
+        }),
+        Value::SphericalView(view) => Value::SphericalView(SphericalView {
+            polar_angle: match view.polar_angle {
+                PolarAngle::Elevation => PolarAngle::Inclination,
+                PolarAngle::Inclination => PolarAngle::Elevation,
+            },
+            ..*view
+        }),
+        Value::AngleUnits(AngleUnits::Degrees) => Value::AngleUnits(AngleUnits::Radians),
+        Value::AngleUnits(AngleUnits::Radians) => Value::AngleUnits(AngleUnits::PerTurn(12.0)),
+        Value::AngleUnits(AngleUnits::PerTurn(_)) => Value::AngleUnits(AngleUnits::Degrees),
+        Value::PolarAngle(PolarAngle::Elevation) => Value::PolarAngle(PolarAngle::Inclination),
+        Value::PolarAngle(PolarAngle::Inclination) => Value::PolarAngle(PolarAngle::Elevation),
         Value::View3d(view) => Value::View3d(View3d {
             zoom: view.zoom + 0.5,
             ..*view
@@ -922,7 +991,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 83;
+pub const VALUE_VARIANTS: usize = 87;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -1014,6 +1083,10 @@ pub fn value_variant(value: &Value) -> usize {
         Value::HistNorm(_) => 80,
         Value::UInt64(_) => 81,
         Value::Embolden(_) => 82,
+        Value::PolarView(_) => 83,
+        Value::SphericalView(_) => 84,
+        Value::AngleUnits(_) => 85,
+        Value::PolarAngle(_) => 86,
     }
 }
 
@@ -1087,6 +1160,18 @@ pub fn sample_values() -> Vec<Value> {
             },
         }),
         Value::View3d(View3d::default()),
+        Value::PolarView(PolarView {
+            angle_units: AngleUnits::PerTurn(24.0),
+            zero_deg: 90.0,
+            hole: 0.25,
+            radial_labels_at: Some(7.5),
+        }),
+        Value::SphericalView(SphericalView {
+            angle_units: AngleUnits::Radians,
+            polar_angle: PolarAngle::Inclination,
+        }),
+        Value::AngleUnits(AngleUnits::PerTurn(12.0)),
+        Value::PolarAngle(PolarAngle::Inclination),
         Value::Axis(Axis {
             label: Some(Text::new("$t$")),
             scale: Scale::Log,

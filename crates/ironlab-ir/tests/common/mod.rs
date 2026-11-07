@@ -16,13 +16,13 @@ use ironlab_ir::*;
 /// legend, inside colourbar, label, name of a data array, coordinate array, colour or alpha array, colour
 /// scale reference, contour levels, pixel range or plane offset, the colour data and
 /// binning record of a bar series, the base and binning record of stairs, the binning record
-/// of cells, and the ranges and minimum count of a binning record), by full Protocol Buffers
-/// name.
+/// of cells, the ranges and minimum count of a binning record, and the spoke of the radial
+/// tick labels of a polar view), by full Protocol Buffers name.
 ///
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 51] = [
+pub const OPTIONAL_IN_IR: [&str; 52] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -74,6 +74,7 @@ pub const OPTIONAL_IN_IR: [&str; 51] = [
     "ironlab.ir.v0.ImagePlaneXy.z",
     "ironlab.ir.v0.ImagePlaneXz.y",
     "ironlab.ir.v0.ImagePlaneYz.x",
+    "ironlab.ir.v0.PolarView.radial_labels_at",
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.

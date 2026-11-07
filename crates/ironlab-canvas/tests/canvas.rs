@@ -28,7 +28,7 @@ use ironlab_ir::NodeId;
 use ironlab_scene::display::{
     Depth, DepthPlane, DisplayList, Fill, FillRule, GlyphsItem, ImageGeometry, ImageItem,
     ImageMesh, Item, ItemKind, LineCap, LineJoin, MarkerInstance, MarkersItem, PathItem,
-    PathSegment, PlacedGlyph, Point, Rect, Rgba, Stroke, Transform,
+    PathSegment, PlacedGlyph, Point, Rect, Rgba, Sector, Stroke, Transform,
 };
 use ironlab_text::TextItem;
 
@@ -5544,4 +5544,83 @@ fn every_draw_records_whether_it_paints_a_translucent_colour() {
             (2, false),
         ]
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sector clips
+// ---------------------------------------------------------------------------------------------------------------
+
+fn sector_clip(sector: Sector, items: Vec<Item>) -> Item {
+    Item {
+        source: None,
+        kind: ItemKind::SectorClip { sector, items },
+    }
+}
+
+// Why: a polar axes clips its artists to an annular sector, which a scissor rectangle cannot express, so every draw
+// beneath a sector clip must carry the sector to the painter, whose fragment shader discards what lies outside it. A
+// fill or a stroke that lost the sector would paint data beyond the radial limits over the angular tick labels; a draw
+// after the sector clip that kept it would cut away the frame and labels of the axes. The sector is in figure points,
+// like the rectangular clip, and a sector clip inside a clipped group keeps that group's rectangle as well, because a
+// polar axes still lies within its tile. The geometry is kept whole, as beneath a rectangular clip, so that a pan
+// changes the mapping and nothing else.
+#[test]
+fn draws_beneath_a_sector_clip_carry_the_sector_and_draws_after_it_do_not() {
+    let sector = Sector {
+        centre: Point::new(100.0, 100.0),
+        inner: 10.0,
+        outer: 50.0,
+        start: 0.25,
+        sweep: 2.0,
+    };
+    let tile = Rect::new(0.0, 0.0, 300.0, 200.0);
+    let square = || {
+        filled(
+            rect_segments(0.0, 0.0, 200.0, 200.0),
+            Rgba::BLACK,
+            FillRule::NonZero,
+        )
+    };
+    let drawn = draw_list(&list(vec![
+        group(
+            Some(tile),
+            None,
+            vec![sector_clip(
+                sector,
+                vec![square(), stroked_line(Vec::new(), 0.0, LineCap::Butt)],
+            )],
+        ),
+        square(),
+    ]));
+
+    assert_eq!(
+        drawn.draws.len(),
+        3,
+        "a fill and a stroke inside the sector, and a fill after it: {:?}",
+        drawn.draws
+    );
+    for draw in &drawn.draws[..2] {
+        assert_eq!(
+            draw.sector,
+            Some(sector),
+            "a draw beneath the sector clip carries the sector: {draw:?}"
+        );
+        assert_eq!(
+            draw.clip,
+            Some(tile),
+            "and keeps the rectangle of the enclosing group: {draw:?}"
+        );
+    }
+    assert_close(
+        draw_area(&drawn, &drawn.draws[0]),
+        40_000.0,
+        1e-2,
+        "the square is tessellated whole beneath the sector clip",
+    );
+    assert_eq!(
+        drawn.draws[2].sector, None,
+        "a draw after the sector clip carries no sector: {:?}",
+        drawn.draws[2]
+    );
+    assert_eq!(drawn.draws[2].clip, None);
 }

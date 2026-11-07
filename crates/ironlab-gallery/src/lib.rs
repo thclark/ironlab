@@ -145,6 +145,12 @@ gallery!(
     subplots_linked,
     subplots_all_x,
     subplots_all_y,
+    polar_directivity,
+    polar_scatter,
+    polar_field,
+    polar_image,
+    radial_bars,
+    log_radius,
 );
 
 /// Returns the gallery entry with the given slug, if there is one.

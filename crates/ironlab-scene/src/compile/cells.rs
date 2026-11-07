@@ -1,9 +1,11 @@
 //! Cells: a grid of rectangles between column and row edges, each coloured by its value through a colour scale.
 //!
-//! Each cell is drawn as one closed rectangle, filled with its colour and outlined by its edge, so that the cells of
-//! a matrix are counted, read and exported one by one. The four edges of a cell are mapped onto the page through the
-//! axes, and the gap is then taken out of its extent on the page, half on each side, so that cells on a logarithmic
-//! or reversed axis are inset symmetrically, as bars are.
+//! Each cell is drawn as one closed outline, filled with its colour and outlined by its edge, so that the cells of
+//! a matrix are counted, read and exported one by one. The four edges of a cell are mapped to axis coordinates
+//! through the axes, and the gap is then taken out of its extent in axis coordinates, half on each side, so that cells
+//! on a logarithmic or reversed axis are inset symmetrically, as bars are. In Cartesian axes the axis coordinates are
+//! the page coordinates and a cell is a rectangle; in polar axes they are the angle and the radius on the page, and a
+//! cell is an annular sector.
 
 use ironlab_ir::{Cells, NdArray, Values};
 
@@ -11,9 +13,10 @@ use crate::display::Rgba;
 use crate::hit::{AxisMap, BinReading, CellHit};
 
 use super::artists::{Draw, Space};
+use super::bars::{add_rect, seen_area};
 use super::data::CellsData;
 use super::paths::{self, PathBuilder};
-use super::rects::{CLAMP_MARGIN, clamped_rect, expand, inset, intersection, unit_gap};
+use super::rects::{clamped_rect, inset, intersection, unit_gap};
 use super::style::{self, Paint, ResolvedScale};
 
 /// Returns the drawn span on the page of each column or row of cells bounded by `edges`, as its two ends in either
@@ -97,9 +100,10 @@ pub(super) fn draw_cells(
     data: &CellsData,
     scale: Option<&ResolvedScale>,
 ) {
-    let Space::TwoD { x, y } = draw.space else {
+    let Space::TwoD(plane) = draw.space else {
         return;
     };
+    let (x, y) = (plane.x, plane.y);
     let columns = spans(&x, &data.columns, unit_gap(cells.gap.x));
     let rows = spans(&y, &data.rows, unit_gap(cells.gap.y));
     let map = |value: f64| scale.and_then(|scale| scale.colour(value));
@@ -117,7 +121,7 @@ pub(super) fn draw_cells(
     let face_opacity = style::unit_opacity(cells.face_opacity);
     let edge_opacity = style::unit_opacity(cells.edge_opacity);
     let edge_paint = style::resolve(cells.edge.color, Paint::Colormapped);
-    let bounds = expand(draw.clip, CLAMP_MARGIN);
+    let bounds = plane.bounds(draw.clip);
     let mut drawn: u64 = 0;
     for (j, row) in rows.iter().enumerate() {
         let Some((y0, y1)) = *row else { continue };
@@ -132,9 +136,14 @@ pub(super) fn draw_cells(
                 continue;
             }
             let rect = clamped_rect(x0, x1, y0, y1, bounds);
-            let Some(seen) = intersection(rect, draw.clip) else {
-                continue;
+            let seen = if plane.is_polar() {
+                rect.width > 0.0 && rect.height > 0.0
+            } else {
+                intersection(rect, draw.clip).is_some()
             };
+            if !seen {
+                continue;
+            }
             let face_factor = alpha * face_opacity;
             let fill = (face_factor > 0.0)
                 .then(|| paths::fill(colour.with_alpha_factor(face_factor as f32)));
@@ -152,15 +161,19 @@ pub(super) fn draw_cells(
                 ))
             });
             let mut path = PathBuilder::new();
-            path.rect(rect);
+            let outline = add_rect(&mut path, &plane, rect);
             if draw.push(0.0, paths::item(cells.id, path.finish(), fill, stroke)) {
                 drawn += 1;
+                let Some((area, anchor)) = seen_area(&plane, rect, outline, draw.clip) else {
+                    continue;
+                };
                 draw.cells.push(CellHit {
                     axes: draw.axes,
                     artist: cells.id,
                     row: j,
                     column: i,
-                    rect: seen,
+                    area,
+                    anchor,
                     column_edges: (data.columns[i], data.columns[i + 1]),
                     row_edges: (data.rows[j], data.rows[j + 1]),
                     bin: bin_of(cells, data, j, i),
