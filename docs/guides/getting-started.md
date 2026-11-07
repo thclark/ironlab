@@ -681,7 +681,7 @@ The remaining axes properties are also set on the axes handle.
 | `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
-| `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
+| `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. A three-dimensional axes with the box off keeps only the three edges that carry the ticks of x, y and z, and a cylindrical axes keeps only its floor. |
 | `color_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colormap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
@@ -834,8 +834,7 @@ A radar chart compares several items against the same criteria, one spoke per cr
 ```rust
 let mut ax = fig.polar_axes(0, 0);
 ax.spokes(&["Mass", "Cost", "Efficiency", "Noise", "Range"])
-    .rlim(0.0, 1.0)
-    .radial_labels_at(0.5); // the radial labels lie between the first two spokes
+    .rlim(0.0, 1.0); // the radial labels lie between the first two spokes by default
 ax.radar([0.55, 0.85, 0.60, 0.50, 0.55]).label("Baseline");
 ax.radar([0.95, 0.45, 0.75, 0.70, 0.40]).label("Lightweight");
 ```
@@ -867,8 +866,8 @@ A cylindrical axes places each point by an angle about its central axis, a dista
 
 | Function | Effect |
 | --- | --- |
-| `fig.cylindrical_axes(row, col)` | Returns the axes of the tile as a cylindrical axes, creating or converting it. An axes that is already cylindrical keeps its camera and its polar view. |
-| `fig.spherical_axes(row, col)` | Returns the axes of the tile as a spherical axes, creating or converting it. An axes that is already spherical keeps its camera and its spherical view. |
+| `fig.cylindrical_axes(row, col)` | Returns the axes of the tile as a cylindrical axes, creating or converting it. A new cylindrical axes has its x and y grids on, which draw the spokes and circles of its floor. An axes that is already cylindrical keeps its camera, its polar view and its grids. |
+| `fig.spherical_axes(row, col)` | Returns the axes of the tile as a spherical axes, creating or converting it. A new spherical axes has all three grids on, which draw its spokes and its circles of constant radius. An axes that is already spherical keeps its camera, its spherical view and its grids. |
 | `make_cylindrical()` | Converts the axes to cylindrical axes, keeping its artists, its camera when it has one and its polar view when it is polar. |
 | `make_spherical()` | Converts the axes to spherical axes, keeping its artists, its camera when it has one and the angle units of a polar or cylindrical axes. |
 | `polar_angle(PolarAngle)` | Measures the polar angle of a spherical axes up from the X–Y plane (`PolarAngle::Elevation`, the default, as in antenna patterns and geography) or down from +Z (`PolarAngle::Inclination`, as in physics), converting the axes to spherical axes. |
@@ -898,7 +897,7 @@ The angles take automatic limits of their whole range whatever the data: the ful
 
 The rule of the two kinds of artist holds in three dimensions. A series, a contour, a surface and a quiver join their mapped points with straight chords, so a helix is drawn by supplying a point every few degrees and a surface face is the quadrilateral of its four grid nodes. Each pixel of an image follows the axes: on the floor of a cylinder an image is a disc, on its wall it wraps round at a fixed radius, and on the X–Y plane of a spherical axes, which holds the azimuth and the polar angle at a fixed radius, it wraps the sphere as a globe whose far side is hidden by its near side.
 
-The frame is made of circles rather than the edges of a box. A cylindrical axes draws the rim of its floor, with the angle labels outside it and the radial labels along a spoke, the z axis up its centre with its labels beside it, and, when the box is on, the rim of its top. A spherical axes draws its equator, which carries the azimuth labels, the meridian of azimuth 0, which carries the polar-angle labels, and the radial axis along azimuth 0. Each line of the outer frame is painted behind the plots where it lies behind the centre of the box and in front of them where it lies in front, and a line inside the volume, such as the z axis of a cylinder or the radial axis of a sphere, is hidden by the plots in front of it. Each kind of axes is fitted to its plot area by the sphere that encloses what it draws, less the room its tick labels take round the frame, so a sphere nearly fills the shorter side of the plot area and keeps its size as it turns. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule exactly, and [artists in cylindrical and spherical axes](../reference/figure-schema.md#artists-in-cylindrical-and-spherical-axes) describes each artist. In the gallery, [Membrane mode in cylindrical axes](../gallery/cylindrical_surface.md) draws a surface over a disc, [Helix in cylindrical axes](../gallery/helix.md) draws a helix and its tangents, [Antenna balloon in spherical axes](../gallery/antenna_balloon.md) draws a radiation pattern coloured by its gain, and [Globe in spherical axes](../gallery/globe_image.md) wraps an image round a sphere with a route over it.
+The frame is made of circles rather than the edges of a box. A cylindrical axes draws the rim of its floor, with the angle labels outside it and the radial labels along a spoke, the z axis up its centre with its labels beside it, and, when the box is on, the rim of its top and the two lines that outline its wall. A spherical axes draws its equator, which carries the azimuth labels, the meridian of azimuth 0, which carries the polar-angle labels all the way round, and the radial axis along azimuth 0. Each line of the outer frame is painted behind the plots where it lies behind the centre of the box and in front of them where it lies in front, and a line inside the volume, such as the z axis of a cylinder or the radial axis of a sphere, is hidden by the plots in front of it. Each kind of axes is fitted to its plot area by the sphere that encloses what it draws, less the room its tick labels take round the frame, so a sphere nearly fills the shorter side of the plot area and keeps its size as it turns. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule exactly, and [artists in cylindrical and spherical axes](../reference/figure-schema.md#artists-in-cylindrical-and-spherical-axes) describes each artist. In the gallery, [Membrane mode in cylindrical axes](../gallery/cylindrical_surface.md) draws a surface over a disc, [Helix in cylindrical axes](../gallery/helix.md) draws a helix and its tangents, [Antenna balloon in spherical axes](../gallery/antenna_balloon.md) draws a radiation pattern coloured by its gain, and [Globe in spherical axes](../gallery/globe_image.md) wraps an image round a sphere with a route over it.
 
 ## Parameters
 

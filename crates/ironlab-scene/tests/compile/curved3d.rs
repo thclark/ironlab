@@ -1610,6 +1610,103 @@ fn the_top_rim_of_cylindrical_axes_is_drawn_only_with_the_box() {
     }
 }
 
+/// The two azimuths at which the wall of a cylinder is tangent to the viewing direction, as the lens draws it. The camera
+/// keeps the z axis upright on the page, so the wall's silhouette lines stand where the rim reaches furthest left and
+/// furthest right: the page x of the rim point at azimuth φ is `x_c + A·cos φ + B·sin φ`, extreme at `atan2(B, A)` and
+/// half a turn from it.
+fn silhouette_azimuths(lens: &Lens) -> [f64; 2] {
+    let x = |phi: f64| lens.project([0.5 * phi.cos(), 0.5 * phi.sin(), -0.5]).0.x;
+    let centre = lens.project([0.0, 0.0, -0.5]).0.x;
+    let (a, b) = (x(0.0) - centre, x(FRAC_PI_2) - centre);
+    let phi = b.atan2(a);
+    [phi, phi + PI]
+}
+
+/// Whether the decoration of an axes painted outside its depth group draws the vertical line of the cylinder wall at
+/// azimuth `phi`, from the floor to the top.
+fn draws_wall_line(scene: &Scene, ax: NodeId, lens: &Lens, phi: f64) -> bool {
+    let at = |z: f64| lens.project([0.5 * phi.cos(), 0.5 * phi.sin(), z]).0;
+    covers_segment(&decoration_pieces(scene, ax), at(-0.5), at(0.5))
+}
+
+// Why: with the box on, the frame of cylindrical axes is the whole outline of the cylinder: the rims of the floor and
+// the top and the two lines of the wall where it turns away from the viewer, which join the rims tangentially, so that
+// the cylinder reads as a solid, as the twelve edges of a Cartesian box do. The silhouette follows the camera. With the
+// box off, the wall lines go with the top rim, and the floor alone is left.
+#[test]
+fn with_the_box_on_cylindrical_axes_draw_the_silhouette_lines_of_the_wall() {
+    for view in [
+        View3d::default(),
+        View3d {
+            azimuth_deg: 70.0,
+            elevation_deg: 15.0,
+            ..View3d::default()
+        },
+    ] {
+        for box_ in [true, false] {
+            let c = Cylinder::new();
+            let (mut fx, ax) = cylinder_axes(&c, view);
+            fx.surface(
+                ax,
+                &[0.0, 120.0, 240.0, 360.0],
+                &[0.0, 2.0],
+                |_, _| 0.0,
+                |_| {},
+            );
+            fx.ax(ax).box_ = box_;
+            let scene = compile_clean(fx);
+            let lens = Lens::cylinder(&scene, ax, view, [1.0; 3]);
+            for phi in silhouette_azimuths(&lens) {
+                assert_eq!(
+                    draws_wall_line(&scene, ax, &lens, phi),
+                    box_,
+                    "{view:?}, box {box_}: the wall line at {:.1}°",
+                    phi.to_degrees()
+                );
+            }
+        }
+    }
+}
+
+// Why: a partial sector is a slice of the cylinder, whose outline is the wall only where the slice has a wall: a
+// silhouette line is drawn only at an azimuth inside the sector, beside the vertical edges of the sector, which close
+// the slice. With the box off, every vertical line of the frame goes.
+#[test]
+fn a_partial_sector_draws_only_the_silhouette_lines_within_it() {
+    let view = View3d::default();
+    for box_ in [true, false] {
+        let mut c = Cylinder::new();
+        c.theta = AxisSpec::linear(0.0, 180.0);
+        let (mut fx, ax) = cylinder_axes(&c, view);
+        fx.surface(ax, &[0.0, 90.0, 180.0], &[0.0, 2.0], |_, _| 0.0, |_| {});
+        fx.ax(ax).box_ = box_;
+        let scene = compile_clean(fx);
+        let lens = Lens::cylinder(&scene, ax, view, [1.0; 3]);
+        let inside = |phi: f64| phi.rem_euclid(TAU) < PI;
+        let azimuths = silhouette_azimuths(&lens);
+        assert!(
+            azimuths.iter().any(|a| inside(*a)) && azimuths.iter().any(|a| !inside(*a)),
+            "precondition: one silhouette azimuth lies in the half-turn sector"
+        );
+        for phi in azimuths {
+            assert_eq!(
+                draws_wall_line(&scene, ax, &lens, phi),
+                box_ && inside(phi),
+                "box {box_}: the wall line at {:.1}°",
+                phi.to_degrees()
+            );
+        }
+        for phi in [0.0, PI] {
+            assert_eq!(
+                draws_wall_line(&scene, ax, &lens, phi),
+                box_,
+                "box {box_}: the sector edge at {:.0}°",
+                phi.to_degrees()
+            );
+        }
+    }
+}
+
 // Why: the frame of spherical axes is two great circles of the outer sphere: the equator in the X–Y plane, which
 // carries the azimuth ticks, and the meridian of azimuth 0 in the X–Z plane, which carries the polar-angle ticks.
 // Each must be a whole circle of the rim radius in its own plane, or the angles read off it would be wrong.
@@ -1782,4 +1879,104 @@ fn a_far_side_tick_label_is_painted_behind_the_artists_only_inside_the_silhouett
         outside > 0,
         "labels outside the silhouette are painted in front"
     );
+}
+
+/// Spherical axes holding a line, with its polar-angle ticks every 30° and its polar-angle grid on, measuring the polar
+/// angle as `s` measures it. With `labels`, the polar-angle tick labels are shown and the radial ones hidden; without,
+/// every tick label is hidden, so that the fit takes no room for them and [`Lens`] places points exactly.
+fn meridian_fixture(s: &Sphere, labels: bool) -> (Scene, NodeId, Lens) {
+    let (mut fx, ax) = sphere_axes(s, View3d::default());
+    fx.line(ax, &AZ, &ELEVATION, Some(&RADIUS), |_| {});
+    let axes = fx.ax(ax);
+    axes.y.ticks =
+        ironlab_ir::Ticks::Values((0..7).map(|k| s.polar.lo + 30.0 * f64::from(k)).collect());
+    if labels {
+        axes.y.tick_labels = TickLabels::Auto;
+        axes.z.tick_labels = TickLabels::Hidden;
+    }
+    axes.y.grid = true;
+    let scene = compile_clean(fx);
+    let lens = Lens::sphere(&scene, ax, View3d::default());
+    (scene, ax, lens)
+}
+
+// Why: the meridian is a whole circle, and a reader reads a polar angle off whichever side of it is nearer the data,
+// so its polar-angle ticks go all the way round: on the half at azimuth 0 and, mirrored, on the half at azimuth 180°,
+// with the same values. With elevation, the labels read 0 at +X, up through 30 and 60 to 90 at the top, then 60, 30 and
+// 0 at −X and down to −90 at the bottom. The two halves meet at the poles, whose labels are drawn once. Each label lies
+// beyond its own point of the meridian, in its direction from the centre of the sphere rather than in the direction of
+// the point at the same angle on the other half; directions are compared because the labels take room from the fit, so
+// that [`Lens`] scales the sphere slightly larger than it is drawn, about the same centre. When the y grid is on, a
+// spoke runs out to every tick of both halves.
+#[test]
+fn the_polar_angle_ticks_of_spherical_axes_go_all_the_way_round_the_meridian() {
+    for (s, poles) in [
+        (Sphere::new(), [-90.0, 90.0]),
+        (Sphere::inclination(), [0.0, 180.0]),
+    ] {
+        let (scene, ax, lens) = meridian_fixture(&s, true);
+        let leaves = leaves(&scene);
+        let runs: Vec<(String, Point)> = from_source(&leaves, ax)
+            .iter()
+            .filter_map(|l| {
+                let b = l.bbox()?;
+                let text = l.glyphs()?.text.clone();
+                Some((text, Point::new(b.x + b.width / 2.0, b.y + b.height / 2.0)))
+            })
+            .collect();
+        let value = |text: &str| {
+            text.replace('\u{2212}', "-")
+                .trim_end_matches('°')
+                .parse::<f64>()
+                .ok()
+        };
+        let centre = lens.project([0.0; 3]).0;
+        // The cosine of the angle at the centre of the sphere between the page points `a` and `b`.
+        let cos = |a: Point, b: Point| {
+            let (u, v) = (
+                (a.x - centre.x, a.y - centre.y),
+                (b.x - centre.x, b.y - centre.y),
+            );
+            (u.0 * v.0 + u.1 * v.1) / (u.0.hypot(u.1) * v.0.hypot(v.1))
+        };
+        let (spokes, spokes_ax, exact) = meridian_fixture(&s, false);
+        for k in 0..7 {
+            let angle = s.polar.lo + 30.0 * f64::from(k);
+            let drawn: Vec<Point> = runs
+                .iter()
+                .filter(|(t, _)| value(t) == Some(angle))
+                .map(|(_, c)| *c)
+                .collect();
+            if poles.contains(&angle) {
+                assert_eq!(
+                    drawn.len(),
+                    1,
+                    "the pole {angle} is labelled once: {runs:?}"
+                );
+                continue;
+            }
+            assert_eq!(
+                drawn.len(),
+                2,
+                "{angle} is labelled on both halves: {runs:?}"
+            );
+            let near = lens.project(s.normalise([0.0, angle, 2.0])).0;
+            let far = lens.project(s.normalise([180.0, angle, 2.0])).0;
+            assert!(
+                drawn.iter().any(|c| cos(*c, near) > cos(*c, far))
+                    && drawn.iter().any(|c| cos(*c, far) > cos(*c, near)),
+                "{angle}: one label beside each half of the meridian: {drawn:?}"
+            );
+            for azimuth in [0.0, 180.0] {
+                assert_interior_line(
+                    &spokes,
+                    spokes_ax,
+                    &exact,
+                    [0.0; 3],
+                    s.normalise([azimuth, angle, 2.0]),
+                    &format!("the polar-angle spoke at {angle} on the half at azimuth {azimuth}°"),
+                );
+            }
+        }
+    }
 }

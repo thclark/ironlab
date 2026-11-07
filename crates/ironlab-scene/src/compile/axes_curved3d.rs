@@ -690,8 +690,9 @@ struct Cylinder {
 /// circle of the hole when there is one, spokes at the angular ticks when the x grid is on and circles at the radial
 /// ticks when the y grid is on; angular tick labels outside the rim, and radial tick labels centred on the spoke that
 /// the polar view names. Up the axis of the cylinder from the floor to the top: the z axis with its tick marks and
-/// labels beside it. On the wall: a ring at every z tick when the z grid is on. At the top, when the box is on: the rim,
-/// the hole and the edges of a partial sector, joined to the floor by vertical edges at the edges of the sector.
+/// labels beside it. On the wall: a ring at every z tick when the z grid is on. When the box is on: at the top, the rim,
+/// the hole and the edges of a partial sector, joined to the floor by vertical edges at the edges of the sector, and the
+/// two silhouette lines of the wall, from the floor rim to the top rim, that lie inside the sector.
 fn cylinder(
     ctx: &mut Ctx,
     input: &AxesInput,
@@ -817,6 +818,19 @@ fn cylinder(
             }
         }
     }
+    if axes.box_ {
+        for a in wall_silhouette(p) {
+            let a = a0 + (a - a0).rem_euclid(TAU);
+            if full || (a - a0 > 1e-9 && a1 - a > 1e-9) {
+                f.segment(
+                    Kind::Lines,
+                    at(a, 1.0, floor),
+                    at(a, 1.0, top),
+                    Layering::Split,
+                );
+            }
+        }
+    }
     f.segment(
         Kind::Lines,
         [0.0, 0.0, -0.5],
@@ -930,12 +944,31 @@ fn cylinder(
     }
 }
 
+/// Returns the two azimuths at which the wall of the cylinder is tangent to the viewing direction, where its vertical
+/// silhouette lines stand, or none when the cylinder is seen along its axis.
+///
+/// The depth of the wall point at azimuth `φ` changes with `φ` as `d_x·cos φ + d_y·sin φ`, where `d_x` and `d_y` are
+/// the depths of the unit X and Y directions; the wall turns away from the viewer where that rate is zero.
+fn wall_silhouette(p: &Projector) -> Vec<f64> {
+    let depth = |n: Vec3| p.project(n).map(|(_, d)| d);
+    let (Some(dc), Some(dx), Some(dy)) = (depth([0.0; 3]), depth(X_AXIS), depth(Y_AXIS)) else {
+        return Vec::new();
+    };
+    let (dx, dy) = (dx - dc, dy - dc);
+    if dx.hypot(dy) < 1e-9 {
+        return Vec::new();
+    }
+    let facing = dy.atan2(dx);
+    vec![facing + FRAC_PI_2, facing - FRAC_PI_2]
+}
+
 /// Draws the frame of a spherical axes.
 ///
 /// The equator, a whole circle of the rim radius in the X–Y plane, carries the azimuth tick marks and labels and, when
 /// the x grid is on, spokes at the azimuth ticks. The meridian of azimuth 0, a whole circle in the X–Z plane, carries
-/// the polar-angle tick marks and labels on its half at azimuth 0 and, when the y grid is on, spokes at the polar-angle
-/// ticks. The radial axis runs along azimuth 0 in the equator plane with the radial tick marks and labels below it,
+/// the polar-angle tick marks and labels all the way round: on its half at azimuth 0 and, mirrored with the same
+/// values, on its half at azimuth 180°, with the labels at the poles, where the two halves meet, drawn once. When the y
+/// grid is on, spokes at the polar-angle ticks are drawn on both halves. The radial axis runs along azimuth 0 in the equator plane with the radial tick marks and labels below it,
 /// and when the z grid is on a circle at every radial tick is drawn in both planes.
 fn sphere(ctx: &mut Ctx, input: &AxesInput, f: &mut Frame, axis_labels: &mut Vec<Item>) {
     let axes = input.axes;
@@ -977,14 +1010,21 @@ fn sphere(ctx: &mut Ctx, input: &AxesInput, f: &mut Frame, axis_labels: &mut Vec
             );
         }
     }
+    // The point of the meridian at elevation `e` on the half at azimuth 180°, or `None` at a pole, where both halves
+    // meet in the point of the half at azimuth 0.
+    let mirrored = |e: f64| (e.cos().abs() > 1e-9).then(|| [-0.5 * e.cos(), 0.0, 0.5 * e.sin()]);
     if axes.y.grid {
         for &y in &yt.major {
+            let e = eps(y);
             f.segment(
                 Kind::Grid,
                 [0.0; 3],
-                on_meridian(eps(y), 1.0),
+                on_meridian(e, 1.0),
                 Layering::Interior,
             );
+            if let Some(point) = mirrored(e) {
+                f.segment(Kind::Grid, [0.0; 3], point, Layering::Interior);
+            }
         }
     }
     if axes.z.grid {
@@ -1024,6 +1064,14 @@ fn sphere(ctx: &mut Ctx, input: &AxesInput, f: &mut Frame, axis_labels: &mut Vec
         let e = eps(y);
         let point = on_meridian(e, 1.0);
         let d = f.outward(point, [e.cos(), 0.0, e.sin()]);
+        f.tick(ctx, label, point, (d, true), false);
+    }
+    // The same polar angles on the half at azimuth 180°, after those at azimuth 0, which keep their labels where the
+    // two would crowd each other.
+    for (&y, label) in yt.major.iter().zip(&yt.labels) {
+        let e = eps(y);
+        let Some(point) = mirrored(e) else { continue };
+        let d = f.outward(point, [-e.cos(), 0.0, e.sin()]);
         f.tick(ctx, label, point, (d, true), false);
     }
     // The radial labels hang below their axis, on the side of it away from the top of the page.

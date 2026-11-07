@@ -206,8 +206,6 @@ pub(super) fn emit(
     let g = geometry(polar, xr, yr, plot);
     let space = Space::TwoD(g.plane);
 
-    draw_grid(input, &g, out);
-
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
     hits.artists.extend(drawn.hits);
@@ -233,6 +231,9 @@ pub(super) fn emit(
     let groups = clip_groups(axes.id, plot, data, &released);
     out.extend(sector_clipped(axes.id, &g, plot, groups));
 
+    // The grid is painted over the artists, as MATLAB's polar axes paint it, so that the angle and radius of a filled
+    // field, an image or a wedge can be read wherever there is data.
+    draw_grid(input, &g, out);
     draw_frame(input, &g, out);
     draw_labels(ctx, input, &g, out);
     colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
@@ -301,7 +302,7 @@ fn arc(g: &Geometry, rho: f64) -> Vec<Point> {
         .outline(&[Point::new(a0, rho), Point::new(a1, rho)], false)
 }
 
-/// Draws the grid: a spoke from the edge of the hole to the rim at every interior angular tick when the x grid is on,
+/// Draws the grid, over the artists: a spoke from the edge of the hole to the rim at every interior angular tick when the x grid is on,
 /// and an arc across the sector at every radial tick strictly between the hole and the rim when the y grid is on, with
 /// the stroke of the grid of a 2D axes.
 fn draw_grid(input: &AxesInput, g: &Geometry, out: &mut Vec<Item>) {

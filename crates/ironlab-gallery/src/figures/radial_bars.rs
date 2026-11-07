@@ -3,10 +3,11 @@ use ironlab::prelude::*;
 pub const TITLE: &str = "Radial and polar bars";
 pub const DESCRIPTION: &str = "Bars in polar axes, drawn by the same bar builder as in Cartesian axes. On the left, \
      horizontal bars make a radial bar chart: each category is a ring, and its bar sweeps clockwise from the north \
-     through its value, a share of the turn. On the right, upright bars make a polar bar chart of the monthly \
-     rainfall of a temperate city, one wedge per month, with a hole at the centre so that the short wedges of the \
-     dry months stay readable. A bar is a shape that represents its value, so its top is an arc at the radius of its \
-     end and its sides are radial.";
+     through its value, a share of the turn. On the right, floating bars show the range of the monthly mean daily \
+     temperature of a temperate city, one wedge per month from the mean minimum to the mean maximum. Each bar starts \
+     at its own base, and the radius starts at −5 °C rather than zero, with a hole at the centre, so the bars stand \
+     clear of the middle. A bar is a shape that represents its value, so its ends are arcs at the radii of its base \
+     and top and its sides are radial.";
 
 /// The categories of the radial bar chart and the share of the turn each has reached, in percent.
 const TASKS: [(&str, f64); 5] = [
@@ -17,9 +18,14 @@ const TASKS: [(&str, f64); 5] = [
     ("Release", 18.0),
 ];
 
-/// The mean rainfall of each month, in millimetres, from January.
-const RAINFALL_MM: [f64; 12] = [
-    84.0, 61.0, 64.0, 57.0, 58.0, 55.0, 49.0, 63.0, 68.0, 92.0, 95.0, 90.0,
+/// The mean daily minimum temperature of each month, in degrees Celsius, from January.
+const LOW_C: [f64; 12] = [
+    2.4, 2.2, 3.8, 5.6, 8.6, 11.6, 13.7, 13.5, 11.2, 8.3, 5.0, 2.9,
+];
+
+/// The mean daily maximum temperature of each month, in degrees Celsius, from January.
+const HIGH_C: [f64; 12] = [
+    8.1, 8.6, 11.3, 14.2, 17.6, 20.7, 23.0, 22.6, 19.6, 15.6, 11.3, 8.6,
 ];
 
 const MONTHS: [&str; 12] = [
@@ -36,7 +42,7 @@ pub fn figure() -> Figure {
         .tag("subplots")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
-        .parameter("data_points", 34)
+        .parameter("data_points", 46)
         .parameter("has_legend", false);
 
     let rings: Vec<f64> = (1..=TASKS.len()).map(|k| k as f64).collect();
@@ -60,12 +66,12 @@ pub fn figure() -> Figure {
         .theta_zero(ThetaZero::North)
         .clockwise(true)
         .hole(0.25);
-    ax.bar(&months, RAINFALL_MM).width(0.7);
-    ax.rlim(0.0, 100.0)
+    let spans: Vec<f64> = HIGH_C.iter().zip(LOW_C).map(|(h, l)| h - l).collect();
+    ax.bar(&months, spans).base_data(LOW_C.to_vec()).width(0.7);
+    ax.rlim(-5.0, 25.0)
         .xticks(&months)
         .xtick_labels(MONTHS)
-        .ytick_step(25.0)
-        .radial_labels_at(0.5)
-        .title("Monthly rainfall (mm)");
+        .ytick_step(10.0)
+        .title("Monthly temperature range (°C)");
     fig
 }

@@ -1099,3 +1099,27 @@ fn a_cartesian_axes_still_publishes_two_dimensional_maps() {
         AxesHitKind::TwoD { .. }
     ));
 }
+
+// WHY: a polar axes draws its grid over its artists, as MATLAB's polar axes do (their `Layer` is "top"), because the
+// spokes and circles are how a reader takes an angle and a radius off a filled field, an image or a wedge, and a grid
+// under them would be hidden wherever there is data. The grid's light stroke keeps it from obscuring a line.
+#[test]
+fn the_grid_is_painted_over_the_artists() {
+    let (scene, ax) = gridded(true, true, 0.0);
+    let (_, grid) = cartesian_strokes();
+    let all = leaves(&scene);
+    let last_artist = all
+        .iter()
+        .rposition(|l| l.source.is_some() && l.source != Some(ax) && l.path().is_some())
+        .expect("the series is drawn");
+    let first_grid = all
+        .iter()
+        .position(|l| {
+            l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
+        })
+        .expect("the grid is drawn");
+    assert!(
+        first_grid > last_artist,
+        "the grid (leaf {first_grid}) is painted after the last artist leaf ({last_artist})"
+    );
+}
