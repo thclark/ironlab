@@ -8,7 +8,9 @@ use crate::hit::{AxesHit, AxesHitKind, HitMap};
 use crate::maths::camera::{Plane, UNIT_BOX_CORNERS, back_planes, depth_order};
 
 use super::Ctx;
-use super::artists::{AxesInput, Projector, Space, coalesce_markers, draw_artists, group_dense};
+use super::artists::{
+    AxesInput, Projector, Space, Stage, coalesce_markers, draw_artists, group_dense,
+};
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
@@ -90,6 +92,8 @@ pub(super) fn emit(
         input.ranges,
         input.plot,
         super::aspect::box_sides(input.axes, input.ranges),
+        Stage::Box,
+        [0.0; 2],
     );
     let back: Vec<(usize, f64)> = back_planes(&projector.camera)
         .into_iter()
@@ -220,7 +224,7 @@ fn draw_grid(input: &AxesInput, projector: &Projector, back: &[(usize, f64)], ou
 }
 
 /// Normalises a figure-space vector, or returns `fallback` when it has no usable length.
-fn unit(v: Point, fallback: Point) -> Point {
+pub(super) fn unit(v: Point, fallback: Point) -> Point {
     let len = v.x.hypot(v.y);
     if len.is_finite() && len > 1e-9 {
         Point::new(v.x / len, v.y / len)
@@ -230,7 +234,7 @@ fn unit(v: Point, fallback: Point) -> Point {
 }
 
 /// The extent of a text box of `width` × `height` along the unit direction `d`, measured from its centre.
-fn half_extent(d: Point, width: f64, height: f64) -> f64 {
+pub(super) fn half_extent(d: Point, width: f64, height: f64) -> f64 {
     (d.x.abs() * width + d.y.abs() * height) / 2.0
 }
 
@@ -299,12 +303,12 @@ fn label_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
 }
 
 /// The length of a 3D tick mark, in font sizes.
-const TICK_LENGTH: f64 = 0.35;
+pub(super) const TICK_LENGTH: f64 = 0.35;
 /// The smallest clear gap between two tick labels of a 3D axes, in font sizes.
-const LABEL_CLEARANCE: f64 = 0.3;
+pub(super) const LABEL_CLEARANCE: f64 = 0.3;
 
 /// Returns whether two rectangles come closer than `clearance` along both axes.
-fn crowds(a: Rect, b: Rect, clearance: f64) -> bool {
+pub(super) fn crowds(a: Rect, b: Rect, clearance: f64) -> bool {
     a.x < b.right() + clearance
         && b.x < a.right() + clearance
         && a.y < b.bottom() + clearance

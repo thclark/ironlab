@@ -246,6 +246,33 @@ pub(super) fn axis_ranges(
     out
 }
 
+/// Returns the automatic limits of an axis that carries an angle: the full turn for the angle of polar, cylindrical
+/// and spherical axes, and for the polar angle of spherical axes a quarter turn either side of the equator for an
+/// elevation or half a turn down from the north pole for an inclination. Returns `None` for any other axis.
+fn angle_range(axes: &Axes, dim: usize) -> Option<(f64, f64)> {
+    let turn = axes.projection.angle_units()?.turn();
+    if !(turn.is_finite() && turn > 0.0) {
+        return None;
+    }
+    match (axes.projection, dim) {
+        (_, 0) => Some((0.0, turn)),
+        (Projection::Spherical { spherical, .. }, 1) => Some(match spherical.polar_angle {
+            ironlab_ir::PolarAngle::Elevation => (-turn / 4.0, turn / 4.0),
+            ironlab_ir::PolarAngle::Inclination => (0.0, turn / 2.0),
+        }),
+        _ => None,
+    }
+}
+
+/// Returns the axis that carries the radius of polar, cylindrical or spherical axes: y, or z in spherical axes.
+pub(super) fn radial_dim(axes: &Axes) -> Option<usize> {
+    match axes.projection {
+        Projection::Polar { .. } | Projection::Cylindrical { .. } => Some(1),
+        Projection::Spherical { .. } => Some(2),
+        Projection::TwoD | Projection::ThreeD { .. } => None,
+    }
+}
+
 /// Computes automatic limits for one axis over its link group.
 ///
 /// The data of the group is rounded outward to major ticks. When the group holds gridded data along the axis (the x
@@ -275,20 +302,15 @@ fn auto_range(
         extents = extents.union(extent(&figure.axes[index], &prepared[index], dim, log));
     }
     let target = if target == usize::MAX { 5 } else { target };
-    // The angle of a polar axes is periodic, so its automatic limits are the full turn whatever the data.
-    if dim == 0
-        && let Some(units) = axes.projection.angle_units()
-        && matches!(axes.projection, ironlab_ir::Projection::Polar { .. })
-    {
-        let turn = units.turn();
-        if turn.is_finite() && turn > 0.0 {
-            return Range {
-                min: 0.0,
-                max: turn,
-                log: false,
-                reverse: false,
-            };
-        }
+    // The angle of polar, cylindrical and spherical axes is periodic, so its automatic limits are the full turn
+    // whatever the data, and the automatic limits of the polar angle of spherical axes are its whole range.
+    if let Some((min, max)) = angle_range(axes, dim) {
+        return Range {
+            min,
+            max,
+            log: false,
+            reverse: false,
+        };
     }
     let fallback = if log {
         Range {
@@ -310,7 +332,7 @@ fn auto_range(
     };
     // A radius is a distance, so the automatic radial limits of non-negative data on a linear axis start at the
     // centre.
-    let from_centre = dim == 1 && is_polar(axes) && !log && lo >= 0.0;
+    let from_centre = radial_dim(axes) == Some(dim) && !log && lo >= 0.0;
     let (nice_min, nice_max) = if log {
         ticks::nice_log_limits(lo, hi)
     } else {

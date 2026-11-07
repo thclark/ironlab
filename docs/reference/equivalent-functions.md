@@ -184,6 +184,22 @@ MATLAB's `polarplot` and matplotlib take the angles of the data in radians, wher
 
 Radar charts, polar histograms and wind roses are drawn with ordinary artists rather than with artists of their own: a radar outline is a filled series, a polar histogram is a histogram of wrapped angles, and a wind rose is a set of stacked bars. [Radar charts](../guides/getting-started.md#radar-charts) and [polar histograms and wind roses](../guides/getting-started.md#polar-histograms-and-wind-roses) describe the functions, and the [Radar chart](../gallery/radar_chart.md), [Polar histograms](../gallery/polar_histogram.md) and [Wind rose](../gallery/wind_rose.md) gallery entries show them.
 
+## Cylindrical and spherical axes
+
+In IronLAB a cylindrical axes is a three-dimensional axes whose x carries the angle about its central axis, y the distance from that axis and z the height, and a spherical axes one whose x carries the azimuth, y the polar angle and z the distance from the centre. Every plotting function of a three-dimensional axes draws in them, so data given in these coordinates is drawn without converting it to Cartesian coordinates first. None of the other libraries has such axes: MATLAB and matplotlib convert the data with `pol2cart` and `sph2cart`, or by hand, and draw it in Cartesian three-dimensional axes, whose box, ticks and grid then show x, y and z rather than the angles and radii; Plotly's `Scatterpolar` and `Barpolar` traces are two-dimensional only. [Cylindrical and spherical axes](../guides/getting-started.md#cylindrical-and-spherical-axes) describes the functions below.
+
+| Plot or setting | MATLAB | matplotlib | Plotly | IronLAB |
+| --- | --- | --- | --- | --- |
+| Make an axes cylindrical | no equivalent; `pol2cart` and Cartesian axes | no equivalent; convert by hand and use `projection="3d"` | no equivalent | `fig.cylindrical_axes(row, col)`, or `make_cylindrical` on an axes |
+| Make an axes spherical | no equivalent; `sph2cart` and Cartesian axes | no equivalent; convert by hand and use `projection="3d"` | no equivalent | `fig.spherical_axes(row, col)`, or `make_spherical` on an axes |
+| A line through points given by angle, radius and height | `plot3` of the output of `pol2cart` | `plot` in 3D axes of converted points | `Scatter3d` of converted points | `plot3` in a cylindrical axes |
+| A surface over an angle–radius grid, such as a membrane mode | `surf` of the output of `pol2cart` | `plot_surface` of converted points | `Surface` of converted points | `surf` in a cylindrical axes |
+| A radiation pattern as a balloon of gain in every direction | `patternCustom` in Antenna Toolbox, or `surf` of the output of `sph2cart` | `plot_surface` of converted points | `Surface` of converted points | `surf` of azimuth, elevation and gain in a spherical axes |
+| An image wrapped round a sphere | `surf` of a sphere with `FaceColor` set to `texturemap` | `plot_surface` of a sphere with `facecolors` | `Surface` of a sphere with `surfacecolor` | `image` on the `xy` plane of a spherical axes |
+| Measure the polar angle down from +Z rather than up from the X–Y plane | the conversion chosen by hand | the conversion chosen by hand | no equivalent | `polar_angle(PolarAngle::Inclination)` |
+
+MATLAB's `sph2cart` takes the elevation above the X–Y plane, as IronLAB does by default, whereas physics texts and SciPy's spherical harmonics take the inclination from +Z, which `polar_angle(PolarAngle::Inclination)` selects. IronLAB takes angles in degrees unless the axes is given other angle units, where MATLAB's conversions take radians.
+
 ## Axes
 
 These are settings of an axis rather than plots, and in IronLAB they are methods of `AxesMut`, described in [axis direction and ticks](../guides/getting-started.md#axis-direction-and-ticks) and, for categorical axes, in [cells and categorical rows](../guides/getting-started.md#cells-and-categorical-rows).

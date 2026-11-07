@@ -825,7 +825,7 @@ Automatic angular limits are always the full turn, whatever the data, and automa
 
 One rule decides how an artist is drawn in polar axes. **Direct artists**, which draw the data points themselves (series, contours, surfaces and quivers), join consecutive points with straight lines on the page, exactly as they do in Cartesian axes; they never interpolate between points, so a curve is drawn smoothly by sampling it finely, and a closed curve repeats its first point at its end, as the pattern above does at 360°. **Representing shapes**, which draw outlines made of edges at constant coordinates (bars, stairs, cells and the pixels of images), follow the axes: an edge at constant radius is an arc and an edge at constant angle is a spoke, so an upright bar becomes a wedge, a bar lying flat sweeps round the centre, and a cell or a pixel becomes an annular sector. A point whose radius lies below the lower radial limit, and so would lie beyond the centre, has no position and breaks a line, as a non-finite value does; nothing is reflected through the centre. A point beyond the rim is cut away at the rim.
 
-Cylindrical and spherical axes, which carry an azimuth, a radius and a height, or an azimuth, a polar angle and a radius, on x, y and z, are part of the figure model and can be saved, edited and validated, but the scene compiler does not yet draw them in their own coordinates. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule of angular axes exactly, and the [artists in polar axes](../reference/figure-schema.md#artists-in-polar-axes) section describes each artist. In the gallery, [Antenna directivity](../gallery/polar_directivity.md) draws a pattern with angle 0 at the north and clockwise angles, [Polar scatter](../gallery/polar_scatter.md) colours markers by data, [Fields on an angle–radius grid](../gallery/polar_field.md) draws a filled contour and a surface, [Sonar sweep in a polar sector](../gallery/polar_image.md) draws an image in a partial sector, [Radial and polar bars](../gallery/radial_bars.md) draws both orientations of bars, the second with a hole, and [Logarithmic radius](../gallery/log_radius.md) draws a line on a logarithmic radius. The viewer's gestures in polar axes are described under [panning](viewer.md#panning) and [zooming](viewer.md#zooming).
+A polar axes given a third dimension becomes a [cylindrical axes](#cylindrical-and-spherical-axes). The [figure schema](../reference/figure-schema.md#angular-axes) states every rule of angular axes exactly, and the [artists in polar axes](../reference/figure-schema.md#artists-in-polar-axes) section describes each artist. In the gallery, [Antenna directivity](../gallery/polar_directivity.md) draws a pattern with angle 0 at the north and clockwise angles, [Polar scatter](../gallery/polar_scatter.md) colours markers by data, [Fields on an angle–radius grid](../gallery/polar_field.md) draws a filled contour and a surface, [Sonar sweep in a polar sector](../gallery/polar_image.md) draws an image in a partial sector, [Radial and polar bars](../gallery/radial_bars.md) draws both orientations of bars, the second with a hole, and [Logarithmic radius](../gallery/log_radius.md) draws a line on a logarithmic radius. The viewer's gestures in polar axes are described under [panning](viewer.md#panning) and [zooming](viewer.md#zooming).
 
 ### Radar charts
 
@@ -860,6 +860,45 @@ ax.wind_rose(&directions, &speeds, [0.5, 2.0, 4.0, 6.0, 8.0]);
 ```
 
 The [Polar histograms](../gallery/polar_histogram.md) gallery entry draws the headings of waves both as bars and as steps, and the [Wind rose](../gallery/wind_rose.md) entry draws a year of hourly wind.
+
+## Cylindrical and spherical axes
+
+A cylindrical axes places each point by an angle about its central axis, a distance from that axis and a height along it, carried on x, y and z; a spherical axes places each point by an azimuth, a polar angle and a distance from its centre, carried on x, y and z. Both are three-dimensional axes, seen through the same camera as a Cartesian one and rotated, zoomed and panned in the viewer in the same way, and every plotting function of a three-dimensional axes draws in them unchanged: `plot3`, `scatter3`, `surf`, `mesh`, `contour3`, `quiver3` and images on any plane. Bars, stairs and cells are drawn only in two-dimensional axes, as in Cartesian three-dimensional axes.
+
+| Function | Effect |
+| --- | --- |
+| `fig.cylindrical_axes(row, col)` | Returns the axes of the tile as a cylindrical axes, creating or converting it. An axes that is already cylindrical keeps its camera and its polar view. |
+| `fig.spherical_axes(row, col)` | Returns the axes of the tile as a spherical axes, creating or converting it. An axes that is already spherical keeps its camera and its spherical view. |
+| `make_cylindrical()` | Converts the axes to cylindrical axes, keeping its artists, its camera when it has one and its polar view when it is polar. |
+| `make_spherical()` | Converts the axes to spherical axes, keeping its artists, its camera when it has one and the angle units of a polar or cylindrical axes. |
+| `polar_angle(PolarAngle)` | Measures the polar angle of a spherical axes up from the X–Y plane (`PolarAngle::Elevation`, the default, as in antenna patterns and geography) or down from +Z (`PolarAngle::Inclination`, as in physics), converting the axes to spherical axes. |
+
+A polar axes becomes cylindrical, keeping its polar view, when a three-dimensional plotting function adds a plot to it or when `view` is called on it, so a polar plot given a height keeps the directions of its angles. The setters of the polar view, `theta_zero`, `clockwise`, `angle_units`, `hole` and `radial_labels_at`, apply to a cylindrical axes as to a polar one, with angle 0 measured from the +X edge of the box, and `angle_units` sets both angles of a spherical axes.
+
+```rust
+use ironlab::prelude::*;
+
+// The gain of an antenna in every direction, as a balloon coloured by the gain.
+let azimuth = linspace(0.0, 360.0, 73);
+let elevation = linspace(-90.0, 90.0, 37);
+let gain = Matrix::from_fn(37, 73, |row, col| {
+    let (az, el) = (azimuth[col].to_radians(), elevation[row].to_radians());
+    (20.0 * (0.5 * (1.0 + el.cos() * az.cos())).powi(2).max(1e-3).log10()).max(-30.0)
+});
+let radius = gain.map(|g| g + 30.0);
+
+let mut fig = Figure::new();
+let mut ax = fig.spherical_axes(0, 0);
+ax.surf(&azimuth, &elevation, &radius).color_data(&gain);
+ax.zlim(0.0, 30.0);
+assert!(fig.validate().is_valid());
+```
+
+The angles take automatic limits of their whole range whatever the data: the full turn for the angle of a cylinder and the azimuth of a sphere, and a quarter turn either side of the equator for an elevation, or half a turn down from the north pole for an inclination. The radius starts at 0 for data that holds no negative radius, as in a polar axes. A cylindrical axes keeps its [aspect](#equal-aspect) as the ratio of a unit of height to a unit of radius, so `aspect(Aspect::Equal)` draws a tank in its true proportions; a spherical axes is always drawn as a sphere and ignores its aspect.
+
+The rule of the two kinds of artist holds in three dimensions. A series, a contour, a surface and a quiver join their mapped points with straight chords, so a helix is drawn by supplying a point every few degrees and a surface face is the quadrilateral of its four grid nodes. Each pixel of an image follows the axes: on the floor of a cylinder an image is a disc, on its wall it wraps round at a fixed radius, and on the X–Y plane of a spherical axes, which holds the azimuth and the polar angle at a fixed radius, it wraps the sphere as a globe whose far side is hidden by its near side.
+
+The frame is made of circles rather than the edges of a box. A cylindrical axes draws the rim of its floor, with the angle labels outside it and the radial labels along a spoke, the z axis up its centre with its labels beside it, and, when the box is on, the rim of its top. A spherical axes draws its equator, which carries the azimuth labels, the meridian of azimuth 0, which carries the polar-angle labels, and the radial axis along azimuth 0. Each line of the outer frame is painted behind the plots where it lies behind the centre of the box and in front of them where it lies in front, and a line inside the volume, such as the z axis of a cylinder or the radial axis of a sphere, is hidden by the plots in front of it. Each kind of axes is fitted to its plot area by the sphere that encloses what it draws, less the room its tick labels take round the frame, so a sphere nearly fills the shorter side of the plot area and keeps its size as it turns. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule exactly, and [artists in cylindrical and spherical axes](../reference/figure-schema.md#artists-in-cylindrical-and-spherical-axes) describes each artist. In the gallery, [Membrane mode in cylindrical axes](../gallery/cylindrical_surface.md) draws a surface over a disc, [Helix in cylindrical axes](../gallery/helix.md) draws a helix and its tangents, [Antenna balloon in spherical axes](../gallery/antenna_balloon.md) draws a radiation pattern coloured by its gain, and [Globe in spherical axes](../gallery/globe_image.md) wraps an image round a sphere with a route over it.
 
 ## Parameters
 

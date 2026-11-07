@@ -476,6 +476,83 @@ fn radar_charts_polar_histograms_and_wind_roses_are_covered() {
     );
 }
 
+/// WHY: cylindrical and spherical axes (#122) are drawn by their own coordinate stage, their own decorations (the
+/// floor frame and the central z axis of a cylinder, the equator and meridian of a sphere) and images wrapped on discs,
+/// walls and spheres. Each row names a branch that no Cartesian or polar figure reaches, so that the PDF, viewer and
+/// documentation tests that iterate the gallery exercise it: a surface over an angle–radius grid in a cylinder, a
+/// series and a quiver up a cylinder, a surface on a sphere coloured by data with a colourbar, and an image on the
+/// sphere with a series over it. The four entries named by the plan must exist under their slugs.
+#[test]
+fn cylindrical_and_spherical_axes_are_covered() {
+    fn is_cylindrical(axes: &Axes) -> bool {
+        matches!(axes.projection, Projection::Cylindrical { .. })
+    }
+    fn is_spherical(axes: &Axes) -> bool {
+        matches!(axes.projection, Projection::Spherical { .. })
+    }
+    let requirements: [(&str, Predicate); 6] = [
+        ("surface in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes) && matches!(artist, Artist::Surface(_))
+        }),
+        ("line in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_some() && s.draws_line())
+        }),
+        ("quiver in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes) && matches!(artist, Artist::Quiver(q) if q.w.is_some())
+        }),
+        (
+            "surface in spherical axes with a colourbar",
+            |figure, axes, artist| {
+                is_spherical(axes)
+                    && (axes.colorbar.is_some()
+                        || figure
+                            .panels
+                            .iter()
+                            .any(|p| matches!(p.content, ironlab::ir::PanelContent::Colorbar(_))))
+                    && matches!(artist, Artist::Surface(_))
+            },
+        ),
+        ("image wrapped on a sphere", |_, axes, artist| {
+            is_spherical(axes)
+                && image_placement(artist)
+                    .is_some_and(|p| matches!(p.plane, ImagePlane::Xy { z: Some(_) }))
+        }),
+        ("line over an image on a sphere", |_, axes, artist| {
+            is_spherical(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_some() && s.draws_line())
+                && axes.artists.iter().any(|a| image_placement(a).is_some())
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+    for slug in [
+        "cylindrical_surface",
+        "antenna_balloon",
+        "globe_image",
+        "helix",
+    ] {
+        assert!(find(slug).is_some(), "the gallery has no entry {slug}");
+    }
+}
+
 /// WHY: a reader browsing the gallery for a radar chart, a wind rose or a polar histogram searches by the name of the
 /// chart, which no structural tag read from the IR can supply; each of the three entries must therefore exist under
 /// its slug and carry the tag of its chart kind as well as `polar`.

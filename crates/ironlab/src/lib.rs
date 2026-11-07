@@ -226,7 +226,7 @@ pub struct ExportReport {
 /// ```
 pub mod prelude {
     pub use crate::AxesMut;
-    pub use crate::{AngleUnits, PolarView, ThetaZero};
+    pub use crate::{AngleUnits, PolarAngle, PolarView, SphericalView, ThetaZero};
     pub use crate::{
         Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
         ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,

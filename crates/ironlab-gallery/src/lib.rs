@@ -154,6 +154,10 @@ gallery!(
     radar_chart,
     polar_histogram,
     wind_rose,
+    cylindrical_surface,
+    helix,
+    antenna_balloon,
+    globe_image,
 );
 
 /// Returns the gallery entry with the given slug, if there is one.

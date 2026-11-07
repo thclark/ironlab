@@ -12,7 +12,8 @@
 //! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
 //!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
 //!    until the sizes settle.
-//! 6. `axes2d` and `axes3d` draw each axes, using `artists` for the data, `colorbar` for a colourbar inside the plot
+//! 6. `axes2d`, `axes_polar`, `axes3d` and `axes_curved3d` draw each axes (two-dimensional Cartesian, polar,
+//!    three-dimensional Cartesian, and cylindrical or spherical), using `artists` for the data, `colorbar` for a colourbar inside the plot
 //!    area and `legend` for a legend inside it.
 //! 7. `layout` places the panels, and `panel` draws the content of each.
 //!
@@ -23,6 +24,7 @@ mod artists;
 mod aspect;
 mod axes2d;
 mod axes3d;
+mod axes_curved3d;
 mod axes_polar;
 mod bars;
 mod cells;
@@ -564,6 +566,32 @@ fn arrange(
 ///   labels of a 3D axes keep a clear gap of at least 0.3 font sizes: labels are placed for x, then y, then z, and a
 ///   label that would come closer to one already placed is left out, while its tick mark is still drawn. The hit map describes a 3D axes
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
+/// - **Cylindrical and spherical axes.** Both are 3D axes with the camera, fit, zoom, pan, depths and painter's sort
+///   above; only the placement of a data point in the normalised box differs. In cylindrical axes x is the angle θ, y
+///   the radius and z the height: the point lies at radial fraction `ρ = hole + (1 − hole)·t_r`, where `t_r` is the
+///   position of the radius between its limits (in decades on a log axis, and mirrored when y is reversed), at azimuth
+///   `φ = zero_deg + s·θ·2π/turn` with `s = −1` when x is reversed, as `(0.5·ρ·cos φ, 0.5·ρ·sin φ, n_z)`. In spherical
+///   axes x is the azimuth, y the polar angle and z the radius: `ρ = t_r` from z, the elevation `ε` is y, or a quarter
+///   turn less y for an inclination, and the point is `0.5·ρ·(cos ε cos φ, cos ε sin φ, sin ε)` with `φ = s·x·2π/turn`.
+///   A radius beyond the centre side of its limits has no position, as in polar axes, except at a pixel edge of an
+///   image, which is held at the lower limit. A fixed aspect of a cylinder gives its box the sides `[1, 1, h]`, `h = (z/y)·span_z·0.5·(1 − hole)/span_r`,
+///   scaled so that the longest side is 1, and never widens its limits; a spherical axes ignores its aspect. Series,
+///   contours, surfaces and quivers join their mapped points with straight chords. An image on any plane is drawn
+///   through a mesh whose nodes lie on its pixel edges, thinned to about a point apart and refined evenly along an
+///   angle so that no chord strays more than 0.05 pt from its arc; every node carries its depth less
+///   [`crate::maths::camera::FACE_DEPTH_BIAS`], and the image is sorted at the mean of those depths. The frame is made
+///   of circles instead of box edges: the floor rim, the hole, the central z axis and, with `box_`, the top rim of a
+///   cylinder; the equator, the meridian of azimuth 0 and the radial axis along azimuth 0 of a sphere. A line of the
+///   outer frame (rims, hole, sector edges, the z grid rings on the wall, equator, meridian) is split where it passes
+///   the depth of the centre of the box, the part behind painted before the depth group and the part in front after
+///   it. A line through the drawn volume or on the floor of a cylinder (its z axis and floor grid; the radial axis,
+///   spokes and inner grid circles of a sphere) is a primitive of the depth group, in pieces with a depth at each
+///   vertex, so that the artists in front of it hide it. What the axes draws is fitted by its own circumscribing
+///   sphere, of radius `√(s² + h²)/2` for a cylinder of diameter `s` and height `h` and 0.5 for a sphere, kept clear
+///   of the sides of the plot rectangle by the pad and the widest or tallest tick label placed outside the frame. Tick
+///   marks and tick labels are painted before or after the depth group by the depth of the point they label, except
+///   that a tick label is painted before it only when its box lies wholly inside the outline of the frame
+///   on the page, and the z tick labels of a cylinder are always painted after it.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     compile_with(figure, text, &CompileOptions::default())
@@ -714,10 +742,11 @@ pub fn compile_with(figure: &Figure, text: &TextEngine, options: &CompileOptions
             Projection::Polar { polar } => {
                 axes_polar::emit(&mut ctx, &input, polar, &mut items, &mut hit_map)
             }
-            Projection::ThreeD { view3d }
-            | Projection::Cylindrical { view3d, .. }
-            | Projection::Spherical { view3d, .. } => {
+            Projection::ThreeD { view3d } => {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
+            }
+            Projection::Cylindrical { view3d, .. } | Projection::Spherical { view3d, .. } => {
+                axes_curved3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
             }
         }
     }
