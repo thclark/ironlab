@@ -1030,6 +1030,7 @@ fn polar_radial_limits(r: &[f64]) -> (f64, f64) {
         cell(0, 0, 1, 1),
         Projection::Polar {
             polar: PolarView::default(),
+            view: ironlab_ir::View2d::default(),
         },
     );
     let theta: Vec<f64> = (0..r.len()).map(|k| 30.0 * k as f64).collect();

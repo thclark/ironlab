@@ -13,7 +13,7 @@ use crate::artist::{
 use crate::axes::{
     AngleUnits, Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
     Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    View2d, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
@@ -98,6 +98,8 @@ pub enum Value {
     Projection(Projection),
     /// The camera view of a three-dimensional axes.
     View3d(View3d),
+    /// The view of a two-dimensional polar axes.
+    View2d(View2d),
     /// The polar view of a polar or cylindrical axes.
     PolarView(PolarView),
     /// The spherical view of a spherical axes.
@@ -276,6 +278,8 @@ pub enum ValueType {
     Projection,
     /// See [`Value::View3d`].
     View3d,
+    /// See [`Value::View2d`].
+    View2d,
     /// See [`Value::PolarView`].
     PolarView,
     /// See [`Value::SphericalView`].
@@ -437,6 +441,7 @@ impl Value {
             Value::Cell(_) => ValueType::Cell,
             Value::Projection(_) => ValueType::Projection,
             Value::View3d(_) => ValueType::View3d,
+            Value::View2d(_) => ValueType::View2d,
             Value::PolarView(_) => ValueType::PolarView,
             Value::SphericalView(_) => ValueType::SphericalView,
             Value::AngleUnits(_) => ValueType::AngleUnits,

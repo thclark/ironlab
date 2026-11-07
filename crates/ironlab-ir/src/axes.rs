@@ -207,6 +207,8 @@ pub enum Projection {
     Polar {
         /// How angles are measured and where the sector and the hole lie on the page.
         polar: PolarView,
+        /// Where the drawn axes lie within the plot area.
+        view: View2d,
     },
     /// A three-dimensional cylindrical axes viewed through an orthographic camera, in which
     /// x is the angle, y the radius and z the height along the central axis.
@@ -278,7 +280,7 @@ impl Projection {
     #[must_use]
     pub fn polar(&self) -> Option<PolarView> {
         match *self {
-            Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => Some(polar),
+            Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => Some(polar),
             _ => None,
         }
     }
@@ -288,7 +290,7 @@ impl Projection {
     #[must_use]
     pub fn angle_units(&self) -> Option<AngleUnits> {
         match *self {
-            Projection::Polar { polar } | Projection::Cylindrical { polar, .. } => {
+            Projection::Polar { polar, .. } | Projection::Cylindrical { polar, .. } => {
                 Some(polar.angle_units)
             }
             Projection::Spherical { spherical, .. } => Some(spherical.angle_units),
@@ -372,6 +374,17 @@ pub enum PolarAngle {
     Elevation,
     /// The angle down from +Z, as a zenith angle: 0 at +Z and half a turn at −Z.
     Inclination,
+}
+
+/// The view of a two-dimensional polar axes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct View2d {
+    /// The horizontal offset of the drawn axes as a fraction of the plot area's width,
+    /// increasing to the right.
+    pub pan_x: f64,
+    /// The vertical offset of the drawn axes as a fraction of the plot area's height,
+    /// increasing downwards.
+    pub pan_y: f64,
 }
 
 /// The orthographic camera view of a three-dimensional axes.

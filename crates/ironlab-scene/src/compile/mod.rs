@@ -739,8 +739,8 @@ pub fn compile_with(figure: &Figure, text: &TextEngine, options: &CompileOptions
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
-            Projection::Polar { polar } => {
-                axes_polar::emit(&mut ctx, &input, polar, &mut items, &mut hit_map)
+            Projection::Polar { polar, view } => {
+                axes_polar::emit(&mut ctx, &input, polar, view, &mut items, &mut hit_map)
             }
             Projection::ThreeD { view3d } => {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)

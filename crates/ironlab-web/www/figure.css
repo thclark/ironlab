@@ -287,6 +287,16 @@ canvas:focus-visible {
   background: color-mix(in srgb, var(--ironlab-accent) 25%, transparent);
 }
 
+[part~="band"][data-shape="ring"] {
+  border-radius: 50%;
+  border-color: rgba(0, 92, 128, 0.25);
+  border-color: color-mix(in srgb, var(--ironlab-accent) 25%, transparent);
+  background: none;
+  box-shadow:
+    0 0 0 1px var(--ironlab-selection),
+    inset 0 0 0 1px var(--ironlab-selection);
+}
+
 [part~="band"][hidden] {
   display: none;
 }

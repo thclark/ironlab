@@ -354,7 +354,7 @@ fn every_required_chart_type_is_present() {
 /// Returns the polar view of an axes, when the axes is polar.
 fn polar_view(axes: &Axes) -> Option<PolarView> {
     match axes.projection {
-        Projection::Polar { polar } => Some(polar),
+        Projection::Polar { polar, .. } => Some(polar),
         _ => None,
     }
 }

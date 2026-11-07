@@ -149,6 +149,8 @@ proto_file! {
     message ProjectionPolar {
         /// How angles are measured and where the sector and the hole lie on the page.
         message PolarView polar = 1;
+        /// Where the drawn axes lie within the plot area.
+        message View2d view = 2;
     }
 
     /// A three-dimensional cylindrical axes viewed through an orthographic camera, in
@@ -226,6 +228,16 @@ proto_file! {
         Elevation = 1;
         /// The angle down from +Z: 0 at +Z and half a turn at −Z.
         Inclination = 2;
+    }
+
+    /// The view of a two-dimensional polar axes.
+    message View2d {
+        /// The horizontal offset of the drawn axes as a fraction of the plot area's
+        /// width, increasing to the right.
+        optional double pan_x = 1;
+        /// The vertical offset of the drawn axes as a fraction of the plot area's
+        /// height, increasing downwards.
+        optional double pan_y = 2;
     }
 
     /// The orthographic camera view of a three-dimensional axes.
