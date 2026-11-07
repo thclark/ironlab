@@ -89,6 +89,7 @@ fn decay_figure() -> Figure {
             aspect_adjust: AspectAdjust::Limits,
             colorbar: None,
             box_: true,
+            grid_below: true,
             legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,
                 boxed: true,

@@ -57,7 +57,7 @@ pub fn figure() -> Figure {
         .ytick_labels(TASKS.iter().map(|(name, _)| *name))
         .xticks([0.0, 25.0, 50.0, 75.0])
         .xtick_labels(["0%", "25%", "50%", "75%"])
-        .radial_labels_at(94.0)
+        .radial_axis(RadialAxis::Spoke { angle: Some(94.0) })
         .title("Progress by task");
 
     let months: Vec<f64> = (0..12).map(|k| k as f64).collect();

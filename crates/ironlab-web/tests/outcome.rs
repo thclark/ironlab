@@ -15,7 +15,8 @@ use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
     Artist, Axes, Axis, Bar, BarWidth, Binning, Bins, CategoricalColorScale, CellEdges, CellGap,
     Cells, Color, ColorCategory, ColorScale, ColorScaleKind, DataArray, Figure, FigureSize,
-    HistNorm, Limits, NdArray, NodeId, PerBar, Series, Text, TickLabels, Ticks,
+    HistNorm, Limits, NdArray, NodeId, PerBar, PolarView, Projection, Series, Text, TickLabels,
+    Ticks, View2d,
 };
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::AxesHitKind;
@@ -166,6 +167,7 @@ fn an_outcome_at_rest_reports_the_open_hand_and_nothing_else() {
             redraw: false,
             cursor: "grab",
             rubber_band: None,
+            rubber_ring: None,
             datatip: None,
             can_undo: false,
             can_redo: false,
@@ -281,6 +283,62 @@ fn a_zoom_drag_reports_its_rubber_band_as_x_y_width_and_height_in_screen_points(
             "the band is gone once the drag has ended"
         );
     }
+}
+
+// Why: a Zoom-tool drag over polar axes selects a range of radii, so the page must draw a ring rather than a box:
+// the outcome gives the ring as its centre and its two radii in CSS pixels, the centre being the centre of the polar
+// axes and the radii the distances of the press and of the pointer from it, gives no rubber band, and drops the ring
+// once the drag ends.
+#[test]
+fn a_zoom_drag_over_polar_axes_reports_a_ring_about_the_centre_and_no_band() {
+    let mut figure = figure();
+    figure.axes[0].projection = Projection::Polar {
+        polar: PolarView::default(),
+        view: View2d::default(),
+    };
+    let mut canvas = fitted(figure);
+    canvas.set_tool(Tool::Zoom);
+    let AxesHitKind::Polar { centre, .. } = canvas.scene(&TEXT).hit_map.axes[0].kind else {
+        panic!("the axes is polar in the hit map");
+    };
+    let fit = canvas.fit(&TEXT).expect("the canvas is fitted");
+    let centre = fit.to_screen.apply(centre);
+    let (from, to) = (centre + vec2(30.0, 0.0), centre + vec2(0.0, -12.0));
+
+    canvas.drag_start(from, &TEXT);
+    let changed = canvas.drag_move(to);
+    let outcome = outcome_of(&mut canvas, changed);
+
+    assert!(
+        !changed,
+        "the drag moves its ring without changing the figure"
+    );
+    assert!(
+        outcome.rubber_band.is_none(),
+        "no box is drawn over polar axes"
+    );
+    let [x, y, inner, outer] = outcome.rubber_ring.expect("a ring is drawn while dragging");
+    let tolerance = 0.05;
+    assert_close(x, centre.x, tolerance, "the ring is about the centre");
+    assert_close(y, centre.y, tolerance, "the ring is about the centre");
+    assert_close(
+        inner,
+        12.0,
+        tolerance,
+        "the inner radius is the pointer's distance",
+    );
+    assert_close(
+        outer,
+        30.0,
+        tolerance,
+        "the outer radius is the press's distance",
+    );
+
+    canvas.drag_end(Some(to));
+    assert!(
+        outcome_of(&mut canvas, true).rubber_ring.is_none(),
+        "the ring is gone once the drag has ended"
+    );
 }
 
 // Why: hovering a drawn point shows the user its values and its index in their own data, so the outcome must carry
@@ -609,6 +667,7 @@ fn an_outcome_serialises_with_exactly_the_documented_keys() {
             "problem_count",
             "redraw",
             "rubber_band",
+            "rubber_ring",
         ]
     );
     assert_eq!(object["redraw"], json!(false));
@@ -616,6 +675,10 @@ fn an_outcome_serialises_with_exactly_the_documented_keys() {
     assert!(
         object["rubber_band"].is_null(),
         "an absent band is null, not missing"
+    );
+    assert!(
+        object["rubber_ring"].is_null(),
+        "an absent ring is null, not missing"
     );
     assert!(
         object["datatip"].is_null(),

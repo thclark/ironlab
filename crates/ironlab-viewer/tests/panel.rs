@@ -714,6 +714,37 @@ fn the_z_axis_is_shown_only_while_the_axes_is_three_dimensional() {
     }
 }
 
+// Why: a three-dimensional axes tests its grid for depth with the artists and ignores
+// `grid_below`, so a checkbox for it there would change nothing on screen; a
+// two-dimensional axes honours it, so it must be offered there, and making the flat axes
+// three-dimensional must hide it at once.
+#[test]
+fn grid_below_is_shown_only_while_the_axes_is_two_dimensional() {
+    let mut state = state_with_artists();
+    let flat = row_paths(&groups_of(&state, FLAT));
+    assert!(
+        flat.contains(&"grid_below/".to_owned()),
+        "a 2D axes offers grid_below: {flat:?}"
+    );
+    let solid = row_paths(&groups_of(&state, SOLID));
+    assert!(
+        !solid.iter().any(|row| row.contains("grid_below")),
+        "a 3D axes hides grid_below: {solid:?}"
+    );
+
+    assert!(state.try_record(&set(
+        FLAT.0,
+        "projection",
+        Value::Projection(Projection::ThreeD {
+            view3d: View3d::default()
+        })
+    )));
+    assert!(
+        !is_shown(state.figure(), FLAT, NodeKind::Axes, &path("grid_below")),
+        "promoting the axes hides grid_below"
+    );
+}
+
 // Why: the aspect, its adjustment and the alignment of the title are properties of how an
 // axes is drawn, which the viewer may change, on two- and three-dimensional axes alike: a
 // mesh seen in 3D is distorted unless its units are of one length. Choosing a ratio offers

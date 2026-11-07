@@ -22,9 +22,9 @@ use crate::{
     LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape, MarkerStyle, NdArray,
     NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel, PanelColorbar, PanelContent,
     PanelLegend, PanelLocation, Parameter, PerBar, PixelRange, PolarAngle, PolarView, Projection,
-    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, SphericalView, Stairs, StairsData,
-    StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
-    Value, Values, View3d,
+    Provenance, Quiver, QuiverScale, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide, ScalarImage,
+    Scale, Series, SphericalView, Stairs, StairsData, StepAt, Surface, Text, TickLabels, Ticks,
+    TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View2d, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -118,6 +118,8 @@ wire_enum! {
     AspectAdjust => AspectAdjust { Box, Limits }
     TitleAlign => TitleAlign { Center, Left, Right }
     PolarAngle => PolarAngle { Elevation, Inclination }
+    RadialAxisSpokeSide => RadialAxisSpokeSide { Anticlockwise, Clockwise }
+    RadialAxisEdge => RadialAxisEdge { Bottom, Top, Left, Right }
     MarkerShape => MarkerShape {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
@@ -367,14 +369,22 @@ fn encode_view3d(view: View3d) -> w::View3d {
     }
 }
 
+fn encode_view2d(view: View2d) -> w::View2d {
+    w::View2d {
+        pan_x: Some(view.pan_x),
+        pan_y: Some(view.pan_y),
+    }
+}
+
 fn encode_projection(projection: Projection) -> w::Projection {
     let kind = match projection {
         Projection::TwoD => w::ProjectionKind::TwoD(w::ProjectionTwoD {}),
         Projection::ThreeD { view3d } => w::ProjectionKind::ThreeD(w::ProjectionThreeD {
             view3d: Some(encode_view3d(view3d)),
         }),
-        Projection::Polar { polar } => w::ProjectionKind::Polar(w::ProjectionPolar {
+        Projection::Polar { polar, view } => w::ProjectionKind::Polar(w::ProjectionPolar {
             polar: Some(encode_polar_view(polar)),
+            view: Some(encode_view2d(view)),
         }),
         Projection::Cylindrical { view3d, polar } => {
             w::ProjectionKind::Cylindrical(w::ProjectionCylindrical {
@@ -408,8 +418,24 @@ fn encode_polar_view(view: PolarView) -> w::PolarView {
         angle_units: Some(encode_angle_units(view.angle_units)),
         zero_deg: Some(view.zero_deg),
         hole: Some(view.hole),
-        radial_labels_at: view.radial_labels_at,
+        radial_axis: Some(encode_radial_axis(view.radial_axis)),
     }
+}
+
+fn encode_radial_axis(axis: RadialAxis) -> w::RadialAxis {
+    let kind = match axis {
+        RadialAxis::Spoke { angle } => w::RadialAxisKind::Spoke(w::RadialAxisSpoke { angle }),
+        RadialAxis::AlongSpoke { angle, side } => {
+            w::RadialAxisKind::AlongSpoke(w::RadialAxisAlongSpoke {
+                angle,
+                side: side.to_wire(),
+            })
+        }
+        RadialAxis::Edge { edge } => w::RadialAxisKind::Edge(w::RadialAxisEdgeAxis {
+            edge: edge.to_wire(),
+        }),
+    };
+    w::RadialAxis { kind: Some(kind) }
 }
 
 fn encode_spherical_view(view: SphericalView) -> w::SphericalView {
@@ -567,6 +593,7 @@ impl Encode for Axes {
             y: Some(encode_axis(&self.y)),
             z: Some(encode_axis(&self.z)),
             r#box: Some(self.box_),
+            grid_below: Some(self.grid_below),
             legend: self.legend.as_ref().map(encode_legend),
             artists: self.artists.iter().map(Artist::encode).collect(),
             title_align: self.title_align.to_wire(),
@@ -1384,6 +1411,14 @@ fn decode_view3d(wire: w::View3d) -> View3d {
     }
 }
 
+fn decode_view2d(wire: w::View2d) -> View2d {
+    let default = View2d::default();
+    View2d {
+        pan_x: wire.pan_x.unwrap_or(default.pan_x),
+        pan_y: wire.pan_y.unwrap_or(default.pan_y),
+    }
+}
+
 fn decode_legend(wire: w::Legend, at: &str) -> Result<Legend> {
     Ok(match wire.kind {
         None => Legend::default(),
@@ -1764,6 +1799,7 @@ fn decode_projection(
         },
         Some(w::ProjectionKind::Polar(polar)) => Projection::Polar {
             polar: decode_polar_view(polar.polar.unwrap_or_default(), &join(at, "polar.polar"))?,
+            view: decode_view2d(polar.view.unwrap_or_default()),
         },
         Some(w::ProjectionKind::Cylindrical(cylindrical)) => Projection::Cylindrical {
             view3d: decode_view3d(cylindrical.view3d.unwrap_or_default()),
@@ -1801,7 +1837,33 @@ fn decode_polar_view(wire: w::PolarView, at: &str) -> Result<PolarView> {
         angle_units: decode_angle_units(wire.angle_units, &join(at, "angle_units"))?,
         zero_deg: wire.zero_deg.unwrap_or(default.zero_deg),
         hole: wire.hole.unwrap_or(default.hole),
-        radial_labels_at: wire.radial_labels_at,
+        radial_axis: decode_radial_axis(wire.radial_axis, &join(at, "radial_axis"))?,
+    })
+}
+
+/// Decodes the radial axis of a polar view, taking an unset axis as the default and an
+/// absent angle as the default spoke.
+fn decode_radial_axis(wire: Option<w::RadialAxis>, at: &str) -> Result<RadialAxis> {
+    Ok(match wire.and_then(|axis| axis.kind) {
+        None => RadialAxis::default(),
+        Some(w::RadialAxisKind::Spoke(spoke)) => RadialAxis::Spoke { angle: spoke.angle },
+        Some(w::RadialAxisKind::AlongSpoke(along)) => RadialAxis::AlongSpoke {
+            angle: along.angle,
+            side: decode_enum(
+                along.side,
+                Some(RadialAxisSpokeSide::default()),
+                &join(at, "along_spoke"),
+                "side",
+            )?,
+        },
+        Some(w::RadialAxisKind::Edge(edge)) => RadialAxis::Edge {
+            edge: decode_enum(
+                edge.edge,
+                Some(RadialAxisEdge::default()),
+                &join(at, "edge"),
+                "edge",
+            )?,
+        },
     })
 }
 
@@ -1866,6 +1928,7 @@ impl Decode for Axes {
                 .map(|colorbar| decode_inside_colorbar(colorbar, &join(at, "colorbar")))
                 .transpose()?,
             box_: wire.r#box.unwrap_or(default.box_),
+            grid_below: wire.grid_below.unwrap_or(default.grid_below),
             legend,
             artists,
         })
@@ -2697,6 +2760,9 @@ fn encode_value(value: &Value) -> w::Value {
         Value::View3d(v) => w::ValueKind::View3d(w::ValueView3d {
             value: Some(encode_view3d(*v)),
         }),
+        Value::View2d(v) => w::ValueKind::View2d(w::ValueView2d {
+            value: Some(encode_view2d(*v)),
+        }),
         Value::PolarView(v) => w::ValueKind::PolarView(w::ValuePolarView {
             value: Some(encode_polar_view(*v)),
         }),
@@ -2707,6 +2773,15 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_angle_units(*v)),
         }),
         Value::PolarAngle(v) => w::ValueKind::PolarAngle(w::ValuePolarAngle { value: v.to_wire() }),
+        Value::RadialAxis(v) => w::ValueKind::RadialAxis(w::ValueRadialAxis {
+            value: Some(encode_radial_axis(*v)),
+        }),
+        Value::RadialAxisSpokeSide(v) => {
+            w::ValueKind::RadialAxisSpokeSide(w::ValueRadialAxisSpokeSide { value: v.to_wire() })
+        }
+        Value::RadialAxisEdge(v) => {
+            w::ValueKind::RadialAxisEdge(w::ValueRadialAxisEdge { value: v.to_wire() })
+        }
         Value::Axis(v) => w::ValueKind::Axis(w::ValueAxis {
             value: Some(encode_axis(v)),
         }),
@@ -3092,9 +3167,29 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "polar_angle_value"),
             "value",
         )?),
+        w::ValueKind::RadialAxis(v) => {
+            let (axis, at) = value_message(v.value, at, "radial_axis_value")?;
+            Value::RadialAxis(decode_radial_axis(Some(axis), &at)?)
+        }
+        w::ValueKind::RadialAxisSpokeSide(v) => Value::RadialAxisSpokeSide(decode_enum(
+            v.value,
+            None,
+            &join(at, "radial_axis_spoke_side_value"),
+            "value",
+        )?),
+        w::ValueKind::RadialAxisEdge(v) => Value::RadialAxisEdge(decode_enum(
+            v.value,
+            None,
+            &join(at, "radial_axis_edge_value"),
+            "value",
+        )?),
         w::ValueKind::View3d(v) => {
             let (view, _) = value_message(v.value, at, "view3d_value")?;
             Value::View3d(decode_view3d(view))
+        }
+        w::ValueKind::View2d(v) => {
+            let (view, _) = value_message(v.value, at, "view2d_value")?;
+            Value::View2d(decode_view2d(view))
         }
         w::ValueKind::Axis(v) => {
             let (axis, at) = value_message(v.value, at, "axis_value")?;

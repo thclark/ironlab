@@ -12,11 +12,12 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use ironlab_ir::{
-    AngleUnits, Figure, Limits, NodeId, PolarView, Projection, Text, TickLabels, Ticks,
+    AngleUnits, Figure, Limits, NodeId, PolarView, Projection, RadialAxis, RadialAxisEdge,
+    RadialAxisSpokeSide, Scale, Text, TickLabels, Ticks,
 };
-use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Point, Rect, Sector, Stroke};
 use ironlab_scene::hit::{AxesHitKind, AxisMap};
+use ironlab_scene::{Scene, SceneWarningKind};
 
 use crate::common::{Fx, compile_figure, text};
 use crate::probe::{
@@ -41,7 +42,13 @@ fn view(angle_units: AngleUnits) -> PolarView {
 /// which are fixed so that the radial map is known; `edit` adjusts the axes before the figure is built.
 fn polar_figure(polar: PolarView, edit: impl FnOnce(&mut ironlab_ir::Axes)) -> (Figure, NodeId) {
     let mut fx = Fx::new();
-    let ax = fx.axes_in(crate::common::cell(0, 0, 1, 1), Projection::Polar { polar });
+    let ax = fx.axes_in(
+        crate::common::cell(0, 0, 1, 1),
+        Projection::Polar {
+            polar,
+            view: ironlab_ir::View2d::default(),
+        },
+    );
     let turn = polar.angle_units.turn();
     fx.line(
         ax,
@@ -902,7 +909,7 @@ fn radial_labels_lie_along_the_chosen_spoke_or_between_the_first_two_angular_tic
     };
 
     let chosen = PolarView {
-        radial_labels_at: Some(90.0),
+        radial_axis: RadialAxis::Spoke { angle: Some(90.0) },
         ..PolarView::default()
     };
     let (scene, ax) = polar_scene(chosen, ticks);
@@ -1100,26 +1107,770 @@ fn a_cartesian_axes_still_publishes_two_dimensional_maps() {
     ));
 }
 
-// WHY: a polar axes draws its grid over its artists, as MATLAB's polar axes do (their `Layer` is "top"), because the
-// spokes and circles are how a reader takes an angle and a radius off a filled field, an image or a wedge, and a grid
-// under them would be hidden wherever there is data. The grid's light stroke keeps it from obscuring a line.
-#[test]
-fn the_grid_is_painted_over_the_artists() {
-    let (scene, ax) = gridded(true, true, 0.0);
+/// The paint order of the grid and of the artists of an axes: the indices, among every leaf of the scene, of the first
+/// and the last leaf of the grid and of the first and the last path leaf drawn by an artist.
+struct GridLayer {
+    grid: (usize, usize),
+    artists: (usize, usize),
+}
+
+/// Returns the paint order of the grid and of the artists of the axes `ax`, the grid being told from the other paths of
+/// the axes by the stroke of the Cartesian grid.
+fn grid_layer(scene: &Scene, ax: NodeId) -> GridLayer {
     let (_, grid) = cartesian_strokes();
-    let all = leaves(&scene);
-    let last_artist = all
-        .iter()
-        .rposition(|l| l.source.is_some() && l.source != Some(ax) && l.path().is_some())
-        .expect("the series is drawn");
-    let first_grid = all
-        .iter()
-        .position(|l| {
-            l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
-        })
-        .expect("the grid is drawn");
+    let all = leaves(scene);
+    let is_grid = |l: &Leaf| {
+        l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
+    };
+    let is_artist = |l: &Leaf| l.source.is_some() && l.source != Some(ax) && l.path().is_some();
+    GridLayer {
+        grid: (
+            all.iter().position(is_grid).expect("the grid is drawn"),
+            all.iter().rposition(is_grid).expect("the grid is drawn"),
+        ),
+        artists: (
+            all.iter()
+                .position(is_artist)
+                .expect("the artists are drawn"),
+            all.iter()
+                .rposition(is_artist)
+                .expect("the artists are drawn"),
+        ),
+    }
+}
+
+/// A gridded Cartesian axes with a line and a filled bar, with `grid_below` as given.
+fn gridded_cartesian(grid_below: bool) -> (Scene, NodeId) {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    fx.line(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.5], None, |_| {});
+    fx.bar(ax, &[1.0], &[0.8], |_, _| {});
+    let axes = fx.ax(ax);
+    axes.x.grid = true;
+    axes.y.grid = true;
+    axes.grid_below = grid_below;
+    (compile_figure(&fx.build()), ax)
+}
+
+/// The polar axes of [`gridded`], with both grids on, no hole and `grid_below` as given.
+fn gridded_polar(grid_below: bool) -> (Scene, NodeId) {
+    polar_scene(PolarView::default(), |a| {
+        a.x.grid = true;
+        a.y.grid = true;
+        a.x.ticks = Ticks::Values(vec![0.0, 90.0, 180.0, 270.0]);
+        a.y.ticks = Ticks::Values(vec![0.25, 0.5, 0.75]);
+        a.grid_below = grid_below;
+    })
+}
+
+// WHY: by default a polar axes paints its grid under its artists, as a Cartesian axes does, so that the light spokes
+// and circles never cross a bar, a filled outline or a line, and the two kinds of axes layer their grids the same way.
+#[test]
+fn the_grid_is_painted_under_the_artists() {
+    let (scene, ax) = gridded_polar(true);
+    let layer = grid_layer(&scene, ax);
     assert!(
-        first_grid > last_artist,
-        "the grid (leaf {first_grid}) is painted after the last artist leaf ({last_artist})"
+        layer.grid.1 < layer.artists.0,
+        "the grid (last leaf {}) is painted before the first artist leaf ({})",
+        layer.grid.1,
+        layer.artists.0
     );
+}
+
+// WHY: a figure writer who fills translucent areas, as a radar chart does, may want the spokes and rings to read over
+// the fills (matplotlib's `set_axisbelow(False)`, MATLAB's `Layer = 'top'`); with `grid_below` off the whole grid must
+// therefore be painted after every artist, so that no fill covers any part of it.
+#[test]
+fn with_grid_below_off_the_polar_grid_is_painted_over_the_artists() {
+    let (scene, ax) = gridded_polar(false);
+    let layer = grid_layer(&scene, ax);
+    assert!(
+        layer.grid.0 > layer.artists.1,
+        "the grid (first leaf {}) is painted after the last artist leaf ({})",
+        layer.grid.0,
+        layer.artists.1
+    );
+}
+
+// WHY: the Cartesian grid lies under the artists by default, so that grid lines never cross a bar or a line; this is
+// the layering that `grid_below` keeps when it is on, and the default output must not change.
+#[test]
+fn by_default_the_cartesian_grid_is_painted_under_the_artists() {
+    let (scene, ax) = gridded_cartesian(true);
+    let layer = grid_layer(&scene, ax);
+    assert!(
+        layer.grid.1 < layer.artists.0,
+        "the grid (last leaf {}) is painted before the first artist leaf ({})",
+        layer.grid.1,
+        layer.artists.0
+    );
+}
+
+// WHY: with `grid_below` off a Cartesian axes paints its grid over its artists, as a polar axes does, so that the one
+// property means the same in both kinds of two-dimensional axes; and only the layering changes, not the grid lines.
+#[test]
+fn with_grid_below_off_the_cartesian_grid_is_painted_over_the_artists_unchanged() {
+    let (over, ax) = gridded_cartesian(false);
+    let layer = grid_layer(&over, ax);
+    assert!(
+        layer.grid.0 > layer.artists.1,
+        "the grid (first leaf {}) is painted after the last artist leaf ({})",
+        layer.grid.0,
+        layer.artists.1
+    );
+    let (under, _) = gridded_cartesian(true);
+    let (_, grid) = cartesian_strokes();
+    assert_eq!(
+        subpaths_with_stroke(&over, ax, &grid),
+        subpaths_with_stroke(&under, ax, &grid),
+        "the grid lines are the same whichever way they are layered"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The radial axis
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// A polar view whose radial axis is `radial_axis`, with every other field at its default.
+fn with_radial_axis(radial_axis: RadialAxis) -> PolarView {
+    PolarView {
+        radial_axis,
+        ..PolarView::default()
+    }
+}
+
+/// Sets explicit radial ticks, turns the box and the grid off so that the only paths in the stroke of the box are the
+/// radial axis line and its tick marks, and names the two axes.
+fn ruled(ticks: &[f64]) -> impl FnOnce(&mut ironlab_ir::Axes) + '_ {
+    move |a| {
+        a.y.ticks = Ticks::Values(ticks.to_vec());
+        a.box_ = false;
+        a.x.grid = false;
+        a.y.grid = false;
+        a.y.label = text("Radius");
+        a.x.label = text("Angle");
+    }
+}
+
+/// The radial axis line and its tick marks, as straight segments in the stroke of the box of a Cartesian axes: the line
+/// is the longest segment, and each tick mark is returned with its end on the line first.
+#[track_caller]
+fn radial_axis_strokes(scene: &Scene, ax: NodeId) -> ((Point, Point), Vec<(Point, Point)>) {
+    let (frame, _) = cartesian_strokes();
+    let mut segments = segments_with_stroke(scene, ax, &frame);
+    assert!(
+        !segments.is_empty(),
+        "the radial axis is drawn in the stroke of the box"
+    );
+    let length = |s: &(Point, Point)| (s.1.x - s.0.x).hypot(s.1.y - s.0.y);
+    segments.sort_by(|a, b| length(b).total_cmp(&length(a)));
+    let line = segments.remove(0);
+    let distance_to_line = |p: Point| {
+        let (dx, dy) = (line.1.x - line.0.x, line.1.y - line.0.y);
+        ((p.x - line.0.x) * dy - (p.y - line.0.y) * dx).abs() / dx.hypot(dy)
+    };
+    let ticks = segments
+        .into_iter()
+        .map(|(a, b)| {
+            if distance_to_line(a) <= distance_to_line(b) {
+                (a, b)
+            } else {
+                (b, a)
+            }
+        })
+        .collect();
+    (line, ticks)
+}
+
+/// Returns the box of the drawn text `label`, which must be drawn exactly once.
+#[track_caller]
+fn axis_label_box(scene: &Scene, label: &str) -> Rect {
+    label_box(&leaves(scene), label)
+}
+
+/// Returns the box of every angular tick label.
+fn angular_boxes(leaves: &[Leaf]) -> Vec<Rect> {
+    degree_labels(leaves)
+        .iter()
+        .map(|label| label_box(leaves, label))
+        .collect()
+}
+
+/// Asserts that every leaf the axes draws itself, path or text, lies on the page, and that no text was reported cut by
+/// its edge: the margins of the axes reserve room for whatever the radial axis draws. The artists are left out, because
+/// the bounding box of a path ignores the sector clip that cuts it.
+#[track_caller]
+fn assert_everything_on_the_page(scene: &Scene, ax: NodeId, what: &str) {
+    let page = Rect::new(
+        0.0,
+        0.0,
+        scene.display_list.width_pt,
+        scene.display_list.height_pt,
+    );
+    for leaf in from_source(&leaves(scene), ax) {
+        if let Some(b) = leaf.bbox() {
+            assert!(
+                b.x >= page.x - 0.01
+                    && b.y >= page.y - 0.01
+                    && b.right() <= page.right() + 0.01
+                    && b.bottom() <= page.bottom() + 0.01,
+                "{what}: a leaf at {b:?} lies on the page {page:?}"
+            );
+        }
+    }
+    let cut: Vec<_> = scene
+        .warnings
+        .iter()
+        .filter(|w| matches!(w.kind, SceneWarningKind::TextOutsidePage { .. }))
+        .collect();
+    assert!(cut.is_empty(), "{what}: {cut:?}");
+}
+
+/// The unit vector along the spoke at page angle `phi`, and the unit normal on `side` of it, both on the page (y down).
+fn spoke_frame(phi: f64, side: RadialAxisSpokeSide) -> (Point, Point) {
+    let along = Point::new(phi.cos(), -phi.sin());
+    // Turning the page direction (cos φ, −sin φ) a quarter turn anticlockwise on the page gives (−sin φ, −cos φ).
+    let normal = match side {
+        RadialAxisSpokeSide::Anticlockwise => Point::new(-phi.sin(), -phi.cos()),
+        RadialAxisSpokeSide::Clockwise => Point::new(phi.sin(), phi.cos()),
+    };
+    (along, normal)
+}
+
+fn dot(a: Point, b: Point) -> f64 {
+    a.x * b.x + a.y * b.y
+}
+
+fn minus(a: Point, b: Point) -> Point {
+    Point::new(a.x - b.x, a.y - b.y)
+}
+
+/// Returns how far the box `r` reaches from `origin` along the unit vector `n`, at its nearest and its farthest corner.
+fn reach(r: Rect, origin: Point, n: Point) -> (f64, f64) {
+    let corners = [
+        Point::new(r.x, r.y),
+        Point::new(r.right(), r.y),
+        Point::new(r.x, r.bottom()),
+        Point::new(r.right(), r.bottom()),
+    ];
+    corners
+        .iter()
+        .map(|&c| dot(minus(c, origin), n))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), d| {
+            (lo.min(d), hi.max(d))
+        })
+}
+
+/// Returns the box of every numeric tick label drawn whose value is one of `ticks`.
+fn tick_label_boxes(scene: &Scene, ticks: &[f64]) -> Vec<(f64, Rect)> {
+    numeric_runs(&leaves(scene))
+        .into_iter()
+        .filter(|(v, _)| ticks.contains(v))
+        .collect()
+}
+
+// WHY: an axis along a spoke is read as a ruler laid across the disc: its line must run exactly where the radius is
+// measured, from the edge of the hole (the lower limit) to the rim (the upper limit), and each tick mark must stand
+// across it at the radius of its tick, with its label beside it on the chosen side, or a reader would misread every
+// value against it.
+#[test]
+fn an_axis_along_a_spoke_runs_from_the_hole_to_the_rim_with_a_tick_mark_across_it_at_each_radial_tick()
+ {
+    let ticks = [0.25, 0.5, 0.75, 1.0];
+    for (side, angle) in [
+        (RadialAxisSpokeSide::Anticlockwise, 90.0),
+        (RadialAxisSpokeSide::Clockwise, 90.0),
+        (RadialAxisSpokeSide::Anticlockwise, 30.0),
+        (RadialAxisSpokeSide::Clockwise, 200.0),
+    ] {
+        let what = format!("{side:?} of the spoke at {angle}°");
+        let polar = PolarView {
+            hole: 0.2,
+            radial_axis: RadialAxis::AlongSpoke {
+                angle: Some(angle),
+                side,
+            },
+            ..PolarView::default()
+        };
+        let (scene, ax) = polar_scene(polar, |a| {
+            ruled(&ticks)(a);
+            a.x.tick_labels = TickLabels::Hidden;
+        });
+        let g = polar_geometry(&scene, ax);
+        let phi = g.x.to_figure(angle);
+        let (along, normal) = spoke_frame(phi, side);
+        let ((a, b), marks) = radial_axis_strokes(&scene, ax);
+        let mut ends = [g.radius_of(a), g.radius_of(b)];
+        ends.sort_by(f64::total_cmp);
+        assert_close(ends[0], g.hole, 1e-6);
+        assert_close(ends[1], g.rim, 1e-6);
+        assert_angle_close(g.angle_of(a), phi, 1e-9, &what);
+        assert_angle_close(g.angle_of(b), phi, 1e-9, &what);
+
+        assert_eq!(
+            marks.len(),
+            ticks.len(),
+            "{what}: one tick mark per radial tick"
+        );
+        let mut at: Vec<f64> = marks
+            .iter()
+            .map(|(on, _)| dot(minus(*on, g.centre), along))
+            .collect();
+        at.sort_by(f64::total_cmp);
+        for (drawn, tick) in at.iter().zip(ticks) {
+            assert_close(*drawn, g.y.to_figure(tick), 1e-6);
+        }
+        let length = |(p, q): &(Point, Point)| (q.x - p.x).hypot(q.y - p.y);
+        let first = length(&marks[0]);
+        assert!(
+            (1.0..=8.0).contains(&first),
+            "{what}: a tick mark is as long as a Cartesian one ({first} pt)"
+        );
+        for mark in &marks {
+            let d = minus(mark.1, mark.0);
+            assert_close(length(mark), first, 1e-6);
+            assert_close(dot(d, along), 0.0, 1e-6);
+            assert!(
+                dot(d, normal) > 0.0,
+                "{what}: the tick mark points to the labelled side"
+            );
+        }
+
+        // Each tick label lies just beyond the end of the tick marks on the chosen side, level with its tick along the
+        // spoke.
+        let labels = tick_label_boxes(&scene, &ticks);
+        assert_eq!(labels.len(), ticks.len(), "{what}: {labels:?}");
+        for (value, bounds) in &labels {
+            let (near, _) = reach(*bounds, g.centre, normal);
+            assert!(
+                near > first && near < first + 12.0,
+                "{what}: the label of {value} lies a pad beyond the tick marks on its side ({near} pt)"
+            );
+            let middle = dot(minus(centre(*bounds), g.centre), along);
+            let half = bounds.width.hypot(bounds.height) / 2.0;
+            assert!(
+                (middle - g.y.to_figure(*value)).abs() <= half,
+                "{what}: the label of {value} is level with its tick ({middle} vs {})",
+                g.y.to_figure(*value)
+            );
+        }
+    }
+}
+
+// WHY: the axis label of an axis along a spoke names the ruler it belongs to, so it must sit beside that ruler beyond
+// its tick labels, parallel to it, rather than at the far left of the plot, where the reader would hunt for it; and it
+// must never be upside down.
+#[test]
+fn an_axis_along_a_spoke_carries_its_label_beyond_its_tick_labels_parallel_to_the_spoke() {
+    let ticks = [0.5, 1.0];
+    for (angle, side, upwards) in [
+        (90.0, RadialAxisSpokeSide::Anticlockwise, true),
+        (270.0, RadialAxisSpokeSide::Clockwise, true),
+        (0.0, RadialAxisSpokeSide::Clockwise, false),
+        (180.0, RadialAxisSpokeSide::Anticlockwise, false),
+    ] {
+        let what = format!("{side:?} of the spoke at {angle}°");
+        let (scene, ax) = polar_scene(
+            with_radial_axis(RadialAxis::AlongSpoke {
+                angle: Some(angle),
+                side,
+            }),
+            |a| {
+                ruled(&ticks)(a);
+                a.x.tick_labels = TickLabels::Hidden;
+            },
+        );
+        let g = polar_geometry(&scene, ax);
+        let phi = g.x.to_figure(angle);
+        let (along, normal) = spoke_frame(phi, side);
+        let label = axis_label_box(&scene, "Radius");
+        let tick_far = tick_label_boxes(&scene, &ticks)
+            .iter()
+            .map(|(_, b)| reach(*b, g.centre, normal).1)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let (near, _) = reach(label, g.centre, normal);
+        assert!(
+            near > tick_far,
+            "{what}: the axis label lies beyond the tick labels ({near} ≤ {tick_far})"
+        );
+        let middle = dot(minus(centre(label), g.centre), along);
+        assert!(
+            middle > g.hole && middle < g.rim,
+            "{what}: the axis label lies along the spoke ({middle})"
+        );
+        let leaves = leaves(&scene);
+        assert_eq!(
+            runs_with_text(&leaves, "Radius")[0].reads_upwards(),
+            upwards,
+            "{what}: the label reads along the spoke, never upside down"
+        );
+        if !upwards {
+            assert!(
+                label.width > label.height,
+                "{what}: the label along a level spoke is level"
+            );
+        }
+    }
+}
+
+// WHY: an axis on the bottom edge is the ruler under the disc that a radar chart or a wind rose uses in place of labels
+// inside the data: it must be a Cartesian x axis in all but its span, lying clear of the disc and of the angular labels,
+// with each tick at the radius it names measured from the centre, so that a reader can lay the ruler against any
+// spoke; and the axis label of the angle must move below it, since the ruler now lies where that label stood.
+#[test]
+fn an_axis_on_the_bottom_edge_is_a_ruler_under_the_disc_from_the_centre_to_the_rim() {
+    let ticks = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let (scene, ax) = polar_scene(
+        with_radial_axis(RadialAxis::Edge {
+            edge: RadialAxisEdge::Bottom,
+        }),
+        ruled(&ticks),
+    );
+    let g = polar_geometry(&scene, ax);
+    let leaves = leaves(&scene);
+    let ((a, b), marks) = radial_axis_strokes(&scene, ax);
+    assert_close(a.y, b.y, 1e-9);
+    let y = a.y;
+    assert_close(a.x.min(b.x), g.centre.x, 1e-6);
+    assert_close(a.x.max(b.x), g.centre.x + g.rim, 1e-6);
+    let lowest_angular = angular_boxes(&leaves)
+        .iter()
+        .map(|r| r.bottom())
+        .fold(g.centre.y + g.rim, f64::max);
+    assert!(
+        y > lowest_angular,
+        "the ruler lies below the rim and every angular label ({y} ≤ {lowest_angular})"
+    );
+
+    assert_eq!(marks.len(), ticks.len(), "one tick mark per radial tick");
+    let mut xs: Vec<f64> = marks.iter().map(|(on, _)| on.x).collect();
+    xs.sort_by(f64::total_cmp);
+    for (x, tick) in xs.iter().zip(ticks) {
+        assert_close(*x, g.centre.x + g.y.to_figure(tick), 1e-6);
+    }
+    let length = marks[0].1.y - marks[0].0.y;
+    for (on, off) in &marks {
+        assert_close(on.y, y, 1e-6);
+        assert_close(off.x, on.x, 1e-6);
+        assert_close(off.y - on.y, length, 1e-6);
+    }
+    assert!(
+        (1.0..=8.0).contains(&length),
+        "tick marks point down, away from the disc, as long as Cartesian ones ({length})"
+    );
+
+    let labels = tick_label_boxes(&scene, &ticks);
+    assert_eq!(labels.len(), ticks.len(), "{labels:?}");
+    for (value, bounds) in &labels {
+        assert!(
+            bounds.y > y + length,
+            "the label of {value} lies below the tick marks"
+        );
+        assert_close(centre(*bounds).x, g.centre.x + g.y.to_figure(*value), 1.5);
+    }
+    let lowest_tick_label = labels
+        .iter()
+        .map(|(_, r)| r.bottom())
+        .fold(f64::NEG_INFINITY, f64::max);
+    let radius = axis_label_box(&scene, "Radius");
+    assert!(
+        radius.y > lowest_tick_label,
+        "the radial axis label lies below its tick labels"
+    );
+    assert!(
+        !runs_with_text(&leaves, "Radius")[0].reads_upwards(),
+        "the radial axis label is level under a level ruler"
+    );
+    assert_close(centre(radius).x, g.centre.x + g.rim / 2.0, 1.5);
+    let angle = axis_label_box(&scene, "Angle");
+    assert!(
+        angle.y > radius.bottom(),
+        "the angle label moves below the radial axis label"
+    );
+    assert_everything_on_the_page(&scene, ax, "bottom edge");
+}
+
+// WHY: the ruler may lie on any edge; each must stand outside the disc and its angular labels on its own side, run from
+// level with the centre to level with the rim (rightwards on the top, upwards on the left and right), point its tick
+// marks away from the disc, set its tick labels beyond them and its axis label beyond those, and fit in the margins.
+#[test]
+fn an_axis_on_any_edge_stands_outside_the_disc_and_its_labels_on_that_side() {
+    let ticks = [0.25, 0.5, 0.75, 1.0];
+    for edge in [
+        RadialAxisEdge::Top,
+        RadialAxisEdge::Left,
+        RadialAxisEdge::Right,
+        RadialAxisEdge::Bottom,
+    ] {
+        let what = format!("{edge:?}");
+        let (scene, ax) = polar_scene(with_radial_axis(RadialAxis::Edge { edge }), ruled(&ticks));
+        let g = polar_geometry(&scene, ax);
+        let leaves = leaves(&scene);
+        let angular = angular_boxes(&leaves);
+        // The outward direction of the edge, and the unit vector along which the ruler runs from the centre.
+        let (out, run) = match edge {
+            RadialAxisEdge::Bottom => (Point::new(0.0, 1.0), Point::new(1.0, 0.0)),
+            RadialAxisEdge::Top => (Point::new(0.0, -1.0), Point::new(1.0, 0.0)),
+            RadialAxisEdge::Left => (Point::new(-1.0, 0.0), Point::new(0.0, -1.0)),
+            RadialAxisEdge::Right => (Point::new(1.0, 0.0), Point::new(0.0, -1.0)),
+        };
+        let ((a, b), marks) = radial_axis_strokes(&scene, ax);
+        assert_close(dot(minus(a, b), out), 0.0, 1e-9);
+        let offset = dot(minus(a, g.centre), out);
+        let farthest_angular = angular
+            .iter()
+            .map(|r| reach(*r, g.centre, out).1)
+            .fold(g.rim, f64::max);
+        assert!(
+            offset > farthest_angular,
+            "{what}: the ruler lies beyond the rim and every angular label ({offset} ≤ {farthest_angular})"
+        );
+        let mut span = [dot(minus(a, g.centre), run), dot(minus(b, g.centre), run)];
+        span.sort_by(f64::total_cmp);
+        assert_close(span[0], 0.0, 1e-6);
+        assert_close(span[1], g.rim, 1e-6);
+
+        assert_eq!(marks.len(), ticks.len(), "{what}");
+        let mut at: Vec<f64> = marks
+            .iter()
+            .map(|(on, _)| dot(minus(*on, g.centre), run))
+            .collect();
+        at.sort_by(f64::total_cmp);
+        for (drawn, tick) in at.iter().zip(ticks) {
+            assert_close(*drawn, g.y.to_figure(tick), 1e-6);
+        }
+        let mark_end = marks
+            .iter()
+            .map(|(on, off)| {
+                assert!(
+                    dot(minus(*off, *on), out) > 1.0,
+                    "{what}: tick marks point away from the disc"
+                );
+                dot(minus(*off, g.centre), out)
+            })
+            .fold(f64::NEG_INFINITY, f64::max);
+        let labels = tick_label_boxes(&scene, &ticks);
+        assert_eq!(labels.len(), ticks.len(), "{what}: {labels:?}");
+        let mut labels_far = f64::NEG_INFINITY;
+        for (value, bounds) in &labels {
+            let (near, far) = reach(*bounds, g.centre, out);
+            assert!(
+                near > mark_end,
+                "{what}: the label of {value} lies beyond the tick marks"
+            );
+            labels_far = labels_far.max(far);
+            assert_close(
+                dot(minus(centre(*bounds), g.centre), run),
+                g.y.to_figure(*value),
+                1.5,
+            );
+        }
+        let (near, _) = reach(axis_label_box(&scene, "Radius"), g.centre, out);
+        assert!(
+            near > labels_far,
+            "{what}: the axis label lies beyond the tick labels"
+        );
+        let upright = matches!(edge, RadialAxisEdge::Left | RadialAxisEdge::Right);
+        assert_eq!(
+            runs_with_text(&leaves, "Radius")[0].reads_upwards(),
+            upright,
+            "{what}: the axis label reads along the ruler"
+        );
+        assert_everything_on_the_page(&scene, ax, &what);
+    }
+}
+
+// WHY: the ruler places its ticks through the radius map, so on a logarithmic radius each decade takes an equal length
+// of it, exactly as it takes an equal step out from the centre in the plot; a ruler spaced linearly would contradict the
+// grid it measures.
+#[test]
+fn an_axis_on_an_edge_spaces_the_ticks_of_a_logarithmic_radius_by_decade() {
+    let ticks = [1.0, 10.0, 100.0];
+    let (scene, ax) = polar_scene(
+        with_radial_axis(RadialAxis::Edge {
+            edge: RadialAxisEdge::Bottom,
+        }),
+        |a| {
+            ruled(&ticks)(a);
+            a.y.scale = Scale::Log;
+            a.y.limits = Limits::Manual {
+                min: 1.0,
+                max: 100.0,
+            };
+        },
+    );
+    let g = polar_geometry(&scene, ax);
+    let (_, marks) = radial_axis_strokes(&scene, ax);
+    let mut xs: Vec<f64> = marks.iter().map(|(on, _)| on.x).collect();
+    xs.sort_by(f64::total_cmp);
+    assert_eq!(xs.len(), 3, "{xs:?}");
+    assert_close(xs[0], g.centre.x, 1e-6);
+    assert_close(xs[2], g.centre.x + g.rim, 1e-6);
+    assert_close(xs[1] - xs[0], xs[2] - xs[1], 1e-6);
+}
+
+// WHY: a hole moves the lower radial limit out to its edge, so the ruler starts level with the edge of the hole, where
+// the lower limit is drawn, rather than at the centre, where no radius is; a partial sector moves the centre within the
+// plot, and the ruler must follow it.
+#[test]
+fn an_axis_on_an_edge_starts_level_with_the_edge_of_the_hole_and_follows_a_partial_sector() {
+    let ticks = [0.0, 0.5, 1.0];
+    let (scene, ax) = polar_scene(
+        PolarView {
+            hole: 0.3,
+            radial_axis: RadialAxis::Edge {
+                edge: RadialAxisEdge::Bottom,
+            },
+            ..PolarView::default()
+        },
+        ruled(&ticks),
+    );
+    let g = polar_geometry(&scene, ax);
+    let ((a, b), marks) = radial_axis_strokes(&scene, ax);
+    assert_close(a.x.min(b.x), g.centre.x + g.hole, 1e-6);
+    assert_close(a.x.max(b.x), g.centre.x + g.rim, 1e-6);
+    let mut xs: Vec<f64> = marks.iter().map(|(on, _)| on.x).collect();
+    xs.sort_by(f64::total_cmp);
+    assert_close(xs[0], g.centre.x + g.hole, 1e-6);
+    assert_everything_on_the_page(&scene, ax, "with a hole");
+
+    // The upper half: the centre lies at the bottom of the fitted sector, and a ruler on the left edge runs upwards from
+    // level with it.
+    let (scene, ax) = polar_scene(
+        with_radial_axis(RadialAxis::Edge {
+            edge: RadialAxisEdge::Left,
+        }),
+        |a| {
+            ruled(&ticks)(a);
+            a.x.limits = Limits::Manual {
+                min: 0.0,
+                max: 180.0,
+            };
+        },
+    );
+    let g = polar_geometry(&scene, ax);
+    let ((a, b), _) = radial_axis_strokes(&scene, ax);
+    assert_close(a.y.max(b.y), g.centre.y, 1e-6);
+    assert_close(a.y.min(b.y), g.centre.y - g.rim, 1e-6);
+    assert!(
+        a.x < g.centre.x - g.rim,
+        "the ruler lies left of the sector"
+    );
+    assert_everything_on_the_page(&scene, ax, "upper half on the left");
+}
+
+// WHY: every kind of radial axis reserves the room it draws in, whatever the sector or the hole, so that nothing it
+// draws is cut by the edge of the page: the axis label of an axis along a spoke may reach beyond the rim, and a ruler on
+// an edge takes the room of a Cartesian axis. Each spoke lies inside every sector tried, as a spoke the author names
+// should.
+#[test]
+fn every_radial_axis_fits_in_the_margins_of_its_axes() {
+    let axes = [
+        RadialAxis::Spoke { angle: None },
+        RadialAxis::AlongSpoke {
+            angle: None,
+            side: RadialAxisSpokeSide::Clockwise,
+        },
+        RadialAxis::AlongSpoke {
+            angle: None,
+            side: RadialAxisSpokeSide::Anticlockwise,
+        },
+        RadialAxis::AlongSpoke {
+            angle: Some(45.0),
+            side: RadialAxisSpokeSide::Clockwise,
+        },
+        RadialAxis::AlongSpoke {
+            angle: Some(45.0),
+            side: RadialAxisSpokeSide::Anticlockwise,
+        },
+        RadialAxis::Edge {
+            edge: RadialAxisEdge::Bottom,
+        },
+        RadialAxis::Edge {
+            edge: RadialAxisEdge::Top,
+        },
+        RadialAxis::Edge {
+            edge: RadialAxisEdge::Left,
+        },
+        RadialAxis::Edge {
+            edge: RadialAxisEdge::Right,
+        },
+    ];
+    for radial_axis in axes {
+        for (sector, hole) in [
+            ((0.0, 360.0), 0.0),
+            ((0.0, 90.0), 0.25),
+            ((-45.0, 225.0), 0.0),
+        ] {
+            let polar = PolarView {
+                hole,
+                radial_axis,
+                ..PolarView::default()
+            };
+            let (scene, ax) = polar_scene(polar, |a| {
+                ruled(&[0.0, 0.25, 0.5, 0.75, 1.0])(a);
+                a.x.limits = Limits::Manual {
+                    min: sector.0,
+                    max: sector.1,
+                };
+                a.title = text("Title");
+            });
+            assert_everything_on_the_page(
+                &scene,
+                ax,
+                &format!("{radial_axis:?} on the sector {sector:?} with hole {hole}"),
+            );
+        }
+    }
+}
+
+// WHY: an axis along the diameter of a half disc, labelled on the side away from the disc, is a ruler under the half
+// disc, and its labels lie outside the sector: the margins must make room for them below the angular labels, and the
+// angle label must move below them, or the ruler's labels would be cut by the page or written over the angle label.
+#[test]
+fn an_axis_along_the_diameter_of_a_half_disc_labelled_outside_it_takes_room_below_it() {
+    let ticks = [0.0, 0.5, 1.0];
+    for (angle, side) in [
+        (0.0, RadialAxisSpokeSide::Clockwise),
+        (180.0, RadialAxisSpokeSide::Anticlockwise),
+    ] {
+        let what = format!("{side:?} of the spoke at {angle}°");
+        let (scene, ax) = polar_scene(
+            with_radial_axis(RadialAxis::AlongSpoke {
+                angle: Some(angle),
+                side,
+            }),
+            |a| {
+                ruled(&ticks)(a);
+                a.x.limits = Limits::Manual {
+                    min: 0.0,
+                    max: 180.0,
+                };
+            },
+        );
+        let g = polar_geometry(&scene, ax);
+        let labels = tick_label_boxes(&scene, &ticks);
+        assert_eq!(labels.len(), ticks.len(), "{what}: {labels:?}");
+        for (value, bounds) in &labels {
+            assert!(
+                bounds.y > g.centre.y,
+                "{what}: the label of {value} lies below the diameter"
+            );
+        }
+        let lowest = labels
+            .iter()
+            .map(|(_, r)| r.bottom())
+            .fold(f64::NEG_INFINITY, f64::max);
+        let radius = axis_label_box(&scene, "Radius");
+        assert!(
+            radius.y > lowest,
+            "{what}: the axis label lies below the tick labels"
+        );
+        let angle_label = axis_label_box(&scene, "Angle");
+        assert!(
+            angle_label.y > radius.bottom(),
+            "{what}: the angle label lies below the radial axis label"
+        );
+        assert_everything_on_the_page(&scene, ax, &what);
+    }
 }

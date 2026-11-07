@@ -46,6 +46,9 @@ pub struct Outcome {
     /// The rubber band of a Zoom-tool drag as `[x, y, width, height]` in CSS pixels, normalised so that the size is
     /// never negative, or `None` when there is none.
     pub rubber_band: Option<[f32; 4]>,
+    /// The ring of a Zoom-tool drag over polar axes as `[centre_x, centre_y, inner_radius, outer_radius]` in CSS
+    /// pixels, or `None` when there is none. It takes the place of the rubber band, which is then `None`.
+    pub rubber_ring: Option<[f32; 4]>,
     /// The datatip of the data under the pointer, or `None` when there is none.
     pub datatip: Option<Datatip>,
     /// Whether there is a change to undo.
@@ -69,6 +72,9 @@ impl Outcome {
                 let band = normalised(band);
                 [band.min.x, band.min.y, band.width(), band.height()]
             }),
+            rubber_ring: canvas
+                .rubber_ring(text)
+                .map(|ring| [ring.centre.x, ring.centre.y, ring.inner, ring.outer]),
             datatip: canvas.callout(text).map(datatip),
             can_undo: canvas.can_undo(),
             can_redo: canvas.can_redo(),

@@ -30,20 +30,28 @@
 //! - **Wheel zoom** (2D) rescales the x and y limits of the axes under the pointer about the data point under the
 //!   pointer, in the axis' scale space (linear values, or base-10 logarithms for log axes), so that this data point
 //!   stays under the pointer. A factor greater than one zooms in. In 3D it multiplies `projection.view3d.zoom` by the
-//!   factor.
+//!   factor. In polar axes it rescales the radial (y) limits alone about the radius under the pointer, which stays at
+//!   its distance from the centre.
 //! - **Pan** (2D) shifts the limits so that the data point grabbed at the start of the drag stays under the pointer.
 //!   Every update is computed from the axis maps captured at the start of the drag rather than incrementally, so
 //!   repeated updates never accumulate rounding drift. In 3D, pan moves `projection.view3d.pan_x` and
 //!   `projection.view3d.pan_y` by the pointer displacement as fractions of the plot rectangle: `pan_x` increases to
-//!   the right and `pan_y` increases downwards (figure-space y), so the projected box follows the pointer.
+//!   the right and `pan_y` increases downwards (figure-space y), so the projected box follows the pointer. In polar
+//!   axes, pan moves `projection.view.pan_x` and `projection.view.pan_y` in the same way, so the whole drawn axes
+//!   follows the pointer; it changes neither the limits nor the direction of angle 0, which is turned only through
+//!   its property.
 //! - **Rotate** (3D) follows MATLAB's `rotate3d`, in which the object follows the pointer: dragging right by `dx`
 //!   points decreases the azimuth by `dx ·` [`ROTATE_DEGREES_PER_POINT`], and dragging down (positive figure-space
 //!   `dy`) increases the elevation by `dy ·` [`ROTATE_DEGREES_PER_POINT`]. The elevation is clamped to `[-90, 90]`;
 //!   the azimuth is not wrapped. A Rotate-tool drag on a 2D axes does nothing.
 //! - **Box zoom** (Zoom tool, 2D) records a rubber band from the drag start to the pointer, clamped to the plot
 //!   rectangle, and on release sets the x and y limits to the data range the band covers. A band narrower or shorter
-//!   than [`MIN_BOX_ZOOM_POINTS`] is ignored, so that an accidental click does not zoom to a sliver.
-//! - **Double click** removes the view entries (limits and three-dimensional view) of the axes under the pointer from
+//!   than [`MIN_BOX_ZOOM_POINTS`] is ignored, so that an accidental click does not zoom to a sliver. In polar axes
+//!   the Zoom tool records a ring instead ([`FigureState::rubber_ring`]), between the distances of the drag start and
+//!   of the pointer from the centre, clamped to the radii the axes draws, and on release sets the radial limits to
+//!   the radii the ring covers; a ring thinner than [`MIN_BOX_ZOOM_POINTS`] is ignored.
+//! - **Double click** removes the view entries (limits, three-dimensional view, and the pan and direction of angle 0
+//!   of polar axes) of the axes under the pointer from
 //!   the overlay, so that it shows the source again, and sets the axes linked with it to the limits restored. On a
 //!   legend entry, the second click of a double-click is a click like the first, so a double-click toggles the artist
 //!   twice, leaves its visibility as it was and does not restore any limits.
@@ -75,7 +83,7 @@ use ironlab_ir::{
     ColorScaleKey, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot,
     ColorbarOrientation, Coords, Dimension, DiscreteColorScale, Edit, EditError, Figure,
     IndexedColorScale, Limits, NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale,
-    TickLabels, Ticks, Transaction, Value, View3d, command,
+    TickLabels, Ticks, Transaction, Value, View2d, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 pub use ironlab_scene::hit::BinReading;
@@ -349,13 +357,25 @@ struct ScaleTarget {
     vertical: bool,
 }
 
+/// The ring of an ongoing Zoom-tool drag in polar axes, in figure space: the annulus between two distances from the
+/// centre of the axes, whose radii become the radial limits on release.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ring {
+    /// The centre of the polar axes.
+    pub centre: Point,
+    /// The smaller distance from the centre, in points.
+    pub inner: f64,
+    /// The larger distance from the centre, in points.
+    pub outer: f64,
+}
+
 /// The gesture that a primary-button drag performs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tool {
     /// Drag pans 2D limits or the 3D view.
     #[default]
     Pan,
-    /// Drag draws a rubber band that zooms 2D axes to its extent.
+    /// Drag draws a rubber band that zooms 2D axes to its extent, or a ring that zooms the radius of polar axes.
     Zoom,
     /// Drag rotates 3D axes.
     Rotate,
@@ -386,13 +406,11 @@ enum DragKind {
     },
     /// A 3D axes, with its view at the start of the drag.
     ThreeD { view: View3d },
-    /// A polar axes, with its centre, its angle and radius maps and the direction of angle 0 at the start of the
-    /// drag.
+    /// A polar axes, with its centre, its radius map and its view at the start of the drag.
     Polar {
         centre: Point,
-        x: AxisMap,
         y: AxisMap,
-        zero_deg: f64,
+        view: View2d,
     },
     /// A colourbar, with the limits of its scale at the start of the drag.
     Scale(ScaleTarget),
@@ -644,10 +662,10 @@ impl FigureState {
                     changed_x || changed_y
                 })
             }
-            (AxesHitKind::Polar { y, .. }, Projection::Polar { .. }) => {
-                // The radius is zoomed about its lower limit, which stays at the centre.
+            (AxesHitKind::Polar { centre, y, .. }, Projection::Polar { .. }) => {
+                // The radius is zoomed about the radius under the pointer, which stays at its distance from the centre.
                 let y = current_map(&axes.y, y);
-                let limits = zoomed(&y, y.start, zoom_factor);
+                let limits = zoomed(&y, distance(*centre, at), zoom_factor);
                 self.step(|state| state.set_scaled_limits(id, Dimension::Y, &y, limits))
             }
             (AxesHitKind::ThreeD, projection) if projection.is_3d() => {
@@ -699,12 +717,13 @@ impl FigureState {
                     fixed_aspect: fixed_ratio(axes).is_some(),
                 }
             }
-            (AxesHitKind::Polar { centre, x, y }, Projection::Polar { polar }) => DragKind::Polar {
-                centre: *centre,
-                x: current_map(&axes.x, x),
-                y: current_map(&axes.y, y),
-                zero_deg: polar.zero_deg,
-            },
+            (AxesHitKind::Polar { centre, y, .. }, Projection::Polar { view, .. }) => {
+                DragKind::Polar {
+                    centre: *centre,
+                    y: current_map(&axes.y, y),
+                    view,
+                }
+            }
             (AxesHitKind::ThreeD, projection) if projection.is_3d() => {
                 let Some(view) = projection.view3d() else {
                     return;
@@ -794,39 +813,17 @@ impl FigureState {
                     ],
                 )
             }
-            (
-                Tool::Pan,
-                DragKind::Polar {
-                    centre,
-                    y,
-                    zero_deg,
-                    ..
-                },
-            ) => {
-                // The angle grabbed under the pointer follows it round the centre, and the radius grabbed follows it
-                // along the spoke.
-                let polar = |p: Point| {
-                    let (dx, dy) = (p.x - centre.x, centre.y - p.y);
-                    (dy.atan2(dx), dx.hypot(dy))
-                };
-                let ((a0, r0), (a1, r1)) = (polar(drag.start), polar(at));
-                let turn = (a1 - a0 + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
-                    - std::f64::consts::PI;
-                let turned = if turn.abs() > 1e-12 && r0 > 0.0 && r1 > 0.0 {
-                    self.set_zero_deg(drag.axes, zero_deg + turn.to_degrees())
-                } else {
-                    self.set_zero_deg(drag.axes, *zero_deg)
-                };
-                // A pointer that stays on its circle, to within rounding, slides nothing.
-                let slid = if (r1 - r0).abs() > 1e-9 * r0.max(1.0) {
-                    self.set_scaled_limits(drag.axes, Dimension::Y, y, panned(y, r0, r1))
-                } else {
-                    self.restore_captured(drag.axes, Dimension::Y, y)
-                };
-                turned || slid
+            (Tool::Pan, DragKind::Polar { view, .. }) => {
+                // The whole axes follows the pointer, as the projected box of a 3D axes does.
+                let pan_x = view.pan_x + dx / drag.plot_rect.width;
+                let pan_y = view.pan_y + dy / drag.plot_rect.height;
+                if !(pan_x.is_finite() && pan_y.is_finite()) {
+                    return false;
+                }
+                self.set_view2d(drag.axes, pan_x, pan_y)
             }
-            // The Zoom tool only moves its rubber band while dragging, a 3D axes has no band, a 2D axes has nothing
-            // to rotate, and a polar axes has neither a band nor a camera.
+            // The Zoom tool only moves its rubber band or ring while dragging, a 3D axes has neither, and neither a
+            // 2D nor a polar axes has a camera to rotate.
             (Tool::Zoom, _)
             | (Tool::Rotate, DragKind::TwoD { .. })
             | (Tool::Rotate, DragKind::Polar { .. }) => false,
@@ -875,6 +872,22 @@ impl FigureState {
                 let changed_y = self.set_scaled_limits(axes, Dimension::Y, &y, y_limits);
                 changed = changed_x || changed_y;
             }
+            if let (
+                Some(ring),
+                Some(Drag {
+                    axes,
+                    kind: DragKind::Polar { y, .. },
+                    ..
+                }),
+            ) = (self.rubber_ring(), self.drag.clone())
+                && ring.outer - ring.inner >= MIN_BOX_ZOOM_POINTS
+            {
+                let (u, v) = (
+                    to_scale(&y, y.to_data(ring.inner)),
+                    to_scale(&y, y.to_data(ring.outer)),
+                );
+                changed = self.set_scaled_limits(axes, Dimension::Y, &y, (u.min(v), u.max(v)));
+            }
         } else {
             changed = self.drag_update(at);
         }
@@ -896,6 +909,31 @@ impl FigureState {
             } => Some(to_shape_of(band, drag.plot_rect)),
             _ => Some(band),
         }
+    }
+
+    /// Returns the ring of an ongoing Zoom-tool drag in polar axes, in figure space: the annulus between the distances
+    /// of the drag start and of the pointer from the centre, each clamped to the radii the axes draws, from the edge
+    /// of the hole (or the centre) to the rim. Its radii are the radial limits that the release sets.
+    #[must_use]
+    pub fn rubber_ring(&self) -> Option<Ring> {
+        if self.tool != Tool::Zoom {
+            return None;
+        }
+        let drag = self.drag.as_ref()?;
+        let DragKind::Polar { centre, y, .. } = &drag.kind else {
+            return None;
+        };
+        let (low, high) = (y.start.min(y.end), y.start.max(y.end));
+        if !(low.is_finite() && high.is_finite()) {
+            return None;
+        }
+        let radius = |p: Point| distance(*centre, p).clamp(low, high);
+        let (a, b) = (radius(drag.start), radius(drag.last));
+        Some(Ring {
+            centre: *centre,
+            inner: a.min(b),
+            outer: a.max(b),
+        })
     }
 
     /// Returns the rectangle the pointer has drawn in an ongoing Zoom-tool drag, from the start of the drag to the
@@ -1493,24 +1531,24 @@ impl FigureState {
         self.composed.axes(id)?.projection.view3d()
     }
 
-    /// Sets the direction of angle 0 of a polar axes, in degrees anticlockwise from east, unless it already points
-    /// there. Returns whether the figure changed.
-    fn set_zero_deg(&mut self, id: NodeId, zero_deg: f64) -> bool {
-        if !zero_deg.is_finite() {
+    /// Sets the pan of a 2D polar axes, as fractions of its plot rectangle. Returns whether the figure changed.
+    fn set_view2d(&mut self, id: NodeId, pan_x: f64, pan_y: f64) -> bool {
+        let polar = self
+            .composed
+            .axes(id)
+            .is_some_and(|axes| matches!(axes.projection, Projection::Polar { .. }));
+        if !polar {
             return false;
         }
-        let transaction = Transaction {
-            edits: vec![Edit::Set {
+        let edits = [("pan_x", pan_x), ("pan_y", pan_y)]
+            .into_iter()
+            .map(|(property, value)| Edit::Set {
                 node: id,
-                path: path(&["projection", "polar", "zero_deg"]),
-                value: Value::Double(zero_deg),
-            }],
-        };
-        let edit = &transaction.edits[0];
-        if !self.changes_the_figure(edit) {
-            return false;
-        }
-        self.record(&transaction)
+                path: path(&["projection", "view", property]),
+                value: Value::Double(value),
+            })
+            .collect();
+        self.record(&Transaction { edits })
     }
 
     /// Sets properties of the 3D view of an axes, each by name, such as `zoom` or `azimuth_deg`. Returns whether the
@@ -1672,6 +1710,11 @@ fn pixel_centre(range: Option<PixelRange>, n: usize, i: usize) -> f64 {
         Some(PixelRange { first, .. }) => first,
         None => i as f64,
     }
+}
+
+/// Returns the distance between two points of figure space, in points.
+fn distance(a: Point, b: Point) -> f64 {
+    (b.x - a.x).hypot(b.y - a.y)
 }
 
 fn is_finite(p: Point) -> bool {

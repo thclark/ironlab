@@ -123,7 +123,10 @@ pub use ironlab_ir::ColorScaleKey;
 /// [`ColorScaleMut::below`].
 pub use ironlab_ir::OutOfRange;
 
-pub use ironlab_ir::{AngleUnits, PolarAngle, PolarView, SphericalView};
+pub use ironlab_ir::{
+    AngleUnits, PolarAngle, PolarView, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide,
+    SphericalView,
+};
 
 pub use ironlab_ir::{
     Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
@@ -226,7 +229,10 @@ pub struct ExportReport {
 /// ```
 pub mod prelude {
     pub use crate::AxesMut;
-    pub use crate::{AngleUnits, PolarAngle, PolarView, SphericalView, ThetaZero};
+    pub use crate::{
+        AngleUnits, PolarAngle, PolarView, RadialAxis, RadialAxisEdge, RadialAxisSpokeSide,
+        SphericalView, ThetaZero,
+    };
     pub use crate::{
         Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
         ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,

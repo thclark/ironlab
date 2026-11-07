@@ -23,6 +23,12 @@ pub(super) fn frame_stroke() -> Stroke {
     paths::solid(INK, FRAME_WIDTH)
 }
 
+/// Returns the length of the major tick marks of an axes whose plot rectangle is `plot`: a little over a hundredth of
+/// its longer side, kept between a quarter and a half of the font size. Minor tick marks are 0.6 of it.
+pub(super) fn tick_length(ctx: &Ctx, plot: Rect) -> f64 {
+    (0.012 * plot.width.max(plot.height)).clamp(0.25 * ctx.font_size, 0.5 * ctx.font_size)
+}
+
 /// Returns the outline of `rect` drawn as the box of an axes is drawn, with no fill.
 ///
 /// Why: a legend panel draws its border with this function, so that the border and the boxes of the axes beside it
@@ -265,7 +271,10 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let space = Space::TwoD(Plane::cartesian(x, y));
     let decor = input.decor;
 
-    draw_grid(input, &x, &y, out);
+    // The grid is drawn under the artists unless the axes asks for it over them.
+    if axes.grid_below {
+        draw_grid(input, &x, &y, out);
+    }
 
     let primaries = style::primaries(ctx.figure, axes);
     let drawn = draw_artists(ctx, input, &primaries, &space);
@@ -292,6 +301,9 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
         .filter(|(_, clip)| *clip != plot)
         .collect();
     out.extend(clip_groups(axes.id, plot, data, &released));
+    if !axes.grid_below {
+        draw_grid(input, &x, &y, out);
+    }
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
@@ -437,8 +449,7 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
         out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     }
 
-    let length =
-        (0.012 * plot.width.max(plot.height)).clamp(0.25 * ctx.font_size, 0.5 * ctx.font_size);
+    let length = tick_length(ctx, plot);
     let mut b = PathBuilder::new();
     let [xt, yt, _] = &input.decor.ticks;
     let mut vertical = |v: f64, len: f64| {

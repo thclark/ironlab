@@ -178,7 +178,9 @@ In IronLAB a polar axes is an axes whose x carries the angle and y the radius, s
 | Give the data's angles in radians | the default of `polarplot` | the default | `polar=dict(angularaxis=dict(thetaunit="radians"))`, which changes only the labels | `angle_units(AngleUnits::Radians)` |
 | Divide the turn into a given number of units, such as the categories of a radar chart | no option | no option | `polar=dict(angularaxis=dict(period=n))` for categorical angles | `angle_units(AngleUnits::PerTurn(n))` |
 | Leave a hole at the centre | no option | `set_rorigin`, as a radius below the lower limit | `polar=dict(hole=f)` | `hole(f)` |
-| Move the radial tick labels to another spoke | `RAxisLocation` | `set_rlabel_position` | `polar=dict(radialaxis=dict(angle=a))` | `radial_labels_at(a)` |
+| Move the radial tick labels to another spoke | `RAxisLocation` | `set_rlabel_position` | `polar=dict(radialaxis=dict(angle=a))` | `radial_axis(RadialAxis::Spoke { angle: Some(a) })` |
+| Draw the radial axis as a line with tick marks along a spoke | no option | no option | `polar=dict(radialaxis=dict(angle=a, showline=True, ticks="outside"))` | `radial_axis(RadialAxis::AlongSpoke { angle: Some(a), side })` |
+| Draw the radial axis as a ruler outside the disc | no option | no option | no option | `radial_axis(RadialAxis::Edge { edge: RadialAxisEdge::Bottom })` |
 
 MATLAB's `polarplot` and matplotlib take the angles of the data in radians, whereas IronLAB, like Plotly, takes them in degrees unless the axes is given other angle units. The hole is a fraction of the rim radius, as Plotly's `hole` is; matplotlib's `set_rorigin` gives the radius that the centre would stand for instead.
 
@@ -208,6 +210,7 @@ These are settings of an axis rather than plots, and in IronLAB they are methods
 | --- | --- | --- | --- | --- |
 | Turn the tick labels of an axis | `xtickangle(a)`, `ytickangle(a)` | `tick_params(axis="x", labelrotation=a)`, or `rotation=a` with `ha="right"` and `rotation_mode="anchor"` for labels that end at their ticks | `xaxis=dict(tickangle=-a)` | `xtick_label_angle(a)`, `ytick_label_angle(a)` |
 | Hide an axis with its spine, ticks, tick labels and label | `ax.XAxis.Visible = 'off'` | `ax.xaxis.set_visible(False)` together with `ax.spines["bottom"].set_visible(False)` | `xaxis=dict(visible=False)` | `xaxis_visible(false)`, `yaxis_visible(false)` |
+| Draw the grid over the plots rather than under them | `ax.Layer = 'top'` | `ax.set_axisbelow(False)` | `xaxis=dict(layer="above traces")` | `grid_below(false)` |
 | Hide the tick labels and keep the ticks | `xticklabels({})` | `tick_params(labelbottom=False)` | `xaxis=dict(showticklabels=False)` | `xtick_labels_hidden()` |
 | Name the positions 0, 1, …, N − 1 of an axis (a categorical axis) | `xticks(0:n-1)` with `xticklabels(names)`, or a `categorical` array | `set_xticks(range(n), labels=names)` | `xaxis=dict(type="category")` | `xcategories(names)` |
 | Name the rows from the top | `yticks` and `yticklabels` with `set(gca, 'YDir', 'reverse')` | `set_yticks(range(n), labels=names)` with `invert_yaxis()` | `yaxis=dict(type="category", autorange="reversed")` | `ycategories(names)` |
