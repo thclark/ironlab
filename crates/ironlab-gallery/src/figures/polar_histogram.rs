@@ -80,7 +80,6 @@ pub fn figure() -> Figure {
         ax.polar_hist(&headings).bins(Bins::Count(BINS)).style(style);
         ax.rlim(0.0, 500.0)
             .ytick_step(100.0)
-            .radial_labels_at(112.5)
             .title(title);
     }
     fig

@@ -60,8 +60,7 @@ pub fn figure() -> Figure {
     ax.theta_zero(ThetaZero::North)
         .clockwise(true)
         .rlim(FLOOR_DB, 0.0)
-        .ytick_step(10.0)
-        .radial_labels_at(215.0);
+        .ytick_step(10.0);
     ax.polarplot(&theta, &e_plane)
         .line_width(1.25)
         .label("E-plane (array axis)");

@@ -115,7 +115,6 @@ pub fn figure() -> Figure {
     ax.xticks([0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
         .xtick_labels(["N", "NE", "E", "SE", "S", "SW", "W", "NW"])
         .ytick_step(5.0)
-        .radial_labels_at(67.5)
         .legend_in(key);
     fig
 }

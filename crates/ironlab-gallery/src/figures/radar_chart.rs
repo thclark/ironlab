@@ -37,8 +37,7 @@ pub fn figure() -> Figure {
     let mut ax = fig.polar_axes(0, 0);
     ax.spokes(&CRITERIA)
         .rlim(0.0, 1.0)
-        .ytick_step(0.25)
-        .radial_labels_at(0.5);
+        .ytick_step(0.25);
     for (name, scores) in CANDIDATES {
         ax.radar(scores).label(name);
     }

@@ -834,8 +834,7 @@ A radar chart compares several items against the same criteria, one spoke per cr
 ```rust
 let mut ax = fig.polar_axes(0, 0);
 ax.spokes(&["Mass", "Cost", "Efficiency", "Noise", "Range"])
-    .rlim(0.0, 1.0)
-    .radial_labels_at(0.5); // the radial labels lie between the first two spokes
+    .rlim(0.0, 1.0); // the radial labels lie between the first two spokes by default
 ax.radar([0.55, 0.85, 0.60, 0.50, 0.55]).label("Baseline");
 ax.radar([0.95, 0.45, 0.75, 0.70, 0.40]).label("Lightweight");
 ```
