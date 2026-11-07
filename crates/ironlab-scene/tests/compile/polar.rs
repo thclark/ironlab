@@ -15,7 +15,7 @@ use std::f64::consts::{PI, TAU};
 
 use ironlab_ir::{
     AngleUnits, BarWidth, CellEdges, CellGap, Color, ColorScaleKind, IndexedColorScale, Limits,
-    NodeId, Orientation, PerBar, PolarView, Projection, Scale, View2d,
+    NodeId, Orientation, PerBar, PolarView, Projection, RadialAxis, RadialAxisEdge, Scale, View2d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Point, Rect, Sector};
@@ -1538,14 +1538,13 @@ fn a_line_across_the_sector_in_axes_fractions_follows_its_circle() {
 /// A polar axes with a grid on both axes, the box, a line and markers, an angle label, a radius label and a title,
 /// panned by `view`: everything a pan may move or must leave alone. Returns the scene, the axes and the line.
 fn panned_polar(view: View2d) -> (Scene, NodeId, NodeId) {
+    panned_polar_with(PolarView::default(), view)
+}
+
+/// As [`panned_polar`], with the polar view `polar`.
+fn panned_polar_with(polar: PolarView, view: View2d) -> (Scene, NodeId, NodeId) {
     let mut fx = Fx::new();
-    let ax = fx.axes_in(
-        cell(0, 0, 1, 1),
-        Projection::Polar {
-            polar: PolarView::default(),
-            view,
-        },
-    );
+    let ax = fx.axes_in(cell(0, 0, 1, 1), Projection::Polar { polar, view });
     let line = fx.line(ax, &[0.0, 90.0, 200.0], &[1.0, 2.0, 1.5], None, |_| {});
     fx.scatter(ax, &[45.0, 300.0], &[0.5, 1.8], None, |_, _| {});
     limits(&mut fx, ax, None, Some((0.0, 2.0)));
@@ -1626,6 +1625,61 @@ fn a_pan_moves_the_centre_grid_frame_tick_labels_and_artists_by_the_fraction_of_
             start: 0.0,
             sweep: TAU,
         },
+    );
+}
+
+// Why: a radial axis on an edge measures the disc, so its zero must stay level with the edge of the hole and its end
+// level with the rim; a ruler that stayed put while the disc moved would read the wrong radius. The pan must therefore
+// move the ruler, with its tick labels and the radius label beyond them, by exactly the pan's offset, as it moves the
+// grid and the artists, while the angle label and the title, which annotate the cell, stay where they were.
+#[test]
+fn a_pan_moves_a_radial_axis_on_the_bottom_edge_with_the_disc() {
+    let polar = PolarView {
+        radial_axis: RadialAxis::Edge {
+            edge: RadialAxisEdge::Bottom,
+        },
+        ..PolarView::default()
+    };
+    let (home, ax, _) = panned_polar_with(polar, View2d::default());
+    let pan = View2d {
+        pan_x: -0.08,
+        pan_y: 0.06,
+    };
+    let (shifted, _, _) = panned_polar_with(polar, pan);
+    let plot = axes_hit(&home, ax).plot_rect;
+    let offset = (pan.pan_x * plot.width, pan.pan_y * plot.height);
+
+    let (before, after) = (leaves(&home), leaves(&shifted));
+    assert_eq!(before.len(), after.len(), "the same items are drawn");
+    // The radius label is drawn beyond the ruler, so it moves with it.
+    let fixed = ["Bearing", "Pattern"];
+    let home_frame = published_frame(&home, ax);
+    let below_disc = home_frame.centre.y + home_frame.rim;
+    let mut ruler_labels = 0;
+    for (b, a) in before.iter().zip(&after) {
+        let (Some(bb), Some(ab)) = (b.bbox(), a.bbox()) else {
+            continue;
+        };
+        let annotation = a.glyphs().is_some_and(|g| fixed.contains(&g.text.as_str()));
+        // A label below the disc's fitted box, other than the angle label, belongs to the ruler.
+        if !annotation && a.glyphs().is_some() && bb.y > below_disc {
+            ruler_labels += 1;
+        }
+        let expected = if annotation {
+            Point::new(bb.x, bb.y)
+        } else {
+            moved(Point::new(bb.x, bb.y), offset)
+        };
+        assert!(
+            points_close(Point::new(ab.x, ab.y), expected, TOL),
+            "{:?} of {:?}: {bb:?} becomes {ab:?}, expected at {expected:?}",
+            a.glyphs().map(|g| g.text.clone()),
+            a.source,
+        );
+    }
+    assert!(
+        ruler_labels >= 3,
+        "the ruler's tick labels and the radius label are drawn below the disc and were checked: {ruler_labels}"
     );
 }
 

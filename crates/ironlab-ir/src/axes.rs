@@ -312,22 +312,109 @@ pub struct PolarView {
     /// The fraction of the rim radius left empty at the centre, at least 0 and less than 1.
     /// The lower radial limit lies on the edge of the hole.
     pub hole: f64,
-    /// The angle, in the data units of x, of the spoke along which the radial tick labels
-    /// are drawn, or `null` to draw them halfway between the first two angular ticks.
-    pub radial_labels_at: Option<f64>,
+    /// Where the radial axis, its tick labels and its axis label are drawn.
+    pub radial_axis: RadialAxis,
 }
 
 impl Default for PolarView {
-    /// Angles in degrees, with angle 0 pointing east, no hole and automatically placed
-    /// radial tick labels.
+    /// Angles in degrees, with angle 0 pointing east, no hole and the radial tick labels
+    /// centred on the spoke halfway between the first two angular ticks.
     fn default() -> Self {
         Self {
             angle_units: AngleUnits::Degrees,
             zero_deg: 0.0,
             hole: 0.0,
-            radial_labels_at: None,
+            radial_axis: RadialAxis::default(),
         }
     }
+}
+
+/// Where the radial axis of a polar or cylindrical axes is drawn: its axis line and tick
+/// marks when it has them, its tick labels and its axis label (the label of y).
+///
+/// A spoke is named by its angle in the data units of x; `None` names the spoke halfway
+/// between the first two angular ticks.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RadialAxis {
+    /// The tick labels are centred on the spoke at `angle`, with no axis line or tick
+    /// marks, and the axis label lies to the left of the plot, reading upwards.
+    Spoke {
+        /// The angle of the spoke, in the data units of x, or `None` for the spoke
+        /// halfway between the first two angular ticks.
+        angle: Option<f64>,
+    },
+    /// An axis line runs along the spoke at `angle` from the edge of the hole to the rim,
+    /// with a tick mark at every radial tick across it on `side`. The tick labels lie
+    /// beyond the tick marks on that side, and the axis label lies beyond the tick labels,
+    /// parallel to the spoke and turned so that it is never upside down.
+    AlongSpoke {
+        /// The angle of the spoke, in the data units of x, or `None` for the spoke
+        /// halfway between the first two angular ticks.
+        angle: Option<f64>,
+        /// The side of the spoke on which the tick marks and the labels lie.
+        side: RadialAxisSpokeSide,
+    },
+    /// A straight axis outside the disc on one edge of the plot, drawn as the axis of a
+    /// 2D Cartesian axes on that edge is drawn: an axis line, tick marks pointing away
+    /// from the plot, tick labels beyond them and the axis label beyond those. The axis
+    /// runs from level with the centre (or with the edge of the hole) to level with the
+    /// rim: rightwards along the bottom and top edges, and upwards along the left and
+    /// right edges. Its ticks are the radial ticks placed by the radius map, so a
+    /// logarithmic radius has logarithmically spaced ticks. Three-dimensional axes draw
+    /// it as [`RadialAxis::Spoke`] at the default spoke.
+    Edge {
+        /// The edge of the plot along which the axis lies.
+        edge: RadialAxisEdge,
+    },
+}
+
+impl Default for RadialAxis {
+    /// Tick labels centred on the spoke halfway between the first two angular ticks.
+    fn default() -> Self {
+        RadialAxis::Spoke { angle: None }
+    }
+}
+
+impl RadialAxis {
+    /// Returns the angle of the spoke that the axis names, or `None` when it names the
+    /// default spoke or lies along an edge.
+    #[must_use]
+    pub fn angle(&self) -> Option<f64> {
+        match *self {
+            RadialAxis::Spoke { angle } | RadialAxis::AlongSpoke { angle, .. } => angle,
+            RadialAxis::Edge { .. } => None,
+        }
+    }
+}
+
+/// The side of its spoke on which a radial axis drawn along a spoke sets its tick marks
+/// and labels, seen from the centre looking out along the spoke.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RadialAxisSpokeSide {
+    /// The side reached by turning anticlockwise from the spoke on the page: the left of a
+    /// spoke pointing up, as the labels of a y axis lie to its left.
+    #[default]
+    Anticlockwise,
+    /// The side reached by turning clockwise from the spoke on the page: the right of a
+    /// spoke pointing up.
+    Clockwise,
+}
+
+/// The edge of the plot along which a radial axis drawn outside the disc lies.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RadialAxisEdge {
+    /// Below the disc, running rightwards from level with the centre.
+    #[default]
+    Bottom,
+    /// Above the disc, running rightwards from level with the centre.
+    Top,
+    /// Left of the disc, running upwards from level with the centre.
+    Left,
+    /// Right of the disc, running upwards from level with the centre.
+    Right,
 }
 
 /// How the two angles of a spherical axes are measured.

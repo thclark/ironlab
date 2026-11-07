@@ -13,7 +13,7 @@
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
-use ironlab_ir::{PolarView, Projection, View3d};
+use ironlab_ir::{PolarView, Projection, RadialAxis, RadialAxisSpokeSide, View3d};
 
 use crate::display::{Depth, Item, ItemKind, Point, Rect};
 use crate::hit::{AxesHit, AxesHitKind, HitMap};
@@ -688,11 +688,12 @@ struct Cylinder {
 ///
 /// On the floor, at the lower z limit: the rim circle (or the arc of a partial sector and its two radial edges), the
 /// circle of the hole when there is one, spokes at the angular ticks when the x grid is on and circles at the radial
-/// ticks when the y grid is on; angular tick labels outside the rim, and radial tick labels centred on the spoke that
-/// the polar view names. Up the axis of the cylinder from the floor to the top: the z axis with its tick marks and
-/// labels beside it. On the wall: a ring at every z tick when the z grid is on. When the box is on: at the top, the rim,
-/// the hole and the edges of a partial sector, joined to the floor by vertical edges at the edges of the sector, and the
-/// two silhouette lines of the wall, from the floor rim to the top rim, that lie inside the sector.
+/// ticks when the y grid is on; angular tick labels outside the rim; and the radial axis on the spoke that the polar
+/// view names, as tick labels centred on it or as an axis line along it with tick marks and labels to one side. Up the
+/// axis of the cylinder from the floor to the top: the z axis with its tick marks and labels beside it. On the wall: a
+/// ring at every z tick when the z grid is on. When the box is on: at the top, the rim, the hole and the edges of a
+/// partial sector, joined to the floor by vertical edges at the edges of the sector, and the two silhouette lines of
+/// the wall, from the floor rim to the top rim, that lie inside the sector.
 fn cylinder(
     ctx: &mut Ctx,
     input: &AxesInput,
@@ -870,21 +871,42 @@ fn cylinder(
         }
     }
 
-    // Radial tick labels centred on their spoke on the floor.
-    let spoke = match (c.polar.radial_labels_at, xt.major.as_slice()) {
+    // The radial axis on the floor: tick labels centred on their spoke, or an axis line along the spoke with a tick
+    // mark at every radial tick and the labels beside it on one side. A three-dimensional axes has no flat edge beside
+    // its disc, so an axis on an edge, of which validation warns, is drawn as labels centred on the default spoke.
+    let spoke = match (c.polar.radial_axis.angle(), xt.major.as_slice()) {
         (Some(theta), _) if theta.is_finite() => theta,
         (_, [a, b, ..]) => (a + b) / 2.0,
         _ => xr.min + (xr.max - xr.min) / 16.0,
     };
     let psi = phi(spoke);
+    let side = match c.polar.radial_axis {
+        RadialAxis::AlongSpoke { side, .. } => {
+            f.segment(
+                Kind::Lines,
+                at(psi, c.hole, floor),
+                at(psi, 1.0, floor),
+                floor_layering,
+            );
+            // Seen from above, the azimuth increases anticlockwise.
+            let turn = match side {
+                RadialAxisSpokeSide::Anticlockwise => 1.0,
+                RadialAxisSpokeSide::Clockwise => -1.0,
+            };
+            Some([-turn * psi.sin(), turn * psi.cos(), 0.0])
+        }
+        RadialAxis::Spoke { .. } | RadialAxis::Edge { .. } => None,
+    };
     let mut last = None;
     for (&r, label) in yt.major.iter().zip(&yt.labels) {
         let q = rho(r);
-        if q < 1e-6 {
-            continue;
-        }
         let point = at(psi, q, floor);
-        if let Some(bounds) = f.tick(ctx, label, point, (Point::new(0.0, 0.0), false), false) {
+        let mark = match side {
+            Some(across) => (f.outward(point, across), true),
+            None if q < 1e-6 => continue,
+            None => (Point::new(0.0, 0.0), false),
+        };
+        if let Some(bounds) = f.tick(ctx, label, point, mark, false) {
             last = Some((bounds, point));
         }
     }

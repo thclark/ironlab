@@ -300,6 +300,12 @@ proto_file! {
             PolarAngle(ValuePolarAngle) polar_angle_value = 94;
             /// The view of a two-dimensional polar axes.
             View2d(ValueView2d) view2d_value = 95;
+            /// Where the radial axis of a polar or cylindrical axes is drawn.
+            RadialAxis(ValueRadialAxis) radial_axis_value = 96;
+            /// The side of its spoke on which a radial axis along a spoke is labelled.
+            RadialAxisSpokeSide(ValueRadialAxisSpokeSide) radial_axis_spoke_side_value = 97;
+            /// The edge of the plot along which a radial axis outside the disc lies.
+            RadialAxisEdge(ValueRadialAxisEdge) radial_axis_edge_value = 98;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -465,6 +471,24 @@ proto_file! {
     message ValuePolarAngle {
         /// The convention; it must be specified.
         enum PolarAngle value = 1;
+    }
+
+    /// A radial axis value.
+    message ValueRadialAxis {
+        /// The radial axis; it must be present.
+        message RadialAxis value = 1;
+    }
+
+    /// A value naming the side of a spoke.
+    message ValueRadialAxisSpokeSide {
+        /// The side; it must be specified.
+        enum RadialAxisSpokeSide value = 1;
+    }
+
+    /// A value naming the edge of the plot along which a radial axis lies.
+    message ValueRadialAxisEdge {
+        /// The edge; it must be specified.
+        enum RadialAxisEdge value = 1;
     }
 
     /// A coordinate axis value.

@@ -183,9 +183,66 @@ proto_file! {
         /// The fraction of the rim radius left empty at the centre, at least 0 and less
         /// than 1; absent means 0.
         optional double hole = 3;
-        /// The angle, in the data units of x, of the spoke along which the radial tick
-        /// labels are drawn; absent means halfway between the first two angular ticks.
-        optional double radial_labels_at = 4;
+        /// Where the radial axis, its tick labels and its axis label are drawn; absent
+        /// means the tick labels centred on the default spoke.
+        message RadialAxis radial_axis = 4;
+    }
+
+    /// Where the radial axis of a polar or cylindrical axes is drawn.
+    message RadialAxis {
+        /// The placement; unset means the tick labels centred on the default spoke.
+        oneof kind: RadialAxisKind {
+            /// Tick labels centred on a spoke, with no axis line or tick marks.
+            Spoke(RadialAxisSpoke) spoke = 1;
+            /// An axis line with tick marks along a spoke, labelled on one side of it.
+            AlongSpoke(RadialAxisAlongSpoke) along_spoke = 2;
+            /// A straight axis outside the disc on one edge of the plot.
+            Edge(RadialAxisEdgeAxis) edge = 3;
+        }
+    }
+
+    /// Tick labels centred on a spoke, with no axis line or tick marks.
+    message RadialAxisSpoke {
+        /// The angle of the spoke, in the data units of x; absent means halfway between
+        /// the first two angular ticks.
+        optional double angle = 1;
+    }
+
+    /// An axis line with tick marks along a spoke, labelled on one side of it.
+    message RadialAxisAlongSpoke {
+        /// The angle of the spoke, in the data units of x; absent means halfway between
+        /// the first two angular ticks.
+        optional double angle = 1;
+        /// The side of the spoke on which the tick marks and labels lie; unspecified
+        /// means anticlockwise.
+        enum RadialAxisSpokeSide side = 2;
+    }
+
+    /// A straight axis outside the disc on one edge of the plot.
+    message RadialAxisEdgeAxis {
+        /// The edge of the plot along which the axis lies; unspecified means the bottom.
+        enum RadialAxisEdge edge = 1;
+    }
+
+    /// The side of its spoke on which a radial axis along a spoke sets its tick marks
+    /// and labels, seen from the centre looking out.
+    enum RadialAxisSpokeSide {
+        /// The side reached by turning anticlockwise from the spoke on the page.
+        Anticlockwise = 1;
+        /// The side reached by turning clockwise from the spoke on the page.
+        Clockwise = 2;
+    }
+
+    /// The edge of the plot along which a radial axis outside the disc lies.
+    enum RadialAxisEdge {
+        /// Below the disc, running rightwards.
+        Bottom = 1;
+        /// Above the disc, running rightwards.
+        Top = 2;
+        /// Left of the disc, running upwards.
+        Left = 3;
+        /// Right of the disc, running upwards.
+        Right = 4;
     }
 
     /// How the two angles of a spherical axes are measured.

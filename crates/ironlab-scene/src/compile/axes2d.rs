@@ -23,6 +23,12 @@ pub(super) fn frame_stroke() -> Stroke {
     paths::solid(INK, FRAME_WIDTH)
 }
 
+/// Returns the length of the major tick marks of an axes whose plot rectangle is `plot`: a little over a hundredth of
+/// its longer side, kept between a quarter and a half of the font size. Minor tick marks are 0.6 of it.
+pub(super) fn tick_length(ctx: &Ctx, plot: Rect) -> f64 {
+    (0.012 * plot.width.max(plot.height)).clamp(0.25 * ctx.font_size, 0.5 * ctx.font_size)
+}
+
 /// Returns the outline of `rect` drawn as the box of an axes is drawn, with no fill.
 ///
 /// Why: a legend panel draws its border with this function, so that the border and the boxes of the axes beside it
@@ -437,8 +443,7 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
         out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     }
 
-    let length =
-        (0.012 * plot.width.max(plot.height)).clamp(0.25 * ctx.font_size, 0.5 * ctx.font_size);
+    let length = tick_length(ctx, plot);
     let mut b = PathBuilder::new();
     let [xt, yt, _] = &input.decor.ticks;
     let mut vertical = |v: f64, len: f64| {

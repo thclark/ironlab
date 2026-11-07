@@ -942,6 +942,9 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Projection
         | ValueType::AngleUnits
         | ValueType::PolarAngle
+        | ValueType::RadialAxis
+        | ValueType::RadialAxisSpokeSide
+        | ValueType::RadialAxisEdge
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels

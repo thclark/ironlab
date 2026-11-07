@@ -22,7 +22,7 @@ use ironlab_ir::*;
 /// The list is written by hand, independently of the encoder and of the property
 /// registry, so that the tests that use it check those against the IR rather than against
 /// themselves.
-pub const OPTIONAL_IN_IR: [&str; 53] = [
+pub const OPTIONAL_IN_IR: [&str; 54] = [
     "ironlab.ir.v0.Figure.title",
     "ironlab.ir.v0.Panel.title",
     "ironlab.ir.v0.PanelColorbar.length",
@@ -75,7 +75,8 @@ pub const OPTIONAL_IN_IR: [&str; 53] = [
     "ironlab.ir.v0.ImagePlaneXy.z",
     "ironlab.ir.v0.ImagePlaneXz.y",
     "ironlab.ir.v0.ImagePlaneYz.x",
-    "ironlab.ir.v0.PolarView.radial_labels_at",
+    "ironlab.ir.v0.RadialAxisSpoke.angle",
+    "ironlab.ir.v0.RadialAxisAlongSpoke.angle",
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.
