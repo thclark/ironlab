@@ -1100,26 +1100,25 @@ fn a_cartesian_axes_still_publishes_two_dimensional_maps() {
     ));
 }
 
-// WHY: a polar axes draws its grid over its artists, as MATLAB's polar axes do (their `Layer` is "top"), because the
-// spokes and circles are how a reader takes an angle and a radius off a filled field, an image or a wedge, and a grid
-// under them would be hidden wherever there is data. The grid's light stroke keeps it from obscuring a line.
+// WHY: a polar axes paints its grid under its artists, as a Cartesian axes does, so that the light spokes and circles
+// never cross a bar, a filled outline or a line, and the two kinds of axes layer their grids the same way.
 #[test]
-fn the_grid_is_painted_over_the_artists() {
+fn the_grid_is_painted_under_the_artists() {
     let (scene, ax) = gridded(true, true, 0.0);
     let (_, grid) = cartesian_strokes();
     let all = leaves(&scene);
-    let last_artist = all
+    let first_artist = all
         .iter()
-        .rposition(|l| l.source.is_some() && l.source != Some(ax) && l.path().is_some())
+        .position(|l| l.source.is_some() && l.source != Some(ax) && l.path().is_some())
         .expect("the series is drawn");
-    let first_grid = all
+    let last_grid = all
         .iter()
-        .position(|l| {
+        .rposition(|l| {
             l.source == Some(ax) && l.path().is_some_and(|p| p.stroke.as_ref() == Some(&grid))
         })
         .expect("the grid is drawn");
     assert!(
-        first_grid > last_artist,
-        "the grid (leaf {first_grid}) is painted after the last artist leaf ({last_artist})"
+        last_grid < first_artist,
+        "the grid (leaf {last_grid}) is painted before the first artist leaf ({first_artist})"
     );
 }
