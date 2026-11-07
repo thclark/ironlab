@@ -748,6 +748,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Text
         | ValueType::Interpreter
         | ValueType::FontSetId
+        | ValueType::Embolden
         | ValueType::Color
         | ValueType::Links
         | ValueType::Parameters
@@ -880,6 +881,7 @@ fn editor_for(
         | ValueType::Coords
         | ValueType::Interpreter
         | ValueType::FontSetId
+        | ValueType::Embolden
         | ValueType::Orientation
         | ValueType::PerBar
         | ValueType::BarWidth

@@ -1,6 +1,6 @@
 //! The bundled font set.
 //!
-//! The three STIX Two Text faces are embedded from `fonts/`, whose files are
+//! The five STIX Two Text faces are embedded from `fonts/`, whose files are
 //! checksummed in `fonts/SHA256SUMS`. The math face is not bundled separately:
 //! it is the copy embedded by `latex-rust`, and its parsed face is the one
 //! `latex-rust` lays out with, so that glyph identifiers produced by math layout
@@ -12,13 +12,19 @@ use crate::FontId;
 const TEXT_REGULAR_OTF: &[u8] = include_bytes!("../fonts/STIXTwoText-Regular.otf");
 /// STIX Two Text Italic.
 const TEXT_ITALIC_OTF: &[u8] = include_bytes!("../fonts/STIXTwoText-Italic.otf");
+/// STIX Two Text Medium.
+const TEXT_MEDIUM_OTF: &[u8] = include_bytes!("../fonts/STIXTwoText-Medium.otf");
+/// STIX Two Text SemiBold.
+const TEXT_SEMIBOLD_OTF: &[u8] = include_bytes!("../fonts/STIXTwoText-SemiBold.otf");
 /// STIX Two Text Bold.
 const TEXT_BOLD_OTF: &[u8] = include_bytes!("../fonts/STIXTwoText-Bold.otf");
 
 /// Every face of the font set, in the order used to index [`Faces`].
-pub(crate) const ALL_FONTS: [FontId; 4] = [
+pub(crate) const ALL_FONTS: [FontId; 6] = [
     FontId::TextRegular,
     FontId::TextItalic,
+    FontId::TextMedium,
+    FontId::TextSemibold,
     FontId::TextBold,
     FontId::Math,
 ];
@@ -28,6 +34,8 @@ pub(crate) fn bytes(font: FontId) -> &'static [u8] {
     match font {
         FontId::TextRegular => TEXT_REGULAR_OTF,
         FontId::TextItalic => TEXT_ITALIC_OTF,
+        FontId::TextMedium => TEXT_MEDIUM_OTF,
+        FontId::TextSemibold => TEXT_SEMIBOLD_OTF,
         FontId::TextBold => TEXT_BOLD_OTF,
         FontId::Math => latex_rust::STIX_TWO_MATH_OTF,
     }
@@ -38,13 +46,15 @@ pub(crate) fn index(font: FontId) -> usize {
     match font {
         FontId::TextRegular => 0,
         FontId::TextItalic => 1,
-        FontId::TextBold => 2,
-        FontId::Math => 3,
+        FontId::TextMedium => 2,
+        FontId::TextSemibold => 3,
+        FontId::TextBold => 4,
+        FontId::Math => 5,
     }
 }
 
 /// Parsed `ttf-parser` faces for the whole font set, indexed by [`index`].
-pub(crate) struct Faces([ttf_parser::Face<'static>; 4]);
+pub(crate) struct Faces([ttf_parser::Face<'static>; 6]);
 
 impl Faces {
     /// Parses every bundled text face, and takes the math face from `math`

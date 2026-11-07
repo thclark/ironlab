@@ -15,7 +15,7 @@ use crate::color_scale::{self, ColorScaleMut};
 use crate::data::{DataArrayMut, DataSource};
 use crate::error::Error;
 use crate::legend::PanelMut;
-use crate::{DEFAULT_PNG_DPI, ExportReport, RasterOptions, SceneWarning};
+use crate::{Embolden, ExportReport, PdfExport, PngExport, SceneWarning};
 
 /// A figure: a page of a fixed physical size holding axes arranged in a grid of tiles.
 ///
@@ -66,6 +66,18 @@ impl Figure {
     #[must_use]
     pub fn title(mut self, title: impl Into<Text>) -> Self {
         self.ir.title = Some(title.into());
+        self
+    }
+
+    /// Sets how much heavier than designed the figure is drawn: the rendering of its text
+    /// and the thickness of its lines and edges, but not the size of its markers, the length
+    /// of its ticks or its spacing.
+    ///
+    /// An export can draw the figure at another step without changing it, through
+    /// [`PdfExport::embolden`] and [`PngExport::embolden`].
+    #[must_use]
+    pub fn embolden(mut self, embolden: Embolden) -> Self {
+        self.ir.embolden = embolden;
         self
     }
 
@@ -793,7 +805,7 @@ impl Figure {
     /// and no graphics adapter is available, and [`Error::Io`] when the file cannot be
     /// written.
     pub fn export_pdf(&self, path: impl AsRef<Path>) -> Result<ExportReport, Error> {
-        self.export_pdf_with(path, RasterOptions::default())
+        self.export_pdf_with(path, PdfExport::default())
     }
 
     /// Exports the figure as a PDF, choosing how dense artists and three-dimensional axes
@@ -807,13 +819,16 @@ impl Figure {
     /// ```no_run
     /// # fn main() -> Result<(), ironlab::Error> {
     /// # let fig = ironlab::Figure::new();
-    /// use ironlab::{RasterOptions, RasterPolicy};
+    /// use ironlab::{PdfExport, RasterOptions, RasterPolicy};
     ///
     /// fig.export_pdf_with(
     ///     "pressure.pdf",
-    ///     RasterOptions {
-    ///         policy: RasterPolicy::Never,
-    ///         ..RasterOptions::default()
+    ///     PdfExport {
+    ///         raster: RasterOptions {
+    ///             policy: RasterPolicy::Never,
+    ///             ..RasterOptions::default()
+    ///         },
+    ///         ..PdfExport::default()
     ///     },
     /// )?;
     /// # Ok(())
@@ -830,12 +845,13 @@ impl Figure {
     pub fn export_pdf_with(
         &self,
         path: impl AsRef<Path>,
-        raster: RasterOptions,
+        export: PdfExport,
     ) -> Result<ExportReport, Error> {
         let validation = self.check_valid()?;
         let text = text_engine();
         let options = ironlab_pdf::PdfOptions {
-            raster,
+            raster: export.raster,
+            embolden: export.embolden,
             ..ironlab_pdf::PdfOptions::for_figure(&self.ir)
         };
         let exported = ironlab_canvas::export_pdf(&self.ir, text, &options)?;
@@ -883,7 +899,7 @@ impl Figure {
     /// cannot draw the image, [`Error::Png`] when the image cannot be encoded, and
     /// [`Error::Io`] when the file cannot be written.
     pub fn export_png(&self, path: impl AsRef<Path>) -> Result<ExportReport, Error> {
-        self.export_png_with(path, DEFAULT_PNG_DPI)
+        self.export_png_with(path, PngExport::default())
     }
 
     /// Exports the figure as a PNG image at `dpi` dots per inch.
@@ -896,7 +912,13 @@ impl Figure {
     /// # fn main() -> Result<(), ironlab::Error> {
     /// # let fig = ironlab::Figure::new();
     /// // A figure for a printed poster, at 300 dots per inch.
-    /// fig.export_png_with("pressure.png", 300.0)?;
+    /// fig.export_png_with(
+    ///     "pressure.png",
+    ///     ironlab::PngExport {
+    ///         dpi: 300.0,
+    ///         ..ironlab::PngExport::default()
+    ///     },
+    /// )?;
     /// # Ok(())
     /// # }
     /// ```
@@ -906,11 +928,19 @@ impl Figure {
     /// As for [`export_png`](Figure::export_png). An image that is empty or larger than the
     /// adapter can draw, because `dpi` is too small or too large for the figure, is
     /// [`Error::Render`].
-    pub fn export_png_with(&self, path: impl AsRef<Path>, dpi: f64) -> Result<ExportReport, Error> {
+    pub fn export_png_with(
+        &self,
+        path: impl AsRef<Path>,
+        export: PngExport,
+    ) -> Result<ExportReport, Error> {
         let validation = self.check_valid()?;
         let text = text_engine();
-        let scene = ironlab_scene::compile(&self.ir, text);
-        let image = ironlab_canvas::render_display_list_offscreen(&scene.display_list, text, dpi)?;
+        let options = ironlab_scene::CompileOptions {
+            embolden: export.embolden,
+        };
+        let scene = ironlab_scene::compile_with(&self.ir, text, &options);
+        let image =
+            ironlab_canvas::render_display_list_offscreen(&scene.display_list, text, export.dpi)?;
         std::fs::write(path, image.to_png()?)?;
         Ok(ExportReport {
             validation: validation.warnings,

@@ -966,6 +966,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::Coords
         | ValueType::Interpreter
         | ValueType::FontSetId
+        | ValueType::Embolden
         | ValueType::ColorScaleKind
         | ValueType::Colormap
         | ValueType::ColorScaleNorm

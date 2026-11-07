@@ -29,8 +29,8 @@ use ironlab_canvas::{
     with_shared_renderer,
 };
 use ironlab_ir::{
-    Artist, Axes, Axis, Cell, Color, ColorSpec, Figure, Grid, Limits, NdArray, NodeId, Projection,
-    Series, Surface, Text, TileLayout, View3d,
+    Artist, Axes, Axis, Cell, Color, ColorSpec, Embolden, Figure, Grid, Limits, NdArray, NodeId,
+    Projection, Series, Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{
     DepthPolicy, ExportWarning, ExportWarningKind, PdfOptions, RasterImage, RasterOptions,
@@ -345,6 +345,48 @@ fn a_figure_with_nothing_dense_exports_without_a_renderer() {
         exported.warnings.is_empty(),
         "nothing was left off the page: {:?}",
         exported.warnings
+    );
+}
+
+// WHY: one saved figure must give both a paper PDF and a slide PDF, so an export may draw the figure at a step other
+// than its own. Overriding the step must draw exactly what the figure would draw had it been stored at that step,
+// and an override of the figure's own step, like no override, must leave the export as it was.
+#[test]
+fn the_embolden_option_draws_the_figure_at_that_step_in_place_of_its_own() {
+    let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
+    let stored_heavy = Figure {
+        embolden: Embolden::Semibold,
+        ..figure.clone()
+    };
+    let export = |figure: &Figure, embolden: Option<Embolden>| {
+        ironlab_canvas::export_pdf(
+            figure,
+            &TEXT,
+            &PdfOptions {
+                embolden,
+                ..PdfOptions::for_figure(figure)
+            },
+        )
+        .expect("a figure with no dense content exports without any renderer")
+        .bytes
+    };
+    let plain = export(&figure, None);
+    let overridden = export(&figure, Some(Embolden::Semibold));
+    assert!(
+        overridden != plain,
+        "the override changes how the figure is drawn"
+    );
+    assert!(
+        overridden == export(&stored_heavy, None),
+        "the override draws the figure as if it were stored at that step"
+    );
+    assert!(
+        export(&stored_heavy, Some(Embolden::Regular)) == plain,
+        "an override lighter than the stored step wins over it"
+    );
+    assert!(
+        export(&figure, Some(Embolden::Regular)) == plain,
+        "overriding a figure's own step changes nothing"
     );
 }
 

@@ -54,6 +54,7 @@ nav = [
     { "0027 Cells are an artist of their own" = "adrs/0027-cells-are-an-artist-of-their-own.md" },
     { "0028 Closed shapes have faces and edges, and lines have fills" = "adrs/0028-closed-shapes-have-faces-and-lines-have-fills.md" },
     { "0029 Histograms store their bins and how they were made" = "adrs/0029-histograms-store-their-bins-and-how-they-were-made.md" },
+    { "0030 Emboldening in steps of designed faces" = "adrs/0030-embolden-steps.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },

@@ -17,7 +17,7 @@ use ironlab_canvas::{
     DrawList, FigureCanvas, Gesture, MAX_TILE_SIDE, Pointer, Viewport, export_display_list,
     wheel_factor,
 };
-use ironlab_ir::Figure;
+use ironlab_ir::{Embolden, Figure};
 use ironlab_pdf::PdfOptions;
 use ironlab_text::TextEngine;
 use js_sys::{Object, Promise, Reflect, Uint8Array};
@@ -375,15 +375,35 @@ impl FigureHandle {
     /// The renders the exporter needs are drawn through the handle's device. A handle without one exports without a
     /// renderer: a figure that needs one only to verify its three-dimensional axes is exported back to front with a
     /// warning, and a figure that must be rasterised rejects.
-    pub fn export_pdf(&self) -> Promise {
+    ///
+    /// `embolden`, when given, is the step of emboldening to draw the figure at in place of its own: `"regular"`,
+    /// `"medium"` or `"semibold"`. The figure shown is not changed. Any other name rejects.
+    pub fn export_pdf(&self, embolden: Option<String>) -> Promise {
         let inner = Rc::clone(&self.0);
         future_to_promise(async move {
+            let embolden = embolden
+                .map(|name| parse_embolden(&name))
+                .transpose()
+                .map_err(JsError::from)?;
             // The cell is borrowed only between awaits, so that a pointer event arriving mid-export is served.
             let (list, options, text, gpu) = {
                 let mut inner = inner.borrow_mut();
                 let text = Rc::clone(&inner.text);
-                let options = PdfOptions::for_figure(inner.canvas.state().figure());
-                let list = inner.canvas.scene(&text).display_list.clone();
+                let options = PdfOptions {
+                    embolden,
+                    ..PdfOptions::for_figure(inner.canvas.state().figure())
+                };
+                // The scene shown is drawn at the figure's own step, so another step is compiled afresh.
+                let list = match embolden {
+                    Some(step) if step != inner.canvas.state().figure().embolden => {
+                        let compile = ironlab_scene::CompileOptions {
+                            embolden: Some(step),
+                        };
+                        ironlab_scene::compile_with(inner.canvas.state().figure(), &text, &compile)
+                            .display_list
+                    }
+                    _ => inner.canvas.scene(&text).display_list.clone(),
+                };
                 let gpu = inner.gpu.as_ref().map(|(gpu, _)| gpu.clone());
                 (list, options, text, gpu)
             };
@@ -489,4 +509,14 @@ async fn sleep(ms: i32) {
         }
     });
     let _ = JsFuture::from(promise).await;
+}
+
+/// Returns the step of emboldening that `name` names, as JSON names it.
+fn parse_embolden(name: &str) -> Result<Embolden, WebError> {
+    match name {
+        "regular" => Ok(Embolden::Regular),
+        "medium" => Ok(Embolden::Medium),
+        "semibold" => Ok(Embolden::Semibold),
+        _ => Err(WebError::UnknownEmbolden(name.to_owned())),
+    }
 }

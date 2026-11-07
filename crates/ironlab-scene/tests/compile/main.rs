@@ -22,6 +22,7 @@ mod decimation;
 mod dense;
 mod depth;
 mod direction;
+mod embolden;
 mod fitted_tracks;
 mod images;
 mod layout;

@@ -288,6 +288,8 @@ proto_file! {
             HistNorm(ValueHistNorm) hist_norm_value = 88;
             /// An unsigned 64-bit integer.
             Uint64(ValueUint64) uint64_value = 89;
+            /// How much heavier than designed a figure is drawn.
+            Embolden(ValueEmbolden) embolden_value = 90;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -369,6 +371,12 @@ proto_file! {
     message ValueFigureSize {
         /// The size; it must be present.
         message FigureSize value = 1;
+    }
+
+    /// An embolden value.
+    message ValueEmbolden {
+        /// The step; it must be specified.
+        enum Embolden value = 1;
     }
 
     /// A font set value.

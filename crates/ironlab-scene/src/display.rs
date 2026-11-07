@@ -481,6 +481,9 @@ pub struct GlyphsItem {
     /// The text the glyphs represent, used by backends that preserve selectable text.
     pub text: String,
     pub glyphs: Vec<PlacedGlyph>,
+    /// The width of a stroke drawn along the outline of every glyph, in the run's colour, in ems of `size_pt`;
+    /// zero for none. Emboldened text that has no heavier designed face is drawn this way.
+    pub stroke_em: f64,
 }
 
 /// A glyph placed with its origin (on the baseline) at `(x, y)` in figure space.

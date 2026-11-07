@@ -106,6 +106,9 @@ pub use ironlab_ir::ColormapName as Colormap;
 /// space. See [`ColorScaleMut::norm`].
 pub use ironlab_ir::ColorScaleNorm;
 
+/// How much heavier than designed a figure is drawn. See [`Figure::embolden`].
+pub use ironlab_ir::Embolden;
+
 /// The plane of an axes in which an image lies, with its offset along the third axis.
 pub use ironlab_ir::ImagePlane;
 
@@ -147,6 +150,36 @@ pub use ironlab_canvas::{PngError, RenderError};
 /// pixels wide, which is sharp on a slide and on a web page shown at its physical size, and
 /// is the resolution of the figure images in the documentation gallery.
 pub const DEFAULT_PNG_DPI: f64 = 150.0;
+
+/// How [`Figure::export_pdf_with`] writes a PDF.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PdfExport {
+    /// How dense artists and three-dimensional axes are drawn, and at what resolution they
+    /// are rasterised.
+    pub raster: RasterOptions,
+    /// The step of emboldening to draw the figure at, in place of the figure's own, or
+    /// `None` to draw it at its own. The figure itself is not changed.
+    pub embolden: Option<Embolden>,
+}
+
+/// How [`Figure::export_png_with`] writes a PNG image.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PngExport {
+    /// The resolution in dots per inch.
+    pub dpi: f64,
+    /// The step of emboldening to draw the figure at, in place of the figure's own, or
+    /// `None` to draw it at its own. The figure itself is not changed.
+    pub embolden: Option<Embolden>,
+}
+
+impl Default for PngExport {
+    fn default() -> Self {
+        Self {
+            dpi: DEFAULT_PNG_DPI,
+            embolden: None,
+        }
+    }
+}
 
 /// A problem the scene compiler found while drawing a figure that did not prevent the
 /// figure from being drawn, naming the node it concerns. See [`ExportReport`].
@@ -193,12 +226,13 @@ pub mod prelude {
         Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
         ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,
         ColorbarTitlePlacement, Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut,
-        DataSource, Dim, Error, Figure, ImageMut, ImagePlane, ImageValues, InsideColorbarMut,
-        InsideColorbarSide, IntoColorSpec, LegendEntries, LegendEntryColumns, LegendEntryOrder,
-        LegendItem, LegendLocation, LegendSample, Marker, Matrix, NodeId, Orientation, OutOfRange,
-        PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut, Parameter, Pixels, QuiverMut,
-        RasterOptions, RasterPolicy, ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt,
-        SurfaceMut, Text, TitleAlign, TrackSize, linspace, logspace, meshgrid,
+        DataSource, Dim, Embolden, Error, Figure, ImageMut, ImagePlane, ImageValues,
+        InsideColorbarMut, InsideColorbarSide, IntoColorSpec, LegendEntries, LegendEntryColumns,
+        LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Marker, Matrix, NodeId,
+        Orientation, OutOfRange, PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut,
+        Parameter, PdfExport, Pixels, PngExport, QuiverMut, RasterOptions, RasterPolicy,
+        ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt, SurfaceMut, Text, TitleAlign,
+        TrackSize, linspace, logspace, meshgrid,
     };
     pub use crate::{
         BinRule, Bins, DensityContourMut, Hist2dMut, HistMut, HistNorm, HistStyle,

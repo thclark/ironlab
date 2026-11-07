@@ -81,6 +81,7 @@ pub(crate) fn shape(
 
     SegmentLayout {
         items: vec![TextItem::Glyphs(GlyphRun {
+            stroke_em: 0.0,
             font,
             size_pt,
             text: text.to_owned(),

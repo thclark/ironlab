@@ -2,7 +2,7 @@
 
 ## Working with Git
 
-Conventions for branching, commits and versioning, and making PRS can be found in docs/conventions.
+Conventions for branching, commits and versioning, pull requests and github issues can be found in docs/conventions. Read the relevant document(s) before doing any `git` or `gh` operation and ensure the operation conforms to conventions.
 
 ### Committing and PRs
 

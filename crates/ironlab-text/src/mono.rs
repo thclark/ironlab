@@ -60,6 +60,7 @@ pub(crate) fn shape(faces: &Faces, text: &str, size_pt: f64) -> (SegmentLayout, 
             Vec::new()
         } else {
             vec![TextItem::Glyphs(GlyphRun {
+                stroke_em: 0.0,
                 font: FontId::Math,
                 size_pt,
                 text: text.to_owned(),

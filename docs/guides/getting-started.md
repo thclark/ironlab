@@ -907,28 +907,37 @@ A surface is drawn as one filled path per face, so a surface of a hundred thousa
 
 Ten thousand faces is where the two representations cost about the same. On a figure of the default size at the default resolution, a surface of 4900 faces is 59 KiB as vectors and 98 KiB as an image, one of 9801 faces is 112 against 105 KiB, and one of 39 601 faces is 618 against 115 KiB.
 
-`export_pdf_with` overrides both the decision and the resolution:
+`export_pdf_with` overrides both the decision and the resolution through `PdfExport::raster`:
 
 ```rust
-use ironlab::{RasterOptions, RasterPolicy};
+use ironlab::{PdfExport, RasterOptions, RasterPolicy};
 
 // Never rasterise, whatever the surface costs: the figure is going to be edited in Inkscape.
-fig.export_pdf_with("pressure.pdf", RasterOptions {
-    policy: RasterPolicy::Never,
-    ..RasterOptions::default()
+fig.export_pdf_with("pressure.pdf", PdfExport {
+    raster: RasterOptions {
+        policy: RasterPolicy::Never,
+        ..RasterOptions::default()
+    },
+    ..PdfExport::default()
 })?;
 
 // Always rasterise, at 1200 dots per inch, because the figure will be printed at full page size.
-fig.export_pdf_with("pressure.pdf", RasterOptions {
-    policy: RasterPolicy::Always,
-    dpi: 1200.0,
-    ..RasterOptions::default()
+fig.export_pdf_with("pressure.pdf", PdfExport {
+    raster: RasterOptions {
+        policy: RasterPolicy::Always,
+        dpi: 1200.0,
+        ..RasterOptions::default()
+    },
+    ..PdfExport::default()
 })?;
 
 // Rasterise from five thousand faces upwards, at the default resolution.
-fig.export_pdf_with("pressure.pdf", RasterOptions {
-    policy: RasterPolicy::Auto { cells: 5_000 },
-    ..RasterOptions::default()
+fig.export_pdf_with("pressure.pdf", PdfExport {
+    raster: RasterOptions {
+        policy: RasterPolicy::Auto { cells: 5_000 },
+        ..RasterOptions::default()
+    },
+    ..PdfExport::default()
 })?;
 ```
 
@@ -938,23 +947,29 @@ Rendering the image needs a graphics adapter. A figure with nothing dense in it 
 
 The viewer draws the artists of a three-dimensional axes with a depth buffer, so that surfaces, lines, markers and images which cross one another are shown correctly wherever they cross. A PDF has no depth buffer: it can only paint one thing over another in a fixed order. `export_pdf` therefore proves, for each three-dimensional axes, whether painting its artists back to front shows the same picture as the depth buffer, by rendering the axes both ways through the viewer's own renderer at the export resolution. Where the two agree, the axes is written as vector paths, as a single `surf` or `contour3` is. Where they differ, as for two surfaces that intersect, arrows standing on a surface, a line lying along one, a sharply folded wireframe whose edges show through its folds by the width of the depth bias, or a translucent surface with something behind it that comes after it in the painter's order, the depth-tested render is embedded as an image, exactly as a dense surface is, and the report says so as `RasterisedForDepth`. The depth buffer draws the opaque artists of the axes first and the translucent ones after them, without letting a translucent face or image hide anything, so the depth-tested render shows through a translucent surface whatever the order. Two renders agree when no patch of six points differs by more than four levels of 255 on average, which admits the slivers that anti-aliasing leaves along the shared edges of faces and refuses any misdrawn face, marker or stretch of line.
 
-`export_pdf_with` overrides the decision through `RasterOptions::depth`:
+`export_pdf_with` overrides the decision through `PdfExport::raster` and `RasterOptions::depth`:
 
 ```rust
-use ironlab::{DepthPolicy, RasterOptions};
+use ironlab::{DepthPolicy, PdfExport, RasterOptions};
 
 // Write the axes as vectors back to front whatever they show, for a figure that will be edited by hand; the report
 // carries an `Unverified` warning for each three-dimensional axes.
-fig.export_pdf_with("field.pdf", RasterOptions {
-    depth: DepthPolicy::Vector,
-    ..RasterOptions::default()
+fig.export_pdf_with("field.pdf", PdfExport {
+    raster: RasterOptions {
+        depth: DepthPolicy::Vector,
+        ..RasterOptions::default()
+    },
+    ..PdfExport::default()
 })?;
 
 // Embed the depth-tested render of every three-dimensional axes without checking, which needs a graphics adapter
 // and is reported as `RasterisedByRequest`.
-fig.export_pdf_with("field.pdf", RasterOptions {
-    depth: DepthPolicy::Raster,
-    ..RasterOptions::default()
+fig.export_pdf_with("field.pdf", PdfExport {
+    raster: RasterOptions {
+        depth: DepthPolicy::Raster,
+        ..RasterOptions::default()
+    },
+    ..PdfExport::default()
 })?;
 ```
 
@@ -984,16 +999,49 @@ Including the figure unscaled keeps text at the font size set in IronLAB, so a 9
 fig.export_png("pressure.png")?;
 ```
 
-The image is the figure as the viewer and the [gallery](../gallery/index.md) draw it, rendered by the same engine at the size of the figure and at 150 dots per inch (`ironlab::DEFAULT_PNG_DPI`), with an alpha channel, so a figure with a transparent background stays transparent. `export_png_with` chooses the resolution:
+The image is the figure as the viewer and the [gallery](../gallery/index.md) draw it, rendered by the same engine at the size of the figure and at 150 dots per inch (`ironlab::DEFAULT_PNG_DPI`), with an alpha channel, so a figure with a transparent background stays transparent. `export_png_with` chooses the resolution through `PngExport::dpi`:
 
 ```rust
+use ironlab::PngExport;
+
 // A figure for a printed poster, at 300 dots per inch.
-fig.export_png_with("pressure.png", 300.0)?;
+fig.export_png_with("pressure.png", PngExport {
+    dpi: 300.0,
+    ..PngExport::default()
+})?;
 ```
 
 The image is `round(width_pt · dpi / 72)` by `round(height_pt · dpi / 72)` pixels, where `width_pt` and `height_pt` are the size of the figure in points, so a figure of 160 by 100 mm is 945 by 591 pixels at the default resolution and the PNG agrees with the PDF on the physical size of the figure to within half a pixel.
 
 Because the whole image is drawn by the renderer, every PNG export needs a graphics adapter; a machine without a graphics device provides one through a software adapter, see [running without a graphics device](#running-without-a-graphics-device), and without any adapter the export fails with a message naming the remedy. Both functions return the same `ExportReport` as `export_pdf`, holding the validation warnings of the figure and the warnings the scene compiler raised while drawing it; its `export` list is always empty, because nothing in a PNG is rasterised selectively. The PDF remains the format for print, where text stays selectable and lines stay vector; see [exporting PDF](#exporting-pdf).
+
+## Figures for slides
+
+A figure drawn for print has lines and text that are too fine to read on a projector. Rather than building a second figure, draw the same one heavier with `embolden`. The three steps are `Embolden::Regular`, the default, `Embolden::Medium` and `Embolden::Semibold`:
+
+```rust
+use ironlab::Embolden;
+
+let fig = Figure::new().embolden(Embolden::Medium);
+```
+
+An export can draw a figure at another step without changing it, so one figure gives both the PDF for the paper and the image for the slides:
+
+```rust
+use ironlab::{Embolden, PdfExport, PngExport};
+
+fig.export_pdf("pressure.pdf")?;
+fig.export_png_with("pressure-slide.png", PngExport {
+    embolden: Some(Embolden::Semibold),
+    ..PngExport::default()
+})?;
+fig.export_pdf_with("pressure-slide.pdf", PdfExport {
+    embolden: Some(Embolden::Semibold),
+    ..PdfExport::default()
+})?;
+```
+
+Each step draws plain text in a heavier designed face and thickens every line and edge in proportion, while bold text and mathematics are thickened to match. Marker sizes, tick lengths and spacing are unchanged, because a marker's size can represent data. The [figure schema](../reference/figure-schema.md#emboldening) describes exactly what each step changes, and the property can also be changed in the viewer's [property editor](viewer.md#the-property-editor).
 
 ## Running without a graphics device
 

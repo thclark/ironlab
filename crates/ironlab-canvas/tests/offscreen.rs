@@ -5132,3 +5132,145 @@ fn a_translucent_face_behind_an_opaque_one_stays_hidden_whichever_is_listed_firs
         );
     }
 }
+
+/// Counts the pixels of `image` in columns `columns` that are clearly inked in red, and those inked in any other
+/// colour.
+fn red_and_other_ink(image: &RenderedImage, columns: Range<u32>) -> (usize, usize) {
+    let (mut red, mut other) = (0, 0);
+    for y in 0..image.height {
+        for x in columns.clone() {
+            let [r, g, b, _] = image.pixel(x, y);
+            if r > 200 && g < 160 && b < 160 {
+                red += 1;
+            } else if r < 200 {
+                other += 1;
+            }
+        }
+    }
+    (red, other)
+}
+
+// Why: mathematics, monospace and bold text are emboldened by a stroke along their outlines, since they have no
+// heavier face; the viewer and the PNG export draw through this renderer, so the stroke must add ink, in the run's
+// colour, around the filled glyph. The stroked and unstroked glyphs are drawn side by side, in both orders, because a
+// glyph cache keyed without the stroke would draw whichever came second as the first was tessellated.
+#[test]
+fn a_stroked_glyph_run_covers_more_pixels_than_the_unstroked_run_in_its_colour() {
+    let red = Rgba::new(1.0, 0.0, 0.0, 1.0);
+    let size = 48.0;
+    let stroked = |origin: Point, stroke_em: f64| {
+        let mut item = glyph_h(origin, size, red);
+        if let ItemKind::Glyphs(glyphs) = &mut item.kind {
+            glyphs.stroke_em = stroke_em;
+        }
+        item
+    };
+    for (order, first, second) in [
+        ("unstroked first", 0.0, 0.038),
+        ("stroked first", 0.038, 0.0),
+    ] {
+        let list = DisplayList {
+            width_pt: 120.0,
+            height_pt: 60.0,
+            background: Rgba::WHITE,
+            items: vec![
+                stroked(Point::new(6.0, 50.0), first),
+                stroked(Point::new(66.0, 50.0), second),
+            ],
+        };
+        let Some(image) = rendered_or_skip(render_display_list_offscreen(&list, &TEXT, 72.0))
+        else {
+            return;
+        };
+        let (left, left_other) = red_and_other_ink(&image, 0..60);
+        let (right, right_other) = red_and_other_ink(&image, 60..120);
+        assert!(
+            left > 50 && right > 50,
+            "{order}: both glyphs are drawn ({left}, {right})"
+        );
+        let (thin, heavy) = if first == 0.0 {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        assert!(
+            heavy as f64 > 1.1 * thin as f64,
+            "{order}: the stroked H covers {heavy} red pixels against {thin} unstroked"
+        );
+        assert_eq!(
+            (left_other, right_other),
+            (0, 0),
+            "{order}: all the ink is the run's colour"
+        );
+    }
+}
+
+// Why: a faded legend entry draws its label translucent, and in the viewer an emboldened label is a fill and a stroke
+// of one glyph. Were the two blended one after the other, the band just inside every outline, where they overlap,
+// would be twice as dark as the rest of the glyph, so a faded label on a slide would look outlined. The glyph must
+// blend as one shape: just inside its outline, as in its middle, it is the colour of the translucent fill alone. The
+// glyph is large so that the overlap, half of a stroke of 0.038 × 160 ≈ 6 pt wide, spans several pixels at 72 dpi.
+#[test]
+fn a_translucent_stroked_glyph_is_not_darker_where_the_stroke_overlaps_the_fill() {
+    let size = 160.0;
+    let origin = Point::new(20.0, 140.0);
+    let glyph = |color: Rgba, stroke_em: f64| {
+        let mut item = glyph_h(origin, size, color);
+        if let ItemKind::Glyphs(glyphs) = &mut item.kind {
+            glyphs.stroke_em = stroke_em;
+        }
+        DisplayList {
+            width_pt: 160.0,
+            height_pt: 160.0,
+            background: Rgba::WHITE,
+            items: vec![item],
+        }
+    };
+    let render =
+        |list: &DisplayList| rendered_or_skip(render_display_list_offscreen(list, &TEXT, 72.0));
+    let translucent = Rgba::new(1.0, 0.0, 0.0, 0.5);
+    let Some(opaque) = render(&glyph(Rgba::new(1.0, 0.0, 0.0, 1.0), 0.0)) else {
+        return;
+    };
+    let (Some(fill), Some(stroked)) = (
+        render(&glyph(translucent, 0.0)),
+        render(&glyph(translucent, 0.038)),
+    ) else {
+        return;
+    };
+    // A row through the left stem of the H, a quarter of the em above the baseline, and its fully inked columns.
+    let row = (origin.y - 0.25 * size) as u32;
+    let columns: Vec<u32> = (0..opaque.width)
+        .filter(|&x| opaque.pixel(x, row)[1] < 60)
+        .collect();
+    assert!(columns.len() >= 8, "the stems are found: {columns:?}");
+    // The left stem is the first run of contiguous columns.
+    let left_stem: Vec<u32> = columns
+        .iter()
+        .enumerate()
+        .take_while(|&(i, &x)| x == columns[0] + i as u32)
+        .map(|(_, &x)| x)
+        .collect();
+    assert!(
+        left_stem.len() >= 4,
+        "the left stem is found: {left_stem:?}"
+    );
+    for (place, x) in [
+        ("just inside the outline", left_stem[1]),
+        ("in the middle", left_stem[left_stem.len() / 2]),
+    ] {
+        let [fr, fg, fb, _] = fill.pixel(x, row);
+        let [sr, sg, sb, _] = stroked.pixel(x, row);
+        assert!(
+            fr.abs_diff(sr) <= 12 && fg.abs_diff(sg) <= 12 && fb.abs_diff(sb) <= 12,
+            "{place} of the stem the stroked translucent H is {:?}, the fill alone {:?}",
+            [sr, sg, sb],
+            [fr, fg, fb]
+        );
+        assert!(
+            fr > 240 && fg.abs_diff(128) <= 16 && fb.abs_diff(128) <= 16,
+            "half-transparent red is {:?}",
+            [fr, fg, fb]
+        );
+    }
+}

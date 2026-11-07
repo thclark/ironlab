@@ -437,7 +437,8 @@ pub(crate) fn intersect(a: Rect, b: Rect) -> Rect {
 /// finite geometry.
 ///
 /// The bound is conservative rather than tight: a curve is bounded by its control points, a stroke by half its width
-/// times the miter limit, and a glyph run by its origins grown by its em size. Every one of those is a superset of
+/// times the miter limit, and a glyph run by its origins grown by its em size and half
+/// its stroke. Every one of those is a superset of
 /// the ink, which is what the image must cover.
 fn bounds(items: &[Item], transform: Transform) -> Option<Rect> {
     let mut box_ = BoundingBox::default();
@@ -512,8 +513,14 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
                 }
             }
             ItemKind::Glyphs(run) => {
+                // A stroked run inks half its stroke beyond its outlines, so the margin grows by that half.
+                let stroke = if run.stroke_em.is_finite() {
+                    run.stroke_em.max(0.0)
+                } else {
+                    0.0
+                };
                 let margin = if run.size_pt.is_finite() && run.size_pt > 0.0 {
-                    run.size_pt * linear_scale(transform)
+                    run.size_pt * (1.0 + stroke / 2.0) * linear_scale(transform)
                 } else {
                     0.0
                 };

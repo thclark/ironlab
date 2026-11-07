@@ -197,6 +197,7 @@ pub fn text_items(layout: &TextLayout, origin: Point, color: Rgba) -> Vec<Item> 
         .iter()
         .map(|text_item| match text_item {
             TextItem::Glyphs(run) => item(ItemKind::Glyphs(GlyphsItem {
+                stroke_em: 0.0,
                 font: run.font,
                 size_pt: run.size_pt,
                 color,

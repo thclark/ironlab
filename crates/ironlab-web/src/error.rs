@@ -8,6 +8,9 @@ use ironlab_ir::IrError;
 /// through wasm-bindgen's conversion of any `Error` into a `JsError`, which a page shows in its status line.
 #[derive(Debug, thiserror::Error)]
 pub enum WebError {
+    /// The name given for a step of emboldening is not one of the three steps.
+    #[error("{0:?} names no step of emboldening; expected \"regular\", \"medium\" or \"semibold\"")]
+    UnknownEmbolden(String),
     /// The name given for a figure's format is neither `fig` nor `json` nor a file name ending in one of them.
     #[error("{0:?} names no figure format; expected \"fig\" (Protocol Buffers) or \"json\"")]
     UnknownFormat(String),

@@ -350,14 +350,17 @@ export class IronlabFigure extends HTMLElement {
    * Exports the figure as currently shown to a PDF and downloads it. The exporter's warnings (what it rasterised, and
    * what it could not verify) are shown in the status line, logged, and dispatched as `ironlab-export`. Rejects, after
    * reporting, if the export fails.
+   *
+   * `options.embolden`, when given, draws the PDF at that step of emboldening ("regular", "medium" or "semibold") in
+   * place of the figure's own, without changing the figure shown.
    */
-  async exportPdf() {
+  async exportPdf(options = {}) {
     const handle = this.#requireHandle();
     const control = this.#els.export;
     control.disabled = true;
     control.setAttribute("aria-busy", "true");
     try {
-      const { bytes, warnings } = await handle.export_pdf();
+      const { bytes, warnings } = await handle.export_pdf(options.embolden);
       download(this.#root, bytes, `${this.name}.pdf`, MIME.pdf);
       if (warnings.length > 0) {
         const plural = warnings.length === 1 ? "warning" : "warnings";

@@ -160,6 +160,7 @@ fn options_are_written_to_the_document_metadata() {
         title: Some("Damped oscillation".to_owned()),
         creator: "IronLAB test suite".to_owned(),
         subject: Some("typesetter: test; fonts: A, B".to_owned()),
+        embolden: None,
     };
     let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None)
         .expect("render")
@@ -194,6 +195,7 @@ fn absent_title_is_omitted_from_the_metadata() {
         title: None,
         creator: "IronLAB test suite".to_owned(),
         subject: None,
+        embolden: None,
     };
     let bytes = render_display_list(&page(100.0, 100.0), &text, &options, None)
         .expect("render")

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.8.0",
+  "schema_version": "0.9.0",
   "id": 1,
   "title": { "content": "Decay of $e^{-t}$", "interpreter": "latex" },
   "size": { "width_mm": 120.0, "height_mm": 80.0 },

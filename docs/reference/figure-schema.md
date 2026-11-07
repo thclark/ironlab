@@ -83,12 +83,13 @@ The figure is the root of the model: a page of a fixed physical size holding the
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.8.0"`; see [versioning](#versioning). |
+| `schema_version` | string | The version of the schema the figure conforms to, such as `"0.9.0"`; see [versioning](#versioning). |
 | `id` | NodeId | The identifier of the figure. |
 | `title` | Text or `null` | The title drawn above all axes (MATLAB's `sgtitle`). |
 | `size` | object | `width_mm` and `height_mm`, the physical size of the figure. The default is 160 mm by 100 mm. |
 | `font_set` | string | The font set used for all text. The only font set is `"stix_two"`: STIX Two Text for text and STIX Two Math for mathematics. |
 | `font_size_pt` | number | The base font size, from which titles and tick labels are scaled. The default is 9 pt. |
+| `embolden` | string | How much heavier than designed the figure is drawn: `"regular"`, `"medium"` or `"semibold"`; see [emboldening](#emboldening). The default is `"regular"`, which is omitted from JSON. |
 | `background` | Color | The colour of the page. The default is white. |
 | `layout` | TileLayout | The grid of tiles in which axes and panels are placed, with the relative sizes of its rows and columns; see [tile layout](#tile-layout). The default is one tile. |
 | `data` | array of DataArray | The [data arrays](#data-arrays) of the figure, which artists refer to by NodeId. |
@@ -103,6 +104,16 @@ The figure is the root of the model: a page of a fixed physical size holding the
 Node identifiers are unique within a figure and do not change when a figure is saved and loaded, so that links, and in future selections and annotations, can refer to nodes across sessions.
 
 Every property of this table and of the tables below can be read in the viewer's [property editor](../guides/viewer.md#the-property-editor), and most of them can be changed there; the editor leaves the structure of a figure and its data to the program that builds it.
+
+### Emboldening
+
+Emboldening draws a figure heavier for projection without changing what it says: regular text stays regular, and bold text stays bold relative to it. The three steps are `regular`, `medium` and `semibold`. At each step:
+
+- plain text is set in the STIX Two Text face of the step's weight (Regular, Medium or SemiBold), which is slightly wider, so margins and positions of text can move a little between steps;
+- bold text, monospace text and mathematics, whose faces have no heavier weight, are drawn with a stroke along their glyph outlines, which thickens their stems by as much as the step thickens the stems of plain text (0.019 em at `medium` and 0.038 em at `semibold`), and the rules of mathematics, such as fraction bars, are thickened by the same amount;
+- every line and edge, including the axes box, ticks, grid, the lines of artists, the edges of markers, bars and cells, the outline of colourbars and the samples of legends, is drawn thicker by the ratio of the step's stem width to the Regular stem width (about 1.23 at `medium` and 1.46 at `semibold`).
+
+Marker sizes, tick lengths and spacing are unchanged, because a marker's size can represent data. A PDF or PNG export may draw the figure at another step without changing it. The choices are recorded in [ADR 0030](../adrs/0030-embolden-steps.md).
 
 ### Tile layout
 
@@ -935,7 +946,7 @@ The following JSON file describes one two-dimensional axes with a series drawn a
 
 ```json
 {
-  "schema_version": "0.8.0",
+  "schema_version": "0.9.0",
   "id": 0,
   "title": null,
   "size": { "width_mm": 80.0, "height_mm": 60.0 },
@@ -996,7 +1007,7 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.8.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.9.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
 
@@ -1010,6 +1021,7 @@ While the major version is 0, the project may make breaking changes in a minor v
 
 The schema has had the following versions:
 
+- **0.9.0** added the [`embolden`](#emboldening) property of a figure, which draws the text, lines and edges of the figure heavier in one of three steps for projection. It removed and renamed nothing. A reader of version 0.8 would draw an emboldened figure at the weight meant for print, so a file of version 0.8 is rejected.
 - **0.8.0** added three [artists](#artists). It added [`bar`](#bar), a primitive series of bars placed along a category axis by its `positions` and an `offset`, as wide as its `width`, and running from its `base` for the lengths held in its `values`, with a `margin` that keeps the longest bar off the box, and coloured bar by bar by its `color_data` through its `color_scale`, as [colours of bars](#colours-of-bars) describes. It added [`stairs`](#stairs), a stepped outline whose `data` takes the `edges` form, which holds each value between two edges, or the `samples` form, which holds each value at a sample. It added [`cells`](#cells), a grid of cells coloured by their values through a colour scale, with explicit or unit `columns` and `rows` edges, a `gap` between cells, and a `face_opacity` and an `edge_opacity`. It added the [binning records](#binning) of histograms: `binning` on bars and stairs, and the two-dimensional `binning` on cells, each of which records how the stored bins were made. It added `visible` and `tick_label_angle` to an [axis](#axis), so that an axis may be hidden and its tick labels rotated. It removed and renamed nothing. A reader of version 0.7 cannot decode the new artists and would draw a hidden axis and its rotated tick labels as a visible axis with level labels, so a file of version 0.7 is rejected.
 - **0.7.0** made [data arrays](#data-arrays) nodes of the figure, each with a NodeId and an optional `name`, so that data arrays, colour scales, axes, artists and panels share one identifier space and the separate `DataId` is removed; replaced the legend panels (`panel_legends`) with [panels](#panels) (`panels`) whose [content](#panel-content) is a legend or a colourbar; replaced the edits `put_data` and `remove_data` with [`replace_data`](#edits), so that data arrays are created and removed with `insert` and `remove` like every other node; and renamed the `display_name` of an [artist](#artists) to `label` and the `labels` of a figure to [`tags`](#tags). It added [colour scales](#colour-scales) as nodes of the figure (`color_scales`), of the four [kinds](#colour-scale-kinds) continuous, discrete, indexed and categorical, each with its [out-of-range policies](#out-of-range-policies); replaced `indexed_image` and `mapped_image` with [`scalar_image`](#scalar_image); removed the `colormap` and `clim` of an [axes](#axes); gave every artist that maps numbers to colours a `color_scale`; and made the levels of a [contour](#contour) optional, so that a contour without levels takes them from its scale. It replaced `line` and `scatter` with [`series`](#series), which may be sized and coloured by data, as [colour data of a series](#colour-data-of-a-series) describes. It added [colourbar panels](#colourbar-panels), the [inside colourbar](#inside-colourbar) of an axes, and [legend items](#legend-entries) that show a colour scale over a set number of rows, and gave every [panel](#panels) an optional title. A file of version 0.6 is rejected.
 - **0.6.0** added the [alpha and opacity](#alpha-and-opacity) of the image, surface and contour artists: `opacity` on every image kind, `alpha` on `indexed_image` and `mapped_image` (since replaced by [`scalar_image`](#scalar_image)), `face_alpha`, `edge_alpha`, `face_opacity` and `edge_opacity` on [`surface`](#surface), and `line_opacity` and `fill_opacity` on [`contour`](#contour). A reader of version 0.5 would draw such artists opaque, so a file of version 0.5 is rejected.

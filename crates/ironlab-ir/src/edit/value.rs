@@ -18,7 +18,7 @@ use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
     Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale, OutOfRange,
 };
-use crate::figure::{FigureSize, FontSetId, Parameter};
+use crate::figure::{Embolden, FigureSize, FontSetId, Parameter};
 use crate::ids::NodeId;
 use crate::layout::{Cell, TileLayout, TrackSize};
 use crate::legend::{
@@ -81,6 +81,8 @@ pub enum Value {
     FigureSize(FigureSize),
     /// A bundled font set.
     FontSetId(FontSetId),
+    /// How much heavier than designed a figure is drawn.
+    Embolden(Embolden),
     /// A colour.
     Color(Color),
     /// The tile layout of a figure.
@@ -249,6 +251,8 @@ pub enum ValueType {
     FigureSize,
     /// See [`Value::FontSetId`].
     FontSetId,
+    /// See [`Value::Embolden`].
+    Embolden,
     /// See [`Value::Color`].
     Color,
     /// See [`Value::TileLayout`].
@@ -408,6 +412,7 @@ impl Value {
             Value::Interpreter(_) => ValueType::Interpreter,
             Value::FigureSize(_) => ValueType::FigureSize,
             Value::FontSetId(_) => ValueType::FontSetId,
+            Value::Embolden(_) => ValueType::Embolden,
             Value::Color(_) => ValueType::Color,
             Value::TileLayout(_) => ValueType::TileLayout,
             Value::Links(_) => ValueType::Links,
