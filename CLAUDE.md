@@ -22,6 +22,10 @@ All documentation and ADRs must be written in the following style:
  - semantically unambiguous
  - concise (no fluff - keep sentences to the point and powerful)
 
+### Spelling
+
+Use British English in everything the project controls: code identifiers, file names, JSON and Protocol Buffers names, property paths, the facade and the documentation (for example `colour`, `centre`, `grey`, `normalise`). Quote names that belong to other software as that software spells them, such as egui's `Color32`, CSS properties and matplotlib's `colorbar`. [ADR 0035](docs/adrs/0035-british-spelling.md) records the decision.
+
 ### Documentation engine
 
 Use zensical with standard Markdown for all documentation. Cross references are relative Markdown links (for example `[Branching](../conventions/git-branching.md)`), never Obsidian-style `[[wikilinks]]`, because zensical does not resolve them.

@@ -58,6 +58,8 @@ nav = [
     { "0031 Polar coordinates are projections over the existing axes" = "adrs/0031-polar-coordinates-are-projections-over-the-existing-axes.md" },
     { "0032 Data is joined by chords, and shapes follow the axes" = "adrs/0032-data-is-joined-by-chords-and-shapes-follow-the-axes.md" },
     { "0033 Images are warped through a mesh" = "adrs/0033-images-are-warped-through-a-mesh.md" },
+    { "0034 Properties are grouped by the part they draw" = "adrs/0034-properties-are-grouped-by-the-part-they-draw.md" },
+    { "0035 British spelling" = "adrs/0035-british-spelling.md" },
   ] },
   { "Background" = [
     { "Overview" = "background/index.md" },
